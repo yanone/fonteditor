@@ -363,6 +363,7 @@ export class WindowSync {
                 }
                 this._hasAppliedFullState = true;
                 this._awaitingFullState = false;
+                const fullState = toUint8Array(msg.state);
                 // Import change log before applying state so the
                 // onRemoteChange callback (fired by applyFullState)
                 // sees the complete log.
@@ -370,7 +371,64 @@ export class WindowSync {
                 this._bridge.importCollaborationMessages(
                     msg.collaborationLog ?? []
                 );
-                this._bridge.applyFullState(toUint8Array(msg.state));
+                this._bridge.applyFullState(fullState);
+                if (window.fontCompilation?.isInitialized) {
+                    const fontManager = window.fontManager as
+                        | (typeof window.fontManager & {
+                              syncBabelfontJsonFromCurrentModel?: () => boolean;
+                              buildNormalizedWorkerYjsState?: () => Uint8Array | null;
+                          })
+                        | undefined;
+
+                    void (async () => {
+                        if (!fontManager?.currentFont) {
+                            throw new Error(
+                                'No font loaded for linked-window worker bootstrap'
+                            );
+                        }
+
+                        const synced =
+                            fontManager.syncBabelfontJsonFromCurrentModel?.();
+                        if (synced === false) {
+                            throw new Error(
+                                'Failed to sync linked-window font JSON from full-state response'
+                            );
+                        }
+
+                        // Build a Rust-compatible seed state (string-format nodes).
+                        // The raw bridge fullState uses array-format nodes that Rust
+                        // cannot parse when rebuilding CANONICAL_JSON_CACHE via
+                        // ydoc_get_glyph_json after apply_yjs_update.
+                        const normalizedState =
+                            fontManager.buildNormalizedWorkerYjsState?.();
+                        if (!normalizedState?.length) {
+                            throw new Error(
+                                'Failed to build normalized worker Yjs state for linked-window bootstrap'
+                            );
+                        }
+
+                        fontManager.replaceWorkerYjsMirrorFromState?.(
+                            normalizedState
+                        );
+                        fontManager.recordFullFontCrossing?.();
+                        await window.fontCompilation!.sendMessage({
+                            type: 'storeFontJson',
+                            babelfontJson: fontManager.currentFont.babelfontJson
+                        });
+                        await window.fontCompilation!.sendMessage({
+                            type: 'seedYdoc',
+                            state: normalizedState
+                        });
+                    })().catch((error: unknown) => {
+                        console.warn(
+                            'Failed to bootstrap worker state from full-state response',
+                            error
+                        );
+                        window.fontCompilation?.setWorkerCacheDocumentReady?.(
+                            false
+                        );
+                    });
+                }
                 if (msg.cloudRelayState) {
                     window.cloudPlugin?.applyRelayedConnectionState?.(
                         msg.cloudRelayState

@@ -17,7 +17,11 @@ import {
     DecomposedAffineTransform,
     withSuppressedModelRecording
 } from './babelfont-model';
-import { jsonToYDoc, sanitizeBabelfontArrays } from './change-bridge-ydoc';
+import {
+    jsonToYDoc,
+    sanitizeBabelfontArrays,
+    setYPath
+} from './change-bridge-ydoc';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
@@ -74,7 +78,7 @@ type ExplicitLayerCacheInput = LayerCacheUpdate;
  *
  * These are the numbers the Counterpunch compilation policy locks down:
  * during interactive editing every commit MUST flow through the batched
- * JSON-patch path (`submitLayerUpdatesToWorkerCache` → `applyJsonPatches`
+ * Yjs update path (`submitLayerUpdatesToWorkerCache` → `applyYjsUpdate`
  * worker message). Full-font
  * crossings (`storeFontJson`) MUST stay at zero outside of font open,
  * external reload, and explicit force-full sync. Tests assert the
@@ -106,35 +110,6 @@ class FontDataIntegrityError extends Error {
         super(message);
         this.name = 'FontDataIntegrityError';
     }
-}
-
-function buildLayerReplacePatch(
-    fontData: SerializableFontRecord,
-    glyphName: string,
-    layerId: string,
-    layerData: Babelfont.Layer
-): { op: 'replace'; path: string; value: Babelfont.Layer } {
-    const glyphIndex = Array.isArray(fontData?.glyphs)
-        ? fontData.glyphs.findIndex((glyph) => glyph?.name === glyphName)
-        : -1;
-    const layerIndex =
-        glyphIndex >= 0 && Array.isArray(fontData.glyphs?.[glyphIndex]?.layers)
-            ? fontData.glyphs[glyphIndex].layers!.findIndex(
-                  (layer) => layer?.id === layerId
-              )
-            : -1;
-
-    if (glyphIndex < 0 || layerIndex < 0) {
-        throw new Error(
-            `Unable to resolve official JSON patch path for ${glyphName}/${layerId}`
-        );
-    }
-
-    return {
-        op: 'replace',
-        path: `/glyphs/${glyphIndex}/layers/${layerIndex}`,
-        value: layerData
-    };
 }
 
 type SerializableLayerRecord = {
@@ -611,6 +586,7 @@ class FontManager {
     workerCacheUpdatePromise: Promise<void> | null;
     forceFullEditingCacheRefresh: boolean;
     workerLayerFingerprintCache: Map<string, string>;
+    private workerCacheYDoc: Y.Doc | null;
 
     /**
      * Memoizes the result of validateAndFixBabelfontJsonForRust.
@@ -673,6 +649,7 @@ class FontManager {
         this.workerCacheUpdatePromise = null;
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache = new Map();
+        this.workerCacheYDoc = null;
 
         window.addEventListener('cloudConnectionStatusChanged', () => {
             void this.updateDirtyIndicator();
@@ -1180,6 +1157,7 @@ class FontManager {
 
             this.openedFonts.set(previousFontId, reloadedFont);
             this.currentFontId = previousFontId;
+            this.bootstrapWorkerYjsMirrorFromCurrentFont();
 
             this.editingFont = null;
             this.glyphOrderCache = null;
@@ -1261,6 +1239,7 @@ class FontManager {
         let newid = `font-${Date.now()}`;
         this.openedFonts.set(newid, newFont);
         this.currentFontId = newid;
+        this.bootstrapWorkerYjsMirrorFromCurrentFont();
         window.currentFontModel = newFont.fontModel;
 
         this.editingFont = null;
@@ -3160,22 +3139,294 @@ class FontManager {
     /** Build a full binary Yjs snapshot from the current in-memory font data for worker refreshes. */
     private buildWorkerYjsStateFromCurrentFont(): Uint8Array | null {
         const currentFont = this.currentFont;
-        if (!currentFont?.babelfontData) {
+        if (!currentFont?.babelfontJson) {
             return null;
         }
 
-        sanitizeBabelfontArrays(currentFont.babelfontData);
-        assertBabelfontLayerWidths(
-            currentFont.babelfontData,
-            'buildWorkerYjsStateFromCurrentFont'
-        );
+        // babelfontJson is produced by syncJsonFromModel which normalizes all
+        // shape nodes to compact string format ("x y type …") that Rust can
+        // deserialize. Never use babelfontData directly — it stores nodes as
+        // JS arrays that are incompatible with the Rust babelfont Shape enum.
+        const parsed = JSON.parse(currentFont.babelfontJson) as Record<
+            string,
+            unknown
+        >;
+        const yDoc = new Y.Doc();
+        jsonToYDoc(parsed, yDoc.getMap('font'));
+        return Y.encodeStateAsUpdate(yDoc);
+    }
+
+    /** Public accessor so window-sync can build a Rust-compatible seed state. */
+    buildNormalizedWorkerYjsState(): Uint8Array | null {
+        return this.buildWorkerYjsStateFromCurrentFont();
+    }
+
+    private buildWorkerAuthoritativeYjsState(): Uint8Array | null {
+        const bridgeState = window.patchSyncEngine?.getFullState?.();
+        if (bridgeState?.length) {
+            return bridgeState;
+        }
+
+        return this.buildWorkerYjsStateFromCurrentFont();
+    }
+
+    private bootstrapWorkerYjsMirrorFromCurrentFont(): boolean {
+        const state = this.buildWorkerYjsStateFromCurrentFont();
+        if (!state?.length) {
+            return false;
+        }
+
+        this.replaceWorkerYjsMirrorFromState(state);
+        return true;
+    }
+
+    replaceWorkerYjsMirrorFromState(
+        state: Uint8Array | ArrayBufferLike | null | undefined
+    ): void {
+        if (!state) {
+            this.workerCacheYDoc = null;
+            return;
+        }
 
         const yDoc = new Y.Doc();
-        jsonToYDoc(
-            currentFont.babelfontData as Record<string, unknown>,
-            yDoc.getMap('font')
+        Y.applyUpdate(
+            yDoc,
+            state instanceof Uint8Array ? state : new Uint8Array(state)
         );
-        return Y.encodeStateAsUpdate(yDoc);
+        this.workerCacheYDoc = yDoc;
+    }
+
+    applyWorkerYjsUpdateToMirror(
+        update: Uint8Array | ArrayBufferLike | null | undefined
+    ): void {
+        if (!update) {
+            return;
+        }
+
+        if (
+            !this.workerCacheYDoc &&
+            !this.bootstrapWorkerYjsMirrorFromCurrentFont()
+        ) {
+            return;
+        }
+
+        if (!this.workerCacheYDoc) {
+            return;
+        }
+
+        Y.applyUpdate(
+            this.workerCacheYDoc,
+            update instanceof Uint8Array ? update : new Uint8Array(update)
+        );
+    }
+
+    private buildWorkerYjsLayerUpdate(
+        updates: Array<{
+            glyphName: string;
+            layerId: string;
+            normalized: Babelfont.Layer;
+        }>
+    ): { update: Uint8Array; changedGlyphs: string[] } | null {
+        if (!this.workerCacheYDoc) {
+            return null;
+        }
+
+        const fontMap = this.workerCacheYDoc.getMap('font');
+        const previousStateVector = Y.encodeStateVector(this.workerCacheYDoc);
+
+        this.workerCacheYDoc.transact(() => {
+            for (const update of updates) {
+                setYPath(
+                    fontMap,
+                    ['glyphs', update.glyphName, 'layers', update.layerId],
+                    update.normalized
+                );
+            }
+        });
+
+        return {
+            update: Y.encodeStateAsUpdate(
+                this.workerCacheYDoc,
+                previousStateVector
+            ),
+            changedGlyphs: Array.from(
+                new Set(updates.map((update) => update.glyphName))
+            )
+        };
+    }
+
+    private async sendWorkerYjsUpdate(
+        update: Uint8Array,
+        changedGlyphs: string[],
+        invalidateLayoutClosure: boolean
+    ): Promise<boolean> {
+        if (!fontCompilation?.isInitialized) {
+            return false;
+        }
+
+        if (!update.length) {
+            return true;
+        }
+
+        try {
+            const response = await fontCompilation.sendMessage({
+                type: 'applyYjsUpdate',
+                update,
+                changedGlyphs,
+                invalidateLayoutClosure
+            });
+
+            if (response?.skipped === 'ydoc_not_initialized') {
+                this.workerCacheYDoc = null;
+                fontCompilation.setWorkerCacheDocumentReady(false);
+                console.warn(
+                    '[FontManager] Worker Y.Doc was not initialized for incremental Yjs update',
+                    {
+                        changedGlyphs,
+                        invalidateLayoutClosure
+                    }
+                );
+                return false;
+            }
+
+            return true;
+        } catch (error) {
+            this.workerCacheYDoc = null;
+            fontCompilation.setWorkerCacheDocumentReady(false);
+            console.warn(
+                '[FontManager] Failed to send worker Yjs update:',
+                {
+                    changedGlyphs,
+                    invalidateLayoutClosure
+                },
+                error
+            );
+            return false;
+        }
+    }
+
+    private async recoverWorkerCacheFromAuthoritativeState(
+        reason: string
+    ): Promise<boolean> {
+        if (!fontCompilation?.isInitialized) {
+            return false;
+        }
+
+        try {
+            const currentFont = this.currentFont;
+            if (!currentFont) {
+                throw new Error(
+                    'Cannot recover worker cache without an open font'
+                );
+            }
+
+            // Sync first so babelfontJson is current, then build a normalized
+            // Y.Doc seed state (string-format nodes) that Rust can deserialize.
+            // The raw bridge state uses array-format nodes which Rust cannot
+            // parse when rebuilding CANONICAL_JSON_CACHE after apply_yjs_update.
+            const synced = this.syncBabelfontJsonFromCurrentModel();
+            if (!synced) {
+                throw new Error(
+                    'Failed to sync font JSON before worker cache recovery'
+                );
+            }
+
+            const normalizedState = this.buildWorkerYjsStateFromCurrentFont();
+            if (!normalizedState?.length) {
+                this.workerCacheYDoc = null;
+                fontCompilation.setWorkerCacheDocumentReady(false);
+                console.warn(
+                    '[FontManager] Missing normalized Yjs state for worker cache recovery:',
+                    reason
+                );
+                return false;
+            }
+
+            this.replaceWorkerYjsMirrorFromState(normalizedState);
+            this.recordFullFontCrossing();
+            await fontCompilation.sendMessage({
+                type: 'storeFontJson',
+                babelfontJson: currentFont.babelfontJson
+            });
+            await fontCompilation.sendMessage({
+                type: 'seedYdoc',
+                state: normalizedState,
+                forceStore: true
+            });
+            return true;
+        } catch (error) {
+            this.workerCacheYDoc = null;
+            fontCompilation.setWorkerCacheDocumentReady(false);
+            console.warn(
+                '[FontManager] Failed to recover worker cache from authoritative Yjs state:',
+                reason,
+                error
+            );
+            return false;
+        }
+    }
+
+    async recoverWorkerCacheFromBridgeState(reason: string): Promise<boolean> {
+        return this.recoverWorkerCacheFromAuthoritativeState(reason);
+    }
+
+    async forwardWorkerYjsUpdate(
+        update: Uint8Array,
+        changedGlyphs: string[],
+        options?: { invalidateLayoutClosure?: boolean }
+    ): Promise<boolean> {
+        const normalizedChangedGlyphs = Array.from(
+            new Set(changedGlyphs.filter((glyphName) => !!glyphName))
+        );
+
+        if (!normalizedChangedGlyphs.length) {
+            return this.recoverWorkerCacheFromAuthoritativeState(
+                'missing changedGlyphs for forwarded Yjs update'
+            );
+        }
+
+        // Rebuild the affected glyph layers from the current model state using
+        // normalized (string-format) node data. Forwarding the raw bridge Yjs
+        // update directly would push array-format nodes into the Rust Y.Doc,
+        // which only understands the compact string format ("x y type …").
+        //
+        // For the main window's own drag edits, submitLayerUpdatesToWorkerCache
+        // has already updated workerLayerFingerprintCache, so
+        // collectChangedLayerUpdatesFromModel returns nothing (no-op).
+        // For remote changes the fingerprint won't match yet, so the changed
+        // layers are rebuilt with normalized nodes.
+        const pendingLayerUpdates = this.collectChangedLayerUpdatesFromModel(
+            normalizedChangedGlyphs,
+            null,
+            { skipFingerprintBaseline: true }
+        );
+
+        if (!pendingLayerUpdates) {
+            return this.recoverWorkerCacheFromAuthoritativeState(
+                'failed to collect changed layers for forwarded Yjs update'
+            );
+        }
+
+        if (pendingLayerUpdates.length === 0) {
+            // Fingerprint already up to date (main window's own edit already sent).
+            return true;
+        }
+
+        const sent = await this.submitLayerUpdatesToWorkerCache(
+            pendingLayerUpdates,
+            {
+                invalidateLayoutClosure:
+                    options?.invalidateLayoutClosure !== false
+            }
+        );
+
+        if (sent) {
+            return true;
+        }
+
+        return this.recoverWorkerCacheFromAuthoritativeState(
+            'forwarded Yjs update failed'
+        );
     }
 
     private collectChangedLayerUpdatesFromModel(
@@ -3307,7 +3558,8 @@ class FontManager {
     }
 
     private async submitLayerUpdatesToWorkerCache(
-        updates: LayerCacheUpdate[]
+        updates: LayerCacheUpdate[],
+        options?: { invalidateLayoutClosure?: boolean }
     ): Promise<boolean> {
         if (!this.currentFont || !fontCompilation?.isInitialized) {
             return false;
@@ -3329,18 +3581,31 @@ class FontManager {
                 };
             });
 
-            await fontCompilation.sendMessage({
-                type: 'applyJsonPatches',
-                invalidateLayoutClosure: false,
-                forwardPatches: normalizedUpdates.map((u) =>
-                    buildLayerReplacePatch(
-                        this.currentFont!.babelfontData,
-                        u.glyphName,
-                        u.layerId,
-                        u.normalized
-                    )
-                )
-            });
+            if (
+                !this.workerCacheYDoc &&
+                !this.pendingBabelfontJsonSyncAfterDrag
+            ) {
+                this.bootstrapWorkerYjsMirrorFromCurrentFont();
+            }
+
+            const workerUpdate =
+                this.buildWorkerYjsLayerUpdate(normalizedUpdates);
+            if (!workerUpdate) {
+                throw new Error(
+                    'Worker Yjs mirror not ready for incremental layer update'
+                );
+            }
+
+            const sent = await this.sendWorkerYjsUpdate(
+                workerUpdate.update,
+                workerUpdate.changedGlyphs,
+                options?.invalidateLayoutClosure ?? false
+            );
+            if (!sent) {
+                return await this.recoverWorkerCacheFromAuthoritativeState(
+                    'incremental layer batch update failed'
+                );
+            }
 
             // Update fingerprint baseline cache + boundary-crossing stats.
             this._boundaryCrossingStats.submitBatchCalls++;
@@ -3353,56 +3618,21 @@ class FontManager {
                 );
                 this._boundaryCrossingStats.transmittedGlyphs.add(u.glyphName);
             }
-            // Do NOT clear lastStoredFontJson here. The Rust state has been
-            // incrementally patched via applyJsonPatches, so the next compile
-            // can still use '__incremental_layer__' (the lastStoredFontJson ===
-            // babelfontJson comparison remains valid). Clearing it would force
-            // the compile to re-send stale full babelfontJson, overwriting the
-            // patch.
             return true;
         } catch (error) {
             console.warn(
-                '[FontManager] Failed to submit JSON patch batch to worker cache:',
+                '[FontManager] Failed to submit incremental Yjs layer batch to worker cache:',
                 updates.map(({ glyphName, layerId }) => ({
                     glyphName,
                     layerId
                 })),
                 error
             );
-            return false;
-        }
-    }
-
-    async applyJsonPatchesToRust(
-        forwardPatches: Array<{ op: string; path: string; value?: unknown }>,
-        metadata?: {
-            changedGlyphNames?: string[];
-            changedLayerIds?: string[];
-        }
-    ): Promise<boolean> {
-        if (
-            !this.currentFont ||
-            !fontCompilation?.isInitialized ||
-            !Array.isArray(forwardPatches) ||
-            !forwardPatches.length
-        ) {
-            return false;
-        }
-
-        try {
-            await fontCompilation.sendMessage({
-                type: 'applyJsonPatches',
-                invalidateLayoutClosure: true,
-                forwardPatches
-            });
-            this.workerLayerFingerprintCache.clear();
-            return true;
-        } catch (error) {
-            console.warn(
-                '[FontManager] Failed to apply JSON patches to Rust cache:',
-                error
+            this.workerCacheYDoc = null;
+            fontCompilation.setWorkerCacheDocumentReady(false);
+            return await this.recoverWorkerCacheFromAuthoritativeState(
+                'incremental layer batch threw before worker sync completed'
             );
-            return false;
         }
     }
 
@@ -3452,6 +3682,7 @@ class FontManager {
     recordFullFontCrossing(): void {
         this._boundaryCrossingStats.fullFontCrossings++;
         this.workerLayerFingerprintCache.clear();
+        this.workerCacheYDoc = null;
     }
 
     async refreshWorkerCacheForReplayTargets(
@@ -3461,6 +3692,13 @@ class FontManager {
             const currentFont = this.currentFont;
             if (!currentFont) {
                 return false;
+            }
+
+            if (
+                !this.workerCacheYDoc &&
+                !this.pendingBabelfontJsonSyncAfterDrag
+            ) {
+                this.bootstrapWorkerYjsMirrorFromCurrentFont();
             }
 
             const updates: LayerCacheUpdate[] = [];
@@ -3659,6 +3897,18 @@ class FontManager {
             return;
         }
 
+        const isInteractiveEdit =
+            changeSource.startsWith('mouse-drag') ||
+            changeSource.startsWith('keyboard');
+
+        if (
+            isInteractiveEdit &&
+            !this.workerCacheYDoc &&
+            !this.pendingBabelfontJsonSyncAfterDrag
+        ) {
+            this.bootstrapWorkerYjsMirrorFromCurrentFont();
+        }
+
         let glyph = this.getGlyph(glyphName);
         if (!glyph) {
             console.error(
@@ -3692,10 +3942,6 @@ class FontManager {
             layerDataCopy
         );
         glyph.layers[layerIndex] = syncedModelLayer || layerDataCopy;
-
-        const isInteractiveEdit =
-            changeSource.startsWith('mouse-drag') ||
-            changeSource.startsWith('keyboard');
 
         if (isInteractiveEdit) {
             this.pendingBabelfontJsonSyncAfterDrag = true;
@@ -3819,16 +4065,19 @@ class FontManager {
                                 : currentLayer;
                         const layerDataCopy =
                             this.normalizeLayerForRust(rawLayerData);
-                        await this.submitLayerUpdatesToWorkerCache([
-                            {
-                                glyphName: currentGlyphName,
-                                layerId: currentLayerId,
-                                layerData: layerDataCopy
-                            }
-                        ]);
-                        updatedViaIncrementalLayer = true;
+                        updatedViaIncrementalLayer =
+                            await this.submitLayerUpdatesToWorkerCache([
+                                {
+                                    glyphName: currentGlyphName,
+                                    layerId: currentLayerId,
+                                    layerData: layerDataCopy
+                                }
+                            ]);
 
-                        if (this.pendingBabelfontJsonSyncAfterDrag) {
+                        if (
+                            updatedViaIncrementalLayer &&
+                            this.pendingBabelfontJsonSyncAfterDrag
+                        ) {
                             if (!this.syncBabelfontJsonFromCurrentModel()) {
                                 return;
                             }
@@ -3922,20 +4171,37 @@ class FontManager {
             return;
         }
 
+        const currentFont = this.currentFont;
+
         const cacheUpdatePromise = (async () => {
             this.pendingBabelfontJsonSyncAfterDrag = false;
-            const yjsState = this.buildWorkerYjsStateFromCurrentFont();
             try {
-                if (!yjsState?.length) {
-                    throw new Error('Missing full worker Yjs state');
+                // Sync first so babelfontJson is current, then build a normalized
+                // Y.Doc seed state (string-format nodes) that Rust can deserialize.
+                const synced = this.syncBabelfontJsonFromCurrentModel();
+                if (!synced) {
+                    throw new Error(
+                        'Failed to sync font JSON before full worker cache update'
+                    );
                 }
+                const normalizedState =
+                    this.buildWorkerYjsStateFromCurrentFont();
+                if (!normalizedState?.length) {
+                    throw new Error('Missing normalized worker Yjs state');
+                }
+                this.replaceWorkerYjsMirrorFromState(normalizedState);
+                this.recordFullFontCrossing();
                 await fontCompilation.sendMessage({
-                    type: 'initYdoc',
-                    state: yjsState
+                    type: 'storeFontJson',
+                    babelfontJson: currentFont.babelfontJson
+                });
+                await fontCompilation.sendMessage({
+                    type: 'seedYdoc',
+                    state: normalizedState
                 });
             } catch (error) {
                 console.error(
-                    '[FontManager] forceFullWorkerCacheUpdate: error sending initYdoc:',
+                    '[FontManager] forceFullWorkerCacheUpdate: error restoring worker cache from authoritative state:',
                     error
                 );
                 fontCompilation.setWorkerCacheDocumentReady(false);
@@ -3988,6 +4254,13 @@ class FontManager {
                 return;
             }
 
+            if (
+                !this.workerCacheYDoc &&
+                !this.pendingBabelfontJsonSyncAfterDrag
+            ) {
+                this.bootstrapWorkerYjsMirrorFromCurrentFont();
+            }
+
             const pendingLayerUpdates =
                 this.collectChangedLayerUpdatesFromModel(
                     uniqueGlyphNames,
@@ -4019,15 +4292,9 @@ class FontManager {
             }
 
             if (!updatedIncrementally) {
-                if (!this.syncBabelfontJsonFromCurrentModel()) {
-                    return;
-                }
-
-                this.recordFullFontCrossing();
-                await fontCompilation.sendMessage({
-                    type: 'storeFontJson',
-                    babelfontJson: currentFont.babelfontJson
-                });
+                throw new Error(
+                    'Incremental worker Yjs sync failed during editing batch refresh'
+                );
             }
 
             if (options?.dispatchGlyphChanged === false) {

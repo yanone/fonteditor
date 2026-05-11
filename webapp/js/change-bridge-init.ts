@@ -737,6 +737,7 @@ export async function syncRustCacheAndRefreshCanvas(
     options?: {
         skipDeferredCanvasRepaint?: boolean;
         workerReplayTargets?: WorkerReplayTarget[];
+        allowSelectedLayerFallback?: boolean;
     }
 ): Promise<void> {
     const gc = window.glyphCanvas;
@@ -753,6 +754,8 @@ export async function syncRustCacheAndRefreshCanvas(
             const replayTargets = normalizeWorkerReplayTargets(
                 options?.workerReplayTargets
             );
+            const allowSelectedLayerFallback =
+                options?.allowSelectedLayerFallback !== false;
             if (
                 !forceFullRustSync &&
                 replayTargets.length > 0 &&
@@ -764,7 +767,12 @@ export async function syncRustCacheAndRefreshCanvas(
                         replayTargets
                     )) === true;
             }
-            if (!didStoreLayer && !forceFullRustSync && selectedLayerId) {
+            if (
+                !didStoreLayer &&
+                !forceFullRustSync &&
+                selectedLayerId &&
+                allowSelectedLayerFallback
+            ) {
                 const cacheTargets = new Set<string>();
                 if (refreshRootGlyphName) {
                     cacheTargets.add(refreshRootGlyphName);
@@ -1488,6 +1496,7 @@ export async function handleRemoteChangeRefresh(
             options?: {
                 skipDeferredCanvasRepaint?: boolean;
                 workerReplayTargets?: WorkerReplayTarget[];
+                allowSelectedLayerFallback?: boolean;
             }
         ) => Promise<void>;
     }
@@ -1505,14 +1514,12 @@ export async function handleRemoteChangeRefresh(
     const queueCacheRefresh =
         dependencies?.queueCacheRefresh ?? queueRustCacheAndRefreshCanvas;
 
-    await queueCacheRefresh(
-        undefined,
-        undefined,
-        false,
-        replayTargets.length > 0
+    await queueCacheRefresh(undefined, undefined, false, {
+        allowSelectedLayerFallback: false,
+        ...(replayTargets.length > 0
             ? { workerReplayTargets: replayTargets }
-            : undefined
-    );
+            : {})
+    });
 
     await requestCompile(changeSource, editType);
 
@@ -1912,6 +1919,14 @@ function initializeBridge(detail: {
         const isDragging =
             window.glyphCanvas?.outlineEditor?.draggingSomething === true;
 
+        // Remote reconciliation/bootstrap updates can arrive without semantic
+        // change-log entries. Do not forward those metadata-free packets into
+        // the Rust worker path; the worker cannot scope them safely, and the
+        // authoritative linked-window bootstrap already uses full-state initYdoc.
+        if (!changeLogEntries.length) {
+            return;
+        }
+
         // Extract affected glyph names from the change-log entries so Rust can
         // perform a targeted partial update instead of a full JSON rebuild.
         // ChangeLogEntry.path uses dot-delimited format: "glyphs.A.layers.uuid.shapes.0.nodes"
@@ -1919,22 +1934,57 @@ function initializeBridge(detail: {
             changeLogEntries.map((e) => e.path).filter(Boolean)
         );
 
-        void fontCompilation.sendMessage({
-            type: 'applyYjsUpdate',
+        if (!changedGlyphs.length) {
+            return;
+        }
+
+        void window.fontManager?.forwardWorkerYjsUpdate?.(
             update,
             changedGlyphs,
-            invalidateLayoutClosure: !isDragging
-        });
+            {
+                invalidateLayoutClosure: !isDragging
+            }
+        );
     });
 
     // Seed the Rust Y.Doc immediately after bridge initialisation so that the
-    // first `apply_yjs_update` call has a baseline. For linked windows the
-    // full state arrives via WindowSync, so skip the initial seed there.
-    if (!isSyncWindow() && fontCompilation?.isInitialized) {
-        void fontCompilation.sendMessage({
-            type: 'seedYdoc',
-            state: bridge.encodeBridgeState()
-        });
+    // first `apply_yjs_update` call has a baseline. Linked windows must skip
+    // this path because their authoritative state arrives via WindowSync
+    // full-state bootstrap, not from the locally loaded file snapshot.
+    if (
+        !window.windowRole?.isLinkedWindow?.() &&
+        fontCompilation?.isInitialized
+    ) {
+        // Use the normalized state (string-format nodes from babelfontJson) so
+        // Rust can deserialize shape nodes correctly. bridge.encodeBridgeState()
+        // would produce array-format nodes that Rust cannot parse when
+        // rebuilding CANONICAL_JSON_CACHE via ydoc_get_glyph_json_with_txn.
+        const fontManager = window.fontManager as
+            | (typeof window.fontManager & {
+                  buildNormalizedWorkerYjsState?: () => Uint8Array | null;
+              })
+            | undefined;
+        const state = fontManager?.buildNormalizedWorkerYjsState?.();
+        if (!state?.length) {
+            console.warn(
+                'Failed to build normalized Yjs state for initial worker seed'
+            );
+            fontCompilation.setWorkerCacheDocumentReady(false);
+        } else {
+            fontManager?.replaceWorkerYjsMirrorFromState?.(state);
+            void fontCompilation
+                .sendMessage({
+                    type: 'seedYdoc',
+                    state
+                })
+                .catch((error) => {
+                    console.warn(
+                        'Failed to seed worker Y.Doc after bridge init',
+                        error
+                    );
+                    fontCompilation.setWorkerCacheDocumentReady(false);
+                });
+        }
     }
 
     const sync = new WindowSync(bridge, channelName);

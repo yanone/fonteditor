@@ -6,7 +6,6 @@ import init, {
     compile_babelfont,
     compile_cached_font_from_last_layout_closure,
     store_font,
-    apply_patch_batch,
     init_ydoc_from_state,
     seed_ydoc,
     apply_yjs_update,
@@ -1043,10 +1042,7 @@ self.onmessage = async (event) => {
                     'font.worker.compileEditingCached.ensureFontCached'
                 );
                 // Font cache is primed by storeFontJson (bootstrap) and
-                // kept current by applyJsonPatches (incremental edits).
-                // Patch batches bump fontCacheEpoch, so a patched font always
-                // re-primes its cached subset/layout closure on the next
-                // compile without relying on dirty-glyph patching.
+                // kept current by Yjs document updates during editing.
                 if (!isIncrementalSentinel) {
                     if (cachedBabelfontJson !== babelfontJson) {
                         store_font(babelfontJson);
@@ -1334,58 +1330,6 @@ self.onmessage = async (event) => {
             return;
         }
 
-        if (data.type === 'applyJsonPatches') {
-            const applyPatchesSpanId = timelineSpanStart(
-                'font.worker.applyJsonPatches'
-            );
-            const { id, forwardPatches, invalidateLayoutClosure } = data;
-
-            try {
-                timelineMark('font.worker.applyJsonPatches.started');
-
-                if (!initialized) {
-                    await initializeWasm();
-                }
-
-                if (!Array.isArray(forwardPatches) || !forwardPatches.length) {
-                    self.postMessage({
-                        id,
-                        type: 'applyJsonPatches',
-                        success: true,
-                        skipped: 'empty'
-                    });
-                    return;
-                }
-
-                apply_patch_batch(JSON.stringify(forwardPatches));
-                cachedBabelfontJson = null;
-                if (invalidateLayoutClosure !== false) {
-                    cachedBaseSubsetKey = null;
-                    cachedClosureGlyphCount = null;
-                    fontCacheEpoch += 1;
-                }
-
-                self.postMessage({
-                    id,
-                    type: 'applyJsonPatches',
-                    success: true
-                });
-                timelineMark('font.worker.applyJsonPatches.success');
-            } catch (e: any) {
-                timelineMark('font.worker.applyJsonPatches.failed');
-                self.postMessage({
-                    id,
-                    type: 'applyJsonPatches',
-                    success: false,
-                    error: e.toString()
-                });
-            } finally {
-                timelineSpanEnd(applyPatchesSpanId);
-            }
-
-            return;
-        }
-
         // ── Yjs-based cache initialisation ──────────────────────────────────
         // seedYdoc: initialise the Rust Y.Doc from a full binary Yjs state
         // without rebuilding all caches (called immediately after openFont).
@@ -1395,11 +1339,18 @@ self.onmessage = async (event) => {
                 if (!initialized) {
                     await initializeWasm();
                 }
-                seed_ydoc(state instanceof Uint8Array ? state : new Uint8Array(state));
+                seed_ydoc(
+                    state instanceof Uint8Array ? state : new Uint8Array(state)
+                );
                 self.postMessage({ id, type: 'seedYdoc', success: true });
             } catch (e: any) {
                 console.error('[Fontc Worker] seedYdoc error:', e);
-                self.postMessage({ id, type: 'seedYdoc', success: false, error: e.toString() });
+                self.postMessage({
+                    id,
+                    type: 'seedYdoc',
+                    success: false,
+                    error: e.toString()
+                });
             }
             return;
         }
@@ -1427,7 +1378,12 @@ self.onmessage = async (event) => {
             } catch (e: any) {
                 timelineMark('font.worker.initYdoc.failed');
                 console.error('[Fontc Worker] initYdoc error:', e);
-                self.postMessage({ id, type: 'initYdoc', success: false, error: e.toString() });
+                self.postMessage({
+                    id,
+                    type: 'initYdoc',
+                    success: false,
+                    error: e.toString()
+                });
             } finally {
                 timelineSpanEnd(spanId);
             }
@@ -1447,7 +1403,9 @@ self.onmessage = async (event) => {
                     Array.isArray(changedGlyphs) ? changedGlyphs : []
                 );
                 const resultJson = apply_yjs_update(
-                    update instanceof Uint8Array ? update : new Uint8Array(update),
+                    update instanceof Uint8Array
+                        ? update
+                        : new Uint8Array(update),
                     changedGlyphsJson
                 );
                 cachedBabelfontJson = null;

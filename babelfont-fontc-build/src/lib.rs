@@ -6,7 +6,6 @@ use babelfont::{
     },
 };
 use fea_rs_ast::FeatureFile;
-use json_patch::Patch;
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -37,14 +36,15 @@ pub use fontspector::run_fontspector;
 // Use a Mutex to allow safe mutable access from multiple calls
 
 /// Canonical babelfont JSON as serde_json::Value — THE authoritative state.
-/// All patches are applied here first, and babelfont::Font is rebuilt
-/// lazily from this cache when needed for compilation or interpolation.
+/// It is refreshed from bootstrap/reload full-font loads or the Rust Y.Doc,
+/// and babelfont::Font is rebuilt lazily from this cache when needed for
+/// compilation or interpolation.
 static CANONICAL_JSON_CACHE: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 
 /// Subset babelfont JSON — mirrors the full CANONICAL_JSON_CACHE but
 /// retains only the glyphs needed for the current editing subset.
-/// Patches are applied to both caches; paths that don't exist in the
-/// subset are silently ignored.
+/// Yjs-driven glyph refreshes update this cache opportunistically when the
+/// affected glyphs are part of the active subset.
 static SUBSET_JSON_CACHE: Mutex<Option<(String, u64, serde_json::Value)>> = Mutex::new(None);
 
 /// Full babelfont::Font derived from CANONICAL_JSON_CACHE.
@@ -717,6 +717,80 @@ pub fn version() -> String {
 
 // ── Yjs / yrs helpers ────────────────────────────────────────────────────────
 
+/// Convert `[{x, y, nodetype, smooth?}, ...]` (bridge Y.Doc node-object format)
+/// back to the compact string format `"x y type x y type ..."` that
+/// babelfont's `Shape::Path { nodes: String }` expects.
+///
+/// The JS bridge intentionally expands compact node strings into Y.Array of
+/// Y.Map via `normalizeValueForYDocWrite` so individual nodes are addressable
+/// for per-node edits. This function reverses that expansion so the Rust
+/// serde deserializer always sees a string for the `nodes` field.
+fn nodes_array_to_compact_string(nodes: &[serde_json::Value]) -> String {
+    let mut tokens: Vec<String> = Vec::with_capacity(nodes.len() * 3);
+    for node in nodes {
+        let Some(obj) = node.as_object() else { continue };
+        let x = obj.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let y = obj.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let smooth = obj.get("smooth").and_then(|v| v.as_bool()).unwrap_or(false);
+        let nodetype = obj.get("nodetype").and_then(|v| v.as_str()).unwrap_or("Line");
+
+        let type_char = match nodetype {
+            "Line" | "l" => "l",
+            "OffCurve" | "o" => "o",
+            "Curve" | "c" => "c",
+            "QCurve" | "q" => "q",
+            "Move" | "m" => "m",
+            _ => "l",
+        };
+
+        let x_str = if x.fract() == 0.0 {
+            format!("{}", x as i64)
+        } else {
+            format!("{}", x)
+        };
+        let y_str = if y.fract() == 0.0 {
+            format!("{}", y as i64)
+        } else {
+            format!("{}", y)
+        };
+        let type_str = if smooth {
+            format!("{}s", type_char)
+        } else {
+            type_char.to_string()
+        };
+
+        tokens.push(x_str);
+        tokens.push(y_str);
+        tokens.push(type_str);
+    }
+    tokens.join(" ")
+}
+
+/// Normalise a single shape JSON value so that `nodes` is always a compact
+/// string, regardless of how the Y.Doc stored the nodes (array or string).
+///
+/// Shape::Path requires `nodes: String`. Shape::Component has `reference`
+/// instead of `nodes` and is left unchanged.
+fn normalize_shape_nodes(shape: serde_json::Value) -> serde_json::Value {
+    let serde_json::Value::Object(mut obj) = shape else {
+        return shape;
+    };
+    // Components have `reference`, not `nodes` — leave unchanged.
+    if obj.contains_key("reference") || !obj.contains_key("nodes") {
+        return serde_json::Value::Object(obj);
+    }
+    if let Some(nodes_val) = obj.get("nodes").cloned() {
+        if let serde_json::Value::Array(arr) = nodes_val {
+            let compact = nodes_array_to_compact_string(&arr);
+            obj.insert("nodes".to_string(), serde_json::Value::String(compact));
+        }
+        // Ensure `closed` is present — required by Shape::Path serde variant.
+        obj.entry("closed".to_string())
+            .or_insert(serde_json::Value::Bool(false));
+    }
+    serde_json::Value::Object(obj)
+}
+
 /// Convert a yrs `Any` primitive to a `serde_json::Value`.
 fn yrs_any_to_json(any: &yrs::Any) -> serde_json::Value {
     match any {
@@ -799,6 +873,20 @@ fn ydoc_glyph_to_json<T: ReadTxn>(
                             serde_json::Value::String(layer_id.to_string()),
                         );
                     }
+                    // The JS bridge Y.Doc stores `nodes` as Y.Array of node
+                    // Y.Maps (see `normalizeValueForYDocWrite`). Convert any
+                    // array-format nodes back to compact strings so
+                    // `Shape::Path { nodes: String }` serde deserialization
+                    // succeeds when CANONICAL_JSON_CACHE is rebuilt.
+                    if let Some(serde_json::Value::Array(shapes)) =
+                        layer_obj.get_mut("shapes")
+                    {
+                        for shape in shapes.iter_mut() {
+                            *shape = normalize_shape_nodes(
+                                std::mem::replace(shape, serde_json::Value::Null)
+                            );
+                        }
+                    }
                     layers_array.push(serde_json::Value::Object(layer_obj));
                 }
                 glyph_obj.insert("layers".to_string(), serde_json::Value::Array(layers_array));
@@ -825,27 +913,28 @@ fn ydoc_glyph_to_json<T: ReadTxn>(
 /// - `glyphs` Y.Map<glyph_name, Y.Map> → JSON array of glyph objects
 /// - Each glyph's `layers` Y.Map<layer_id, Y.Map> → JSON array of layer objects
 /// - Everything else follows the standard Y.type → JSON mapping
-fn ydoc_to_babelfont_json(doc: &yrs::Doc) -> serde_json::Value {
-    let txn = doc.transact();
-    let font_map = doc.get_or_insert_map("font");
+fn ydoc_to_babelfont_json_with_txn<T: ReadTxn>(txn: &T) -> serde_json::Value {
+    let Some(font_map) = txn.get_map("font") else {
+        return serde_json::Value::Object(serde_json::Map::new());
+    };
     let mut result = serde_json::Map::new();
 
-    for (key, value) in font_map.iter(&txn) {
+    for (key, value) in font_map.iter(txn) {
         if key == "glyphs" {
             if let yrs::types::Value::YMap(glyphs_map) = value {
                 let mut glyphs_array: Vec<serde_json::Value> = Vec::new();
-                for (glyph_name, glyph_val) in glyphs_map.iter(&txn) {
+                for (glyph_name, glyph_val) in glyphs_map.iter(txn) {
                     if let yrs::types::Value::YMap(glyph_map) = glyph_val {
                         glyphs_array
-                            .push(ydoc_glyph_to_json(glyph_name, &glyph_map, &txn));
+                            .push(ydoc_glyph_to_json(glyph_name, &glyph_map, txn));
                     }
                 }
                 result.insert("glyphs".to_string(), serde_json::Value::Array(glyphs_array));
             } else {
-                result.insert(key.to_string(), yrs_value_to_json(value, &txn));
+                result.insert(key.to_string(), yrs_value_to_json(value, txn));
             }
         } else {
-            result.insert(key.to_string(), yrs_value_to_json(value, &txn));
+            result.insert(key.to_string(), yrs_value_to_json(value, txn));
         }
     }
 
@@ -854,14 +943,13 @@ fn ydoc_to_babelfont_json(doc: &yrs::Doc) -> serde_json::Value {
 
 /// Extract and return the JSON for a single named glyph from the Rust Y.Doc.
 /// Returns None if the glyph is not found or Y_DOC is not initialized.
-fn ydoc_get_glyph_json(doc: &yrs::Doc, glyph_name: &str) -> Option<serde_json::Value> {
-    let txn = doc.transact();
-    let font_map = doc.get_or_insert_map("font");
-    let glyphs_val = font_map.get(&txn, "glyphs")?;
+fn ydoc_get_glyph_json_with_txn<T: ReadTxn>(glyph_name: &str, txn: &T) -> Option<serde_json::Value> {
+    let font_map = txn.get_map("font")?;
+    let glyphs_val = font_map.get(txn, "glyphs")?;
     if let yrs::types::Value::YMap(glyphs_map) = glyphs_val {
-        let glyph_val = glyphs_map.get(&txn, glyph_name)?;
+        let glyph_val = glyphs_map.get(txn, glyph_name)?;
         if let yrs::types::Value::YMap(glyph_map) = glyph_val {
-            return Some(ydoc_glyph_to_json(glyph_name, &glyph_map, &txn));
+            return Some(ydoc_glyph_to_json(glyph_name, &glyph_map, txn));
         }
     }
     None
@@ -958,17 +1046,15 @@ pub fn init_ydoc_from_state(state_update: &[u8]) -> Result<(), JsValue> {
     let _span = PerfSpan::start("init_ydoc_from_state.total");
 
     let doc = yrs::Doc::new();
-    {
+    let json_value = {
         let _decode_span = PerfSpan::start("init_ydoc_from_state.decode_apply");
         let update = yrs::Update::decode_v1(state_update)
             .map_err(|e| JsValue::from_str(&format!("init_ydoc_from_state: decode failed: {:?}", e)))?;
         let mut txn = doc.transact_mut();
         txn.apply_update(update);
-    }
-
-    let _serialize_span = PerfSpan::start("init_ydoc_from_state.serialize_json");
-    let json_value = ydoc_to_babelfont_json(&doc);
-    drop(_serialize_span);
+        let _serialize_span = PerfSpan::start("init_ydoc_from_state.serialize_json");
+        ydoc_to_babelfont_json_with_txn(&txn)
+    };
 
     *Y_DOC.lock().unwrap() = Some(doc);
 
@@ -993,15 +1079,19 @@ pub fn apply_yjs_update(update: &[u8], changed_glyphs_json: &str) -> Result<Stri
     let _span = PerfSpan::start("apply_yjs_update.total");
 
     // -- 1. Apply binary update to Y_DOC ----------------------------------
-    let mut doc_lock = Y_DOC.lock().unwrap();
-    let doc = match doc_lock.as_mut() {
-        Some(d) => d,
+    let yrs_update = yrs::Update::decode_v1(update)
+        .map_err(|e| JsValue::from_str(&format!("apply_yjs_update: decode failed: {:?}", e)))?;
+
+    // Move the worker doc out of the global slot while mutating and reading it.
+    // Keeping the Y_DOC mutex-held handle borrowed across transact_mut()/transact()
+    // can trip yrs' internal transaction guard during live incremental updates.
+    let doc = match Y_DOC.lock().unwrap().take() {
+        Some(doc) => doc,
         None => {
             // Y.Doc not yet seeded — this happens when apply_yjs_update arrives
             // before seed_ydoc has been called (e.g. very early edits during font
-            // open). Return a no-op result so the caller falls back to the existing
-            // storeFontJson / apply_patch_batch path.
-            drop(doc_lock);
+            // open). Return a no-op result so the caller can wait for bootstrap or
+            // recovery to seed the worker document.
             let result = serde_json::json!({
                 "changedGlyphs": [],
                 "changedLayerIds": [],
@@ -1012,79 +1102,82 @@ pub fn apply_yjs_update(update: &[u8], changed_glyphs_json: &str) -> Result<Stri
         }
     };
 
-    {
+    let result = (|| -> Result<String, JsValue> {
         let _apply_span = PerfSpan::start("apply_yjs_update.decode_apply");
-        let yrs_update = yrs::Update::decode_v1(update)
-            .map_err(|e| JsValue::from_str(&format!("apply_yjs_update: decode failed: {:?}", e)))?;
         let mut txn = doc.transact_mut();
         txn.apply_update(yrs_update);
-    }
 
-    // -- 2. Parse JS-supplied changed-glyph hint --------------------------
-    let changed_glyphs: Vec<String> = if changed_glyphs_json.is_empty()
-        || changed_glyphs_json == "[]"
-    {
-        Vec::new()
-    } else {
-        serde_json::from_str(changed_glyphs_json).unwrap_or_default()
-    };
+        // -- 2. Parse JS-supplied changed-glyph hint --------------------------
+        let changed_glyphs: Vec<String> = if changed_glyphs_json.is_empty()
+            || changed_glyphs_json == "[]"
+        {
+            Vec::new()
+        } else {
+            serde_json::from_str(changed_glyphs_json).unwrap_or_default()
+        };
 
-    // -- 3. Update CANONICAL_JSON_CACHE -----------------------------------
-    if changed_glyphs.is_empty() {
-        // Full rebuild — convert the entire Y.Doc to babelfont JSON
-        let _rebuild_span = PerfSpan::start("apply_yjs_update.full_rebuild");
-        let json_value = ydoc_to_babelfont_json(doc);
-        *CANONICAL_JSON_CACHE.lock().unwrap() = Some(json_value);
-    } else {
-        // Partial update — only re-serialise the glyphs that changed
-        let _partial_span = PerfSpan::start("apply_yjs_update.partial_update");
-        let mut canonical_lock = CANONICAL_JSON_CACHE.lock().unwrap();
-        if let Some(ref mut canonical) = *canonical_lock {
-            // Build a glyph-name → array-index map for O(1) lookup
-            let mut glyph_index: HashMap<String, usize> = HashMap::new();
-            if let Some(glyphs_arr) = canonical.get("glyphs").and_then(|v| v.as_array()) {
-                for (idx, glyph_val) in glyphs_arr.iter().enumerate() {
-                    if let Some(name) = glyph_val.get("name").and_then(|n| n.as_str()) {
-                        glyph_index.insert(name.to_string(), idx);
+        // -- 3. Update CANONICAL_JSON_CACHE -----------------------------------
+        if changed_glyphs.is_empty() {
+            // Full rebuild — convert the entire Y.Doc to babelfont JSON
+            let _rebuild_span = PerfSpan::start("apply_yjs_update.full_rebuild");
+            let json_value = ydoc_to_babelfont_json_with_txn(&txn);
+            *CANONICAL_JSON_CACHE.lock().unwrap() = Some(json_value);
+        } else {
+            // Partial update — only re-serialise the glyphs that changed
+            let _partial_span = PerfSpan::start("apply_yjs_update.partial_update");
+            let mut canonical_lock = CANONICAL_JSON_CACHE.lock().unwrap();
+            if let Some(ref mut canonical) = *canonical_lock {
+                // Build a glyph-name → array-index map for O(1) lookup
+                let mut glyph_index: HashMap<String, usize> = HashMap::new();
+                if let Some(glyphs_arr) = canonical.get("glyphs").and_then(|v| v.as_array()) {
+                    for (idx, glyph_val) in glyphs_arr.iter().enumerate() {
+                        if let Some(name) = glyph_val.get("name").and_then(|n| n.as_str()) {
+                            glyph_index.insert(name.to_string(), idx);
+                        }
                     }
                 }
-            }
 
-            for glyph_name in &changed_glyphs {
-                if let Some(new_glyph_json) = ydoc_get_glyph_json(doc, glyph_name) {
-                    if let Some(&idx) = glyph_index.get(glyph_name.as_str()) {
-                        if let Some(glyphs_arr) =
-                            canonical.get_mut("glyphs").and_then(|v| v.as_array_mut())
-                        {
-                            if idx < glyphs_arr.len() {
-                                glyphs_arr[idx] = new_glyph_json;
-                            }
-                        }
-                        // Also update SUBSET_JSON_CACHE if that glyph is present
-                        let mut subset_lock = SUBSET_JSON_CACHE.lock().unwrap();
-                        if let Some((_, _, ref mut subset_json)) = *subset_lock {
-                            let mut subset_glyph_index: HashMap<String, usize> = HashMap::new();
-                            if let Some(sg_arr) =
-                                subset_json.get("glyphs").and_then(|v| v.as_array())
+                for glyph_name in &changed_glyphs {
+                    if let Some(new_glyph_json) =
+                        ydoc_get_glyph_json_with_txn(glyph_name, &txn)
+                    {
+                        if let Some(&idx) = glyph_index.get(glyph_name.as_str()) {
+                            if let Some(glyphs_arr) =
+                                canonical.get_mut("glyphs").and_then(|v| v.as_array_mut())
                             {
-                                for (si, sv) in sg_arr.iter().enumerate() {
-                                    if let Some(sn) =
-                                        sv.get("name").and_then(|n| n.as_str())
-                                    {
-                                        subset_glyph_index.insert(sn.to_string(), si);
-                                    }
+                                if idx < glyphs_arr.len() {
+                                    glyphs_arr[idx] = new_glyph_json;
                                 }
                             }
-                            if let Some(&sidx) = subset_glyph_index.get(glyph_name.as_str()) {
-                                if let Some(sg_arr) = subset_json
-                                    .get_mut("glyphs")
-                                    .and_then(|v| v.as_array_mut())
+                            // Also update SUBSET_JSON_CACHE if that glyph is present
+                            let mut subset_lock = SUBSET_JSON_CACHE.lock().unwrap();
+                            if let Some((_, _, ref mut subset_json)) = *subset_lock {
+                                let mut subset_glyph_index: HashMap<String, usize> = HashMap::new();
+                                if let Some(sg_arr) =
+                                    subset_json.get("glyphs").and_then(|v| v.as_array())
                                 {
-                                    if sidx < sg_arr.len() {
-                                        if let Some(glyph_for_subset) =
-                                            ydoc_get_glyph_json(doc, glyph_name)
+                                    for (si, sv) in sg_arr.iter().enumerate() {
+                                        if let Some(sn) =
+                                            sv.get("name").and_then(|n| n.as_str())
                                         {
-                                            sg_arr[sidx] = glyph_for_subset;
+                                            subset_glyph_index.insert(sn.to_string(), si);
+                                        }
+                                    }
+                                }
+                                if let Some(&sidx) = subset_glyph_index.get(glyph_name.as_str()) {
+                                    if let Some(sg_arr) = subset_json
+                                        .get_mut("glyphs")
+                                        .and_then(|v| v.as_array_mut())
+                                    {
+                                        if sidx < sg_arr.len() {
+                                            if let Some(glyph_for_subset) =
+                                                ydoc_get_glyph_json_with_txn(
+                                                    glyph_name,
+                                                    &txn,
+                                                )
+                                            {
+                                                sg_arr[sidx] = glyph_for_subset;
+                                            }
                                         }
                                     }
                                 }
@@ -1092,119 +1185,39 @@ pub fn apply_yjs_update(update: &[u8], changed_glyphs_json: &str) -> Result<Stri
                         }
                     }
                 }
-            }
 
-            // Also clear outline cache for affected glyphs
-            for glyph_name in &changed_glyphs {
-                glyph_outlines::clear_outline_cache_for_glyph(glyph_name);
+                // Also clear outline cache for affected glyphs
+                for glyph_name in &changed_glyphs {
+                    glyph_outlines::clear_outline_cache_for_glyph(glyph_name);
+                }
+            } else {
+                // No canonical cache yet — fall back to full rebuild
+                let json_value = ydoc_to_babelfont_json_with_txn(&txn);
+                *canonical_lock = Some(json_value);
             }
-        } else {
-            // No canonical cache yet — fall back to full rebuild
-            let json_value = ydoc_to_babelfont_json(doc);
-            *canonical_lock = Some(json_value);
         }
-    }
 
-    // -- 4. Invalidate font / filter caches so they rebuild lazily ----------
-    *FONT_CACHE.lock().unwrap() = None;
-    FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
+        drop(txn);
 
-    // Release the Y_DOC lock before returning
-    drop(doc_lock);
+        // -- 4. Invalidate font / filter caches so they rebuild lazily ----------
+        *FONT_CACHE.lock().unwrap() = None;
+        FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
 
-    // -- 5. Return changed-glyph list for JS subset-cache replay ------------
-    let result = serde_json::json!({
-        "changedGlyphs": changed_glyphs,
-        "changedLayerIds": []
-    });
-    serde_json::to_string(&result)
-        .map_err(|e| JsValue::from_str(&format!("apply_yjs_update: result serialisation failed: {}", e)))
+        // -- 5. Return changed-glyph list for JS subset-cache replay ------------
+        let result = serde_json::json!({
+            "changedGlyphs": changed_glyphs,
+            "changedLayerIds": []
+        });
+        serde_json::to_string(&result)
+            .map_err(|e| JsValue::from_str(&format!("apply_yjs_update: result serialisation failed: {}", e)))
+    })();
+
+    *Y_DOC.lock().unwrap() = Some(doc);
+
+    result
 }
 
 
-
-/// Apply RFC 6902 JSON Patch batch to the canonical font JSON cache.
-///
-/// This is the exclusive mutation path for the Rust cache after bootstrap.
-/// The same patches are also applied to the subset JSON cache (best-effort;
-/// missing paths in the subset are silently ignored).
-///
-/// # Arguments
-/// * `patches_json` - JSON string containing an array of RFC 6902 patch operations
-///
-/// # Returns
-/// * `Result<(), JsValue>` - Success or error
-#[wasm_bindgen]
-pub fn apply_patch_batch(patches_json: &str) -> Result<(), JsValue> {
-    let _span = PerfSpan::start("apply_patch_batch.total");
-
-    let _parse_span = PerfSpan::start("apply_patch_batch.parse");
-    let patch: Patch = serde_json::from_str(patches_json)
-        .map_err(|e| JsValue::from_str(&format!("Patch batch parse error: {}", e)))?;
-    drop(_parse_span);
-
-    if patch.0.is_empty() {
-        return Ok(());
-    }
-
-    // Apply patches to canonical JSON cache
-    let _apply_span = PerfSpan::start("apply_patch_batch.apply_canonical");
-    {
-        let mut canonical = CANONICAL_JSON_CACHE.lock().unwrap();
-        let json_value = canonical
-            .as_mut()
-            .ok_or_else(|| JsValue::from_str("No font loaded. Open a font first."))?;
-        json_patch::patch(json_value, &patch)
-            .map_err(|e| JsValue::from_str(&format!("Patch application error: {}", e)))?;
-    }
-    drop(_apply_span);
-
-    // Apply same patches to subset JSON cache (best-effort)
-    let _subset_span = PerfSpan::start("apply_patch_batch.apply_subset");
-    {
-        let mut subset_cache = SUBSET_JSON_CACHE.lock().unwrap();
-        if let Some((subset_key, _subset_epoch, subset_json)) = subset_cache.as_mut() {
-            let subset_key = subset_key.clone();
-            if json_patch::patch(subset_json, &patch).is_ok() {
-                let current_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
-                *subset_cache = Some((subset_key, current_epoch, subset_json.clone()));
-                perf_mark(&format!(
-                    "{}:apply_patch_batch.subset_patched{}",
-                    PERF_PREFIX,
-                    current_perf_trace_suffix()
-                ));
-            }
-        }
-    }
-    drop(_subset_span);
-
-    // Bump the cache epoch so downstream consumers (font cache, subset cache,
-    // filter cache) detect that data has changed.
-    FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
-
-    // Collect affected glyph names from patch paths for outline cache clearing
-    let _clear_outline_span = PerfSpan::start("apply_patch_batch.clear_outline");
-    let mut affected_glyphs: HashSet<String> = HashSet::new();
-    for op in &patch.0 {
-        let path = op.path().to_string();
-        let segments: Vec<&str> = path.split('/').skip(1).collect();
-        if segments.len() >= 2 && segments[0] == "glyphs" && !segments[1].is_empty() {
-            let glyph_name = segments[1];
-            // Convert JSON pointer escaping back (~1 → /, ~0 → ~)
-            let glyph_name = glyph_name.replace("~1", "/").replace("~0", "~");
-            // Filter out numeric indices (array positions that need resolution)
-            if !glyph_name.chars().all(|c| c.is_ascii_digit()) {
-                affected_glyphs.insert(glyph_name);
-            }
-        }
-    }
-    for glyph_name in &affected_glyphs {
-        glyph_outlines::clear_outline_cache_for_glyph(glyph_name);
-    }
-    drop(_clear_outline_span);
-
-    Ok(())
-}
 
 /// Clear the cached font from memory
 #[wasm_bindgen]

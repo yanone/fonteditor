@@ -522,9 +522,12 @@ class FontCompilation {
                     ...traceContext,
                     process: 'main'
                 });
-                // For compilation messages, wrap in { result, time_taken, filename }
-                // For other message types, return the full data
-                if (result !== undefined) {
+                const isCompiledResponse = e.data?.type === 'compiled';
+
+                // Only compiled font responses carry binary result payloads.
+                // Other worker messages may legitimately include a string/JSON
+                // `result` field (for example applyYjsUpdate diagnostics).
+                if (isCompiledResponse && result !== undefined) {
                     const normalizeResultSpanId = timelineSpanStart(
                         'fontCompilation.workerResponse.normalizeCompiledResult',
                         undefined,
@@ -658,8 +661,7 @@ class FontCompilation {
                     messageType === 'storeFontJson' ||
                     messageType === 'initYdoc' ||
                     messageType === 'seedYdoc' ||
-                    messageType === 'applyYjsUpdate' ||
-                    messageType === 'applyJsonPatches'
+                    messageType === 'applyYjsUpdate'
                 ) {
                     this.workerCacheDocumentReady = true;
                 } else if (messageType === 'clearCache') {
@@ -717,8 +719,7 @@ class FontCompilation {
             messageType === 'storeFontJson' ||
             messageType === 'initYdoc' ||
             messageType === 'seedYdoc' ||
-            messageType === 'applyYjsUpdate' ||
-            messageType === 'applyJsonPatches'
+            messageType === 'applyYjsUpdate'
         ) {
             this.trackWorkerDocumentSync(requestPromise);
         }
@@ -905,8 +906,6 @@ class FontCompilation {
         const spanId = timelineSpanStart(
             'fontCompilation.compileEditingFromJsonCached'
         );
-        let sentFullFontJson = false;
-
         try {
             if (!this.isInitialized) {
                 const initialized = await this.initialize();
@@ -935,20 +934,19 @@ class FontCompilation {
             ).sort();
             const subsetKey = normalizedSubsetGlyphs.join('\u001f');
 
-            // JSON patches are sent to Rust via applyJsonPatches before
-            // the compile request. The worker cache is already current.
-            // Only send the full babelfontJson if the worker cache is cold
-            // (first compile after font load).
-            const jsonForWorker =
-                requestMeta?.usePatchedWorkerCache === true ||
-                this.workerCacheDocumentReady
-                    ? '__incremental_layer__'
-                    : babelfontJson;
-            sentFullFontJson = jsonForWorker !== '__incremental_layer__';
+            if (!this.workerCacheDocumentReady) {
+                await this.awaitWorkerDocumentSync();
+            }
+
+            if (!this.workerCacheDocumentReady) {
+                throw new Error(
+                    'Editing compile requires a ready worker Yjs document; full babelfont JSON fallback is disabled'
+                );
+            }
 
             const compileResult = await this.sendMessage({
                 type: 'compileEditingCached',
-                babelfontJson: jsonForWorker,
+                babelfontJson: '__incremental_layer__',
                 options,
                 subsetKey,
                 subsetGlyphs: normalizedSubsetGlyphs,
@@ -958,10 +956,6 @@ class FontCompilation {
                 _compileSource: requestMeta?.compileSource,
                 _forceStoreFontJson: false
             });
-
-            if (sentFullFontJson) {
-                this.lastStoredFontJson = babelfontJson;
-            }
 
             this.lastEditingSubsetKey = subsetKey;
 
@@ -973,16 +967,6 @@ class FontCompilation {
                 closureGlyphCount: compileResult.closureGlyphCount,
                 compileSource: compileResult.compileSource
             };
-        } catch (error) {
-            if (sentFullFontJson) {
-                // The worker stores full JSON before compiling. If compilation
-                // then fails, the worker cache may already hold that payload
-                // while this main-thread hint still points at an older value.
-                // Invalidate the hint so the next compile re-sends full JSON
-                // instead of incorrectly taking the incremental sentinel path.
-                this.lastStoredFontJson = null;
-            }
-            throw error;
         } finally {
             timelineSpanEnd(spanId);
         }

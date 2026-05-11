@@ -1,29 +1,6 @@
 /* @ts-self-types="./babelfont_fontc_web.d.ts" */
 
 /**
- * Apply RFC 6902 JSON Patch batch to the canonical font JSON cache.
- *
- * This is the exclusive mutation path for the Rust cache after bootstrap.
- * The same patches are also applied to the subset JSON cache (best-effort;
- * missing paths in the subset are silently ignored).
- *
- * # Arguments
- * * `patches_json` - JSON string containing an array of RFC 6902 patch operations
- *
- * # Returns
- * * `Result<(), JsValue>` - Success or error
- * @param {string} patches_json
- */
-export function apply_patch_batch(patches_json) {
-    const ptr0 = passStringToWasm0(patches_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.apply_patch_batch(ptr0, len0);
-    if (ret[1]) {
-        throw takeFromExternrefTable0(ret[0]);
-    }
-}
-
-/**
  * Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
  * update the CANONICAL_JSON_CACHE.
  *

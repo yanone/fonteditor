@@ -4253,9 +4253,7 @@ export class OutlineEditor {
                           retainGlyphNames: allowedGlyphNames
                       }
                   )
-                : fontModel.collectComponentDependentGlyphs(
-                      affectedGlyphNames
-                  );
+                : fontModel.collectComponentDependentGlyphs(affectedGlyphNames);
 
             for (const affectedGlyphName of transitiveAffectedGlyphNames) {
                 affectedGlyphNames.add(affectedGlyphName);

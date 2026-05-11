@@ -2,21 +2,6 @@
 /* eslint-disable */
 
 /**
- * Apply RFC 6902 JSON Patch batch to the canonical font JSON cache.
- *
- * This is the exclusive mutation path for the Rust cache after bootstrap.
- * The same patches are also applied to the subset JSON cache (best-effort;
- * missing paths in the subset are silently ignored).
- *
- * # Arguments
- * * `patches_json` - JSON string containing an array of RFC 6902 patch operations
- *
- * # Returns
- * * `Result<(), JsValue>` - Success or error
- */
-export function apply_patch_batch(patches_json: string): void;
-
-/**
  * Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
  * update the CANONICAL_JSON_CACHE.
  *
@@ -317,7 +302,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly apply_patch_batch: (a: number, b: number) => [number, number];
     readonly apply_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly clear_font_cache: () => void;
     readonly compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];

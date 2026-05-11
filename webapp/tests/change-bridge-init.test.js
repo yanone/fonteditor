@@ -49,6 +49,7 @@ describe('handleRemoteChangeRefresh', () => {
             undefined,
             false,
             {
+                allowSelectedLayerFallback: false,
                 workerReplayTargets: [
                     {
                         glyphName: 'a',
@@ -106,6 +107,7 @@ describe('handleRemoteChangeRefresh', () => {
             undefined,
             false,
             {
+                allowSelectedLayerFallback: false,
                 workerReplayTargets: replayTargets
             }
         );
@@ -115,6 +117,35 @@ describe('handleRemoteChangeRefresh', () => {
             'outline'
         );
         expect(requestCompile).toHaveBeenCalledTimes(1);
+    });
+
+    test('disables selected-layer fallback for remote changes without replay targets', async () => {
+        const queueCacheRefresh = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+
+        await handleRemoteChangeRefresh(
+            [
+                {
+                    transactionLabel: 'Remote metadata sync',
+                    path: 'features.classes.Uppercase.code',
+                    workerReplayTargets: []
+                }
+            ],
+            {
+                requestCompile,
+                queueCacheRefresh
+            }
+        );
+
+        expect(queueCacheRefresh).toHaveBeenCalledWith(
+            undefined,
+            undefined,
+            false,
+            {
+                allowSelectedLayerFallback: false
+            }
+        );
+        expect(requestCompile).toHaveBeenCalledWith('remote-change', null);
     });
 
     describe('linked-window visual pan', () => {
@@ -727,6 +758,52 @@ describe('syncRustCacheAndRefreshCanvas', () => {
         expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
             { glyphName: 'l', layerId: 'master-regular' }
         ]);
+        expect(awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
+
+        awaitWorkerDocumentSync.mockRestore();
+    });
+
+    test('skips selected-layer fallback when explicitly disabled', async () => {
+        const awaitWorkerDocumentSync = jest
+            .spyOn(fontCompilation, 'awaitWorkerDocumentSync')
+            .mockResolvedValue();
+
+        fontCompilation.isInitialized = true;
+        window.fontManager = {
+            currentFont: {
+                babelfontJson: '{}',
+                fontModel: {
+                    findGlyph: jest.fn(() => undefined)
+                }
+            },
+            refreshWorkerCacheForReplayTargets: jest.fn(),
+            submitLayerToWorkerCache: jest.fn(),
+            awaitWorkerCacheUpdate: jest.fn(async () => {})
+        };
+        window.glyphCanvas = {
+            textRunEditor: {
+                refreshGlyphAdvancesLive: jest.fn(),
+                computePrecedingAdvanceDelta: jest.fn(() => 0)
+            },
+            requestRepaintAfterCompile: jest.fn(),
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'master-regular',
+                draggingSomething: false,
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'l' }]),
+                reconcileSelectionAfterModelSync: jest.fn(async () => {}),
+                fetchLayerData: jest.fn(async () => {})
+            }
+        };
+
+        await syncRustCacheAndRefreshCanvas(undefined, undefined, false, {
+            skipDeferredCanvasRepaint: true,
+            allowSelectedLayerFallback: false
+        });
+
+        expect(
+            window.fontManager.submitLayerToWorkerCache
+        ).not.toHaveBeenCalled();
         expect(awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
 
         awaitWorkerDocumentSync.mockRestore();

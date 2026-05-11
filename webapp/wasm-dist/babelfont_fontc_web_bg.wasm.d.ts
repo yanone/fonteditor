@@ -2,7 +2,6 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-export const apply_patch_batch: (a: number, b: number) => [number, number];
 export const apply_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const clear_font_cache: () => void;
 export const compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];

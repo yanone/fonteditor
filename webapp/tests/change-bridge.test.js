@@ -3365,6 +3365,83 @@ describe('WindowSync', () => {
         bridge2.destroy();
     });
 
+    test('full state response initializes linked worker cache from authoritative state', async () => {
+        const originalFontCompilation = window.fontCompilation;
+        const originalFontManager = window.fontManager;
+
+        const sendMessage = jest.fn().mockResolvedValue({ success: true });
+        const setWorkerCacheDocumentReady = jest.fn();
+        const replaceWorkerYjsMirrorFromState = jest.fn();
+        const syncBabelfontJsonFromCurrentModel = jest.fn(() => {
+            window.fontManager.currentFont.babelfontJson =
+                '{"glyphs":[{"name":"A","layers":[{"id":"layer-1","width":999}]}]}';
+            return true;
+        });
+        const recordFullFontCrossing = jest.fn();
+
+        window.fontCompilation = {
+            isInitialized: true,
+            sendMessage,
+            setWorkerCacheDocumentReady
+        };
+        window.fontManager = {
+            currentFont: {
+                babelfontJson:
+                    '{"glyphs":[{"name":"A","layers":[{"id":"layer-1","width":600}]}]}'
+            },
+            replaceWorkerYjsMirrorFromState,
+            syncBabelfontJsonFromCurrentModel,
+            recordFullFontCrossing
+        };
+
+        const fontJson1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('win-1');
+        bridge1.initFromJson(fontJson1);
+        bridge1.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            999
+        );
+
+        const bridge2 = new ChangeBridge('win-2');
+
+        const sync1 = new WindowSync(bridge1, 'font-channel-worker-bootstrap');
+        const sync2 = new WindowSync(bridge2, 'font-channel-worker-bootstrap');
+
+        sync2.requestFullState();
+        flushTimers();
+        flushTimers();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(replaceWorkerYjsMirrorFromState).toHaveBeenCalledTimes(1);
+        expect(syncBabelfontJsonFromCurrentModel).toHaveBeenCalledTimes(1);
+        expect(recordFullFontCrossing).toHaveBeenCalledTimes(1);
+        expect(sendMessage).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({
+                type: 'storeFontJson',
+                babelfontJson: expect.stringContaining('999')
+            })
+        );
+        expect(sendMessage).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({
+                type: 'seedYdoc',
+                state: expect.any(Uint8Array)
+            })
+        );
+        expect(setWorkerCacheDocumentReady).not.toHaveBeenCalled();
+
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+        window.fontCompilation = originalFontCompilation;
+        window.fontManager = originalFontManager;
+    });
+
     test('only first full-state response is applied', () => {
         const fontA = makeMinimalFont();
         fontA.glyphs[0].layers[0].width = 710;
