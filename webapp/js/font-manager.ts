@@ -6,7 +6,11 @@
 
 import APP_SETTINGS from './settings';
 import * as Y from 'yjs';
-import { fontCompilation, requestOpenFontConversion } from './font-compilation';
+import {
+    fontCompilation,
+    fullFontCompilation,
+    requestOpenFontConversion
+} from './font-compilation';
 import { get_glyph_order } from '../wasm-dist/babelfont_fontc_web';
 import type { Babelfont } from './babelfont';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
@@ -3311,65 +3315,13 @@ class FontManager {
     private async recoverWorkerCacheFromAuthoritativeState(
         reason: string
     ): Promise<boolean> {
-        if (!fontCompilation?.isInitialized) {
-            return false;
-        }
-
-        try {
-            const currentFont = this.currentFont;
-            if (!currentFont) {
-                throw new Error(
-                    'Cannot recover worker cache without an open font'
-                );
-            }
-
-            // Sync first so babelfontJson is current, then build a normalized
-            // Y.Doc seed state (string-format nodes) that Rust can deserialize.
-            // The raw bridge state uses array-format nodes which Rust cannot
-            // parse when rebuilding CANONICAL_JSON_CACHE after apply_yjs_update.
-            const synced = this.syncBabelfontJsonFromCurrentModel();
-            if (!synced) {
-                throw new Error(
-                    'Failed to sync font JSON before worker cache recovery'
-                );
-            }
-
-            const normalizedState = this.buildWorkerYjsStateFromCurrentFont();
-            if (!normalizedState?.length) {
-                this.workerCacheYDoc = null;
-                fontCompilation.setWorkerCacheDocumentReady(false);
-                console.warn(
-                    '[FontManager] Missing normalized Yjs state for worker cache recovery:',
-                    reason
-                );
-                return false;
-            }
-
-            // Reset boundary-crossing bookkeeping before installing the fresh
-            // mirror so the new authoritative state remains available for the
-            // next incremental worker update.
-            this.recordFullFontCrossing();
-            this.replaceWorkerYjsMirrorFromState(normalizedState);
-            await fontCompilation.sendMessage({
-                type: 'storeFontJson',
-                babelfontJson: currentFont.babelfontJson
-            });
-            await fontCompilation.sendMessage({
-                type: 'seedYdoc',
-                state: normalizedState,
-                forceStore: true
-            });
-            return true;
-        } catch (error) {
-            this.workerCacheYDoc = null;
-            fontCompilation.setWorkerCacheDocumentReady(false);
-            console.warn(
-                '[FontManager] Failed to recover worker cache from authoritative Yjs state:',
-                reason,
-                error
-            );
-            return false;
-        }
+        this.workerCacheYDoc = null;
+        fontCompilation?.setWorkerCacheDocumentReady(false);
+        console.error(
+            '[FontManager] Incremental worker-cache invariant violated; full-state repair is disabled:',
+            reason
+        );
+        return false;
     }
 
     async recoverWorkerCacheFromBridgeState(reason: string): Promise<boolean> {
@@ -3386,21 +3338,16 @@ class FontManager {
         );
 
         if (!normalizedChangedGlyphs.length) {
-            return this.recoverWorkerCacheFromAuthoritativeState(
-                'missing changedGlyphs for forwarded Yjs update'
+            return this.sendWorkerYjsUpdate(
+                update,
+                [],
+                options?.invalidateLayoutClosure !== false
             );
         }
 
-        // Rebuild the affected glyph layers from the current model state using
-        // normalized (string-format) node data. Forwarding the raw bridge Yjs
-        // update directly would push array-format nodes into the Rust Y.Doc,
-        // which only understands the compact string format ("x y type …").
-        //
-        // For the main window's own drag edits, submitLayerUpdatesToWorkerCache
-        // has already updated workerLayerFingerprintCache, so
-        // collectChangedLayerUpdatesFromModel returns nothing (no-op).
-        // For remote changes the fingerprint won't match yet, so the changed
-        // layers are rebuilt with normalized nodes.
+        // Rebuild glyph-scoped updates from the normalized object model so
+        // Rust never receives array-format outline nodes. Font-wide edits with
+        // no affected glyphs can flow through the raw Yjs update path above.
         const pendingLayerUpdates = this.collectChangedLayerUpdatesFromModel(
             normalizedChangedGlyphs,
             null,
@@ -3586,13 +3533,6 @@ class FontManager {
                     normalized
                 };
             });
-
-            if (
-                !this.workerCacheYDoc &&
-                !this.pendingBabelfontJsonSyncAfterDrag
-            ) {
-                this.bootstrapWorkerYjsMirrorFromCurrentFont();
-            }
 
             const workerUpdate =
                 this.buildWorkerYjsLayerUpdate(normalizedUpdates);
@@ -3907,14 +3847,6 @@ class FontManager {
             changeSource.startsWith('mouse-drag') ||
             changeSource.startsWith('keyboard');
 
-        if (
-            isInteractiveEdit &&
-            !this.workerCacheYDoc &&
-            !this.pendingBabelfontJsonSyncAfterDrag
-        ) {
-            this.bootstrapWorkerYjsMirrorFromCurrentFont();
-        }
-
         let glyph = this.getGlyph(glyphName);
         if (!glyph) {
             console.error(
@@ -4012,11 +3944,22 @@ class FontManager {
             }
         }
 
-        // Update worker's font cache so glyph overview renders correctly
-        // Skip during dragging to prevent clearing caches repeatedly - will update on drag end
+        // Update worker's font cache incrementally so glyph overview renders
+        // correctly without any full-document resend.
         if (!isInteractiveEdit) {
             try {
-                await this.forceFullWorkerCacheUpdate();
+                await this.submitLayerUpdatesToWorkerCache(
+                    [
+                        {
+                            glyphName,
+                            layerId,
+                            layerData: layerDataCopy
+                        }
+                    ],
+                    {
+                        invalidateLayoutClosure: true
+                    }
+                );
             } catch (error) {
                 console.error(
                     '[FontManager] Error updating worker font cache:',
@@ -4168,49 +4111,63 @@ class FontManager {
     }
 
     /**
-     * Force a full binary Yjs state refresh into the Rust worker cache.
-     * Call this after multi-layer or font-wide edits when layer-scoped patch
-     * refreshes are insufficient.
+     * Force an exhaustive incremental Yjs refresh into the Rust worker cache.
+     * This sends all current layers as one Yjs delta against the existing
+     * worker mirror; it must not fall back to any full-document resend.
      */
     async forceFullWorkerCacheUpdate(): Promise<void> {
         if (!this.currentFont || !fontCompilation?.isInitialized) {
             return;
         }
 
-        const currentFont = this.currentFont;
-
         const cacheUpdatePromise = (async () => {
             this.pendingBabelfontJsonSyncAfterDrag = false;
             try {
-                // Sync first so babelfontJson is current, then build a normalized
-                // Y.Doc seed state (string-format nodes) that Rust can deserialize.
-                const synced = this.syncBabelfontJsonFromCurrentModel();
-                if (!synced) {
+                if (!this.workerCacheYDoc) {
                     throw new Error(
-                        'Failed to sync font JSON before full worker cache update'
+                        'Worker Yjs mirror missing during exhaustive incremental cache refresh'
                     );
                 }
-                const normalizedState =
-                    this.buildWorkerYjsStateFromCurrentFont();
-                if (!normalizedState?.length) {
-                    throw new Error('Missing normalized worker Yjs state');
+
+                const glyphNames =
+                    this.currentFont?.fontModel?.glyphs
+                        ?.map((glyph: any) => glyph?.name)
+                        .filter(
+                            (glyphName: unknown): glyphName is string =>
+                                typeof glyphName === 'string' &&
+                                glyphName.length > 0
+                        ) || [];
+
+                const pendingLayerUpdates =
+                    this.collectChangedLayerUpdatesFromModel(glyphNames, null, {
+                        skipFingerprintBaseline: true
+                    });
+
+                if (!pendingLayerUpdates) {
+                    throw new Error(
+                        'Failed to collect exhaustive incremental layer updates'
+                    );
                 }
-                // Clear fingerprint/cache bookkeeping first, then keep the
-                // rebuilt mirror so subsequent incremental updates diff
-                // against the same authoritative state sent to Rust.
-                this.recordFullFontCrossing();
-                this.replaceWorkerYjsMirrorFromState(normalizedState);
-                await fontCompilation.sendMessage({
-                    type: 'storeFontJson',
-                    babelfontJson: currentFont.babelfontJson
-                });
-                await fontCompilation.sendMessage({
-                    type: 'seedYdoc',
-                    state: normalizedState
-                });
+
+                if (pendingLayerUpdates.length === 0) {
+                    return;
+                }
+
+                const updated = await this.submitLayerUpdatesToWorkerCache(
+                    pendingLayerUpdates,
+                    {
+                        invalidateLayoutClosure: true
+                    }
+                );
+
+                if (!updated) {
+                    throw new Error(
+                        'Exhaustive incremental worker-cache refresh failed'
+                    );
+                }
             } catch (error) {
                 console.error(
-                    '[FontManager] forceFullWorkerCacheUpdate: error restoring worker cache from authoritative state:',
+                    '[FontManager] forceFullWorkerCacheUpdate: incremental cache refresh failed:',
                     error
                 );
                 fontCompilation.setWorkerCacheDocumentReady(false);
@@ -4261,13 +4218,6 @@ class FontManager {
 
             if (!currentFont || !uniqueGlyphNames.length) {
                 return;
-            }
-
-            if (
-                !this.workerCacheYDoc &&
-                !this.pendingBabelfontJsonSyncAfterDrag
-            ) {
-                this.bootstrapWorkerYjsMirrorFromCurrentFont();
             }
 
             const pendingLayerUpdates =
@@ -4567,6 +4517,11 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         fontCompilation.pendingStoreFontJsonPayload = null;
         fontCompilation.pendingStoreFontJsonPromise = null;
         fontCompilation.lastEditingSubsetKey = null;
+        fullFontCompilation.setWorkerCacheDocumentReady(false);
+        fullFontCompilation.lastStoredFontJson = null;
+        fullFontCompilation.pendingStoreFontJsonPayload = null;
+        fullFontCompilation.pendingStoreFontJsonPromise = null;
+        fullFontCompilation.lastEditingSubsetKey = null;
 
         // Prioritize first-open UX over continuous background recompiles/QC.
         window.autoCompileManager?.setStartupBlocked?.(true);

@@ -228,6 +228,76 @@ class FontCompilation {
         await this.pendingWorkerDocumentSync;
     }
 
+    async seedWorkerYDocFromState(
+        state: Uint8Array | ArrayBufferLike | null | undefined
+    ): Promise<void> {
+        if (!state) {
+            this.workerCacheDocumentReady = false;
+            throw new Error('Cannot seed worker Yjs document without state');
+        }
+
+        if (!this.isInitialized) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                throw new Error(
+                    'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+                );
+            }
+        }
+
+        this.workerCacheDocumentReady = false;
+
+        const seedResult = await this.sendMessage({
+            type: 'seedYdoc',
+            state: state instanceof Uint8Array ? state : new Uint8Array(state)
+        });
+
+        if (seedResult?.error) {
+            this.workerCacheDocumentReady = false;
+            throw new Error(
+                `Failed to seed worker Yjs document: ${seedResult.error}`
+            );
+        }
+    }
+
+    async bootstrapWorkerCacheFromFontState(
+        babelfontJson: string,
+        state: Uint8Array | ArrayBufferLike | null | undefined
+    ): Promise<void> {
+        if (!babelfontJson) {
+            this.workerCacheDocumentReady = false;
+            throw new Error(
+                'Cannot bootstrap worker cache without babelfont JSON'
+            );
+        }
+
+        if (!this.isInitialized) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                throw new Error(
+                    'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+                );
+            }
+        }
+
+        this.workerCacheDocumentReady = false;
+
+        const storeResult = await this.sendMessage({
+            type: 'storeFontJson',
+            babelfontJson,
+            forceStore: true
+        });
+
+        if (storeResult?.error) {
+            this.workerCacheDocumentReady = false;
+            throw new Error(
+                `Failed to store font JSON in worker cache: ${storeResult.error}`
+            );
+        }
+
+        await this.seedWorkerYDocFromState(state);
+    }
+
     async initialize() {
         if (this.isInitialized) {
             timelineMark('fontCompilation.initialize.alreadyInitialized');
@@ -659,7 +729,6 @@ class FontCompilation {
                 }
                 if (
                     messageType === 'storeFontJson' ||
-                    messageType === 'initYdoc' ||
                     messageType === 'seedYdoc' ||
                     messageType === 'applyYjsUpdate'
                 ) {
@@ -717,7 +786,6 @@ class FontCompilation {
 
         if (
             messageType === 'storeFontJson' ||
-            messageType === 'initYdoc' ||
             messageType === 'seedYdoc' ||
             messageType === 'applyYjsUpdate'
         ) {
@@ -881,6 +949,58 @@ class FontCompilation {
         });
     }
 
+    async compileCached(
+        target: string | CompilationOptions = 'user',
+        filename: string = 'font.ttf'
+    ): Promise<{ result: Uint8Array; filename: string; time_taken: number }> {
+        const compileSpanId = timelineSpanStart(
+            'fontCompilation.compileCached'
+        );
+
+        try {
+            if (!this.isInitialized) {
+                const initialized = await this.initialize();
+                if (!initialized) {
+                    timelineMark(
+                        'fontCompilation.compileCached.notInitialized'
+                    );
+                    throw new Error(
+                        'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+                    );
+                }
+            }
+
+            if (!this.workerCacheDocumentReady) {
+                await this.awaitWorkerDocumentSync();
+            }
+
+            if (!this.workerCacheDocumentReady) {
+                throw new Error(
+                    'Cached compile requires a ready worker Yjs document; full babelfont JSON fallback is disabled'
+                );
+            }
+
+            const options: CompilationOptions =
+                typeof target === 'string'
+                    ? { ...COMPILATION_TARGETS[target] }
+                    : target;
+
+            const result = await this.sendMessage({
+                type: 'compileCached',
+                options,
+                filename
+            });
+
+            return {
+                result: result.result,
+                filename: result.filename || filename,
+                time_taken: result.time_taken || 0
+            };
+        } finally {
+            timelineSpanEnd(compileSpanId);
+        }
+    }
+
     async compileEditingFromJsonCached(
         babelfontJson: string,
         fontRevisionKey: string,
@@ -953,8 +1073,7 @@ class FontCompilation {
                 fontRevisionKey,
                 filename: 'editing-font.ttf',
                 _dragActive: requestMeta?.dragActive === true,
-                _compileSource: requestMeta?.compileSource,
-                _forceStoreFontJson: false
+                _compileSource: requestMeta?.compileSource
             });
 
             this.lastEditingSubsetKey = subsetKey;

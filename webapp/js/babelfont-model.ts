@@ -33,10 +33,12 @@ import {
     getSidebearingTransactionLabel,
     type SidebearingSide
 } from './sidebearing-utils';
+import { ensureWasmInitialized } from './wasm-init';
 import { translateLayerContentsX } from './x-translation-utils';
 import {
-    interpolate_glyph,
-    store_font
+    apply_yjs_update,
+    init_ydoc_from_state,
+    interpolate_glyph
 } from '../wasm-dist/babelfont_fontc_web';
 
 const console = new Logger('BabelfontModel');
@@ -224,11 +226,6 @@ function isAutomaticSidebearingOverrideKey(value: string | undefined): boolean {
     return Boolean(normalizedValue && /^==?[+-]/.test(normalizedValue));
 }
 
-type InterpolationFontCacheEntry = {
-    serializedFont: string;
-    version: number;
-};
-
 type SegmentPoint = {
     x: number;
     y: number;
@@ -265,8 +262,8 @@ export function withSuppressedMetricsKeyRecompute<T>(fn: () => T): T {
         suppressMetricsKeyRecomputeDepth--;
     }
 }
-const interpolationFontCache = new WeakMap<Font, InterpolationFontCacheEntry>();
 const interpolationFontVersions = new WeakMap<Font, number>();
+let interpolationRustDocReady = false;
 
 function getInterpolationFontVersion(font: Font): number {
     return interpolationFontVersions.get(font) || 0;
@@ -2572,26 +2569,68 @@ function locationsMatch(
 }
 
 export function ensureFontStoredForInterpolation(font: Font): boolean {
-    const version = getInterpolationFontVersion(font);
-    const cachedEntry = interpolationFontCache.get(font);
+    void font;
+    return interpolationRustDocReady;
+}
 
-    if (cachedEntry && cachedEntry.version === version) {
-        return true;
+export async function seedInterpolationRustCacheFromState(
+    state: Uint8Array | ArrayBufferLike | null | undefined
+): Promise<boolean> {
+    if (!state) {
+        interpolationRustDocReady = false;
+        return false;
     }
 
     try {
-        const serializedFont = font.toJSONString();
-        if (!cachedEntry || cachedEntry.serializedFont !== serializedFont) {
-            store_font(serializedFont);
-        }
-
-        interpolationFontCache.set(font, {
-            serializedFont,
-            version
-        });
+        await ensureWasmInitialized();
+        init_ydoc_from_state(
+            state instanceof Uint8Array ? state : new Uint8Array(state)
+        );
+        interpolationRustDocReady = true;
         return true;
-    } catch {
-        return Boolean(cachedEntry);
+    } catch (error) {
+        interpolationRustDocReady = false;
+        console.warn(
+            '[BabelfontModel]',
+            'Failed to seed main-thread interpolation Rust cache:',
+            error
+        );
+        return false;
+    }
+}
+
+export async function applyInterpolationRustYjsUpdate(
+    update: Uint8Array | ArrayBufferLike | null | undefined,
+    changedGlyphs: string[]
+): Promise<boolean> {
+    if (!update) {
+        return false;
+    }
+
+    if (!interpolationRustDocReady) {
+        return false;
+    }
+
+    try {
+        await ensureWasmInitialized();
+        const resultJson = apply_yjs_update(
+            update instanceof Uint8Array ? update : new Uint8Array(update),
+            JSON.stringify(Array.isArray(changedGlyphs) ? changedGlyphs : [])
+        );
+        const parsed = JSON.parse(resultJson || '{}') as { skipped?: string };
+        if (parsed?.skipped === 'ydoc_not_initialized') {
+            interpolationRustDocReady = false;
+            return false;
+        }
+        return true;
+    } catch (error) {
+        interpolationRustDocReady = false;
+        console.warn(
+            '[BabelfontModel]',
+            'Failed to apply incremental Yjs update to main-thread interpolation Rust cache:',
+            error
+        );
+        return false;
     }
 }
 

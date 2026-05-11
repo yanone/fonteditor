@@ -32,7 +32,11 @@ The Patch Engine must treat Yjs diffs as authoritative for normal edits, undo, a
 
 Forward patches are generated only on the receiving side, on the fly, from the incoming binary Yjs diff for human introspection. They are shown in the history item's info popup, but they must never be used to replay, rebuild, or update font data. Yjs alone defines document state.
 
-Binary Yjs updates (not RFC 6902 forward patches) are the authoritative transmission format for keeping the Rust WASM compilation worker's cache current. The worker maintains its own `yrs::Doc` (a Rust port of the Yjs CRDT), and the JavaScript `PatchSyncEngine` forwards every local and remote Yjs binary update directly to it via `applyYjsUpdate` / `initYdoc` messages. This eliminates the need to transmit the full babelfont JSON string on every edit. The main font cache (`CANONICAL_JSON_CACHE`) is rebuilt from the Rust Y.Doc on each update. The subset compilation cache is kept up-to-date using the list of changed glyph/layer identifiers returned by `apply_yjs_update`.
+Binary Yjs updates (not RFC 6902 forward patches) are the authoritative transmission format for keeping the Rust WASM compilation worker's cache current during normal editing. The worker maintains its own `yrs::Doc` (a Rust port of the Yjs CRDT), and the JavaScript `PatchSyncEngine` forwards every local and remote edit-time Yjs binary update directly to it via `applyYjsUpdate`. This eliminates the need to transmit the full babelfont JSON string on every edit. The main font cache (`CANONICAL_JSON_CACHE`) is rebuilt from the Rust Y.Doc on each update. The subset compilation cache is kept up-to-date using the list of changed glyph/layer identifiers returned by `apply_yjs_update`.
+
+For normal editing there are no escape hatches: no full babelfont JSON resend, no full Yjs-state resend, no `storeFontJson`, no `initYdoc`, and no other full-document repair transport may be used to make Rust catch up. If an edit, undo, redo, Python edit, feature-code commit, or linked-window edit cannot keep Rust correct through incremental Yjs updates alone, that is a bug in the editing pipeline and must be fixed there rather than papered over with any full-state fallback.
+
+Full-document transport is reserved for bootstrap from external sources only, such as opening or importing a font into a fresh Rust worker state. Once a document is open and editing has begun, steady-state document convergence must remain incremental-only.
 
 ### Cloud sync vs. local window sync
 

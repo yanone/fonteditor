@@ -59,12 +59,42 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     const DEBOUNCE_MS = 350;
     const MONITOR_MS = 200;
 
+    async function ensureFullCompileWorkerCacheReady(): Promise<void> {
+        if (fullFontCompilation.hasWorkerCacheDocument()) {
+            return;
+        }
+
+        const currentFont = fontManager.currentFont;
+        if (!currentFont?.babelfontJson) {
+            throw new Error('No font loaded. Open a font first.');
+        }
+
+        const normalizedState = fontManager.buildNormalizedWorkerYjsState?.();
+        if (!normalizedState?.length) {
+            throw new Error(
+                'Full background compilation requires a normalized worker Yjs seed state'
+            );
+        }
+
+        await fullFontCompilation.bootstrapWorkerCacheFromFontState(
+            currentFont.babelfontJson,
+            normalizedState
+        );
+    }
+
     function isCompilationBlockedByEditingSession(): boolean {
         return !!window.glyphCanvas?.outlineEditor?.draggingSomething;
     }
 
     function isFullCompilationAllowed(): boolean {
         return windowRole.isMainWindow();
+    }
+
+    function isTransientWorkerCacheReadinessError(error: unknown): boolean {
+        const message = error instanceof Error ? error.message : String(error);
+        return message.includes(
+            'Cached compile requires a ready worker Yjs document'
+        );
     }
 
     function isValidProfile(profile: string): profile is QcProfile {
@@ -252,15 +282,14 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                 const startedAt = performance.now();
                 const fullCompileSpanId = timelineSpanStart('font.compileFull');
                 try {
-                    // Always sync babelfontJson from the current model before full compile.
-                    // This converts any array-format nodes back to Rust's compact string
-                    // format and regenerates the JSON string from the latest model state.
+                    // Keep the JS snapshot current for diagnostics/UI, but compile
+                    // from the incrementally maintained Rust worker cache.
                     currentFont.syncJsonFromModel();
+                    await ensureFullCompileWorkerCacheReady();
                     const compileResult =
-                        await fullFontCompilation.compileFromJson(
-                            currentFont.babelfontJson,
-                            'full-font.ttf',
-                            'full'
+                        await fullFontCompilation.compileCached(
+                            'full',
+                            'full-font.ttf'
                         );
 
                     const fullFontBytes = new Uint8Array(compileResult.result);
@@ -336,6 +365,18 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                         break;
                     }
                 } catch (error) {
+                    if (isTransientWorkerCacheReadinessError(error)) {
+                        scheduleCompilation(MONITOR_MS);
+                        dispatchQcUpdate(
+                            fontManager.fullFontQcSummary,
+                            'idle',
+                            targetVersion,
+                            undefined,
+                            lastChecks
+                        );
+                        break;
+                    }
+
                     const message =
                         error instanceof Error ? error.message : String(error);
                     const featureIssues =

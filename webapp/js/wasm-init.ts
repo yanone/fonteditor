@@ -70,6 +70,14 @@ function runAutoInitialization(): void {
 }
 
 function scheduleAutoInitialization(): void {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+        console.log(
+            '[WasmInit]',
+            'Skipping browser auto-initialization outside a window context'
+        );
+        return;
+    }
+
     const isProductionMode =
         typeof window.isProduction === 'function' && window.isProduction();
     const hasServiceWorkerApi = 'serviceWorker' in navigator;

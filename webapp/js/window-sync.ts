@@ -8,6 +8,7 @@
 
 import type { PatchSyncEngine } from './patch-sync-engine';
 import type { ChangeLogEntry } from './change-log';
+import { seedInterpolationRustCacheFromState } from './babelfont-model';
 import { Logger } from './logger';
 import type { CollaborationLogItem } from './patch-sync-engine';
 import type { CollaborationMessageEnvelope } from './collaboration-message';
@@ -409,6 +410,9 @@ export class WindowSync {
 
                         fontManager.recordFullFontCrossing?.();
                         fontManager.replaceWorkerYjsMirrorFromState?.(
+                            normalizedState
+                        );
+                        await seedInterpolationRustCacheFromState(
                             normalizedState
                         );
                         await window.fontCompilation!.sendMessage({

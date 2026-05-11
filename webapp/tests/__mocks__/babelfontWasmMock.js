@@ -114,6 +114,14 @@ initBabelfontWasm.compile_babelfont = jest.fn(
 initBabelfontWasm.compile_cached_font = jest.fn(
     (options) => new Uint8Array(100)
 );
+initBabelfontWasm.apply_yjs_update = jest.fn((update, changedGlyphsJson) =>
+    JSON.stringify({
+        changedGlyphs: JSON.parse(changedGlyphsJson || '[]'),
+        changedLayerIds: []
+    })
+);
+initBabelfontWasm.init_ydoc_from_state = jest.fn(() => {});
+initBabelfontWasm.seed_ydoc = jest.fn(() => {});
 initBabelfontWasm.store_font = jest.fn((json) => {
     storedFontJson = json;
 });

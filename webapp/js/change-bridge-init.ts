@@ -12,9 +12,13 @@
 
 import { PatchSyncEngine } from './patch-sync-engine';
 import { fromYType } from './change-bridge-ydoc';
-import { Font } from './babelfont-model';
+import {
+    applyInterpolationRustYjsUpdate,
+    Font,
+    seedInterpolationRustCacheFromState
+} from './babelfont-model';
 import { WindowSync } from './window-sync';
-import { fontCompilation } from './font-compilation';
+import { fontCompilation, fullFontCompilation } from './font-compilation';
 import { Logger } from './logger';
 import {
     deriveGlyphNamesFromPaths,
@@ -1934,9 +1938,7 @@ function initializeBridge(detail: {
             changeLogEntries.map((e) => e.path).filter(Boolean)
         );
 
-        if (!changedGlyphs.length) {
-            return;
-        }
+        void applyInterpolationRustYjsUpdate(update, changedGlyphs);
 
         void window.fontManager?.forwardWorkerYjsUpdate?.(
             update,
@@ -1945,6 +1947,23 @@ function initializeBridge(detail: {
                 invalidateLayoutClosure: !isDragging
             }
         );
+
+        if (fullFontCompilation.hasWorkerCacheDocument()) {
+            void fullFontCompilation
+                .sendMessage({
+                    type: 'applyYjsUpdate',
+                    update,
+                    changedGlyphs,
+                    invalidateLayoutClosure: !isDragging
+                })
+                .catch((error) => {
+                    console.warn(
+                        'Failed to mirror Yjs update to full compile worker',
+                        error
+                    );
+                    fullFontCompilation.setWorkerCacheDocumentReady(false);
+                });
+        }
     });
 
     // Seed the Rust Y.Doc immediately after bridge initialisation so that the
@@ -1972,6 +1991,7 @@ function initializeBridge(detail: {
             fontCompilation.setWorkerCacheDocumentReady(false);
         } else {
             fontManager?.replaceWorkerYjsMirrorFromState?.(state);
+            void seedInterpolationRustCacheFromState(state);
             void fontCompilation
                 .sendMessage({
                     type: 'seedYdoc',

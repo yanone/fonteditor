@@ -66,6 +66,8 @@ describe('FontManager saveLayerData', () => {
         fontManager.currentFontId = 'test-font';
         fontManager.pendingBabelfontJsonSyncAfterDrag = false;
         fontManager.scheduleFullCompileDebounce = jest.fn();
+        const initialWorkerState = fontManager.buildNormalizedWorkerYjsState();
+        fontManager.replaceWorkerYjsMirrorFromState(initialWorkerState);
         updateDirtyIndicatorSpy = jest
             .spyOn(fontManager, 'updateDirtyIndicator')
             .mockResolvedValue();
@@ -1340,6 +1342,8 @@ describe('FontManager boundary-crossing budget', () => {
         fontManager.scheduleFullCompileDebounce = jest.fn();
         fontManager.workerLayerFingerprintCache = new Map();
         fontManager.resetBoundaryCrossingStats();
+        const initialWorkerState = fontManager.buildNormalizedWorkerYjsState();
+        fontManager.replaceWorkerYjsMirrorFromState(initialWorkerState);
 
         updateDirtyIndicatorSpy = jest
             .spyOn(fontManager, 'updateDirtyIndicator')
@@ -1508,107 +1512,58 @@ describe('FontManager boundary-crossing budget', () => {
         expect(fontManager.workerLayerFingerprintCache.size).toBe(0);
     });
 
-    test('forceFullWorkerCacheUpdate restores worker cache with storeFontJson and seedYdoc', async () => {
+    test('forceFullWorkerCacheUpdate performs an exhaustive incremental refresh without full-document crossings', async () => {
         await fontManager.forceFullWorkerCacheUpdate();
 
-        expect(sendMessageSpy).toHaveBeenNthCalledWith(
-            1,
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
-                type: 'storeFontJson',
-                babelfontJson: expect.any(String)
-            })
-        );
-        expect(sendMessageSpy).toHaveBeenNthCalledWith(
-            2,
-            expect.objectContaining({
-                type: 'seedYdoc',
-                state: expect.any(Uint8Array)
+                type: 'applyYjsUpdate',
+                changedGlyphs: expect.any(Array),
+                invalidateLayoutClosure: true
             })
         );
         expect(fontManager.getBoundaryCrossingStats().fullFontCrossings).toBe(
-            1
+            0
         );
     });
 
-    test('forwardWorkerYjsUpdate falls back to storeFontJson plus seedYdoc recovery when glyph metadata is missing', async () => {
-        const originalWorkerCacheYDoc = fontManager.workerCacheYDoc;
-        const buildStateSpy = jest
-            .spyOn(fontManager, 'buildWorkerAuthoritativeYjsState')
-            .mockReturnValue(new Uint8Array([1, 2, 3]));
-        const replaceMirrorSpy = jest
-            .spyOn(fontManager, 'replaceWorkerYjsMirrorFromState')
-            .mockImplementation(() => {});
-        sendMessageSpy.mockResolvedValue({ success: true });
+    test('forwardWorkerYjsUpdate forwards font-wide updates with no glyph metadata as raw incremental Yjs', async () => {
+        await expect(
+            fontManager.forwardWorkerYjsUpdate(new Uint8Array([1, 2, 3]), [])
+        ).resolves.toBe(true);
 
-        try {
-            await expect(
-                fontManager.forwardWorkerYjsUpdate(
-                    new Uint8Array([1, 2, 3]),
-                    []
-                )
-            ).resolves.toBe(true);
-
-            expect(sendMessageSpy).toHaveBeenNthCalledWith(
-                1,
-                expect.objectContaining({
-                    type: 'storeFontJson',
-                    babelfontJson: expect.any(String)
-                })
-            );
-            expect(sendMessageSpy).toHaveBeenNthCalledWith(
-                2,
-                expect.objectContaining({
-                    type: 'seedYdoc',
-                    state: expect.any(Uint8Array)
-                })
-            );
-        } finally {
-            fontManager.workerCacheYDoc = originalWorkerCacheYDoc;
-            replaceMirrorSpy.mockRestore();
-            buildStateSpy.mockRestore();
-        }
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: [],
+                invalidateLayoutClosure: true
+            })
+        );
     });
 
-    test('forwardWorkerYjsUpdate recovers from authoritative state with storeFontJson plus seedYdoc after applyYjsUpdate failure', async () => {
-        const originalWorkerCacheYDoc = fontManager.workerCacheYDoc;
-        sendMessageSpy
-            .mockRejectedValueOnce(new Error('RuntimeError: unreachable'))
-            .mockResolvedValueOnce({ success: true });
+    test('forwardWorkerYjsUpdate fails after applyYjsUpdate failure instead of repairing with a full resend', async () => {
+        sendMessageSpy.mockRejectedValueOnce(
+            new Error('RuntimeError: unreachable')
+        );
 
-        try {
-            await expect(
-                fontManager.forwardWorkerYjsUpdate(
-                    new Uint8Array([1, 2, 3]),
-                    ['a'],
-                    { invalidateLayoutClosure: false }
-                )
-            ).resolves.toBe(true);
+        await expect(
+            fontManager.forwardWorkerYjsUpdate(
+                new Uint8Array([1, 2, 3]),
+                ['a'],
+                { invalidateLayoutClosure: false }
+            )
+        ).resolves.toBe(false);
 
-            expect(sendMessageSpy).toHaveBeenNthCalledWith(
-                1,
-                expect.objectContaining({
-                    type: 'applyYjsUpdate',
-                    changedGlyphs: ['a'],
-                    invalidateLayoutClosure: false
-                })
-            );
-            expect(sendMessageSpy).toHaveBeenNthCalledWith(
-                2,
-                expect.objectContaining({
-                    type: 'storeFontJson',
-                    babelfontJson: expect.any(String)
-                })
-            );
-            expect(sendMessageSpy).toHaveBeenNthCalledWith(
-                3,
-                expect.objectContaining({
-                    type: 'seedYdoc',
-                    state: expect.any(Uint8Array)
-                })
-            );
-        } finally {
-            fontManager.workerCacheYDoc = originalWorkerCacheYDoc;
-        }
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: ['a'],
+                invalidateLayoutClosure: false
+            })
+        );
     });
 
     test('updateWorkerFontCache waits for worker Yjs sync when no incremental layer target is available', async () => {
@@ -1678,7 +1633,7 @@ describe('FontManager boundary-crossing budget', () => {
         awaitWorkerDocumentSyncSpy.mockRestore();
     });
 
-    test('refreshGlyphsAfterModelBatch recovers with storeFontJson plus seedYdoc when incremental update reports an unseeded worker doc', async () => {
+    test('refreshGlyphsAfterModelBatch rejects when incremental update reports an unseeded worker doc', async () => {
         const currentFont = fontManager.currentFont;
         const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
         const modelLayer = currentFont.fontModel
@@ -1686,41 +1641,26 @@ describe('FontManager boundary-crossing budget', () => {
             .findLayerById(layerId);
 
         modelLayer.width += 19;
-        sendMessageSpy
-            .mockResolvedValueOnce({
-                type: 'applyYjsUpdate',
-                success: true,
-                skipped: 'ydoc_not_initialized'
-            })
-            .mockResolvedValueOnce({ type: 'storeFontJson', success: true })
-            .mockResolvedValueOnce({ type: 'seedYdoc', success: true });
+        sendMessageSpy.mockResolvedValueOnce({
+            type: 'applyYjsUpdate',
+            success: true,
+            skipped: 'ydoc_not_initialized'
+        });
 
         await expect(
             fontManager.refreshGlyphsAfterModelBatch(['a'], layerId)
-        ).resolves.toBeUndefined();
+        ).rejects.toThrow(
+            'Incremental worker Yjs sync failed during editing batch refresh'
+        );
 
-        expect(sendMessageSpy).toHaveBeenNthCalledWith(
-            1,
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'applyYjsUpdate'
             })
         );
-        expect(sendMessageSpy).toHaveBeenNthCalledWith(
-            2,
-            expect.objectContaining({
-                type: 'storeFontJson',
-                babelfontJson: expect.any(String)
-            })
-        );
-        expect(sendMessageSpy).toHaveBeenNthCalledWith(
-            3,
-            expect.objectContaining({
-                type: 'seedYdoc',
-                state: expect.any(Uint8Array)
-            })
-        );
         expect(fontManager.getBoundaryCrossingStats().fullFontCrossings).toBe(
-            1
+            0
         );
     });
 

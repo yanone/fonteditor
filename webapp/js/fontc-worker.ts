@@ -4,9 +4,9 @@
 
 import init, {
     compile_babelfont,
+    compile_cached_font,
     compile_cached_font_from_last_layout_closure,
     store_font,
-    init_ydoc_from_state,
     seed_ydoc,
     apply_yjs_update,
     prime_layout_closure_cache,
@@ -1011,23 +1011,18 @@ self.onmessage = async (event) => {
                 const startTime = performance.now();
                 const {
                     id,
-                    babelfontJson,
                     options,
                     subsetGlyphs,
                     subsetKey,
                     fontRevisionKey,
                     _dragActive,
-                    _compileSource,
-                    _forceStoreFontJson
+                    _compileSource
                 } = data;
 
-                const isIncrementalSentinel =
-                    babelfontJson === '__incremental_layer__';
-                if (
-                    !isIncrementalSentinel &&
-                    (!babelfontJson || typeof babelfontJson !== 'string')
-                ) {
-                    throw new Error('Missing babelfontJson');
+                if (data.babelfontJson !== '__incremental_layer__') {
+                    throw new Error(
+                        'compileEditingCached requires the incremental Yjs worker cache; full babelfont JSON fallback is disabled'
+                    );
                 }
 
                 const revisionKey = String(fontRevisionKey ?? 'unknown');
@@ -1041,15 +1036,6 @@ self.onmessage = async (event) => {
                 const ensureFontCachedSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.ensureFontCached'
                 );
-                // Font cache is primed by storeFontJson (bootstrap) and
-                // kept current by Yjs document updates during editing.
-                if (!isIncrementalSentinel) {
-                    if (cachedBabelfontJson !== babelfontJson) {
-                        store_font(babelfontJson);
-                        cachedBabelfontJson = babelfontJson;
-                        fontCacheEpoch += 1;
-                    }
-                }
                 timelineSpanEnd(ensureFontCachedSpanId);
 
                 const primeClosureSpanId = timelineSpanStart(
@@ -1168,6 +1154,50 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(compileEditingSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'compileCached') {
+            const compileCachedSpanId = timelineSpanStart(
+                'font.worker.compileCached'
+            );
+
+            if (!initialized) {
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: 'Worker not initialized'
+                });
+                return;
+            }
+
+            try {
+                const startTime = performance.now();
+                const compiledBytes = compile_cached_font(data.options || {});
+                const endTime = performance.now();
+
+                postCompiledResult(
+                    {
+                        id: data.id,
+                        time_taken: endTime - startTime,
+                        filename: data.filename || 'font.ttf'
+                    },
+                    compiledBytes
+                );
+                timelineMark('font.worker.compileCached.success');
+            } catch (error: unknown) {
+                timelineMark('font.worker.compileCached.failed');
+                const normalizedError = normalizeWorkerError(error);
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: normalizedError.message,
+                    errorPayload: normalizedError.payload,
+                    stack: normalizedError.stack
+                });
+            } finally {
+                timelineSpanEnd(compileCachedSpanId);
             }
             return;
         }
@@ -1351,41 +1381,6 @@ self.onmessage = async (event) => {
                     success: false,
                     error: e.toString()
                 });
-            }
-            return;
-        }
-
-        // initYdoc: reinitialise the Rust Y.Doc from a full binary Yjs state
-        // AND rebuild all caches (used after undo/redo/remote full-state sync
-        // instead of the heavy storeFontJson path).
-        if (data.type === 'initYdoc') {
-            const spanId = timelineSpanStart('font.worker.initYdoc');
-            const { id, state } = data;
-            try {
-                timelineMark('font.worker.initYdoc.started');
-                if (!initialized) {
-                    await initializeWasm();
-                }
-                init_ydoc_from_state(
-                    state instanceof Uint8Array ? state : new Uint8Array(state)
-                );
-                cachedBabelfontJson = null; // CANONICAL_JSON_CACHE rebuilt from Y.Doc
-                cachedBaseSubsetKey = null;
-                cachedClosureGlyphCount = null;
-                fontCacheEpoch += 1;
-                self.postMessage({ id, type: 'initYdoc', success: true });
-                timelineMark('font.worker.initYdoc.success');
-            } catch (e: any) {
-                timelineMark('font.worker.initYdoc.failed');
-                console.error('[Fontc Worker] initYdoc error:', e);
-                self.postMessage({
-                    id,
-                    type: 'initYdoc',
-                    success: false,
-                    error: e.toString()
-                });
-            } finally {
-                timelineSpanEnd(spanId);
             }
             return;
         }
@@ -1640,26 +1635,10 @@ self.onmessage = async (event) => {
 
             try {
                 timelineMark('font.worker.getGlyphOutlines.started');
-                // Ensure font is cached before getting outlines
-                if (!cachedBabelfontJson) {
-                    const errorMsg =
-                        'No font loaded in worker. Open a font first.';
-                    console.error(`[Fontc Worker] ERROR: ${errorMsg}`);
-                    self.postMessage({
-                        id,
-                        type: 'getGlyphOutlines',
-                        error: errorMsg,
-                        debugInfo: {
-                            cacheState: 'null',
-                            initialized: initialized,
-                            timestamp: Date.now()
-                        }
-                    });
-                    return;
-                }
-
-                // Note: Don't call store_font here - it clears the outline cache!
-                // The font is already stored when opened.
+                // Outline fetches now rebuild from Rust's canonical JSON/font cache.
+                // Do not gate them on the legacy JS-side cachedBabelfontJson
+                // sentinel: incremental Yjs updates keep the Rust cache hot even
+                // when no full JSON round-trip has happened in this worker.
 
                 const locationJson =
                     Object.keys(location).length > 0
@@ -1691,91 +1670,6 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(outlinesSpanId);
-            }
-            return;
-        }
-
-        // Handle compilation request (LEGACY PATH - fallback for messages without explicit type)
-        if (
-            data.type !== 'compile' &&
-            data.type !== 'interpolate' &&
-            data.type !== 'clearCache' &&
-            !data.type &&
-            data.babelfontJson
-        ) {
-            const legacyCompileSpanId = timelineSpanStart(
-                'font.worker.legacyCompile'
-            );
-            const start = Date.now();
-            const { id, babelfontJson, filename, options } = data;
-
-            // Validate babelfontJson exists
-            if (!babelfontJson) {
-                console.error(
-                    '[Fontc Worker] No babelfontJson provided in compilation request, data.type:',
-                    data.type
-                );
-                self.postMessage({
-                    id,
-                    error: 'No babelfontJson provided in compilation request'
-                });
-                return;
-            }
-
-            try {
-                timelineMark('font.worker.legacyCompile.started');
-                // STEP 1: Store font in WASM cache for interpolation
-                try {
-                    store_font(babelfontJson);
-                    cachedBabelfontJson = babelfontJson; // Also cache in worker memory
-                } catch (cacheError) {
-                    console.warn(
-                        '[Fontc Worker] ⚠️ Failed to cache font:',
-                        cacheError
-                    );
-                    // Continue with compilation anyway
-                }
-
-                // STEP 2: Clean font data (remove runtime-only layerData fields)
-                const fontData = JSON.parse(babelfontJson);
-                const cleanedFontData = stripLayerData(fontData);
-
-                // Validate font data before compilation
-                validateFontData(cleanedFontData);
-
-                const cleanedJson = JSON.stringify(cleanedFontData);
-
-                // STEP 3: Compile to TTF
-                const result = compile_babelfont(cleanedJson, {
-                    drop_incompatible_paths: true // Tolerate incompatible masters
-                });
-
-                const time_taken = Date.now() - start;
-                console.log(
-                    `[Fontc Worker] Compiled ${filename} in ${time_taken}ms`
-                );
-
-                postCompiledResult(
-                    {
-                        id,
-                        time_taken,
-                        filename: filename.replace(/\.babelfont$/, '.ttf')
-                    },
-                    result
-                );
-                timelineMark('font.worker.legacyCompile.success');
-            } catch (e: any) {
-                timelineMark('font.worker.legacyCompile.failed');
-                console.error('[Fontc Worker] Compilation error:', e);
-                const errorMessage = e.toString();
-
-                self.postMessage({
-                    id,
-                    error: errorMessage,
-                    userMessage: `Font compilation failed: ${errorMessage}`
-                });
-            } finally {
-                timelineSpanEnd(legacyCompileSpanId);
             }
             return;
         }
