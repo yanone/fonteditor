@@ -4,6 +4,7 @@ const path = require('path');
 const fontManager = require('../js/font-manager').default;
 const { fontCompilation } = require('../js/font-compilation');
 const { Font } = require('../js/babelfont-model');
+const { yDocToJson } = require('../js/change-bridge-ydoc');
 const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
 
 function loadFontFile(filePath) {
@@ -1523,6 +1524,127 @@ describe('FontManager boundary-crossing budget', () => {
                 invalidateLayoutClosure: true
             })
         );
+        expect(fontManager.getBoundaryCrossingStats().fullFontCrossings).toBe(
+            0
+        );
+    });
+
+    test('forceFullWorkerCacheUpdate deletes removed layers from the worker cache incrementally', async () => {
+        const currentFont = fontManager.currentFont;
+        const glyphData = currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        expect(glyphData.layers.length).toBeGreaterThan(1);
+
+        const removedLayer = glyphData.layers[glyphData.layers.length - 1];
+        const nextFontData = cloneJson(currentFont.babelfontData);
+        const nextGlyphData = nextFontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        nextGlyphData.layers = nextGlyphData.layers.filter(
+            (entry) => entry.id !== removedLayer.id
+        );
+        currentFont.babelfontData = nextFontData;
+        currentFont.babelfontJson = JSON.stringify(nextFontData);
+        currentFont.fontModel = Font.fromData(nextFontData);
+        fontManager.workerLayerFingerprintCache.set(
+            `a::${removedLayer.id}`,
+            'stale'
+        );
+
+        sendMessageSpy.mockClear();
+        fontManager.resetBoundaryCrossingStats();
+
+        await fontManager.forceFullWorkerCacheUpdate();
+
+        const workerFontJson = yDocToJson(
+            fontManager.workerCacheYDoc.getMap('font')
+        );
+        const workerGlyph = workerFontJson.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+
+        expect(
+            workerGlyph.layers.some((entry) => entry.id === removedLayer.id)
+        ).toBe(false);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: expect.arrayContaining(['a']),
+                invalidateLayoutClosure: true
+            })
+        );
+        expect(
+            sendMessageSpy.mock.calls.some(
+                ([message]) =>
+                    message?.type === 'storeFontJson' ||
+                    message?.type === 'initYdoc'
+            )
+        ).toBe(false);
+        expect(
+            fontManager.workerLayerFingerprintCache.has(`a::${removedLayer.id}`)
+        ).toBe(false);
+        expect(fontManager.getBoundaryCrossingStats().fullFontCrossings).toBe(
+            0
+        );
+    });
+
+    test('forceFullWorkerCacheUpdate deletes removed glyphs from the worker cache incrementally', async () => {
+        const currentFont = fontManager.currentFont;
+        const removedGlyph = currentFont.babelfontData.glyphs.find(
+            (entry) => entry?.name && entry.name !== 'a'
+        );
+        expect(removedGlyph).toBeTruthy();
+
+        const nextFontData = cloneJson(currentFont.babelfontData);
+        nextFontData.glyphs = nextFontData.glyphs.filter(
+            (entry) => entry?.name !== removedGlyph.name
+        );
+        currentFont.babelfontData = nextFontData;
+        currentFont.babelfontJson = JSON.stringify(nextFontData);
+        currentFont.fontModel = Font.fromData(nextFontData);
+        for (const layer of removedGlyph.layers || []) {
+            if (layer?.id) {
+                fontManager.workerLayerFingerprintCache.set(
+                    `${removedGlyph.name}::${layer.id}`,
+                    'stale'
+                );
+            }
+        }
+
+        sendMessageSpy.mockClear();
+        fontManager.resetBoundaryCrossingStats();
+
+        await fontManager.forceFullWorkerCacheUpdate();
+
+        const workerFontJson = yDocToJson(
+            fontManager.workerCacheYDoc.getMap('font')
+        );
+
+        expect(
+            workerFontJson.glyphs.some(
+                (entry) => entry.name === removedGlyph.name
+            )
+        ).toBe(false);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: expect.arrayContaining([removedGlyph.name]),
+                invalidateLayoutClosure: true
+            })
+        );
+        expect(
+            sendMessageSpy.mock.calls.some(
+                ([message]) =>
+                    message?.type === 'storeFontJson' ||
+                    message?.type === 'initYdoc'
+            )
+        ).toBe(false);
+        expect(
+            Array.from(fontManager.workerLayerFingerprintCache.keys()).some(
+                (key) => key.startsWith(`${removedGlyph.name}::`)
+            )
+        ).toBe(false);
         expect(fontManager.getBoundaryCrossingStats().fullFontCrossings).toBe(
             0
         );

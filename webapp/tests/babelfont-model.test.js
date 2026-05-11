@@ -1,10 +1,18 @@
 const fs = require('fs');
 const path = require('path');
 const { Bezier } = require('bezier-js');
-const { Font, Layer } = require('../js/babelfont-model');
+const {
+    Font,
+    Layer,
+    ensureFontStoredForInterpolation,
+    seedInterpolationRustCacheFromState,
+    applyInterpolationRustYjsUpdate
+} = require('../js/babelfont-model');
 const {
     open_font_file,
-    store_font
+    store_font,
+    init_ydoc_from_state,
+    apply_yjs_update
 } = require('../wasm-dist/babelfont_fontc_web');
 
 // Helper function to load and convert .glyphs files using WASM
@@ -95,6 +103,54 @@ function expectNodesToMatch(actualNodes, expectedNodes) {
         );
     }
 }
+
+describe('Babelfont interpolation Rust cache', () => {
+    beforeEach(async () => {
+        await seedInterpolationRustCacheFromState(null);
+        init_ydoc_from_state.mockClear();
+        apply_yjs_update.mockClear();
+    });
+
+    test('reload-style reseeding gates interpolation updates until the state arrives', async () => {
+        const font = makeFontWithSinglePath([
+            { x: 0, y: 0, nodetype: 'l' },
+            { x: 100, y: 0, nodetype: 'l' }
+        ]);
+
+        expect(ensureFontStoredForInterpolation(font)).toBe(false);
+        await expect(
+            applyInterpolationRustYjsUpdate(new Uint8Array([1, 2, 3]), [])
+        ).resolves.toBe(false);
+        expect(apply_yjs_update).not.toHaveBeenCalled();
+
+        await expect(
+            seedInterpolationRustCacheFromState(new Uint8Array([4, 5, 6]))
+        ).resolves.toBe(true);
+        expect(init_ydoc_from_state).toHaveBeenCalledWith(
+            expect.any(Uint8Array)
+        );
+        expect(ensureFontStoredForInterpolation(font)).toBe(true);
+
+        await expect(
+            applyInterpolationRustYjsUpdate(new Uint8Array([7, 8]), [
+                'testGlyph'
+            ])
+        ).resolves.toBe(true);
+        expect(apply_yjs_update).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            JSON.stringify(['testGlyph'])
+        );
+
+        await expect(seedInterpolationRustCacheFromState(null)).resolves.toBe(
+            false
+        );
+        expect(ensureFontStoredForInterpolation(font)).toBe(false);
+        await expect(
+            applyInterpolationRustYjsUpdate(new Uint8Array([9]), ['testGlyph'])
+        ).resolves.toBe(false);
+        expect(apply_yjs_update).toHaveBeenCalledTimes(1);
+    });
+});
 
 describe('Babelfont Object Model', () => {
     let fontData;

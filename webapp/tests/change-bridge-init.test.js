@@ -3,7 +3,11 @@ const {
     syncRustCacheAndRefreshCanvas,
     buildCascadingRecompositionOperations
 } = require('../js/change-bridge-init');
-const { fontCompilation } = require('../js/font-compilation');
+const babelfontModel = require('../js/babelfont-model');
+const {
+    fontCompilation,
+    fullFontCompilation
+} = require('../js/font-compilation');
 const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
 
 describe('handleRemoteChangeRefresh', () => {
@@ -272,6 +276,176 @@ describe('handleRemoteChangeRefresh', () => {
 
             expect(glyphCanvas.viewportManager.panX).toBe(beforePanX);
         });
+    });
+});
+
+describe('bridge Yjs worker callback', () => {
+    const originalPatchSyncEngine = window.patchSyncEngine;
+    const originalWindowSync = window.windowSync;
+    const originalWindowRole = window.windowRole;
+    const originalFontManager = window.fontManager;
+    const originalInitialized = fontCompilation.isInitialized;
+
+    function makeBridgeInitFont() {
+        return {
+            upm: 1000,
+            version: [1, 0],
+            note: '',
+            date: '2024-01-01',
+            names: { familyName: 'TestFont' },
+            axes: [],
+            masters: [],
+            instances: [],
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 600,
+                            anchors: [],
+                            shapes: []
+                        }
+                    ]
+                }
+            ],
+            features: {
+                classes: {},
+                prefixes: {},
+                features: []
+            }
+        };
+    }
+
+    function initializeBridgeHarness() {
+        const bridgeReadyEvent = new CustomEvent('fontModelReady', {
+            detail: {
+                path: '/tmp/TestFont.glyphs',
+                babelfontData: makeBridgeInitFont()
+            }
+        });
+
+        window.dispatchEvent(bridgeReadyEvent);
+
+        return window.patchSyncEngine;
+    }
+
+    afterEach(() => {
+        window.patchSyncEngine?.destroy?.();
+        window.windowSync?.destroy?.();
+        window.patchSyncEngine = originalPatchSyncEngine;
+        window.windowSync = originalWindowSync;
+        window.windowRole = originalWindowRole;
+        window.fontManager = originalFontManager;
+        fontCompilation.isInitialized = originalInitialized;
+        jest.restoreAllMocks();
+    });
+
+    test('forwards feature-code Yjs updates to Rust with empty glyph metadata', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const interpolationUpdateSpy = jest
+            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
+            .mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+        const hasWorkerCacheDocumentSpy = jest
+            .spyOn(fullFontCompilation, 'hasWorkerCacheDocument')
+            .mockReturnValue(true);
+        const fullWorkerUpdateSpy = jest
+            .spyOn(fullFontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = {
+            buildNormalizedWorkerYjsState: jest.fn(
+                () => new Uint8Array([1, 2, 3])
+            ),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const bridge = initializeBridgeHarness();
+        expect(typeof bridge._yjsWorkerCallback).toBe('function');
+
+        workerSeedSpy.mockClear();
+        fullWorkerUpdateSpy.mockClear();
+
+        bridge._yjsWorkerCallback(new Uint8Array([9, 9]), [
+            {
+                path: 'features.features.0.1.code'
+            }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            []
+        );
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            [],
+            {
+                invalidateLayoutClosure: true
+            }
+        );
+        expect(hasWorkerCacheDocumentSpy).toHaveBeenCalled();
+        expect(fullWorkerUpdateSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: [],
+                invalidateLayoutClosure: true
+            })
+        );
+    });
+
+    test('forwards font-wide metadata Yjs updates to Rust before recompilation', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const interpolationUpdateSpy = jest
+            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
+            .mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = {
+            buildNormalizedWorkerYjsState: jest.fn(
+                () => new Uint8Array([1, 2, 3])
+            ),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const bridge = initializeBridgeHarness();
+        workerSeedSpy.mockClear();
+
+        bridge._yjsWorkerCallback(new Uint8Array([7, 7]), [
+            {
+                path: 'names.familyName'
+            }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            []
+        );
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            [],
+            {
+                invalidateLayoutClosure: true
+            }
+        );
     });
 });
 

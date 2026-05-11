@@ -35,7 +35,8 @@ const {
     normalizeChangeLogEntry,
     resolveHistoryTargetItemId
 } = require('../js/change-log');
-const { Font, withSuppressedModelRecording } = require('../js/babelfont-model');
+const babelfontModel = require('../js/babelfont-model');
+const { Font, withSuppressedModelRecording } = babelfontModel;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -3368,9 +3369,15 @@ describe('WindowSync', () => {
     test('full state response initializes linked worker cache from authoritative state', async () => {
         const originalFontCompilation = window.fontCompilation;
         const originalFontManager = window.fontManager;
+        const seedInterpolationRustCacheFromStateSpy = jest
+            .spyOn(babelfontModel, 'seedInterpolationRustCacheFromState')
+            .mockResolvedValue(true);
 
         const sendMessage = jest.fn().mockResolvedValue({ success: true });
         const setWorkerCacheDocumentReady = jest.fn();
+        const buildNormalizedWorkerYjsState = jest.fn(
+            () => new Uint8Array([1, 2, 3])
+        );
         const replaceWorkerYjsMirrorFromState = jest.fn();
         const syncBabelfontJsonFromCurrentModel = jest.fn(() => {
             window.fontManager.currentFont.babelfontJson =
@@ -3389,6 +3396,7 @@ describe('WindowSync', () => {
                 babelfontJson:
                     '{"glyphs":[{"name":"A","layers":[{"id":"layer-1","width":600}]}]}'
             },
+            buildNormalizedWorkerYjsState,
             replaceWorkerYjsMirrorFromState,
             syncBabelfontJsonFromCurrentModel,
             recordFullFontCrossing
@@ -3416,6 +3424,7 @@ describe('WindowSync', () => {
         await Promise.resolve();
 
         expect(replaceWorkerYjsMirrorFromState).toHaveBeenCalledTimes(1);
+        expect(buildNormalizedWorkerYjsState).toHaveBeenCalledTimes(1);
         expect(syncBabelfontJsonFromCurrentModel).toHaveBeenCalledTimes(1);
         expect(recordFullFontCrossing).toHaveBeenCalledTimes(1);
         expect(sendMessage).toHaveBeenNthCalledWith(
@@ -3432,12 +3441,16 @@ describe('WindowSync', () => {
                 state: expect.any(Uint8Array)
             })
         );
+        expect(seedInterpolationRustCacheFromStateSpy).toHaveBeenCalledWith(
+            expect.any(Uint8Array)
+        );
         expect(setWorkerCacheDocumentReady).not.toHaveBeenCalled();
 
         sync1.destroy();
         sync2.destroy();
         bridge1.destroy();
         bridge2.destroy();
+        seedInterpolationRustCacheFromStateSpy.mockRestore();
         window.fontCompilation = originalFontCompilation;
         window.fontManager = originalFontManager;
     });

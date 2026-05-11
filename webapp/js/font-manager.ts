@@ -24,6 +24,7 @@ import {
 import {
     jsonToYDoc,
     sanitizeBabelfontArrays,
+    deleteYPath,
     setYPath
 } from './change-bridge-ydoc';
 import { sidebarErrorDisplay } from './sidebar-error-display';
@@ -3259,6 +3260,99 @@ class FontManager {
         };
     }
 
+    private buildWorkerYjsExhaustiveUpdate(
+        updates: Array<{
+            glyphName: string;
+            layerId: string;
+            normalized: Babelfont.Layer;
+        }>
+    ): { update: Uint8Array; changedGlyphs: string[] } | null {
+        if (!this.workerCacheYDoc || !this.currentFont) {
+            return null;
+        }
+
+        const fontMap = this.workerCacheYDoc.getMap('font');
+        const previousStateVector = Y.encodeStateVector(this.workerCacheYDoc);
+        const changedGlyphs = new Set<string>();
+        const currentLayerIdsByGlyph = new Map<string, Set<string>>();
+
+        for (const glyph of this.currentFont.fontModel?.glyphs || []) {
+            const glyphName = glyph?.name;
+            if (typeof glyphName !== 'string' || !glyphName.length) {
+                continue;
+            }
+
+            const layerIds = new Set<string>();
+            for (const layer of glyph.layers || []) {
+                const layerId = layer?.id;
+                if (typeof layerId === 'string' && layerId.length) {
+                    layerIds.add(layerId);
+                }
+            }
+            currentLayerIdsByGlyph.set(glyphName, layerIds);
+        }
+
+        this.workerCacheYDoc.transact(() => {
+            const workerGlyphs = fontMap.get('glyphs');
+            if (workerGlyphs instanceof Y.Map) {
+                workerGlyphs.forEach(
+                    (glyphValue: unknown, glyphName: string) => {
+                        if (!currentLayerIdsByGlyph.has(glyphName)) {
+                            deleteYPath(fontMap, ['glyphs', glyphName]);
+                            changedGlyphs.add(glyphName);
+                            return;
+                        }
+
+                        const currentLayerIds =
+                            currentLayerIdsByGlyph.get(glyphName) ||
+                            new Set<string>();
+                        const workerLayers =
+                            glyphValue instanceof Y.Map
+                                ? glyphValue.get('layers')
+                                : null;
+
+                        if (!(workerLayers instanceof Y.Map)) {
+                            return;
+                        }
+
+                        workerLayers.forEach(
+                            (_layerValue: unknown, layerId: string) => {
+                                if (currentLayerIds.has(layerId)) {
+                                    return;
+                                }
+
+                                deleteYPath(fontMap, [
+                                    'glyphs',
+                                    glyphName,
+                                    'layers',
+                                    layerId
+                                ]);
+                                changedGlyphs.add(glyphName);
+                            }
+                        );
+                    }
+                );
+            }
+
+            for (const update of updates) {
+                setYPath(
+                    fontMap,
+                    ['glyphs', update.glyphName, 'layers', update.layerId],
+                    update.normalized
+                );
+                changedGlyphs.add(update.glyphName);
+            }
+        });
+
+        return {
+            update: Y.encodeStateAsUpdate(
+                this.workerCacheYDoc,
+                previousStateVector
+            ),
+            changedGlyphs: Array.from(changedGlyphs)
+        };
+    }
+
     private async sendWorkerYjsUpdate(
         update: Uint8Array,
         changedGlyphs: string[],
@@ -4150,19 +4244,75 @@ class FontManager {
                 }
 
                 if (pendingLayerUpdates.length === 0) {
+                    const workerUpdate = this.buildWorkerYjsExhaustiveUpdate(
+                        []
+                    );
+                    if (!workerUpdate?.update.length) {
+                        return;
+                    }
+
+                    const sent = await this.sendWorkerYjsUpdate(
+                        workerUpdate.update,
+                        workerUpdate.changedGlyphs,
+                        true
+                    );
+                    if (!sent) {
+                        throw new Error(
+                            'Exhaustive incremental worker-cache deletion refresh failed'
+                        );
+                    }
+
+                    this._boundaryCrossingStats.submitBatchCalls++;
+                    for (const glyphName of workerUpdate.changedGlyphs) {
+                        this._boundaryCrossingStats.transmittedGlyphs.add(
+                            glyphName
+                        );
+                    }
+                    this.workerLayerFingerprintCache.clear();
                     return;
                 }
 
-                const updated = await this.submitLayerUpdatesToWorkerCache(
-                    pendingLayerUpdates,
-                    {
-                        invalidateLayoutClosure: true
-                    }
+                const normalizedUpdates = pendingLayerUpdates.map((update) => ({
+                    glyphName: update.glyphName,
+                    layerId: update.layerId,
+                    normalized: this.normalizeLayerForRust(update.layerData)
+                }));
+                const workerUpdate =
+                    this.buildWorkerYjsExhaustiveUpdate(normalizedUpdates);
+                if (!workerUpdate) {
+                    throw new Error(
+                        'Worker Yjs mirror not ready for exhaustive incremental cache refresh'
+                    );
+                }
+
+                const updated = await this.sendWorkerYjsUpdate(
+                    workerUpdate.update,
+                    workerUpdate.changedGlyphs,
+                    true
                 );
 
                 if (!updated) {
                     throw new Error(
                         'Exhaustive incremental worker-cache refresh failed'
+                    );
+                }
+
+                this._boundaryCrossingStats.submitBatchCalls++;
+                this._boundaryCrossingStats.layersTransmitted +=
+                    normalizedUpdates.length;
+                this.workerLayerFingerprintCache.clear();
+                for (const update of normalizedUpdates) {
+                    this.workerLayerFingerprintCache.set(
+                        this.getWorkerLayerFingerprintKey(
+                            update.glyphName,
+                            update.layerId
+                        ),
+                        JSON.stringify(update.normalized)
+                    );
+                }
+                for (const glyphName of workerUpdate.changedGlyphs) {
+                    this._boundaryCrossingStats.transmittedGlyphs.add(
+                        glyphName
                     );
                 }
             } catch (error) {
