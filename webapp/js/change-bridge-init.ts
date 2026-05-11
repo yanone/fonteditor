@@ -789,34 +789,7 @@ export async function syncRustCacheAndRefreshCanvas(
                 }
             }
 
-            if (!didStoreLayer) {
-                // Ensure babelfontJson is current before sending to Rust.
-                // It may be stale when _onAfterSync deferred the rebuild
-                // (undo/redo/remote sync marks pendingBabelfontJsonSyncAfterDrag
-                // instead of calling syncJsonFromModel() synchronously).
-                const fm = window.fontManager;
-                if (fm?.currentFont?.syncJsonFromModel) {
-                    fm.currentFont?.syncJsonFromModel();
-                }
-                if (fm) {
-                    fm.pendingBabelfontJsonSyncAfterDrag = false;
-                }
-                if (typeof fm?.forceFullWorkerCacheUpdate === 'function') {
-                    await fm.forceFullWorkerCacheUpdate();
-                } else {
-                    // Force this explicit sync to reach Rust even when the JSON text
-                    // matches a previously stored payload. This path is used after
-                    // undo/redo/remote Yjs updates where Rust may still hold an
-                    // incrementally-mutated cache that no longer matches current JSON.
-                    fontCompilation.lastStoredFontJson = null;
-                    fm?.recordFullFontCrossing?.();
-                    await fontCompilation.sendMessage({
-                        type: 'storeFontJson',
-                        babelfontJson: currentFont.babelfontJson,
-                        forceStore: true
-                    });
-                }
-            }
+            await fontCompilation.awaitWorkerDocumentSync();
         } catch {
             // Non-fatal — the scheduled compile will update the cache later
         }
@@ -1869,13 +1842,6 @@ function initializeBridge(detail: {
         fm.currentFont.fontModel = Font.fromData(fm.currentFont.babelfontData);
         window.currentFontModel = fm.currentFont.fontModel;
 
-        // Invalidate the storeFontJson cache so syncRustCacheAndRefreshCanvas
-        // always sends the updated JSON to Rust after undo/redo/remote-change.
-        // Incremental compiles (update_cached_layer) can modify the Rust
-        // FONT_CACHE without updating lastStoredFontJson, so the identical-JSON
-        // check would otherwise skip the send and leave Rust with stale data.
-        fontCompilation.lastStoredFontJson = null;
-
         window.dispatchEvent(new CustomEvent('fontModelSync'));
     });
 
@@ -1955,14 +1921,8 @@ function initializeBridge(detail: {
     // stay current without the expensive full-JSON round-trip.
     bridge.setYjsWorkerCallback((update, changeLogEntries) => {
         if (!fontCompilation?.isInitialized) return;
-
-        // Skip layout-closure invalidation during active drag — the
-        // subset cache is kept current by the existing apply_patch_batch path.
-        // During drag, also skip apply_yjs_update entirely: queueing it in the
-        // worker before applyJsonPatches would delay drag compilation.
         const isDragging =
             window.glyphCanvas?.outlineEditor?.draggingSomething === true;
-        if (isDragging) return;
 
         // Extract affected glyph names from the change-log entries so Rust can
         // perform a targeted partial update instead of a full JSON rebuild.
@@ -1975,7 +1935,7 @@ function initializeBridge(detail: {
             type: 'applyYjsUpdate',
             update,
             changedGlyphs,
-            invalidateLayoutClosure: true
+            invalidateLayoutClosure: !isDragging
         });
     });
 

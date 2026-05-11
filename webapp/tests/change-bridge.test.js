@@ -3984,6 +3984,65 @@ describe('syncGlyphFromJson', () => {
         ).toBe(800);
     });
 
+    test('local sync forwards the Yjs update to the worker callback', () => {
+        const { bridge, fontJson } = createTestBridge('test-worker-callback');
+        const workerUpdates = [];
+
+        bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+            workerUpdates.push({ update, changeLogEntries });
+        });
+
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson('A', 'Drag');
+
+        expect(workerUpdates).toHaveLength(1);
+        expect(workerUpdates[0].update).toBeInstanceOf(Uint8Array);
+        expect(workerUpdates[0].changeLogEntries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    path: 'glyphs.A',
+                    workerReplayTargets: [
+                        {
+                            glyphName: 'A',
+                            layerId: 'layer-1'
+                        }
+                    ]
+                })
+            ])
+        );
+    });
+
+    test('remote apply forwards the Yjs update to the worker callback', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-worker-callback');
+        const receiverBridge = new ChangeBridge('receiver-worker-callback');
+        let lastUpdate = null;
+        const workerUpdates = [];
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.initFromJson(receiverFontJson);
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+        receiverBridge.setYjsWorkerCallback((update, changeLogEntries) => {
+            workerUpdates.push({ update, changeLogEntries });
+        });
+
+        senderFontJson.glyphs[0].layers[0].width = 710;
+        senderBridge.syncGlyphFromJson('A', 'Remote drag');
+
+        const remoteEntries = senderBridge.getNewChangeLogEntries();
+        receiverBridge.applyRemoteUpdate(lastUpdate, remoteEntries);
+
+        expect(workerUpdates).toHaveLength(1);
+        expect(workerUpdates[0].update).toBe(lastUpdate);
+        expect(workerUpdates[0].changeLogEntries).toEqual(remoteEntries);
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
     test('undo works after syncGlyphFromJson', () => {
         const { bridge, fontJson } = createTestBridge('test-1');
 

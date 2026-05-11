@@ -2,7 +2,7 @@
     "compilerOptions": {
         "target": "es2021",
         "module": "esnext",
-        "moduleResolution": "node",
+        "moduleResolution": "bundler",
         "strict": true,
         "noImplicitAny": true,
         "strictNullChecks": true,
@@ -16,6 +16,7 @@
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
         "allowJs": true,
+        "rootDir": "./js",
         "outDir": "./build",
         "lib": ["es2021", "dom", "DOM.AsyncIterable"]
     },

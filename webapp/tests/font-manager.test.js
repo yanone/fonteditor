@@ -106,7 +106,7 @@ describe('FontManager saveLayerData', () => {
 
         expect(braceLayer).toBeDefined();
         expect(braceLayer.location).toEqual({ wght: 155, KSHD: 0, SWSH: 0 });
-
+        expect(fontCompilation.lastStoredFontJson).toBeNull();
         const editedLayerData = {
             ...cloneJson(braceLayer),
             location: undefined,
@@ -1539,7 +1539,7 @@ describe('FontManager boundary-crossing budget', () => {
         ]);
 
         expect(fontManager.workerLayerFingerprintCache.size).toBe(0);
-        expect(fontCompilation.lastStoredFontJson).toBeNull();
+        expect(fontCompilation.lastStoredFontJson).toBe('cached-json');
         expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'applyJsonPatches',
@@ -1557,6 +1557,85 @@ describe('FontManager boundary-crossing budget', () => {
         const stats = fontManager.getBoundaryCrossingStats();
         expect(stats.fullFontCrossings).toBe(1);
         expect(fontManager.workerLayerFingerprintCache.size).toBe(0);
+    });
+
+    test('forceFullWorkerCacheUpdate sends initYdoc instead of storeFontJson', async () => {
+        await fontManager.forceFullWorkerCacheUpdate();
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'initYdoc',
+                state: expect.any(Uint8Array)
+            })
+        );
+        expect(
+            sendMessageSpy.mock.calls.some(
+                ([message]) => message?.type === 'storeFontJson'
+            )
+        ).toBe(false);
+        expect(fontManager.getBoundaryCrossingStats().fullFontCrossings).toBe(
+            0
+        );
+    });
+
+    test('updateWorkerFontCache waits for worker Yjs sync when no incremental layer target is available', async () => {
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+        const awaitWorkerDocumentSyncSpy = jest
+            .spyOn(fontCompilation, 'awaitWorkerDocumentSync')
+            .mockResolvedValue();
+        window.glyphCanvas = {
+            outlineEditor: {
+                currentGlyphName: 'missing',
+                selectedLayerId: 'missing-layer'
+            },
+            getCurrentGlyphName: jest.fn(() => 'missing')
+        };
+
+        try {
+            await fontManager.updateWorkerFontCache();
+        } finally {
+            delete window.glyphCanvas;
+        }
+
+        expect(awaitWorkerDocumentSyncSpy).toHaveBeenCalledTimes(1);
+        expect(
+            sendMessageSpy.mock.calls.some(
+                ([message]) =>
+                    message?.type === 'storeFontJson' ||
+                    message?.type === 'initYdoc'
+            )
+        ).toBe(false);
+
+        awaitWorkerDocumentSyncSpy.mockRestore();
+    });
+
+    test('updateWorkerFontCache still waits for worker Yjs sync after a successful layer helper update', async () => {
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+        const awaitWorkerDocumentSyncSpy = jest
+            .spyOn(fontCompilation, 'awaitWorkerDocumentSync')
+            .mockResolvedValue();
+        window.glyphCanvas = {
+            outlineEditor: {
+                currentGlyphName: 'a',
+                selectedLayerId: '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+            },
+            getCurrentGlyphName: jest.fn(() => 'a')
+        };
+
+        try {
+            await fontManager.updateWorkerFontCache();
+        } finally {
+            delete window.glyphCanvas;
+        }
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyJsonPatches'
+            })
+        );
+        expect(awaitWorkerDocumentSyncSpy).toHaveBeenCalledTimes(1);
+
+        awaitWorkerDocumentSyncSpy.mockRestore();
     });
 
     test('per-edit boundary cost stays flat across 50 sequential commits', async () => {
@@ -1604,5 +1683,62 @@ describe('FontManager boundary-crossing budget', () => {
         const stats = fontManager.getBoundaryCrossingStats();
         expect(stats.submitBatchCalls).toBe(1);
         expect(stats.fullFontCrossings).toBe(0);
+    });
+});
+
+describe('FontCompilation worker cache readiness', () => {
+    let originalInitialized;
+    let sendMessageSpy;
+
+    beforeEach(() => {
+        originalInitialized = fontCompilation.isInitialized;
+        fontCompilation.isInitialized = true;
+        fontCompilation.setWorkerCacheDocumentReady(false);
+        sendMessageSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({
+                result: new Uint8Array([1, 2, 3]),
+                filename: 'editing.ttf',
+                time_taken: 1,
+                fontRevisionKey: '1'
+            });
+    });
+
+    afterEach(() => {
+        sendMessageSpy?.mockRestore();
+        fontCompilation.isInitialized = originalInitialized;
+        fontCompilation.setWorkerCacheDocumentReady(false);
+    });
+
+    test('compileEditingFromJsonCached uses incremental sentinel when worker cache is ready from binary sync', async () => {
+        fontCompilation.setWorkerCacheDocumentReady(true);
+
+        await fontCompilation.compileEditingFromJsonCached(
+            '{"glyphs":[]}',
+            '1',
+            ['a']
+        );
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'compileEditingCached',
+                babelfontJson: '__incremental_layer__'
+            })
+        );
+    });
+
+    test('compileEditingFromJsonCached still sends full JSON when worker cache is cold', async () => {
+        await fontCompilation.compileEditingFromJsonCached(
+            '{"glyphs":[]}',
+            '1',
+            ['a']
+        );
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'compileEditingCached',
+                babelfontJson: '{"glyphs":[]}'
+            })
+        );
     });
 });

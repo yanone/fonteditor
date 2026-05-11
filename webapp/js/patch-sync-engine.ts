@@ -629,12 +629,7 @@ export class PatchSyncEngine {
         for (const cb of this._localUpdateListeners) {
             cb(update, collaborationMessage);
         }
-        // NOTE: _yjsWorkerCallback is intentionally NOT called here for local
-        // edits. Local cache updates flow through storeFontJson / applyJsonPatches
-        // which keeps CANONICAL_JSON_CACHE and SUBSET_JSON_CACHE current via the
-        // compile pipeline without disrupting the layout-closure cache.
-        // The callback IS called from applyRemoteUpdate so remote changes from
-        // other windows still reach the Rust Y.Doc.
+        this._yjsWorkerCallback?.(update, changeLogEntries);
     }
 
     private _emitCanonicalLocalUpdateSince(
@@ -1644,14 +1639,14 @@ export class PatchSyncEngine {
             if (!this._fontJson) this._fontJson = {};
             const effectiveRemoteEntries = remoteEntries?.length
                 ? remoteEntries
-                : remoteCollaborationMessages?.flatMap((message) =>
+                : (remoteCollaborationMessages?.flatMap((message) =>
                       createChangeLogEntriesFromCollaborationMessageEnvelope(
                           message,
                           {
                               windowRoleLabel: this._getWindowRoleLabel()
                           }
                       )
-                  );
+                  ) ?? []);
             const remoteLayerScopes = this._getRemoteLayerSyncScopes(
                 effectiveRemoteEntries
             );
@@ -1681,16 +1676,11 @@ export class PatchSyncEngine {
                 update,
                 this._getRemoteUpdateOrigin(effectiveRemoteEntries)
             );
-            // NOTE: _yjsWorkerCallback is NOT called here for remote edits.
-            // The compile pipeline (babelfontJson via compile messages) and the
-            // forceFullWorkerCacheUpdate → initYdoc path already keep the Rust
-            // worker caches current after remote changes. Calling applyYjsUpdate
-            // here would clear cachedBaseSubsetKey and force a prime_layout_closure_cache
-            // rebuild on the next compile, causing > 5s delays for large fonts like Fustat.
             this._syncJsonFromYDoc(remoteLayerScopes);
             this._applyExplicitLayerPropertyRemovalsToFontJson(
                 effectiveRemoteEntries
             );
+            this._yjsWorkerCallback?.(update, effectiveRemoteEntries);
             this._onAfterSync?.();
             this._onDirty?.();
             if (effectiveRemoteEntries && effectiveRemoteEntries.length > 0) {

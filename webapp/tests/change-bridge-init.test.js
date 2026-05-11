@@ -682,4 +682,53 @@ describe('syncRustCacheAndRefreshCanvas', () => {
             { render: false }
         );
     });
+
+    test('waits for worker Yjs sync even when replay-target refresh succeeds', async () => {
+        const awaitWorkerDocumentSync = jest
+            .spyOn(fontCompilation, 'awaitWorkerDocumentSync')
+            .mockResolvedValue();
+        const refreshWorkerCacheForReplayTargets = jest
+            .fn()
+            .mockResolvedValue(true);
+
+        fontCompilation.isInitialized = true;
+        window.fontManager = {
+            currentFont: {
+                babelfontJson: '{}',
+                fontModel: {
+                    findGlyph: jest.fn(() => undefined)
+                }
+            },
+            refreshWorkerCacheForReplayTargets,
+            submitLayerToWorkerCache: jest.fn(),
+            awaitWorkerCacheUpdate: jest.fn(async () => {})
+        };
+        window.glyphCanvas = {
+            textRunEditor: {
+                refreshGlyphAdvancesLive: jest.fn(),
+                computePrecedingAdvanceDelta: jest.fn(() => 0)
+            },
+            requestRepaintAfterCompile: jest.fn(),
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'master-regular',
+                draggingSomething: false,
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'l' }]),
+                reconcileSelectionAfterModelSync: jest.fn(async () => {}),
+                fetchLayerData: jest.fn(async () => {})
+            }
+        };
+
+        await syncRustCacheAndRefreshCanvas(undefined, 'l', false, {
+            skipDeferredCanvasRepaint: true,
+            workerReplayTargets: [{ glyphName: 'l', layerId: 'master-regular' }]
+        });
+
+        expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
+            { glyphName: 'l', layerId: 'master-regular' }
+        ]);
+        expect(awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
+
+        awaitWorkerDocumentSync.mockRestore();
+    });
 });

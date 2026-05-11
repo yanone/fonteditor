@@ -316,22 +316,10 @@ async function syncRustAndRecompileEditingFont(
 
             if (fontCompilation?.isInitialized) {
                 try {
-                    const updatedIncrementally =
-                        layerScopedOnly && changedTargets.length
-                            ? await window.fontManager?.refreshWorkerCacheForReplayTargets(
-                                  changedTargets
-                              )
-                            : false;
-
-                    if (!updatedIncrementally) {
-                        await fontCompilation.sendMessage({
-                            type: 'storeFontJson',
-                            babelfontJson: currentFont.babelfontJson
-                        });
-                    }
+                    await fontCompilation.awaitWorkerDocumentSync();
                 } catch (error) {
                     console.error(
-                        '[PythonPostExec] Failed to sync font JSON to Rust cache:',
+                        '[PythonPostExec] Failed to sync worker cache after Python execution:',
                         error
                     );
                 }

@@ -4,6 +4,7 @@
  */
 
 import { Logger } from './logger';
+import { fontCompilation } from './font-compilation';
 import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
 import type { TransactionHistoryTarget } from './patch-sync-engine';
 import type { Babelfont } from './babelfont';
@@ -2817,8 +2818,28 @@ class FontInfoManager {
             return;
         }
 
+        const bridge = window.patchSyncEngine;
+        const path = this.getSelectedCodePath();
+        const historyTarget = this.getSelectedCodeHistoryTarget();
+
         codeData.code = newCode;
         this.featureCodeDirty = false;
+
+        if (bridge && path) {
+            bridge.beginTransaction('Edit feature code', historyTarget);
+            try {
+                bridge.applySyntheticChangeSet('Edit feature code', [
+                    {
+                        op: 'set',
+                        path,
+                        oldValue: previousCode,
+                        newValue: newCode
+                    }
+                ]);
+            } finally {
+                bridge.endTransaction();
+            }
+        }
 
         // Mark font as dirty
         if (window.fontManager?.currentFont) {
@@ -2826,16 +2847,15 @@ class FontInfoManager {
         }
 
         if (window.fontManager?.isReady()) {
-            if (window.fontManager.currentFont) {
-                window.fontManager.currentFont.syncJsonFromModel();
-            }
-
-            window.fontManager.recompileEditingFont().catch((error: any) => {
-                console.error(
-                    'Failed to compile font after feature code change:',
-                    error
-                );
-            });
+            void fontCompilation
+                .awaitWorkerDocumentSync()
+                .then(() => window.fontManager.recompileEditingFont())
+                .catch((error: any) => {
+                    console.error(
+                        'Failed to compile font after feature code change:',
+                        error
+                    );
+                });
         }
     }
 
@@ -2892,6 +2912,27 @@ class FontInfoManager {
 
         if (type === 'feature' && typeof key === 'number') {
             return ['features', 'features', key, 1, 'automatic'];
+        }
+
+        return null;
+    }
+
+    private getSelectedCodePath(): (string | number)[] | null {
+        if (!this.selectedItem) {
+            return null;
+        }
+
+        const { type, key } = this.selectedItem;
+        if (type === 'prefix' && typeof key === 'string') {
+            return ['features', 'prefixes', key, 'code'];
+        }
+
+        if (type === 'class' && typeof key === 'string') {
+            return ['features', 'classes', key, 'code'];
+        }
+
+        if (type === 'feature' && typeof key === 'number') {
+            return ['features', 'features', key, 1, 'code'];
         }
 
         return null;

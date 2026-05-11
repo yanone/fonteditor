@@ -32,12 +32,12 @@ When these files disagree with this document, treat that as a bug and reconcile 
 3. Background full-font QC work must not start while an outline drag is active; the shared worker must remain available for editing compiles and outline fetches.
 4. Interactive keyboard edits must still compile live.
 5. Interactive enriched edits must still schedule a trailing debounced full compile after the interaction settles.
-6. Interactive drag and keyboard edits must continue using incremental JSON patch batches into the worker rather than re-sending the full babelfont JSON.
+6. Interactive edit-time flows must keep the Rust worker congruent via incremental Yjs updates. Targeted worker-cache patch batches may still exist as performance helpers, but they are not the source of truth and must never require a full-document resend during steady-state editing.
 7. Editing compiles must continue using the subsetted `editing` target before fontc.
 8. Text input uses its own subset-only fast path and still schedules a deferred full compile after typing settles.
 9. Full compiles remain the correctness fallback after interactive editing or when an edit type does not have a specialized fast path.
 10. Linked windows must not run full-font compilation or Fontspector; only the main window may schedule and execute them. The `full-font-compile-manager` checks `windowRole.isMainWindow()` at every scheduling entry point and suppresses the monitor loop for linked windows.
-11. Every interactive commit MUST cross the JS ↔ Rust/worker boundary through `submitLayerUpdatesToWorkerCache` (one batched `applyJsonPatches` worker message per commit, regardless of the number of changed layers). Full-font `storeFontJson` crossings MUST stay at zero outside of font open, external reload, and explicit force-full sync (`forceFullWorkerCacheUpdate`). The receiver path (`syncRustCacheAndRefreshCanvas`) and undo/redo path use `refreshWorkerCacheForReplayTargets` for the same single-batch crossing; the receiver fallback `submitLayerToWorkerCache` (singular) routes through the same batched API so its boundary-crossing counters and fingerprint-cache updates are uniform. The fingerprint baseline used to skip unchanged layers is the in-memory `workerLayerFingerprintCache`; it is updated incrementally on every successful submit and cleared on every full-font crossing (`recordFullFontCrossing`), so the cache stays consistent with whatever Rust currently holds without ever re-deriving fingerprints by parsing `babelfontJson` on the hot path.
+11. Every interactive commit MUST keep the JS and Rust documents aligned through the shared Yjs transaction stream. Full-font `storeFontJson` or `initYdoc` crossings MUST stay at zero during steady-state editing, undo, redo, Python execution, and feature-code commits. Replay-target patch batches may still be used as narrow cache helpers, but edit-time compiles must be allowed to wait for the already-emitted Yjs worker update instead of forcing a full-document resend.
 12. Collaboration and history transport MUST use named forward/inverse patch pairs, not raw numeric JSON Pointer batches. The source window derives those pairs from the same concrete document diff that would produce RFC 6902 JSON patches, then rewrites glyph/layer array segments to stable glyph-name/layer-id addresses before sending them to linked windows or cloud history.
 13. Python edits MUST follow the same rule: derive forward/inverse JSON patch pairs from normalized before/after font snapshots, translate them to named patch pairs, then feed the bridge/history pipeline from those translated pairs. Python must not bypass the shared collaboration funnel with ad hoc full-font sync alone.
 
@@ -114,7 +114,7 @@ fullState...`, `with a peer: yjs-update broadcast omits fullState...`,
 | `mouse-drag-guide`                      | `OutlineEditor` guide drag                                       | `null`                                | Yes                                                                                  | No                                                                                                        | `full`            | None                                                                     | Incremental sentinel JSON plus `update_cached_layer()` because it is still an interactive layer save                                                                                   | Editing compile may run during drag; full compile manager remains deferred                            |
 | `keyboard`                              | Generic `saveLayerData()` keyboard save without edit-type suffix | `null`                                | Yes                                                                                  | No                                                                                                        | `full`            | None                                                                     | Incremental sentinel JSON plus `update_cached_layer()` because `compileSource` starts with `keyboard`                                                                                  | Full compile/render path                                                                              |
 | `text-input`                            | `GlyphCanvas` text shaping subset updates                        | Not derived through `saveLayerData()` | Immediate direct compile call                                                        | Yes, `scheduleTextInputFullCompile()`                                                                     | `text-input`      | `produce_varc_table: false`                                              | No full JSON transfer; worker reuses cached font and compiles against the updated subset key                                                                                           | Specialized text-input path; keep shaping/layout intact                                               |
-| `feature-code-edit`                     | `FontInfoManager` OpenType feature source edits                  | `null`                                | Yes, on Cmd+Enter, editor blur, and 5 s typing debounce                              | No separate trailing debounce; the idle timer is itself the compile trigger                               | `full`            | None                                                                     | Sync full babelfont JSON from the model before recompiling so feature code, GSUB, and GPOS rebuild from current source                                                                 | Full compile/render path                                                                              |
+| `feature-code-edit`                     | `FontInfoManager` OpenType feature source edits                  | `null`                                | Yes, on Cmd+Enter, editor blur, and 5 s typing debounce                              | No separate trailing debounce; the idle timer is itself the compile trigger                               | `full`            | None                                                                     | Commit through `PatchSyncEngine.applySyntheticChangeSet()`, forward the resulting Yjs update to Rust, then wait for that worker sync before recompiling                                | Full compile/render path                                                                              |
 | `text-input-full-compile`               | Deferred correctness pass after typing settles                   | `null`                                | Yes                                                                                  | N/A, this is the debounce target                                                                          | `full`            | None                                                                     | Reuses cached font data when possible; full compile wake-up through dirty flag                                                                                                         | Full compile/render path                                                                              |
 | Debounced post-interaction full compile | `FontManager.scheduleFullCompileDebounce()`                      | Reset to `null` before compile        | Yes, when debounce fires                                                             | N/A, this is the debounce target                                                                          | `full`            | None                                                                     | Uses latest synchronized babelfont JSON after pending sync is flushed                                                                                                                  | Full compile/render path                                                                              |
 | `remote-anchor`                         | Linked window `onRemoteChange` from a main-window anchor edit    | `anchor`                              | Yes, via `autoCompileManager.checkAndSchedule()`                                     | No (trailing full compile handled by main window)                                                         | `anchor-only`     | `produce_varc_table: false`                                              | Incremental layer updates via `workerReplayTargets` from change log entries; no full JSON resync to worker                                                                             | Linked window editing font updated; canvas refreshed                                                  |
@@ -132,12 +132,12 @@ model/Yjs state and only then refreshes the Rust worker cache. Without the
 post-refresh request, the first compile can run against stale worker cache data
 and leave the editing font one undo step behind.
 
-Undo/redo should prefer incremental worker-cache refresh whenever the recorded
-history entries carry explicit layer replay targets. Change messages for
-interactive layer-backed edits must therefore persist the exact glyph/layer
-targets needed to repopulate the worker with `storeLayerUpdates`. Full
-`storeFontJson` remains the fallback only for edits whose history entries do not
-carry replayable layer targets, such as true font-wide data changes.
+Undo/redo should prefer the already-forwarded Yjs worker update whenever one is
+in flight, and use replay-target cache refresh only as a narrow acceleration
+when the recorded history entries carry explicit layer replay targets. Change
+messages for interactive layer-backed edits must therefore persist the exact
+glyph/layer targets needed for optional targeted cache repair, but Rust document
+truth still comes from the Yjs update itself.
 
 When the undone/redone history item touches anchors, undo/redo must set
 `lastEditType = 'anchor'` (and `lastChangeSource = 'keyboard-anchor'`) before
@@ -200,7 +200,7 @@ Text input does not go through `saveLayerData()`. Instead it:
 
 ### OpenType feature source edits
 
-OpenType feature source edits in the font-info Features editor are font-wide source changes, so they must stay on the full compile path rather than any outline or text-input fast path.
+OpenType feature source edits in the font-info Features editor are font-wide source changes, so they must stay on the full compile path rather than any outline or text-input fast path. They must still enter the shared patch/Yjs funnel before recompilation so Rust receives the same authoritative Yjs update as every other edit.
 
 The editor commits and recompiles feature code in three cases:
 
@@ -208,17 +208,17 @@ The editor commits and recompiles feature code in three cases:
 2. Immediately when the Ace editor loses focus.
 3. Automatically after 5 seconds with no further typing.
 
-All three triggers must use the same commit path: write the current Ace buffer into the model, mark the font dirty, sync babelfont JSON from the model, and call `recompileEditingFont()`. Blur and explicit commit must cancel any pending idle timer so one edit burst produces at most one automatic compile.
+All three triggers must use the same commit path: write the current Ace buffer through the patch bridge, mark the font dirty, wait for the corresponding Yjs worker update to land, and call `recompileEditingFont()`. Blur and explicit commit must cancel any pending idle timer so one edit burst produces at most one automatic compile.
 
 ## Worker Cache Policy
 
 The fast path depends on these rules staying true:
 
 1. Drag and keyboard layer edits use the incremental sentinel JSON path in `font-compilation.ts` rather than sending the full babelfont JSON to the worker.
-2. `fontc-worker.ts` patches the cached font via `applyJsonPatches`. Generic raw JSON patch batches must invalidate the cached subset/layout-closure epoch so the next cached compile re-primes from patched font data.
-3. Incremental layer-replacement patch batches for outline, anchor, and sidebearing edits explicitly opt out of layout-closure invalidation because they replace already-known visible layers in place and must stay on the interactive patched-cache fast path.
+2. `applyYjsUpdate` is the authoritative edit-time worker update channel for both local and remote changes.
+3. Any `applyJsonPatches` layer batch is a cache-local acceleration only. It must never become the only reason Rust sees an edit, and compiles may wait on the already-issued Yjs worker sync instead of forcing a full refresh.
 4. The editing subset key is reused when unchanged and the worker font-cache epoch is unchanged so layout closure does not get rebuilt unnecessarily.
-5. Full `store_font()` calls are fallbacks for invalidation or missing cache state, not the steady-state path for interactive editing.
+5. Full `store_font()` or `initYdoc` calls are fallbacks for font open, external reload, or explicit recovery, not the steady-state path for interactive editing.
 
 Any change that increases full JSON transfers during interactive editing is a regression unless explicitly documented and approved.
 
@@ -258,7 +258,7 @@ Node-only outline edits must not trigger downstream recomposition by themselves.
 There are only two approved exceptions:
 
 1. Live dragging may update the worker cache and trigger instant editing recompilation before the final patch-funnel commit lands. The drag interaction must still commit through the patch system when the gesture is finalized.
-2. Debounced feature-code editor recompilation may call `syncJsonFromModel()` and `recompileEditingFont()` directly so compile errors appear automatically while the user is typing. This exception is for diagnostic recompilation only; it does not make feature-code edits a collaboration/history transport format.
+2. Debounced feature-code editor recompilation may still auto-run after idle, but the commit itself must first enter the shared patch/Yjs funnel. Automatic recompilation is not an exception to the authoritative Yjs transport rule.
 
 ## Rendering Policy
 

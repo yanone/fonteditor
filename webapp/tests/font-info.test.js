@@ -1,6 +1,7 @@
 describe('FontInfo feature code compilation scheduling', () => {
     let originalReadyState;
     let originalAce;
+    let fontCompilation;
 
     function loadFontInfoManager() {
         jest.resetModules();
@@ -31,6 +32,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         let fontInfoManager;
         jest.isolateModules(() => {
             ({ fontInfoManager } = require('../js/font-info'));
+            ({ fontCompilation } = require('../js/font-compilation'));
         });
 
         Object.defineProperty(document, 'readyState', {
@@ -47,6 +49,11 @@ describe('FontInfo feature code compilation scheduling', () => {
         const markDirty = jest.fn();
         const syncJsonFromModel = jest.fn();
         const recompileEditingFont = jest.fn().mockResolvedValue(false);
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn((_label, operations) => {
+            codeData.code = operations[0].newValue;
+        });
 
         window.currentFontModel = {
             features: {
@@ -61,12 +68,20 @@ describe('FontInfo feature code compilation scheduling', () => {
             isReady: jest.fn(() => true),
             recompileEditingFont
         };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet
+        };
 
         return {
             codeData,
             markDirty,
             syncJsonFromModel,
             recompileEditingFont,
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
             editor: {
                 getValue: jest.fn(() => nextCode)
             }
@@ -85,11 +100,15 @@ describe('FontInfo feature code compilation scheduling', () => {
         document.body.innerHTML = '';
         delete window.fontInfoManager;
         delete window.currentFontModel;
+        delete window.patchSyncEngine;
     });
 
     test('recompiles feature code after 5 seconds of typing idle', async () => {
         const fontInfoManager = loadFontInfoManager();
         const context = createFeatureEditContext('sub f f by ff;');
+        const awaitWorkerDocumentSync = jest
+            .spyOn(fontCompilation, 'awaitWorkerDocumentSync')
+            .mockResolvedValue();
 
         fontInfoManager.featuresEditor = context.editor;
         fontInfoManager.selectedItem = { type: 'feature', key: 0 };
@@ -106,17 +125,33 @@ describe('FontInfo feature code compilation scheduling', () => {
         jest.advanceTimersByTime(1);
         await Promise.resolve();
         await Promise.resolve();
+        await Promise.resolve();
 
         expect(context.codeData.code).toBe('sub f f by ff;');
         expect(context.markDirty).toHaveBeenCalledTimes(1);
-        expect(context.syncJsonFromModel).toHaveBeenCalledTimes(1);
+        expect(context.syncJsonFromModel).not.toHaveBeenCalled();
+        expect(context.beginTransaction).toHaveBeenCalledWith(
+            'Edit feature code',
+            {
+                type: 'feature',
+                key: 'feature:liga:1',
+                label: 'liga'
+            }
+        );
+        expect(context.applySyntheticChangeSet).toHaveBeenCalledTimes(1);
+        expect(awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
         expect(context.recompileEditingFont).toHaveBeenCalledTimes(1);
         expect(fontInfoManager.featureCodeDirty).toBe(false);
+
+        awaitWorkerDocumentSync.mockRestore();
     });
 
     test('blur commit cancels the pending idle compile', async () => {
         const fontInfoManager = loadFontInfoManager();
         const context = createFeatureEditContext('sub f l by fl;');
+        const awaitWorkerDocumentSync = jest
+            .spyOn(fontCompilation, 'awaitWorkerDocumentSync')
+            .mockResolvedValue();
 
         fontInfoManager.featuresEditor = context.editor;
         fontInfoManager.selectedItem = { type: 'feature', key: 0 };
@@ -127,14 +162,19 @@ describe('FontInfo feature code compilation scheduling', () => {
         fontInfoManager.commitFeatureCodeChanges();
         await Promise.resolve();
         await Promise.resolve();
+        await Promise.resolve();
 
         expect(context.codeData.code).toBe('sub f l by fl;');
+        expect(context.applySyntheticChangeSet).toHaveBeenCalledTimes(1);
+        expect(awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
         expect(context.recompileEditingFont).toHaveBeenCalledTimes(1);
 
         jest.advanceTimersByTime(5000);
         await Promise.resolve();
 
         expect(context.recompileEditingFont).toHaveBeenCalledTimes(1);
+
+        awaitWorkerDocumentSync.mockRestore();
     });
 
     test('automatic checkbox changes go through the patch funnel', () => {

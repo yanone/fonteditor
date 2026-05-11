@@ -181,6 +181,8 @@ class FontCompilation {
     pendingStoreFontJsonPromise: Promise<any> | null;
     pendingStoreFontJsonPayload: string | null;
     lastEditingSubsetKey: string | null;
+    workerCacheDocumentReady: boolean;
+    pendingWorkerDocumentSync: Promise<void>;
 
     constructor(options?: { connectInterpolation?: boolean }) {
         this.worker = null;
@@ -193,6 +195,37 @@ class FontCompilation {
         this.pendingStoreFontJsonPromise = null;
         this.pendingStoreFontJsonPayload = null;
         this.lastEditingSubsetKey = null;
+        this.workerCacheDocumentReady = false;
+        this.pendingWorkerDocumentSync = Promise.resolve();
+    }
+
+    /** Mark whether editing compiles may rely on the worker's current document cache. */
+    setWorkerCacheDocumentReady(isReady: boolean): void {
+        this.workerCacheDocumentReady = isReady;
+    }
+
+    /** Return whether the worker already holds a document suitable for editing compiles. */
+    hasWorkerCacheDocument(): boolean {
+        return this.workerCacheDocumentReady;
+    }
+
+    trackWorkerDocumentSync(syncPromise: Promise<unknown>): Promise<unknown> {
+        const settledCurrent = this.pendingWorkerDocumentSync.catch(
+            () => undefined
+        );
+        const settledNext = Promise.resolve(syncPromise)
+            .then(() => undefined)
+            .catch((error) => {
+                this.workerCacheDocumentReady = false;
+                throw error;
+            });
+
+        this.pendingWorkerDocumentSync = settledCurrent.then(() => settledNext);
+        return syncPromise;
+    }
+
+    async awaitWorkerDocumentSync(): Promise<void> {
+        await this.pendingWorkerDocumentSync;
     }
 
     async initialize() {
@@ -621,6 +654,17 @@ class FontCompilation {
                     this.pendingStoreFontJsonPromise = null;
                     this.pendingStoreFontJsonPayload = null;
                 }
+                if (
+                    messageType === 'storeFontJson' ||
+                    messageType === 'initYdoc' ||
+                    messageType === 'seedYdoc' ||
+                    messageType === 'applyYjsUpdate' ||
+                    messageType === 'applyJsonPatches'
+                ) {
+                    this.workerCacheDocumentReady = true;
+                } else if (messageType === 'clearCache') {
+                    this.workerCacheDocumentReady = false;
+                }
                 resolve(value);
             };
 
@@ -668,6 +712,16 @@ class FontCompilation {
                 reject(error);
             }
         });
+
+        if (
+            messageType === 'storeFontJson' ||
+            messageType === 'initYdoc' ||
+            messageType === 'seedYdoc' ||
+            messageType === 'applyYjsUpdate' ||
+            messageType === 'applyJsonPatches'
+        ) {
+            this.trackWorkerDocumentSync(requestPromise);
+        }
 
         if (messageType === 'storeFontJson') {
             const payload =
@@ -887,7 +941,7 @@ class FontCompilation {
             // (first compile after font load).
             const jsonForWorker =
                 requestMeta?.usePatchedWorkerCache === true ||
-                this.lastStoredFontJson === babelfontJson
+                this.workerCacheDocumentReady
                     ? '__incremental_layer__'
                     : babelfontJson;
             sentFullFontJson = jsonForWorker !== '__incremental_layer__';

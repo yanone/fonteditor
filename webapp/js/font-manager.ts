@@ -5,6 +5,7 @@
 // "editing" font: Recompiled on demand with subset of glyphs for display in canvas
 
 import APP_SETTINGS from './settings';
+import * as Y from 'yjs';
 import { fontCompilation, requestOpenFontConversion } from './font-compilation';
 import { get_glyph_order } from '../wasm-dist/babelfont_fontc_web';
 import type { Babelfont } from './babelfont';
@@ -16,7 +17,7 @@ import {
     DecomposedAffineTransform,
     withSuppressedModelRecording
 } from './babelfont-model';
-import { sanitizeBabelfontArrays } from './change-bridge-ydoc';
+import { jsonToYDoc, sanitizeBabelfontArrays } from './change-bridge-ydoc';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
@@ -3196,6 +3197,27 @@ class FontManager {
         return EMPTY_FINGERPRINT_MAP;
     }
 
+    /** Build a full binary Yjs snapshot from the current in-memory font data for worker refreshes. */
+    private buildWorkerYjsStateFromCurrentFont(): Uint8Array | null {
+        const currentFont = this.currentFont;
+        if (!currentFont?.babelfontData) {
+            return null;
+        }
+
+        sanitizeBabelfontArrays(currentFont.babelfontData);
+        assertBabelfontLayerWidths(
+            currentFont.babelfontData,
+            'buildWorkerYjsStateFromCurrentFont'
+        );
+
+        const yDoc = new Y.Doc();
+        jsonToYDoc(
+            currentFont.babelfontData as Record<string, unknown>,
+            yDoc.getMap('font')
+        );
+        return Y.encodeStateAsUpdate(yDoc);
+    }
+
     private collectChangedLayerUpdatesFromModel(
         glyphNames: Iterable<string>,
         preferredLayerId?: string | null,
@@ -3414,7 +3436,6 @@ class FontManager {
                 forwardPatches
             });
             this.workerLayerFingerprintCache.clear();
-            fontCompilation.lastStoredFontJson = null;
             return true;
         } catch (error) {
             console.warn(
@@ -3783,11 +3804,7 @@ class FontManager {
         // Skip during dragging to prevent clearing caches repeatedly - will update on drag end
         if (!isInteractiveEdit) {
             try {
-                this.recordFullFontCrossing();
-                await fontCompilation.sendMessage({
-                    type: 'storeFontJson',
-                    babelfontJson: this.currentFont!.babelfontJson
-                });
+                await this.forceFullWorkerCacheUpdate();
             } catch (error) {
                 console.error(
                     '[FontManager] Error updating worker font cache:',
@@ -3867,20 +3884,14 @@ class FontManager {
             }
 
             try {
-                if (!updatedViaIncrementalLayer) {
-                    if (this.pendingBabelfontJsonSyncAfterDrag) {
-                        if (!this.syncBabelfontJsonFromCurrentModel()) {
-                            return;
-                        }
-                        this.pendingBabelfontJsonSyncAfterDrag = false;
+                if (this.pendingBabelfontJsonSyncAfterDrag) {
+                    if (!this.syncBabelfontJsonFromCurrentModel()) {
+                        return;
                     }
-
-                    this.recordFullFontCrossing();
-                    await fontCompilation.sendMessage({
-                        type: 'storeFontJson',
-                        babelfontJson: this.currentFont.babelfontJson
-                    });
+                    this.pendingBabelfontJsonSyncAfterDrag = false;
                 }
+
+                await fontCompilation.awaitWorkerDocumentSync();
 
                 // After updating the cache, dispatch glyphChanged event for all affected glyphs
                 // This ensures the glyph overview refreshes with the updated outline data
@@ -3942,13 +3953,9 @@ class FontManager {
     }
 
     /**
-     * Force a full font JSON store to the Rust worker cache, bypassing all
-     * incremental-layer optimisations. Call this after multi-layer mutations
-     * (e.g. close-path that patches all linked masters at once) so that
-     * interpolate_glyph sees up-to-date data in every master layer.
-     *
-     * Must be called AFTER syncJsonFromModel() has been invoked so that
-     * this.currentFont.babelfontJson reflects the latest model state.
+     * Force a full binary Yjs state refresh into the Rust worker cache.
+     * Call this after multi-layer or font-wide edits when layer-scoped patch
+     * refreshes are insufficient.
      */
     async forceFullWorkerCacheUpdate(): Promise<void> {
         if (!this.currentFont || !fontCompilation?.isInitialized) {
@@ -3957,50 +3964,21 @@ class FontManager {
 
         const cacheUpdatePromise = (async () => {
             this.pendingBabelfontJsonSyncAfterDrag = false;
-
-            // Prefer Yjs-based full-state sync (much cheaper than full JSON):
-            // encode the current JS Y.Doc as a binary Yjs state and let the
-            // Rust worker reinitialise its Y.Doc from that, rebuilding all
-            // caches without the JS side serialising the full babelfontJson.
-            const yjsState = (
-                window.changeBridge as
-                    | (typeof window.changeBridge & {
-                          encodeBridgeState?: () => Uint8Array;
-                      })
-                    | undefined
-            )?.encodeBridgeState?.();
-
-            if (yjsState && yjsState.length > 0) {
-                try {
-                    await fontCompilation.sendMessage({
-                        type: 'initYdoc',
-                        state: yjsState
-                    });
-                    fontCompilation.lastStoredFontJson = null;
-                    return;
-                } catch (error) {
-                    console.error(
-                        '[FontManager] forceFullWorkerCacheUpdate: initYdoc failed, falling back to storeFontJson:',
-                        error
-                    );
-                }
-            }
-
-            // Fallback: send full babelfont JSON (old path, used when Y.Doc not
-            // available, e.g. very early in startup or after a worker reset).
-            fontCompilation.lastStoredFontJson = null;
+            const yjsState = this.buildWorkerYjsStateFromCurrentFont();
             try {
-                this.recordFullFontCrossing();
+                if (!yjsState?.length) {
+                    throw new Error('Missing full worker Yjs state');
+                }
                 await fontCompilation.sendMessage({
-                    type: 'storeFontJson',
-                    babelfontJson: this.currentFont!.babelfontJson,
-                    forceStore: true
+                    type: 'initYdoc',
+                    state: yjsState
                 });
             } catch (error) {
                 console.error(
-                    '[FontManager] forceFullWorkerCacheUpdate: error sending storeFontJson:',
+                    '[FontManager] forceFullWorkerCacheUpdate: error sending initYdoc:',
                     error
                 );
+                fontCompilation.setWorkerCacheDocumentReady(false);
             }
         })();
 
