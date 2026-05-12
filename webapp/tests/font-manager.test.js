@@ -2072,6 +2072,27 @@ describe('FontCompilation worker cache readiness', () => {
         );
     });
 
+    test('compileEditingFromJsonCached separates glyph subset key from feature-sensitive layout closure key', async () => {
+        fontCompilation.setWorkerCacheDocumentReady(true);
+
+        await fontCompilation.compileEditingFromJsonCached(
+            '{"glyphs":[]}',
+            '1',
+            ['beh', 'alef'],
+            {
+                selectedFeatures: ['liga', 'kern']
+            }
+        );
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'compileEditingCached',
+                subsetKey: 'alef\u001fbeh',
+                layoutClosureKey: 'alef\u001fbeh\u001ekern\u001fliga'
+            })
+        );
+    });
+
     test('compileEditingFromJsonCached rejects when the worker cache is cold', async () => {
         await expect(
             fontCompilation.compileEditingFromJsonCached('{"glyphs":[]}', '1', [

@@ -42,6 +42,7 @@ When these files disagree with this document, treat that as a bug and reconcile 
 13. Missing replay metadata, worker-sync rejection, or any other edit-time inconsistency MUST be treated as a bug in the incremental pipeline, not as justification for a full-document repair path. Normal editing has no escape hatches.
 14. Collaboration and cloud convergence MUST use binary Yjs updates as the authoritative document transport. Semantic change metadata may accompany those updates for history, human-readable inspection, undo labels and scopes, and replay-target hints, but it MUST NOT be used as the state-replay source for normal linked-window or cloud convergence.
 15. Python edits MUST enter `PatchSyncEngine` and emit the same committed Yjs packet plus change-log metadata as every other persisted edit. Python may derive synthetic operations from normalized before/after font snapshots, including named path metadata, but it MUST NOT bypass the shared committed-change funnel with ad hoc full-font sync or direct post-commit reactions.
+16. Visual glyph edits MUST NOT invalidate the layout-closure cache. The closure may be re-primed only when the closed glyph set changes, which is driven by the editing text/subset or the selected OpenType feature set, or when feature/glyphset source data changes. Outline, anchor, sidebearing, component, guide, and layer-visual commits must keep the existing closure intact.
 
 ## Boundary-Crossing Budget
 
@@ -220,9 +221,21 @@ The fast path depends on these rules staying true:
 2. `applyYjsUpdate` is the authoritative edit-time worker update channel for both local and remote changes.
 3. `applyJsonPatches` is not part of the edit-time worker path. Interactive cache updates must reach Rust through the already-issued Yjs worker sync rather than a parallel JSON-patch channel.
 4. When the bridge already holds the authoritative binary Yjs delta plus layer replay metadata, the worker path must forward that original delta directly. It may derive local fingerprint bookkeeping from the object model, but it must not rebuild a second Yjs update for the same edit.
-5. The editing subset key is reused when unchanged and the worker font-cache epoch is unchanged so layout closure does not get rebuilt unnecessarily.
+5. The editing subset key is reused when unchanged so subset font caches stay hot. Layout closure uses a separate feature-sensitive closure key and must not include visual font-cache epochs for ordinary outline, anchor, sidebearing, component, guide, or layer-visual edits.
 6. Full `store_font()`, `storeFontJson`, `seedYdoc`, or `initYdoc` are reserved for font open or external reload, not for interactive editing, undo, redo, Python execution, feature-code commits, or linked-window edit replay.
 7. Dormant compatibility branches that resend a full document during normal editing must be deleted rather than retained as safety valves. If the incremental pipeline is insufficient, fix the pipeline.
+
+### Layout Closure Cache
+
+The layout closure cache represents the closed glyph set needed for the current editing text and active OpenType feature selection. It is not a cache of glyph outlines. Visual edits update the glyph data inside the existing closed set and therefore must not clear or re-prime the closure.
+
+The worker may re-prime layout closure only when one of these inputs changes:
+
+- The editing text/subset changes, producing a different subset glyph key.
+- The selected OpenType feature set changes, producing a different layout-closure key.
+- Feature source data or glyphset-level structure changes in a committed Yjs packet.
+
+Layer-scoped visual updates forwarded through `applyYjsUpdate` must pass `invalidateLayoutClosure: false`. This applies equally to local commits, linked-window replay, undo/redo replay, and Python edits that only touch visual layer data.
 
 Any change that introduces or increases any full-document transfer during normal editing is a regression unless explicitly documented and approved for bootstrap-only behavior.
 

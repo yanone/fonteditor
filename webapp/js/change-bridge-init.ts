@@ -207,6 +207,31 @@ function collectWorkerLayerTargetsFromChangeLogEntries(
     return normalizeWorkerReplayTargets(targets);
 }
 
+function shouldInvalidateLayoutClosureForCommittedEntries(
+    changeLogEntries: ChangeLogEntry[]
+): boolean {
+    for (const entry of changeLogEntries) {
+        const path = typeof entry.path === 'string' ? entry.path : '';
+        if (!path) {
+            continue;
+        }
+
+        if (path.startsWith('features.')) {
+            return true;
+        }
+
+        if (
+            path.startsWith('glyphs.') &&
+            !path.includes('.layers.') &&
+            !path.includes(':layers.')
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function collectLayerTargetsForAffectedGlyphNames(
     affectedGlyphNames: Iterable<string>,
     sourceTargets: WorkerReplayTarget[]
@@ -2121,8 +2146,6 @@ function initializeBridge(detail: {
     // stay current without the expensive full-JSON round-trip.
     bridge.setYjsWorkerCallback((update, changeLogEntries) => {
         if (!fontCompilation?.isInitialized) return;
-        const isDragging =
-            window.glyphCanvas?.outlineEditor?.draggingSomething === true;
 
         // Remote reconciliation/bootstrap updates can arrive without semantic
         // change-log entries. Do not forward those metadata-free packets into
@@ -2140,6 +2163,8 @@ function initializeBridge(detail: {
         );
         const layerTargets =
             collectWorkerLayerTargetsFromChangeLogEntries(changeLogEntries);
+        const invalidateLayoutClosure =
+            shouldInvalidateLayoutClosureForCommittedEntries(changeLogEntries);
 
         void applyInterpolationRustYjsUpdate(update, changedGlyphs);
 
@@ -2147,7 +2172,7 @@ function initializeBridge(detail: {
             update,
             changedGlyphs,
             {
-                invalidateLayoutClosure: !isDragging,
+                invalidateLayoutClosure,
                 ...(layerTargets.length ? { layerTargets } : undefined)
             }
         );
@@ -2158,7 +2183,7 @@ function initializeBridge(detail: {
                     type: 'applyYjsUpdate',
                     update,
                     changedGlyphs,
-                    invalidateLayoutClosure: !isDragging
+                    invalidateLayoutClosure
                 })
                 .catch((error) => {
                     console.warn(

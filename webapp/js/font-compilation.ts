@@ -1008,6 +1008,7 @@ class FontCompilation {
         requestMeta?: {
             dragActive?: boolean;
             compileSource?: string;
+            selectedFeatures?: string[];
             optionOverrides?: {
                 skip_features?: boolean;
                 skip_kerning?: boolean;
@@ -1053,6 +1054,16 @@ class FontCompilation {
                 new Set((subsetGlyphs || []).filter((glyph) => !!glyph))
             ).sort();
             const subsetKey = normalizedSubsetGlyphs.join('\u001f');
+            const selectedFeaturesKey = Array.from(
+                new Set(
+                    (requestMeta?.selectedFeatures || []).filter(
+                        (feature) => !!feature
+                    )
+                )
+            )
+                .sort()
+                .join('\u001f');
+            const layoutClosureKey = `${subsetKey}\u001e${selectedFeaturesKey}`;
 
             if (!this.workerCacheDocumentReady) {
                 await this.awaitWorkerDocumentSync();
@@ -1069,6 +1080,7 @@ class FontCompilation {
                 babelfontJson: '__incremental_layer__',
                 options,
                 subsetKey,
+                layoutClosureKey,
                 subsetGlyphs: normalizedSubsetGlyphs,
                 fontRevisionKey,
                 filename: 'editing-font.ttf',

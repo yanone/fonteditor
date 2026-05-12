@@ -1864,6 +1864,7 @@ class FontManager {
                     {
                         dragActive: dragActiveAtRequest,
                         compileSource: incrementalChangeSource || undefined,
+                        selectedFeatures: features,
                         optionOverrides,
                         usePatchedWorkerCache:
                             isIncrementalEditingCompile &&

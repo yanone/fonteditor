@@ -1014,6 +1014,7 @@ self.onmessage = async (event) => {
                     options,
                     subsetGlyphs,
                     subsetKey,
+                    layoutClosureKey,
                     fontRevisionKey,
                     _dragActive,
                     _compileSource
@@ -1028,7 +1029,11 @@ self.onmessage = async (event) => {
                 const revisionKey = String(fontRevisionKey ?? 'unknown');
                 const incomingSubsetKey =
                     typeof subsetKey === 'string' ? subsetKey : '';
-                const effectiveSubsetKey = `${fontCacheEpoch}:${incomingSubsetKey}`;
+                const incomingLayoutClosureKey =
+                    typeof layoutClosureKey === 'string'
+                        ? layoutClosureKey
+                        : incomingSubsetKey;
+                const effectiveSubsetKey = `${fontCacheEpoch}:${incomingLayoutClosureKey}`;
                 const baseSubsetGlyphs = Array.isArray(subsetGlyphs)
                     ? subsetGlyphs
                     : null;

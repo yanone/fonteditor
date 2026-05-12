@@ -700,7 +700,7 @@ describe('bridge Yjs worker callback', () => {
             expect.any(Uint8Array),
             [],
             {
-                invalidateLayoutClosure: true
+                invalidateLayoutClosure: false
             }
         );
     });
@@ -749,7 +749,7 @@ describe('bridge Yjs worker callback', () => {
             expect.any(Uint8Array),
             ['alef'],
             {
-                invalidateLayoutClosure: true,
+                invalidateLayoutClosure: false,
                 layerTargets: [
                     { glyphName: 'beh', layerId: 'A.0' },
                     { glyphName: 'alef', layerId: 'A.0' }
