@@ -1720,8 +1720,8 @@ export async function handleCommittedChangeRefresh(
             }));
     const localCompileContext =
         origin === 'local'
-            ? dependencies?.localCompileContext ??
-              resolveLocalCommittedCompileContext(entries)
+            ? (dependencies?.localCompileContext ??
+              resolveLocalCommittedCompileContext(entries))
             : null;
 
     if (origin === 'remote') {
@@ -1752,7 +1752,8 @@ export async function handleCommittedChangeRefresh(
         const replayTargets = collectReplayTargetsFromEntries(entries);
         if (replayTargets.length > 0) {
             const queueCacheRefresh =
-                dependencies?.queueCacheRefresh ?? queueRustCacheAndRefreshCanvas;
+                dependencies?.queueCacheRefresh ??
+                queueRustCacheAndRefreshCanvas;
 
             await queueCacheRefresh(undefined, undefined, false, {
                 allowSelectedLayerFallback: false,
