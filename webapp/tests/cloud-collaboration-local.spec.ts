@@ -4,6 +4,10 @@ import {
     waitForFontLoaded,
     focusView
 } from './helpers/snapshot-helper';
+import {
+    ensureLocalCollabServices,
+    type LocalCollabServicesController
+} from './helpers/local-collab-services';
 
 function makeCloudTestFont(): string {
     const nodes = (
@@ -1039,6 +1043,17 @@ async function movePrimaryNode(
 }
 
 test.describe('Local cloud collaboration', () => {
+    let localCollabServices: LocalCollabServicesController | null = null;
+
+    test.beforeAll(async () => {
+        localCollabServices = await ensureLocalCollabServices();
+    });
+
+    test.afterAll(async () => {
+        await localCollabServices?.dispose();
+        localCollabServices = null;
+    });
+
     test('saves and reopens a cloud asset against the local stack', async ({
         browser
     }) => {

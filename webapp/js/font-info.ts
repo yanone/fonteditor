@@ -2807,6 +2807,8 @@ class FontInfoManager {
 
         const newCode = this.featuresEditor.getValue();
         const previousCode = codeData.code || '';
+        const previousAutomatic = Boolean(codeData.automatic);
+        const nextAutomatic = false;
 
         if (newCode === previousCode) {
             this.featureCodeDirty = false;
@@ -2820,36 +2822,83 @@ class FontInfoManager {
 
         const bridge = window.patchSyncEngine;
         const path = this.getSelectedCodePath();
+        const automaticPath = this.getSelectedAutomaticFlagPath();
         const historyTarget = this.getSelectedCodeHistoryTarget();
+        const fontManager = window.fontManager;
+        const currentFont = fontManager?.currentFont;
 
         codeData.code = newCode;
+        if (previousAutomatic) {
+            codeData.automatic = nextAutomatic;
+        }
         this.featureCodeDirty = false;
 
+        const autoCheckbox = document.getElementById(
+            'feature-automatic-checkbox'
+        ) as HTMLInputElement | null;
+        if (autoCheckbox && previousAutomatic) {
+            autoCheckbox.checked = nextAutomatic;
+        }
+
+        if (fontManager && currentFont) {
+            fontManager.lastChangeSource = 'feature-code';
+            fontManager.lastEditType = null;
+        }
+
         if (bridge && path) {
+            currentFont?.syncJsonFromModel?.();
+
+            const operations: Array<{
+                op: 'set';
+                path: (string | number)[];
+                oldValue: unknown;
+                newValue: unknown;
+            }> = [
+                {
+                    op: 'set',
+                    path,
+                    oldValue: previousCode,
+                    newValue: newCode
+                }
+            ];
+
+            if (previousAutomatic && automaticPath) {
+                operations.push({
+                    op: 'set',
+                    path: automaticPath,
+                    oldValue: previousAutomatic,
+                    newValue: nextAutomatic
+                });
+            }
+
             bridge.beginTransaction('Edit feature code', historyTarget);
             try {
-                bridge.applySyntheticChangeSet('Edit feature code', [
-                    {
-                        op: 'set',
-                        path,
-                        oldValue: previousCode,
-                        newValue: newCode
-                    }
-                ]);
+                bridge.applySyntheticChangeSet('Edit feature code', operations);
             } finally {
                 bridge.endTransaction();
             }
+            return;
         }
 
-        // Mark font as dirty
-        if (window.fontManager?.currentFont) {
-            window.fontManager.currentFont.markDirty();
+        codeData.code = newCode;
+        if (previousAutomatic) {
+            codeData.automatic = nextAutomatic;
         }
 
-        if (window.fontManager?.isReady()) {
+        if (currentFont) {
+            currentFont.syncJsonFromModel?.();
+        }
+
+        if (currentFont) {
+            currentFont.markDirty('feature-code');
+        }
+
+        if (fontManager?.isReady()) {
             void fontCompilation
                 .awaitWorkerDocumentSync()
-                .then(() => window.fontManager.recompileEditingFont())
+                .then(() => {
+                    window.autoCompileManager?.checkAndSchedule?.();
+                })
                 .catch((error: any) => {
                     console.error(
                         'Failed to compile font after feature code change:',

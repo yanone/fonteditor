@@ -154,27 +154,44 @@ test.describe('Counterpunch MCP bridge', () => {
             );
             expect(openLinkedWindowResult.window.openSessionId).not.toBeNull();
 
-            const listWindowsResult = StdioMcpClient.toolPayload(
-                await client.request('tools/call', {
-                    name: 'list_linked_windows',
-                    arguments: {}
-                })
-            );
-            expect(Array.isArray(listWindowsResult.windows)).toBe(true);
-            expect(listWindowsResult.windows).toHaveLength(2);
+            let listWindowsResult: {
+                windows: Array<{
+                    index: number;
+                    textBuffer?: string | null;
+                }>;
+            } | null = null;
+            await expect
+                .poll(
+                    async () => {
+                        listWindowsResult = StdioMcpClient.toolPayload(
+                            await client.request('tools/call', {
+                                name: 'list_linked_windows',
+                                arguments: {}
+                            })
+                        );
+                        return listWindowsResult?.windows.length ?? 0;
+                    },
+                    { timeout: 30000 }
+                )
+                .toBe(2);
+            expect(listWindowsResult).not.toBeNull();
+            const resolvedListWindowsResult = listWindowsResult!;
+
+            expect(Array.isArray(resolvedListWindowsResult.windows)).toBe(true);
+            expect(resolvedListWindowsResult.windows).toHaveLength(2);
             expect(
-                listWindowsResult.windows.map(
+                resolvedListWindowsResult.windows.map(
                     (win: { index: number }) => win.index
                 )
             ).toEqual(
                 expect.arrayContaining([0, openLinkedWindowResult.window.index])
             );
-            expect(
-                listWindowsResult.windows.find(
-                    (win: { index: number }) =>
-                        win.index === openLinkedWindowResult.window.index
-                ).textBuffer
-            ).toBeTruthy();
+            const listedLinkedWindow = resolvedListWindowsResult.windows.find(
+                (win: { index: number }) =>
+                    win.index === openLinkedWindowResult.window.index
+            );
+            expect(listedLinkedWindow).toBeDefined();
+            expect(listedLinkedWindow?.textBuffer).toBeTruthy();
 
             const activateWindowResult = StdioMcpClient.toolPayload(
                 await client.request('tools/call', {

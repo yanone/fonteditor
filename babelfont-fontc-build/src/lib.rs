@@ -983,10 +983,40 @@ fn yrs_value_to_json<T: ReadTxn>(value: yrs::types::Value, txn: &T) -> serde_jso
 }
 
 fn yrs_map_to_json<T: ReadTxn>(map_ref: &yrs::MapRef, txn: &T) -> serde_json::Value {
-    let obj: serde_json::Map<String, serde_json::Value> = map_ref
+    let entries: Vec<(String, serde_json::Value)> = map_ref
         .iter(txn)
         .map(|(k, v)| (k.to_string(), yrs_value_to_json(v, txn)))
         .collect();
+
+    let numeric_indices: Option<Vec<usize>> = if !entries.is_empty()
+        && entries.iter().all(|(key, _)| {
+            !key.is_empty()
+                && key.chars().all(|ch| ch.is_ascii_digit())
+                && key.parse::<usize>()
+                    .map(|idx| idx.to_string() == *key)
+                    .unwrap_or(false)
+        })
+    {
+        Some(
+            entries
+                .iter()
+                .map(|(key, _)| key.parse::<usize>().unwrap())
+                .collect(),
+        )
+    } else {
+        None
+    };
+
+    if let Some(indices) = numeric_indices {
+        let max_idx = indices.iter().copied().max().unwrap_or(0);
+        let mut arr = vec![serde_json::Value::Null; max_idx + 1];
+        for ((_, value), idx) in entries.into_iter().zip(indices.into_iter()) {
+            arr[idx] = value;
+        }
+        return serde_json::Value::Array(arr);
+    }
+
+    let obj: serde_json::Map<String, serde_json::Value> = entries.into_iter().collect();
     serde_json::Value::Object(obj)
 }
 
@@ -1101,6 +1131,37 @@ fn ydoc_get_glyph_json_with_txn<T: ReadTxn>(glyph_name: &str, txn: &T) -> Option
         }
     }
     None
+}
+
+fn ydoc_get_top_level_json_with_txn<T: ReadTxn>(
+    key: &str,
+    txn: &T,
+) -> Option<serde_json::Value> {
+    let font_map = txn.get_map("font")?;
+    let value = font_map.get(txn, key)?;
+    Some(yrs_value_to_json(value, txn))
+}
+
+fn refresh_non_glyph_feature_caches_from_ydoc<T: ReadTxn>(txn: &T) -> Result<(), JsValue> {
+    let rebuilt = ydoc_to_babelfont_json_with_txn(txn);
+    set_canonical_json_cache(rebuilt);
+
+    *FONT_CACHE.lock().unwrap() = None;
+    *SUBSET_JSON_CACHE.lock().unwrap() = None;
+    *SUBSET_GLYPH_INDEX_CACHE.lock().unwrap() = None;
+    *SUBSET_FONT_CACHE.lock().unwrap() = None;
+    *FILTERED_FONT_CACHE.lock().unwrap() = None;
+    *FEATURE_FILE_CACHE.lock().unwrap() = None;
+    *FEATURE_FEA_STRING_CACHE.lock().unwrap() = None;
+    LAYOUT_CLOSURE_CACHE.lock().unwrap().clear();
+    *LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
+
+    FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
+    FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+    SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+    FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
+
+    Ok(())
 }
 
 // ── store_font internal helpers ──────────────────────────────────────────────
@@ -1277,17 +1338,13 @@ pub fn apply_yjs_update(update: &[u8], changed_glyphs_json: &str) -> Result<Stri
 
         // -- 3. Update CANONICAL_JSON_CACHE -----------------------------------
         if changed_glyphs.is_empty() {
-            // Full rebuild — convert the entire Y.Doc to babelfont JSON
-            let _rebuild_span = PerfSpan::start("apply_yjs_update.full_rebuild");
-            let json_value = ydoc_to_babelfont_json_with_txn(&txn);
-            set_canonical_json_cache(json_value);
-            *FONT_CACHE.lock().unwrap() = None;
-            *SUBSET_JSON_CACHE.lock().unwrap() = None;
-            *SUBSET_GLYPH_INDEX_CACHE.lock().unwrap() = None;
-            *SUBSET_FONT_CACHE.lock().unwrap() = None;
-            *FILTERED_FONT_CACHE.lock().unwrap() = None;
-            FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
-            SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+            // Font-level edits such as feature-code commits do not identify
+            // changed glyphs, but they still need the worker caches to stay
+            // in sync. Refresh the top-level features data directly from the
+            // Y.Doc and invalidate derived caches without forcing a full font
+            // JSON rebuild for every feature edit.
+            let _rebuild_span = PerfSpan::start("apply_yjs_update.feature_refresh");
+            refresh_non_glyph_feature_caches_from_ydoc(&txn)?;
         } else {
             // Partial update — only re-serialise the glyphs that changed
             let _partial_span = PerfSpan::start("apply_yjs_update.partial_update");
@@ -1820,6 +1877,49 @@ pub fn compile_cached_font_from_last_layout_closure(
     Ok(compiled_font)
 }
 
+/// Compile the full cached font after running the standard filter pipeline.
+/// This preserves feature parsing/validation without constraining the compile
+/// to the current text subset.
+#[wasm_bindgen]
+pub fn compile_cached_full_font_with_filter_pipeline(
+    options: &JsValue,
+) -> Result<Vec<u8>, JsValue> {
+    let _compile_span =
+        PerfSpan::start("compile_cached_full_font_with_filter_pipeline.total");
+
+    let _cache_read_span =
+        PerfSpan::start("compile_cached_full_font_with_filter_pipeline.cache_read");
+    let full_font = get_or_rebuild_font_cache()?;
+    drop(_cache_read_span);
+
+    let compilation_options = CompilationOptions {
+        skip_kerning: get_option(options, "skip_kerning", false),
+        skip_features: get_option(options, "skip_features", false),
+        skip_metrics: get_option(options, "skip_metrics", false),
+        skip_outlines: get_option(options, "skip_outlines", false),
+        dont_use_production_names: get_option(options, "dont_use_production_names", false),
+        drop_incompatible_paths: get_option(options, "drop_incompatible_paths", false),
+        produce_varc_table: get_option(options, "produce_varc_table", false),
+        debug_feature_file: None,
+    };
+
+    let _filter_span =
+        PerfSpan::start("compile_cached_full_font_with_filter_pipeline.apply_filters");
+    let filtered_font = apply_filter_pipeline(&full_font, &compilation_options)?;
+    drop(_filter_span);
+
+    let _ir_compile_span =
+        PerfSpan::start("compile_cached_full_font_with_filter_pipeline.ir_compile");
+    let compiled_font = compile_with_feature_debug_context(
+        &filtered_font,
+        &compilation_options,
+        "compile_cached_full_font_with_filter_pipeline",
+    )?;
+    drop(_ir_compile_span);
+
+    Ok(compiled_font)
+}
+
 /// Compile the cached font to TTF
 ///
 /// This is a convenience function that compiles the currently cached font
@@ -1887,6 +1987,7 @@ pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
 mod tests {
     use super::*;
     use serde_json::json;
+    use yrs::{Doc, Map, Transact};
 
     #[test]
     fn layout_closure_cache_key_includes_font_revision() {
@@ -1947,5 +2048,19 @@ mod tests {
 
         assert_eq!(cache.len(), 1);
         assert!(cache.contains_key(&layout_closure_cache_key("1", "teh")));
+    }
+
+    #[test]
+    fn yrs_map_to_json_converts_numeric_key_maps_to_arrays() {
+        let doc = Doc::new();
+        let mut txn = doc.transact_mut();
+        let root = doc.get_or_insert_map("root");
+        let numeric_map = root.insert_map(&mut txn, "numeric");
+        numeric_map.insert(&mut txn, "0", "zero");
+        numeric_map.insert(&mut txn, "2", "two");
+
+        let value = yrs_map_to_json(&numeric_map, &txn);
+
+        assert_eq!(value, json!(["zero", null, "two"]));
     }
 }

@@ -124,6 +124,23 @@ export function compile_cached_font_from_last_layout_closure(options) {
 }
 
 /**
+ * Compile the full cached font after running the standard filter pipeline.
+ * This preserves feature parsing/validation without constraining the compile
+ * to the current text subset.
+ * @param {any} options
+ * @returns {Uint8Array}
+ */
+export function compile_cached_full_font_with_filter_pipeline(options) {
+    const ret = wasm.compile_cached_full_font_with_filter_pipeline(options);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v1;
+}
+
+/**
  * Legacy function for compatibility
  * @param {string} _glyphs_json
  * @returns {Uint8Array}

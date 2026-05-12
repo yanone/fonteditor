@@ -1531,13 +1531,16 @@ class FontManager {
             : shape;
 
         if ('reference' in componentCandidate && !hasFlatPathFields) {
+            const normalizedLocation = this.normalizeLocationForRust(
+                componentCandidate.location
+            );
             return {
                 reference: componentCandidate.reference,
                 transform: this.normalizeComponentTransformForRust(
                     componentCandidate.transform
                 ),
-                ...(componentCandidate.location && {
-                    location: componentCandidate.location
+                ...(normalizedLocation && {
+                    location: normalizedLocation
                 }),
                 ...(componentCandidate.format_specific && {
                     format_specific: componentCandidate.format_specific
@@ -1546,6 +1549,32 @@ class FontManager {
         }
 
         return { ...shape };
+    }
+
+    private normalizeOptionalFiniteNumber(value: any): number | undefined {
+        return typeof value === 'number' && Number.isFinite(value)
+            ? value
+            : undefined;
+    }
+
+    private normalizeLocationForRust(
+        location: any
+    ): Record<string, number> | undefined {
+        if (
+            !location ||
+            typeof location !== 'object' ||
+            Array.isArray(location)
+        ) {
+            return undefined;
+        }
+
+        const normalizedEntries = Object.entries(location).filter(
+            ([, value]) => typeof value === 'number' && Number.isFinite(value)
+        ) as Array<[string, number]>;
+
+        return normalizedEntries.length
+            ? Object.fromEntries(normalizedEntries)
+            : undefined;
     }
 
     private normalizeLayerForRust(layerData: any): any {
@@ -1565,7 +1594,7 @@ class FontManager {
               )
             : [];
 
-        return {
+        const normalizedLayer = {
             ...layerData,
             shapes,
             ...(Array.isArray(layerData.anchors)
@@ -1583,7 +1612,11 @@ class FontManager {
                           pos: {
                               x: guide?.pos?.x,
                               y: guide?.pos?.y,
-                              angle: guide?.pos?.angle
+                              ...(this.normalizeOptionalFiniteNumber(
+                                  guide?.pos?.angle
+                              ) !== undefined
+                                  ? { angle: guide.pos.angle }
+                                  : {})
                           },
                           name: guide?.name,
                           ...(guide?.color && { color: guide.color })
@@ -1591,6 +1624,35 @@ class FontManager {
                   }
                 : {})
         };
+
+        const normalizedHeight = this.normalizeOptionalFiniteNumber(
+            layerData.height
+        );
+        if (normalizedHeight === undefined) {
+            delete normalizedLayer.height;
+        } else {
+            normalizedLayer.height = normalizedHeight;
+        }
+
+        const normalizedVertWidth = this.normalizeOptionalFiniteNumber(
+            layerData.vertWidth
+        );
+        if (normalizedVertWidth === undefined) {
+            delete normalizedLayer.vertWidth;
+        } else {
+            normalizedLayer.vertWidth = normalizedVertWidth;
+        }
+
+        const normalizedLocation = this.normalizeLocationForRust(
+            layerData.location
+        );
+        if (normalizedLocation) {
+            normalizedLayer.location = normalizedLocation;
+        } else {
+            delete normalizedLayer.location;
+        }
+
+        return normalizedLayer;
     }
 
     /**
@@ -1760,6 +1822,7 @@ class FontManager {
             let responseRevisionKey = String(
                 this.currentFont.compileRequestVersion
             );
+            let isStaleCompileResult = false;
             let incrementalChangeSource = this.lastChangeSource;
             let dragActiveAtRequest = false;
             let compilationMode:
@@ -1883,7 +1946,9 @@ class FontManager {
                 responseRevisionKey = String(
                     result.fontRevisionKey || requestedRevisionKey
                 );
-                if (responseRevisionKey !== currentRevisionKey) {
+                isStaleCompileResult =
+                    responseRevisionKey !== currentRevisionKey;
+                if (isStaleCompileResult) {
                     timelineMark('font.compileEditing.staleResultObserved');
                 }
 
@@ -1892,6 +1957,13 @@ class FontManager {
                 );
             } finally {
                 timelineSpanEnd(closureToCompileBridgeSpanId);
+            }
+
+            if (isStaleCompileResult) {
+                console.log(
+                    `[FontManager] Ignoring stale editing compile result (response v${responseRevisionKey}, current v${this.currentFont.compileRequestVersion})`
+                );
+                return this.editingFont;
             }
 
             const applyCompiledResultSpanId = timelineSpanStart(

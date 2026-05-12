@@ -650,6 +650,12 @@ function inferCommittedEditTypeFromEntries(
     for (const entry of entries) {
         const label = entry.transactionLabel ?? '';
         const path = entry.path ?? '';
+        if (origin === 'local' && path.startsWith('features.')) {
+            return {
+                editType: null,
+                changeSource: 'feature-code'
+            };
+        }
         if (
             label.toLowerCase().includes('anchor') ||
             /(^|\.)anchors(\.|$)/.test(path)
@@ -1483,6 +1489,20 @@ async function requestCommittedEditingFontCompile(
 ): Promise<void> {
     const fm = window.fontManager;
     if (!fm?.currentFont) {
+        return;
+    }
+
+    // Bridge/bootstrap can emit a local committed-change wake-up before the
+    // first startup editing compile settles. That request carries no source
+    // data changes (changeVersion stays at 0), so bumping compileRequestVersion
+    // only makes the in-flight startup compile look stale and leaves the app
+    // without an initial editing font. The startup compile already owns the
+    // first ready font; once it lands, normal committed-change requests resume.
+    if (
+        changeSource === 'change-bridge-local' &&
+        fm.currentFont.changeVersion === 0 &&
+        !fm.editingFont
+    ) {
         return;
     }
 

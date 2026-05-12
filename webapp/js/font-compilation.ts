@@ -1050,6 +1050,21 @@ class FontCompilation {
                 Object.assign(options, requestMeta.optionOverrides);
             }
 
+            if (requestMeta?.compileSource === 'feature-code') {
+                const result = await this.compileFromJson(
+                    babelfontJson,
+                    'editing-font.ttf',
+                    options
+                );
+
+                return {
+                    result: result.result,
+                    filename: result.filename || 'editing-font.ttf',
+                    time_taken: result.time_taken || 0,
+                    fontRevisionKey
+                };
+            }
+
             const normalizedSubsetGlyphs = Array.from(
                 new Set((subsetGlyphs || []).filter((glyph) => !!glyph))
             ).sort();

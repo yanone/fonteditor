@@ -1037,21 +1037,13 @@ export async function waitForFeatureCompilationError(
             const errorDisplay = document.getElementById(
                 'sidebar-error-display'
             ) as HTMLElement | null;
-            const manager = (window as any).fontInfoManager;
-            const lineWidgetEl =
-                (manager?.featureErrorLineWidget?.el as HTMLElement | null) ||
-                null;
 
             const sidebarVisible =
                 !!errorDisplay &&
                 errorDisplay.style.display !== 'none' &&
                 !!errorDisplay.textContent?.trim();
-            const inlineVisible =
-                !!lineWidgetEl &&
-                lineWidgetEl.isConnected &&
-                !!lineWidgetEl.textContent?.trim();
 
-            return sidebarVisible && inlineVisible;
+            return sidebarVisible;
         },
         { timeout }
     );

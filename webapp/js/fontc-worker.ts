@@ -5,6 +5,7 @@
 import init, {
     compile_babelfont,
     compile_cached_font,
+    compile_cached_full_font_with_filter_pipeline,
     compile_cached_font_from_last_layout_closure,
     store_font,
     seed_ydoc,
@@ -1017,7 +1018,8 @@ self.onmessage = async (event) => {
                     layoutClosureKey,
                     fontRevisionKey,
                     _dragActive,
-                    _compileSource
+                    _compileSource,
+                    _validateFeaturesAgainstFullFont
                 } = data;
 
                 if (data.babelfontJson !== '__incremental_layer__') {
@@ -1037,6 +1039,47 @@ self.onmessage = async (event) => {
                 const baseSubsetGlyphs = Array.isArray(subsetGlyphs)
                     ? subsetGlyphs
                     : null;
+                const shouldCompileFullFontForFeatureCode =
+                    _validateFeaturesAgainstFullFont === true ||
+                    _compileSource === 'feature-code';
+
+                if (shouldCompileFullFontForFeatureCode) {
+                    const compileCachedSpanId = timelineSpanStart(
+                        'font.worker.compileEditingCached.compileFullCachedFont'
+                    );
+                    const compiledBytes =
+                        compile_cached_full_font_with_filter_pipeline(
+                            options || {}
+                        );
+                    timelineMark(
+                        'font.worker.compileEditingCached.compileFullCachedFont.resultReady',
+                        {
+                            parentSpanId: compileCachedSpanId
+                        }
+                    );
+                    timelineSpanEnd(compileCachedSpanId);
+
+                    const endTime = performance.now();
+                    postCompiledResult(
+                        {
+                            id,
+                            time_taken: endTime - startTime,
+                            fontRevisionKey: revisionKey,
+                            closureGlyphCount: 0,
+                            compileSource: _compileSource
+                        },
+                        compiledBytes
+                    );
+                    timelineMark(
+                        'font.worker.compileEditingCached.success',
+                        withProcess(
+                            messageTraceContext,
+                            'worker',
+                            compileEditingSpanId
+                        )
+                    );
+                    return;
+                }
 
                 const ensureFontCachedSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.ensureFontCached'

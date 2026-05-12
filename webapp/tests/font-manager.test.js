@@ -15,6 +15,7 @@ const {
     yDocToJson
 } = require('../js/change-bridge-ydoc');
 const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
+const { sidebarErrorDisplay } = require('../js/sidebar-error-display');
 
 function loadFontFile(filePath) {
     const fileName = path.basename(filePath);
@@ -232,6 +233,50 @@ describe('FontManager saveLayerData', () => {
             order: 'RestOfTheWorld'
         });
         expect(normalized.shapes[0].transform.tcenter).toBeUndefined();
+    });
+
+    test('normalizeLayerForRust drops null optional numeric fields', () => {
+        const normalized = fontManager.normalizeLayerForRust({
+            width: 500,
+            height: null,
+            vertWidth: null,
+            location: {
+                wght: null,
+                wdth: 75
+            },
+            shapes: [
+                {
+                    reference: 'A',
+                    transform: {
+                        translation: [0, 0],
+                        rotation: 0,
+                        scale: [1, 1],
+                        skew: 0,
+                        tcenter: [0, 0]
+                    },
+                    location: {
+                        wght: null,
+                        wdth: 75
+                    }
+                }
+            ],
+            guides: [
+                {
+                    pos: {
+                        x: 1,
+                        y: 2,
+                        angle: null
+                    },
+                    name: 'baseline'
+                }
+            ]
+        });
+
+        expect(normalized.height).toBeUndefined();
+        expect(normalized.vertWidth).toBeUndefined();
+        expect(normalized.location).toEqual({ wdth: 75 });
+        expect(normalized.shapes[0].location).toEqual({ wdth: 75 });
+        expect(normalized.guides[0].pos).toEqual({ x: 1, y: 2 });
     });
 
     test('updates the live object model layer during interactive saves', async () => {
@@ -763,6 +808,7 @@ describe('FontManager editing subset inclusion', () => {
     let compileEditingSpy;
     let originalFontCompilationInitialized;
     let saveEditingFontSpy;
+    let hideErrorSpy;
 
     beforeEach(() => {
         originalOpenedFonts = fontManager.openedFonts;
@@ -859,6 +905,9 @@ describe('FontManager editing subset inclusion', () => {
         saveEditingFontSpy = jest
             .spyOn(fontManager, 'saveEditingFontToFileSystem')
             .mockImplementation(() => {});
+        hideErrorSpy = jest
+            .spyOn(sidebarErrorDisplay, 'hideError')
+            .mockImplementation(() => {});
 
         window.glyphCanvas = {
             outlineEditor: {
@@ -877,6 +926,7 @@ describe('FontManager editing subset inclusion', () => {
     afterEach(() => {
         compileEditingSpy?.mockRestore();
         saveEditingFontSpy?.mockRestore();
+        hideErrorSpy?.mockRestore();
         fontManager.updateEditingSubsetSnapshot([]);
         fontManager.openedFonts = originalOpenedFonts;
         fontManager.currentFontId = originalCurrentFontId;
@@ -1105,6 +1155,51 @@ describe('FontManager editing subset inclusion', () => {
         expect(
             compileEditingSpy.mock.calls[0][3].optionOverrides
         ).toBeUndefined();
+    });
+
+    test('stale editing compile results do not clear a newer error state', async () => {
+        const priorEditingFont = new Uint8Array([9, 9, 9]);
+        fontManager.editingFont = priorEditingFont;
+
+        let resolveCompile;
+        compileEditingSpy.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCompile = resolve;
+                })
+        );
+
+        const dispatchEventSpy = jest.spyOn(window, 'dispatchEvent');
+
+        try {
+            const compilePromise = fontManager.compileEditingFont(
+                'a',
+                [],
+                ['a']
+            );
+
+            fontManager.currentFont.compileRequestVersion = 2;
+
+            resolveCompile({
+                result: new Uint8Array([1, 2, 3]),
+                filename: 'editing.ttf',
+                time_taken: 1,
+                fontRevisionKey: '1'
+            });
+
+            const returnedFont = await compilePromise;
+
+            expect(returnedFont).toBe(priorEditingFont);
+            expect(fontManager.editingFont).toBe(priorEditingFont);
+            expect(hideErrorSpy).not.toHaveBeenCalled();
+            expect(
+                dispatchEventSpy.mock.calls.some(
+                    ([event]) => event?.type === 'editingFontCompiled'
+                )
+            ).toBe(false);
+        } finally {
+            dispatchEventSpy.mockRestore();
+        }
     });
 
     test('recompileEditingFont waits for replay-target worker refresh before compiling', async () => {
@@ -2091,6 +2186,40 @@ describe('FontCompilation worker cache readiness', () => {
                 layoutClosureKey: 'alef\u001fbeh\u001ekern\u001fliga'
             })
         );
+    });
+
+    test('compileEditingFromJsonCached uses the full JSON path for feature-code commits', async () => {
+        const compileFromJsonSpy = jest
+            .spyOn(fontCompilation, 'compileFromJson')
+            .mockResolvedValue({
+                result: new Uint8Array([1, 2, 3]),
+                filename: 'editing.ttf',
+                time_taken: 1
+            });
+
+        try {
+            await fontCompilation.compileEditingFromJsonCached(
+                '{"glyphs":[]}',
+                '1',
+                ['o', 'odieresis'],
+                {
+                    compileSource: 'feature-code'
+                }
+            );
+
+            expect(compileFromJsonSpy).toHaveBeenCalledWith(
+                '{"glyphs":[]}',
+                'editing-font.ttf',
+                expect.objectContaining({
+                    skip_features: false,
+                    skip_kerning: false,
+                    dont_use_production_names: true
+                })
+            );
+            expect(sendMessageSpy).not.toHaveBeenCalled();
+        } finally {
+            compileFromJsonSpy.mockRestore();
+        }
     });
 
     test('compileEditingFromJsonCached rejects when the worker cache is cold', async () => {

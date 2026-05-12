@@ -175,6 +175,7 @@ export class AxesManager {
         const axes = await this.getVariationAxes();
 
         if (axes.length === 0) {
+            await this.call('updated');
             requestAnimationFrame(() => {
                 this.axesSection!.innerHTML = '';
             });
@@ -499,6 +500,8 @@ export class AxesManager {
             '[Variations]',
             `Created ${axes.length} variable axis sliders`
         );
+
+        await this.call('updated');
 
         // Global mouseup handler to exit preview mode if slider was active
         // This catches cases where mouse is released outside the slider element

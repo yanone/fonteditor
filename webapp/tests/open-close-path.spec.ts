@@ -582,6 +582,7 @@ test.describe('Open/Close Path across linked masters', () => {
         // 1. Load the 3-master test font
         // ---------------------------------------------------------------
         await loadTestFont(page);
+        await waitForFontLoaded(page);
         await waitForBridgeReady(page);
         await waitForEditingFontCompiled(page);
 
@@ -598,8 +599,8 @@ test.describe('Open/Close Path across linked masters', () => {
             { timeout: 15000 }
         );
         await page.waitForTimeout(300);
-
         // Verify initial state: 4-node closed quad, compatible
+        await waitForOutlineState(page, { closed: true, nodeCount: 4 }, 15000);
         const initialOutline = await getActiveLayerOutlineState(page);
         expect(initialOutline).not.toBeNull();
         expect(initialOutline!.closed).toBe(true);

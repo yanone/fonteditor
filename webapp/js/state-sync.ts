@@ -224,6 +224,10 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
             syncVariationLocation('variation_location_changed');
         });
 
+        glyphCanvas.axesManager.on('updated', () => {
+            syncVariationLocation('variation_location_initialized');
+        });
+
         // Capture current defaults at startup/font load even before any user axis interaction.
         syncVariationLocation('variation_location_initialized');
     }

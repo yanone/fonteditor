@@ -129,6 +129,76 @@ describe('handleRemoteChangeRefresh', () => {
         });
     });
 
+    test('skips bootstrap-style local compile wake-up before the first editing font exists', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestRecompileWithoutDataChange = jest.fn();
+        const checkAndSchedule = jest.fn();
+
+        window.fontManager = {
+            currentFont: {
+                changeVersion: 0,
+                requestRecompileWithoutDataChange,
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            editingFont: null,
+            lastChangeSource: null,
+            lastEditType: null
+        };
+        window.autoCompileManager = {
+            checkAndSchedule
+        };
+
+        try {
+            await handleCommittedChangeRefresh([], 'local', {
+                awaitWorkerSync
+            });
+        } finally {
+            delete window.fontManager;
+            delete window.autoCompileManager;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
+        expect(checkAndSchedule).not.toHaveBeenCalled();
+    });
+
+    test('allows the same local committed compile wake-up after startup readiness exists', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestRecompileWithoutDataChange = jest.fn();
+        const checkAndSchedule = jest.fn();
+
+        window.fontManager = {
+            currentFont: {
+                changeVersion: 0,
+                requestRecompileWithoutDataChange,
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            editingFont: new Uint8Array([1, 2, 3]),
+            lastChangeSource: null,
+            lastEditType: null
+        };
+        window.autoCompileManager = {
+            checkAndSchedule
+        };
+
+        try {
+            await handleCommittedChangeRefresh([], 'local', {
+                awaitWorkerSync
+            });
+        } finally {
+            delete window.fontManager;
+            delete window.autoCompileManager;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(checkAndSchedule).toHaveBeenCalledTimes(1);
+    });
+
     test('waits for chained local replay-target cache updates before compile and overview refresh', async () => {
         let resolveFirstCacheUpdate;
         let resolveSecondCacheUpdate;
@@ -407,6 +477,46 @@ describe('handleRemoteChangeRefresh', () => {
             }
         );
         expect(requestCompile).toHaveBeenCalledWith('remote-change', null);
+    });
+
+    test('classifies local feature-code commits as feature-code recompiles', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const queueCacheRefresh = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            lastChangeSource: null,
+            lastEditType: null
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Edit feature code',
+                        path: 'features.features.0.1.code',
+                        workerReplayTargets: []
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            delete window.fontManager;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith('feature-code', null);
     });
 
     describe('linked-window visual pan', () => {

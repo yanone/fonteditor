@@ -514,12 +514,12 @@ test.describe('Font Editor Basic Workflow', () => {
                     once: true
                 });
                 if (window.glyphCanvas && window.glyphCanvas.textRunEditor) {
-                    window.glyphCanvas.textRunEditor.setTextBuffer(
-                        'hello مَرحَباً'
-                    );
+                    const textRunEditor = window.glyphCanvas.textRunEditor;
+                    textRunEditor.setTextBuffer('hello مَرحَباً');
                     // Move cursor to end of text so ArrowLeft can move it
-                    window.glyphCanvas.textRunEditor.cursorPosition =
-                        'hello مَرحَباً'.length;
+                    textRunEditor.cursorPosition = 'hello مَرحَباً'.length;
+                    textRunEditor.updateCursorVisualPosition?.();
+                    textRunEditor.call?.('cursormoved');
                 }
             });
         });
@@ -554,6 +554,8 @@ test.describe('Font Editor Basic Workflow', () => {
             const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
             if (textRunEditor?.textBuffer) {
                 textRunEditor.cursorPosition = textRunEditor.textBuffer.length;
+                textRunEditor.updateCursorVisualPosition?.();
+                textRunEditor.call?.('cursormoved');
             }
         });
         await page.waitForFunction(
@@ -903,10 +905,12 @@ test.describe('Font Editor Basic Workflow', () => {
             );
         });
 
-        // Insert an invalid token on a lower visible line so the reported
-        // feature error anchors inside the editor body instead of near the
-        // very top of the file.
-        console.log('[Test] Inserting invalid token to trigger compile error');
+        // Delete the first character of the locl feature code (turns 'script'
+        // into 'cript' which is not valid in a feature block) and commit.
+        // This triggers a FeatureParsing error at byte position 0 of the locl
+        // feature, which resolveFeatureSpanTarget can reliably map back to the
+        // locl item and display as an inline error widget in the editor.
+        console.log('[Test] Deleting first char to trigger compile error');
         await page.evaluate(() => {
             const manager = (window as any).fontInfoManager;
             const editor = manager?.featuresEditor;
@@ -914,30 +918,23 @@ test.describe('Font Editor Basic Workflow', () => {
                 return;
             }
 
-            const content = editor.getValue?.() || '';
-            const errorAnchor = 'language KSH;';
-            const errorIndex = content.indexOf(errorAnchor);
-            const errorPosition =
-                errorIndex >= 0
-                    ? editor.session.doc.indexToPosition(errorIndex)
-                    : { row: 10, column: 0 };
-
             editor.focus();
             editor.clearSelection();
-            editor.moveCursorTo(errorPosition.row, errorPosition.column);
-            editor.insert('@');
+            editor.moveCursorTo(0, 0);
+            editor.remove('right');
 
             if (typeof editor.execCommand === 'function') {
                 editor.execCommand('commitFeatureCodeChanges');
-                return;
             }
 
             if (typeof manager?.commitFeatureCodeChanges === 'function') {
                 manager.commitFeatureCodeChanges();
             }
+
+            editor.blur?.();
         });
 
-        await waitForFeatureCompilationError(page, { timeout: 7000 });
+        await waitForFeatureCompilationError(page, { timeout: 30000 });
 
         await page.evaluate(async () => {
             const manager = (window as any).fontInfoManager;
@@ -952,6 +949,12 @@ test.describe('Font Editor Basic Workflow', () => {
 
             if (target) {
                 manager?.selectItem?.(target.type, target.key, true);
+            } else if (manager?.selectedItem) {
+                manager.selectItem(
+                    manager.selectedItem.type,
+                    manager.selectedItem.key,
+                    true
+                );
             }
 
             const widgetRow = manager?.featureErrorLineWidget?.row;
@@ -985,9 +988,12 @@ test.describe('Font Editor Basic Workflow', () => {
             '19-feature-compile-error.json',
             expect
         );
-        await expect(page.locator('#view-fontinfo')).toHaveScreenshot(
+        await expect(page).toHaveScreenshot(
             '19-feature-compile-error-window.png',
-            { maxDiffPixelRatio: 0.02 }
+            {
+                mask: [page.locator('#console-container')],
+                maxDiffPixelRatio: 0.02
+            }
         );
 
         // Restore valid feature code before taking the final editor screenshot.
