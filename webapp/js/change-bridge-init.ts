@@ -836,7 +836,7 @@ export async function syncRustCacheAndRefreshCanvas(
     let selectedLayerId = oe?.selectedLayerId ?? undefined;
 
     const currentFont = window.fontManager?.currentFont;
-    if (currentFont?.babelfontJson && fontCompilation?.isInitialized) {
+    if (currentFont && fontCompilation?.isInitialized) {
         try {
             let didStoreLayer = false;
             const replayTargets = normalizeWorkerReplayTargets(
@@ -844,8 +844,17 @@ export async function syncRustCacheAndRefreshCanvas(
             );
             const allowSelectedLayerFallback =
                 options?.allowSelectedLayerFallback !== false;
-            if (
-                !forceFullRustSync &&
+            if (forceFullRustSync) {
+                currentFont.syncJsonFromModel?.();
+                if (currentFont.babelfontJson) {
+                    await fontCompilation.sendMessage({
+                        type: 'storeFontJson',
+                        babelfontJson: currentFont.babelfontJson,
+                        forceStore: true
+                    });
+                    didStoreLayer = true;
+                }
+            } else if (
                 replayTargets.length > 0 &&
                 typeof window.fontManager
                     ?.refreshWorkerCacheForReplayTargets === 'function'
@@ -1329,6 +1338,14 @@ function collectUndoRedoOverviewGlyphNames(
             refreshGlyphNames
         )) {
             addGlyphName(dependentGlyphName);
+        }
+    } else if (typeof fontModel?.findGlyphsUsingComponent === 'function') {
+        for (const glyphName of [...refreshGlyphNames]) {
+            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
+                glyphName
+            ) || []) {
+                addGlyphName(dependentGlyphName);
+            }
         }
     }
 

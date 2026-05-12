@@ -4129,6 +4129,12 @@ export class OutlineEditor {
                 .then(() => {
                     currentFont.requestRecompileWithoutDataChange?.();
                     window.autoCompileManager?.checkAndSchedule?.();
+                })
+                .catch((error) => {
+                    console.error(
+                        '[OutlineEditor] Error refreshing live sidebearing-dependent glyphs:',
+                        error
+                    );
                 });
             return;
         }
@@ -4150,6 +4156,12 @@ export class OutlineEditor {
             .then(() => {
                 currentFont.requestRecompileWithoutDataChange();
                 window.autoCompileManager?.checkAndSchedule?.();
+            })
+            .catch((error) => {
+                console.error(
+                    '[OutlineEditor] Error refreshing sidebearing-dependent glyphs:',
+                    error
+                );
             });
     }
 
@@ -4728,7 +4740,10 @@ export class OutlineEditor {
      * metadata and the bridge reads fresh model JSON.
      */
     private prepareCommittedStructuralOutlineChange(
-        changeSource: string = 'keyboard-outline'
+        changeSource: string = 'keyboard-outline',
+        options?: {
+            triggerCompile?: boolean;
+        }
     ): boolean {
         const currentFont = fontManager.currentFont;
         if (!currentFont) {
@@ -4748,6 +4763,12 @@ export class OutlineEditor {
         currentFont.markDirty(changeSource);
         this.prepareStructuralOutlineCompile(changeSource);
         void fontManager.updateDirtyIndicator();
+        if (options?.triggerCompile !== false) {
+            fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+            void fontManager.updateWorkerFontCache();
+            currentFont.requestRecompileWithoutDataChange?.();
+            window.autoCompileManager?.checkAndSchedule?.();
+        }
         return true;
     }
 
@@ -7184,6 +7205,7 @@ export class OutlineEditor {
         options: {
             scheduleCompile?: boolean;
             dispatchGlyphChanged?: boolean;
+            refreshWorkerCache?: 'full';
         } = {}
     ): Promise<void> {
         const currentFont = fontManager.currentFont;
@@ -7192,11 +7214,15 @@ export class OutlineEditor {
         }
 
         currentFont.markDirty(changeSource);
+        if (options.refreshWorkerCache === 'full') {
+            void fontManager.forceFullWorkerCacheUpdate?.();
+        }
         await fontManager.updateDirtyIndicator();
 
         if (options.scheduleCompile !== false) {
-            fontManager.lastEditType = 'outline';
-            fontManager.scheduleFullCompileDebounce();
+            this.prepareStructuralOutlineCompile(changeSource);
+            currentFont.requestRecompileWithoutDataChange?.();
+            window.autoCompileManager?.checkAndSchedule?.();
         }
     }
 
@@ -7268,7 +7294,8 @@ export class OutlineEditor {
         if (createBridge) {
             preparedStructuralChange =
                 this.prepareCommittedStructuralOutlineChange(
-                    options.changeSource || 'layer-create'
+                    options.changeSource || 'layer-create',
+                    { triggerCompile: false }
                 );
             createBridge.syncGlyphFromJson(
                 glyphName,
@@ -7331,14 +7358,16 @@ export class OutlineEditor {
         const deleteBridge = window.patchSyncEngine;
         if (deleteBridge) {
             this.prepareCommittedStructuralOutlineChange(
-                options?.changeSource || 'layer-delete'
+                options?.changeSource || 'layer-delete',
+                { triggerCompile: false }
             );
             deleteBridge.syncGlyphFromJson(glyphName, 'Delete layer sync');
         }
 
         await this.refreshAfterStructuralLayerEdit(
             glyphName,
-            options?.changeSource || 'layer-delete'
+            options?.changeSource || 'layer-delete',
+            { refreshWorkerCache: 'full' }
         );
 
         if (wasSelected && userspaceLocation) {
@@ -7446,7 +7475,9 @@ export class OutlineEditor {
             let preparedStructuralChange = false;
             if (bridge) {
                 preparedStructuralChange =
-                    this.prepareCommittedStructuralOutlineChange(changeSource);
+                    this.prepareCommittedStructuralOutlineChange(changeSource, {
+                        triggerCompile: false
+                    });
                 bridge.syncGlyphFromJson(
                     glyphName,
                     'Reinterpolate layer sync',
@@ -14498,9 +14529,23 @@ export class OutlineEditor {
             return;
         }
 
+        try {
+            currentFont.syncJsonFromModel?.();
+        } catch (error) {
+            console.error(
+                '[OutlineEditor] Error syncing font JSON before structural preview compile:',
+                error
+            );
+            return;
+        }
+
         currentFont.markDirty('keyboard-outline');
         this.prepareStructuralOutlineCompile();
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
         void fontManager.updateDirtyIndicator();
+        void fontManager.updateWorkerFontCache();
+        currentFont.requestRecompileWithoutDataChange?.();
+        window.autoCompileManager?.checkAndSchedule?.();
     }
 
     private finalizePendingCommandPathEdit(): void {
