@@ -250,6 +250,13 @@ class FontInterpolationManager {
      * stale responses from old sessions being discarded incorrectly
      */
     resetRequestTracking() {
+        for (const [id, pending] of this.pendingRequests) {
+            pending.reject(
+                new Error('Interpolation cancelled - request tracking reset')
+            );
+            this.pendingRequests.delete(id);
+        }
+        this.currentGlyphRequest = null;
         this.lastRenderedRequestId = -1;
         console.log('[FontInterpolation]', '🔄 Reset request tracking');
     }

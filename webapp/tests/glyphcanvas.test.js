@@ -10350,6 +10350,13 @@ describe('OutlineEditor exact selected layers', () => {
             markDirty: jest.fn(),
             syncJsonFromModel: jest.fn()
         };
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const patchSyncEngine = {
+            syncGlyphFromJson: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn(),
+            recordChange: jest.fn()
+        };
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
             .mockResolvedValue();
@@ -10364,32 +10371,45 @@ describe('OutlineEditor exact selected layers', () => {
             glyph.layers.findIndex((layer) => layer.id === 'master-layer')
         );
         currentFontSpy.mockReturnValue(currentFont);
+        window.patchSyncEngine = patchSyncEngine;
 
-        const newLayer = await canvas.outlineEditor.createInterpolatedLayer({
-            glyphName: 'A',
-            userspaceLocation: { wght: 0 },
-            masterId: 'master-1',
-            designLocation: { wght: 0 },
-            isMasterBound: true,
-            extrapolate: true
-        });
+        try {
+            const newLayer = await canvas.outlineEditor.createInterpolatedLayer(
+                {
+                    glyphName: 'A',
+                    userspaceLocation: { wght: 0 },
+                    masterId: 'master-1',
+                    designLocation: { wght: 0 },
+                    isMasterBound: true,
+                    extrapolate: true
+                }
+            );
 
-        expect(newLayer.id).toBe('master-1');
-        const storedLayer = font.findGlyph('A').findLayerById(newLayer.id);
+            expect(newLayer.id).toBe('master-1');
+            const storedLayer = font.findGlyph('A').findLayerById(newLayer.id);
 
-        expect(storedLayer).toBeTruthy();
-        expect(storedLayer.master.type).toBe('DefaultForMaster');
-        expect(storedLayer.width).toBe(999.75);
-        expect(storedLayer.shapes.length).toBeGreaterThan(0);
-        expect(storedLayer.anchors[0].x).toBe(999.9);
-        expect(currentFont.markDirty).toHaveBeenCalled();
-        expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
-        expect(forceFullWorkerCacheUpdateSpy).toHaveBeenCalled();
-        expect(selectLayerSpy).toHaveBeenCalled();
-
-        selectLayerSpy.mockRestore();
-        dirtySpy.mockRestore();
-        forceFullWorkerCacheUpdateSpy.mockRestore();
+            expect(storedLayer).toBeTruthy();
+            expect(storedLayer.master.type).toBe('DefaultForMaster');
+            expect(storedLayer.width).toBe(999.75);
+            expect(storedLayer.shapes.length).toBeGreaterThan(0);
+            expect(storedLayer.anchors[0].x).toBe(999.9);
+            expect(currentFont.markDirty).toHaveBeenCalled();
+            expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenCalledWith(
+                'A',
+                'Create interpolated layer sync',
+                undefined,
+                undefined,
+                newLayer.id
+            );
+            expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
+            expect(selectLayerSpy).toHaveBeenCalled();
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            selectLayerSpy.mockRestore();
+            dirtySpy.mockRestore();
+            forceFullWorkerCacheUpdateSpy.mockRestore();
+        }
     });
 
     test('deleteLayerById keeps a deleted selected master layer as a missing master selection', async () => {
@@ -10690,14 +10710,9 @@ describe('OutlineEditor exact selected layers', () => {
             markDirty: jest.fn(),
             syncJsonFromModel: jest.fn()
         };
-        const compileCheckCountsAtCacheSync = [];
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
-            .mockImplementation(async () => {
-                compileCheckCountsAtCacheSync.push(
-                    window.autoCompileManager.checkAndSchedule.mock.calls.length
-                );
-            });
+            .mockResolvedValue();
         const dirtySpy = jest
             .spyOn(fontManager, 'updateDirtyIndicator')
             .mockResolvedValue();
@@ -10711,14 +10726,15 @@ describe('OutlineEditor exact selected layers', () => {
         window.autoCompileManager = {
             checkAndSchedule: jest.fn()
         };
-        const originalChangeBridge = window.changeBridge;
+        const originalPatchSyncEngine = window.patchSyncEngine;
         const beginTransactionSpy = jest.fn();
         const endTransactionSpy = jest.fn();
+        const syncGlyphFromJsonSpy = jest.fn();
 
-        window.changeBridge = {
+        window.patchSyncEngine = {
             beginTransaction: beginTransactionSpy,
             endTransaction: endTransactionSpy,
-            syncGlyphFromJson: jest.fn(),
+            syncGlyphFromJson: syncGlyphFromJsonSpy,
             recordAdd: jest.fn(),
             recordRemove: jest.fn(),
             recordChange: jest.fn()
@@ -10742,24 +10758,30 @@ describe('OutlineEditor exact selected layers', () => {
             expect(font.findGlyph('A').findLayerById('brace-layer').width).toBe(
                 999.75
             );
-            expect(currentFont.markDirty).toHaveBeenCalledTimes(2);
-            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(2);
-            expect(forceFullWorkerCacheUpdateSpy).toHaveBeenCalledTimes(2);
-            expect(compileCheckCountsAtCacheSync).toEqual([0, 0]);
+            expect(currentFont.markDirty).toHaveBeenCalledTimes(3);
+            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
+            expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
             expect(fontManager.lastEditType).toBe('outline');
             expect(scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
             expect(
                 window.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(1);
+            ).not.toHaveBeenCalled();
             expect(beginTransactionSpy).toHaveBeenCalledWith(
                 'Reinterpolate layer'
+            );
+            expect(syncGlyphFromJsonSpy).toHaveBeenCalledWith(
+                'A',
+                'Reinterpolate layer sync',
+                undefined,
+                undefined,
+                recreatedLayer.id
             );
             expect(endTransactionSpy).toHaveBeenCalledTimes(1);
             expect(selectLayerSpy).not.toHaveBeenCalled();
             expect(canvas.outlineEditor.layerData.width).toBe(999.75);
         } finally {
             window.autoCompileManager = originalAutoCompileManager;
-            window.changeBridge = originalChangeBridge;
+            window.patchSyncEngine = originalPatchSyncEngine;
             selectLayerSpy.mockRestore();
             scheduleFullCompileDebounceSpy.mockRestore();
             dirtySpy.mockRestore();
@@ -11004,12 +11026,150 @@ describe('OutlineEditor exact selected layers', () => {
         interpolateSpy.mockRestore();
     });
 
-    test('createInterpolatedLayer forces a full worker cache update for structural layer additions', async () => {
+    test('coalesces rapid interpolation requests and renders the latest queued location', async () => {
         const font = makeComponentFont();
         const currentFont = {
             fontModel: font,
             markDirty: jest.fn(),
             syncJsonFromModel: jest.fn()
+        };
+        const firstRequest = {};
+        firstRequest.promise = new Promise((resolve) => {
+            firstRequest.resolve = resolve;
+        });
+        const interpolateSpy = jest
+            .spyOn(fontInterpolation, 'interpolateGlyph')
+            .mockImplementationOnce(() => firstRequest.promise)
+            .mockResolvedValue({
+                width: 720,
+                shapes: [],
+                anchors: [],
+                guides: []
+            });
+        const applySpy = jest.spyOn(
+            canvas.outlineEditor,
+            'applyRustLayerData'
+        );
+
+        currentFontSpy.mockReturnValue(currentFont);
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = null;
+        canvas.outlineEditor.isInterpolating = true;
+        canvas.axesManager.variationSettings = { wght: 500 };
+
+        const first = canvas.outlineEditor.interpolateCurrentGlyph();
+        canvas.axesManager.variationSettings = { wght: 650 };
+        const queued = canvas.outlineEditor.interpolateCurrentGlyph();
+        let queuedSettled = false;
+        queued.then(() => {
+            queuedSettled = true;
+        });
+        canvas.axesManager.variationSettings = { wght: 800 };
+        const latest = canvas.outlineEditor.interpolateCurrentGlyph();
+
+        expect(interpolateSpy).toHaveBeenCalledTimes(1);
+        await Promise.resolve();
+        expect(queuedSettled).toBe(false);
+        expect(interpolateSpy).toHaveBeenNthCalledWith(
+            1,
+            'A',
+            { wght: 500 },
+            true
+        );
+
+        firstRequest.resolve({
+            width: 700,
+            shapes: [],
+            anchors: [],
+            guides: []
+        });
+        await first;
+        await queued;
+        await latest;
+
+        expect(interpolateSpy).toHaveBeenCalledTimes(2);
+        expect(interpolateSpy).toHaveBeenNthCalledWith(
+            2,
+            'A',
+            { wght: 800 },
+            true
+        );
+        expect(applySpy).toHaveBeenCalled();
+
+        interpolateSpy.mockRestore();
+        applySpy.mockRestore();
+    });
+
+    test('clears queued interpolation work across request tracking reset', async () => {
+        const font = makeComponentFont();
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+        const firstRequest = {};
+        firstRequest.promise = new Promise((resolve) => {
+            firstRequest.resolve = resolve;
+        });
+        const interpolateSpy = jest
+            .spyOn(fontInterpolation, 'interpolateGlyph')
+            .mockImplementationOnce(() => firstRequest.promise)
+            .mockResolvedValue({
+                width: 720,
+                shapes: [],
+                anchors: [],
+                guides: []
+            });
+        const applySpy = jest.spyOn(
+            canvas.outlineEditor,
+            'applyRustLayerData'
+        );
+
+        currentFontSpy.mockReturnValue(currentFont);
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = null;
+        canvas.outlineEditor.isInterpolating = true;
+        canvas.axesManager.variationSettings = { wght: 500 };
+
+        const first = canvas.outlineEditor.interpolateCurrentGlyph();
+        canvas.axesManager.variationSettings = { wght: 800 };
+        const queued = canvas.outlineEditor.interpolateCurrentGlyph(true);
+
+        canvas.outlineEditor.clearQueuedInterpolationRequest();
+        fontInterpolation.resetRequestTracking();
+
+        firstRequest.resolve({
+            width: 700,
+            shapes: [],
+            anchors: [],
+            guides: []
+        });
+        await first;
+        await queued;
+        await Promise.resolve();
+
+        expect(interpolateSpy).toHaveBeenCalledTimes(1);
+        expect(applySpy).not.toHaveBeenCalled();
+
+        interpolateSpy.mockRestore();
+        applySpy.mockRestore();
+    });
+
+    test('createInterpolatedLayer routes structural layer additions through patch sync funnel', async () => {
+        const font = makeComponentFont();
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const patchSyncEngine = {
+            syncGlyphFromJson: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn(),
+            recordChange: jest.fn()
         };
         const interpolateSpy = jest
             .spyOn(fontInterpolation, 'interpolateGlyph')
@@ -11035,23 +11195,36 @@ describe('OutlineEditor exact selected layers', () => {
             .mockResolvedValue();
 
         currentFontSpy.mockReturnValue(currentFont);
+        window.patchSyncEngine = patchSyncEngine;
 
-        await canvas.outlineEditor.createInterpolatedLayer({
-            glyphName: 'A',
-            userspaceLocation: { wght: 0 },
-            masterId: 'master-1',
-            designLocation: { wght: 0 },
-            isMasterBound: true,
-            extrapolate: true
-        });
+        try {
+            const newLayer = await canvas.outlineEditor.createInterpolatedLayer(
+                {
+                    glyphName: 'A',
+                    userspaceLocation: { wght: 0 },
+                    masterId: 'master-1',
+                    designLocation: { wght: 0 },
+                    isMasterBound: true,
+                    extrapolate: true
+                }
+            );
 
-        expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
-        expect(forceFullWorkerCacheUpdateSpy).toHaveBeenCalled();
-
-        selectLayerSpy.mockRestore();
-        dirtySpy.mockRestore();
-        forceFullWorkerCacheUpdateSpy.mockRestore();
-        interpolateSpy.mockRestore();
+            expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenCalledWith(
+                'A',
+                'Create interpolated layer sync',
+                undefined,
+                undefined,
+                newLayer.id
+            );
+            expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            selectLayerSpy.mockRestore();
+            dirtySpy.mockRestore();
+            forceFullWorkerCacheUpdateSpy.mockRestore();
+            interpolateSpy.mockRestore();
+        }
     });
 });
 

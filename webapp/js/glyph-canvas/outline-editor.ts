@@ -3032,6 +3032,12 @@ export class OutlineEditor {
     isLayerSwitchAnimating: boolean = false;
     suppressAutoLayerMatching: boolean = false;
     currentInterpolationId: number = 0;
+    private interpolationRequestInFlight: boolean = false;
+    private interpolationRequestQueued: boolean = false;
+    private interpolationQueuedForce: boolean = false;
+    private interpolationQueuedPromise: Promise<void> | null = null;
+    private interpolationQueuedResolve: (() => void) | null = null;
+    private interpolationQueuedReject: ((error: unknown) => void) | null = null;
     isDeterministicRefreshActive: boolean = false;
     lastGlyphX: number | null = null;
     lastGlyphY: number | null = null;
@@ -3048,6 +3054,17 @@ export class OutlineEditor {
     marqueeSelectionStart: { glyphX: number; glyphY: number } | null = null;
     marqueeSelectionCurrent: { glyphX: number; glyphY: number } | null = null;
     marqueeToggleMode: boolean = false;
+
+    private clearQueuedInterpolationRequest(): void {
+        this.currentInterpolationId++;
+        const queuedResolve = this.interpolationQueuedResolve;
+        this.interpolationRequestQueued = false;
+        this.interpolationQueuedForce = false;
+        this.interpolationQueuedPromise = null;
+        this.interpolationQueuedResolve = null;
+        this.interpolationQueuedReject = null;
+        queuedResolve?.();
+    }
     marqueeInitialPoints: Point[] = [];
     private layerSelectionStateByKey = new Map<string, LayerSelectionState>();
     private unlinkedLayerIdsByGlyphName = new Map<string, Set<string>>();
@@ -7247,10 +7264,12 @@ export class OutlineEditor {
         // Sync the complete layer data to the Y.Doc so undo can restore
         // all fields. The model setters ran inside withSuppressedModelRecording.
         const createBridge = window.patchSyncEngine;
+        let preparedStructuralChange = false;
         if (createBridge) {
-            this.prepareCommittedStructuralOutlineChange(
-                options.changeSource || 'layer-create'
-            );
+            preparedStructuralChange =
+                this.prepareCommittedStructuralOutlineChange(
+                    options.changeSource || 'layer-create'
+                );
             createBridge.syncGlyphFromJson(
                 glyphName,
                 'Create interpolated layer sync',
@@ -7262,7 +7281,8 @@ export class OutlineEditor {
 
         await this.refreshAfterStructuralLayerEdit(
             glyphName,
-            options.changeSource || 'layer-create'
+            options.changeSource || 'layer-create',
+            { scheduleCompile: !preparedStructuralChange }
         );
 
         if (options.selectNewLayer !== false) {
@@ -7423,8 +7443,10 @@ export class OutlineEditor {
             // setters above ran inside withSuppressedModelRecording, so
             // the Y.Doc only has the minimal addLayer data. Without this
             // sync, undo would produce a layer missing most fields.
+            let preparedStructuralChange = false;
             if (bridge) {
-                this.prepareCommittedStructuralOutlineChange(changeSource);
+                preparedStructuralChange =
+                    this.prepareCommittedStructuralOutlineChange(changeSource);
                 bridge.syncGlyphFromJson(
                     glyphName,
                     'Reinterpolate layer sync',
@@ -7434,7 +7456,9 @@ export class OutlineEditor {
                 );
             }
 
-            await this.refreshAfterStructuralLayerEdit(glyphName, changeSource);
+            await this.refreshAfterStructuralLayerEdit(glyphName, changeSource, {
+                scheduleCompile: !preparedStructuralChange
+            });
 
             if (shouldSelectNewLayer) {
                 if (this.selectedLayerId === newLayer.id) {
@@ -8088,6 +8112,7 @@ export class OutlineEditor {
 
             // Note: Don't clear isInterpolating here - let it stay true until animation completes
             // so auto-panning continues working. It will be cleared in animationComplete handler.
+            this.clearQueuedInterpolationRequest();
             fontInterpolation.resetRequestTracking();
 
             // If we landed on an exact layer, update the saved state to this new layer
@@ -8144,6 +8169,7 @@ export class OutlineEditor {
 
             // Note: Don't clear isInterpolating here - let it stay true until animation completes
             // so auto-panning continues working. It will be cleared in animationComplete handler.
+            this.clearQueuedInterpolationRequest();
             fontInterpolation.resetRequestTracking();
 
             // If we landed on an exact layer, update the saved state to this new layer
@@ -8236,7 +8262,11 @@ export class OutlineEditor {
             isLayerSwitchAnimating: this.isLayerSwitchAnimating
         });
         if (this.active && this.currentGlyphName) {
-            if (this.isInterpolating || this.isLayerSwitchAnimating) {
+            if (
+                this.isInterpolating ||
+                this.isLayerSwitchAnimating ||
+                this.glyphCanvas.axesManager?.isLoopAnimating
+            ) {
                 // Interpolate at current position for smooth animation
                 console.log(
                     '[OutlineEditor] Calling interpolateCurrentGlyph from animationInProgress'
@@ -15797,6 +15827,23 @@ export class OutlineEditor {
             return;
         }
 
+        if (this.interpolationRequestInFlight) {
+            this.currentInterpolationId++;
+            this.interpolationRequestQueued = true;
+            this.interpolationQueuedForce = this.interpolationQueuedForce || force;
+            if (!this.interpolationQueuedPromise) {
+                this.interpolationQueuedPromise = new Promise(
+                    (resolve, reject) => {
+                        this.interpolationQueuedResolve = resolve;
+                        this.interpolationQueuedReject = reject;
+                    }
+                );
+            }
+            return this.interpolationQueuedPromise;
+        }
+
+        this.interpolationRequestInFlight = true;
+
         // Increment counter and capture it locally - this invalidates all previous calls
         const myInterpolationId = ++this.currentInterpolationId;
         console.log(
@@ -15910,6 +15957,32 @@ export class OutlineEditor {
                 error
             );
             // On error, keep showing whatever data we have
+        } finally {
+            this.interpolationRequestInFlight = false;
+            if (this.interpolationRequestQueued) {
+                const queuedForce = this.interpolationQueuedForce;
+                const queuedResolve = this.interpolationQueuedResolve;
+                const queuedReject = this.interpolationQueuedReject;
+                this.interpolationRequestQueued = false;
+                this.interpolationQueuedForce = false;
+                this.interpolationQueuedPromise = null;
+                this.interpolationQueuedResolve = null;
+                this.interpolationQueuedReject = null;
+
+                if (
+                    queuedForce ||
+                    this.isInterpolating ||
+                    this.isLayerSwitchAnimating ||
+                    this.glyphCanvas.axesManager?.isLoopAnimating
+                ) {
+                    void this.interpolateCurrentGlyph(queuedForce).then(
+                        () => queuedResolve?.(),
+                        (error) => queuedReject?.(error)
+                    );
+                } else {
+                    queuedResolve?.();
+                }
+            }
         }
     }
 
@@ -16435,6 +16508,7 @@ export class OutlineEditor {
         // Don't handle interpolation slider resets here when layer switching
         // The layer switch logic in glyph-canvas.ts will handle everything
         if (!this.isLayerSwitchAnimating) {
+            this.clearQueuedInterpolationRequest();
             fontInterpolation.resetRequestTracking();
         }
 
@@ -16461,6 +16535,14 @@ export class OutlineEditor {
                 // Keep showing interpolated data
                 console.log('Animation complete: showing interpolated glyph');
             }
+        }
+
+        if (
+            !this.glyphCanvas.axesManager?.isSliderActive &&
+            !this.glyphCanvas.axesManager?.isLoopAnimating
+        ) {
+            this.isInterpolating = false;
+            this.autoPanAnchorScreen = null;
         }
     }
 
@@ -16723,6 +16805,7 @@ export class OutlineEditor {
             .map((line) => line.trim())
             .join(' | ');
         // Reset interpolation request tracking since we're loading exact layer data
+        this.clearQueuedInterpolationRequest();
         fontInterpolation.resetRequestTracking();
 
         // ALWAYS fetch root glyph layer data (with nested components)
