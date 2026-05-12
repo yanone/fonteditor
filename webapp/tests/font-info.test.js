@@ -54,6 +54,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         const compileEditingFont = jest.fn().mockResolvedValue(false);
         const compileFromJson = jest.fn().mockResolvedValue({ result: [] });
         const awaitWorkerDocumentSync = jest.fn().mockResolvedValue(undefined);
+        const checkAndSchedule = jest.fn();
         const beginTransaction = jest.fn();
         const endTransaction = jest.fn();
         const applySyntheticChangeSet = jest.fn((_label, operations) => {
@@ -97,6 +98,9 @@ describe('FontInfo feature code compilation scheduling', () => {
                 }
             }
         };
+        window.autoCompileManager = {
+            checkAndSchedule
+        };
         window.patchSyncEngine = {
             beginTransaction,
             endTransaction,
@@ -114,6 +118,7 @@ describe('FontInfo feature code compilation scheduling', () => {
             compileEditingFont,
             compileFromJson,
             awaitWorkerDocumentSync,
+            checkAndSchedule,
             beginTransaction,
             endTransaction,
             applySyntheticChangeSet,
@@ -136,6 +141,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         delete window.fontInfoManager;
         delete window.currentFontModel;
         delete window.patchSyncEngine;
+        delete window.autoCompileManager;
     });
 
     test('recompiles feature code after 5 seconds of typing idle', async () => {
@@ -165,10 +171,9 @@ describe('FontInfo feature code compilation scheduling', () => {
         expect(context.markDirty).toHaveBeenCalledTimes(1);
         expect(context.syncJsonFromModel).toHaveBeenCalledTimes(1);
         expect(context.awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
+        expect(context.checkAndSchedule).toHaveBeenCalledTimes(1);
         expect(context.beginTransaction).not.toHaveBeenCalled();
-        expect(context.compileEditingFont).toHaveBeenCalledWith('office', [
-            'liga'
-        ]);
+        expect(context.compileEditingFont).not.toHaveBeenCalled();
         expect(fontInfoManager.featureCodeDirty).toBe(false);
     });
 
@@ -193,12 +198,14 @@ describe('FontInfo feature code compilation scheduling', () => {
         expect(context.beginTransaction).not.toHaveBeenCalled();
         expect(context.endTransaction).not.toHaveBeenCalled();
         expect(context.awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
-        expect(context.compileEditingFont).toHaveBeenCalledTimes(1);
+        expect(context.checkAndSchedule).toHaveBeenCalledTimes(1);
+        expect(context.compileEditingFont).not.toHaveBeenCalled();
 
         jest.advanceTimersByTime(5000);
         await Promise.resolve();
 
-        expect(context.compileEditingFont).toHaveBeenCalledTimes(1);
+        expect(context.checkAndSchedule).toHaveBeenCalledTimes(1);
+        expect(context.compileEditingFont).not.toHaveBeenCalled();
     });
 
     test('bridge-backed feature code commits go only through the patch funnel', () => {
