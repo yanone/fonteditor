@@ -40,8 +40,8 @@ When these files disagree with this document, treat that as a bug and reconcile 
 11. Every interactive commit MUST keep the JS and Rust documents aligned through the shared Yjs transaction stream. Full-font `storeFontJson`, `seedYdoc`, `initYdoc`, or any other full-document crossing MUST stay at zero during steady-state editing, undo, redo, Python execution, feature-code commits, and linked-window edit replay. Edit-time compiles must wait for the already-emitted incremental Yjs worker update instead of forcing any full-document resend.
 12. Every committed Yjs packet, local or remote, MUST enter one shared serialized committed-change funnel for post-commit reactions. That funnel owns committed edit-type inference, editing-compile wakeup, and overview invalidation. Sender-local save helpers may prepare model state and arm trailing debounces, but they MUST NOT run a separate committed compile or committed `glyphChanged` path in parallel.
 13. Missing replay metadata, worker-sync rejection, or any other edit-time inconsistency MUST be treated as a bug in the incremental pipeline, not as justification for a full-document repair path. Normal editing has no escape hatches.
-14. Collaboration and history transport MUST use named forward/inverse patch pairs, not raw numeric JSON Pointer batches. The source window derives those pairs from the same concrete document diff that would produce RFC 6902 JSON patches, then rewrites glyph/layer array segments to stable glyph-name/layer-id addresses before sending them to linked windows or cloud history.
-15. Python edits MUST follow the same rule: derive forward/inverse JSON patch pairs from normalized before/after font snapshots, translate them to named patch pairs, then feed the bridge/history pipeline from those translated pairs. Python must not bypass the shared collaboration funnel with ad hoc full-font sync alone.
+14. Collaboration and cloud convergence MUST use binary Yjs updates as the authoritative document transport. Semantic change metadata may accompany those updates for history, human-readable inspection, undo labels and scopes, and replay-target hints, but it MUST NOT be used as the state-replay source for normal linked-window or cloud convergence.
+15. Python edits MUST enter `PatchSyncEngine` and emit the same committed Yjs packet plus change-log metadata as every other persisted edit. Python may derive synthetic operations from normalized before/after font snapshots, including named path metadata, but it MUST NOT bypass the shared committed-change funnel with ad hoc full-font sync or direct post-commit reactions.
 
 ## Boundary-Crossing Budget
 
@@ -226,23 +226,23 @@ The fast path depends on these rules staying true:
 
 Any change that introduces or increases any full-document transfer during normal editing is a regression unless explicitly documented and approved for bootstrap-only behavior.
 
-## Collaboration Patch Policy
+## Collaboration Metadata Policy
 
 There are two distinct mutation formats in the system, and they serve different boundaries:
 
 1. Rust worker boundary during editing: incremental Yjs updates against the worker Y.Doc only. Full `storeFontJson`, `seedYdoc`, or `initYdoc` are reserved for bootstrap and external reload, not for normal editing recovery.
-2. Collaboration/history boundary: named forward/inverse patch pairs whose paths use stable semantic identity for glyphs and layers.
+2. Collaboration/history metadata boundary: semantic change descriptors whose paths use stable glyph names and layer ids where human-readable or history-facing paths are needed.
 
-The collaboration/history format exists because linked windows, cloud durability, and undo metadata must survive document version changes that make raw numeric array indices unstable. The named patch pair therefore remains the canonical transport format between JS peers, even though the pair is derived from a concrete JSON Patch diff.
+The collaboration/history metadata format exists because history display, undo labels, replay-target hints, and cloud-side audit trails need stable semantic identity even when raw numeric array indices would be unstable. It accompanies the authoritative Yjs update; it is not the document-state transport between JS peers.
 
-Required properties of every collaboration patch pair:
+Required properties of every collaboration metadata entry:
 
-- It carries both `forward` and `inverse` operations explicitly.
-- Each operation uses JSON-Patch-style verbs (`add`, `remove`, `replace`).
-- Glyph and layer addressing must use glyph names and layer ids instead of numeric array indices.
-- Per-patch replay metadata may attach `workerReplayTargets` and edit-side metadata, but undo must not depend on recomputing the inverse later.
+- It describes the affected path or target using stable glyph names and layer ids whenever glyph or layer identity is involved.
+- It may attach `workerReplayTargets`, edit-source metadata, and human-readable summaries.
+- It may be derived from JSON Patch or named forward/inverse patch pairs when a producer, such as Python snapshot diffing, needs that conversion internally.
+- It must not be used to replay, rebuild, or repair font data during ordinary linked-window or cloud convergence. The Yjs update alone defines document state.
 
-Only the named forward/inverse pair envelope is supported for collaboration, linked-window sync, cloud durability, and history replay.
+Only binary Yjs updates are supported for collaboration, linked-window sync, cloud convergence, and steady-state worker convergence. Metadata is permitted only as a companion record.
 
 ### Required edit funnel
 
@@ -255,7 +255,7 @@ For all non-exception persisted edits, the bridge finalizes transactions in this
 3. Before the transaction is committed, inspect those direct operations for cascade triggers.
 4. If the direct operations touched layer width or anchors, rebuild downstream automatic composites and metrics-key dependents inside the same open transaction.
 5. Derive a second operation set for the cascade-only layer changes.
-6. Commit one combined operation list, and derive the explicit forward/inverse collaboration patch pairs from that combined set.
+6. Commit one combined operation list, emit one authoritative Yjs update, and attach the corresponding semantic change metadata to that same committed packet.
 
 Node-only outline edits must not trigger downstream recomposition by themselves. Downstream recomposition is keyed to anchor changes and width-affecting edits.
 
