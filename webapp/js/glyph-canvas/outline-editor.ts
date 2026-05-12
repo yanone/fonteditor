@@ -7456,9 +7456,13 @@ export class OutlineEditor {
                 );
             }
 
-            await this.refreshAfterStructuralLayerEdit(glyphName, changeSource, {
-                scheduleCompile: !preparedStructuralChange
-            });
+            await this.refreshAfterStructuralLayerEdit(
+                glyphName,
+                changeSource,
+                {
+                    scheduleCompile: !preparedStructuralChange
+                }
+            );
 
             if (shouldSelectNewLayer) {
                 if (this.selectedLayerId === newLayer.id) {
@@ -15830,7 +15834,8 @@ export class OutlineEditor {
         if (this.interpolationRequestInFlight) {
             this.currentInterpolationId++;
             this.interpolationRequestQueued = true;
-            this.interpolationQueuedForce = this.interpolationQueuedForce || force;
+            this.interpolationQueuedForce =
+                this.interpolationQueuedForce || force;
             if (!this.interpolationQueuedPromise) {
                 this.interpolationQueuedPromise = new Promise(
                     (resolve, reject) => {

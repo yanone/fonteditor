@@ -1954,9 +1954,7 @@ describe('Automatic component editing canonical behavior', () => {
             expect(
                 currentFont.requestRecompileWithoutDataChange
             ).not.toHaveBeenCalled();
-            expect(saveLayerDataSpy).toHaveBeenCalledWith(
-                'mouse-drag-anchor'
-            );
+            expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-anchor');
             expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
             expect(
                 refreshWorkerCacheForReplayTargetsSpy
@@ -2039,9 +2037,7 @@ describe('Automatic component editing canonical behavior', () => {
 
             // Post-commit overview refresh is now handled by the committed-change
             // funnel, so the old separate downstream-sync calls are not issued.
-            expect(saveLayerDataSpy).toHaveBeenCalledWith(
-                'mouse-drag-anchor'
-            );
+            expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-anchor');
             expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
             expect(
                 refreshWorkerCacheForReplayTargetsSpy
