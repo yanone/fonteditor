@@ -11046,10 +11046,7 @@ describe('OutlineEditor exact selected layers', () => {
                 anchors: [],
                 guides: []
             });
-        const applySpy = jest.spyOn(
-            canvas.outlineEditor,
-            'applyRustLayerData'
-        );
+        const applySpy = jest.spyOn(canvas.outlineEditor, 'applyRustLayerData');
 
         currentFontSpy.mockReturnValue(currentFont);
         canvas.outlineEditor.active = true;
@@ -11121,10 +11118,7 @@ describe('OutlineEditor exact selected layers', () => {
                 anchors: [],
                 guides: []
             });
-        const applySpy = jest.spyOn(
-            canvas.outlineEditor,
-            'applyRustLayerData'
-        );
+        const applySpy = jest.spyOn(canvas.outlineEditor, 'applyRustLayerData');
 
         currentFontSpy.mockReturnValue(currentFont);
         canvas.outlineEditor.active = true;
