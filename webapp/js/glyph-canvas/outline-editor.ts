@@ -29,6 +29,7 @@ import {
     type SidebearingSide
 } from '../sidebearing-utils';
 import { translateLayerContentsX } from '../x-translation-utils';
+import { refreshGlyphOverviewFromGlyphNames } from '../change-bridge-init';
 import { Bezier } from 'bezier-js';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 import {
@@ -4284,38 +4285,6 @@ export class OutlineEditor {
             return;
         }
 
-        const dispatchGlyphOverviewRefresh = (
-            forceImmediateRefresh: boolean = false
-        ): void => {
-            const glyphNames = Array.from(
-                new Set(
-                    [glyphName, ...downstreamGlyphNames].filter(
-                        (affectedGlyphName): affectedGlyphName is string =>
-                            typeof affectedGlyphName === 'string' &&
-                            affectedGlyphName.length > 0
-                    )
-                )
-            );
-            if (glyphNames.length === 0) {
-                return;
-            }
-
-            window.dispatchEvent(
-                new CustomEvent('glyphChanged', {
-                    detail: {
-                        glyphName: glyphNames[0],
-                        ...(glyphNames.length > 1 ? { glyphNames } : undefined),
-                        ...(currentLayerId
-                            ? { layerId: currentLayerId }
-                            : undefined),
-                        ...(forceImmediateRefresh
-                            ? { forceImmediateRefresh: true }
-                            : undefined)
-                    }
-                })
-            );
-        };
-
         const refreshSourceGlyphPromise =
             glyphName && currentLayerId
                 ? fontManager.refreshWorkerCacheForReplayTargets([
@@ -4342,8 +4311,6 @@ export class OutlineEditor {
                     }
                 );
             }
-
-            dispatchGlyphOverviewRefresh(true);
 
             currentFont.requestRecompileWithoutDataChange();
             window.autoCompileManager?.checkAndSchedule?.();
@@ -11611,6 +11578,15 @@ export class OutlineEditor {
                         if (dragType === 'anchor') {
                             this._anchorAffectedGlyphNames =
                                 this.rebuildAutomaticCompositesForCurrentEditedGlyph();
+                            // Sync model → babelfontData before the Yjs commit so
+                            // cascade composite shapes are included in the
+                            // transaction and forwarded to the worker via
+                            // forwardWorkerYjsUpdate. Without this, _fontJson is
+                            // stale for cascade composites when syncLayersFromJson
+                            // runs and tiles query the worker post-glyphChanged.
+                            if (this._anchorAffectedGlyphNames.size > 0) {
+                                fontManager.currentFont?.syncJsonFromModel();
+                            }
                         }
                         const anchorChangedLayerTargets =
                             dragType === 'anchor'
@@ -11677,31 +11653,11 @@ export class OutlineEditor {
                     dragType !== 'guide' &&
                     dragType !== 'contrast-axis'
                 ) {
-                    const handledAnchorDependentRefresh =
-                        dragType === 'anchor' ||
-                        (dragType === 'transform' &&
-                            selectionResizeSnapshot?.includesAnchors);
-                    if (dragType === 'sidebearing') {
-                        this.syncDependentGlyphsAfterSidebearingEdit(
-                            this.getCurrentGlyphModel()?.name,
-                            this._sidebearingAffectedGlyphNames
-                        );
-                    } else if (handledAnchorDependentRefresh) {
-                        this._anchorAffectedGlyphNames =
-                            this.rebuildAutomaticCompositesForCurrentEditedGlyph();
-                        void this.syncDependentGlyphsAfterAnchorEdit(
-                            this.getCurrentGlyphModel()?.name,
-                            this._anchorAffectedGlyphNames
-                        ).catch((error) => {
-                            console.error(
-                                '[OutlineEditor] Error refreshing anchor-dependent glyphs after mouseup:',
-                                error
-                            );
-                        });
-                    }
-                    if (!handledAnchorDependentRefresh) {
-                        fontManager.updateWorkerFontCache();
-                    }
+                    // Post-commit overview refresh is handled by the
+                    // committed-change funnel (onCommittedChange →
+                    // handleCommittedChangeRefresh) for all drag types,
+                    // so no separate dependent-glyph sync is needed here.
+                    fontManager.updateWorkerFontCache();
                     fontManager.flushPendingDebugEditingFontSaveAfterDrag();
                 }
             } catch (error) {
@@ -15028,15 +14984,26 @@ export class OutlineEditor {
         try {
             // Save to object model (non-blocking)
             this.saveLayerData('keyboard-anchor');
-            void this.syncDependentGlyphsAfterAnchorEdit(
-                this.getCurrentGlyphModel()?.name,
-                this._anchorAffectedGlyphNames
-            ).catch((error) => {
-                console.error(
-                    '[OutlineEditor] Error refreshing anchor-dependent glyphs after keyboard move:',
-                    error
+            // Sync model → babelfontData before the Yjs commit so cascade
+            // composite shapes are included in the transaction and forwarded
+            // to the worker. Without this, cascade composites updated by
+            // rebuildAutomaticCompositesForCurrentEditedGlyph are not in
+            // _fontJson when syncLayersFromJson runs, so tiles show stale data.
+            if (this._anchorAffectedGlyphNames.size > 0) {
+                fontManager.currentFont?.syncJsonFromModel();
+            }
+            const anchorChangedLayerTargets =
+                this.collectMatchingLayerWorkerReplayTargets(
+                    this._anchorAffectedGlyphNames,
+                    this.getCurrentLayerId()
                 );
-            });
+            this._syncCurrentGlyphToYDoc(
+                'Move anchor',
+                undefined,
+                undefined,
+                null,
+                anchorChangedLayerTargets
+            );
         } finally {
             if (hasTransaction) {
                 bridge.endTransaction();
@@ -15303,10 +15270,6 @@ export class OutlineEditor {
         }
         try {
             this.saveLayerData('keyboard-outline');
-            this.syncDependentGlyphsAfterSidebearingEdit(
-                this.getCurrentGlyphModel()?.name,
-                this._sidebearingAffectedGlyphNames
-            );
             const sidebearingChangedLayerTargets =
                 this.collectMatchingLayerWorkerReplayTargets(
                     this._sidebearingAffectedGlyphNames,
@@ -15357,9 +15320,17 @@ export class OutlineEditor {
         }
         try {
             this.saveLayerData('keyboard-outline');
-            this.syncDependentGlyphsAfterSidebearingEdit(
-                this.getCurrentGlyphModel()?.name,
-                this._sidebearingAffectedGlyphNames
+            const sidebearingChangedLayerTargets =
+                this.collectMatchingLayerWorkerReplayTargets(
+                    this._sidebearingAffectedGlyphNames,
+                    this.getCurrentLayerId()
+                );
+            this._syncCurrentGlyphToYDoc(
+                'Move sidebearing',
+                undefined,
+                undefined,
+                this.selectedSidebearingHandle?.side ?? null,
+                sidebearingChangedLayerTargets
             );
         } finally {
             if (hasTransaction) {

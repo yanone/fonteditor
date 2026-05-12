@@ -10,7 +10,10 @@
  * instead requests a full-state transfer from an existing peer window.
  */
 
-import { PatchSyncEngine } from './patch-sync-engine';
+import {
+    PatchSyncEngine,
+    type CommittedChangeOrigin
+} from './patch-sync-engine';
 import { fromYType } from './change-bridge-ydoc';
 import {
     applyInterpolationRustYjsUpdate,
@@ -38,7 +41,7 @@ import type { TransactionBufferedOperation } from './patch-sync-engine';
 
 const console = new Logger('ChangeBridgeInit');
 let bridgeSyncQueue: Promise<void> = Promise.resolve();
-let remoteChangeRefreshQueue: Promise<void> = Promise.resolve();
+let committedChangeRefreshQueue: Promise<void> = Promise.resolve();
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -47,9 +50,11 @@ function enqueueBridgeSync(task: () => Promise<void>): Promise<void> {
     return bridgeSyncQueue;
 }
 
-function enqueueRemoteChangeRefresh(task: () => Promise<void>): Promise<void> {
-    remoteChangeRefreshQueue = remoteChangeRefreshQueue.then(task, task);
-    return remoteChangeRefreshQueue;
+function enqueueCommittedChangeRefresh(
+    task: () => Promise<void>
+): Promise<void> {
+    committedChangeRefreshQueue = committedChangeRefreshQueue.then(task, task);
+    return committedChangeRefreshQueue;
 }
 
 function cloneBridgeValue<T>(value: T): T {
@@ -585,15 +590,38 @@ export function buildCascadingRecompositionOperations(
 }
 
 /**
- * Infer the original edit type from remote change log entries,
- * so the linked window can use the matching compilation fast path
+ * Infer the original edit type from committed change log entries,
+ * so every window can use the matching compilation fast path
  * (anchor-only / outline-only) instead of always falling back to
- * a full compile.
+ * a full compile after the Yjs commit lands.
  */
-function inferRemoteEditTypeFromEntries(entries: ChangeLogEntry[]): {
+function inferCommittedEditTypeFromEntries(
+    entries: ChangeLogEntry[],
+    origin: CommittedChangeOrigin
+): {
     editType: 'anchor' | 'outline' | null;
     changeSource: string;
 } {
+    const changeSourceFor = (editType: 'anchor' | 'outline' | null): string => {
+        if (origin === 'remote') {
+            if (editType === 'anchor') {
+                return 'remote-anchor';
+            }
+            if (editType === 'outline') {
+                return 'remote-outline';
+            }
+            return 'remote-change';
+        }
+
+        if (editType === 'anchor') {
+            return 'keyboard-anchor';
+        }
+        if (editType === 'outline') {
+            return 'keyboard-outline';
+        }
+        return 'change-bridge-local';
+    };
+
     for (const entry of entries) {
         const label = entry.transactionLabel ?? '';
         const path = entry.path ?? '';
@@ -601,7 +629,10 @@ function inferRemoteEditTypeFromEntries(entries: ChangeLogEntry[]): {
             label.toLowerCase().includes('anchor') ||
             /(^|\.)anchors(\.|$)/.test(path)
         ) {
-            return { editType: 'anchor', changeSource: 'remote-anchor' };
+            return {
+                editType: 'anchor',
+                changeSource: changeSourceFor('anchor')
+            };
         }
         if (
             entry.visualAnchorSide === 'left' ||
@@ -612,10 +643,13 @@ function inferRemoteEditTypeFromEntries(entries: ChangeLogEntry[]): {
             /(^|\.)nodes(\.|$)/.test(path) ||
             /(^|\.)shapes(\.|$)/.test(path)
         ) {
-            return { editType: 'outline', changeSource: 'remote-outline' };
+            return {
+                editType: 'outline',
+                changeSource: changeSourceFor('outline')
+            };
         }
     }
-    return { editType: null, changeSource: 'remote-change' };
+    return { editType: null, changeSource: changeSourceFor(null) };
 }
 
 /**
@@ -1398,9 +1432,12 @@ async function requestUndoRedoEditingFontCompile(
     await waitPromise;
 }
 
-async function requestRemoteEditingFontCompile(
+async function requestCommittedEditingFontCompile(
     changeSource: string,
-    editType?: 'outline' | 'anchor' | null
+    editType?: 'outline' | 'anchor' | null,
+    options?: {
+        forceTrigger?: boolean;
+    }
 ): Promise<void> {
     const fm = window.fontManager;
     if (!fm?.currentFont) {
@@ -1413,24 +1450,71 @@ async function requestRemoteEditingFontCompile(
     fm.currentFont.requestRecompileWithoutDataChange();
     window.autoCompileManager?.checkAndSchedule?.();
 
-    // Fire-and-forget: do NOT await compile completion.
-    //
-    // Awaiting here serialises every remote update behind compile latency
-    // (100–500 ms each) inside the enqueueRemoteChangeRefresh serial queue.
-    // If five rapid edits land from a peer, each would be blocked until the
-    // previous compile finished — creating a multi-second pipeline stall.
-    //
-    // Instead we trigger the compile and return immediately. The autoCompile
-    // manager's own scheduling logic (checkAndSchedule / forceTrigger) will
-    // run the compile as soon as the thread is free, coalescing any queued
-    // compiles automatically.
-    if (typeof window.autoCompileManager?.forceTrigger === 'function') {
+    if (
+        options?.forceTrigger &&
+        typeof window.autoCompileManager?.forceTrigger === 'function'
+    ) {
         try {
             window.autoCompileManager.forceTrigger();
         } catch {
             // Compile errors are reported through the normal error path.
         }
     }
+}
+
+async function awaitLocalCommittedWorkerCacheSettled(
+    awaitWorkerSync: () => Promise<void>
+): Promise<void> {
+    await awaitWorkerSync();
+
+    const fontManager = window.fontManager as
+        | {
+              workerCacheUpdatePromise?: Promise<void> | null;
+              awaitWorkerCacheUpdate?: () => Promise<void>;
+          }
+        | undefined;
+
+    if (typeof fontManager?.awaitWorkerCacheUpdate !== 'function') {
+        return;
+    }
+
+    let awaitedPromise: Promise<void> | null = null;
+    for (;;) {
+        const pendingPromise = fontManager.workerCacheUpdatePromise ?? null;
+        if (!pendingPromise || pendingPromise === awaitedPromise) {
+            return;
+        }
+
+        awaitedPromise = pendingPromise;
+        await fontManager.awaitWorkerCacheUpdate();
+        await awaitWorkerSync();
+    }
+}
+
+type LocalCommittedCompileContext = {
+    changeSource: string;
+    editType: 'outline' | 'anchor' | null;
+};
+
+function resolveLocalCommittedCompileContext(
+    entries: ChangeLogEntry[]
+): LocalCommittedCompileContext {
+    const fm = window.fontManager;
+    const inferred = inferCommittedEditTypeFromEntries(entries, 'local');
+    const existingChangeSource = fm?.lastChangeSource;
+    const existingEditType = fm?.lastEditType;
+    const canReuseExistingSource =
+        typeof existingChangeSource === 'string' &&
+        existingChangeSource.length > 0 &&
+        !existingChangeSource.startsWith('remote-') &&
+        existingChangeSource !== 'undo-redo';
+
+    return {
+        changeSource: canReuseExistingSource
+            ? existingChangeSource
+            : inferred.changeSource,
+        editType: existingEditType ?? inferred.editType
+    };
 }
 
 /**
@@ -1508,69 +1592,23 @@ function applyRemoteSidebearingVisualSync(entries: ChangeLogEntry[]): boolean {
 }
 
 /**
- * Refresh receiver-side Rust/cache state for a remote edit and request
- * editing compilation only after the refresh has been queued.
+ * Refresh glyph overview tiles from a seed glyph set so local live edits
+ * and committed local/remote change packets share the same invalidation
+ * logic for dependent composites and fallback rendering.
  */
-export async function handleRemoteChangeRefresh(
-    entries: ChangeLogEntry[],
-    dependencies?: {
-        requestCompile?: (
-            changeSource: string,
-            editType?: 'outline' | 'anchor' | null
-        ) => Promise<void>;
-        queueCacheRefresh?: (
-            rootGlyphName?: string,
-            editedGlyphName?: string,
-            forceFullRustSync?: boolean,
-            options?: {
-                skipDeferredCanvasRepaint?: boolean;
-                workerReplayTargets?: WorkerReplayTarget[];
-                allowSelectedLayerFallback?: boolean;
-            }
-        ) => Promise<void>;
+export async function refreshGlyphOverviewFromGlyphNames(
+    glyphNames: Iterable<string>,
+    options?: {
+        layerId?: string | null;
+        forceImmediateRefresh?: boolean;
+        fallbackToFullRender?: boolean;
     }
 ): Promise<void> {
-    // Receiver-side visual pan: when a remote sidebearing edit (live, undo, or
-    // redo) lands and matches the linked window's active glyph/layer, pan the
-    // canvas so the opposite edge stays stationary, mirroring the sender's
-    // local behavior.
-    applyRemoteSidebearingVisualSync(entries);
-
-    const { editType, changeSource } = inferRemoteEditTypeFromEntries(entries);
-    const replayTargets = collectReplayTargetsFromEntries(entries);
-    const requestCompile =
-        dependencies?.requestCompile ?? requestRemoteEditingFontCompile;
-    const queueCacheRefresh =
-        dependencies?.queueCacheRefresh ?? queueRustCacheAndRefreshCanvas;
-
-    await queueCacheRefresh(undefined, undefined, false, {
-        allowSelectedLayerFallback: false,
-        ...(replayTargets.length > 0
-            ? { workerReplayTargets: replayTargets }
-            : {})
-    });
-
-    await requestCompile(changeSource, editType);
-
-    // Refresh the glyph overview for the receiving window. Extract affected
-    // glyph names from workerReplayTargets and entry paths, then dispatch
-    // glyphChanged so the overview invalidates cached tile data and
-    // schedules a re-render.
     const changedGlyphNames = new Set<string>();
-    for (const entry of entries) {
-        for (const target of normalizeWorkerReplayTargets(
-            entry.workerReplayTargets
-        )) {
-            if (target.glyphName) {
-                changedGlyphNames.add(target.glyphName);
-            }
+    for (const glyphName of glyphNames) {
+        if (typeof glyphName === 'string' && glyphName.length > 0) {
+            changedGlyphNames.add(glyphName);
         }
-    }
-    const entryPaths = entries
-        .map((e) => e.path)
-        .filter((p): p is string => !!p);
-    for (const glyphName of deriveGlyphNamesFromPaths(entryPaths)) {
-        changedGlyphNames.add(glyphName);
     }
 
     // Include dependent composite glyphs (glyphs that use any changed
@@ -1592,11 +1630,20 @@ export async function handleRemoteChangeRefresh(
             new CustomEvent('glyphChanged', {
                 detail: {
                     glyphName: glyphNamesArray[0],
-                    glyphNames: glyphNamesArray
+                    glyphNames: glyphNamesArray,
+                    ...(options?.layerId
+                        ? { layerId: options.layerId }
+                        : undefined),
+                    ...(options?.forceImmediateRefresh
+                        ? { forceImmediateRefresh: true }
+                        : undefined)
                 }
             })
         );
-    } else {
+        return;
+    }
+
+    if (options?.fallbackToFullRender !== false) {
         // Fallback: full overview re-render when no specific glyphs
         // can be identified from the change entries.
         const glyphOverview = window.glyphOverviewInstance;
@@ -1606,6 +1653,144 @@ export async function handleRemoteChangeRefresh(
             );
         }
     }
+}
+
+/**
+ * Refresh the glyph overview from committed change metadata so both
+ * sender and receiver windows invalidate the same set of tiles.
+ */
+async function refreshGlyphOverviewFromCommittedEntries(
+    entries: ChangeLogEntry[]
+): Promise<void> {
+    const changedGlyphNames = new Set<string>();
+    for (const entry of entries) {
+        for (const target of normalizeWorkerReplayTargets(
+            entry.workerReplayTargets
+        )) {
+            if (target.glyphName) {
+                changedGlyphNames.add(target.glyphName);
+            }
+        }
+    }
+    const entryPaths = entries
+        .map((e) => e.path)
+        .filter((p): p is string => !!p);
+    for (const glyphName of deriveGlyphNamesFromPaths(entryPaths)) {
+        changedGlyphNames.add(glyphName);
+    }
+
+    await refreshGlyphOverviewFromGlyphNames(changedGlyphNames, {
+        fallbackToFullRender: true
+    });
+}
+
+/**
+ * Refresh committed changes through one post-commit funnel for both the
+ * local sender and remote receivers. Remote packets still run their
+ * receiver-only pan compensation and cache-refresh work before the shared
+ * compile + overview refresh steps.
+ */
+export async function handleCommittedChangeRefresh(
+    entries: ChangeLogEntry[],
+    origin: CommittedChangeOrigin,
+    dependencies?: {
+        requestCompile?: (
+            changeSource: string,
+            editType?: 'outline' | 'anchor' | null
+        ) => Promise<void>;
+        queueCacheRefresh?: (
+            rootGlyphName?: string,
+            editedGlyphName?: string,
+            forceFullRustSync?: boolean,
+            options?: {
+                skipDeferredCanvasRepaint?: boolean;
+                workerReplayTargets?: WorkerReplayTarget[];
+                allowSelectedLayerFallback?: boolean;
+            }
+        ) => Promise<void>;
+        awaitWorkerSync?: () => Promise<void>;
+        localCompileContext?: LocalCommittedCompileContext;
+    }
+): Promise<void> {
+    const requestCompile =
+        dependencies?.requestCompile ??
+        ((changeSource, editType) =>
+            requestCommittedEditingFontCompile(changeSource, editType, {
+                forceTrigger: origin === 'remote'
+            }));
+    const localCompileContext =
+        origin === 'local'
+            ? dependencies?.localCompileContext ??
+              resolveLocalCommittedCompileContext(entries)
+            : null;
+
+    if (origin === 'remote') {
+        applyRemoteSidebearingVisualSync(entries);
+
+        const replayTargets = collectReplayTargetsFromEntries(entries);
+        const queueCacheRefresh =
+            dependencies?.queueCacheRefresh ?? queueRustCacheAndRefreshCanvas;
+
+        await queueCacheRefresh(undefined, undefined, false, {
+            allowSelectedLayerFallback: false,
+            ...(replayTargets.length > 0
+                ? { workerReplayTargets: replayTargets }
+                : {})
+        });
+
+        const { editType, changeSource } = inferCommittedEditTypeFromEntries(
+            entries,
+            'remote'
+        );
+        await requestCompile(changeSource, editType);
+    } else {
+        const awaitWorkerSync =
+            dependencies?.awaitWorkerSync ??
+            (() => fontCompilation.awaitWorkerDocumentSync());
+        await awaitLocalCommittedWorkerCacheSettled(awaitWorkerSync);
+
+        const replayTargets = collectReplayTargetsFromEntries(entries);
+        if (replayTargets.length > 0) {
+            const queueCacheRefresh =
+                dependencies?.queueCacheRefresh ?? queueRustCacheAndRefreshCanvas;
+
+            await queueCacheRefresh(undefined, undefined, false, {
+                allowSelectedLayerFallback: false,
+                workerReplayTargets: replayTargets
+            });
+        }
+
+        const { editType, changeSource } =
+            localCompileContext ?? resolveLocalCommittedCompileContext(entries);
+        await requestCompile(changeSource, editType);
+    }
+
+    await refreshGlyphOverviewFromCommittedEntries(entries);
+}
+
+/**
+ * Backward-compatible remote wrapper retained for focused tests.
+ */
+export async function handleRemoteChangeRefresh(
+    entries: ChangeLogEntry[],
+    dependencies?: {
+        requestCompile?: (
+            changeSource: string,
+            editType?: 'outline' | 'anchor' | null
+        ) => Promise<void>;
+        queueCacheRefresh?: (
+            rootGlyphName?: string,
+            editedGlyphName?: string,
+            forceFullRustSync?: boolean,
+            options?: {
+                skipDeferredCanvasRepaint?: boolean;
+                workerReplayTargets?: WorkerReplayTarget[];
+                allowSelectedLayerFallback?: boolean;
+            }
+        ) => Promise<void>;
+    }
+): Promise<void> {
+    await handleCommittedChangeRefresh(entries, 'remote', dependencies);
 }
 
 export function queueRustCacheAndRefreshCanvas(
@@ -1878,30 +2063,20 @@ function initializeBridge(detail: {
             void fontManager.updateDirtyIndicator();
             window.saveButton?.updateButtonState?.();
         }
-        if (window.autoCompileManager) {
-            window.autoCompileManager.checkAndSchedule();
-        }
     });
 
-    // Local and remote edits both refresh the worker cache from the local
-    // model state. The collaboration envelope now carries semantic operations
-    // and replay targets for history/compile metadata, not raw JSON patches.
-
-    // Callback for remote changes — trigger a canvas/overview refresh.
-    // By the time this fires, onAfterSync has already re-synced
-    // babelfontJson and rebuilt the model, so auto-compile will
-    // produce correct output once the dirty flag triggers it.
-    //
-    // The entries carry workerReplayTargets and edit-type metadata
-    // from the source window.  Use them to:
-    //   1. Pass replay targets to syncRustCacheAndRefreshCanvas for
-    //      incremental layer updates (instead of full JSON resync).
-    //   2. Infer the original edit type so the linked window's editing
-    //      compile uses the matching fast path (anchor-only / outline-only)
-    //      instead of always falling back to the slowest full mode.
-    bridge.onRemoteChange((entries: ChangeLogEntry[]) => {
-        void enqueueRemoteChangeRefresh(() =>
-            handleRemoteChangeRefresh(entries)
+    // Route committed local and remote Yjs packets through one serialized
+    // post-commit reaction funnel. Local edits enter immediately after the
+    // authoritative Yjs packet is emitted; remote edits enter after apply.
+    bridge.onCommittedChange((entries, context) => {
+        const localCompileContext =
+            context.origin === 'local'
+                ? resolveLocalCommittedCompileContext(entries)
+                : undefined;
+        void enqueueCommittedChangeRefresh(() =>
+            handleCommittedChangeRefresh(entries, context.origin, {
+                ...(localCompileContext ? { localCompileContext } : {})
+            })
         );
     });
 

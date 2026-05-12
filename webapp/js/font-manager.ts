@@ -4146,7 +4146,6 @@ class FontManager {
         }
 
         this.currentFont!.markDirty(changeSource);
-        window.autoCompileManager.checkAndSchedule();
         await this.updateDirtyIndicator();
 
         if (keyboardCacheUpdatePromise) {
@@ -4187,19 +4186,11 @@ class FontManager {
                 );
             }
         }
-
-        // Dispatch event for glyph overview to update tile
-        window.dispatchEvent(
-            new CustomEvent('glyphChanged', {
-                detail: { glyphName, layerId }
-            })
-        );
     }
 
     /**
      * Update the worker's font cache with current font data.
      * Call this after dragging ends to ensure caches are updated.
-     * Also dispatches glyphChanged event to refresh the glyph overview.
      */
     async updateWorkerFontCache(): Promise<void> {
         const run = async (): Promise<void> => {
@@ -4270,47 +4261,6 @@ class FontManager {
                 }
 
                 await fontCompilation.awaitWorkerDocumentSync();
-
-                // After updating the cache, dispatch glyphChanged event for all affected glyphs
-                // This ensures the glyph overview refreshes with the updated outline data
-                const rootGlyphName = window.glyphCanvas?.getCurrentGlyphName();
-
-                // Collect all glyphs that need to be refreshed
-                const glyphsToRefresh = new Set<string>();
-
-                if (currentGlyphName) {
-                    // Add the currently edited glyph
-                    glyphsToRefresh.add(currentGlyphName);
-
-                    // Find all glyphs that use the current glyph as a component
-                    // This handles nested components like "o" inside "ö", "õ", "ø", etc.
-                    const glyphsUsingComponent =
-                        window.currentFontModel?.collectComponentDependentGlyphs(
-                            [currentGlyphName]
-                        );
-                    if (glyphsUsingComponent) {
-                        for (const glyphName of glyphsUsingComponent) {
-                            glyphsToRefresh.add(glyphName);
-                        }
-                    }
-                }
-
-                // Also add the root glyph if different (for nested component editing)
-                if (rootGlyphName && rootGlyphName !== currentGlyphName) {
-                    glyphsToRefresh.add(rootGlyphName);
-                }
-
-                // Dispatch glyphChanged events for all affected glyphs
-                for (const glyphName of glyphsToRefresh) {
-                    window.dispatchEvent(
-                        new CustomEvent('glyphChanged', {
-                            detail: {
-                                glyphName: glyphName,
-                                layerId: currentLayerId
-                            }
-                        })
-                    );
-                }
             } catch (error) {
                 console.error(
                     '[FontManager] Error updating worker font cache:',

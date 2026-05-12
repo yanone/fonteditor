@@ -1699,13 +1699,7 @@ describe('Automatic component editing canonical behavior', () => {
                 dispatchGlyphChanged: false,
                 skipFingerprintBaseline: true
             });
-            expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
-            expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
-                glyphName: 'A',
-                glyphNames: ['A', 'visibleComposite'],
-                layerId: 'A0',
-                forceImmediateRefresh: true
-            });
+            expect(glyphChangedHandler).not.toHaveBeenCalled();
             expect(refreshWorkerCacheForReplayTargetsSpy).toHaveBeenCalledTimes(
                 1
             );
@@ -1827,12 +1821,7 @@ describe('Automatic component editing canonical behavior', () => {
                 refreshWorkerCacheForReplayTargetsSpy.mock.calls[0][0]
             ).toEqual([{ glyphName: 'A', layerId: 'A0' }]);
             expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
-            expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
-            expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
-                glyphName: 'A',
-                layerId: 'A0',
-                forceImmediateRefresh: true
-            });
+            expect(glyphChangedHandler).not.toHaveBeenCalled();
             expect(
                 currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(1);
@@ -1910,7 +1899,7 @@ describe('Automatic component editing canonical behavior', () => {
         ]);
     });
 
-    test('anchor drag mouseup still performs the downstream settle for hidden composites', async () => {
+    test('anchor drag mouseup calls updateWorkerFontCache and flush, no separate dependent sync', async () => {
         const dragFont = makeVisibleAnchorCascadeFont();
         const currentFont = {
             fontModel: dragFont,
@@ -1953,38 +1942,20 @@ describe('Automatic component editing canonical behavior', () => {
             canvas.outlineEditor.onMouseUp({});
             await new Promise((resolve) => setTimeout(resolve, 0));
 
-            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
+            // Post-commit overview refresh is now handled by the committed-change
+            // funnel (onCommittedChange → handleCommittedChangeRefresh), so the
+            // old separate downstream-sync calls are no longer issued from mouseup.
+            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(
                 currentFont.requestRecompileWithoutDataChange
-            ).toHaveBeenCalledTimes(1);
-            expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
-            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][0]).toEqual([
-                'visibleComposite',
-                'hiddenComposite'
-            ]);
-            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][1]).toBe('A0');
-            expect(refreshWorkerCacheForReplayTargetsSpy).toHaveBeenCalledTimes(
-                1
-            );
+            ).not.toHaveBeenCalled();
+            expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
             expect(
-                refreshWorkerCacheForReplayTargetsSpy.mock.calls[0][0]
-            ).toEqual([{ glyphName: 'A', layerId: 'A0' }]);
-            expect(
-                refreshWorkerCacheForReplayTargetsSpy.mock
-                    .invocationCallOrder[0]
-            ).toBeLessThan(
-                refreshGlyphsAfterModelBatchSpy.mock.invocationCallOrder[0]
-            );
-            const visibleLayer =
-                dragFont.findGlyph('visibleComposite').layers[0];
-            const hiddenLayer = dragFont.findGlyph('hiddenComposite').layers[0];
-            expect(
-                getSerializedTranslationX(visibleLayer.toJSON().shapes[1])
-            ).toBeCloseTo(280);
-            expect(
-                getSerializedTranslationX(hiddenLayer.toJSON().shapes[1])
-            ).toBeCloseTo(280);
-            expect(updateWorkerFontCacheSpy).not.toHaveBeenCalled();
+                refreshWorkerCacheForReplayTargetsSpy
+            ).not.toHaveBeenCalled();
+            // updateWorkerFontCache is now called unconditionally for all non-guide
+            // drag types (anchor included) after the committed funnel refactor.
+            expect(updateWorkerFontCacheSpy).toHaveBeenCalledTimes(1);
             expect(
                 flushPendingDebugEditingFontSaveAfterDragSpy
             ).toHaveBeenCalledTimes(1);
@@ -1997,7 +1968,7 @@ describe('Automatic component editing canonical behavior', () => {
         }
     });
 
-    test('anchor-inclusive resize mouseup refreshes overview glyphs through the batch cache path', async () => {
+    test('anchor-inclusive resize mouseup calls updateWorkerFontCache and flush, no separate dependent sync', async () => {
         const dragFont = makeVisibleAnchorCascadeFont();
         const currentFont = {
             fontModel: dragFont,
@@ -2054,26 +2025,16 @@ describe('Automatic component editing canonical behavior', () => {
             canvas.outlineEditor.onMouseUp({});
             await new Promise((resolve) => setTimeout(resolve, 0));
 
-            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
-            expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
-            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][0]).toEqual([
-                'visibleComposite',
-                'hiddenComposite'
-            ]);
-            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][1]).toBe('A0');
-            expect(refreshWorkerCacheForReplayTargetsSpy).toHaveBeenCalledTimes(
-                1
-            );
+            // Post-commit overview refresh is now handled by the committed-change
+            // funnel, so the old separate downstream-sync calls are not issued.
+            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
+            expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
             expect(
-                refreshWorkerCacheForReplayTargetsSpy.mock.calls[0][0]
-            ).toEqual([{ glyphName: 'A', layerId: 'A0' }]);
-            expect(
-                refreshWorkerCacheForReplayTargetsSpy.mock
-                    .invocationCallOrder[0]
-            ).toBeLessThan(
-                refreshGlyphsAfterModelBatchSpy.mock.invocationCallOrder[0]
-            );
-            expect(updateWorkerFontCacheSpy).not.toHaveBeenCalled();
+                refreshWorkerCacheForReplayTargetsSpy
+            ).not.toHaveBeenCalled();
+            // updateWorkerFontCache is now called unconditionally for all non-guide
+            // drag types after the committed funnel refactor.
+            expect(updateWorkerFontCacheSpy).toHaveBeenCalledTimes(1);
             expect(
                 flushPendingDebugEditingFontSaveAfterDragSpy
             ).toHaveBeenCalledTimes(1);

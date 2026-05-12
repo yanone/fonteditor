@@ -178,7 +178,7 @@ describe('FontManager saveLayerData', () => {
         );
         expect(
             window.autoCompileManager.checkAndSchedule
-        ).toHaveBeenCalledTimes(1);
+        ).not.toHaveBeenCalled();
     });
 
     test('keeps live editing auto-compile for interactive anchor drag saves', async () => {
@@ -201,7 +201,7 @@ describe('FontManager saveLayerData', () => {
         );
         expect(
             window.autoCompileManager.checkAndSchedule
-        ).toHaveBeenCalledTimes(1);
+        ).not.toHaveBeenCalled();
     });
 
     test('normalizeLayerForRust canonicalizes malformed component transforms', () => {
@@ -378,7 +378,7 @@ describe('FontManager saveLayerData', () => {
         );
         expect(
             window.autoCompileManager.checkAndSchedule
-        ).toHaveBeenCalledTimes(1);
+        ).not.toHaveBeenCalled();
         expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'applyYjsUpdate',
@@ -408,7 +408,7 @@ describe('FontManager saveLayerData', () => {
         );
         expect(
             window.autoCompileManager.checkAndSchedule
-        ).toHaveBeenCalledTimes(1);
+        ).not.toHaveBeenCalled();
         expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'applyYjsUpdate',
@@ -436,7 +436,7 @@ describe('FontManager saveLayerData', () => {
         expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(
             window.autoCompileManager.checkAndSchedule
-        ).toHaveBeenCalledTimes(1);
+        ).not.toHaveBeenCalled();
         expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'applyYjsUpdate',
@@ -464,7 +464,7 @@ describe('FontManager saveLayerData', () => {
         expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(
             window.autoCompileManager.checkAndSchedule
-        ).toHaveBeenCalledTimes(1);
+        ).not.toHaveBeenCalled();
     });
 
     test('postpones debounced full compile until drag ends', () => {
@@ -1169,7 +1169,6 @@ describe('FontManager editing subset inclusion', () => {
         window.glyphCanvas.textRunEditor.glyphNameBuffer = [];
         window.glyphCanvas.outlineEditor.currentGlyphName = 'sourceGlyph';
         window.glyphCanvas.getCurrentGlyphName = jest.fn(() => 'sourceGlyph');
-
         const dependencyGraph = {
             sourceGlyph: ['bridgeGlyph', 'hiddenSibling'],
             bridgeGlyph: ['visibleLeaf'],

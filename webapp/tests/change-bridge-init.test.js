@@ -1,5 +1,7 @@
 const {
+    handleCommittedChangeRefresh,
     handleRemoteChangeRefresh,
+    refreshGlyphOverviewFromGlyphNames,
     syncRustCacheAndRefreshCanvas,
     buildCascadingRecompositionOperations
 } = require('../js/change-bridge-init');
@@ -11,6 +13,261 @@ const {
 const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
 
 describe('handleRemoteChangeRefresh', () => {
+    test('shared glyph overview refresh helper adds dependent composites and preserves immediate sender refresh detail', async () => {
+        const glyphChangedHandler = jest.fn();
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(
+                        () => new Set(['adieresis'])
+                    )
+                }
+            }
+        };
+        window.addEventListener('glyphChanged', glyphChangedHandler);
+
+        try {
+            await refreshGlyphOverviewFromGlyphNames(['a'], {
+                layerId: 'master-regular',
+                forceImmediateRefresh: true,
+                fallbackToFullRender: false
+            });
+        } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
+            delete window.fontManager;
+        }
+
+        expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
+        expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
+            glyphName: 'a',
+            glyphNames: ['a', 'adieresis'],
+            layerId: 'master-regular',
+            forceImmediateRefresh: true
+        });
+    });
+
+    test('waits for local worker sync before requesting compile and refreshes overview from the same committed packet', async () => {
+        const refreshOrder = [];
+        const awaitWorkerSync = jest.fn(async () => {
+            refreshOrder.push('sync');
+            window.fontManager.lastChangeSource = 'keyboard-outline';
+            window.fontManager.lastEditType = 'outline';
+        });
+        const requestCompile = jest.fn(async () => {
+            refreshOrder.push('compile');
+        });
+        const queueCacheRefresh = jest.fn(async () => {
+            refreshOrder.push('queue');
+        });
+        const glyphChangedHandler = jest.fn();
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(
+                        () => new Set(['adieresis'])
+                    )
+                }
+            },
+            lastChangeSource: 'keyboard-anchor',
+            lastEditType: 'anchor'
+        };
+        window.addEventListener('glyphChanged', glyphChangedHandler);
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag anchor',
+                        path: 'glyphs.a.layers.master-regular.anchors.0.x',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'a',
+                                layerId: 'master-regular'
+                            }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
+            delete window.fontManager;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(requestCompile).toHaveBeenCalledTimes(1);
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-anchor',
+            'anchor'
+        );
+        expect(queueCacheRefresh).toHaveBeenCalledWith(
+            undefined,
+            undefined,
+            false,
+            {
+                allowSelectedLayerFallback: false,
+                workerReplayTargets: [
+                    {
+                        glyphName: 'a',
+                        layerId: 'master-regular'
+                    }
+                ]
+            }
+        );
+        expect(refreshOrder).toEqual(['sync', 'queue', 'compile']);
+        expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
+        expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
+            glyphName: 'a',
+            glyphNames: ['a', 'adieresis']
+        });
+    });
+
+    test('waits for chained local replay-target cache updates before compile and overview refresh', async () => {
+        let resolveFirstCacheUpdate;
+        let resolveSecondCacheUpdate;
+        const firstCacheUpdate = new Promise((resolve) => {
+            resolveFirstCacheUpdate = resolve;
+        });
+        const secondCacheUpdate = new Promise((resolve) => {
+            resolveSecondCacheUpdate = resolve;
+        });
+        const refreshOrder = [];
+        const awaitWorkerSync = jest.fn(async () => {
+            refreshOrder.push('sync');
+        });
+        const requestCompile = jest.fn(async () => {
+            refreshOrder.push('compile');
+        });
+        let resolveReplayTargetRefresh;
+        const replayTargetRefresh = new Promise((resolve) => {
+            resolveReplayTargetRefresh = resolve;
+        });
+        const queueCacheRefresh = jest.fn(() => {
+            refreshOrder.push('queue');
+            return replayTargetRefresh;
+        });
+        const glyphChangedHandler = jest.fn();
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(
+                        () => new Set(['adieresis'])
+                    )
+                }
+            },
+            lastChangeSource: 'keyboard-anchor',
+            lastEditType: 'anchor',
+            workerCacheUpdatePromise: firstCacheUpdate,
+            awaitWorkerCacheUpdate: jest.fn(async () => {
+                const pendingPromise =
+                    window.fontManager.workerCacheUpdatePromise;
+                refreshOrder.push(
+                    pendingPromise === firstCacheUpdate ? 'cache-1' : 'cache-2'
+                );
+                await pendingPromise;
+            })
+        };
+        window.addEventListener('glyphChanged', glyphChangedHandler);
+
+        try {
+            const refreshPromise = handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag anchor',
+                        path: 'glyphs.a.layers.master-regular.anchors.0.x',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'a',
+                                layerId: 'master-regular'
+                            },
+                            {
+                                glyphName: 'adieresis',
+                                layerId: 'master-regular'
+                            }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+
+            await Promise.resolve();
+            expect(requestCompile).not.toHaveBeenCalled();
+            expect(glyphChangedHandler).not.toHaveBeenCalled();
+
+            window.fontManager.workerCacheUpdatePromise = secondCacheUpdate;
+            resolveFirstCacheUpdate();
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(requestCompile).not.toHaveBeenCalled();
+            expect(glyphChangedHandler).not.toHaveBeenCalled();
+
+            resolveSecondCacheUpdate();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(queueCacheRefresh).toHaveBeenCalledTimes(1);
+            expect(requestCompile).not.toHaveBeenCalled();
+            expect(glyphChangedHandler).not.toHaveBeenCalled();
+
+            resolveReplayTargetRefresh();
+            await refreshPromise;
+        } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
+            delete window.fontManager;
+        }
+
+        expect(requestCompile).toHaveBeenCalledTimes(1);
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-anchor',
+            'anchor'
+        );
+        expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
+        expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
+            glyphName: 'a',
+            glyphNames: ['a', 'adieresis']
+        });
+        expect(queueCacheRefresh).toHaveBeenCalledWith(
+            undefined,
+            undefined,
+            false,
+            {
+                allowSelectedLayerFallback: false,
+                workerReplayTargets: [
+                    {
+                        glyphName: 'a',
+                        layerId: 'master-regular'
+                    },
+                    {
+                        glyphName: 'adieresis',
+                        layerId: 'master-regular'
+                    }
+                ]
+            }
+        );
+        expect(refreshOrder).toEqual([
+            'sync',
+            'cache-1',
+            'sync',
+            'cache-2',
+            'sync',
+            'queue',
+            'compile'
+        ]);
+    });
+
     test('requests remote compile only after cache refresh resolves', async () => {
         let resolveRefresh;
         const refreshOrder = [];

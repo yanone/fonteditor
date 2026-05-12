@@ -62,7 +62,18 @@ export type { ChangeLogEntry } from './change-log';
 
 export type LocalUpdateListener = (
     update: YjsUpdate,
-    collaborationMessage?: CollaborationMessageEnvelope | null
+    collaborationMessage?: CollaborationMessageEnvelope | null,
+    changeLogEntries?: ChangeLogEntry[]
+) => void;
+
+export type CommittedChangeOrigin = 'local' | 'remote';
+
+export type CommittedChangeListener = (
+    entries: ChangeLogEntry[],
+    context: {
+        origin: CommittedChangeOrigin;
+        update: YjsUpdate;
+    }
 ) => void;
 
 export type CollaborationLogItem = {
@@ -337,6 +348,8 @@ export class PatchSyncEngine {
     private _collaborationLog: CollaborationLogItem[] = [];
     /** Callback when the Y.Doc is updated locally (for broadcasting) */
     private _localUpdateListeners: Set<LocalUpdateListener> = new Set();
+    /** Callbacks for committed local/remote changes after Yjs apply */
+    private _committedChangeListeners: Set<CommittedChangeListener> = new Set();
     /** Callback to trigger dirty marking on the font manager side */
     private _onDirty: (() => void) | null = null;
     /** Callback after _syncJsonFromYDoc (undo/redo/remote) for external resync */
@@ -627,9 +640,12 @@ export class PatchSyncEngine {
             ]);
         }
         for (const cb of this._localUpdateListeners) {
-            cb(update, collaborationMessage);
+            cb(update, collaborationMessage, changeLogEntries);
         }
         this._yjsWorkerCallback?.(update, changeLogEntries);
+        for (const cb of this._committedChangeListeners) {
+            cb(changeLogEntries, { origin: 'local', update });
+        }
     }
 
     private _emitCanonicalLocalUpdateSince(
@@ -718,6 +734,16 @@ export class PatchSyncEngine {
         this._localUpdateListeners.delete(cb);
     }
 
+    /** Register a callback for committed local and remote changes. */
+    onCommittedChange(cb: CommittedChangeListener): void {
+        this._committedChangeListeners.add(cb);
+    }
+
+    /** Unregister a callback previously passed to onCommittedChange. */
+    offCommittedChange(cb: CommittedChangeListener): void {
+        this._committedChangeListeners.delete(cb);
+    }
+
     /** Register a callback to mark the font as dirty. */
     onDirty(cb: () => void): void {
         this._onDirty = cb;
@@ -750,6 +776,7 @@ export class PatchSyncEngine {
         this._collaborationLog = [];
         this._onRemoteChange = null;
         this._localUpdateListeners.clear();
+        this._committedChangeListeners.clear();
         this._onDirty = null;
         this._onAfterSync = null;
         this._changeLogListeners.clear();
@@ -1703,6 +1730,12 @@ export class PatchSyncEngine {
                 );
             }
             this._onRemoteChange?.(effectiveRemoteEntries ?? []);
+            for (const cb of this._committedChangeListeners) {
+                cb(effectiveRemoteEntries ?? [], {
+                    origin: 'remote',
+                    update
+                });
+            }
             this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
         } finally {
             this._isApplyingRemote = false;
