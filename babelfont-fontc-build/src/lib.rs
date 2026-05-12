@@ -1570,7 +1570,7 @@ pub fn interpolate_glyph(
     extrapolate: bool,
 ) -> Result<String, JsValue> {
     let font = get_or_rebuild_font_cache()?;
-    interpolation::interpolate_glyph(&font, glyph_name, location_json, extrapolate)
+    glyph_outlines::interpolate_glyph_json_cached(&font, glyph_name, location_json, extrapolate)
 }
 
 /// Get outlines for multiple glyphs with optional component flattening

@@ -14,7 +14,10 @@ use std::str::FromStr;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
 
-use crate::interpolation::{interpolate_glyph_layer, serialize_layer_with_components_cached};
+use crate::interpolation::{
+    interpolate_glyph_layer, interpolate_vertical_metrics, parse_userspace_location,
+    serialize_layer_with_components_cached,
+};
 
 // Global persistent cache for glyph outline results
 // Key: glyph_name, Value: complete result JSON object
@@ -34,8 +37,65 @@ struct OutlineCache {
 }
 
 struct LayerCache {
-    location_json: String,
+    cache_key: String,
     layers: HashMap<String, Layer>,
+}
+
+fn layer_cache_key(location_json: &str, extrapolate: bool) -> String {
+    format!("{}\u{1e}extrapolate={}", location_json, extrapolate)
+}
+
+fn ensure_layer_cache_for_key(cache_key: &str) -> RefCell<HashMap<String, Layer>> {
+    let mut cache_guard = LAYER_CACHE.lock().unwrap();
+    if let Some(ref cache) = *cache_guard {
+        if cache.cache_key == cache_key {
+            return RefCell::new(cache.layers.clone());
+        }
+    }
+
+    *cache_guard = Some(LayerCache {
+        cache_key: cache_key.to_string(),
+        layers: HashMap::new(),
+    });
+    RefCell::new(HashMap::new())
+}
+
+fn persist_layer_cache(cache_key: &str, layer_cache: &RefCell<HashMap<String, Layer>>) {
+    let layer_map = layer_cache.borrow();
+    if layer_map.is_empty() {
+        return;
+    }
+
+    let mut cache_guard = LAYER_CACHE.lock().unwrap();
+    if cache_guard
+        .as_ref()
+        .map_or(true, |cache| cache.cache_key != cache_key)
+    {
+        *cache_guard = Some(LayerCache {
+            cache_key: cache_key.to_string(),
+            layers: HashMap::new(),
+        });
+    }
+
+    if let Some(ref mut cache) = *cache_guard {
+        for (name, layer) in layer_map.iter() {
+            cache.layers.insert(name.clone(), layer.clone());
+        }
+    }
+}
+
+fn record_component_dependencies(layer: &Layer, glyph_name: &str) {
+    for shape in &layer.shapes {
+        if let Shape::Component(component) = shape {
+            let base_name = component.reference.to_string();
+            let mut deps = COMPONENT_DEPENDENTS.lock().unwrap();
+            let dep_map = deps.get_or_insert_with(HashMap::new);
+            dep_map
+                .entry(base_name)
+                .or_insert_with(HashSet::new)
+                .insert(glyph_name.to_string());
+        }
+    }
 }
 
 /// Clear all caches (call when font changes)
@@ -111,6 +171,67 @@ pub fn clear_outline_cache_for_glyph(glyph_name: &str) {
 ///
 /// # Returns
 /// * `String` - JSON array of glyph outline data: '[{"name": "A", "width": 600, "shapes": [...], "bounds": {...}}, ...]'
+pub fn interpolate_glyph_json_cached(
+    font: &babelfont::Font,
+    glyph_name: &str,
+    location_json: &str,
+    extrapolate: bool,
+) -> Result<String, JsValue> {
+    let normalized_location = if location_json.trim().is_empty() {
+        "{}"
+    } else {
+        location_json
+    };
+    let cache_key = layer_cache_key(normalized_location, extrapolate);
+    let (location_map, design_location) = parse_userspace_location(font, normalized_location)?;
+    let layer_cache = ensure_layer_cache_for_key(&cache_key);
+
+    let layer = {
+        let cache = layer_cache.borrow();
+        if let Some(cached) = cache.get(glyph_name) {
+            cached.clone()
+        } else {
+            drop(cache);
+            let interpolated =
+                interpolate_glyph_layer(font, glyph_name, &design_location, extrapolate)
+                    .map_err(|e| JsValue::from_str(&format!("Interpolation failed: {}", e)))?;
+            layer_cache
+                .borrow_mut()
+                .insert(glyph_name.to_string(), interpolated.clone());
+            interpolated
+        }
+    };
+
+    let json_cache: RefCell<HashMap<String, JsonValue>> = RefCell::new(HashMap::new());
+    let mut result = serialize_layer_with_components_cached(
+        &layer,
+        font,
+        &design_location,
+        extrapolate,
+        &layer_cache,
+        &json_cache,
+    )
+    .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
+
+    let vertical_metrics = interpolate_vertical_metrics(font, &design_location, extrapolate)
+        .map_err(|e| JsValue::from_str(&format!("Vertical metrics interpolation error: {}", e)))?;
+
+    if let Some(obj) = result.as_object_mut() {
+        obj.insert(
+            "_interpolationLocation".to_string(),
+            serde_json::to_value(&location_map)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize location: {}", e)))?,
+        );
+        obj.insert("_verticalMetrics".to_string(), vertical_metrics);
+    }
+
+    record_component_dependencies(&layer, glyph_name);
+    persist_layer_cache(&cache_key, &layer_cache);
+
+    serde_json::to_string(&result)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+}
+
 pub fn get_glyphs_outlines(
     font: &babelfont::Font,
     glyph_names: &[String],
@@ -123,6 +244,7 @@ pub fn get_glyphs_outlines(
     } else {
         location_json
     };
+    let current_layer_cache_key = layer_cache_key(normalized_location, false);
 
     // Check if location changed - clear both caches if so
     {
@@ -137,7 +259,7 @@ pub fn get_glyphs_outlines(
     {
         let mut cache_guard = LAYER_CACHE.lock().unwrap();
         if let Some(ref cache) = *cache_guard {
-            if cache.location_json != normalized_location {
+            if cache.cache_key != current_layer_cache_key {
                 // Location changed, clear layer cache too
                 *cache_guard = None;
             }
@@ -212,20 +334,8 @@ pub fn get_glyphs_outlines(
 
     // Get or create persistent layer cache
     // This cache persists across requests for the same location
-    let layer_cache: RefCell<HashMap<String, Layer>> = {
-        let mut cache_guard = LAYER_CACHE.lock().unwrap();
-        if let Some(ref cache) = *cache_guard {
-            // Return existing layers from persistent cache
-            RefCell::new(cache.layers.clone())
-        } else {
-            // Initialize new cache
-            *cache_guard = Some(LayerCache {
-                location_json: normalized_location.to_string(),
-                layers: HashMap::new(),
-            });
-            RefCell::new(HashMap::new())
-        }
-    };
+    let layer_cache: RefCell<HashMap<String, Layer>> =
+        ensure_layer_cache_for_key(&current_layer_cache_key);
 
     // Per-request JSON cache (not persisted, just for this batch)
     let json_cache: RefCell<HashMap<String, JsonValue>> = RefCell::new(HashMap::new());
@@ -254,12 +364,9 @@ pub fn get_glyphs_outlines(
                     &design_location,
                     false,
                 )
-                    .map_err(|e| {
-                        JsValue::from_str(&format!(
-                            "Interpolation failed for '{}': {}",
-                            glyph_name, e
-                        ))
-                    })?;
+                .map_err(|e| {
+                    JsValue::from_str(&format!("Interpolation failed for '{}': {}", glyph_name, e))
+                })?;
                 layer_cache
                     .borrow_mut()
                     .insert(glyph_name.clone(), interpolated.clone());
@@ -313,20 +420,7 @@ pub fn get_glyphs_outlines(
         // Store in new_results for adding to persistent cache
         new_results.push((glyph_name.clone(), result));
 
-        // Record component dependencies for per-glyph cache invalidation.
-        // If this glyph uses components, register that those base glyphs
-        // have this glyph as a dependent.
-        for shape in &layer.shapes {
-            if let Shape::Component(component) = shape {
-                let base_name = component.reference.to_string();
-                let mut deps = COMPONENT_DEPENDENTS.lock().unwrap();
-                let dep_map = deps.get_or_insert_with(HashMap::new);
-                dep_map
-                    .entry(base_name)
-                    .or_insert_with(HashSet::new)
-                    .insert(glyph_name.clone());
-            }
-        }
+        record_component_dependencies(&layer, glyph_name);
     }
 
     // Add new results to persistent cache
@@ -345,24 +439,7 @@ pub fn get_glyphs_outlines(
         }
     }
 
-    // Save layer cache back to persistent storage
-    {
-        let layer_map = layer_cache.borrow();
-        if !layer_map.is_empty() {
-            let mut cache_guard = LAYER_CACHE.lock().unwrap();
-            if cache_guard.is_none() {
-                *cache_guard = Some(LayerCache {
-                    location_json: normalized_location.to_string(),
-                    layers: HashMap::new(),
-                });
-            }
-            if let Some(ref mut cache) = *cache_guard {
-                for (name, layer) in layer_map.iter() {
-                    cache.layers.insert(name.clone(), layer.clone());
-                }
-            }
-        }
-    }
+    persist_layer_cache(&current_layer_cache_key, &layer_cache);
 
     // Combine cached results with new results in original order
     let mut final_results = Vec::with_capacity(glyph_names.len());
@@ -411,18 +488,14 @@ fn flatten_layer_components_cached(
                     } else {
                         drop(cache);
                         comp_misses += 1;
-                        let interpolated = interpolate_glyph_layer(
-                            font,
-                            &component.reference,
-                            location,
-                            false,
-                        )
-                        .map_err(|e| {
-                            JsValue::from_str(&format!(
-                                "Failed to interpolate component '{}': {}",
-                                component.reference, e
-                            ))
-                        })?;
+                        let interpolated =
+                            interpolate_glyph_layer(font, &component.reference, location, false)
+                                .map_err(|e| {
+                                    JsValue::from_str(&format!(
+                                        "Failed to interpolate component '{}': {}",
+                                        component.reference, e
+                                    ))
+                                })?;
                         layer_cache
                             .borrow_mut()
                             .insert(ref_key.clone(), interpolated.clone());
