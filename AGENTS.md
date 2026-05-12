@@ -151,6 +151,7 @@ This script:
 - Clean up temporary code, excessive logs, and debug statements
 - Prefer command-line commands for search/replace operations
 - Run commands such that output is visible (don't route to unreadable pipelines)
+- After changing any JavaScript or TypeScript file in `webapp/js/`, you MUST rebuild the Webpack bundle with `cd webapp && npm run build` (or verify the dev server at `npm run dev` reflects the changes) before considering the task finished.
 
 ### JavaScript/TypeScript
 
