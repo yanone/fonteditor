@@ -1,12 +1,12 @@
 /**
  * Python Post-Execution Hooks
  *
- * Sets up hooks that run after Python code execution to trigger font recompilation.
- * The dirty flag is set automatically by the object model setters when data is modified.
+ * Sets up hooks that run after Python code execution to translate snapshot
+ * diffs into bridge operations. The shared committed-change funnel owns worker
+ * sync, compilation, and overview refresh after the resulting Yjs commit.
  */
 
 import { Logger } from './logger';
-import { fontCompilation } from './font-compilation';
 import type { WorkerReplayTarget } from './change-log';
 import {
     createNamedChangePairFromJsonPatchPair,
@@ -14,12 +14,8 @@ import {
     type JsonPatchOperation,
     type NamedChangePair
 } from './collaboration-message';
-import type { TransactionCommitResult } from './patch-sync-engine';
 
 const console = new Logger('PythonPostExecution');
-
-let postExecutionSyncInProgress = false;
-let postExecutionSyncQueued = false;
 
 type SyntheticChangeOperation = {
     op: 'set' | 'add' | 'remove';
@@ -59,52 +55,6 @@ function toJsonPointerPath(path: (string | number)[]): string {
             String(segment).replaceAll('~', '~0').replaceAll('/', '~1')
         )
         .join('/')}`;
-}
-
-/**
- * Extract (glyphName, layerId) pairs from a list of operations' paths.
- * Paths look like ["glyphs","A","layers","layer-1","width"].
- */
-function deriveChangedLayerTargets(
-    operations: SyntheticChangeOperation[]
-): WorkerReplayTarget[] {
-    const targets = new Map<string, WorkerReplayTarget>();
-    for (const op of operations) {
-        if (op.path.length < 4) continue;
-        if (op.path[0] !== 'glyphs' || op.path[2] !== 'layers') continue;
-        const glyphName = String(op.path[1]);
-        const layerId = String(op.path[3]);
-        if (!glyphName || !layerId) continue;
-        const key = `${glyphName}::${layerId}`;
-        if (!targets.has(key)) {
-            targets.set(key, { glyphName, layerId });
-        }
-    }
-    return Array.from(targets.values());
-}
-
-function isLayerScopedOperation(operation: SyntheticChangeOperation): boolean {
-    return (
-        operation.path.length >= 4 &&
-        operation.path[0] === 'glyphs' &&
-        operation.path[2] === 'layers'
-    );
-}
-
-function normalizeWorkerReplayTargets(
-    targets: Iterable<WorkerReplayTarget>
-): WorkerReplayTarget[] {
-    const dedupedTargets = new Map<string, WorkerReplayTarget>();
-    for (const target of targets) {
-        if (!target?.glyphName || !target?.layerId) {
-            continue;
-        }
-        dedupedTargets.set(`${target.glyphName}@@${target.layerId}`, {
-            glyphName: target.glyphName,
-            layerId: target.layerId
-        });
-    }
-    return Array.from(dedupedTargets.values());
 }
 
 function diffFontDataToJsonPatchPairs(
@@ -286,59 +236,6 @@ function createNamedPatchPairsFromJsonSnapshots(
     );
 }
 
-async function syncRustAndRecompileEditingFont(
-    commitResult: TransactionCommitResult | null,
-    changedTargets: WorkerReplayTarget[]
-): Promise<void> {
-    if (postExecutionSyncInProgress) {
-        postExecutionSyncQueued = true;
-        return;
-    }
-
-    postExecutionSyncInProgress = true;
-
-    try {
-        do {
-            postExecutionSyncQueued = false;
-
-            const currentFont = window.fontManager?.currentFont;
-            if (!currentFont) {
-                return;
-            }
-
-            const layerScopedOnly =
-                !!commitResult?.changeLogEntries.length &&
-                commitResult.changeLogEntries.every(
-                    (entry) =>
-                        normalizeWorkerReplayTargets(entry.workerReplayTargets)
-                            .length > 0
-                );
-
-            if (fontCompilation?.isInitialized) {
-                try {
-                    await fontCompilation.awaitWorkerDocumentSync();
-                } catch (error) {
-                    console.error(
-                        '[PythonPostExec] Failed to sync worker cache after Python execution:',
-                        error
-                    );
-                }
-            }
-
-            try {
-                await window.fontManager.recompileEditingFont();
-            } catch (error) {
-                console.error(
-                    '[PythonPostExec] Failed to recompile editing font after Python execution:',
-                    error
-                );
-            }
-        } while (postExecutionSyncQueued);
-    } finally {
-        postExecutionSyncInProgress = false;
-    }
-}
-
 console.log('🔧 Module loaded, setting up post-execution hooks...');
 
 // Wait for required globals to be available
@@ -413,8 +310,6 @@ function setupHooks() {
                                 )
                             )
                         );
-                    let commitResult: TransactionCommitResult | null = null;
-
                     window.patchSyncEngine.setRecordingSuppressed(false);
                     if (directOperations.length) {
                         window.patchSyncEngine.applySyntheticChangeSet(
@@ -424,30 +319,7 @@ function setupHooks() {
                         );
                     }
 
-                    commitResult = window.patchSyncEngine.endTransaction();
-                    currentFont.syncJsonFromModel();
-
-                    const changedTargets = normalizeWorkerReplayTargets(
-                        commitResult?.workerReplayTargets?.length
-                            ? commitResult.workerReplayTargets
-                            : deriveChangedLayerTargets(directOperations)
-                    );
-
-                    await syncRustAndRecompileEditingFont(
-                        commitResult,
-                        changedTargets
-                    );
-
-                    // Refresh canvas to pick up changes if in edit mode
-                    // After syncJsonFromModel, nodes arrays have been converted to strings,
-                    // so we need to refetch layer data to get fresh data
-                    if (window.glyphCanvas?.outlineEditor) {
-                        // Refetch layer data from Rust (now synced) to get fresh data
-                        await window.glyphCanvas.outlineEditor.fetchLayerData();
-                        window.glyphCanvas.render();
-                    }
-                } else {
-                    await syncRustAndRecompileEditingFont(null, []);
+                    window.patchSyncEngine.endTransaction();
                 }
             }
         } finally {
@@ -456,16 +328,6 @@ function setupHooks() {
                 window.patchSyncEngine.endTransaction();
             }
             window.pythonExecutionHistoryContext = null;
-        }
-
-        // Trigger font recompilation via auto-compile manager
-        // The dirty flag is already set by the object model setters when data was modified
-        if (window.autoCompileManager) {
-            window.autoCompileManager.scheduleCompilation();
-        }
-
-        if (window.fullCompileManager) {
-            window.fullCompileManager.scheduleCompilation();
         }
 
         if (typeof existingHook === 'function') {

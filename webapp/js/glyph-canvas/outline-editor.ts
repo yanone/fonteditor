@@ -4664,6 +4664,10 @@ export class OutlineEditor {
             return;
         }
 
+        if (!this.prepareCommittedStructuralOutlineChange()) {
+            return;
+        }
+
         const glyphNames = Array.from(
             new Set([
                 currentGlyphName,
@@ -4699,6 +4703,35 @@ export class OutlineEditor {
         } finally {
             bridge.endTransaction();
         }
+    }
+
+    /**
+     * Prepare a persisted structural outline edit before the Yjs transaction
+     * closes so the committed-change funnel snapshots the correct compile
+     * metadata and the bridge reads fresh model JSON.
+     */
+    private prepareCommittedStructuralOutlineChange(
+        changeSource: string = 'keyboard-outline'
+    ): boolean {
+        const currentFont = fontManager.currentFont;
+        if (!currentFont) {
+            return true;
+        }
+
+        try {
+            currentFont.syncJsonFromModel();
+        } catch (error) {
+            console.error(
+                '[OutlineEditor] Error syncing font JSON before structural commit:',
+                error
+            );
+            return false;
+        }
+
+        currentFont.markDirty(changeSource);
+        this.prepareStructuralOutlineCompile(changeSource);
+        void fontManager.updateDirtyIndicator();
+        return true;
     }
 
     private getCurrentMasterModel(): any | null {
@@ -7129,7 +7162,7 @@ export class OutlineEditor {
     }
 
     private async refreshAfterStructuralLayerEdit(
-        glyphName: string,
+        _glyphName: string,
         changeSource: string,
         options: {
             scheduleCompile?: boolean;
@@ -7144,26 +7177,9 @@ export class OutlineEditor {
         currentFont.markDirty(changeSource);
         await fontManager.updateDirtyIndicator();
 
-        if (typeof currentFont.syncJsonFromModel === 'function') {
-            currentFont.syncJsonFromModel();
-        }
-
-        await fontManager.forceFullWorkerCacheUpdate();
-
         if (options.scheduleCompile !== false) {
             fontManager.lastEditType = 'outline';
             fontManager.scheduleFullCompileDebounce();
-            window.autoCompileManager?.checkAndSchedule?.();
-        }
-
-        if (options.dispatchGlyphChanged !== false) {
-            window.dispatchEvent(
-                new CustomEvent('glyphChanged', {
-                    detail: {
-                        glyphName
-                    }
-                })
-            );
         }
     }
 
@@ -7232,6 +7248,9 @@ export class OutlineEditor {
         // all fields. The model setters ran inside withSuppressedModelRecording.
         const createBridge = window.patchSyncEngine;
         if (createBridge) {
+            this.prepareCommittedStructuralOutlineChange(
+                options.changeSource || 'layer-create'
+            );
             createBridge.syncGlyphFromJson(
                 glyphName,
                 'Create interpolated layer sync',
@@ -7291,6 +7310,9 @@ export class OutlineEditor {
 
         const deleteBridge = window.patchSyncEngine;
         if (deleteBridge) {
+            this.prepareCommittedStructuralOutlineChange(
+                options?.changeSource || 'layer-delete'
+            );
             deleteBridge.syncGlyphFromJson(glyphName, 'Delete layer sync');
         }
 
@@ -7402,6 +7424,7 @@ export class OutlineEditor {
             // the Y.Doc only has the minimal addLayer data. Without this
             // sync, undo would produce a layer missing most fields.
             if (bridge) {
+                this.prepareCommittedStructuralOutlineChange(changeSource);
                 bridge.syncGlyphFromJson(
                     glyphName,
                     'Reinterpolate layer sync',
@@ -11542,12 +11565,16 @@ export class OutlineEditor {
                         // Yjs/history sync to avoid no-op history entries.
                     } else if (dragType === 'slide-point') {
                         const currentGlyphModel = this.getCurrentGlyphModel();
-                        if (window.patchSyncEngine && currentGlyphModel?.name) {
-                            window.patchSyncEngine.syncGlyphFromJson(
-                                currentGlyphModel.name,
-                                label
-                            );
-                        }
+                        this.syncStructuralGlyphChangeTransaction(
+                            label,
+                            currentGlyphModel?.name,
+                            new Set(
+                                [currentGlyphModel?.name].filter(
+                                    (name): name is string => !!name
+                                )
+                            ),
+                            { layerId: null }
+                        );
                     } else if (
                         !(
                             dragType === 'guide' &&
@@ -11615,31 +11642,8 @@ export class OutlineEditor {
 
                 endDragTransaction();
                 if (dragType === 'slide-point') {
-                    const currentFont = fontManager.currentFont;
                     const currentGlyphModel = this.getCurrentGlyphModel();
-                    if (currentFont) {
-                        currentFont.markDirty('keyboard-outline');
-                        this.prepareStructuralOutlineCompile();
-                        void fontManager.updateDirtyIndicator();
-                        window.setTimeout(() => {
-                            if (fontManager.currentFont !== currentFont) {
-                                return;
-                            }
-
-                            try {
-                                currentFont.syncJsonFromModel();
-                            } catch (error) {
-                                console.error(
-                                    '[OutlineEditor] Error syncing font JSON after smooth point slide:',
-                                    error
-                                );
-                                return;
-                            }
-
-                            void fontManager.updateWorkerFontCache();
-                            this.wakeStructuralOutlineCompile();
-                        }, 0);
-                    } else if (currentGlyphModel?.name) {
+                    if (!fontManager.currentFont && currentGlyphModel?.name) {
                         window.dispatchEvent(
                             new CustomEvent('glyphChanged', {
                                 detail: {
@@ -11657,7 +11661,6 @@ export class OutlineEditor {
                     // committed-change funnel (onCommittedChange →
                     // handleCommittedChangeRefresh) for all drag types,
                     // so no separate dependent-glyph sync is needed here.
-                    fontManager.updateWorkerFontCache();
                     fontManager.flushPendingDebugEditingFontSaveAfterDrag();
                 }
             } catch (error) {
@@ -12636,14 +12639,12 @@ export class OutlineEditor {
             }
         });
 
-        if (bridge && currentGlyphModel.name) {
-            bridge.beginTransaction('Add point');
-            try {
-                bridge.syncGlyphFromJson(currentGlyphModel.name, 'Add point');
-            } finally {
-                bridge.endTransaction();
-            }
-        }
+        this.syncStructuralGlyphChangeTransaction(
+            'Add point',
+            currentGlyphModel.name,
+            new Set<string>([currentGlyphModel.name]),
+            { layerId: null }
+        );
 
         if (insertedNodeIndex === null) {
             return;
@@ -12677,47 +12678,13 @@ export class OutlineEditor {
         this.selectedSidebearingHandle = null;
         this.hoveredAddPointPreview = null;
 
-        const currentFont = fontManager.currentFont;
         const layerId = this.getCurrentLayerId();
-        const shouldUseIncrementalCacheRefresh = linkedLayers.length === 0;
-
-        if (currentFont) {
-            currentFont.markDirty('keyboard-outline');
-            this.prepareStructuralOutlineCompile();
-            void fontManager.updateDirtyIndicator();
-        }
 
         this.performHitDetection(null);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
 
-        if (currentFont) {
-            window.setTimeout(() => {
-                if (fontManager.currentFont !== currentFont) {
-                    return;
-                }
-
-                if (shouldUseIncrementalCacheRefresh) {
-                    fontManager.pendingBabelfontJsonSyncAfterDrag = true;
-                    void fontManager.updateWorkerFontCache();
-                    this.wakeStructuralOutlineCompile();
-                    return;
-                }
-
-                try {
-                    currentFont.syncJsonFromModel();
-                } catch (error) {
-                    console.error(
-                        '[OutlineEditor] Error syncing font JSON after point insertion:',
-                        error
-                    );
-                    return;
-                }
-
-                void fontManager.updateWorkerFontCache();
-                this.wakeStructuralOutlineCompile();
-            }, 0);
-        } else if (currentGlyphModel.name) {
+        if (!fontManager.currentFont && currentGlyphModel.name) {
             window.dispatchEvent(
                 new CustomEvent('glyphChanged', {
                     detail: {
@@ -13346,49 +13313,20 @@ export class OutlineEditor {
             return false;
         }
 
-        const bridge = window.patchSyncEngine;
-        if (bridge && currentGlyphModel.name) {
-            bridge.beginTransaction(label);
-            try {
-                bridge.syncGlyphFromJson(currentGlyphModel.name, label);
-            } finally {
-                bridge.endTransaction();
-            }
-        }
+        this.syncStructuralGlyphChangeTransaction(
+            label,
+            currentGlyphModel.name,
+            new Set<string>([currentGlyphModel.name]),
+            { layerId: null }
+        );
 
         this.syncCurrentExactLayerDataFromModel();
-
-        const currentFont = fontManager.currentFont;
-        if (currentFont) {
-            currentFont.markDirty('keyboard-outline');
-            this.prepareStructuralOutlineCompile();
-            void fontManager.updateDirtyIndicator();
-        }
 
         this.performHitDetection(null);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
 
-        if (currentFont) {
-            window.setTimeout(() => {
-                if (fontManager.currentFont !== currentFont) {
-                    return;
-                }
-
-                try {
-                    currentFont.syncJsonFromModel();
-                } catch (error) {
-                    console.error(
-                        '[OutlineEditor] Error syncing font JSON after path context menu action:',
-                        error
-                    );
-                    return;
-                }
-
-                void fontManager.updateWorkerFontCache();
-                this.wakeStructuralOutlineCompile();
-            }, 0);
-        } else if (currentGlyphModel.name) {
+        if (!fontManager.currentFont && currentGlyphModel.name) {
             window.dispatchEvent(
                 new CustomEvent('glyphChanged', {
                     detail: {
@@ -14146,24 +14084,14 @@ export class OutlineEditor {
         currentGlyphModel: any,
         selectedPoint: Point
     ): void {
-        const bridge = window.patchSyncEngine;
-        if (bridge && currentGlyphModel.name) {
-            bridge.beginTransaction(label);
-            try {
-                bridge.syncGlyphFromJson(currentGlyphModel.name, label);
-            } finally {
-                bridge.endTransaction();
-            }
-        }
+        this.syncStructuralGlyphChangeTransaction(
+            label,
+            currentGlyphModel.name,
+            new Set<string>([currentGlyphModel.name]),
+            { layerId: null }
+        );
 
         this.syncCurrentExactLayerDataFromModel();
-
-        const currentFont = fontManager.currentFont;
-        if (currentFont) {
-            currentFont.markDirty('keyboard-outline');
-            this.prepareStructuralOutlineCompile();
-            void fontManager.updateDirtyIndicator();
-        }
 
         this.suppressSelectedEndpointCommandSeedUntilCommandRelease = true;
         this.selectedPoints = [selectedPoint];
@@ -14175,26 +14103,7 @@ export class OutlineEditor {
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
 
-        if (currentFont) {
-            window.setTimeout(() => {
-                if (fontManager.currentFont !== currentFont) {
-                    return;
-                }
-
-                try {
-                    currentFont.syncJsonFromModel();
-                } catch (error) {
-                    console.error(
-                        `[OutlineEditor] Error syncing font JSON after ${label.toLowerCase()}:`,
-                        error
-                    );
-                    return;
-                }
-
-                void fontManager.updateWorkerFontCache();
-                this.wakeStructuralOutlineCompile();
-            }, 0);
-        } else if (currentGlyphModel.name) {
+        if (!fontManager.currentFont && currentGlyphModel.name) {
             window.dispatchEvent(
                 new CustomEvent('glyphChanged', {
                     detail: {
@@ -14396,38 +14305,11 @@ export class OutlineEditor {
             return true;
         }
 
-        const currentFont = fontManager.currentFont;
         const bboxCenterAnchorScreen =
             this.getBoundingBoxCenterScreenPosition();
         const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
             currentGlyphModel.name
         );
-
-        if (currentFont) {
-            try {
-                currentFont.syncJsonFromModel();
-            } catch (error) {
-                console.error(
-                    '[OutlineEditor] Error syncing font JSON after connecting path endpoints:',
-                    error
-                );
-            }
-            void fontManager.forceFullWorkerCacheUpdate().then(() => {
-                for (const glyphName of affectedGlyphNames) {
-                    if (glyphName === currentGlyphModel.name) {
-                        continue;
-                    }
-                    window.dispatchEvent(
-                        new CustomEvent('glyphChanged', {
-                            detail: {
-                                glyphName,
-                                layerId: this.getCurrentLayerId()
-                            }
-                        })
-                    );
-                }
-            });
-        }
 
         const changeLabel =
             options.changeLabel ||
@@ -14447,13 +14329,6 @@ export class OutlineEditor {
             bboxCenterAnchorScreen
         );
 
-        if (currentFont) {
-            currentFont.markDirty('keyboard-outline');
-            this.prepareStructuralOutlineCompile();
-            void fontManager.updateDirtyIndicator();
-            this.wakeStructuralOutlineCompile();
-        }
-
         this.selectedPoints = [
             {
                 contourIndex: finalizedResult.shapeIndex,
@@ -14468,7 +14343,7 @@ export class OutlineEditor {
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
 
-        if (!currentFont && currentGlyphModel.name) {
+        if (!fontManager.currentFont && currentGlyphModel.name) {
             window.dispatchEvent(
                 new CustomEvent('glyphChanged', {
                     detail: {
@@ -14516,44 +14391,11 @@ export class OutlineEditor {
             return false;
         }
 
-        const currentFont = fontManager.currentFont;
         const bboxCenterAnchorScreen =
             this.getBoundingBoxCenterScreenPosition();
         const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
             currentGlyphModel.name
         );
-
-        // Sync JSON and update worker cache immediately (before endTransaction fires
-        // dirty callbacks and before updatePropertyPanel triggers fetchLayerData →
-        // interpolateGlyph). This ensures the Rust worker has up-to-date glyph data
-        // for ALL masters when it processes the interpolation request, preventing
-        // GlyphNotInterpolatable. Use forceFullWorkerCacheUpdate to bypass incremental
-        // single-layer optimisations — close-path patches all linked masters at once.
-        if (currentFont) {
-            try {
-                currentFont.syncJsonFromModel();
-            } catch (error) {
-                console.error(
-                    '[OutlineEditor] Error syncing font JSON after closing path:',
-                    error
-                );
-            }
-            void fontManager.forceFullWorkerCacheUpdate().then(() => {
-                for (const glyphName of affectedGlyphNames) {
-                    if (glyphName === currentGlyphModel.name) {
-                        continue;
-                    }
-                    window.dispatchEvent(
-                        new CustomEvent('glyphChanged', {
-                            detail: {
-                                glyphName,
-                                layerId: this.getCurrentLayerId()
-                            }
-                        })
-                    );
-                }
-            });
-        }
 
         this.syncStructuralGlyphChangeTransaction(
             'Close path',
@@ -14567,13 +14409,6 @@ export class OutlineEditor {
             bboxCenterAnchorScreen
         );
 
-        if (currentFont) {
-            currentFont.markDirty('keyboard-outline');
-            this.prepareStructuralOutlineCompile();
-            void fontManager.updateDirtyIndicator();
-            this.wakeStructuralOutlineCompile();
-        }
-
         this.selectedPoints = [{ contourIndex, nodeIndex: 0 }];
         this.selectedAnchors = [];
         this.selectedComponents = [];
@@ -14583,7 +14418,7 @@ export class OutlineEditor {
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
 
-        if (!currentFont && currentGlyphModel.name) {
+        if (!fontManager.currentFont && currentGlyphModel.name) {
             window.dispatchEvent(
                 new CustomEvent('glyphChanged', {
                     detail: {
@@ -14612,7 +14447,7 @@ export class OutlineEditor {
     }
 
     private prepareStructuralOutlineCompile(
-        changeSource: 'keyboard-outline' = 'keyboard-outline'
+        changeSource: string = 'keyboard-outline'
     ): void {
         fontManager.lastChangeSource = changeSource;
         fontManager.lastEditType = 'outline';
@@ -14621,8 +14456,8 @@ export class OutlineEditor {
     }
 
     private queueStructuralOutlineCompileFromModel(
-        errorLabel: string,
-        useFullWorkerCacheUpdate: boolean = false
+        _errorLabel: string,
+        _useFullWorkerCacheUpdate: boolean = false
     ): void {
         const currentFont = fontManager.currentFont;
         if (!currentFont) {
@@ -14632,33 +14467,6 @@ export class OutlineEditor {
         currentFont.markDirty('keyboard-outline');
         this.prepareStructuralOutlineCompile();
         void fontManager.updateDirtyIndicator();
-
-        window.setTimeout(() => {
-            if (fontManager.currentFont !== currentFont) {
-                return;
-            }
-
-            try {
-                currentFont.syncJsonFromModel();
-            } catch (error) {
-                console.error(
-                    `[OutlineEditor] Error syncing font JSON after ${errorLabel}:`,
-                    error
-                );
-                return;
-            }
-
-            if (useFullWorkerCacheUpdate) {
-                void fontManager.forceFullWorkerCacheUpdate();
-            } else {
-                void fontManager.updateWorkerFontCache();
-            }
-            this.wakeStructuralOutlineCompile();
-        }, 0);
-    }
-
-    private wakeStructuralOutlineCompile(): void {
-        window.autoCompileManager?.checkAndSchedule?.();
     }
 
     private finalizePendingCommandPathEdit(): void {
@@ -14671,9 +14479,7 @@ export class OutlineEditor {
         }
 
         const currentGlyphModel = this.getCurrentGlyphModel();
-        const currentFont = fontManager.currentFont;
         const layerId = this.getCurrentLayerId();
-        const bridge = window.patchSyncEngine;
         const bboxCenterAnchorScreen =
             this.getBoundingBoxCenterScreenPosition();
         const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
@@ -14698,44 +14504,7 @@ export class OutlineEditor {
             { layerId: null }
         );
 
-        if (currentFont) {
-            currentFont.markDirty('keyboard-outline');
-            this.prepareStructuralOutlineCompile();
-            void fontManager.updateDirtyIndicator();
-
-            window.setTimeout(() => {
-                if (fontManager.currentFont !== currentFont) {
-                    return;
-                }
-
-                try {
-                    currentFont.syncJsonFromModel();
-                } catch (error) {
-                    console.error(
-                        '[OutlineEditor] Error syncing font JSON after modifier path edit:',
-                        error
-                    );
-                    return;
-                }
-
-                void fontManager.updateWorkerFontCache().then(() => {
-                    for (const glyphName of affectedGlyphNames) {
-                        if (glyphName === currentGlyphModel?.name) {
-                            continue;
-                        }
-                        window.dispatchEvent(
-                            new CustomEvent('glyphChanged', {
-                                detail: {
-                                    glyphName,
-                                    layerId
-                                }
-                            })
-                        );
-                    }
-                });
-                this.wakeStructuralOutlineCompile();
-            }, 0);
-        } else if (currentGlyphModel?.name) {
+        if (!fontManager.currentFont && currentGlyphModel?.name) {
             window.dispatchEvent(
                 new CustomEvent('glyphChanged', {
                     detail: {
@@ -15940,74 +15709,12 @@ export class OutlineEditor {
 
         // Update UI
         const currentFont = fontManager.currentFont;
-        const shouldUseIncrementalCacheRefresh = linkedLayers.length === 0;
-
-        if (currentFont) {
-            currentFont.markDirty('keyboard-outline');
-            this.prepareStructuralOutlineCompile();
-            void fontManager.updateDirtyIndicator();
-        }
 
         this.performHitDetection(null);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
 
-        // Update font cache
-        if (currentFont) {
-            window.setTimeout(() => {
-                if (fontManager.currentFont !== currentFont) {
-                    return;
-                }
-
-                if (shouldUseIncrementalCacheRefresh) {
-                    fontManager.pendingBabelfontJsonSyncAfterDrag = true;
-                    void fontManager.updateWorkerFontCache().then(() => {
-                        for (const glyphName of affectedGlyphNames) {
-                            if (glyphName === currentGlyphModel.name) {
-                                continue;
-                            }
-                            window.dispatchEvent(
-                                new CustomEvent('glyphChanged', {
-                                    detail: {
-                                        glyphName,
-                                        layerId: this.getCurrentLayerId()
-                                    }
-                                })
-                            );
-                        }
-                    });
-                    this.wakeStructuralOutlineCompile();
-                    return;
-                }
-
-                try {
-                    currentFont.syncJsonFromModel();
-                } catch (error) {
-                    console.error(
-                        '[OutlineEditor] Error syncing font JSON after node deletion:',
-                        error
-                    );
-                    return;
-                }
-
-                void fontManager.updateWorkerFontCache().then(() => {
-                    for (const glyphName of affectedGlyphNames) {
-                        if (glyphName === currentGlyphModel.name) {
-                            continue;
-                        }
-                        window.dispatchEvent(
-                            new CustomEvent('glyphChanged', {
-                                detail: {
-                                    glyphName,
-                                    layerId: this.getCurrentLayerId()
-                                }
-                            })
-                        );
-                    }
-                });
-                this.wakeStructuralOutlineCompile();
-            }, 0);
-        } else if (currentGlyphModel.name) {
+        if (!currentFont && currentGlyphModel.name) {
             window.dispatchEvent(
                 new CustomEvent('glyphChanged', {
                     detail: {

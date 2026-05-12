@@ -1899,7 +1899,7 @@ describe('Automatic component editing canonical behavior', () => {
         ]);
     });
 
-    test('anchor drag mouseup calls updateWorkerFontCache and flush, no separate dependent sync', async () => {
+    test('anchor drag mouseup flushes debug save without duplicate worker cache update or dependent sync', async () => {
         const dragFont = makeVisibleAnchorCascadeFont();
         const currentFont = {
             fontModel: dragFont,
@@ -1924,9 +1924,14 @@ describe('Automatic component editing canonical behavior', () => {
         const flushPendingDebugEditingFontSaveAfterDragSpy = jest
             .spyOn(fontManager, 'flushPendingDebugEditingFontSaveAfterDrag')
             .mockImplementation(() => {});
+        let saveLayerDataSpy;
 
         try {
             setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
+            saveLayerDataSpy = jest.spyOn(
+                canvas.outlineEditor,
+                'saveLayerData'
+            );
             fontManager.updateEditingSubsetSnapshot(['visibleComposite']);
             canvas.textRunEditor.glyphNameBuffer = ['visibleComposite'];
             const topAnchor = canvas.outlineEditor.layerData.anchors.find(
@@ -1937,7 +1942,7 @@ describe('Automatic component editing canonical behavior', () => {
             canvas.outlineEditor.active = true;
             canvas.outlineEditor.isDraggingAnchor = true;
             canvas.outlineEditor._dragType = 'anchor';
-            canvas.outlineEditor._hasMoved = false;
+            canvas.outlineEditor._hasMoved = true;
             canvas.outlineEditor.glyphCanvas.updatePropertyPanel = jest.fn();
             canvas.outlineEditor.onMouseUp({});
             await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1945,17 +1950,18 @@ describe('Automatic component editing canonical behavior', () => {
             // Post-commit overview refresh is now handled by the committed-change
             // funnel (onCommittedChange → handleCommittedChangeRefresh), so the
             // old separate downstream-sync calls are no longer issued from mouseup.
-            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
+            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
             expect(
                 currentFont.requestRecompileWithoutDataChange
             ).not.toHaveBeenCalled();
+            expect(saveLayerDataSpy).toHaveBeenCalledWith(
+                'mouse-drag-anchor'
+            );
             expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
             expect(
                 refreshWorkerCacheForReplayTargetsSpy
             ).not.toHaveBeenCalled();
-            // updateWorkerFontCache is now called unconditionally for all non-guide
-            // drag types (anchor included) after the committed funnel refactor.
-            expect(updateWorkerFontCacheSpy).toHaveBeenCalledTimes(1);
+            expect(updateWorkerFontCacheSpy).not.toHaveBeenCalled();
             expect(
                 flushPendingDebugEditingFontSaveAfterDragSpy
             ).toHaveBeenCalledTimes(1);
@@ -1964,11 +1970,12 @@ describe('Automatic component editing canonical behavior', () => {
             refreshWorkerCacheForReplayTargetsSpy.mockRestore();
             updateWorkerFontCacheSpy.mockRestore();
             flushPendingDebugEditingFontSaveAfterDragSpy.mockRestore();
+            saveLayerDataSpy?.mockRestore();
             fontManager.updateEditingSubsetSnapshot([]);
         }
     });
 
-    test('anchor-inclusive resize mouseup calls updateWorkerFontCache and flush, no separate dependent sync', async () => {
+    test('anchor-inclusive resize mouseup flushes debug save without duplicate worker cache update or dependent sync', async () => {
         const dragFont = makeVisibleAnchorCascadeFont();
         const currentFont = {
             fontModel: dragFont,
@@ -1993,9 +2000,14 @@ describe('Automatic component editing canonical behavior', () => {
         const flushPendingDebugEditingFontSaveAfterDragSpy = jest
             .spyOn(fontManager, 'flushPendingDebugEditingFontSaveAfterDrag')
             .mockImplementation(() => {});
+        let saveLayerDataSpy;
 
         try {
             setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
+            saveLayerDataSpy = jest.spyOn(
+                canvas.outlineEditor,
+                'saveLayerData'
+            );
             const topAnchor = canvas.outlineEditor.layerData.anchors.find(
                 (anchor) => anchor.name === 'top'
             );
@@ -2020,21 +2032,21 @@ describe('Automatic component editing canonical behavior', () => {
                 includesAnchors: true,
                 centered: false
             };
-            canvas.outlineEditor._hasMoved = false;
+            canvas.outlineEditor._hasMoved = true;
             canvas.outlineEditor.glyphCanvas.updatePropertyPanel = jest.fn();
             canvas.outlineEditor.onMouseUp({});
             await new Promise((resolve) => setTimeout(resolve, 0));
 
             // Post-commit overview refresh is now handled by the committed-change
             // funnel, so the old separate downstream-sync calls are not issued.
-            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
+            expect(saveLayerDataSpy).toHaveBeenCalledWith(
+                'mouse-drag-anchor'
+            );
             expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
             expect(
                 refreshWorkerCacheForReplayTargetsSpy
             ).not.toHaveBeenCalled();
-            // updateWorkerFontCache is now called unconditionally for all non-guide
-            // drag types after the committed funnel refactor.
-            expect(updateWorkerFontCacheSpy).toHaveBeenCalledTimes(1);
+            expect(updateWorkerFontCacheSpy).not.toHaveBeenCalled();
             expect(
                 flushPendingDebugEditingFontSaveAfterDragSpy
             ).toHaveBeenCalledTimes(1);
@@ -2043,6 +2055,7 @@ describe('Automatic component editing canonical behavior', () => {
             refreshWorkerCacheForReplayTargetsSpy.mockRestore();
             updateWorkerFontCacheSpy.mockRestore();
             flushPendingDebugEditingFontSaveAfterDragSpy.mockRestore();
+            saveLayerDataSpy?.mockRestore();
         }
     });
 });

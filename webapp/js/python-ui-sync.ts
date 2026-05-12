@@ -51,7 +51,8 @@ function beforePythonExecution(code?: string) {
 
 /**
  * Called after Python code execution completes (success or failure).
- * Use this to resume UI updates and check for dirty glyphs that need redrawing.
+ * Use this to resume UI updates and debounce dirty-indicator refreshes. The
+ * committed-change funnel owns compilation after Python edits.
  */
 function afterPythonExecution() {
     console.log(
@@ -77,11 +78,6 @@ function afterPythonExecution() {
             window.fontManager.updateDirtyIndicator();
         }
     }, 100); // Wait 100ms after last execution before checking
-
-    // Check if font needs recompilation and schedule auto-compile
-    if (window.autoCompileManager) {
-        window.autoCompileManager.checkAndSchedule();
-    }
 }
 
 // Make functions globally available
