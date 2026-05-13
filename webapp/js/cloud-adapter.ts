@@ -823,11 +823,16 @@ export class CloudAdapter implements FileSystemAdapter {
             return;
         }
 
+        const stateVector = this._bridge?.encodeBridgeStateVector();
+        if (!stateVector) {
+            return;
+        }
+
         this._resyncRequestedAfterNoopUpdate = true;
         this._ws.send(
             JSON.stringify({
                 type: 'sync-request',
-                stateVector: u8ToBase64(new Uint8Array(0))
+                stateVector: u8ToBase64(stateVector)
             })
         );
     }

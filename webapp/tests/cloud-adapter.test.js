@@ -603,6 +603,29 @@ describe('CloudAdapter outbound updates', () => {
 });
 
 describe('CloudAdapter durability failures', () => {
+    it('resyncs noop remote updates with the current bridge state vector', () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const sentFrames = [];
+        const bridgeState = new Uint8Array([0]);
+
+        adapter._bridge = {
+            encodeBridgeStateVector: jest.fn(() => bridgeState)
+        };
+        adapter._ws = {
+            readyState: 1,
+            send: (payload) => sentFrames.push(JSON.parse(payload))
+        };
+
+        adapter._requestServerResyncAfterNoopUpdate();
+
+        expect(sentFrames).toEqual([
+            {
+                type: 'sync-request',
+                stateVector: Buffer.from(bridgeState).toString('base64')
+            }
+        ]);
+    });
+
     it('marks the connection errored and closes on undurable ack', () => {
         const statuses = [];
         const adapter = new CloudAdapter({
