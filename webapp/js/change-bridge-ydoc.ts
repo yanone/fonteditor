@@ -103,6 +103,12 @@ function normalizeValueForYDocWrite(value: unknown): unknown {
 // FULLJSON_UNNECESSARY (U4): Used by buildWorkerYjsStateFromCurrentFont
 // which parses full babelfontJson then rebuilds Y.Doc → binary Yjs state.
 // Should use bridge.encodeBridgeState() instead.
+// TODO(feature-code): We investigated malformed feature-code edits that passed
+// in tests but still showed no browser compile error. The live app proved the
+// JS model/Y.Doc and post-commit compile request were correct, but the Rust
+// worker still appeared to validate stale feature source after the Yjs update.
+// We did not land a fix; if this is revisited, start by proving what feature
+// code Rust sees after applyYjsUpdate instead of changing the commit funnel.
 
 /**
  * Convert a plain JS value into a Y.Map, Y.Array, or primitive suitable
