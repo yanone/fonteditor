@@ -1807,25 +1807,25 @@ export class PatchSyncEngine {
 
             const glyphName = this._deriveGlyphNameFromPath(entry.path);
             const layerId = this._deriveLayerIdFromPath(entry.path);
-            const hasExplicitLayerTargets =
-                normalizeWorkerReplayTargets(entry.workerReplayTargets).length >
-                0;
+            const explicitLayerTargets = normalizeWorkerReplayTargets(
+                entry.workerReplayTargets
+            );
+            const hasExplicitLayerTargets = explicitLayerTargets.length > 0;
             if (!glyphName) {
                 syncEntireFont = true;
                 continue;
             }
 
-            const isWholeGlyphChange =
-                !layerId &&
-                !hasExplicitLayerTargets &&
-                entry.undoScope !== 'layer';
+            const isWholeGlyphChange = !layerId && entry.undoScope !== 'layer';
             const isWholeLayerChange =
                 layerId !== null &&
                 pathSegments.length === 4 &&
-                pathSegments[2] === 'layers';
+                pathSegments[2] === 'layers' &&
+                !hasExplicitLayerTargets;
 
             if (isWholeGlyphChange || isWholeLayerChange) {
                 glyphNames.add(glyphName);
+                continue;
             }
         }
 
@@ -1879,8 +1879,17 @@ export class PatchSyncEngine {
             for (const glyphName of glyphNames) {
                 this._patchGlyphFromYDoc(glyphName);
             }
+            const fallbackGlyphNames = new Set<string>();
             for (const target of layerTargets.values()) {
-                this._patchLayerFromYDoc(target);
+                if (glyphNames.has(target.glyphName)) {
+                    continue;
+                }
+                if (!this._patchLayerFromYDoc(target)) {
+                    fallbackGlyphNames.add(target.glyphName);
+                }
+            }
+            for (const glyphName of fallbackGlyphNames) {
+                this._patchGlyphFromYDoc(glyphName);
             }
             for (const key of topLevelKeys) {
                 this._syncTopLevelFontKeyFromYDoc(key);
@@ -2197,6 +2206,24 @@ export class PatchSyncEngine {
 
             if (pathSegments.length === 3) {
                 delete glyphRecord[pathSegments[2]];
+                continue;
+            }
+
+            if (pathSegments.length === 4 && pathSegments[2] === 'layers') {
+                const layerId = pathSegments[3];
+                const layers = Array.isArray(glyphRecord.layers)
+                    ? (glyphRecord.layers as Unsafe[])
+                    : null;
+                if (!layers) {
+                    continue;
+                }
+
+                const layerIndex = layers.findIndex(
+                    (layer) => layer?.id === layerId
+                );
+                if (layerIndex >= 0) {
+                    layers.splice(layerIndex, 1);
+                }
                 continue;
             }
 

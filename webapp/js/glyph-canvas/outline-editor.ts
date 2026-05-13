@@ -7261,6 +7261,12 @@ export class OutlineEditor {
     ): Promise<void> {
         this.cancelPendingLayerSwitchAnimation();
         this.suppressAutoLayerMatching = false;
+        const componentPath = this.parseGlyphStack()
+            .filter(
+                (item): item is typeof item & { componentIndex: number } =>
+                    item.componentIndex !== undefined
+            )
+            .map((item) => item.componentIndex);
 
         const previousLayer = this.getCurrentLayerModel();
         if (this.selectedLayerId !== null && previousLayer) {
@@ -7272,6 +7278,7 @@ export class OutlineEditor {
         this.layerData = null;
         this.renderVerticalMetrics = null;
         this.clearAllSelections();
+        this.buildGlyphStack(glyphName, null, componentPath);
         this.updateLayerSelection();
         this.glyphCanvas.updatePropertyPanel();
 
@@ -7385,18 +7392,20 @@ export class OutlineEditor {
         }
 
         const deleteBridge = window.patchSyncEngine;
+        let preparedStructuralChange = false;
         if (deleteBridge) {
-            this.prepareCommittedStructuralOutlineChange(
-                options?.changeSource || 'layer-delete',
-                { triggerCompile: false }
-            );
+            preparedStructuralChange =
+                this.prepareCommittedStructuralOutlineChange(
+                    options?.changeSource || 'layer-delete',
+                    { triggerCompile: false }
+                );
             deleteBridge.syncGlyphFromJson(glyphName, 'Delete layer sync');
         }
 
         await this.refreshAfterStructuralLayerEdit(
             glyphName,
             options?.changeSource || 'layer-delete',
-            { refreshWorkerCache: 'full' }
+            { scheduleCompile: !preparedStructuralChange }
         );
 
         if (wasSelected && userspaceLocation) {

@@ -10419,6 +10419,10 @@ describe('OutlineEditor exact selected layers', () => {
             markDirty: jest.fn(),
             syncJsonFromModel: jest.fn()
         };
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const patchSyncEngine = {
+            syncGlyphFromJson: jest.fn()
+        };
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
             .mockResolvedValue();
@@ -10430,24 +10434,37 @@ describe('OutlineEditor exact selected layers', () => {
             .mockResolvedValue();
 
         currentFontSpy.mockReturnValue(currentFont);
+        window.patchSyncEngine = patchSyncEngine;
         canvas.outlineEditor.selectedLayerId = 'master-layer';
         canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.glyphStack = 'A@master-layer';
 
-        const deleted =
-            await canvas.outlineEditor.deleteLayerById('master-layer');
+        try {
+            const deleted =
+                await canvas.outlineEditor.deleteLayerById('master-layer');
 
-        expect(deleted).toBe(true);
-        expect(
-            font.findGlyph('A').findLayerById('master-layer')
-        ).toBeUndefined();
-        expect(canvas.outlineEditor.selectedLayerId).toBeNull();
-        expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
-        expect(forceFullWorkerCacheUpdateSpy).toHaveBeenCalled();
-        expect(animateSpy).toHaveBeenCalledWith({ wght: 0 }, 10);
-
-        animateSpy.mockRestore();
-        dirtySpy.mockRestore();
-        forceFullWorkerCacheUpdateSpy.mockRestore();
+            expect(deleted).toBe(true);
+            expect(
+                font.findGlyph('A').findLayerById('master-layer')
+            ).toBeUndefined();
+            expect(canvas.outlineEditor.selectedLayerId).toBeNull();
+            expect(canvas.outlineEditor.getCurrentLayerId()).toBeNull();
+            expect(canvas.outlineEditor.glyphStack).toBe(
+                'A@missing_interpolation'
+            );
+            expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenCalledWith(
+                'A',
+                'Delete layer sync'
+            );
+            expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
+            expect(animateSpy).toHaveBeenCalledWith({ wght: 0 }, 10);
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            animateSpy.mockRestore();
+            dirtySpy.mockRestore();
+            forceFullWorkerCacheUpdateSpy.mockRestore();
+        }
     });
 
     test('deleteLayerById clears stale pending layer-switch animation before falling back to interpolation', async () => {
@@ -10457,6 +10474,10 @@ describe('OutlineEditor exact selected layers', () => {
             markDirty: jest.fn(),
             syncJsonFromModel: jest.fn()
         };
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const patchSyncEngine = {
+            syncGlyphFromJson: jest.fn()
+        };
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
             .mockResolvedValue();
@@ -10468,8 +10489,10 @@ describe('OutlineEditor exact selected layers', () => {
             .mockResolvedValue();
 
         currentFontSpy.mockReturnValue(currentFont);
+        window.patchSyncEngine = patchSyncEngine;
         canvas.outlineEditor.selectedLayerId = 'brace-layer';
         canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.glyphStack = 'A@brace-layer';
         canvas.outlineEditor.isLayerSwitchAnimating = true;
         canvas.outlineEditor.targetLayerData = {
             width: 520,
@@ -10478,19 +10501,26 @@ describe('OutlineEditor exact selected layers', () => {
             guides: [],
             isInterpolated: false
         };
+        try {
+            const deleted =
+                await canvas.outlineEditor.deleteLayerById('brace-layer');
 
-        const deleted =
-            await canvas.outlineEditor.deleteLayerById('brace-layer');
-
-        expect(deleted).toBe(true);
-        expect(canvas.outlineEditor.selectedLayerId).toBeNull();
-        expect(canvas.outlineEditor.isLayerSwitchAnimating).toBe(false);
-        expect(canvas.outlineEditor.targetLayerData).toBeNull();
-        expect(animateSpy).toHaveBeenCalledWith({ wght: 50 }, 10);
-
-        animateSpy.mockRestore();
-        dirtySpy.mockRestore();
-        forceFullWorkerCacheUpdateSpy.mockRestore();
+            expect(deleted).toBe(true);
+            expect(canvas.outlineEditor.selectedLayerId).toBeNull();
+            expect(canvas.outlineEditor.getCurrentLayerId()).toBeNull();
+            expect(canvas.outlineEditor.glyphStack).toBe(
+                'A@missing_interpolation'
+            );
+            expect(canvas.outlineEditor.isLayerSwitchAnimating).toBe(false);
+            expect(canvas.outlineEditor.targetLayerData).toBeNull();
+            expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
+            expect(animateSpy).toHaveBeenCalledWith({ wght: 50 }, 10);
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            animateSpy.mockRestore();
+            dirtySpy.mockRestore();
+            forceFullWorkerCacheUpdateSpy.mockRestore();
+        }
     });
 
     test('deleteLayerById deletes from the requested glyph instead of the current layer-list glyph', async () => {
@@ -10542,6 +10572,10 @@ describe('OutlineEditor exact selected layers', () => {
             markDirty: jest.fn(),
             syncJsonFromModel: jest.fn()
         };
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const patchSyncEngine = {
+            syncGlyphFromJson: jest.fn()
+        };
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
             .mockResolvedValue();
@@ -10552,25 +10586,33 @@ describe('OutlineEditor exact selected layers', () => {
         font._data.glyphs.push(glyphB.toJSON());
         font._glyphWrappers = null;
         currentFontSpy.mockReturnValue(currentFont);
+        window.patchSyncEngine = patchSyncEngine;
         canvas.outlineEditor.currentGlyphName = 'A';
 
-        const deleted = await canvas.outlineEditor.deleteLayerById(
-            'brace-layer',
-            {
-                glyphName: 'B'
-            }
-        );
+        try {
+            const deleted = await canvas.outlineEditor.deleteLayerById(
+                'brace-layer',
+                {
+                    glyphName: 'B'
+                }
+            );
 
-        expect(deleted).toBe(true);
-        expect(glyphA.findLayerById('brace-layer')).toBeTruthy();
-        expect(
-            font.findGlyph('B').findLayerById('brace-layer')
-        ).toBeUndefined();
-        expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
-        expect(forceFullWorkerCacheUpdateSpy).toHaveBeenCalled();
-
-        dirtySpy.mockRestore();
-        forceFullWorkerCacheUpdateSpy.mockRestore();
+            expect(deleted).toBe(true);
+            expect(glyphA.findLayerById('brace-layer')).toBeTruthy();
+            expect(
+                font.findGlyph('B').findLayerById('brace-layer')
+            ).toBeUndefined();
+            expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenCalledWith(
+                'B',
+                'Delete layer sync'
+            );
+            expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            dirtySpy.mockRestore();
+            forceFullWorkerCacheUpdateSpy.mockRestore();
+        }
     });
 
     test('deleteLayerById removes the requested master layer when raw layer storage order differs from display order', async () => {
@@ -10652,6 +10694,10 @@ describe('OutlineEditor exact selected layers', () => {
             markDirty: jest.fn(),
             syncJsonFromModel: jest.fn()
         };
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const patchSyncEngine = {
+            syncGlyphFromJson: jest.fn()
+        };
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
             .mockResolvedValue();
@@ -10663,27 +10709,40 @@ describe('OutlineEditor exact selected layers', () => {
             .mockResolvedValue();
 
         currentFontSpy.mockReturnValue(currentFont);
+        window.patchSyncEngine = patchSyncEngine;
         canvas.outlineEditor.selectedLayerId = 'master-layer-2';
         canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.glyphStack = 'A@master-layer-2';
 
-        const deleted =
-            await canvas.outlineEditor.deleteLayerById('master-layer-2');
+        try {
+            const deleted =
+                await canvas.outlineEditor.deleteLayerById('master-layer-2');
 
-        expect(deleted).toBe(true);
-        expect(
-            font.findGlyph('A').findLayerById('master-layer-2')
-        ).toBeUndefined();
-        expect(
-            font.findGlyph('A').findLayerById('master-layer-3')
-        ).toBeTruthy();
-        expect(canvas.outlineEditor.selectedLayerId).toBeNull();
-        expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
-        expect(forceFullWorkerCacheUpdateSpy).toHaveBeenCalled();
-        expect(animateSpy).toHaveBeenCalledWith({ wght: 400 }, 10);
-
-        animateSpy.mockRestore();
-        dirtySpy.mockRestore();
-        forceFullWorkerCacheUpdateSpy.mockRestore();
+            expect(deleted).toBe(true);
+            expect(
+                font.findGlyph('A').findLayerById('master-layer-2')
+            ).toBeUndefined();
+            expect(
+                font.findGlyph('A').findLayerById('master-layer-3')
+            ).toBeTruthy();
+            expect(canvas.outlineEditor.selectedLayerId).toBeNull();
+            expect(canvas.outlineEditor.getCurrentLayerId()).toBeNull();
+            expect(canvas.outlineEditor.glyphStack).toBe(
+                'A@missing_interpolation'
+            );
+            expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenCalledWith(
+                'A',
+                'Delete layer sync'
+            );
+            expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
+            expect(animateSpy).toHaveBeenCalledWith({ wght: 400 }, 10);
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            animateSpy.mockRestore();
+            dirtySpy.mockRestore();
+            forceFullWorkerCacheUpdateSpy.mockRestore();
+        }
     });
 
     test('layer rows expose the internal layer id and glyph name used by context-menu actions', async () => {

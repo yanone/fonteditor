@@ -5934,6 +5934,105 @@ describe('syncGlyphFromJson', () => {
         receiverBridge.destroy();
     });
 
+    test('linked window remote layer create with replay targets patches glyph state without full rebuild', () => {
+        const senderFontJson = makeThreeMasterThreeLayerFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-remote-layer-create');
+        const receiverBridge = new ChangeBridge('receiver-remote-layer-create');
+        let lastUpdate = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+
+        const syncSpy = jest.spyOn(receiverBridge, '_syncJsonFromYDoc');
+        senderFontJson.glyphs[0].layers.push({
+            id: 'associated-layer-create',
+            width: 615,
+            master: {
+                type: 'AssociatedWithMaster',
+                master: 'master-regular'
+            },
+            location: { wght: 350 },
+            shapes: [],
+            anchors: [],
+            guides: []
+        });
+
+        senderBridge.syncGlyphFromJson(
+            'A',
+            'Create interpolated layer sync',
+            undefined,
+            undefined,
+            'associated-layer-create'
+        );
+
+        receiverBridge.applyRemoteUpdate(
+            lastUpdate,
+            senderBridge.getNewChangeLogEntries()
+        );
+
+        expect(syncSpy).not.toHaveBeenCalled();
+        expect(
+            receiverFontJson.glyphs[0].layers.map((layer) => layer.id)
+        ).toEqual(senderFontJson.glyphs[0].layers.map((layer) => layer.id));
+
+        syncSpy.mockRestore();
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('linked window whole-glyph structural sync with replay targets prunes stale associated layers', () => {
+        const senderFontJson = makeThreeMasterThreeLayerFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-structural-prune');
+        const receiverBridge = new ChangeBridge('receiver-structural-prune');
+        let lastUpdate = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+
+        receiverFontJson.glyphs[0].layers.push({
+            id: 'stale-associated-layer',
+            width: 615,
+            master: {
+                type: 'AssociatedWithMaster',
+                master: 'master-regular'
+            },
+            location: { wght: 350 },
+            shapes: [],
+            anchors: [],
+            guides: []
+        });
+
+        senderFontJson.glyphs[0].layers.splice(1, 1);
+        senderBridge.syncGlyphFromJson('A', 'Delete layer sync');
+
+        receiverBridge.applyRemoteUpdate(
+            lastUpdate,
+            senderBridge.getNewChangeLogEntries()
+        );
+
+        expect(
+            receiverFontJson.glyphs[0].layers.map((layer) => layer.id)
+        ).toEqual(senderFontJson.glyphs[0].layers.map((layer) => layer.id));
+        expect(
+            receiverFontJson.glyphs[0].layers.some(
+                (layer) => layer.id === 'stale-associated-layer'
+            )
+        ).toBe(false);
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
     test('linked window remote glyph delete patches glyph list without full rebuild', () => {
         const senderFontJson = makeMinimalFont();
         const receiverFontJson = cloneValue(senderFontJson);
