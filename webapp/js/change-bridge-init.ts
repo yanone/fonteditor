@@ -1979,33 +1979,42 @@ export function runBridgeUndoRedo(
             : inferSidebearingSideFromHistoryItem(historyItem) !== null
               ? 'outline'
               : null;
-        const forceFullRustSync = shouldForceFullRustSyncAfterUndoRedo(
+        let forceFullRustSync = shouldForceFullRustSyncAfterUndoRedo(
             appliedChange.scope,
             appliedChange.historyItem as HistoryStackItem | null,
             workerReplayTargets
         );
+        if (workerReplayTargets.length > 0) {
+            forceFullRustSync = false;
+        }
         const rustCacheRefreshPromise = syncRustCacheAndRefreshCanvas(
             refreshRootGlyphName,
             glyphName,
             forceFullRustSync,
             {
-                workerReplayTargets,
+                workerReplayTargets:
+                    workerReplayTargets.length === 0 ? workerReplayTargets : [],
                 skipDeferredCanvasRepaint:
                     appliedImmediateSidebearingSync &&
-                    isDirectSidebearingHistory
+                    isDirectSidebearingHistory,
+                allowSelectedLayerFallback: workerReplayTargets.length === 0
             }
         );
 
-        // Start the Rust/cache refresh before requesting an editing compile so
-        // the compile loop can observe the in-flight worker update and wait for it.
-        await requestUndoRedoEditingFontCompile(false, undoEditType);
-        await rustCacheRefreshPromise;
+        if (workerReplayTargets.length === 0) {
+            // Start the Rust/cache refresh before requesting an editing compile so
+            // the compile loop can observe the in-flight worker update and wait for it.
+            await requestUndoRedoEditingFontCompile(false, undoEditType);
+            await rustCacheRefreshPromise;
 
-        // Undo/redo can request a compile before the Rust cache refresh above
-        // has finished, which risks compiling against stale worker data.
-        // Re-request compilation after the refresh completes so the editing
-        // font is rebuilt from the restored state.
-        await requestUndoRedoEditingFontCompile(true, undoEditType);
+            // Undo/redo can request a compile before the Rust cache refresh above
+            // has finished, which risks compiling against stale worker data.
+            // Re-request compilation after the refresh completes so the editing
+            // font is rebuilt from the restored state.
+            await requestUndoRedoEditingFontCompile(true, undoEditType);
+        } else {
+            await rustCacheRefreshPromise;
+        }
 
         // Anchor-only and outline-only compiles still use the interactive
         // fast path; schedule a trailing debounced full compile so the editor

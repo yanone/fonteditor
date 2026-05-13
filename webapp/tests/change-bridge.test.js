@@ -4111,6 +4111,100 @@ describe('syncGlyphFromJson', () => {
         );
     });
 
+    test('undo emits the same binary update to worker and committed-change funnel', () => {
+        const { bridge, fontJson } = createTestBridge('test-undo-funnel');
+        const workerUpdates = [];
+        const committedChanges = [];
+
+        bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+            workerUpdates.push({ update, changeLogEntries });
+        });
+        bridge.onCommittedChange((entries, context) => {
+            committedChanges.push({ entries, context });
+        });
+
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson('A', 'Drag', undefined, undefined, 'layer-1');
+
+        workerUpdates.length = 0;
+        committedChanges.length = 0;
+
+        const result = bridge.undo('A', 'layer-1');
+
+        expect(result).not.toBeNull();
+        expect(workerUpdates).toHaveLength(1);
+        expect(committedChanges).toHaveLength(1);
+        expect(workerUpdates[0].update).toBeInstanceOf(Uint8Array);
+        expect(committedChanges[0].context).toEqual({
+            origin: 'local',
+            update: workerUpdates[0].update
+        });
+        expect(workerUpdates[0].changeLogEntries).toEqual(
+            committedChanges[0].entries
+        );
+        expect(committedChanges[0].entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    transactionLabel: 'Undo',
+                    historyAction: 'undo',
+                    workerReplayTargets: [
+                        {
+                            glyphName: 'A',
+                            layerId: 'layer-1'
+                        }
+                    ]
+                })
+            ])
+        );
+    });
+
+    test('redo emits the same binary update to worker and committed-change funnel', () => {
+        const { bridge, fontJson } = createTestBridge('test-redo-funnel');
+        const workerUpdates = [];
+        const committedChanges = [];
+
+        bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+            workerUpdates.push({ update, changeLogEntries });
+        });
+        bridge.onCommittedChange((entries, context) => {
+            committedChanges.push({ entries, context });
+        });
+
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson('A', 'Drag', undefined, undefined, 'layer-1');
+        bridge.undo('A', 'layer-1');
+
+        workerUpdates.length = 0;
+        committedChanges.length = 0;
+
+        const result = bridge.redo('A', 'layer-1');
+
+        expect(result).not.toBeNull();
+        expect(workerUpdates).toHaveLength(1);
+        expect(committedChanges).toHaveLength(1);
+        expect(committedChanges[0].context).toEqual({
+            origin: 'local',
+            update: workerUpdates[0].update
+        });
+        expect(workerUpdates[0].changeLogEntries).toEqual(
+            committedChanges[0].entries
+        );
+        expect(committedChanges[0].entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    transactionLabel: 'Redo',
+                    historyAction: 'redo',
+                    workerReplayTargets: [
+                        {
+                            glyphName: 'A',
+                            layerId: 'layer-1'
+                        }
+                    ]
+                })
+            ])
+        );
+    });
+
     test('remote apply forwards the Yjs update to the worker callback', () => {
         const senderFontJson = makeMinimalFont();
         const receiverFontJson = cloneValue(senderFontJson);

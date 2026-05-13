@@ -1401,10 +1401,8 @@ export class PatchSyncEngine {
      * Undo the last change for a specific glyph, or font-level if no
      * glyph name is given.
      *
-     * FULLJSON_UNNECESSARY (U1): Branch A (um?.undo()) origin=null → worker
-     * callback not called. Must capture binary update from UndoManager and
-     * forward it. Branch B (_applyHistoryItem via HISTORY_REPLAY_ORIGIN) DOES
-     * emit worker callback trigger but storeFontJson is still called after.
+     * YJS_ONLY: Both the native UndoManager branch and history-replay branch
+     * emit a canonical binary Yjs update into the standard post-commit funnel.
      */
     undo(
         glyphName?: string,
@@ -1439,6 +1437,8 @@ export class PatchSyncEngine {
         if (scope === 'font' && !targetItem) {
             return null;
         }
+        const localUpdateLogIndexBeforeUndo = this._lastLocalUpdateLogIndex;
+        const localUpdateBaseline = Y.encodeStateVector(this.yDoc);
         this._suppressRecording = true;
         try {
             const targetHistoryItemId = targetItem?.id ?? null;
@@ -1489,6 +1489,14 @@ export class PatchSyncEngine {
 
             this._onAfterSync?.();
             this._onDirty?.();
+            if (
+                this._lastLocalUpdateLogIndex ===
+                    localUpdateLogIndexBeforeUndo &&
+                !this._isApplyingRemote &&
+                !this._suppressAutomaticLocalUpdateEmission
+            ) {
+                this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
+            }
             return {
                 scope,
                 glyphName: target.glyphName,
@@ -1503,9 +1511,8 @@ export class PatchSyncEngine {
     /**
      * Redo the last undone change.
      *
-     * FULLJSON_UNNECESSARY (U1): Same analysis as undo() — both branches
-     * (um?.redo() and _applyHistoryItem) should forward the Yjs binary update
-     * so storeFontJson becomes redundant.
+     * YJS_ONLY: Both the native UndoManager branch and history-replay branch
+     * emit a canonical binary Yjs update into the standard post-commit funnel.
      */
     redo(
         glyphName?: string,
@@ -1540,6 +1547,8 @@ export class PatchSyncEngine {
         if (scope === 'font' && !targetItem) {
             return null;
         }
+        const localUpdateLogIndexBeforeRedo = this._lastLocalUpdateLogIndex;
+        const localUpdateBaseline = Y.encodeStateVector(this.yDoc);
         this._suppressRecording = true;
         try {
             const targetHistoryItemId = targetItem?.id ?? null;
@@ -1589,6 +1598,14 @@ export class PatchSyncEngine {
 
             this._onAfterSync?.();
             this._onDirty?.();
+            if (
+                this._lastLocalUpdateLogIndex ===
+                    localUpdateLogIndexBeforeRedo &&
+                !this._isApplyingRemote &&
+                !this._suppressAutomaticLocalUpdateEmission
+            ) {
+                this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
+            }
             return {
                 scope,
                 glyphName: target.glyphName,
