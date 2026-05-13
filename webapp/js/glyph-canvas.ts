@@ -3975,7 +3975,9 @@ class GlyphCanvas {
         }
 
         const affectedGlyphNames = new Set<string>([glyphName]);
-        window.patchSyncEngine?.beginTransaction('Set component anchor override');
+        window.patchSyncEngine?.beginTransaction(
+            'Set component anchor override'
+        );
         try {
             component.anchor = nextAnchor;
             for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(

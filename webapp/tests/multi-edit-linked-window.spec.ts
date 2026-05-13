@@ -66,8 +66,7 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes:
-                                    '100 100 l 400 100 l 400 600 l 100 600 l',
+                                nodes: '100 100 l 400 100 l 400 600 l 100 600 l',
                                 closed: true
                             }
                         ],
@@ -293,11 +292,7 @@ test.describe('Multi-edit linked window sync', () => {
         await linkedPage.waitForTimeout(500);
 
         // ── 3. Verify baseline ─────────────────────────────────────
-        const mainBaseline = await getLayerCheck(
-            mainPage,
-            glyphName,
-            layerId
-        );
+        const mainBaseline = await getLayerCheck(mainPage, glyphName, layerId);
         const linkedBaseline = await getLayerCheck(
             linkedPage,
             glyphName,
@@ -319,22 +314,14 @@ test.describe('Multi-edit linked window sync', () => {
                 deltaY
             );
 
-            expect(editResult.after.x).toBe(
-                editResult.before.x + deltaX
-            );
-            expect(editResult.after.y).toBe(
-                editResult.before.y + deltaY
-            );
+            expect(editResult.after.x).toBe(editResult.before.x + deltaX);
+            expect(editResult.after.y).toBe(editResult.before.y + deltaY);
 
             // Wait for BroadcastChannel propagation
             await linkedPage.waitForTimeout(500);
 
             // Verify data identity after each edit
-            const mainAfter = await getLayerCheck(
-                mainPage,
-                glyphName,
-                layerId
-            );
+            const mainAfter = await getLayerCheck(mainPage, glyphName, layerId);
             const linkedAfter = await getLayerCheck(
                 linkedPage,
                 glyphName,
