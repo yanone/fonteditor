@@ -413,6 +413,11 @@ class OpenedFont {
      * Converts nodes arrays back to string format for Rust compiler
      */
     syncJsonFromModel(): void {
+        // FULLJSON_UNNECESSARY (D1): Produces babelfontJson string from the
+        // Font model. Only needed because storeFontJson sends this string to
+        // the worker. In a Yjs-only regime this function should be eliminated
+        // (or restricted to save-to-disk). The babelfontData object is always
+        // the authoritative JS source; the Y.Doc is the authoritative CRDT source.
         let pathsFound = 0;
         let pathsConverted = 0;
         let pathsAlreadyString = 0;
@@ -3219,6 +3224,10 @@ class FontManager {
 
     /** Build a full binary Yjs snapshot from the current in-memory font data for worker refreshes. */
     private buildWorkerYjsStateFromCurrentFont(): Uint8Array | null {
+        // FULLJSON_UNNECESSARY (U4/B2): Does JSON.parse(babelfontJson) →
+        // jsonToYDoc → Y.encodeStateAsUpdate. A full JSON roundtrip in JS.
+        // Should use bridge.encodeBridgeState() which produces the same binary
+        // Yjs state without the JSON detour.
         const currentFont = this.currentFont;
         if (!currentFont?.babelfontJson) {
             return null;
@@ -3264,6 +3273,8 @@ class FontManager {
     replaceWorkerYjsMirrorFromState(
         state: Uint8Array | ArrayBufferLike | null | undefined
     ): void {
+        // YJS_ONLY: Binary Yjs state applied to JS-side worker mirror.
+        // No JSON crossing — Y.applyUpdate takes a binary Uint8Array.
         if (!state) {
             this.workerCacheYDoc = null;
             return;
@@ -3280,6 +3291,8 @@ class FontManager {
     applyWorkerYjsUpdateToMirror(
         update: Uint8Array | ArrayBufferLike | null | undefined
     ): void {
+        // YJS_ONLY: Incremental binary Yjs update applied to JS-side
+        // worker mirror — the correct incremental path.
         if (!update) {
             return;
         }
@@ -3343,6 +3356,8 @@ class FontManager {
             normalized: Babelfont.Layer;
         }>
     ): { update: Uint8Array; changedGlyphs: string[] } | null {
+        // YJS_ONLY: Incremental layer batch encoded as binary Yjs diff
+        // against the JS-side worker mirror Y.Doc.
         if (!this.workerCacheYDoc || !this.currentFont) {
             return null;
         }

@@ -100,6 +100,9 @@ function normalizeValueForYDocWrite(value: unknown): unknown {
 }
 
 // ── JSON → Y.Doc ────────────────────────────────────────────────────
+// FULLJSON_UNNECESSARY (U4): Used by buildWorkerYjsStateFromCurrentFont
+// which parses full babelfontJson then rebuilds Y.Doc → binary Yjs state.
+// Should use bridge.encodeBridgeState() instead.
 
 /**
  * Convert a plain JS value into a Y.Map, Y.Array, or primitive suitable
@@ -224,6 +227,11 @@ export function fromYType(value: unknown): unknown {
  * Extract the full babelfont Font JSON from a Y.Doc fontMap.
  *
  * Reverses the keyed-map structure for glyphs and layers back into arrays.
+ *
+ * FULLJSON_UNNECESSARY (B1/U3): Walks the entire Y.Doc tree.
+ * Called from _syncJsonFromYDoc fallback and cloud plugin save.
+ * Should only fire for cloud save; the _syncJsonFromYDoc fallback
+ * should be eliminated by fixing _patchLayerFromYDoc.
  */
 export function yDocToJson(fontMap: Y.Map<unknown>): Record<string, unknown> {
     const result: Record<string, unknown> = {};

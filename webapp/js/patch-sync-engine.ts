@@ -686,6 +686,9 @@ export class PatchSyncEngine {
      * Call this once after a font is loaded.
      */
     initFromJson(fontJson: Record<string, Unsafe>): void {
+        // FULLJSON_UNNECESSARY (U8, low priority): Populates the Y.Doc from
+        // the font JSON loaded by open_font_file. Could theoretically be done
+        // in Rust via seedYdoc, but the JSON is already in JS memory here.
         this._fontJson = fontJson;
         this._isSyncing = true;
         this.yDoc.transact(() => {
@@ -1397,6 +1400,11 @@ export class PatchSyncEngine {
     /**
      * Undo the last change for a specific glyph, or font-level if no
      * glyph name is given.
+     *
+     * FULLJSON_UNNECESSARY (U1): Branch A (um?.undo()) origin=null → worker
+     * callback not called. Must capture binary update from UndoManager and
+     * forward it. Branch B (_applyHistoryItem via HISTORY_REPLAY_ORIGIN) DOES
+     * emit worker callback trigger but storeFontJson is still called after.
      */
     undo(
         glyphName?: string,
@@ -1494,6 +1502,10 @@ export class PatchSyncEngine {
 
     /**
      * Redo the last undone change.
+     *
+     * FULLJSON_UNNECESSARY (U1): Same analysis as undo() — both branches
+     * (um?.redo() and _applyHistoryItem) should forward the Yjs binary update
+     * so storeFontJson becomes redundant.
      */
     redo(
         glyphName?: string,
@@ -1655,6 +1667,12 @@ export class PatchSyncEngine {
     /**
      * Apply a remote Y.Doc update from another window.
      * Optionally import accompanying change log entries.
+     *
+     * YJS_ONLY (binary): The remote binary Yjs update is applied and
+     * the worker also receives it via _yjsWorkerCallback.
+     * FULLJSON_UNNECESSARY (U3/U6): _syncJsonFromYDoc may fall back to a full
+     * yDocToJson rebuild when _getRemoteLayerSyncScopes returns null (structural
+     * changes like glyph/layer add/delete) or _patchLayerFromYDoc fails.
      */
     applyRemoteUpdate(
         update: Uint8Array,
@@ -1795,6 +1813,8 @@ export class PatchSyncEngine {
      * Export the full Y.Doc state for bootstrapping a new window.
      */
     getFullState(): YjsUpdate {
+        // YJS_ONLY (N2/B3): Binary Yjs state, not JSON.
+        // Used for linked-window bootstrap and cloud-font baseline.
         return Y.encodeStateAsUpdate(this.yDoc);
     }
 
@@ -1802,6 +1822,10 @@ export class PatchSyncEngine {
      * Apply a full state snapshot (for new window bootstrap).
      * The receiving window should NOT call initFromJson() before this —
      * independently initialised Y.Docs have conflicting CRDT state.
+     *
+     * YJS_ONLY (N2): Binary Yjs state — no JSON crossing.
+     * The _syncJsonFromYDoc() call below does a full Y.Doc→JSON walk in JS
+     * (U3 candidate for fixing fast-path to handle bootstrap).
      */
     applyFullState(state: YjsUpdate): void {
         this._isApplyingRemote = true;
@@ -2041,6 +2065,12 @@ export class PatchSyncEngine {
     /**
      * Sync the local babelfont JSON from the current Y.Doc state.
      * Called after remote updates or undo/redo.
+     *
+     * YJS_ONLY when fast path succeeds: _patchLayerFromYDoc applies
+     * only the touched layers — no full JSON rebuild.
+     * FULLJSON_UNNECESSARY (U3/B1) when fallback fires: yDocToJson walks the
+     * entire Y.Doc tree. Fix _patchLayerFromYDoc to handle structural changes
+     * (glyph/layer add/delete) and pass correct scope hints from history items.
      */
     /**
      * Patch the live babelfontData object from the current Y.Doc state.
@@ -2049,6 +2079,10 @@ export class PatchSyncEngine {
      * layer is reconstructed from Y.Doc — ~100-1000× faster than a full
      * font rebuild for large fonts. Falls through to the full sync if any
      * Y.Doc path lookup fails.
+     *
+     * YJS_ONLY when _patchLayerFromYDoc succeeds for all scopeHints
+     * (per-layer Y.Doc→JSON, no full rebuild).
+     * FULLJSON_UNNECESSARY (U3/B1) on fallback: yDocToJson walks entire tree.
      */
     private _syncJsonFromYDoc(
         scopeHints?:

@@ -895,6 +895,10 @@ self.onmessage = async (event) => {
                 cleanedJson = JSON.stringify(fontData);
                 timelineSpanEnd(stringifyJsonSpanId);
 
+                // FULLJSON_UNNECESSARY: Legacy full-JSON compile path (A3).
+                // Should use compile_cached_full_font_with_filter_pipeline from
+                // CANONICAL_JSON_CACHE instead of sending the full JSON string.
+
                 // Send debug info to main thread
                 self.postMessage({
                     type: 'debug',
@@ -1148,6 +1152,8 @@ self.onmessage = async (event) => {
                 const compileCachedSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.compileCachedFont'
                 );
+                // YJS_ONLY: Reads from CANONICAL_JSON_CACHE (Rust-internal) —
+                // no JSON crosses the JS/Rust boundary.
                 const compiledBytes =
                     compile_cached_font_from_last_layout_closure(options || {});
                 timelineMark(
@@ -1313,6 +1319,9 @@ self.onmessage = async (event) => {
         }
 
         // Handle store font JSON request (before auto-init to ensure it's cached early)
+        // FULLJSON_UNNECESSARY: Full babelfont JSON string sent to Rust (U1/A2).
+        // Should be replaced by forwarding the Yjs binary update instead. Used by
+        // undo/redo fallback (when forceFullRustSync=true) and error recovery.
         if (data.type === 'storeFontJson') {
             const storeSpanId = timelineSpanStart('font.worker.storeFontJson');
             const { id, babelfontJson } = data;
@@ -1411,6 +1420,9 @@ self.onmessage = async (event) => {
         // ── Yjs-based cache initialisation ──────────────────────────────────
         // seedYdoc: initialise the Rust Y.Doc from a full binary Yjs state
         // without rebuilding all caches (called immediately after openFont).
+        // YJS_ONLY: Binary Yjs state sent once as CRDT baseline (N3).
+        // No JSON conversion — the Yjs binary update is ~20-40% smaller than
+        // the equivalent babelfont JSON and avoids a full JSON roundtrip.
         if (data.type === 'seedYdoc') {
             const { id, state } = data;
             try {
@@ -1436,6 +1448,9 @@ self.onmessage = async (event) => {
         // applyYjsUpdate: apply an incremental binary Yjs update to the Rust Y.Doc
         // and update CANONICAL_JSON_CACHE (partial or full rebuild depending on
         // whether changedGlyphs were supplied).
+        // YJS_ONLY (incremental): Only binary Yjs data crosses the
+        // boundary. When changedGlyphs is empty, Rust falls back to a full
+        // internal Y.Doc→JSON rebuild (FULLJSON_INTERNAL_RUST — candidate for targeted patching).
         if (data.type === 'applyYjsUpdate') {
             const { id, update, changedGlyphs, invalidateLayoutClosure } = data;
             try {
@@ -1640,6 +1655,9 @@ self.onmessage = async (event) => {
 
                 payloadForDebug = payload;
 
+                // FULLJSON_NECESSARY (A1/N1): Rust converts .glyphs/.ufo/etc. to
+                // babelfont JSON and returns it to JS. There is no incremental CRDT
+                // source to read from at font open — the one unavoidable full JSON crossing.
                 const babelfontJson = open_font_file(filename, payload);
 
                 // Store in cache (both in WASM and in worker)

@@ -400,6 +400,9 @@ export class WindowSync {
                         // The raw bridge fullState uses array-format nodes that Rust
                         // cannot parse when rebuilding CANONICAL_JSON_CACHE via
                         // ydoc_get_glyph_json after apply_yjs_update.
+                        // YJS_ONLY (N2): Binary Yjs full-state-response —
+                        // no JSON crossing. The bridge.getFullState() call at line ~343
+                        // produces binary Yjs state.
                         const normalizedState =
                             fontManager.buildNormalizedWorkerYjsState?.();
                         if (!normalizedState?.length) {
@@ -415,10 +418,17 @@ export class WindowSync {
                         await seedInterpolationRustCacheFromState(
                             normalizedState
                         );
+                        // FULLJSON_UNNECESSARY (U1/A2): storeFontJson sends full JSON
+                        // after linked-window bootstrap. The seedYdoc below already
+                        // provides the worker its CRDT baseline — storeFontJson is
+                        // redundant because apply_yjs_update will rebuild caches from
+                        // the Y.Doc when the first incremental update arrives.
                         await window.fontCompilation!.sendMessage({
                             type: 'storeFontJson',
                             babelfontJson: fontManager.currentFont.babelfontJson
                         });
+                        // YJS_ONLY (N3): Binary Yjs seed for the worker
+                        // Y.Doc — the CRDT baseline, not a JSON crossing.
                         await window.fontCompilation!.sendMessage({
                             type: 'seedYdoc',
                             state: normalizedState

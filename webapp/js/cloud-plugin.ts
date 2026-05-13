@@ -83,6 +83,9 @@ function normalizeCloudExportForFontOpen(
 function getCloudFontJsonFromBridge(
     bridge: Pick<PatchSyncEngine, 'fontMap'>
 ): Record<string, unknown> | null {
+    // FULLJSON_UNNECESSARY (U7/B4): Walks entire Y.Doc via yDocToJson, then
+    // JSON.stringify for HTTP upload. Could be done in Rust (ydoc_to_babelfont_json_with_txn
+    // + serde_json::to_string) to avoid the JS-side tree walk.
     const fontJson = yDocToJson(bridge.fontMap);
     if (!fontJson || Object.keys(fontJson).length === 0) {
         return null;

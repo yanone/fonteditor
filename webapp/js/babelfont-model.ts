@@ -2590,6 +2590,9 @@ export function ensureFontStoredForInterpolation(font: Font): boolean {
 export async function seedInterpolationRustCacheFromState(
     state: Uint8Array | ArrayBufferLike | null | undefined
 ): Promise<boolean> {
+    // YJS_ONLY: Binary Yjs state sent to Rust's init_ydoc_from_state.
+    // This is the main-thread interpolation cache (separate from the worker).
+    // init_ydoc_from_state internally does a full Y.Doc→JSON walk (FULLJSON_INTERNAL_RUST).
     if (!state) {
         interpolationRustDocReady = false;
         return false;
@@ -2617,6 +2620,8 @@ export async function applyInterpolationRustYjsUpdate(
     update: Uint8Array | ArrayBufferLike | null | undefined,
     changedGlyphs: string[]
 ): Promise<boolean> {
+    // YJS_ONLY: Incremental binary Yjs update to the main-thread
+    // Rust interpolation cache. No JSON — the update is a binary Yjs diff.
     if (!update) {
         return false;
     }
