@@ -45,6 +45,33 @@ When these files disagree with this document, treat that as a bug and reconcile 
 16. Visual glyph edits MUST NOT invalidate the layout-closure cache. The closure may be re-primed only when the closed glyph set changes, which is driven by the editing text/subset or the selected OpenType feature set, or when feature/glyphset source data changes. Outline, anchor, sidebearing, component, guide, and layer-visual commits must keep the existing closure intact.
 17. Startup bridge/bootstrap noise MUST NOT request a no-data committed editing compile before the first editing font exists. The initial startup editing compile owns first readiness; bootstrap-local packets with `changeVersion === 0` must not bump `compileRequestVersion` and invalidate that first result.
 
+## Committed Packet Lifecycle
+
+For normal edit-time convergence, including undo and redo, the authoritative
+event chain is:
+
+```text
+Local mutation -> derive authoritative Yjs delta -> local post-commit reactor on that delta -> send delta -> remote apply delta -> remote post-commit reactor
+```
+
+Interpret each step literally:
+
+1. Local mutation updates the authoritative local Yjs document first.
+2. The committed binary Yjs delta is derived from that committed Yjs state.
+3. The local sender enters the shared committed-change funnel from that same
+   authoritative delta.
+4. That same delta is broadcast to linked windows and collaboration peers.
+5. Receivers apply the delta to their local Yjs document.
+6. Receivers then enter the same committed-change funnel, with receiver-only
+   visual compensation allowed before the shared post-commit work begins.
+
+Important nuance: this is not a plain "mutate JS model first, then encode to
+Yjs" flow. For steady-state editing, undo, and redo, Yjs is authoritative. The
+local JSON/model view is patched from the committed Yjs state immediately after
+that mutation, and the local and remote post-commit reactors are both supposed
+to consume the same authoritative Yjs packet rather than parallel ad hoc local
+reaction paths.
+
 ## Boundary-Crossing Budget
 
 `FontManager` exposes `getBoundaryCrossingStats()` and `resetBoundaryCrossingStats()` so tests and the AI profiling harness can pin per-edit traffic across the JS ↔ Rust/worker boundary. The locked-down budget is:
