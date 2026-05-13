@@ -404,6 +404,19 @@ describe('handleRemoteChangeRefresh', () => {
         expect(refreshOrder).toEqual(['queue', 'refresh-resolved', 'compile']);
     });
 
+    test('skips bootstrap-style remote refresh when there are no committed entries', async () => {
+        const queueCacheRefresh = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+
+        await handleCommittedChangeRefresh([], 'remote', {
+            requestCompile,
+            queueCacheRefresh
+        });
+
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(requestCompile).not.toHaveBeenCalled();
+    });
+
     test('classifies batched sidebearing arrow-key entries as remote outline edits', async () => {
         const queueCacheRefresh = jest.fn(async () => {});
         const requestCompile = jest.fn(async () => {});

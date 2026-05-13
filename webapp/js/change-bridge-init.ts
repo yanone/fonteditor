@@ -1774,6 +1774,10 @@ export async function handleCommittedChangeRefresh(
         localCompileContext?: LocalCommittedCompileContext;
     }
 ): Promise<void> {
+    if (origin === 'remote' && entries.length === 0) {
+        return;
+    }
+
     const requestCompile =
         dependencies?.requestCompile ??
         ((changeSource, editType) =>

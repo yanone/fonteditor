@@ -373,7 +373,8 @@ export class WindowSync {
                     msg.collaborationLog ?? []
                 );
                 this._bridge.applyFullState(fullState);
-                if (window.fontCompilation?.isInitialized) {
+                const fontCompilation = window.fontCompilation;
+                if (fontCompilation) {
                     const fontManager = window.fontManager as
                         | (typeof window.fontManager & {
                               syncBabelfontJsonFromCurrentModel?: () => boolean;
@@ -382,6 +383,15 @@ export class WindowSync {
                         | undefined;
 
                     void (async () => {
+                        const initialized = fontCompilation.isInitialized
+                            ? true
+                            : await fontCompilation.initialize();
+                        if (!initialized) {
+                            throw new Error(
+                                'Font compilation worker not initialized for linked-window bootstrap'
+                            );
+                        }
+
                         if (!fontManager?.currentFont) {
                             throw new Error(
                                 'No font loaded for linked-window worker bootstrap'
@@ -415,11 +425,11 @@ export class WindowSync {
                         await seedInterpolationRustCacheFromState(
                             normalizedState
                         );
-                        await window.fontCompilation!.sendMessage({
+                        await fontCompilation.sendMessage({
                             type: 'storeFontJson',
                             babelfontJson: fontManager.currentFont.babelfontJson
                         });
-                        await window.fontCompilation!.sendMessage({
+                        await fontCompilation.sendMessage({
                             type: 'seedYdoc',
                             state: normalizedState
                         });

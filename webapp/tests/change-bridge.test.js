@@ -3366,13 +3366,17 @@ describe('WindowSync', () => {
         bridge2.destroy();
     });
 
-    test('full state response initializes linked worker cache from authoritative state', async () => {
+    test('full state response initializes linked worker cache from authoritative state even before the worker is ready', async () => {
         const originalFontCompilation = window.fontCompilation;
         const originalFontManager = window.fontManager;
         const seedInterpolationRustCacheFromStateSpy = jest
             .spyOn(babelfontModel, 'seedInterpolationRustCacheFromState')
             .mockResolvedValue(true);
 
+        const initialize = jest.fn().mockImplementation(async () => {
+            window.fontCompilation.isInitialized = true;
+            return true;
+        });
         const sendMessage = jest.fn().mockResolvedValue({ success: true });
         const setWorkerCacheDocumentReady = jest.fn();
         const buildNormalizedWorkerYjsState = jest.fn(
@@ -3387,7 +3391,8 @@ describe('WindowSync', () => {
         const recordFullFontCrossing = jest.fn();
 
         window.fontCompilation = {
-            isInitialized: true,
+            isInitialized: false,
+            initialize,
             sendMessage,
             setWorkerCacheDocumentReady
         };
@@ -3422,7 +3427,11 @@ describe('WindowSync', () => {
         flushTimers();
         await Promise.resolve();
         await Promise.resolve();
+        flushTimers();
+        await Promise.resolve();
+        await Promise.resolve();
 
+        expect(initialize).toHaveBeenCalledTimes(1);
         expect(replaceWorkerYjsMirrorFromState).toHaveBeenCalledTimes(1);
         expect(buildNormalizedWorkerYjsState).toHaveBeenCalledTimes(1);
         expect(syncBabelfontJsonFromCurrentModel).toHaveBeenCalledTimes(1);

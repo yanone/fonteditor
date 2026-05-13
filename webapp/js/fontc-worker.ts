@@ -1420,6 +1420,13 @@ self.onmessage = async (event) => {
                 seed_ydoc(
                     state instanceof Uint8Array ? state : new Uint8Array(state)
                 );
+                // Seeding replaces Rust's authoritative Y.Doc baseline.
+                // Any previously primed layout-closure cache is no longer
+                // guaranteed to match that new document, so force the next
+                // cached editing compile to re-prime closure state.
+                cachedBaseSubsetKey = null;
+                cachedClosureGlyphCount = null;
+                fontCacheEpoch += 1;
                 self.postMessage({ id, type: 'seedYdoc', success: true });
             } catch (e: any) {
                 console.error('[Fontc Worker] seedYdoc error:', e);
@@ -1457,15 +1464,32 @@ self.onmessage = async (event) => {
                 // fontCacheEpoch in sync with Rust's FONT_CACHE_EPOCH prevents
                 // the next compile from forcing a layout-closure re-prime with
                 // stale CANONICAL_JSON_CACHE.
-                let parsedResult: { skipped?: string } | null = null;
+                let parsedResult: {
+                    skipped?: string;
+                    changedGlyphs?: unknown;
+                } | null = null;
                 try {
                     parsedResult = JSON.parse(resultJson);
                 } catch {
                     // Ignore parse errors — treat as non-skipped
                 }
                 const wasSkipped = parsedResult?.skipped != null;
+                const changedGlyphCount = Array.isArray(
+                    parsedResult?.changedGlyphs
+                )
+                    ? parsedResult.changedGlyphs.length
+                    : null;
                 cachedBabelfontJson = null;
-                if (invalidateLayoutClosure !== false && !wasSkipped) {
+                // Rust clears the primed layout-closure cache for any
+                // successful no-glyph update because it rebuilds top-level
+                // feature caches from the Y.Doc. Mirror that invalidation in
+                // the worker-side subset sentinel so the next compile always
+                // re-primes closure state instead of reusing a stale key.
+                if (
+                    !wasSkipped &&
+                    (invalidateLayoutClosure !== false ||
+                        changedGlyphCount === 0)
+                ) {
                     cachedBaseSubsetKey = null;
                     cachedClosureGlyphCount = null;
                     fontCacheEpoch += 1;
@@ -1592,6 +1616,18 @@ self.onmessage = async (event) => {
 
             try {
                 timelineMark('font.worker.openFont.started');
+                // Opening a new font starts a fresh worker document. Drop any
+                // cached subset/layout-closure state from the previous font so
+                // the first editing compile cannot reuse stale priming keys.
+                clear_font_cache();
+                cachedBabelfontJson = null;
+                cachedFontRevisionKey = null;
+                cachedBaseSubsetKey = null;
+                cachedClosureGlyphCount = null;
+                fontCacheEpoch += 1;
+                dragCompilesSinceStore = 0;
+                lastStoreFontAtMs = 0;
+
                 let payload: string;
 
                 if (entryMap && typeof entryMap === 'object') {
@@ -1611,10 +1647,7 @@ self.onmessage = async (event) => {
                                 `Invalid project entry type at ${relativePath}`
                             );
                         }
-                        clear_font_cache();
                     }
-
-                    fontCacheEpoch += 1;
                     payload = JSON.stringify(stringEntries);
                 } else {
                     // Convert Uint8Array to string for WASM

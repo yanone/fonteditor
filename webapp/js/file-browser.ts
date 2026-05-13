@@ -304,7 +304,18 @@ async function showFontFileDialog(
     } else if (!document.getElementById('file-path-header')) {
         await navigateToPath(fileSystemCache.currentPath || '/');
     } else {
-        updateFileSelectionUi();
+        await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => {
+                // Reopen can reuse an existing dialog after an async file-tree
+                // refresh replaced the file-item DOM while the dialog was
+                // hidden. Rebind per-item handlers so context menus and clicks
+                // are available immediately on the next open.
+                setupFileContextMenus();
+                setupFileItemClickHandlers();
+                updateFileSelectionUi();
+                resolve();
+            });
+        });
     }
 
     updateFileDialogFooter();

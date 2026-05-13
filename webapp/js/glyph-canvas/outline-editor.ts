@@ -4686,6 +4686,7 @@ export class OutlineEditor {
         options: {
             reuseTransaction?: boolean;
             layerId?: string | null;
+            layerTargets?: Array<{ glyphName: string; layerId: string }>;
         } = {}
     ): void {
         const bridge = window.patchSyncEngine;
@@ -4709,7 +4710,35 @@ export class OutlineEditor {
         }
 
         try {
+            const syncLayerTargets = normalizeWorkerReplayTargets(
+                options.layerTargets
+            );
+            const useGlyphSnapshotForSameGlyphLayers =
+                syncLayerTargets.length > 1 &&
+                glyphNames.length === 1 &&
+                syncLayerTargets.every(
+                    (target) => target.glyphName === currentGlyphName
+                );
+
             if (
+                useGlyphSnapshotForSameGlyphLayers &&
+                typeof bridge.syncGlyphFromJson === 'function'
+            ) {
+                bridge.syncGlyphFromJson(
+                    currentGlyphName,
+                    changeLabel,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    syncLayerTargets
+                );
+            } else if (
+                syncLayerTargets.length > 0 &&
+                typeof bridge.syncLayersFromJson === 'function'
+            ) {
+                bridge.syncLayersFromJson(syncLayerTargets, changeLabel);
+            } else if (
                 glyphNames.length > 1 &&
                 typeof bridge.syncGlyphsFromJson === 'function'
             ) {
@@ -13353,6 +13382,12 @@ export class OutlineEditor {
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
         let changed = false;
+        const layerTargets = normalizeWorkerReplayTargets(
+            [currentLayerModel, ...linkedLayers].map((layer) => ({
+                glyphName: currentGlyphModel.name,
+                layerId: String(layer?.id || '')
+            }))
+        );
 
         withSuppressedModelRecording(() => {
             changed = mutate(activePath, 0);
@@ -13382,7 +13417,10 @@ export class OutlineEditor {
             label,
             currentGlyphModel.name,
             new Set<string>([currentGlyphModel.name]),
-            { layerId: null }
+            {
+                layerId: null,
+                layerTargets: layerTargets.length ? layerTargets : undefined
+            }
         );
 
         this.syncCurrentExactLayerDataFromModel();
