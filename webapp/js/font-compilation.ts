@@ -282,6 +282,10 @@ class FontCompilation {
 
         this.workerCacheDocumentReady = false;
 
+        // FULLJSON_UNNECESSARY (U1): storeFontJson full JSON string sent to worker.
+        // This is the ensureWorkerCacheDocumentReady cold-start path — only needed
+        // when the worker Y.Doc hasn't been seeded yet. Once seedYdoc runs, this
+        // should never be reached.
         const storeResult = await this.sendMessage({
             type: 'storeFontJson',
             babelfontJson,
@@ -929,6 +933,9 @@ class FontCompilation {
             }
 
             // Send JSON string directly to worker
+            // FULLJSON_UNNECESSARY (U2/A3): Full babelfont JSON sent for feature-code
+            // compile. Should use compile_cached_full_font_with_filter_pipeline
+            // which reads from CANONICAL_JSON_CACHE without a full JSON crossing.
             timelineMark('fontCompilation.compileFromJson.posted');
             try {
                 const postMessageSpanId = timelineSpanStart(

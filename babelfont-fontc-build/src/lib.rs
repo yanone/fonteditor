@@ -1214,6 +1214,9 @@ fn store_font_from_value(json_value: serde_json::Value) -> Result<(), JsValue> {
 /// * `Result<(), JsValue>` - Success or error
 #[wasm_bindgen]
 pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
+    // FULLJSON_UNNECESSARY (U1/A2): Receives full JSON string, parses it,
+    // and populates all caches. Should be replaced by forwarding the Yjs
+    // binary update to apply_yjs_update then calling the internal rebuild.
     let _store_span = PerfSpan::start("store_font.total");
     let _parse_span = PerfSpan::start("store_font.parse_json");
     let json_value: serde_json::Value = serde_json::from_str(babelfont_json)
@@ -1254,6 +1257,10 @@ pub fn seed_ydoc(state_update: &[u8]) -> Result<(), JsValue> {
 /// worker is significantly cheaper.
 #[wasm_bindgen]
 pub fn init_ydoc_from_state(state_update: &[u8]) -> Result<(), JsValue> {
+    // FULLJSON_INTERNAL_RUST: Receives binary Yjs state (not JSON), applies it to
+    // a fresh Y.Doc, then rebuilds all Caches from a full Y.Doc→JSON walk.
+    // Could be made incremental with targeted top-level key patching — lower
+    // priority since no boundary crossing.
     let _span = PerfSpan::start("init_ydoc_from_state.total");
 
     let doc = yrs::Doc::new();
@@ -1287,6 +1294,11 @@ pub fn init_ydoc_from_state(state_update: &[u8]) -> Result<(), JsValue> {
 /// that the JS side can use to drive subset-cache replay.
 #[wasm_bindgen]
 pub fn apply_yjs_update(update: &[u8], changed_glyphs_json: &str) -> Result<String, JsValue> {
+    // YJS_ONLY when changedGlyphs is populated: targeted per-glyph
+    // patching of CANONICAL_JSON_CACHE — no full rebuild.
+    // FULLJSON_INTERNAL_RUST (C1b/U5) when changedGlyphs is empty: falls to
+    // refresh_non_glyph_feature_caches_from_ydoc which does a full Y.Doc→JSON
+    // walk. Could target-patch only changed top-level keys (features, axes).
     let _span = PerfSpan::start("apply_yjs_update.total");
 
     // -- 1. Apply binary update to Y_DOC ----------------------------------
@@ -1511,6 +1523,8 @@ pub fn clear_font_cache() {
 /// * `String` - Babelfont JSON representation
 #[wasm_bindgen]
 pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue> {
+    // FULLJSON_NECESSARY (A1/N1): Parses .glyphs/.ufo/etc. to babelfont::Font,
+    // then serializes to JSON string for JS — the one unavoidable full JSON crossing.
     web_sys::console::log_1(&format!("[Rust] Opening font file: {}", filename).into());
 
     let path = std::path::PathBuf::from(filename);

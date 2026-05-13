@@ -851,6 +851,9 @@ export async function syncRustCacheAndRefreshCanvas(
             const allowSelectedLayerFallback =
                 options?.allowSelectedLayerFallback !== false;
             if (forceFullRustSync) {
+                // FULLJSON_UNNECESSARY (U1/A2): Full babelfont JSON string sent
+                // to Rust. Should be replaced by forwarding the Yjs binary update
+                // from undo/redo or using the incremental layer-batch path.
                 currentFont.syncJsonFromModel?.();
                 if (currentFont.babelfontJson) {
                     await fontCompilation.sendMessage({
@@ -2135,6 +2138,8 @@ function initializeBridge(detail: {
     // Route committed local and remote Yjs packets through one serialized
     // post-commit reaction funnel. Local edits enter immediately after the
     // authoritative Yjs packet is emitted; remote edits enter after apply.
+    // YJS_ONLY: This funnel processes Yjs binary updates, not full
+    // JSON. Entries carry workerReplayTargets for incremental layer cache updates.
     bridge.onCommittedChange((entries, context) => {
         const localCompileContext =
             context.origin === 'local'
@@ -2185,6 +2190,8 @@ function initializeBridge(detail: {
     // Every local edit and remote change emits a small binary Yjs update.
     // Forward it to the WASM worker so the Rust Y.Doc + CANONICAL_JSON_CACHE
     // stay current without the expensive full-JSON round-trip.
+    // YJS_ONLY: Binary Yjs update forwarded to worker — no full JSON
+    // crossing. changedGlyphs hint enables targeted Rust-side cache patching.
     bridge.setYjsWorkerCallback((update, changeLogEntries) => {
         if (!fontCompilation?.isInitialized) return;
 
@@ -2240,6 +2247,9 @@ function initializeBridge(detail: {
     // first `apply_yjs_update` call has a baseline. Linked windows must skip
     // this path because their authoritative state arrives via WindowSync
     // full-state bootstrap, not from the locally loaded file snapshot.
+    // FULLJSON_UNNECESSARY (U4/B2): Use bridge.encodeBridgeState() instead.
+    // buildNormalizedWorkerYjsState does JSON.parse(babelfontJson) →
+    // jsonToYDoc → Y.encodeStateAsUpdate — a full JSON roundtrip in JS.
     if (
         !window.windowRole?.isLinkedWindow?.() &&
         fontCompilation?.isInitialized
