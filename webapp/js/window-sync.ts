@@ -430,9 +430,11 @@ export class WindowSync {
                         );
                         // FULLJSON_UNNECESSARY (U1/A2): storeFontJson sends full JSON
                         // after linked-window bootstrap. The seedYdoc below already
-                        // provides the worker its CRDT baseline — storeFontJson is
-                        // redundant because apply_yjs_update will rebuild caches from
-                        // the Y.Doc when the first incremental update arrives.
+                        // provides the worker its CRDT baseline.
+                        // TODO(FULLJSON_UNNECESSARY): remove this once seedYdoc
+                        // also primes the Rust-side canonical/font caches needed for
+                        // immediate linked-window compile readiness, so bootstrap can
+                        // stay binary-only before the first apply_yjs_update arrives.
                         await fontCompilation.sendMessage({
                             type: 'storeFontJson',
                             babelfontJson: fontManager.currentFont.babelfontJson
