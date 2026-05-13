@@ -214,7 +214,28 @@ The editor commits and recompiles feature code in three cases:
 
 All three triggers must use the same commit path: write the current Ace buffer through the patch bridge, mark the font dirty, wait for the corresponding Yjs worker update to land, and call `recompileEditingFont()`. That recompilation must validate feature-code edits against the full validated babelfont JSON rather than the subset-retained editing font, so glyph references outside the current text subset still resolve correctly. Blur and explicit commit must cancel any pending idle timer so one edit burst produces at most one automatic compile.
 
+The cached worker path must validate raw feature source before applying the editing filter pipeline. Filters such as glyph retention may normalize or discard feature statements, so feature-code commits first compile the full cached Rust font for validation, then continue with the filtered editing-font compile only if that raw validation succeeds. This validation still reads the Rust-side Yjs/CANONICAL_JSON cache; it must not send a full babelfont JSON string from JavaScript.
+
 ## Worker Cache Policy
+
+### Rust Worker Cache Authority
+
+The Rust worker cache chain has one authoritative direction during steady-state
+editing:
+
+```text
+Y.Doc -> CANONICAL_JSON_CACHE -> FONT_CACHE -> subset/filter/layout/compile caches
+```
+
+`CANONICAL_JSON_CACHE` is the Rust worker's materialized JSON view of the
+authoritative Yjs document. `FONT_CACHE` is only the typed `babelfont::Font`
+derived from that JSON for operations that need the Rust object model. After any
+edit-time Yjs update changes canonical JSON, `FONT_CACHE` and all feature,
+subset, filtered-font, layout-closure, and outline caches derived from it must be
+invalidated or rebuilt from `CANONICAL_JSON_CACHE`. Editing code must not patch
+`FONT_CACHE` as a competing source of truth for font-wide data. Feature-code
+validation must read the latest Yjs-derived canonical state before the subset
+editing compile runs.
 
 The fast path depends on these rules staying true:
 

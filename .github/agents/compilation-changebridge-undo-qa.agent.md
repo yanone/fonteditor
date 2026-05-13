@@ -51,6 +51,7 @@ Your job is to examine every relevant code change for three non-negotiable prope
 ## Additional requirements
 
 - Do not accept unnecessary value defaults. Example: Setting a layer width to `0` using `|| 0` when it is omitted may be a breaking change if the receiving window previously treated omission as "inherit from font" rather than "explicitly set to 0". If the current code treats omission and explicit empty values as equivalent, that is a bug that must be fixed before accepting any change that makes them distinct.
+- The central post-commit funnel is the central path to react to font data edits. All edits must go through it, and both sending and receiving windows must react identically to the Yjs diffs, except that the sending window processes them before sending and the receiving window processes them after receiving. If a change affects this path, verify that it is still the single source of truth for all font data edits and that no edits can bypass it, especially not full JSON syncing either within JS, or within Rust, or across the border. Exceptions to this central funnel are live-drag interactions that are explicitly designed to bypass the funnel.
 
 ## Decision policy
 
