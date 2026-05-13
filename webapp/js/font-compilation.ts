@@ -936,6 +936,14 @@ class FontCompilation {
             // FULLJSON_UNNECESSARY (U2/A3): Full babelfont JSON sent for feature-code
             // compile. Should use compile_cached_full_font_with_filter_pipeline
             // which reads from CANONICAL_JSON_CACHE without a full JSON crossing.
+            // TODO(feature-code): This is linked to the TODO beside U4 in
+            // change-bridge-ydoc.ts. Best current guess: feature-code commits
+            // already enter the shared Yjs commit funnel correctly, but the
+            // cached full-font validation path previously appeared to compile
+            // stale Rust feature state after applyYjsUpdate. Until that is
+            // proven fixed by inspecting the feature text Rust reads after the
+            // update, this explicit JSON compile remains as the workaround that
+            // makes inline babelfont-rs feature syntax errors observable.
             timelineMark('fontCompilation.compileFromJson.posted');
             try {
                 const postMessageSpanId = timelineSpanStart(

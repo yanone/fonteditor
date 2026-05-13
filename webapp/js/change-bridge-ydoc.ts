@@ -110,6 +110,10 @@ function normalizeValueForYDocWrite(value: unknown): unknown {
 // worker still appeared to validate stale feature source after the Yjs update.
 // We did not land a fix; if this is revisited, start by proving what feature
 // code Rust sees after applyYjsUpdate instead of changing the commit funnel.
+// Linked site: font-compilation.ts U2/A3 keeps feature-code compiles on the
+// explicit full-JSON compile path as a workaround for this suspected stale Rust
+// feature-cache read. Remove both comments together only after cached full-font
+// feature validation produces the same inline errors without compileFromJson.
 
 /**
  * Convert a plain JS value into a Y.Map, Y.Array, or primitive suitable
