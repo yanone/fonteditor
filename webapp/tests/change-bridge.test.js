@@ -5797,7 +5797,7 @@ describe('syncGlyphFromJson', () => {
         window.patchSyncEngine = undefined;
     });
 
-    test('linked window remote layer sync keeps scoped Y.Doc patching', () => {
+    test('linked window remote layer sync keeps branch-scoped Y.Doc patching', () => {
         const senderFontJson = makeMinimalFont();
         const receiverFontJson = cloneValue(senderFontJson);
         const senderBridge = new ChangeBridge('sender-scoped-remote-sync');
@@ -5814,6 +5814,10 @@ describe('syncGlyphFromJson', () => {
         });
 
         const syncSpy = jest.spyOn(receiverBridge, '_syncJsonFromYDoc');
+        const fullSyncSpy = jest.spyOn(
+            receiverBridge,
+            '_syncEntireFontJsonFromYDoc'
+        );
 
         senderFontJson.glyphs[0].layers[0].width = 723;
         senderBridge.syncGlyphFromJson(
@@ -5830,8 +5834,140 @@ describe('syncGlyphFromJson', () => {
             lastCollaborationMessage ? [lastCollaborationMessage] : []
         );
 
-        expect(syncSpy).toHaveBeenLastCalledWith([
-            { glyphName: 'A', layerId: 'layer-1' }
+        expect(syncSpy).not.toHaveBeenCalled();
+        expect(fullSyncSpy).not.toHaveBeenCalled();
+        expect(receiverFontJson.glyphs[0].layers[0].width).toBe(723);
+
+        syncSpy.mockRestore();
+        fullSyncSpy.mockRestore();
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('linked window remote feature-code sync patches top-level Y.Doc state without full rebuild', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-remote-feature-code');
+        const receiverBridge = new ChangeBridge('receiver-remote-feature-code');
+        let lastUpdate = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+
+        const syncSpy = jest.spyOn(receiverBridge, '_syncJsonFromYDoc');
+
+        const oldCode = senderFontJson.features.features[0][1].code;
+        const newCode = `${oldCode}\n# remote-feature-code`;
+        senderFontJson.features.features[0][1].code = newCode;
+
+        senderBridge.beginTransaction('Edit feature code');
+        try {
+            senderBridge.applySyntheticChangeSet('Edit feature code', [
+                {
+                    op: 'set',
+                    path: ['features', 'features', 0, 1, 'code'],
+                    oldValue: oldCode,
+                    newValue: newCode
+                }
+            ]);
+        } finally {
+            senderBridge.endTransaction();
+        }
+
+        receiverBridge.applyRemoteUpdate(
+            lastUpdate,
+            senderBridge.getNewChangeLogEntries()
+        );
+
+        expect(syncSpy).not.toHaveBeenCalled();
+        expect(receiverFontJson.features.features[0][1].code).toBe(newCode);
+
+        syncSpy.mockRestore();
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('linked window remote layer delete patches glyph state without full rebuild', () => {
+        const senderFontJson = makeThreeMasterThreeLayerFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-remote-layer-delete');
+        const receiverBridge = new ChangeBridge('receiver-remote-layer-delete');
+        let lastUpdate = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+
+        const syncSpy = jest.spyOn(receiverBridge, '_syncJsonFromYDoc');
+        const deletedLayer = cloneValue(senderFontJson.glyphs[0].layers[1]);
+        senderFontJson.glyphs[0].layers.splice(1, 1);
+
+        senderBridge.beginTransaction('Delete layer');
+        try {
+            senderBridge.recordRemove(
+                ['glyphs', 'A', 'layers', deletedLayer.id],
+                deletedLayer
+            );
+        } finally {
+            senderBridge.endTransaction();
+        }
+
+        receiverBridge.applyRemoteUpdate(
+            lastUpdate,
+            senderBridge.getNewChangeLogEntries()
+        );
+
+        expect(syncSpy).not.toHaveBeenCalled();
+        expect(
+            receiverFontJson.glyphs[0].layers.map((layer) => layer.id)
+        ).toEqual(['master-extrathin', 'master-bold']);
+
+        syncSpy.mockRestore();
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('linked window remote glyph delete patches glyph list without full rebuild', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-remote-glyph-delete');
+        const receiverBridge = new ChangeBridge('receiver-remote-glyph-delete');
+        let lastUpdate = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+
+        const syncSpy = jest.spyOn(receiverBridge, '_syncJsonFromYDoc');
+        senderFontJson.glyphs = senderFontJson.glyphs.filter(
+            (glyph) => glyph.name !== 'B'
+        );
+
+        senderBridge.beginTransaction('Delete glyph');
+        try {
+            senderBridge.recordRemove(['glyphs', 'B'], { name: 'B' });
+        } finally {
+            senderBridge.endTransaction();
+        }
+
+        receiverBridge.applyRemoteUpdate(
+            lastUpdate,
+            senderBridge.getNewChangeLogEntries()
+        );
+
+        expect(syncSpy).not.toHaveBeenCalled();
+        expect(receiverFontJson.glyphs.map((glyph) => glyph.name)).toEqual([
+            'A'
         ]);
 
         syncSpy.mockRestore();

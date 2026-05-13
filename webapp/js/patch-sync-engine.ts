@@ -1688,9 +1688,9 @@ export class PatchSyncEngine {
      *
      * YJS_ONLY (binary): The remote binary Yjs update is applied and
      * the worker also receives it via _yjsWorkerCallback.
-     * FULLJSON_UNNECESSARY (U3/U6): _syncJsonFromYDoc may fall back to a full
-     * yDocToJson rebuild when _getRemoteLayerSyncScopes returns null (structural
-     * changes like glyph/layer add/delete) or _patchLayerFromYDoc fails.
+     * Remote JSON/model sync must stay branch-scoped: top-level keys, glyphs,
+     * and layers are patched from the authoritative Y.Doc without any full
+     * yDocToJson rebuild on the receiving window hot path.
      */
     applyRemoteUpdate(
         update: Uint8Array,
@@ -1710,9 +1710,6 @@ export class PatchSyncEngine {
                           }
                       )
                   ) ?? []);
-            const remoteLayerScopes = this._getRemoteLayerSyncScopes(
-                effectiveRemoteEntries
-            );
             if (effectiveRemoteEntries?.length) {
                 const glyphNames = new Set(
                     effectiveRemoteEntries
@@ -1739,10 +1736,7 @@ export class PatchSyncEngine {
                 update,
                 this._getRemoteUpdateOrigin(effectiveRemoteEntries)
             );
-            this._syncJsonFromYDoc(remoteLayerScopes);
-            this._applyExplicitLayerPropertyRemovalsToFontJson(
-                effectiveRemoteEntries
-            );
+            this._syncRemoteJsonFromYDoc(effectiveRemoteEntries);
             this._yjsWorkerCallback?.(update, effectiveRemoteEntries);
             this._onAfterSync?.();
             this._onDirty?.();
@@ -1778,7 +1772,395 @@ export class PatchSyncEngine {
         }
     }
 
-    private _applyExplicitLayerPropertyRemovalsToFontJson(
+    /**
+     * Patch live babelfont JSON for a remote Yjs update using only the
+     * touched branches identified by change-log metadata.
+     */
+    private _syncRemoteJsonFromYDoc(remoteEntries?: ChangeLogEntry[]): void {
+        if (!this._fontJson) {
+            return;
+        }
+
+        const entries = remoteEntries ?? [];
+        const layerTargets = new Map<
+            string,
+            { glyphName: string; layerId: string }
+        >();
+        const glyphNames = new Set<string>();
+        const topLevelKeys = new Set<string>();
+        let syncEntireFont = entries.length === 0;
+
+        for (const entry of entries) {
+            const pathSegments = this._getPathSegments(
+                String(entry.path || '')
+            );
+            if (!pathSegments.length) {
+                syncEntireFont = true;
+                continue;
+            }
+
+            const topLevelKey = pathSegments[0];
+            if (topLevelKey !== 'glyphs') {
+                topLevelKeys.add(topLevelKey);
+                continue;
+            }
+
+            const glyphName = this._deriveGlyphNameFromPath(entry.path);
+            const layerId = this._deriveLayerIdFromPath(entry.path);
+            const hasExplicitLayerTargets =
+                normalizeWorkerReplayTargets(entry.workerReplayTargets).length >
+                0;
+            if (!glyphName) {
+                syncEntireFont = true;
+                continue;
+            }
+
+            const isWholeGlyphChange =
+                !layerId &&
+                !hasExplicitLayerTargets &&
+                entry.undoScope !== 'layer';
+            const isWholeLayerChange =
+                layerId !== null &&
+                pathSegments.length === 4 &&
+                pathSegments[2] === 'layers';
+
+            if (isWholeGlyphChange || isWholeLayerChange) {
+                glyphNames.add(glyphName);
+            }
+        }
+
+        if (!syncEntireFont) {
+            for (const entry of entries) {
+                const explicitLayerTargets = normalizeWorkerReplayTargets(
+                    entry.workerReplayTargets
+                );
+                if (explicitLayerTargets.length > 0) {
+                    for (const target of explicitLayerTargets) {
+                        if (glyphNames.has(target.glyphName)) {
+                            continue;
+                        }
+                        layerTargets.set(
+                            getLayerFingerprintTargetKey(
+                                target.glyphName,
+                                target.layerId
+                            ),
+                            target
+                        );
+                    }
+                    continue;
+                }
+
+                const glyphName = this._deriveGlyphNameFromPath(entry.path);
+                const layerId = this._deriveLayerIdFromPath(entry.path);
+                if (!glyphName || !layerId || glyphNames.has(glyphName)) {
+                    continue;
+                }
+
+                layerTargets.set(
+                    getLayerFingerprintTargetKey(glyphName, layerId),
+                    { glyphName, layerId }
+                );
+            }
+        }
+
+        const fingerprintTargets = this._collectRemoteFingerprintTargets(
+            syncEntireFont,
+            glyphNames,
+            Array.from(layerTargets.values())
+        );
+        const previousFingerprintSnapshot =
+            fingerprintTargets !== undefined
+                ? this._collectLayerFingerprintSnapshot(fingerprintTargets)
+                : null;
+
+        if (syncEntireFont) {
+            this._syncEntireFontJsonFromYDoc();
+        } else {
+            for (const glyphName of glyphNames) {
+                this._patchGlyphFromYDoc(glyphName);
+            }
+            for (const target of layerTargets.values()) {
+                this._patchLayerFromYDoc(target);
+            }
+            for (const key of topLevelKeys) {
+                this._syncTopLevelFontKeyFromYDoc(key);
+            }
+        }
+
+        this._applyExplicitPropertyRemovalsToFontJson(entries);
+
+        if (previousFingerprintSnapshot) {
+            this._emitLayerFingerprintChangedEvents(
+                previousFingerprintSnapshot,
+                this._collectLayerFingerprintSnapshot(fingerprintTargets)
+            );
+        }
+    }
+
+    /**
+     * Sync every top-level font key and glyph snapshot from the current Y.Doc.
+     * Used for bootstrap-style full-state syncs and for defensive recovery when
+     * remote metadata is missing, without converting the whole Y.Doc in one walk.
+     */
+    private _syncEntireFontJsonFromYDoc(): void {
+        if (!this._fontJson) {
+            return;
+        }
+
+        const fontRecord = this._fontJson as Record<string, unknown>;
+        const nextTopLevelKeys = new Set<string>();
+        this.fontMap.forEach((_value: unknown, key: string) => {
+            nextTopLevelKeys.add(key);
+        });
+
+        this._syncAllGlyphsFromYDoc();
+
+        for (const key of nextTopLevelKeys) {
+            if (key === 'glyphs') {
+                continue;
+            }
+            this._syncTopLevelFontKeyFromYDoc(key);
+        }
+
+        for (const key of Object.keys(fontRecord)) {
+            if (key === 'glyphs') {
+                continue;
+            }
+            if (!nextTopLevelKeys.has(key)) {
+                delete fontRecord[key];
+            }
+        }
+    }
+
+    private _collectRemoteFingerprintTargets(
+        syncEntireFont: boolean,
+        glyphNames: Set<string>,
+        layerTargets: Array<{ glyphName: string; layerId: string }>
+    ): LayerFingerprintTarget[] | null | undefined {
+        if (syncEntireFont) {
+            return null;
+        }
+
+        const targets = normalizeWorkerReplayTargets(layerTargets);
+        for (const glyphName of glyphNames) {
+            this._appendGlyphLayerFingerprintTargets(glyphName, targets);
+        }
+
+        return targets.length > 0
+            ? normalizeWorkerReplayTargets(targets)
+            : undefined;
+    }
+
+    private _appendGlyphLayerFingerprintTargets(
+        glyphName: string,
+        targets: LayerFingerprintTarget[]
+    ): void {
+        const seen = new Set(
+            targets.map((target) =>
+                getLayerFingerprintTargetKey(target.glyphName, target.layerId)
+            )
+        );
+        const pushTarget = (layerId: string | null) => {
+            if (!layerId) {
+                return;
+            }
+            const targetKey = getLayerFingerprintTargetKey(glyphName, layerId);
+            if (seen.has(targetKey)) {
+                return;
+            }
+            seen.add(targetKey);
+            targets.push({ glyphName, layerId });
+        };
+
+        const glyphs = Array.isArray((this._fontJson as Unsafe)?.glyphs)
+            ? (((this._fontJson as Unsafe).glyphs as Unsafe[]).find(
+                  (glyph) => glyph?.name === glyphName
+              ) as Unsafe | undefined)
+            : undefined;
+        const existingLayers = Array.isArray(glyphs?.layers)
+            ? (glyphs.layers as Unsafe[])
+            : [];
+        for (const layer of existingLayers) {
+            pushTarget(typeof layer?.id === 'string' ? layer.id : null);
+        }
+
+        const yGlyphsMap = this.fontMap.get('glyphs');
+        if (!(yGlyphsMap instanceof Y.Map)) {
+            return;
+        }
+        const glyphMap = yGlyphsMap.get(glyphName);
+        if (!(glyphMap instanceof Y.Map)) {
+            return;
+        }
+        const layersMap = glyphMap.get('layers');
+        if (!(layersMap instanceof Y.Map)) {
+            return;
+        }
+        layersMap.forEach((_value: unknown, layerId: string) => {
+            pushTarget(layerId);
+        });
+    }
+
+    private _syncAllGlyphsFromYDoc(): void {
+        if (!this._fontJson) {
+            return;
+        }
+
+        const fontRecord = this._fontJson as Record<string, unknown>;
+        const yGlyphsMap = this.fontMap.get('glyphs');
+        if (!(yGlyphsMap instanceof Y.Map)) {
+            delete fontRecord.glyphs;
+            return;
+        }
+
+        const existingGlyphs = Array.isArray(fontRecord.glyphs)
+            ? (fontRecord.glyphs as Unsafe[])
+            : [];
+        const existingGlyphsByName = new Map<string, Unsafe>(
+            existingGlyphs
+                .filter(
+                    (glyph): glyph is Unsafe =>
+                        !!glyph && typeof glyph?.name === 'string'
+                )
+                .map((glyph) => [String(glyph.name), glyph])
+        );
+
+        const nextGlyphs: Unsafe[] = [];
+        yGlyphsMap.forEach((_value: unknown, glyphName: string) => {
+            const glyphSnapshot = this._readNormalizedGlyphSnapshotFromYDoc(
+                glyphName,
+                existingGlyphsByName.get(glyphName)
+            );
+            if (glyphSnapshot) {
+                nextGlyphs.push(glyphSnapshot);
+            }
+        });
+
+        fontRecord.glyphs = nextGlyphs;
+    }
+
+    private _syncTopLevelFontKeyFromYDoc(key: string): void {
+        if (!this._fontJson) {
+            return;
+        }
+
+        if (key === 'glyphs') {
+            this._syncAllGlyphsFromYDoc();
+            return;
+        }
+
+        const fontRecord = this._fontJson as Record<string, unknown>;
+        const value = this.fontMap.get(key);
+        if (value === undefined) {
+            delete fontRecord[key];
+            return;
+        }
+
+        const snapshot = cloneHistoryValue(fromYType(value));
+        if (
+            snapshot &&
+            typeof snapshot === 'object' &&
+            !Array.isArray(snapshot)
+        ) {
+            sanitizeBabelfontArrays(snapshot as Unsafe);
+        }
+        fontRecord[key] = snapshot;
+    }
+
+    private _readNormalizedGlyphSnapshotFromYDoc(
+        glyphName: string,
+        existingGlyphSnapshot?: unknown
+    ): Unsafe | null {
+        const glyphsMap = this.fontMap.get('glyphs');
+        if (!(glyphsMap instanceof Y.Map)) {
+            return null;
+        }
+
+        const glyphMap = glyphsMap.get(glyphName);
+        if (!(glyphMap instanceof Y.Map)) {
+            return null;
+        }
+
+        const glyphSnapshot = this._normalizeGlyphSnapshot(
+            fromYType(glyphMap),
+            existingGlyphSnapshot
+        ) as Unsafe;
+        sanitizeBabelfontArrays(glyphSnapshot);
+        return glyphSnapshot;
+    }
+
+    private _patchGlyphFromYDoc(glyphName: string): boolean {
+        if (!this._fontJson) {
+            return false;
+        }
+
+        const fontRecord = this._fontJson as Record<string, unknown>;
+        const glyphs = Array.isArray(fontRecord.glyphs)
+            ? (fontRecord.glyphs as Unsafe[])
+            : [];
+        if (!Array.isArray(fontRecord.glyphs)) {
+            fontRecord.glyphs = glyphs;
+        }
+
+        const glyphIndex = glyphs.findIndex(
+            (glyph) => glyph?.name === glyphName
+        );
+        const glyphSnapshot = this._readNormalizedGlyphSnapshotFromYDoc(
+            glyphName,
+            glyphIndex >= 0 ? glyphs[glyphIndex] : undefined
+        );
+
+        if (!glyphSnapshot) {
+            if (glyphIndex >= 0) {
+                glyphs.splice(glyphIndex, 1);
+            }
+            return true;
+        }
+
+        if (glyphIndex >= 0) {
+            glyphs[glyphIndex] = glyphSnapshot;
+            return true;
+        }
+
+        const yGlyphsMap = this.fontMap.get('glyphs');
+        if (!(yGlyphsMap instanceof Y.Map)) {
+            glyphs.push(glyphSnapshot);
+            return true;
+        }
+
+        const orderedGlyphNames: string[] = [];
+        yGlyphsMap.forEach((_value: unknown, nextGlyphName: string) => {
+            orderedGlyphNames.push(nextGlyphName);
+        });
+        const glyphOrderIndex = orderedGlyphNames.indexOf(glyphName);
+        if (glyphOrderIndex < 0) {
+            glyphs.push(glyphSnapshot);
+            return true;
+        }
+
+        const followingGlyphName = orderedGlyphNames
+            .slice(glyphOrderIndex + 1)
+            .find((candidateGlyphName) =>
+                glyphs.some((glyph) => glyph?.name === candidateGlyphName)
+            );
+        if (!followingGlyphName) {
+            glyphs.push(glyphSnapshot);
+            return true;
+        }
+
+        const insertIndex = glyphs.findIndex(
+            (glyph) => glyph?.name === followingGlyphName
+        );
+        if (insertIndex < 0) {
+            glyphs.push(glyphSnapshot);
+            return true;
+        }
+
+        glyphs.splice(insertIndex, 0, glyphSnapshot);
+        return true;
+    }
+
+    private _applyExplicitPropertyRemovalsToFontJson(
         remoteEntries?: ChangeLogEntry[]
     ): void {
         if (!remoteEntries?.length || !this._fontJson) {
@@ -1800,22 +2182,31 @@ export class PatchSyncEngine {
             const pathSegments = this._getPathSegments(
                 String(entry.path || '')
             );
-            if (
-                pathSegments.length !== 5 ||
-                pathSegments[0] !== 'glyphs' ||
-                pathSegments[2] !== 'layers'
-            ) {
+            if (pathSegments[0] !== 'glyphs') {
                 continue;
             }
 
             const glyphName = pathSegments[1];
-            const layerId = pathSegments[3];
-            const propertyKey = pathSegments[4];
-
             const glyphRecord = glyphs.find(
                 (glyph) => glyph?.name === glyphName
             );
-            const layers = Array.isArray(glyphRecord?.layers)
+
+            if (!glyphRecord) {
+                continue;
+            }
+
+            if (pathSegments.length === 3) {
+                delete glyphRecord[pathSegments[2]];
+                continue;
+            }
+
+            if (pathSegments.length !== 5 || pathSegments[2] !== 'layers') {
+                continue;
+            }
+
+            const layerId = pathSegments[3];
+            const propertyKey = pathSegments[4];
+            const layers = Array.isArray(glyphRecord.layers)
                 ? (glyphRecord.layers as Unsafe[])
                 : null;
             const layerRecord = layers?.find((layer) => layer?.id === layerId);
@@ -1842,8 +2233,8 @@ export class PatchSyncEngine {
      * independently initialised Y.Docs have conflicting CRDT state.
      *
      * YJS_ONLY (N2): Binary Yjs state — no JSON crossing.
-     * The _syncJsonFromYDoc() call below does a full Y.Doc→JSON walk in JS
-     * (U3 candidate for fixing fast-path to handle bootstrap).
+     * The _syncJsonFromYDoc() call below rehydrates the live JSON/model from
+     * branch-scoped Y.Doc reads instead of a single whole-document walk.
      */
     applyFullState(state: YjsUpdate): void {
         this._isApplyingRemote = true;
@@ -2095,9 +2486,9 @@ export class PatchSyncEngine {
      *
      * YJS_ONLY when fast path succeeds: _patchLayerFromYDoc applies
      * only the touched layers — no full JSON rebuild.
-     * FULLJSON_UNNECESSARY (U3/B1) when fallback fires: yDocToJson walks the
-     * entire Y.Doc tree. Fix _patchLayerFromYDoc to handle structural changes
-     * (glyph/layer add/delete) and pass correct scope hints from history items.
+     * When scope hints are unavailable, the live JSON/model is rebuilt from
+     * branch-scoped reads of top-level keys and glyph snapshots, not from a
+     * monolithic yDocToJson conversion.
      */
     /**
      * Patch the live babelfontData object from the current Y.Doc state.
@@ -2109,7 +2500,6 @@ export class PatchSyncEngine {
      *
      * YJS_ONLY when _patchLayerFromYDoc succeeds for all scopeHints
      * (per-layer Y.Doc→JSON, no full rebuild).
-     * FULLJSON_UNNECESSARY (U3/B1) on fallback: yDocToJson walks entire tree.
      */
     private _syncJsonFromYDoc(
         scopeHints?:
@@ -2143,23 +2533,7 @@ export class PatchSyncEngine {
             return;
         }
 
-        // Full sync: reconstruct the entire font from Y.Doc.
-        const freshJson = this._normalizeFontSnapshot(
-            yDocToJson(this.fontMap),
-            this._fontJson
-        ) as Unsafe;
-        // Sanitize: fix array fields that Y.Doc roundtrip corrupted
-        sanitizeBabelfontArrays(freshJson);
-        for (const key of Object.keys(freshJson)) {
-            (this._fontJson as Unsafe)[key] = freshJson[key];
-        }
-        // Remove keys that no longer exist
-        for (const key of Object.keys(this._fontJson)) {
-            if (!(key in freshJson)) {
-                delete (this._fontJson as Unsafe)[key];
-            }
-        }
-        this._canonicalizeFullStateRawFontJson();
+        this._syncEntireFontJsonFromYDoc();
 
         this._emitLayerFingerprintChangedEvents(
             previousFingerprintSnapshot,
@@ -3937,6 +4311,39 @@ export class PatchSyncEngine {
             mergedLayerRecord,
             existingLayerRecord
         );
+
+        const layerMaster = mergedLayerRecord.master as
+            | Record<string, unknown>
+            | undefined;
+        if (
+            layerMaster &&
+            typeof layerMaster === 'object' &&
+            !Array.isArray(layerMaster) &&
+            layerMaster.type === 'DefaultForMaster' &&
+            typeof layerMaster.master === 'string' &&
+            typeof mergedLayerRecord.name === 'string'
+        ) {
+            const masterName = Array.isArray(
+                (this._fontJson as Unsafe)?.masters
+            )
+                ? (((this._fontJson as Unsafe).masters as Unsafe[]).find(
+                      (master) => master?.id === layerMaster.master
+                  )?.name as string | { dflt?: string } | undefined)
+                : undefined;
+            const normalizedMasterName =
+                typeof masterName === 'string'
+                    ? masterName
+                    : masterName && typeof masterName === 'object'
+                      ? String(masterName.dflt || '')
+                      : '';
+            if (
+                !mergedLayerRecord.name.length ||
+                (normalizedMasterName &&
+                    mergedLayerRecord.name === normalizedMasterName)
+            ) {
+                delete mergedLayerRecord.name;
+            }
+        }
 
         if (
             typeof mergedLayerRecord.width !== 'number' ||
