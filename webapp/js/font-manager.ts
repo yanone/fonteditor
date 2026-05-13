@@ -22,6 +22,7 @@ import {
     withSuppressedModelRecording
 } from './babelfont-model';
 import {
+    encodeNormalizedWorkerYjsState,
     jsonToYDoc,
     sanitizeBabelfontArrays,
     deleteYPath,
@@ -3224,10 +3225,26 @@ class FontManager {
 
     /** Build a full binary Yjs snapshot from the current in-memory font data for worker refreshes. */
     private buildWorkerYjsStateFromCurrentFont(): Uint8Array | null {
-        // FULLJSON_UNNECESSARY (U4/B2): Does JSON.parse(babelfontJson) →
-        // jsonToYDoc → Y.encodeStateAsUpdate. A full JSON roundtrip in JS.
-        // Should use bridge.encodeBridgeState() which produces the same binary
-        // Yjs state without the JSON detour.
+        const bridge = window.patchSyncEngine as
+            | (typeof window.patchSyncEngine & {
+                  encodeWorkerCompatibleBridgeState?: () => Uint8Array;
+              })
+            | undefined;
+        if (bridge?.fontMap && bridge.encodeWorkerCompatibleBridgeState) {
+            return bridge.encodeWorkerCompatibleBridgeState();
+        }
+
+        // FULLJSON_UNNECESSARY (U4/B2, fallback only): Does JSON.parse(babelfontJson) →
+        // jsonToYDoc → Y.encodeStateAsUpdate when no bridge exists yet.
+        // This still has to stay for now because some startup / reload paths call
+        // buildNormalizedWorkerYjsState() before initializeBridge() has created
+        // window.patchSyncEngine, so there is no authoritative bridge-backed Yjs
+        // state to export yet.
+        // Normal bridge-backed callers should use encodeWorkerCompatibleBridgeState()
+        // and avoid the full JSON roundtrip in JS.
+        // TODO(FULLJSON_UNNECESSARY): Remove this fallback once font load and
+        // external reload guarantee PatchSyncEngine exists before any worker-seed
+        // bootstrap asks FontManager for normalized Yjs state.
         const currentFont = this.currentFont;
         if (!currentFont?.babelfontJson) {
             return null;

@@ -11,6 +11,7 @@ const {
 } = require('../js/babelfont-model');
 const {
     deleteYPath,
+    encodeNormalizedWorkerYjsState,
     jsonToYDoc,
     yDocToJson
 } = require('../js/change-bridge-ydoc');
@@ -2123,6 +2124,89 @@ describe('FontManager boundary-crossing budget', () => {
         const stats = fontManager.getBoundaryCrossingStats();
         expect(stats.submitBatchCalls).toBe(1);
         expect(stats.fullFontCrossings).toBe(0);
+    });
+});
+
+describe('FontManager worker seed export', () => {
+    let originalOpenedFonts;
+    let originalCurrentFontId;
+    let originalPatchSyncEngine;
+    let intermediateFontData;
+
+    beforeAll(() => {
+        const fixturePath = path.join(
+            __dirname,
+            '..',
+            'examples',
+            'intermediate_layer_on_a.glyphs'
+        );
+        intermediateFontData = loadFontFile(fixturePath);
+    });
+
+    beforeEach(() => {
+        originalOpenedFonts = fontManager.openedFonts;
+        originalCurrentFontId = fontManager.currentFontId;
+        originalPatchSyncEngine = window.patchSyncEngine;
+
+        const fontData = cloneJson(intermediateFontData);
+        const fakeCurrentFont = {
+            babelfontJson: JSON.stringify(fontData),
+            babelfontData: fontData,
+            fontModel: Font.fromData(fontData),
+            name: 'Sukoon',
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(function () {
+                this.babelfontJson = this.fontModel.toJSONString();
+            })
+        };
+
+        fontManager.openedFonts = new Map([['test-font', fakeCurrentFont]]);
+        fontManager.currentFontId = 'test-font';
+    });
+
+    afterEach(() => {
+        fontManager.openedFonts = originalOpenedFonts;
+        fontManager.currentFontId = originalCurrentFontId;
+        window.patchSyncEngine = originalPatchSyncEngine;
+    });
+
+    test('buildNormalizedWorkerYjsState prefers bridge-native export without parsing babelfontJson', () => {
+        const workerDoc = new Y.Doc();
+        jsonToYDoc(
+            cloneJson(fontManager.currentFont.babelfontData),
+            workerDoc.getMap('font')
+        );
+
+        const encodeWorkerCompatibleBridgeState = jest.fn(() =>
+            encodeNormalizedWorkerYjsState(workerDoc.getMap('font'))
+        );
+        const parseSpy = jest.spyOn(JSON, 'parse');
+
+        window.patchSyncEngine = {
+            fontMap: workerDoc.getMap('font'),
+            encodeWorkerCompatibleBridgeState
+        };
+
+        try {
+            const state = fontManager.buildNormalizedWorkerYjsState();
+            const roundTripDoc = new Y.Doc();
+            Y.applyUpdate(roundTripDoc, state);
+            const roundTripJson = yDocToJson(roundTripDoc.getMap('font'));
+            const firstGlyph = roundTripJson.glyphs.find(
+                (glyph) => glyph.name === 'a'
+            );
+            const firstLayer = firstGlyph.layers[0];
+            const firstPathShape = firstLayer.shapes.find(
+                (shape) => !shape.reference && typeof shape.nodes === 'string'
+            );
+
+            expect(encodeWorkerCompatibleBridgeState).toHaveBeenCalledTimes(1);
+            expect(parseSpy).not.toHaveBeenCalled();
+            expect(state).toBeInstanceOf(Uint8Array);
+            expect(firstPathShape).toBeDefined();
+        } finally {
+            parseSpy.mockRestore();
+        }
     });
 });
 
