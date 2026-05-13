@@ -354,24 +354,21 @@ export async function openFileFromFilesView(page: any, fileName: string) {
     await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
     await waitForFileBrowserReady(page);
 
-    const fileItem = page
-        .locator(`.file-item[data-name="${fileName}"]`)
-        .first();
+    const fileItemSelector = `.file-item[data-name="${fileName}"]`;
+    const getFileItem = () => page.locator(fileItemSelector).first();
 
     const waitForTargetFile = async () => {
         await page.waitForFunction(
-            (targetFileName: string) => {
-                const items = Array.from(
-                    document.querySelectorAll('.file-item[data-name]')
-                ) as HTMLElement[];
-                return items.some(
-                    (item) => item.getAttribute('data-name') === targetFileName
-                );
+            (selector: string) => {
+                const item = document.querySelector(
+                    selector
+                ) as HTMLElement | null;
+                return !!item && item.offsetParent !== null;
             },
-            fileName,
+            fileItemSelector,
             { timeout: 30000 }
         );
-        await fileItem.waitFor({ state: 'visible', timeout: 30000 });
+        await getFileItem().waitFor({ state: 'visible', timeout: 30000 });
     };
 
     const waitForOpenedFile = async () => {
@@ -407,12 +404,12 @@ export async function openFileFromFilesView(page: any, fileName: string) {
         await waitForTargetFile();
     }
 
-    await fileItem.scrollIntoViewIfNeeded();
+    await getFileItem().scrollIntoViewIfNeeded();
 
     try {
         await Promise.all([
             waitForOpenedFile(),
-            fileItem.dblclick({ delay: 50 })
+            getFileItem().dblclick({ delay: 50 })
         ]);
     } catch {
         await page.evaluate(async () => {
@@ -421,10 +418,10 @@ export async function openFileFromFilesView(page: any, fileName: string) {
         await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
         await waitForFileBrowserReady(page);
         await waitForTargetFile();
-        await fileItem.scrollIntoViewIfNeeded();
+        await getFileItem().scrollIntoViewIfNeeded();
         await Promise.all([
             waitForOpenedFile(),
-            fileItem.dblclick({ delay: 50 })
+            getFileItem().dblclick({ delay: 50 })
         ]);
     }
 }

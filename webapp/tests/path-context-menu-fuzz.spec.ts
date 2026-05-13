@@ -135,8 +135,38 @@ async function captureOutlineFingerprint(page: Page): Promise<{
 }
 
 async function performUndo(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        (window as any).__pathContextUndoSyncPromise = new Promise<void>(
+            (resolve, reject) => {
+                const timeout = window.setTimeout(() => {
+                    reject(
+                        new Error(
+                            'Timed out waiting for fontModelSync after undo'
+                        )
+                    );
+                }, 10000);
+
+                window.addEventListener(
+                    'fontModelSync',
+                    () => {
+                        window.clearTimeout(timeout);
+                        resolve();
+                    },
+                    { once: true }
+                );
+            }
+        );
+    });
     await page.keyboard.press('Meta+z');
-    await page.waitForTimeout(450);
+    await page.evaluate(() => (window as any).__pathContextUndoSyncPromise);
+    await page.evaluate(async () => {
+        await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve())
+        );
+        await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve())
+        );
+    });
 }
 
 test('fuzz path context actions on Fustat n: click intent maps to start node and reverse stays compatible', async ({
