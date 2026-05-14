@@ -41,7 +41,7 @@ When these files disagree with this document, treat that as a bug and reconcile 
 12. Every committed Yjs packet, local or remote, MUST enter one shared serialized committed-change funnel for post-commit reactions. That funnel owns committed edit-type inference, editing-compile wakeup, and overview invalidation. Sender-local save helpers may prepare model state and arm trailing debounces, but they MUST NOT run a separate committed compile or committed `glyphChanged` path in parallel.
 13. Missing replay metadata, worker-sync rejection, or any other edit-time inconsistency MUST be treated as a bug in the incremental pipeline, not as justification for a full-document repair path. Normal editing has no escape hatches.
 14. Collaboration and cloud convergence MUST use binary Yjs updates as the authoritative document transport. Semantic change metadata may accompany those updates for history, human-readable inspection, undo labels and scopes, and replay-target hints, but it MUST NOT be used as the state-replay source for normal linked-window or cloud convergence.
-15. Python edits MUST enter `PatchSyncEngine` and emit the same committed Yjs packet plus change-log metadata as every other persisted edit. Python may derive synthetic operations from normalized before/after font snapshots, including named path metadata, but it MUST NOT bypass the shared committed-change funnel with ad hoc full-font sync or direct post-commit reactions.
+15. Python edits MUST enter `PatchSyncEngine` and emit the same committed Yjs packet plus change-log metadata as every other persisted edit. Python may derive synthetic operations from normalized before/after font snapshots, including named path metadata, but it MUST first canonicalize the current font in place and refresh the serialized snapshot, then derive the post-execution snapshot from that freshly regenerated canonical serialization rather than from any stale pre-sync `babelfontJson` cache. It MUST NOT bypass the shared committed-change funnel with ad hoc full-font sync or direct post-commit reactions.
 16. Visual glyph edits MUST NOT invalidate the layout-closure cache. The closure may be re-primed only when the closed glyph set changes, which is driven by the editing text/subset or the selected OpenType feature set, or when feature/glyphset source data changes. Outline, anchor, sidebearing, component, guide, and layer-visual commits must keep the existing closure intact.
 17. Startup bridge/bootstrap noise MUST NOT request a no-data committed editing compile before the first editing font exists. The initial startup editing compile owns first readiness; bootstrap-local packets with `changeVersion === 0` must not bump `compileRequestVersion` and invalidate that first result.
 
@@ -195,6 +195,36 @@ have forced a full-document Rust resync is a regression and must be removed.
 1. It marks the font dirty immediately.
 2. It records the local change metadata (`lastChangeSource` / `lastEditType`) and, for `outline` and `anchor` edits, arms `scheduleFullCompileDebounce()` so the editor returns to a full compile after the interaction.
 3. It MUST NOT dispatch the committed overview refresh or wake the committed editing compile directly. Those now run only after `PatchSyncEngine` emits the authoritative committed Yjs packet and the shared committed-change funnel consumes it.
+
+#### Synchronous local commit sequence
+
+For interactive outline, anchor, and sidebearing saves, the local sender must
+finish one synchronous commit phase before any async propagation, worker-cache
+refresh, or compile wakeup begins.
+
+The required sequence is:
+
+1. Serialize the edited layer payload into canonical storage form.
+2. Commit that serialized layer into `currentFont.babelfontData` in place,
+   without replacing the stored glyph or layer objects.
+3. Sync the object-model layer from that same serialized stored layer and
+   invalidate any layer-local caches.
+4. Mark only the serialized-string cache (`babelfontJson`) as stale when the
+   edit path is allowed to defer string regeneration. The authoritative JS font
+   object (`babelfontData`) must already be current at this point.
+5. Emit the authoritative committed Yjs packet from that already-committed
+   local state.
+6. Let the shared committed-change funnel own the authoritative async
+   post-commit reactions: compile wakeup, linked-window propagation, cloud
+   propagation, and overview invalidation. Sender-local save helpers may still
+   perform narrow worker-cache priming needed for the local interactive path,
+   but that work must happen strictly after steps 1-5 and must not replace or
+   race the authoritative Yjs-driven post-commit reactions.
+
+This ordering is mandatory because tests and post-commit consumers may inspect
+`currentFont.babelfontData` immediately after `saveLayerData()` returns. A
+state where the editor layer and Yjs delta are current but `babelfontData`
+still contains the pre-edit layer is a bug.
 
 While the pointer is still down for a mouse drag, the live editing compile path must remain active. What must stay suppressed is only the full-compile side: full compile execution itself and the JSON/model sync required to feed that full compile. Mid-drag pauses may continue to produce editing compiles, but must not flush `pendingBabelfontJsonSyncAfterDrag` or run full-font compilation until the drag ends.
 

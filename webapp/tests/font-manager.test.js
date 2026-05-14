@@ -311,6 +311,84 @@ describe('FontManager saveLayerData', () => {
         expect(topAnchor?.x).toBe(333);
     });
 
+    test('interactive saves commit stored layer data in place before deferred JSON sync', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        const originalLayerRef = layer;
+        const editedLayer = cloneJson(layer);
+        editedLayer.shapes = [
+            {
+                ...cloneJson(layer.shapes[0]),
+                nodes: '97 89 l 420 80 l 420 620 l 80 620 l'
+            }
+        ];
+
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            editedLayer,
+            'keyboard-outline'
+        );
+
+        const savedLayer = fontManager.currentFont.babelfontData.glyphs
+            .find((entry) => entry.name === 'a')
+            .layers.find((entry) => entry.id === layer.id);
+        const modelLayer = fontManager.currentFont.fontModel
+            .findGlyph('a')
+            .findLayerById(layer.id);
+
+        expect(savedLayer).toBe(originalLayerRef);
+        expect(savedLayer.shapes[0].nodes).toBe(
+            '97 89 l 420 80 l 420 620 l 80 620 l'
+        );
+        expect(modelLayer.toJSON().shapes[0].nodes).toBe(
+            '97 89 l 420 80 l 420 620 l 80 620 l'
+        );
+        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
+    });
+
+    test('keyboard saves defer worker cache priming until after the first await', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        const editedLayer = cloneJson(layer);
+        let resolveDirtyIndicator = null;
+        const pendingDirtyIndicator = new Promise((resolve) => {
+            resolveDirtyIndicator = resolve;
+        });
+
+        updateDirtyIndicatorSpy.mockRestore();
+        updateDirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockImplementation(() => pendingDirtyIndicator);
+
+        const savePromise = fontManager.saveLayerData(
+            'a',
+            layer.id,
+            editedLayer,
+            'keyboard-outline'
+        );
+
+        expect(sendMessageSpy).not.toHaveBeenCalled();
+
+        resolveDirtyIndicator?.();
+        await savePromise;
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: ['a']
+            })
+        );
+    });
+
     test('preserves existing shapes and anchors when outline save payload omits them', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'

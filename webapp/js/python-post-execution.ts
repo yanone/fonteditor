@@ -25,6 +25,25 @@ type SyntheticChangeOperation = {
     workerReplayTargets?: WorkerReplayTarget[];
 };
 
+type PythonExecutionCommitContext = {
+    beforeFontDataJson: string | null;
+    label?: string | null;
+};
+
+type PythonExecutionCommitFont = {
+    babelfontJson?: string | null;
+    syncJsonFromModel: () => void;
+};
+
+type PythonExecutionCommitBridge = {
+    setRecordingSuppressed: (suppressed: boolean) => void;
+    applySyntheticChangeSet: (
+        label: string,
+        operations: SyntheticChangeOperation[]
+    ) => void;
+    endTransaction: () => void;
+};
+
 function cloneJsonValue<T>(value: T): T {
     if (value === undefined) {
         return value;
@@ -236,6 +255,64 @@ function createNamedPatchPairsFromJsonSnapshots(
     );
 }
 
+function createCanonicalSerializedFontSnapshot(
+    currentFont: PythonExecutionCommitFont | null | undefined
+): Record<string, unknown> | null {
+    if (!currentFont?.babelfontJson) {
+        return null;
+    }
+
+    return JSON.parse(currentFont.babelfontJson) as Record<string, unknown>;
+}
+
+export function commitPythonExecutionSyntheticChanges(
+    currentFont: PythonExecutionCommitFont | null | undefined,
+    historyContext: PythonExecutionCommitContext | null | undefined,
+    bridge: PythonExecutionCommitBridge | null | undefined
+): void {
+    if (!currentFont) {
+        return;
+    }
+
+    // Python mutates the live wrapper/model graph directly. Canonicalize that
+    // already-committed state in place, refresh the serialized snapshot, then
+    // derive the authoritative synthetic diff from that post-sync serialization.
+    currentFont.syncJsonFromModel();
+
+    const beforeFontDataJson = historyContext?.beforeFontDataJson;
+    if (!beforeFontDataJson || !bridge) {
+        return;
+    }
+
+    const afterSnapshot = createCanonicalSerializedFontSnapshot(currentFont);
+    if (!afterSnapshot) {
+        return;
+    }
+
+    const beforeSnapshot = JSON.parse(beforeFontDataJson) as Record<
+        string,
+        unknown
+    >;
+    const directOperations =
+        createSyntheticChangeOperationsFromNamedChangePairs(
+            createNamedPatchPairsFromJsonSnapshots(
+                beforeSnapshot,
+                afterSnapshot,
+                []
+            )
+        );
+
+    bridge.setRecordingSuppressed(false);
+    if (directOperations.length) {
+        bridge.applySyntheticChangeSet(
+            historyContext?.label ?? 'Python script',
+            directOperations
+        );
+    }
+
+    bridge.endTransaction();
+}
+
 console.log('🔧 Module loaded, setting up post-execution hooks...');
 
 // Wait for required globals to be available
@@ -271,57 +348,11 @@ function setupHooks() {
      */
     window.afterPythonExecution = async function () {
         try {
-            // Sync changes from object model back to JSON string (for compilation)
-            // The babelfontData object is already modified in place by the object model,
-            // we only need to update the JSON string for the compiler
-            if (window.fontManager?.currentFont) {
-                const currentFont = window.fontManager.currentFont;
-                currentFont.syncJsonFromModel();
-
-                const beforeFontDataJson =
-                    window.pythonExecutionHistoryContext?.beforeFontDataJson;
-                if (beforeFontDataJson && window.patchSyncEngine) {
-                    const beforeSnapshot = JSON.parse(
-                        beforeFontDataJson
-                    ) as Record<string, unknown>;
-                    const firstAfterSnapshot = JSON.parse(
-                        currentFont.babelfontJson
-                    ) as Record<string, unknown>;
-                    const initialPatchPairs = diffFontDataToJsonPatchPairs(
-                        beforeSnapshot,
-                        firstAfterSnapshot
-                    );
-                    const directOperations =
-                        createSyntheticChangeOperationsFromNamedChangePairs(
-                            initialPatchPairs.map((patchPair) =>
-                                createNamedChangePairFromJsonPatchPair(
-                                    patchPair.forward,
-                                    patchPair.inverse,
-                                    {
-                                        forwardSnapshot:
-                                            patchPair.forward.op === 'remove'
-                                                ? beforeSnapshot
-                                                : firstAfterSnapshot,
-                                        inverseSnapshot:
-                                            patchPair.inverse.op === 'remove'
-                                                ? firstAfterSnapshot
-                                                : beforeSnapshot
-                                    }
-                                )
-                            )
-                        );
-                    window.patchSyncEngine.setRecordingSuppressed(false);
-                    if (directOperations.length) {
-                        window.patchSyncEngine.applySyntheticChangeSet(
-                            window.pythonExecutionHistoryContext?.label ??
-                                'Python script',
-                            directOperations
-                        );
-                    }
-
-                    window.patchSyncEngine.endTransaction();
-                }
-            }
+            commitPythonExecutionSyntheticChanges(
+                window.fontManager?.currentFont,
+                window.pythonExecutionHistoryContext,
+                window.patchSyncEngine
+            );
         } finally {
             window.patchSyncEngine?.setRecordingSuppressed(false);
             if (window.patchSyncEngine?.inTransaction) {

@@ -608,7 +608,9 @@ class FontManager {
      * babelfontJson on every interactive editing compile because the
      * `pendingBabelfontJsonSyncAfterDrag` flag forces it. During a stream
      * of interactive edits, `currentFont.babelfontJson` is not re-synced
-     * (sync is deferred to the debounced full compile), so the same
+     * (string sync is deferred to the debounced full compile), while
+     * `currentFont.babelfontData` must already hold the committed layer
+     * state synchronously, so the same
      * input string is validated repeatedly. Caching by input identity
      * eliminates ~50 ms of pure overhead per interactive compile.
      * Cache is invalidated implicitly: any new input string (a different
@@ -1448,6 +1450,36 @@ class FontManager {
         modelLayer.invalidateContentCaches();
 
         return rawLayerData;
+    }
+
+    private syncSerializedLayerIntoStoredFontData(
+        glyphName: string,
+        layerId: string,
+        layerData: Babelfont.Layer
+    ): Babelfont.Layer | null {
+        const glyph = this.getGlyph(glyphName);
+        if (!glyph?.layers) {
+            return null;
+        }
+
+        const storedLayer = glyph.layers.find((layer) => layer.id === layerId);
+        if (!storedLayer) {
+            return null;
+        }
+
+        const mutableStoredLayer = storedLayer as unknown as Record<
+            string,
+            unknown
+        >;
+
+        for (const key of Object.keys(storedLayer)) {
+            if (!Object.prototype.hasOwnProperty.call(layerData, key)) {
+                delete mutableStoredLayer[key];
+            }
+        }
+
+        Object.assign(storedLayer, layerData);
+        return storedLayer;
     }
 
     private normalizeComponentTransformForRust(
@@ -4189,22 +4221,24 @@ class FontManager {
             return;
         }
 
-        // Update the layer in the current font's babelfontData
-        const layerIndex = glyph.layers.findIndex((l) => l.id === layerId);
-        if (layerIndex === -1) {
-            console.error(
-                `[FontManager]`,
-                `Layer ${layerId} not found in glyph ${glyphName} - cannot save layer data`
-            );
-            return;
-        }
-
-        const syncedModelLayer = this.syncSerializedLayerIntoObjectModel(
+        const storedLayer = this.syncSerializedLayerIntoStoredFontData(
             glyphName,
             layerId,
             layerDataCopy
         );
-        glyph.layers[layerIndex] = syncedModelLayer || layerDataCopy;
+        if (!storedLayer) {
+            console.error(
+                '[FontManager]',
+                `Failed to commit stored layer ${layerId} in glyph ${glyphName}`
+            );
+            return;
+        }
+
+        this.syncSerializedLayerIntoObjectModel(
+            glyphName,
+            layerId,
+            storedLayer
+        );
 
         if (isInteractiveEdit) {
             this.pendingBabelfontJsonSyncAfterDrag = true;
@@ -4235,6 +4269,9 @@ class FontManager {
             this.scheduleFullCompileDebounce();
         }
 
+        this.currentFont!.markDirty(changeSource);
+        await this.updateDirtyIndicator();
+
         let keyboardCacheUpdatePromise: Promise<boolean> | null = null;
         if (changeSource.startsWith('keyboard')) {
             const refreshPromise = this.submitLayerUpdatesToWorkerCache([
@@ -4249,9 +4286,6 @@ class FontManager {
             );
             keyboardCacheUpdatePromise = refreshPromise;
         }
-
-        this.currentFont!.markDirty(changeSource);
-        await this.updateDirtyIndicator();
 
         if (keyboardCacheUpdatePromise) {
             try {
