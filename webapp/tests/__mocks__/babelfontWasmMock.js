@@ -5,7 +5,6 @@ const fs = require('fs');
 const path = require('path');
 const Y = require('yjs');
 const { yDocToJson } = require('../../js/change-bridge-ydoc');
-const { serializeGlyphNodes } = require('../../js/glyph-path-geometry');
 
 // The init function that's called to initialize WASM (default export)
 const initBabelfontWasm = jest.fn(() => {
@@ -34,26 +33,6 @@ function updateStoredFontJsonFromYDoc() {
     }
 
     const jsonValue = yDocToJson(storedYDoc.getMap('font'));
-    if (Array.isArray(jsonValue?.glyphs)) {
-        for (const glyph of jsonValue.glyphs) {
-            if (!Array.isArray(glyph?.layers)) {
-                continue;
-            }
-
-            for (const layer of glyph.layers) {
-                if (!Array.isArray(layer?.shapes)) {
-                    continue;
-                }
-
-                for (const shape of layer.shapes) {
-                    if (Array.isArray(shape?.nodes)) {
-                        shape.nodes = serializeGlyphNodes(shape.nodes);
-                    }
-                }
-            }
-        }
-    }
-
     storedFontJson = JSON.stringify(jsonValue);
 }
 

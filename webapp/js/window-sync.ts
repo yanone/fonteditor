@@ -378,7 +378,7 @@ export class WindowSync {
                     const fontManager = window.fontManager as
                         | (typeof window.fontManager & {
                               syncBabelfontJsonFromCurrentModel?: () => boolean;
-                              buildNormalizedWorkerYjsState?: () => Uint8Array | null;
+                              buildWorkerSeedYjsState?: () => Uint8Array | null;
                           })
                         | undefined;
 
@@ -406,28 +406,24 @@ export class WindowSync {
                             );
                         }
 
-                        // Build a Rust-compatible seed state (string-format nodes).
-                        // The raw bridge fullState uses array-format nodes that Rust
-                        // cannot parse when rebuilding CANONICAL_JSON_CACHE via
-                        // ydoc_get_glyph_json after apply_yjs_update.
+                        // Build a worker seed state (array-format nodes).
+                        // Rust now accepts array nodes natively via the updated serde.
                         // YJS_ONLY (N2): Binary Yjs full-state-response —
                         // no JSON crossing. The bridge.getFullState() call at line ~343
                         // produces binary Yjs state.
-                        const normalizedState =
-                            fontManager.buildNormalizedWorkerYjsState?.();
-                        if (!normalizedState?.length) {
+                        const seedState =
+                            fontManager.buildWorkerSeedYjsState?.();
+                        if (!seedState?.length) {
                             throw new Error(
-                                'Failed to build normalized worker Yjs state for linked-window bootstrap'
+                                'Failed to build worker seed Yjs state for linked-window bootstrap'
                             );
                         }
 
                         fontManager.recordFullFontCrossing?.();
                         fontManager.replaceWorkerYjsMirrorFromState?.(
-                            normalizedState
+                            seedState
                         );
-                        await seedInterpolationRustCacheFromState(
-                            normalizedState
-                        );
+                        await seedInterpolationRustCacheFromState(seedState);
                         // FULLJSON_UNNECESSARY (U1/A2): storeFontJson sends full JSON
                         // after linked-window bootstrap. The seedYdoc below already
                         // provides the worker its CRDT baseline.
@@ -443,7 +439,7 @@ export class WindowSync {
                         // Y.Doc — the CRDT baseline, not a JSON crossing.
                         await fontCompilation.sendMessage({
                             type: 'seedYdoc',
-                            state: normalizedState
+                            state: seedState
                         });
                     })().catch((error: unknown) => {
                         console.warn(

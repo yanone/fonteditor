@@ -357,109 +357,6 @@ export function affineToDecomposedAffine(
     };
 }
 
-export function mapGlyphNodeType(shortType: string): Babelfont.NodeType {
-    const map = {
-        m: 'Move' as const,
-        l: 'Line' as const,
-        o: 'OffCurve' as const,
-        c: 'Curve' as const,
-        q: 'QCurve' as const
-    };
-    return (map[shortType as keyof typeof map] || 'Line') as Babelfont.NodeType;
-}
-
-export function parseGlyphNodes(
-    nodes: string | Babelfont.Node[]
-): Babelfont.Node[] {
-    if (Array.isArray(nodes)) {
-        return nodes;
-    }
-
-    if (typeof nodes !== 'string') {
-        return [];
-    }
-
-    const trimmed = nodes.trim();
-    if (!trimmed) {
-        return [];
-    }
-
-    const tokens = trimmed.split(/\s+/);
-    const nodesArray: Babelfont.Node[] = [];
-
-    for (let index = 0; index + 2 < tokens.length; index += 3) {
-        const typeStr = tokens[index + 2];
-        const smooth = typeStr.endsWith('s');
-        const nodetype = mapGlyphNodeType(
-            smooth ? typeStr.slice(0, -1) : typeStr
-        );
-
-        const node: Babelfont.Node = {
-            x: parseFloat(tokens[index]),
-            y: parseFloat(tokens[index + 1]),
-            nodetype
-        };
-
-        if (smooth) {
-            node.smooth = true;
-        }
-
-        nodesArray.push(node);
-    }
-
-    return nodesArray;
-}
-
-export function serializeGlyphNodes(nodes: Babelfont.Node[]): string {
-    const tokens: string[] = [];
-
-    for (const node of nodes) {
-        const x =
-            typeof node.x === 'number' ? node.x : parseFloat(String(node.x));
-        const y =
-            typeof node.y === 'number' ? node.y : parseFloat(String(node.y));
-
-        if (isNaN(x) || isNaN(y)) {
-            console.error('[Path]', 'Invalid node coordinates:', node);
-            continue;
-        }
-
-        tokens.push(x.toString());
-        tokens.push(y.toString());
-
-        const nodeType = (node as Unsafe).nodetype || (node as Unsafe).type;
-        const typeMap: Record<string, string> = {
-            Move: 'm',
-            Line: 'l',
-            OffCurve: 'o',
-            Curve: 'c',
-            QCurve: 'q',
-            m: 'm',
-            l: 'l',
-            o: 'o',
-            c: 'c',
-            q: 'q',
-            ms: 'm',
-            ls: 'l',
-            os: 'o',
-            cs: 'c',
-            qs: 'q'
-        };
-
-        let typeStr = typeMap[nodeType] || 'l';
-        const isSmooth =
-            node.smooth ||
-            (typeof nodeType === 'string' && nodeType.endsWith('s'));
-        if (isSmooth) {
-            typeStr += 's';
-        }
-
-        tokens.push(typeStr);
-    }
-
-    return tokens.join(' ');
-}
-
 export function buildGlyphPathFromNodes(
     nodes: Babelfont.Node[],
     target: CanvasRenderingContext2D | Path2D
@@ -599,7 +496,7 @@ export function calculateGlyphPathBounds(pathData: {
         return null;
     }
 
-    const nodes = parseGlyphNodes(pathData.nodes as string | Babelfont.Node[]);
+    const nodes = pathData.nodes as Babelfont.Node[];
     if (!Array.isArray(nodes) || nodes.length === 0) {
         return null;
     }
@@ -816,9 +713,7 @@ export function calculateGlyphShapeBounds(
                     : null;
 
         if (pathData?.nodes) {
-            const nodes = parseGlyphNodes(
-                pathData.nodes as string | Babelfont.Node[]
-            );
+            const nodes = pathData.nodes as Babelfont.Node[];
             if (Array.isArray(nodes) && nodes.length > 0) {
                 const transformedNodes = nodes.map((node: Unsafe) =>
                     transformNode(node, parentTransform)

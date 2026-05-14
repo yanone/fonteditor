@@ -405,9 +405,7 @@ function inspectInvalidShapes(fontData: any, maxIssues: number = 8): string[] {
     const isValidShapeForUntaggedEnum = (shape: any): boolean => {
         if (!shape || typeof shape !== 'object') return false;
 
-        const hasPathLike =
-            'nodes' in shape &&
-            (Array.isArray(shape.nodes) || typeof shape.nodes === 'string');
+        const hasPathLike = 'nodes' in shape && Array.isArray(shape.nodes);
         const hasComponentLike =
             'reference' in shape && typeof shape.reference === 'string';
 

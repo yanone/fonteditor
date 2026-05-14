@@ -3059,19 +3059,21 @@ describe('Model collection mutator change recording', () => {
         ).toBe(560);
     });
 
-    test('string node normalization syncs Y.Doc before subsequent point edits', () => {
+    test('array nodes in Y.Doc support subsequent point edits', () => {
         const fontJson = makeMinimalFont();
-        fontJson.glyphs[0].layers[0].shapes[0].nodes =
-            '100 0 l 300 700 l 500 0 l';
+        fontJson.glyphs[0].layers[0].shapes[0].nodes = [
+            { x: 100, y: 0, nodetype: 'Line' },
+            { x: 300, y: 700, nodetype: 'Line' },
+            { x: 500, y: 0, nodetype: 'Line' }
+        ];
 
-        const bridge = new ChangeBridge('string-node-normalization');
+        const bridge = new ChangeBridge('array-node-edits');
         bridge.initFromJson(fontJson);
         window.changeBridge = bridge;
         const font = Font.fromData(fontJson);
         const path = font.findGlyph('A').layers[0].shapes[0].asPath();
 
-        // initFromJson converts compact string nodes to object arrays in Y.Doc
-        // so that per-node path edits can traverse the structure immediately.
+        // Array nodes are stored verbatim in Y.Doc for per-node point edits.
         expect(
             normalizeYValue(
                 getYPath(bridge.fontMap, [
@@ -3379,7 +3381,7 @@ describe('WindowSync', () => {
         });
         const sendMessage = jest.fn().mockResolvedValue({ success: true });
         const setWorkerCacheDocumentReady = jest.fn();
-        const buildNormalizedWorkerYjsState = jest.fn(
+        const buildWorkerSeedYjsState = jest.fn(
             () => new Uint8Array([1, 2, 3])
         );
         const replaceWorkerYjsMirrorFromState = jest.fn();
@@ -3401,7 +3403,7 @@ describe('WindowSync', () => {
                 babelfontJson:
                     '{"glyphs":[{"name":"A","layers":[{"id":"layer-1","width":600}]}]}'
             },
-            buildNormalizedWorkerYjsState,
+            buildWorkerSeedYjsState,
             replaceWorkerYjsMirrorFromState,
             syncBabelfontJsonFromCurrentModel,
             recordFullFontCrossing
@@ -3433,7 +3435,7 @@ describe('WindowSync', () => {
 
         expect(initialize).toHaveBeenCalledTimes(1);
         expect(replaceWorkerYjsMirrorFromState).toHaveBeenCalledTimes(1);
-        expect(buildNormalizedWorkerYjsState).toHaveBeenCalledTimes(1);
+        expect(buildWorkerSeedYjsState).toHaveBeenCalledTimes(1);
         expect(syncBabelfontJsonFromCurrentModel).toHaveBeenCalledTimes(1);
         expect(recordFullFontCrossing).toHaveBeenCalledTimes(1);
         expect(sendMessage).toHaveBeenNthCalledWith(

@@ -6,8 +6,7 @@ import {
     buildGlyphPathFromNodes,
     calculateGlyphShapeBounds,
     multiplyAffineTransforms,
-    normalizeAffineTransform,
-    parseGlyphNodes
+    normalizeAffineTransform
 } from './glyph-path-geometry';
 import { Logger } from './logger';
 import APP_SETTINGS from './settings';
@@ -328,10 +327,7 @@ class FastGlyphTileRenderer {
         for (const shape of shapes) {
             const normalized = this.normalizeShape(shape);
             if (normalized?.kind === 'path') {
-                let nodes = normalized.data.nodes;
-                if (typeof nodes === 'string') {
-                    nodes = parseGlyphNodes(nodes);
-                }
+                const nodes = normalized.data.nodes;
                 if (nodes && nodes.length > 0) {
                     buildGlyphPathFromNodes(nodes, ctx);
                     ctx.closePath();
@@ -363,10 +359,7 @@ class FastGlyphTileRenderer {
         for (const shape of shapes) {
             const normalized = this.normalizeShape(shape);
             if (normalized?.kind === 'path') {
-                let nodes = normalized.data.nodes;
-                if (typeof nodes === 'string') {
-                    nodes = parseGlyphNodes(nodes);
-                }
+                const nodes = normalized.data.nodes;
                 if (nodes && nodes.length > 0) {
                     buildGlyphPathFromNodes(nodes, ctx);
                     ctx.closePath();

@@ -15,11 +15,7 @@
 
 import { OutlineEditor } from './glyph-canvas/outline-editor';
 import type { Babelfont } from './babelfont';
-import {
-    buildGlyphPathFromNodes,
-    parseGlyphNodes,
-    serializeGlyphNodes
-} from './glyph-path-geometry';
+import { buildGlyphPathFromNodes } from './glyph-path-geometry';
 import { Logger } from './logger';
 
 const console = new Logger('LayerDataNormalizer');
@@ -77,22 +73,9 @@ export class LayerDataNormalizer {
     static normalizeShapes(shapes: any[], isInterpolated: boolean): any[] {
         return shapes.map((shape, shapeIndex) => {
             if ('nodes' in shape) {
-                // Parse nodes if they're a string (from babelfont-rs)
-                let parsedNodes = this.parseNodes(shape.nodes);
-
-                // IMPORTANT: For non-interpolated data, replace string with array in place
-                // so object model and renderer share the same array reference.
-                // This ensures modifications through window.currentFontModel are immediately visible.
-                // For interpolated data, always use the freshly parsed nodes.
-                if (typeof shape.nodes === 'string') {
-                    shape.nodes = parsedNodes;
-                }
-
+                // Nodes are always arrays from all sources now.
                 return {
-                    // Keep original shape properties
                     ...shape,
-                    // For rendering: use the parsed nodes (ensures interpolated data uses new array)
-                    nodes: parsedNodes,
                     isInterpolated: isInterpolated
                 };
             } else if ('reference' in shape) {
@@ -110,26 +93,6 @@ export class LayerDataNormalizer {
             }
             return shape;
         });
-    }
-
-    /**
-     * Parse nodes from string or array format using Path class normalization
-     *
-     * @param {string|Array} nodes - Nodes as string or already-parsed array
-     * @returns {Array} Array of normalized node objects
-     */
-    static parseNodes(nodes: string | any[]): Babelfont.Node[] {
-        return parseGlyphNodes(nodes);
-    }
-
-    /**
-     * Serialize nodes array back to string format
-     *
-     * @param {Array} nodes - Array of node objects with x, y, type properties
-     * @returns {string} Nodes as space-separated string "x1 y1 type x2 y2 type ..."
-     */
-    static serializeNodes(nodes: Babelfont.Node[]): string {
-        return serializeGlyphNodes(nodes);
     }
 
     /**

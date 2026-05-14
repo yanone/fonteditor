@@ -741,9 +741,7 @@ describe('bridge Yjs worker callback', () => {
             isLinkedWindow: () => false
         };
         window.fontManager = {
-            buildNormalizedWorkerYjsState: jest.fn(
-                () => new Uint8Array([1, 2, 3])
-            ),
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
             replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
@@ -797,9 +795,7 @@ describe('bridge Yjs worker callback', () => {
             isLinkedWindow: () => false
         };
         window.fontManager = {
-            buildNormalizedWorkerYjsState: jest.fn(
-                () => new Uint8Array([1, 2, 3])
-            ),
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
             replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
@@ -842,9 +838,7 @@ describe('bridge Yjs worker callback', () => {
             isLinkedWindow: () => false
         };
         window.fontManager = {
-            buildNormalizedWorkerYjsState: jest.fn(
-                () => new Uint8Array([1, 2, 3])
-            ),
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
             replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };
@@ -895,9 +889,7 @@ describe('bridge Yjs worker callback', () => {
             isLinkedWindow: () => false
         };
         window.fontManager = {
-            buildNormalizedWorkerYjsState: jest.fn(
-                () => new Uint8Array([1, 2, 3])
-            ),
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
             replaceWorkerYjsMirrorFromState: jest.fn(),
             forwardWorkerYjsUpdate
         };

@@ -30,9 +30,7 @@ describe('full font compile manager', () => {
                 babelfontJson: '{"glyphs":[]}',
                 syncJsonFromModel: jest.fn()
             },
-            buildNormalizedWorkerYjsState: jest.fn(
-                () => new Uint8Array([1, 2, 3])
-            ),
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
             fullFontQcSummary: null,
             fullFont: null
         };
@@ -143,9 +141,9 @@ describe('full font compile manager', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(
-            mockFontManager.buildNormalizedWorkerYjsState
-        ).toHaveBeenCalledTimes(1);
+        expect(mockFontManager.buildWorkerSeedYjsState).toHaveBeenCalledTimes(
+            1
+        );
         expect(bootstrapWorkerCacheFromFontStateMock).toHaveBeenCalledWith(
             mockFontManager.currentFont.babelfontJson,
             expect.any(Uint8Array)

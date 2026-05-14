@@ -13,7 +13,6 @@ import {
     yDocToJson,
     fromYType,
     toYType,
-    encodeNormalizedWorkerYjsState,
     setYPath,
     deleteYPath,
     getYPath,
@@ -2283,15 +2282,6 @@ export class PatchSyncEngine {
     /** Encode the full Y.Doc state as a Yjs update binary. */
     encodeBridgeState(): YjsUpdate {
         return Y.encodeStateAsUpdate(this.yDoc);
-    }
-
-    /**
-     * Encode the full Y.Doc state as a worker-compatible Yjs snapshot.
-     * Path-shape node arrays are normalized to compact node strings so Rust
-     * bootstrap can deserialize the snapshot without any JSON roundtrip.
-     */
-    encodeWorkerCompatibleBridgeState(): YjsUpdate {
-        return encodeNormalizedWorkerYjsState(this.fontMap);
     }
 
     /** Encode the Y.Doc state vector (compact — one entry per known client). */

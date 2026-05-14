@@ -109,7 +109,7 @@ export type RuntimeNodeData = Babelfont.Node & {
 };
 
 export type RuntimePathData = Omit<Babelfont.Path, 'nodes'> & {
-    nodes: RuntimeNodeData[] | string;
+    nodes: RuntimeNodeData[];
 };
 
 export type RuntimeComponentData = Babelfont.Component;

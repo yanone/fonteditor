@@ -17,9 +17,8 @@ import {
     CloudConnectionStatus,
     normalizeCloudRoomWebSocketUrl
 } from './cloud-adapter';
-import { Path } from './babelfont-model';
-import { PatchSyncEngine } from './patch-sync-engine';
 import { sanitizeBabelfontArrays, yDocToJson } from './change-bridge-ydoc';
+import { PatchSyncEngine } from './patch-sync-engine';
 import { Logger } from './logger';
 import { resolveWebsiteURL } from './website-url';
 
@@ -67,7 +66,6 @@ function normalizeCloudExportForFontOpen(
                     closed?: boolean;
                 };
                 if (Array.isArray(pathShape.nodes)) {
-                    pathShape.nodes = Path.nodesToString(pathShape.nodes);
                     if (pathShape.closed === undefined) {
                         pathShape.closed = false;
                     }

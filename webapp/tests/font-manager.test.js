@@ -11,7 +11,6 @@ const {
 } = require('../js/babelfont-model');
 const {
     deleteYPath,
-    encodeNormalizedWorkerYjsState,
     jsonToYDoc,
     yDocToJson
 } = require('../js/change-bridge-ydoc');
@@ -87,7 +86,7 @@ describe('FontManager saveLayerData', () => {
         fontManager.currentFontId = 'test-font';
         fontManager.pendingBabelfontJsonSyncAfterDrag = false;
         fontManager.scheduleFullCompileDebounce = jest.fn();
-        const initialWorkerState = fontManager.buildNormalizedWorkerYjsState();
+        const initialWorkerState = fontManager.buildWorkerSeedYjsState();
         fontManager.replaceWorkerYjsMirrorFromState(initialWorkerState);
         updateDirtyIndicatorSpy = jest
             .spyOn(fontManager, 'updateDirtyIndicator')
@@ -1491,7 +1490,7 @@ describe('FontManager loadFont', () => {
 
         const currentFont = fontManager.currentFont;
         await seedInterpolationRustCacheFromState(
-            fontManager.buildNormalizedWorkerYjsState()
+            fontManager.buildWorkerSeedYjsState()
         );
         withSuppressedModelRecording(() => {
             currentFont.fontModel.recomputeMetricsKeys();
@@ -1569,7 +1568,7 @@ describe('FontManager boundary-crossing budget', () => {
         fontManager.scheduleFullCompileDebounce = jest.fn();
         fontManager.workerLayerFingerprintCache = new Map();
         fontManager.resetBoundaryCrossingStats();
-        const initialWorkerState = fontManager.buildNormalizedWorkerYjsState();
+        const initialWorkerState = fontManager.buildWorkerSeedYjsState();
         fontManager.replaceWorkerYjsMirrorFromState(initialWorkerState);
 
         updateDirtyIndicatorSpy = jest
@@ -1968,7 +1967,7 @@ describe('FontManager boundary-crossing budget', () => {
     });
 
     test('forwardWorkerYjsUpdate fails after applyYjsUpdate failure instead of repairing with a full resend', async () => {
-        const rawUpdate = fontManager.buildNormalizedWorkerYjsState();
+        const rawUpdate = fontManager.buildWorkerSeedYjsState();
         sendMessageSpy.mockRejectedValueOnce(
             new Error('RuntimeError: unreachable')
         );
@@ -1990,7 +1989,7 @@ describe('FontManager boundary-crossing budget', () => {
     });
 
     test('forwardWorkerYjsUpdate reuses the authoritative raw Yjs delta when layer targets are supplied', async () => {
-        const rawUpdate = fontManager.buildNormalizedWorkerYjsState();
+        const rawUpdate = fontManager.buildWorkerSeedYjsState();
         const buildWorkerYjsLayerUpdateSpy = jest.spyOn(
             fontManager,
             'buildWorkerYjsLayerUpdate'
@@ -2275,25 +2274,25 @@ describe('FontManager worker seed export', () => {
         window.patchSyncEngine = originalPatchSyncEngine;
     });
 
-    test('buildNormalizedWorkerYjsState prefers bridge-native export without parsing babelfontJson', () => {
+    test('buildWorkerSeedYjsState prefers bridge-native export without parsing babelfontJson', () => {
         const workerDoc = new Y.Doc();
         jsonToYDoc(
             cloneJson(fontManager.currentFont.babelfontData),
             workerDoc.getMap('font')
         );
 
-        const encodeWorkerCompatibleBridgeState = jest.fn(() =>
-            encodeNormalizedWorkerYjsState(workerDoc.getMap('font'))
+        const encodeBridgeState = jest.fn(() =>
+            Y.encodeStateAsUpdate(workerDoc)
         );
         const parseSpy = jest.spyOn(JSON, 'parse');
 
         window.patchSyncEngine = {
             fontMap: workerDoc.getMap('font'),
-            encodeWorkerCompatibleBridgeState
+            encodeBridgeState
         };
 
         try {
-            const state = fontManager.buildNormalizedWorkerYjsState();
+            const state = fontManager.buildWorkerSeedYjsState();
             const roundTripDoc = new Y.Doc();
             Y.applyUpdate(roundTripDoc, state);
             const roundTripJson = yDocToJson(roundTripDoc.getMap('font'));
@@ -2302,10 +2301,10 @@ describe('FontManager worker seed export', () => {
             );
             const firstLayer = firstGlyph.layers[0];
             const firstPathShape = firstLayer.shapes.find(
-                (shape) => !shape.reference && typeof shape.nodes === 'string'
+                (shape) => !shape.reference && Array.isArray(shape.nodes)
             );
 
-            expect(encodeWorkerCompatibleBridgeState).toHaveBeenCalledTimes(1);
+            expect(encodeBridgeState).toHaveBeenCalledTimes(1);
             expect(parseSpy).not.toHaveBeenCalled();
             expect(state).toBeInstanceOf(Uint8Array);
             expect(firstPathShape).toBeDefined();

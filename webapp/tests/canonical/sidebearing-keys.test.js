@@ -33,7 +33,6 @@ const path = require('path');
 const {
     Font,
     Layer,
-    Path,
     DecomposedAffineTransform
 } = require('../../js/babelfont-model');
 const { LayerDataNormalizer } = require('../../js/layer-data-normalizer');
@@ -84,9 +83,6 @@ afterEach(() => {
  * Parse node data, handling both string and array formats.
  */
 function ensureParsedNodes(nodesData) {
-    if (typeof nodesData === 'string') {
-        return Path.parseNodesString(nodesData);
-    }
     return Array.isArray(nodesData) ? nodesData : [];
 }
 
@@ -186,7 +182,12 @@ function makeBidirectionalNeighborMetricsFont() {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '90 0 l 170 0 l 170 620 l 90 620 l',
+                                nodes: [
+                                    { x: 90, y: 0, nodetype: 'Line' },
+                                    { x: 170, y: 0, nodetype: 'Line' },
+                                    { x: 170, y: 620, nodetype: 'Line' },
+                                    { x: 90, y: 620, nodetype: 'Line' }
+                                ],
                                 closed: true
                             }
                         ],
@@ -208,7 +209,12 @@ function makeBidirectionalNeighborMetricsFont() {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '70 0 l 270 0 l 270 620 l 70 620 l',
+                                nodes: [
+                                    { x: 70, y: 0, nodetype: 'Line' },
+                                    { x: 270, y: 0, nodetype: 'Line' },
+                                    { x: 270, y: 620, nodetype: 'Line' },
+                                    { x: 70, y: 620, nodetype: 'Line' }
+                                ],
                                 closed: true
                             }
                         ],
@@ -233,7 +239,12 @@ function makeBidirectionalNeighborMetricsFont() {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '80 0 l 280 0 l 280 620 l 80 620 l',
+                                nodes: [
+                                    { x: 80, y: 0, nodetype: 'Line' },
+                                    { x: 280, y: 0, nodetype: 'Line' },
+                                    { x: 280, y: 620, nodetype: 'Line' },
+                                    { x: 80, y: 620, nodetype: 'Line' }
+                                ],
                                 closed: true
                             }
                         ],

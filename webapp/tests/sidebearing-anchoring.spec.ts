@@ -43,7 +43,12 @@ function makeUnkeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '0 0 l 600 0 l 600 700 l 0 700 l',
+                                nodes: [
+                                    { type: 'l', x: 0, y: 0 },
+                                    { type: 'l', x: 600, y: 0 },
+                                    { type: 'l', x: 600, y: 700 },
+                                    { type: 'l', x: 0, y: 700 }
+                                ],
                                 closed: true
                             }
                         ],
@@ -65,7 +70,12 @@ function makeUnkeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '120 0 l 420 0 l 420 620 l 120 620 l',
+                                nodes: [
+                                    { type: 'l', x: 120, y: 0 },
+                                    { type: 'l', x: 420, y: 0 },
+                                    { type: 'l', x: 420, y: 620 },
+                                    { type: 'l', x: 120, y: 620 }
+                                ],
                                 closed: true
                             }
                         ],
@@ -112,7 +122,12 @@ function makeKeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '0 0 l 600 0 l 600 700 l 0 700 l',
+                                nodes: [
+                                    { type: 'l', x: 0, y: 0 },
+                                    { type: 'l', x: 600, y: 0 },
+                                    { type: 'l', x: 600, y: 700 },
+                                    { type: 'l', x: 0, y: 700 }
+                                ],
                                 closed: true
                             }
                         ],
@@ -134,7 +149,12 @@ function makeKeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '90 0 l 170 0 l 170 620 l 90 620 l',
+                                nodes: [
+                                    { type: 'l', x: 90, y: 0 },
+                                    { type: 'l', x: 170, y: 0 },
+                                    { type: 'l', x: 170, y: 620 },
+                                    { type: 'l', x: 90, y: 620 }
+                                ],
                                 closed: true
                             }
                         ],
@@ -160,7 +180,12 @@ function makeKeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '70 0 l 270 0 l 270 620 l 70 620 l',
+                                nodes: [
+                                    { type: 'l', x: 70, y: 0 },
+                                    { type: 'l', x: 270, y: 0 },
+                                    { type: 'l', x: 270, y: 620 },
+                                    { type: 'l', x: 70, y: 620 }
+                                ],
                                 closed: true
                             }
                         ],

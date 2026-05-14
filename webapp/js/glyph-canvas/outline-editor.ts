@@ -361,13 +361,6 @@ const parseComponentNodes = (shapes: Babelfont.Shape[]) => {
     if (!shapes) return;
 
     shapes.forEach((shape) => {
-        const pathData = getPathShapeData(shape);
-        if (pathData && typeof pathData === 'object' && pathData.nodes) {
-            if (typeof pathData.nodes === 'string') {
-                pathData.nodes = LayerDataNormalizer.parseNodes(pathData.nodes);
-            }
-        }
-
         const componentData = getComponentShapeData(shape);
         if (
             componentData &&
@@ -389,12 +382,8 @@ function getEditableContour(
         return null;
     }
 
-    if (!pathData.nodes) {
+    if (!Array.isArray(pathData.nodes)) {
         return null;
-    }
-
-    if (typeof pathData.nodes === 'string') {
-        pathData.nodes = LayerDataNormalizer.parseNodes(pathData.nodes);
     }
 
     return {
@@ -6615,9 +6604,7 @@ export class OutlineEditor {
                               if ('nodes' in shape) {
                                   const serializedPath: Record<string, any> = {
                                       nodes: Array.isArray(shape.nodes)
-                                          ? LayerDataNormalizer.serializeNodes(
-                                                shape.nodes
-                                            )
+                                          ? shape.nodes
                                           : shape.nodes
                                   };
 
@@ -7097,11 +7084,8 @@ export class OutlineEditor {
         }
 
         if ('nodes' in shape) {
-            const nodes = Array.isArray(shape.nodes)
-                ? LayerDataNormalizer.serializeNodes(shape.nodes)
-                : this.cloneLayerData(shape.nodes);
             return {
-                nodes,
+                nodes: this.cloneLayerData(shape.nodes),
                 closed: !!shape.closed,
                 ...(shape.format_specific
                     ? {
@@ -12757,12 +12741,9 @@ export class OutlineEditor {
         const activeShape = currentLayerData.shapes?.[preview.shapeIndex];
         const activeContour = getPathShapeData(activeShape);
         if (activeContour && typeof activeContour === 'object') {
-            const normalizedNodes =
-                typeof activePathData.nodes === 'string'
-                    ? LayerDataNormalizer.parseNodes(activePathData.nodes)
-                    : Array.isArray(activePathData.nodes)
-                      ? activePathData.nodes
-                      : [];
+            const normalizedNodes = Array.isArray(activePathData.nodes)
+                ? activePathData.nodes
+                : [];
             activeContour.nodes = normalizedNodes.map(
                 (node: Babelfont.Node) => ({ ...node })
             );
@@ -14676,12 +14657,9 @@ export class OutlineEditor {
         }
 
         const pathData = path.toJSON();
-        const normalizedNodes =
-            typeof pathData.nodes === 'string'
-                ? LayerDataNormalizer.parseNodes(pathData.nodes)
-                : Array.isArray(pathData.nodes)
-                  ? pathData.nodes
-                  : [];
+        const normalizedNodes = Array.isArray(pathData.nodes)
+            ? pathData.nodes
+            : [];
         const normalizedPathData: Babelfont.Path = {
             ...pathData,
             nodes: normalizedNodes.map((node: Babelfont.Node) => ({
@@ -15041,15 +15019,9 @@ export class OutlineEditor {
                             !pathData ||
                             typeof pathData !== 'object' ||
                             !('nodes' in pathData) ||
-                            !pathData.nodes
+                            !Array.isArray(pathData.nodes)
                         ) {
                             return null;
-                        }
-
-                        if (typeof pathData.nodes === 'string') {
-                            pathData.nodes = LayerDataNormalizer.parseNodes(
-                                pathData.nodes
-                            );
                         }
 
                         return pathData.nodes as Babelfont.Node[];

@@ -69,7 +69,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
             throw new Error('No font loaded. Open a font first.');
         }
 
-        const normalizedState = fontManager.buildNormalizedWorkerYjsState?.();
+        const normalizedState = fontManager.buildWorkerSeedYjsState?.();
         if (!normalizedState?.length) {
             throw new Error(
                 'Full background compilation requires a normalized worker Yjs seed state'

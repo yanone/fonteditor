@@ -1,11 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
-const {
-    Font,
-    Path,
-    withSuppressedModelRecording
-} = require('../js/babelfont-model');
+const { Font, withSuppressedModelRecording } = require('../js/babelfont-model');
 const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
 
 function loadFontFixture(fileName) {
@@ -21,7 +17,7 @@ function cloneValue(value) {
 function getLayerNodes(layerJson) {
     const shape = layerJson?.shapes?.[0];
     const nodes = shape?.nodes || shape?.Path?.nodes || [];
-    return typeof nodes === 'string' ? Path.parseNodesString(nodes) : nodes;
+    return Array.isArray(nodes) ? nodes : [];
 }
 
 describe('metrics-key point drag regression', () => {

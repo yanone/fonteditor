@@ -18,10 +18,7 @@ import {
     calculateGlyphPathBounds,
     calculateGlyphShapeBounds,
     createIdentityDecomposedAffine,
-    decomposedAffineToAffine,
-    mapGlyphNodeType,
-    parseGlyphNodes,
-    serializeGlyphNodes
+    decomposedAffineToAffine
 } from './glyph-path-geometry';
 import { LayerDataNormalizer } from './layer-data-normalizer';
 import { designspaceToUserspace } from './locations';
@@ -45,7 +42,7 @@ const console = new Logger('BabelfontModel');
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 type PathData = {
-    nodes: Babelfont.Node[] | string;
+    nodes: Babelfont.Node[];
     closed: boolean;
     format_specific?: Record<string, Unsafe>;
 };
@@ -276,6 +273,7 @@ export function withSuppressedMetricsKeyRecompute<T>(fn: () => T): T {
         suppressMetricsKeyRecomputeDepth--;
     }
 }
+
 const interpolationFontVersions = new WeakMap<Font, number>();
 let interpolationRustDocReady = false;
 
@@ -3884,31 +3882,9 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     private ensureNodesArray(): Babelfont.Node[] {
-        let normalizedNodes: Babelfont.Node[] | null = null;
-
-        if (typeof this.data.nodes === 'string') {
-            normalizedNodes = Path.parseNodesString(this.data.nodes);
-        }
-
-        if (!normalizedNodes && !Array.isArray(this.data.nodes)) {
-            normalizedNodes = [];
-        }
-
-        if (normalizedNodes) {
-            this.data.nodes = normalizedNodes;
-            this._nodeWrappers = null;
-            // NOTE: Do NOT call syncNormalizedModelValue here. This is a purely local
-            // format normalization (string → array). Writing back to Y.Doc would:
-            //   1. Replace the existing Y.Array with a string primitive, breaking
-            //      subsequent per-node property writes that traverse into Y.Doc by path.
-            //   2. Emit a spurious local update that propagates to peers, causing
-            //      feedback loops in linked windows.
-        }
-
         if (!Array.isArray(this.data.nodes)) {
             this.data.nodes = [];
         }
-
         return this.data.nodes;
     }
 
@@ -3937,29 +3913,6 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
             this._nodeWrappers = null; // Invalidate cache
             recordAndMarkDirty(this, 'nodes', old, value);
         });
-    }
-
-    /**
-     * Parse nodes from babelfont-rs string format
-     * Format: "x1 y1 type x2 y2 type ..."
-     * Types: m, l, o, c, q (with optional 's' suffix for smooth)
-     */
-    static parseNodesString(nodesStr: string): Babelfont.Node[] {
-        return parseGlyphNodes(nodesStr);
-    }
-
-    /**
-     * Map short node type to Babelfont.NodeType
-     */
-    static mapNodeType(shortType: string): Babelfont.NodeType {
-        return mapGlyphNodeType(shortType);
-    }
-
-    /**
-     * Convert nodes array back to compact string format for serialization
-     */
-    static nodesToString(nodes: Babelfont.Node[]): string {
-        return serializeGlyphNodes(nodes);
     }
 
     get closed(): boolean {
@@ -4948,14 +4901,9 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
                 } else if (shape.isPath()) {
                     // Transform the path nodes
                     const pathData = shape.asPath().toJSON();
-                    let nodes = pathData.nodes;
+                    const nodes = pathData.nodes;
 
-                    // Parse nodes if they're a string
-                    if (typeof nodes === 'string') {
-                        nodes = LayerDataNormalizer.parseNodes(nodes);
-                    }
-
-                    if (nodes && Array.isArray(nodes) && nodes.length > 0) {
+                    if (Array.isArray(nodes) && nodes.length > 0) {
                         const transformArray =
                             DecomposedAffineTransform.toAffine(
                                 componentTransform
@@ -8477,15 +8425,11 @@ export class Layer extends ArrayElementBase {
                         );
                     }
                 } else if ('Path' in shape && shape.Path?.nodes) {
-                    // Path with Babelfont v3.0+ nested structure: { Path: { nodes: "...", closed: bool } }
-                    let nodes = shape.Path.nodes;
+                    const nodes = Array.isArray(shape.Path.nodes)
+                        ? shape.Path.nodes
+                        : [];
 
-                    // Parse nodes if they're a string
-                    if (typeof nodes === 'string') {
-                        nodes = LayerDataNormalizer.parseNodes(nodes);
-                    }
-
-                    if (Array.isArray(nodes) && nodes.length > 0) {
+                    if (nodes.length > 0) {
                         // Transform all nodes and create a new path
                         const transformedNodes = nodes.map((node: Unsafe) =>
                             transformNode(node, transform)
@@ -8496,16 +8440,10 @@ export class Layer extends ArrayElementBase {
                             closed: shape.Path.closed
                         });
                     }
-                } else if ('nodes' in shape && shape.nodes) {
-                    // Path with legacy flat structure
-                    let nodes = shape.nodes;
+                } else if ('nodes' in shape && Array.isArray(shape.nodes)) {
+                    const nodes = shape.nodes;
 
-                    // Parse nodes if they're a string
-                    if (typeof nodes === 'string') {
-                        nodes = LayerDataNormalizer.parseNodes(nodes);
-                    }
-
-                    if (Array.isArray(nodes) && nodes.length > 0) {
+                    if (nodes.length > 0) {
                         // Transform all nodes and create a new path
                         const transformedNodes = nodes.map((node: Unsafe) =>
                             transformNode(node, transform)
@@ -8513,23 +8451,10 @@ export class Layer extends ArrayElementBase {
 
                         flattenedPaths.push({
                             nodes: transformedNodes,
-                            closed: shape.closed
+                            closed:
+                                shape.closed !== undefined ? shape.closed : true
                         });
                     }
-                } else if (
-                    'nodes' in shape &&
-                    Array.isArray(shape.nodes) &&
-                    shape.nodes.length > 0
-                ) {
-                    // Path with flat structure (parsed format)
-                    const transformedNodes = shape.nodes.map((node: Unsafe) =>
-                        transformNode(node, transform)
-                    );
-
-                    flattenedPaths.push({
-                        nodes: transformedNodes,
-                        closed: shape.closed !== undefined ? shape.closed : true
-                    });
                 }
             }
         };
@@ -8554,16 +8479,8 @@ export class Layer extends ArrayElementBase {
         for (const shape of this.shapes) {
             if (shape.isPath()) {
                 const pathData = shape.asPath().toJSON();
-                if (pathData.nodes) {
-                    // Parse nodes if they're stored as a string
-                    if (typeof pathData.nodes === 'string') {
-                        pathData.nodes = LayerDataNormalizer.parseNodes(
-                            pathData.nodes
-                        );
-                    }
-                    if (Array.isArray(pathData.nodes)) {
-                        paths.push(pathData as Babelfont.Path);
-                    }
+                if (Array.isArray(pathData.nodes)) {
+                    paths.push(pathData as Babelfont.Path);
                 }
             }
         }
@@ -8586,16 +8503,8 @@ export class Layer extends ArrayElementBase {
             if (shape.isPath()) {
                 // Add direct path
                 const pathData = shape.asPath().toJSON();
-                if (pathData.nodes) {
-                    // Parse nodes if they're stored as a string
-                    if (typeof pathData.nodes === 'string') {
-                        pathData.nodes = LayerDataNormalizer.parseNodes(
-                            pathData.nodes
-                        );
-                    }
-                    if (Array.isArray(pathData.nodes)) {
-                        paths.push(pathData as Babelfont.Path);
-                    }
+                if (Array.isArray(pathData.nodes)) {
+                    paths.push(pathData as Babelfont.Path);
                 }
             } else if (shape.isComponent()) {
                 // Get transformed paths from component recursively
@@ -11242,11 +11151,6 @@ export class Font extends ModelBase {
                 //
                 // Output must be plain shapes for Rust serde untagged enums:
                 //   { nodes: ..., closed: ... }  OR  { reference: ..., transform: ... }
-                //
-                // Additionally, the Path.nodes getter in babelfont-model mutates
-                // underlying data from string → array. We must convert array nodes
-                // back to compact strings here at serialization time so
-                // compile_babelfont() never sees invalid array-format nodes.
                 if (
                     value &&
                     typeof value === 'object' &&
@@ -11271,8 +11175,9 @@ export class Font extends ModelBase {
                                 : null;
                         if (pathPayload) {
                             const result = { ...pathPayload };
-                            if (Array.isArray(result.nodes)) {
-                                result.nodes = Path.nodesToString(result.nodes);
+                            // Ensure `closed` field
+                            if (!('closed' in result)) {
+                                result.closed = false;
                             }
                             return result;
                         }
@@ -11312,31 +11217,8 @@ export class Font extends ModelBase {
                         };
                     }
 
-                    // Normalize flat Path shapes with array nodes
-                    if (
-                        hasFlatPathFields &&
-                        Array.isArray(value.nodes) &&
-                        true
-                    ) {
-                        const result: any = {
-                            ...value,
-                            nodes: Path.nodesToString(value.nodes)
-                        };
-                        // Ensure `closed` field (Y.Doc roundtrip can lose it;
-                        // Rust serde requires it for the Path variant)
-                        if (result.closed === undefined) {
-                            result.closed = false;
-                        }
-                        return result;
-                    }
-
-                    // Ensure `closed` for flat Path shapes with string nodes
-                    // but missing closed field (Y.Doc roundtrip corruption)
-                    if (
-                        hasFlatPathFields &&
-                        typeof value.nodes === 'string' &&
-                        !('closed' in value)
-                    ) {
+                    // Ensure `closed` field for flat Path shapes (Y.Doc roundtrip can lose it)
+                    if (hasFlatPathFields && !('closed' in value)) {
                         return {
                             ...value,
                             closed: false

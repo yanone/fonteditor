@@ -214,7 +214,10 @@ describe('CloudPlugin.openAsset', () => {
         const layer = parsed.glyphs[0].layers[0];
 
         expect(layer.shapes[0]).toEqual({
-            nodes: '0 0 l 100 0 l',
+            nodes: [
+                { type: 'l', x: 0, y: 0 },
+                { type: 'l', x: 100, y: 0 }
+            ],
             closed: false
         });
         expect(layer.shapes[1]).toEqual({

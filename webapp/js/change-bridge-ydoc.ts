@@ -7,8 +7,6 @@
  */
 
 import * as Y from 'yjs';
-import type { Babelfont } from './babelfont';
-import { parseGlyphNodes, serializeGlyphNodes } from './glyph-path-geometry';
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -68,19 +66,7 @@ function normalizeValueForYDocWrite(value: unknown): unknown {
 
     const record = value as Record<string, unknown>;
 
-    // Convert compact node strings to object arrays so Y.Doc always stores
-    // nodes as Y.Array of Y.Map (traversable by path for per-node edits).
-    if (
-        'nodes' in record &&
-        typeof record.nodes === 'string' &&
-        !('reference' in record)
-    ) {
-        return {
-            ...record,
-            nodes: parseGlyphNodes(record.nodes as string)
-        };
-    }
-
+    // Ensure component transforms are normalized for Y.Doc storage
     if ('reference' in record && 'transform' in record) {
         const normalizedTransform = normalizeComponentTransformRecord(
             record.transform
@@ -186,59 +172,6 @@ export function jsonToYDoc(
             fontMap.set(key, toYType(value));
         }
     }
-}
-
-function cloneYTypeForWorkerSeed(value: unknown): unknown {
-    if (value instanceof Y.Map) {
-        const map = new Y.Map();
-        const isPathShape = value.has('nodes') && !value.has('reference');
-
-        value.forEach((entry: unknown, key: string) => {
-            if (isPathShape && key === 'nodes') {
-                const nodesValue = fromYType(entry);
-                if (Array.isArray(nodesValue)) {
-                    map.set(
-                        key,
-                        serializeGlyphNodes(nodesValue as Babelfont.Node[])
-                    );
-                    return;
-                }
-            }
-
-            map.set(key, cloneYTypeForWorkerSeed(entry));
-        });
-
-        return map;
-    }
-
-    if (value instanceof Y.Array) {
-        const arr = new Y.Array();
-        const clonedItems = value
-            .toArray()
-            .map((item: unknown) => cloneYTypeForWorkerSeed(item));
-        arr.push(clonedItems);
-        return arr;
-    }
-
-    return value;
-}
-
-/**
- * Encode a full binary Yjs snapshot from an existing bridge/fontMap without
- * round-tripping through full babelfont JSON. Path-shape node arrays are
- * normalized to compact node strings so Rust bootstrap can deserialize them.
- */
-export function encodeNormalizedWorkerYjsState(
-    fontMap: Y.Map<unknown>
-): Uint8Array {
-    const workerDoc = new Y.Doc();
-    const workerFontMap = workerDoc.getMap('font');
-
-    fontMap.forEach((value: unknown, key: string) => {
-        workerFontMap.set(key, cloneYTypeForWorkerSeed(value));
-    });
-
-    return Y.encodeStateAsUpdate(workerDoc);
 }
 
 // ── Y.Doc → JSON ────────────────────────────────────────────────────
@@ -600,22 +533,8 @@ export function sanitizeBabelfontArrays(data: Unsafe): number {
             fixCount++;
         }
 
-        // Deserialize compact node strings back to node object arrays.
-        // Nodes are stored as Y.Array of Y.Map (objects) in Y.Doc, but any
-        // Y.Doc state produced before that convention (e.g. from an older
-        // serialization path that wrote compact strings) will come back as a
-        // primitive string. Convert those back so callers always see arrays.
-        if (
-            'nodes' in record &&
-            typeof record.nodes === 'string' &&
-            !('reference' in record)
-        ) {
-            record.nodes = parseGlyphNodes(record.nodes as string);
-            fixCount++;
-        }
-
         // Ensure Path shapes have required `closed` field
-        // (Y.Doc roundtrip can lose it; Rust serde requires it)
+        // (Y.Doc roundtrip can lose it; serde requires it)
         if (
             'nodes' in record &&
             !('closed' in record) &&

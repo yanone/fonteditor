@@ -32,7 +32,12 @@ function makeTestFont(): string {
         y3: number,
         x4: number,
         y4: number
-    ) => `${x1} ${y1} l ${x2} ${y2} l ${x3} ${y3} l ${x4} ${y4} l`;
+    ) => [
+        { type: 'l', x: x1, y: y1 },
+        { type: 'l', x: x2, y: y2 },
+        { type: 'l', x: x3, y: y3 },
+        { type: 'l', x: x4, y: y4 }
+    ];
     return JSON.stringify({
         upm: 1000,
         version: [1, 0],
@@ -90,7 +95,12 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M1' },
                         shapes: [
                             {
-                                nodes: '0 0 l 600 0 l 600 700 l 0 700 l',
+                                nodes: [
+                                    { type: 'l', x: 0, y: 0 },
+                                    { type: 'l', x: 600, y: 0 },
+                                    { type: 'l', x: 600, y: 700 },
+                                    { type: 'l', x: 0, y: 700 }
+                                ],
                                 closed: true
                             }
                         ],
@@ -104,7 +114,12 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '0 0 l 600 0 l 600 700 l 0 700 l',
+                                nodes: [
+                                    { type: 'l', x: 0, y: 0 },
+                                    { type: 'l', x: 600, y: 0 },
+                                    { type: 'l', x: 600, y: 700 },
+                                    { type: 'l', x: 0, y: 700 }
+                                ],
                                 closed: true
                             }
                         ],
@@ -118,7 +133,12 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M2' },
                         shapes: [
                             {
-                                nodes: '0 0 l 600 0 l 600 700 l 0 700 l',
+                                nodes: [
+                                    { type: 'l', x: 0, y: 0 },
+                                    { type: 'l', x: 600, y: 0 },
+                                    { type: 'l', x: 600, y: 700 },
+                                    { type: 'l', x: 0, y: 700 }
+                                ],
                                 closed: true
                             }
                         ],
@@ -349,14 +369,10 @@ async function getActiveLayerOutlineState(page: Page) {
         const nodes = contour.nodes;
         return {
             closed: contour.closed,
-            nodeCount: Array.isArray(nodes)
-                ? nodes.length
-                : typeof nodes === 'string'
-                  ? nodes.split(' ').length / 3
-                  : 0,
+            nodeCount: Array.isArray(nodes) ? nodes.length : 0,
             nodes: Array.isArray(nodes)
                 ? nodes.map((n: any) => ({ x: n.x, y: n.y, type: n.nodetype }))
-                : nodes
+                : []
         };
     });
 }

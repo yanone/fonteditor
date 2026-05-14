@@ -2253,29 +2253,22 @@ function initializeBridge(detail: {
     });
 
     // Seed the Rust Y.Doc immediately after bridge initialisation so that the
-    // first `apply_yjs_update` call has a baseline. Linked windows must skip
-    // this path because their authoritative state arrives via WindowSync
-    // full-state bootstrap, not from the locally loaded file snapshot.
-    // FULLJSON_UNNECESSARY (U4/B2): Use bridge.encodeBridgeState() instead.
-    // buildNormalizedWorkerYjsState does JSON.parse(babelfontJson) →
-    // jsonToYDoc → Y.encodeStateAsUpdate — a full JSON roundtrip in JS.
+    // YJS_ONLY: Binary Yjs state sent to worker for seedYdoc (N3).
     if (
         !window.windowRole?.isLinkedWindow?.() &&
         fontCompilation?.isInitialized
     ) {
-        // Use the normalized state (string-format nodes from babelfontJson) so
-        // Rust can deserialize shape nodes correctly. bridge.encodeBridgeState()
-        // would produce array-format nodes that Rust cannot parse when
-        // rebuilding CANONICAL_JSON_CACHE via ydoc_get_glyph_json_with_txn.
+        // Use the bridge state (array-format nodes) — Rust now accepts arrays
+        // natively via the updated serde deserialization.
         const fontManager = window.fontManager as
             | (typeof window.fontManager & {
-                  buildNormalizedWorkerYjsState?: () => Uint8Array | null;
+                  buildWorkerSeedYjsState?: () => Uint8Array | null;
               })
             | undefined;
-        const state = fontManager?.buildNormalizedWorkerYjsState?.();
+        const state = fontManager?.buildWorkerSeedYjsState?.();
         if (!state?.length) {
             console.warn(
-                'Failed to build normalized Yjs state for initial worker seed'
+                'Failed to build worker seed Yjs state for initial worker seed'
             );
             fontCompilation.setWorkerCacheDocumentReady(false);
         } else {

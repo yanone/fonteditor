@@ -44,7 +44,12 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '0 0 l 600 0 l 600 700 l 0 700 l',
+                                nodes: [
+                                    { type: 'l', x: 0, y: 0 },
+                                    { type: 'l', x: 600, y: 0 },
+                                    { type: 'l', x: 600, y: 700 },
+                                    { type: 'l', x: 0, y: 700 }
+                                ],
                                 closed: true
                             }
                         ],
@@ -66,7 +71,12 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '100 100 l 400 100 l 400 600 l 100 600 l',
+                                nodes: [
+                                    { type: 'l', x: 100, y: 100 },
+                                    { type: 'l', x: 400, y: 100 },
+                                    { type: 'l', x: 400, y: 600 },
+                                    { type: 'l', x: 100, y: 600 }
+                                ],
                                 closed: true
                             }
                         ],

@@ -865,80 +865,6 @@ pub fn version() -> String {
 
 // ── Yjs / yrs helpers ────────────────────────────────────────────────────────
 
-/// Convert `[{x, y, nodetype, smooth?}, ...]` (bridge Y.Doc node-object format)
-/// back to the compact string format `"x y type x y type ..."` that
-/// babelfont's `Shape::Path { nodes: String }` expects.
-///
-/// The JS bridge intentionally expands compact node strings into Y.Array of
-/// Y.Map via `normalizeValueForYDocWrite` so individual nodes are addressable
-/// for per-node edits. This function reverses that expansion so the Rust
-/// serde deserializer always sees a string for the `nodes` field.
-fn nodes_array_to_compact_string(nodes: &[serde_json::Value]) -> String {
-    let mut tokens: Vec<String> = Vec::with_capacity(nodes.len() * 3);
-    for node in nodes {
-        let Some(obj) = node.as_object() else { continue };
-        let x = obj.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let y = obj.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let smooth = obj.get("smooth").and_then(|v| v.as_bool()).unwrap_or(false);
-        let nodetype = obj.get("nodetype").and_then(|v| v.as_str()).unwrap_or("Line");
-
-        let type_char = match nodetype {
-            "Line" | "l" => "l",
-            "OffCurve" | "o" => "o",
-            "Curve" | "c" => "c",
-            "QCurve" | "q" => "q",
-            "Move" | "m" => "m",
-            _ => "l",
-        };
-
-        let x_str = if x.fract() == 0.0 {
-            format!("{}", x as i64)
-        } else {
-            format!("{}", x)
-        };
-        let y_str = if y.fract() == 0.0 {
-            format!("{}", y as i64)
-        } else {
-            format!("{}", y)
-        };
-        let type_str = if smooth {
-            format!("{}s", type_char)
-        } else {
-            type_char.to_string()
-        };
-
-        tokens.push(x_str);
-        tokens.push(y_str);
-        tokens.push(type_str);
-    }
-    tokens.join(" ")
-}
-
-/// Normalise a single shape JSON value so that `nodes` is always a compact
-/// string, regardless of how the Y.Doc stored the nodes (array or string).
-///
-/// Shape::Path requires `nodes: String`. Shape::Component has `reference`
-/// instead of `nodes` and is left unchanged.
-fn normalize_shape_nodes(shape: serde_json::Value) -> serde_json::Value {
-    let serde_json::Value::Object(mut obj) = shape else {
-        return shape;
-    };
-    // Components have `reference`, not `nodes` — leave unchanged.
-    if obj.contains_key("reference") || !obj.contains_key("nodes") {
-        return serde_json::Value::Object(obj);
-    }
-    if let Some(nodes_val) = obj.get("nodes").cloned() {
-        if let serde_json::Value::Array(arr) = nodes_val {
-            let compact = nodes_array_to_compact_string(&arr);
-            obj.insert("nodes".to_string(), serde_json::Value::String(compact));
-        }
-        // Ensure `closed` is present — required by Shape::Path serde variant.
-        obj.entry("closed".to_string())
-            .or_insert(serde_json::Value::Bool(false));
-    }
-    serde_json::Value::Object(obj)
-}
-
 /// Convert a yrs `Any` primitive to a `serde_json::Value`.
 fn yrs_any_to_json(any: &yrs::Any) -> serde_json::Value {
     match any {
@@ -1051,18 +977,19 @@ fn ydoc_glyph_to_json<T: ReadTxn>(
                             serde_json::Value::String(layer_id.to_string()),
                         );
                     }
-                    // The JS bridge Y.Doc stores `nodes` as Y.Array of node
-                    // Y.Maps (see `normalizeValueForYDocWrite`). Convert any
-                    // array-format nodes back to compact strings so
-                    // `Shape::Path { nodes: String }` serde deserialization
-                    // succeeds when CANONICAL_JSON_CACHE is rebuilt.
+                    // Ensure Path shapes have the required `closed` field.
+                    // babelfont-rs Path serde deserialization requires it.
                     if let Some(serde_json::Value::Array(shapes)) =
                         layer_obj.get_mut("shapes")
                     {
                         for shape in shapes.iter_mut() {
-                            *shape = normalize_shape_nodes(
-                                std::mem::replace(shape, serde_json::Value::Null)
-                            );
+                            let serde_json::Value::Object(ref mut obj) = shape else { continue };
+                            if obj.contains_key("nodes") && !obj.contains_key("closed") {
+                                obj.insert(
+                                    "closed".to_string(),
+                                    serde_json::Value::Bool(false),
+                                );
+                            }
                         }
                     }
                     layers_array.push(serde_json::Value::Object(layer_obj));

@@ -1,8 +1,6 @@
 // Python-UI Synchronization Hooks
 // These functions control when UI updates are paused/resumed during Python execution
 
-import { Path } from './babelfont-model';
-
 // Flag to skip dirty checks during font loading operations
 let isLoadingFont = false;
 
@@ -19,8 +17,8 @@ function createNormalizedFontSnapshot(): string | null {
     for (const glyph of snapshot.glyphs || []) {
         for (const layer of glyph.layers || []) {
             for (const shape of layer.shapes || []) {
-                if (Array.isArray(shape?.nodes)) {
-                    shape.nodes = Path.nodesToString(shape.nodes);
+                if (Array.isArray(shape?.nodes) && !('closed' in shape)) {
+                    shape.closed = false;
                 }
             }
         }

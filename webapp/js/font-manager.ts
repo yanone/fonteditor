@@ -22,7 +22,6 @@ import {
     withSuppressedModelRecording
 } from './babelfont-model';
 import {
-    encodeNormalizedWorkerYjsState,
     jsonToYDoc,
     sanitizeBabelfontArrays,
     deleteYPath,
@@ -410,18 +409,10 @@ class OpenedFont {
 
     /**
      * Sync the JSON string from the object model data
-     * Call this after making changes through the object model
-     * Converts nodes arrays back to string format for Rust compiler
+     * Call this after making changes through the object model.
+     * Nodes are stored as arrays (the format babelfont-rs now accepts natively).
      */
     syncJsonFromModel(): void {
-        // FULLJSON_UNNECESSARY (D1): Produces babelfontJson string from the
-        // Font model. Only needed because storeFontJson sends this string to
-        // the worker. In a Yjs-only regime this function should be eliminated
-        // (or restricted to save-to-disk). The babelfontData object is always
-        // the authoritative JS source; the Y.Doc is the authoritative CRDT source.
-        let pathsFound = 0;
-        let pathsConverted = 0;
-        let pathsAlreadyString = 0;
         let wrappersFixed = 0;
 
         // Sanitize array fields that Y.Doc undo/redo roundtrips may have
@@ -437,54 +428,37 @@ class OpenedFont {
                 for (let i = 0; i < layer.shapes.length; i++) {
                     let shape = layer.shapes[i];
 
-                    // Handle flat Path shapes - convert array nodes to strings.
-                    if ('nodes' in shape && shape.nodes) {
-                        pathsFound++;
-
-                        if (Array.isArray(shape.nodes)) {
-                            // Convert nodes array back to compact string format
-                            const nodesString = Path.nodesToString(shape.nodes);
-                            shape.nodes = nodesString;
-                            pathsConverted++;
-                        } else if (typeof shape.nodes === 'string') {
-                            pathsAlreadyString++;
-                        } else {
-                            console.error(
-                                `Unexpected nodes type for ${glyph.name}:`,
-                                typeof shape.nodes,
-                                shape.nodes
-                            );
-                        }
-
-                        // Ensure `closed` field exists (Y.Doc roundtrip can lose it)
-                        if (!('closed' in shape)) {
-                            shape.closed = false;
-                        }
-                    }
-
-                    // Handle wrapped Path shapes { Path: { nodes, closed } }.
-                    // The Path.nodes getter in babelfont-model mutates the underlying
-                    // data from string to array; syncJsonFromModel must convert it back
-                    // so toJSONString() doesn't emit array-nodes that Rust can't parse.
+                    // Handle wrapped Path shapes { Path: { nodes, closed } }
                     if (
                         'Path' in shape &&
                         shape.Path &&
-                        typeof shape.Path === 'object' &&
-                        'nodes' in shape.Path &&
-                        Array.isArray(shape.Path.nodes)
+                        typeof shape.Path === 'object'
                     ) {
-                        shape.Path.nodes = Path.nodesToString(shape.Path.nodes);
+                        const payload = shape.Path;
+                        for (const key of Object.keys(shape)) {
+                            delete shape[key];
+                        }
+                        Object.assign(shape, payload);
+                        wrappersFixed++;
+                    }
+
+                    // Handle wrapped Component shapes { Component: { reference, transform } }
+                    if (
+                        'Component' in shape &&
+                        shape.Component &&
+                        typeof shape.Component === 'object' &&
+                        !('Path' in shape)
+                    ) {
+                        const payload = shape.Component;
+                        for (const key of Object.keys(shape)) {
+                            delete shape[key];
+                        }
+                        Object.assign(shape, payload);
                         wrappersFixed++;
                     }
 
                     const componentCandidate =
-                        'Component' in shape &&
-                        shape.Component &&
-                        typeof shape.Component === 'object'
-                            ? shape.Component
-                            : 'reference' in shape
-                              ? shape
-                              : null;
+                        'reference' in shape ? shape : null;
 
                     if (componentCandidate) {
                         componentCandidate.transform =
@@ -492,23 +466,16 @@ class OpenedFont {
                                 componentCandidate.transform
                             );
                     }
-
-                    // Note: normalizer wrapper properties (nodes, isInterpolated) are filtered
-                    // out during JSON.stringify by the replacer function in toJSONString()
                 }
             }
         }
 
-        // The model wraps babelfontData directly. Replacing nested arrays here
-        // would detach cached Glyph/Layer/Anchor wrappers from the live tree and
-        // make later edits mutate stale data instead of the authoritative font.
         this.babelfontJson = this.fontModel.toJSONString();
 
-        if (pathsConverted > 0 || wrappersFixed > 0) {
+        if (wrappersFixed > 0) {
             console.log(
-                `[syncJsonFromModel] Converted ${pathsConverted} array-node paths, ` +
-                    `${wrappersFixed} wrapped paths, ${pathsAlreadyString} already strings, ` +
-                    `${pathsFound} total paths found. JSON length: ${this.babelfontJson.length}`
+                `[syncJsonFromModel] Fixed ${wrappersFixed} wrapped shapes. ` +
+                    `JSON length: ${this.babelfontJson.length}`
             );
         }
     }
@@ -604,18 +571,13 @@ class FontManager {
 
     /**
      * Memoizes the result of validateAndFixBabelfontJsonForRust.
-     * The validator parses, walks, and re-serializes the entire ~6 MB
-     * babelfontJson on every interactive editing compile because the
-     * `pendingBabelfontJsonSyncAfterDrag` flag forces it. During a stream
-     * of interactive edits, `currentFont.babelfontJson` is not re-synced
-     * (string sync is deferred to the debounced full compile), while
-     * `currentFont.babelfontData` must already hold the committed layer
-     * state synchronously, so the same
-     * input string is validated repeatedly. Caching by input identity
-     * eliminates ~50 ms of pure overhead per interactive compile.
-     * Cache is invalidated implicitly: any new input string (a different
-     * object reference or different content) misses and re-runs the
-     * validator. Safe because validation is a pure function of input.
+     * The validator parses, walks, and re-serializes the entire babelfontJson.
+     * Only runs when `pendingBabelfontJsonSyncAfterDrag` is set (after
+     * undo/redo/remote-sync) or when forceValidation is explicitly requested.
+     * Caching by input identity eliminates repeated overhead when the same
+     * string is passed multiple times. Cache is invalidated implicitly: any
+     * new input string (a different object reference or different content)
+     * misses and re-runs the validator.
      */
     private _validatedBabelfontJsonCache: {
         input: string;
@@ -1550,13 +1512,8 @@ class FontManager {
         const pathCandidate = hasPathWrapper ? shape.Path : shape;
 
         if ('nodes' in pathCandidate) {
-            let nodesValue = pathCandidate.nodes;
-            if (Array.isArray(nodesValue)) {
-                nodesValue = Path.nodesToString(nodesValue);
-            }
-
             return {
-                nodes: nodesValue,
+                nodes: pathCandidate.nodes,
                 closed: pathCandidate.closed,
                 ...(pathCandidate.format_specific && {
                     format_specific: pathCandidate.format_specific
@@ -1761,7 +1718,7 @@ class FontManager {
 
         // Always sync when the JSON is stale (e.g. after undo/redo/remote sync),
         // even during incremental editing compiles, so the Rust compiler never
-        // receives array-format nodes or other stale format artifacts.
+        // receives stale format artifacts from the model.
         if (
             !isIncrementalEditingCompile ||
             (wasJsonStale && !canUseIncrementalDirtyLayerPatch)
@@ -1946,9 +1903,9 @@ class FontManager {
                     };
                 }
 
-                // Pre-compilation validation: scan for array-format nodes that
-                // the Rust serde parser cannot handle (expects strings).
-                // Also catches other "map where sequence expected" issues.
+                // Pre-compilation validation: fix Y.Doc roundtrip corruption
+                // (wrapped shapes, missing `closed` fields, object-to-array)
+                // that JSON.stringify's replacer may miss.
                 const jsonToSend = this.currentFont.babelfontJson;
                 // Always validate after undo/redo (wasJsonStale) to catch
                 // Y.Doc roundtrip corruption that toJSONString's replacer
@@ -2432,8 +2389,8 @@ class FontManager {
     }
 
     /**
-     * Validate and fix babelfont JSON for Rust serde compatibility.
-     * Scans for array-format nodes and objects-that-should-be-arrays
+     * Validate and fix babelfont JSON for Y.Doc roundtrip corruption.
+     * Fixes wrapped shapes, missing `closed` fields, and objects-that-should-be-arrays
      * (from Y.Doc roundtrips where Y.Map is used instead of Y.Array).
      * Returns the fixed JSON string.
      */
@@ -2441,16 +2398,11 @@ class FontManager {
         babelfontJson: string,
         forceValidation: boolean = false
     ): string {
-        // Only run full validation when needed
+        // Only run full validation when needed.
+        // `pendingBabelfontJsonSyncAfterDrag` is set after undo/redo/remote-sync
+        // to catch Y.Doc roundtrip corruption that toJSONString's replacer misses.
         const needsValidation =
-            babelfontJson.includes('"nodes":[') ||
-            babelfontJson.includes('"nodes": [') ||
-            forceValidation ||
-            this.pendingBabelfontJsonSyncAfterDrag;
-
-        if (!needsValidation) {
-            return babelfontJson;
-        }
+            forceValidation || this.pendingBabelfontJsonSyncAfterDrag;
 
         // Memoize: validation is a pure function of the input string.
         // During a stream of interactive edits, `currentFont.babelfontJson`
@@ -2710,14 +2662,8 @@ class FontManager {
                     return;
                 }
 
-                // Fix array-format nodes → string format
-                if ('nodes' in val && Array.isArray(val.nodes)) {
-                    val.nodes = Path.nodesToString(val.nodes);
-                    fixCount++;
-                }
-
                 // Ensure Path shapes have required `closed` field
-                // (Y.Doc roundtrip can lose it; Rust serde requires it)
+                // (Y.Doc roundtrip can lose it; serde requires it)
                 if ('nodes' in val && !('closed' in val)) {
                     val.closed = false;
                     fixCount++;
@@ -2734,9 +2680,6 @@ class FontManager {
                     const pathPayload = val.Path;
                     if (pathPayload && typeof pathPayload === 'object') {
                         const result: any = { ...pathPayload };
-                        if (Array.isArray(result.nodes)) {
-                            result.nodes = Path.nodesToString(result.nodes);
-                        }
                         // Ensure closed field after unwrapping
                         if (!('closed' in result)) {
                             result.closed = false;
@@ -2856,9 +2799,7 @@ class FontManager {
                         const hasReference = 'reference' in val;
                         const hasTransform = 'transform' in val;
                         const isPath =
-                            hasNodes &&
-                            typeof val.nodes === 'string' &&
-                            hasClosed;
+                            hasNodes && Array.isArray(val.nodes) && hasClosed;
                         const isComponent = hasReference;
                         if (!isPath && !isComponent) {
                             console.error(
@@ -2899,7 +2840,7 @@ class FontManager {
                                             shape && 'transform' in shape;
                                         const isPath =
                                             hasNodes &&
-                                            typeof shape.nodes === 'string' &&
+                                            Array.isArray(shape.nodes) &&
                                             hasClosed;
                                         const isComponent = hasReference;
                                         if (!isPath && !isComponent) {
@@ -3065,14 +3006,8 @@ class FontManager {
                 typeof pathCandidate === 'object' &&
                 'nodes' in pathCandidate
             ) {
-                let nodesValue: string | Babelfont.Node[] = pathCandidate.nodes;
-
-                if (Array.isArray(nodesValue)) {
-                    nodesValue = Path.nodesToString(nodesValue);
-                }
-
                 return {
-                    nodes: nodesValue as string,
+                    nodes: pathCandidate.nodes,
                     closed: pathCandidate.closed,
                     ...(pathCandidate.format_specific && {
                         format_specific: pathCandidate.format_specific
@@ -3257,35 +3192,16 @@ class FontManager {
 
     /** Build a full binary Yjs snapshot from the current in-memory font data for worker refreshes. */
     private buildWorkerYjsStateFromCurrentFont(): Uint8Array | null {
-        const bridge = window.patchSyncEngine as
-            | (typeof window.patchSyncEngine & {
-                  encodeWorkerCompatibleBridgeState?: () => Uint8Array;
-              })
-            | undefined;
-        if (bridge?.fontMap && bridge.encodeWorkerCompatibleBridgeState) {
-            return bridge.encodeWorkerCompatibleBridgeState();
+        const bridge = window.patchSyncEngine;
+        if (bridge?.fontMap && typeof bridge.encodeBridgeState === 'function') {
+            return bridge.encodeBridgeState();
         }
 
-        // FULLJSON_UNNECESSARY (U4/B2, fallback only): Does JSON.parse(babelfontJson) →
-        // jsonToYDoc → Y.encodeStateAsUpdate when no bridge exists yet.
-        // This still has to stay for now because some startup / reload paths call
-        // buildNormalizedWorkerYjsState() before initializeBridge() has created
-        // window.patchSyncEngine, so there is no authoritative bridge-backed Yjs
-        // state to export yet.
-        // Normal bridge-backed callers should use encodeWorkerCompatibleBridgeState()
-        // and avoid the full JSON roundtrip in JS.
-        // TODO(FULLJSON_UNNECESSARY): Remove this fallback once font load and
-        // external reload guarantee PatchSyncEngine exists before any worker-seed
-        // bootstrap asks FontManager for normalized Yjs state.
         const currentFont = this.currentFont;
         if (!currentFont?.babelfontJson) {
             return null;
         }
 
-        // babelfontJson is produced by syncJsonFromModel which normalizes all
-        // shape nodes to compact string format ("x y type …") that Rust can
-        // deserialize. Never use babelfontData directly — it stores nodes as
-        // JS arrays that are incompatible with the Rust babelfont Shape enum.
         const parsed = JSON.parse(currentFont.babelfontJson) as Record<
             string,
             unknown
@@ -3296,7 +3212,7 @@ class FontManager {
     }
 
     /** Public accessor so window-sync can build a Rust-compatible seed state. */
-    buildNormalizedWorkerYjsState(): Uint8Array | null {
+    buildWorkerSeedYjsState(): Uint8Array | null {
         return this.buildWorkerYjsStateFromCurrentFont();
     }
 

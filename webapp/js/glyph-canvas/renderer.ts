@@ -13,7 +13,6 @@ const console = new Logger('Renderer');
 import type { ViewportManager } from './viewport';
 import type { TextRunEditor } from './textrun';
 import { GlyphCanvas, type QCCanvasMarker } from '../glyph-canvas';
-import { LayerDataNormalizer } from '../layer-data-normalizer';
 import { getVisibleVerticalMetricValues } from './vertical-metrics';
 import type { Babelfont } from '../babelfont';
 
@@ -26,11 +25,12 @@ function getNodesFromShape(
     shape: Babelfont.Shape
 ): Babelfont.Node[] | undefined {
     // Handle unwrapped Path type
-    if ('nodes' in shape && shape.nodes) {
-        const nodes = shape.nodes;
-        return typeof nodes === 'string'
-            ? LayerDataNormalizer.parseNodes(nodes)
-            : nodes;
+    if (
+        'nodes' in shape &&
+        Array.isArray(shape.nodes) &&
+        shape.nodes.length > 0
+    ) {
+        return shape.nodes;
     }
     return undefined;
 }
@@ -40,22 +40,16 @@ function getNodesFromOutlineShape(shape: any): Babelfont.Node[] | undefined {
         return undefined;
     }
 
-    if (shape.nodes) {
-        return typeof shape.nodes === 'string'
-            ? LayerDataNormalizer.parseNodes(shape.nodes)
-            : shape.nodes;
+    if (Array.isArray(shape.nodes) && shape.nodes.length > 0) {
+        return shape.nodes;
     }
 
-    if (shape.Path?.nodes) {
-        return typeof shape.Path.nodes === 'string'
-            ? LayerDataNormalizer.parseNodes(shape.Path.nodes)
-            : shape.Path.nodes;
+    if (shape.Path?.nodes && Array.isArray(shape.Path.nodes)) {
+        return shape.Path.nodes;
     }
 
-    if (shape.Contour?.nodes) {
-        return typeof shape.Contour.nodes === 'string'
-            ? LayerDataNormalizer.parseNodes(shape.Contour.nodes)
-            : shape.Contour.nodes;
+    if (shape.Contour?.nodes && Array.isArray(shape.Contour.nodes)) {
+        return shape.Contour.nodes;
     }
 
     return undefined;

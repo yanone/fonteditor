@@ -19,7 +19,12 @@ function makeCloudTestFont(): string {
         y3: number,
         x4: number,
         y4: number
-    ) => `${x1} ${y1} l ${x2} ${y2} l ${x3} ${y3} l ${x4} ${y4} l`;
+    ) => [
+        { type: 'l', x: x1, y: y1 },
+        { type: 'l', x: x2, y: y2 },
+        { type: 'l', x: x3, y: y3 },
+        { type: 'l', x: x4, y: y4 }
+    ];
 
     return JSON.stringify({
         upm: 1000,
@@ -58,7 +63,12 @@ function makeCloudTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: '0 0 l 600 0 l 600 700 l 0 700 l',
+                                nodes: [
+                                    { type: 'l', x: 0, y: 0 },
+                                    { type: 'l', x: 600, y: 0 },
+                                    { type: 'l', x: 600, y: 700 },
+                                    { type: 'l', x: 0, y: 700 }
+                                ],
                                 closed: true
                             }
                         ],
@@ -701,14 +711,17 @@ async function waitForCompiledGlyphBounds(
                 glyphBoundsCount: Array.isArray(glyphCanvas?.glyphBounds)
                     ? glyphCanvas.glyphBounds.length
                     : null,
-                needsRecompile: fontManager?.currentFont?.needsRecompile ?? null,
+                needsRecompile:
+                    fontManager?.currentFont?.needsRecompile ?? null,
                 hasEditingFont: fontManager?.editingFont !== null,
                 currentFontGlyphNames: Array.isArray(
                     fontManager?.currentFont?.babelfontData?.glyphs
                 )
                     ? fontManager.currentFont.babelfontData.glyphs
                           .slice(0, 8)
-                          .map((entry: { name?: string }) => entry?.name ?? null)
+                          .map(
+                              (entry: { name?: string }) => entry?.name ?? null
+                          )
                     : null
             };
         });
@@ -865,7 +878,7 @@ async function focusEditorGlyph(page: Page, glyphName = 'A'): Promise<void> {
 
         textRunEditor.setTextBuffer(nextGlyphName);
         await textRunEditor.selectGlyphByIndex(0, true);
-    await glyphCanvas.enterGlyphEditModeAtCursor?.();
+        await glyphCanvas.enterGlyphEditModeAtCursor?.();
         outlineEditor.active = true;
         outlineEditor.currentGlyphName = nextGlyphName;
         await glyphCanvas.doUIUpdateAsync?.();
@@ -1081,11 +1094,12 @@ async function movePrimaryNode(
                       y: Number(editorNodeCandidate.y)
                   }
                 : null;
-            const serializedLayerBeforeSave = fontManager.serializeLayerForStorage?.(
-                'A',
-                'L0',
-                currentLayerData
-            );
+            const serializedLayerBeforeSave =
+                fontManager.serializeLayerForStorage?.(
+                    'A',
+                    'L0',
+                    currentLayerData
+                );
             serializedNodesBeforeSave =
                 serializedLayerBeforeSave?.shapes?.[0]?.nodes ?? null;
 
@@ -1453,7 +1467,7 @@ test.describe('Local cloud collaboration', () => {
 
         await waitForFontLoaded(targetPage);
         await waitForCloudConnected(targetPage);
-    await waitForAuthenticatedCloudSession(targetPage);
+        await waitForAuthenticatedCloudSession(targetPage);
         await focusEditorGlyph(sourcePage, 'A');
         await focusEditorGlyph(targetPage, 'A');
 
@@ -1486,7 +1500,7 @@ test.describe('Local cloud collaboration', () => {
         );
 
         const mutation = await movePrimaryNode(sourcePage, 23, 11);
-    console.log('[Cross-context mutation]', JSON.stringify(mutation));
+        console.log('[Cross-context mutation]', JSON.stringify(mutation));
         expect(mutation.after.x).toBe(mutation.before.x + 23);
         expect(mutation.after.y).toBe(mutation.before.y + 11);
 

@@ -43,7 +43,12 @@ function makeMaster() {
 
 function makeRectPath(minX, minY, maxX, maxY) {
     return {
-        nodes: `${minX} ${minY} l ${maxX} ${minY} l ${maxX} ${maxY} l ${minX} ${maxY} l`,
+        nodes: [
+            { type: 'l', x: minX, y: minY },
+            { type: 'l', x: maxX, y: minY },
+            { type: 'l', x: maxX, y: maxY },
+            { type: 'l', x: minX, y: maxY }
+        ],
         closed: true
     };
 }

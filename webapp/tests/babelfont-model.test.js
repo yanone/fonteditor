@@ -935,7 +935,16 @@ describe('Babelfont Object Model', () => {
                                 },
                                 shapes: [
                                     {
-                                        nodes: '20 0 l 180 0 l 180 200 l 20 200 l',
+                                        nodes: [
+                                            { x: 20, y: 0, nodetype: 'Line' },
+                                            { x: 180, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 180,
+                                                y: 200,
+                                                nodetype: 'Line'
+                                            },
+                                            { x: 20, y: 200, nodetype: 'Line' }
+                                        ],
                                         closed: true
                                     }
                                 ],
@@ -957,7 +966,12 @@ describe('Babelfont Object Model', () => {
                                 },
                                 shapes: [
                                     {
-                                        nodes: '0 220 l 60 220 l 60 280 l 0 280 l',
+                                        nodes: [
+                                            { x: 0, y: 220, nodetype: 'Line' },
+                                            { x: 60, y: 220, nodetype: 'Line' },
+                                            { x: 60, y: 280, nodetype: 'Line' },
+                                            { x: 0, y: 280, nodetype: 'Line' }
+                                        ],
                                         closed: true
                                     }
                                 ],
