@@ -71,6 +71,32 @@ function canonicalizeLayerDataForComparison(layerData) {
     return canonical;
 }
 
+function createDefaultInterpolatedLayer(location = {}) {
+    return {
+        width: 0,
+        shapes: [],
+        anchors: [],
+        guides: [],
+        _verticalMetrics: {},
+        _interpolationLocation: { ...location }
+    };
+}
+
+let defaultInterpolateGlyphSpy;
+
+beforeEach(() => {
+    defaultInterpolateGlyphSpy = jest
+        .spyOn(fontInterpolation, 'interpolateGlyph')
+        .mockImplementation(async (_glyphName, location) =>
+            createDefaultInterpolatedLayer(location)
+        );
+});
+
+afterEach(() => {
+    defaultInterpolateGlyphSpy?.mockRestore();
+    defaultInterpolateGlyphSpy = null;
+});
+
 // ==================== Initialization Tests ====================
 
 describe('GlyphCanvas initialization', () => {
@@ -9710,33 +9736,31 @@ describe('OutlineEditor exact selected layers', () => {
                     .layers.map((layer) => layer.toJSON())
             });
         canvas.getCurrentGlyphName = jest.fn(() => 'A');
-        interpolateSpy = jest
-            .spyOn(fontInterpolation, 'interpolateGlyph')
-            .mockResolvedValue({
-                width: 999.75,
-                shapes: [
-                    {
-                        nodes: '150.5 0 l 450.5 0 l 450.5 700 l 150.5 700 l'
-                    },
-                    {
-                        reference: 'componentGlyph',
-                        transform: [1, 0, 0, 1, 55.5, 66.5],
-                        layerData: {
-                            width: 333.5,
-                            shapes: [
-                                {
-                                    nodes: '33.5 0 l 299.5 0 l 299.5 444.5 l 33.5 444.5 l'
-                                }
-                            ],
-                            anchors: [],
-                            guides: []
-                        }
+        interpolateSpy = fontInterpolation.interpolateGlyph.mockResolvedValue({
+            width: 999.75,
+            shapes: [
+                {
+                    nodes: '150.5 0 l 450.5 0 l 450.5 700 l 150.5 700 l'
+                },
+                {
+                    reference: 'componentGlyph',
+                    transform: [1, 0, 0, 1, 55.5, 66.5],
+                    layerData: {
+                        width: 333.5,
+                        shapes: [
+                            {
+                                nodes: '33.5 0 l 299.5 0 l 299.5 444.5 l 33.5 444.5 l'
+                            }
+                        ],
+                        anchors: [],
+                        guides: []
                     }
-                ],
-                anchors: [{ name: 'top', x: 999.9, y: 999.9 }],
-                guides: [{ pos: { x: 0, y: 999.9 }, angle: 0 }],
-                _verticalMetrics: { ascender: 800.25 }
-            });
+                }
+            ],
+            anchors: [{ name: 'top', x: 999.9, y: 999.9 }],
+            guides: [{ pos: { x: 0, y: 999.9 }, angle: 0 }],
+            _verticalMetrics: { ascender: 800.25 }
+        });
     });
 
     afterEach(() => {
@@ -9780,6 +9804,9 @@ describe('OutlineEditor exact selected layers', () => {
     );
 
     test('keeps exact selected layer data editable when interpolation fails', async () => {
+        const consoleErrorSpy = jest
+            .spyOn(console, 'error')
+            .mockImplementation(() => {});
         interpolateSpy.mockRejectedValueOnce(new Error('incompatible glyph'));
 
         canvas.outlineEditor.selectedLayerId = 'master-layer';
@@ -9787,23 +9814,29 @@ describe('OutlineEditor exact selected layers', () => {
 
         await canvas.outlineEditor.fetchLayerData(true);
 
-        expect(interpolateSpy).toHaveBeenCalled();
-        expect(canvas.outlineEditor.layerData.isInterpolated).toBe(false);
-        expect(canvas.outlineEditor.layerData.width).toBe(500);
-        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(100);
-        expect(canvas.outlineEditor.layerData.anchors[0].x).toBe(250);
-        expect(canvas.outlineEditor.layerData.shapes[1].layerData.width).toBe(
-            300
-        );
-        expect(
-            canvas.outlineEditor.layerData.shapes[1].layerData.shapes[0]
-                .nodes[0].x
-        ).toBe(20);
-        expect(canvas.outlineEditor.renderVerticalMetrics).toEqual({
-            ascender: 800,
-            descender: -200,
-            WinDescent: -200
-        });
+        try {
+            expect(interpolateSpy).toHaveBeenCalled();
+            expect(canvas.outlineEditor.layerData.isInterpolated).toBe(false);
+            expect(canvas.outlineEditor.layerData.width).toBe(500);
+            expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(
+                100
+            );
+            expect(canvas.outlineEditor.layerData.anchors[0].x).toBe(250);
+            expect(
+                canvas.outlineEditor.layerData.shapes[1].layerData.width
+            ).toBe(300);
+            expect(
+                canvas.outlineEditor.layerData.shapes[1].layerData.shapes[0]
+                    .nodes[0].x
+            ).toBe(20);
+            expect(canvas.outlineEditor.renderVerticalMetrics).toEqual({
+                ascender: 800,
+                descender: -200,
+                WinDescent: -200
+            });
+        } finally {
+            consoleErrorSpy.mockRestore();
+        }
     });
 
     test('keeps exact selected layer component transforms for automatic LSB sidebearing offsets when interpolation is stale', async () => {
@@ -11062,9 +11095,8 @@ describe('OutlineEditor exact selected layers', () => {
             markDirty: jest.fn(),
             syncJsonFromModel: jest.fn()
         };
-        const interpolateSpy = jest
-            .spyOn(fontInterpolation, 'interpolateGlyph')
-            .mockResolvedValue({
+        const interpolateSpy =
+            fontInterpolation.interpolateGlyph.mockResolvedValue({
                 width: 700,
                 shapes: [],
                 anchors: [],
@@ -11082,7 +11114,7 @@ describe('OutlineEditor exact selected layers', () => {
 
         expect(interpolateSpy).toHaveBeenCalledWith('A', { wght: 800 }, true);
 
-        interpolateSpy.mockRestore();
+        interpolateSpy.mockReset();
     });
 
     test('coalesces rapid interpolation requests and renders the latest queued location', async () => {
@@ -11096,8 +11128,7 @@ describe('OutlineEditor exact selected layers', () => {
         firstRequest.promise = new Promise((resolve) => {
             firstRequest.resolve = resolve;
         });
-        const interpolateSpy = jest
-            .spyOn(fontInterpolation, 'interpolateGlyph')
+        const interpolateSpy = fontInterpolation.interpolateGlyph
             .mockImplementationOnce(() => firstRequest.promise)
             .mockResolvedValue({
                 width: 720,
@@ -11153,7 +11184,7 @@ describe('OutlineEditor exact selected layers', () => {
         );
         expect(applySpy).toHaveBeenCalled();
 
-        interpolateSpy.mockRestore();
+        interpolateSpy.mockReset();
         applySpy.mockRestore();
     });
 
@@ -11168,8 +11199,7 @@ describe('OutlineEditor exact selected layers', () => {
         firstRequest.promise = new Promise((resolve) => {
             firstRequest.resolve = resolve;
         });
-        const interpolateSpy = jest
-            .spyOn(fontInterpolation, 'interpolateGlyph')
+        const interpolateSpy = fontInterpolation.interpolateGlyph
             .mockImplementationOnce(() => firstRequest.promise)
             .mockResolvedValue({
                 width: 720,
@@ -11206,7 +11236,7 @@ describe('OutlineEditor exact selected layers', () => {
         expect(interpolateSpy).toHaveBeenCalledTimes(1);
         expect(applySpy).not.toHaveBeenCalled();
 
-        interpolateSpy.mockRestore();
+        interpolateSpy.mockReset();
         applySpy.mockRestore();
     });
 
@@ -11224,9 +11254,8 @@ describe('OutlineEditor exact selected layers', () => {
             recordRemove: jest.fn(),
             recordChange: jest.fn()
         };
-        const interpolateSpy = jest
-            .spyOn(fontInterpolation, 'interpolateGlyph')
-            .mockResolvedValue({
+        const interpolateSpy =
+            fontInterpolation.interpolateGlyph.mockResolvedValue({
                 width: 999.75,
                 shapes: [
                     {
@@ -11276,7 +11305,7 @@ describe('OutlineEditor exact selected layers', () => {
             selectLayerSpy.mockRestore();
             dirtySpy.mockRestore();
             forceFullWorkerCacheUpdateSpy.mockRestore();
-            interpolateSpy.mockRestore();
+            interpolateSpy.mockReset();
         }
     });
 });
