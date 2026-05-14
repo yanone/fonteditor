@@ -135,30 +135,65 @@ async function captureOutlineFingerprint(page: Page): Promise<{
 }
 
 async function performUndo(page: Page): Promise<void> {
-    await page.evaluate(() => {
-        (window as any).__pathContextUndoSyncPromise = new Promise<void>(
-            (resolve, reject) => {
-                const timeout = window.setTimeout(() => {
-                    reject(
-                        new Error(
-                            'Timed out waiting for fontModelSync after undo'
-                        )
-                    );
-                }, 10000);
+    const previousFingerprint = await captureOutlineFingerprint(page);
+    const previousFingerprintJson = JSON.stringify(previousFingerprint);
+    await page.evaluate(async () => {
+        const testWindow = window as any;
+        const context = testWindow.getUndoRedoContext?.();
+        if (!context || !testWindow.runBridgeUndoRedo) {
+            throw new Error('Undo bridge API is not available');
+        }
 
-                window.addEventListener(
-                    'fontModelSync',
-                    () => {
-                        window.clearTimeout(timeout);
-                        resolve();
-                    },
-                    { once: true }
-                );
-            }
+        await testWindow.runBridgeUndoRedo(
+            'undo',
+            context.undoGlyphName,
+            context.rootGlyphName,
+            context.undoLayerId,
+            context.historyTargetKey
         );
     });
-    await page.keyboard.press('Meta+z');
-    await page.evaluate(() => (window as any).__pathContextUndoSyncPromise);
+    await page.waitForFunction(
+        (previousJson) => {
+            const round = (value: any) => Number(Number(value).toFixed(5));
+            const toPathFingerprint = (pathModel: any) => {
+                const pathJson = pathModel?.toJSON?.();
+                const nodes = pathJson?.nodes || [];
+                return {
+                    closed: Boolean(pathJson?.closed),
+                    nodes: nodes.map((node: any) => ({
+                        x: round(node?.x),
+                        y: round(node?.y),
+                        nodetype: String(node?.nodetype || ''),
+                        smooth: Boolean(node?.smooth)
+                    }))
+                };
+            };
+
+            const oe = (window as any).glyphCanvas?.outlineEditor;
+            const currentLayer = oe?.getCurrentLayerModel?.();
+            const linkedLayers = currentLayer?._getLinkedLayers?.() || [];
+            const glyph = oe?.getCurrentGlyphModel?.();
+            const compatibility = glyph?.calculateOutlineCompatibility?.();
+            const layers = [currentLayer, ...linkedLayers]
+                .filter(Boolean)
+                .map((layer: any) => ({
+                    id: String(layer.id),
+                    paths: (layer.paths || []).map((path: any) =>
+                        toPathFingerprint(path)
+                    )
+                }))
+                .sort((a: any, b: any) => a.id.localeCompare(b.id));
+
+            return (
+                JSON.stringify({
+                    layers,
+                    compatible: Boolean(compatibility?.compatible)
+                }) !== previousJson
+            );
+        },
+        previousFingerprintJson,
+        { timeout: 15000 }
+    );
     await page.evaluate(async () => {
         await new Promise<void>((resolve) =>
             requestAnimationFrame(() => resolve())

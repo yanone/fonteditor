@@ -123,7 +123,7 @@ function makeCloudTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: nodes(0, 0, 80, 0, 80, 120, 0, 120),
+                                nodes: rectLineNodes(0, 0, 80, 0, 80, 120, 0, 120),
                                 closed: true
                             }
                         ],
@@ -1204,7 +1204,8 @@ async function movePrimaryNode(
 test.describe('Local cloud collaboration', () => {
     let localCollabServices: LocalCollabServicesController | null = null;
 
-    test.beforeAll(async () => {
+    test.beforeAll(async ({}, testInfo) => {
+        testInfo.setTimeout(300000);
         localCollabServices = await ensureLocalCollabServices();
     });
 
