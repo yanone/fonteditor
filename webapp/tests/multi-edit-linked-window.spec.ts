@@ -3,6 +3,7 @@ import {
     waitForCanvasReady,
     waitForFontLoaded
 } from './helpers/snapshot-helper';
+import { rectLineNodes } from './helpers/babelfont-test-data';
 
 // ── Test font (simple, memory-based) ────────────────────────────────
 
@@ -44,12 +45,7 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: [
-                                    { type: 'l', x: 0, y: 0 },
-                                    { type: 'l', x: 600, y: 0 },
-                                    { type: 'l', x: 600, y: 700 },
-                                    { type: 'l', x: 0, y: 700 }
-                                ],
+                                nodes: rectLineNodes(0, 0, 600, 0, 600, 700, 0, 700),
                                 closed: true
                             }
                         ],
@@ -71,12 +67,16 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: [
-                                    { type: 'l', x: 100, y: 100 },
-                                    { type: 'l', x: 400, y: 100 },
-                                    { type: 'l', x: 400, y: 600 },
-                                    { type: 'l', x: 100, y: 600 }
-                                ],
+                                nodes: rectLineNodes(
+                                    100,
+                                    100,
+                                    400,
+                                    100,
+                                    400,
+                                    600,
+                                    100,
+                                    600
+                                ),
                                 closed: true
                             }
                         ],

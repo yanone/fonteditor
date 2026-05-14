@@ -4,6 +4,7 @@ import {
     waitForFontLoaded,
     focusView
 } from './helpers/snapshot-helper';
+import { rectLineNodes } from './helpers/babelfont-test-data';
 
 /**
  * Open/Close Path Integration Test
@@ -23,21 +24,6 @@ import {
 // Each layer has a closed quadrilateral with 4 on-curve Line nodes.
 // ---------------------------------------------------------------------------
 function makeTestFont(): string {
-    const nodes = (
-        x1: number,
-        y1: number,
-        x2: number,
-        y2: number,
-        x3: number,
-        y3: number,
-        x4: number,
-        y4: number
-    ) => [
-        { type: 'l', x: x1, y: y1 },
-        { type: 'l', x: x2, y: y2 },
-        { type: 'l', x: x3, y: y3 },
-        { type: 'l', x: x4, y: y4 }
-    ];
     return JSON.stringify({
         upm: 1000,
         version: [1, 0],
@@ -95,12 +81,7 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M1' },
                         shapes: [
                             {
-                                nodes: [
-                                    { type: 'l', x: 0, y: 0 },
-                                    { type: 'l', x: 600, y: 0 },
-                                    { type: 'l', x: 600, y: 700 },
-                                    { type: 'l', x: 0, y: 700 }
-                                ],
+                                nodes: rectLineNodes(0, 0, 600, 0, 600, 700, 0, 700),
                                 closed: true
                             }
                         ],
@@ -114,12 +95,7 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: [
-                                    { type: 'l', x: 0, y: 0 },
-                                    { type: 'l', x: 600, y: 0 },
-                                    { type: 'l', x: 600, y: 700 },
-                                    { type: 'l', x: 0, y: 700 }
-                                ],
+                                nodes: rectLineNodes(0, 0, 600, 0, 600, 700, 0, 700),
                                 closed: true
                             }
                         ],
@@ -133,12 +109,7 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M2' },
                         shapes: [
                             {
-                                nodes: [
-                                    { type: 'l', x: 0, y: 0 },
-                                    { type: 'l', x: 600, y: 0 },
-                                    { type: 'l', x: 600, y: 700 },
-                                    { type: 'l', x: 0, y: 700 }
-                                ],
+                                nodes: rectLineNodes(0, 0, 600, 0, 600, 700, 0, 700),
                                 closed: true
                             }
                         ],
@@ -195,7 +166,7 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M1' },
                         shapes: [
                             {
-                                nodes: nodes(
+                                nodes: rectLineNodes(
                                     100,
                                     100,
                                     400,
@@ -218,7 +189,7 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: nodes(
+                                nodes: rectLineNodes(
                                     80,
                                     80,
                                     420,
@@ -241,7 +212,7 @@ function makeTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M2' },
                         shapes: [
                             {
-                                nodes: nodes(
+                                nodes: rectLineNodes(
                                     50,
                                     50,
                                     450,

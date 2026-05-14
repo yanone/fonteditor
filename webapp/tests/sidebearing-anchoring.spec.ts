@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { waitForCanvasReady, focusView } from './helpers/snapshot-helper';
+import { rectLineNodes } from './helpers/babelfont-test-data';
 
 type Side = 'left' | 'right';
 type EditMode = 'handle' | 'point';
@@ -43,12 +44,7 @@ function makeUnkeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: [
-                                    { type: 'l', x: 0, y: 0 },
-                                    { type: 'l', x: 600, y: 0 },
-                                    { type: 'l', x: 600, y: 700 },
-                                    { type: 'l', x: 0, y: 700 }
-                                ],
+                                nodes: rectLineNodes(0, 0, 600, 0, 600, 700, 0, 700),
                                 closed: true
                             }
                         ],
@@ -70,12 +66,16 @@ function makeUnkeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: [
-                                    { type: 'l', x: 120, y: 0 },
-                                    { type: 'l', x: 420, y: 0 },
-                                    { type: 'l', x: 420, y: 620 },
-                                    { type: 'l', x: 120, y: 620 }
-                                ],
+                                nodes: rectLineNodes(
+                                    120,
+                                    0,
+                                    420,
+                                    0,
+                                    420,
+                                    620,
+                                    120,
+                                    620
+                                ),
                                 closed: true
                             }
                         ],
@@ -122,12 +122,7 @@ function makeKeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: [
-                                    { type: 'l', x: 0, y: 0 },
-                                    { type: 'l', x: 600, y: 0 },
-                                    { type: 'l', x: 600, y: 700 },
-                                    { type: 'l', x: 0, y: 700 }
-                                ],
+                                nodes: rectLineNodes(0, 0, 600, 0, 600, 700, 0, 700),
                                 closed: true
                             }
                         ],
@@ -149,12 +144,16 @@ function makeKeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: [
-                                    { type: 'l', x: 90, y: 0 },
-                                    { type: 'l', x: 170, y: 0 },
-                                    { type: 'l', x: 170, y: 620 },
-                                    { type: 'l', x: 90, y: 620 }
-                                ],
+                                nodes: rectLineNodes(
+                                    90,
+                                    0,
+                                    170,
+                                    0,
+                                    170,
+                                    620,
+                                    90,
+                                    620
+                                ),
                                 closed: true
                             }
                         ],
@@ -180,12 +179,16 @@ function makeKeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: [
-                                    { type: 'l', x: 70, y: 0 },
-                                    { type: 'l', x: 270, y: 0 },
-                                    { type: 'l', x: 270, y: 620 },
-                                    { type: 'l', x: 70, y: 620 }
-                                ],
+                                nodes: rectLineNodes(
+                                    70,
+                                    0,
+                                    270,
+                                    0,
+                                    270,
+                                    620,
+                                    70,
+                                    620
+                                ),
                                 closed: true
                             }
                         ],
