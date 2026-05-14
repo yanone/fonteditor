@@ -12741,9 +12741,7 @@ export class OutlineEditor {
         const activeShape = currentLayerData.shapes?.[preview.shapeIndex];
         const activeContour = getPathShapeData(activeShape);
         if (activeContour && typeof activeContour === 'object') {
-            const normalizedNodes = Array.isArray(activePathData.nodes)
-                ? activePathData.nodes
-                : [];
+            const normalizedNodes = activePathData.nodes;
             activeContour.nodes = normalizedNodes.map(
                 (node: Babelfont.Node) => ({ ...node })
             );
@@ -14657,9 +14655,7 @@ export class OutlineEditor {
         }
 
         const pathData = path.toJSON();
-        const normalizedNodes = Array.isArray(pathData.nodes)
-            ? pathData.nodes
-            : [];
+        const normalizedNodes = pathData.nodes;
         const normalizedPathData: Babelfont.Path = {
             ...pathData,
             nodes: normalizedNodes.map((node: Babelfont.Node) => ({

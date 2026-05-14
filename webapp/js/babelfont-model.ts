@@ -3881,15 +3881,8 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         return ['shapes', this._index];
     }
 
-    private ensureNodesArray(): Babelfont.Node[] {
-        if (!Array.isArray(this.data.nodes)) {
-            this.data.nodes = [];
-        }
-        return this.data.nodes;
-    }
-
     get nodes(): Node[] {
-        const nodeArray = this.ensureNodesArray();
+        const nodeArray = this.data.nodes;
 
         // Create wrapper objects if needed
         if (
@@ -3955,7 +3948,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         smooth?: boolean
     ): Node {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             const nodeData: Babelfont.Node = { x, y, nodetype };
             if (smooth !== undefined) {
                 nodeData.smooth = smooth;
@@ -3978,7 +3971,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      */
     removeNode(index: number): void {
         this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             const removedNode = nodeArray[index];
             if (removedNode === undefined) {
                 return;
@@ -4006,7 +3999,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         smooth?: boolean
     ): Node {
         return this.insertNode(
-            this.ensureNodesArray().length,
+            this.data.nodes.length,
             x,
             y,
             nodetype,
@@ -4016,7 +4009,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _addPoint(segmentId: number, t: number): number | null {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             const descriptors = buildPathSegmentDescriptors({
                 nodes: nodeArray,
                 closed: this.closed
@@ -4061,7 +4054,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return null;
             }
 
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             const oldNodes = nodeArray.map((node) => cloneNodeData(node));
             let nextNodes: Babelfont.Node[];
             let insertedNodeIndex: number;
@@ -4114,7 +4107,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return false;
             }
 
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             if (nodeArray.length < 3) {
                 return false;
             }
@@ -4161,7 +4154,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return false;
             }
 
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             if (nodeArray.length < 2) {
                 return false;
             }
@@ -4215,7 +4208,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return false;
             }
 
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             if (nodeArray.length < 3) {
                 return false;
             }
@@ -4260,7 +4253,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return null;
             }
 
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             const splitNodes = splitOpenPathNodeArray(nodeArray, nodeIndex);
             if (!splitNodes) {
                 return null;
@@ -4284,7 +4277,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return false;
             }
 
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             if (nodeArray.length < 2) {
                 return false;
             }
@@ -4314,7 +4307,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _reverseDirection(): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             if (nodeArray.length < 2) {
                 return false;
             }
@@ -4409,7 +4402,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _convertLineSegmentToCurve(segmentId: number): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             const descriptors = buildPathSegmentDescriptors({
                 nodes: nodeArray,
                 closed: this.closed
@@ -4441,7 +4434,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     _canSlideSmoothOnCurve(nodeIndex: number): boolean {
-        const nodeArray = this.ensureNodesArray();
+        const nodeArray = this.data.nodes;
         const targetNode = nodeArray[nodeIndex];
 
         if (
@@ -4473,7 +4466,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         targetPoint: { x: number; y: number }
     ): { insertedNodeIndex: number; changed: boolean; t: number } | null {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             const oldNodes = nodeArray.map((node) => cloneNodeData(node));
             const mutation = buildSmoothPointSlideMutation(
                 nodeArray,
@@ -4514,7 +4507,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         t: number
     ): { insertedNodeIndex: number; changed: boolean; t: number } | null {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             const oldNodes = nodeArray.map((node) => cloneNodeData(node));
             const mutation = buildSmoothPointSlideMutationAtT(
                 nodeArray,
@@ -4558,7 +4551,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      */
     _deleteNode(nodeIndex: number): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             if (nodeIndex < 0 || nodeIndex >= nodeArray.length) {
                 return false;
             }
@@ -4584,7 +4577,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _deleteNodes(nodeIndices: number[]): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.ensureNodesArray();
+            const nodeArray = this.data.nodes;
             const validNodeIndices = [...new Set(nodeIndices)]
                 .filter(
                     (nodeIndex) =>
@@ -4644,9 +4637,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     toString(): string {
         const closedStr = this.closed ? 'closed' : 'open';
-        const nodeCount = Array.isArray(this.data.nodes)
-            ? this.data.nodes.length
-            : 0;
+        const nodeCount = this.data.nodes.length;
         return `<Path ${closedStr} ${nodeCount} nodes>`;
     }
 }
@@ -8479,9 +8470,7 @@ export class Layer extends ArrayElementBase {
         for (const shape of this.shapes) {
             if (shape.isPath()) {
                 const pathData = shape.asPath().toJSON();
-                if (Array.isArray(pathData.nodes)) {
-                    paths.push(pathData as Babelfont.Path);
-                }
+                paths.push(pathData as Babelfont.Path);
             }
         }
 
@@ -8503,9 +8492,7 @@ export class Layer extends ArrayElementBase {
             if (shape.isPath()) {
                 // Add direct path
                 const pathData = shape.asPath().toJSON();
-                if (Array.isArray(pathData.nodes)) {
-                    paths.push(pathData as Babelfont.Path);
-                }
+                paths.push(pathData as Babelfont.Path);
             } else if (shape.isComponent()) {
                 // Get transformed paths from component recursively
                 const component = shape.asComponent();
