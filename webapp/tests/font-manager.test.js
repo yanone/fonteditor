@@ -108,6 +108,7 @@ describe('FontManager saveLayerData', () => {
     afterEach(() => {
         updateDirtyIndicatorSpy?.mockRestore();
         sendMessageSpy?.mockRestore();
+        delete window.patchSyncEngine;
         fontManager.openedFonts = originalOpenedFonts;
         fontManager.currentFontId = originalCurrentFontId;
         fontManager.pendingBabelfontJsonSyncAfterDrag =
@@ -349,6 +350,32 @@ describe('FontManager saveLayerData', () => {
             '97 89 l 420 80 l 420 620 l 80 620 l'
         );
         expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
+    });
+
+    test('interactive saves rebind the bridge snapshot to the authoritative font JSON', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        const editedLayer = cloneJson(layer);
+        editedLayer.width = 645;
+
+        window.patchSyncEngine = {
+            setFontJson: jest.fn()
+        };
+
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            editedLayer,
+            'keyboard-outline'
+        );
+
+        expect(window.patchSyncEngine.setFontJson).toHaveBeenCalledWith(
+            fontManager.currentFont.babelfontData
+        );
     });
 
     test('keyboard saves defer worker cache priming until after the first await', async () => {

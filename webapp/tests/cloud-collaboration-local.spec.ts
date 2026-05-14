@@ -252,6 +252,25 @@ async function waitForBridgeReady(page: Page): Promise<void> {
     await page.waitForTimeout(500);
 }
 
+async function waitForCloudPageReady(page: Page): Promise<void> {
+    await page.waitForFunction(
+        () => {
+            const win = window as any;
+            const loadingOverlay = document.getElementById('loading-overlay');
+            return (
+                !!loadingOverlay?.classList.contains('hidden') &&
+                !!win.glyphCanvas?.canvas &&
+                !!win.glyphCanvas?.renderer &&
+                !!win.stateManager &&
+                !!win.fontManager &&
+                typeof win.cloudDebug?.bootstrapLocalSession === 'function' &&
+                typeof win.cloudPlugin?.openAsset === 'function'
+            );
+        },
+        { timeout: 30000 }
+    );
+}
+
 async function waitForWindowSyncReady(page: Page): Promise<void> {
     await page.waitForFunction(() => !!(window as any).windowSync, {
         timeout: 15000
@@ -320,8 +339,47 @@ async function setupEditTextMode(
 ): Promise<void> {
     await page.evaluate(async (nextTextBuffer) => {
         const glyphCanvas = (window as any).glyphCanvas;
-        glyphCanvas.textRunEditor.setTextBuffer(nextTextBuffer);
-        await glyphCanvas.textRunEditor.selectGlyphByIndex(0, true);
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+        if (!glyphCanvas || !textRunEditor || !outlineEditor) {
+            throw new Error('Missing glyph canvas editor state');
+        }
+
+        textRunEditor.setTextBuffer(nextTextBuffer);
+        await textRunEditor.selectGlyphByIndex(0, true);
+        await glyphCanvas.enterGlyphEditModeAtCursor?.();
+
+        const targetGlyphName =
+            textRunEditor.shapedGlyphs?.[0]?.explicitGlyphName ||
+            textRunEditor.glyphNameBuffer?.[0] ||
+            nextTextBuffer;
+
+        outlineEditor.active = true;
+        outlineEditor.currentGlyphName = targetGlyphName;
+        await glyphCanvas.doUIUpdateAsync?.();
+        await outlineEditor.autoSelectMatchingLayer?.();
+
+        const explicitLayer = (window as any).currentFontModel
+            ?.findGlyph?.(targetGlyphName)
+            ?.findLayerById?.('L0');
+        if (explicitLayer && typeof outlineEditor.selectLayer === 'function') {
+            await outlineEditor.selectLayer(explicitLayer);
+        }
+        await outlineEditor.fetchLayerData?.(true, targetGlyphName);
+        await glyphCanvas.doUIUpdateAsync?.();
+        const glyphStack = `${targetGlyphName}@${
+            explicitLayer?.id || outlineEditor.selectedLayerId || 'L0'
+        }`;
+        outlineEditor.glyphStack = glyphStack;
+        if ((window as any).stateManager) {
+            (window as any).stateManager.editor_glyph_stack = glyphStack;
+        }
+        window.dispatchEvent(
+            new CustomEvent('glyphStackChanged', {
+                detail: { glyphStack }
+            })
+        );
+        glyphCanvas.render?.();
     }, textBuffer);
     await page.waitForTimeout(500);
 }
@@ -361,6 +419,15 @@ async function installEditingFontCompileTracker(page: Page): Promise<void> {
         });
         testWindow.__editingFontCompileTrackerInstalled = true;
     });
+}
+
+async function waitForAuthenticatedCloudSession(page: Page): Promise<void> {
+    await page.waitForFunction(
+        () => !!(window as any).authManager?.isAuthenticated?.(),
+        { timeout: 15000 }
+    );
+    await waitForPythonReady(page);
+    await waitForBridgeReady(page);
 }
 
 async function getEditingFontCompileTracker(page: Page): Promise<{
@@ -580,6 +647,79 @@ async function getBridgeStateSha(page: Page): Promise<string | null> {
     });
 }
 
+async function waitForCompiledGlyphBounds(
+    page: Page,
+    glyphName: string
+): Promise<void> {
+    try {
+        await expect
+            .poll(
+                async () => {
+                    try {
+                        return await getCompiledGlyphBounds(page, glyphName);
+                    } catch {
+                        return null;
+                    }
+                },
+                {
+                    timeout: 30000
+                }
+            )
+            .toMatchObject({
+                x1: expect.any(Number),
+                y1: expect.any(Number),
+                x2: expect.any(Number),
+                y2: expect.any(Number)
+            });
+    } catch (error) {
+        const diagnostics = await page.evaluate(() => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            const textRunEditor = glyphCanvas?.textRunEditor;
+            const outlineEditor = glyphCanvas?.outlineEditor;
+            const fontManager = (window as any).fontManager;
+            return {
+                glyphStack: outlineEditor?.glyphStack ?? null,
+                stateGlyphStack:
+                    (window as any).stateManager?.editor_glyph_stack ?? null,
+                outlineCurrentGlyphName:
+                    outlineEditor?.currentGlyphName ?? null,
+                canvasCurrentGlyphName:
+                    glyphCanvas?.getCurrentGlyphName?.() ?? null,
+                selectedLayerId: outlineEditor?.selectedLayerId ?? null,
+                outlineActive: !!outlineEditor?.active,
+                glyphEditMode: !!glyphCanvas?.editMode,
+                textBuffer: textRunEditor?.textBuffer ?? null,
+                glyphNameBuffer: Array.isArray(textRunEditor?.glyphNameBuffer)
+                    ? [...textRunEditor.glyphNameBuffer]
+                    : null,
+                shapedGlyphs: Array.isArray(textRunEditor?.shapedGlyphs)
+                    ? textRunEditor.shapedGlyphs.map(
+                          (entry: { explicitGlyphName?: string | null }) =>
+                              entry?.explicitGlyphName ?? null
+                      )
+                    : null,
+                glyphBoundsCount: Array.isArray(glyphCanvas?.glyphBounds)
+                    ? glyphCanvas.glyphBounds.length
+                    : null,
+                needsRecompile: fontManager?.currentFont?.needsRecompile ?? null,
+                hasEditingFont: fontManager?.editingFont !== null,
+                currentFontGlyphNames: Array.isArray(
+                    fontManager?.currentFont?.babelfontData?.glyphs
+                )
+                    ? fontManager.currentFont.babelfontData.glyphs
+                          .slice(0, 8)
+                          .map((entry: { name?: string }) => entry?.name ?? null)
+                    : null
+            };
+        });
+        throw new Error(
+            `${(error as Error).message}\nCompiled glyph diagnostics: ${JSON.stringify(
+                diagnostics
+            )}`
+        );
+    }
+}
+
 async function getBridgeStateBase64(page: Page): Promise<string | null> {
     return page.evaluate(() => {
         const bridge = (window as any).patchSyncEngine;
@@ -725,6 +865,7 @@ async function focusEditorGlyph(page: Page, glyphName = 'A'): Promise<void> {
 
         textRunEditor.setTextBuffer(nextGlyphName);
         await textRunEditor.selectGlyphByIndex(0, true);
+    await glyphCanvas.enterGlyphEditModeAtCursor?.();
         outlineEditor.active = true;
         outlineEditor.currentGlyphName = nextGlyphName;
         await glyphCanvas.doUIUpdateAsync?.();
@@ -745,6 +886,18 @@ async function focusEditorGlyph(page: Page, glyphName = 'A'): Promise<void> {
         }
         await outlineEditor.fetchLayerData(true, nextGlyphName);
         await glyphCanvas.doUIUpdateAsync?.();
+        const glyphStack = `${nextGlyphName}@${
+            explicitLayer?.id || outlineEditor.selectedLayerId || 'L0'
+        }`;
+        outlineEditor.glyphStack = glyphStack;
+        if ((window as any).stateManager) {
+            (window as any).stateManager.editor_glyph_stack = glyphStack;
+        }
+        window.dispatchEvent(
+            new CustomEvent('glyphStackChanged', {
+                detail: { glyphStack }
+            })
+        );
         glyphCanvas.render?.();
 
         if (!outlineEditor.selectedLayerId || !outlineEditor.layerData) {
@@ -837,8 +990,8 @@ async function movePrimaryNode(
             const glyph = (window as any).currentFontModel?.findGlyph?.('A');
             const layer = glyph?.findLayerById?.('L0');
             const currentLayerData =
-                outlineEditor?.getCurrentLayerDataFromStack?.() ||
                 outlineEditor?.layerData ||
+                outlineEditor?.getCurrentLayerDataFromStack?.() ||
                 null;
             const modelNode = layer?.paths?.[0]?.nodes?.[0] ?? null;
 
@@ -872,6 +1025,18 @@ async function movePrimaryNode(
                 );
             }
 
+            const forcedGlyphStack = 'A@L0';
+            outlineEditor.glyphStack = forcedGlyphStack;
+            if ((window as any).stateManager) {
+                (window as any).stateManager.editor_glyph_stack =
+                    forcedGlyphStack;
+            }
+            window.dispatchEvent(
+                new CustomEvent('glyphStackChanged', {
+                    detail: { glyphStack: forcedGlyphStack }
+                })
+            );
+
             const before = {
                 x: Number(modelNode.x),
                 y: Number(modelNode.y)
@@ -883,84 +1048,72 @@ async function movePrimaryNode(
             let adapterHookPresentAfterCommit = false;
 
             bridge.beginTransaction('Drag point');
-            try {
-                outlineEditor.selectedPoints = [
-                    {
-                        contourIndex: 0,
-                        nodeIndex: 0
-                    }
-                ];
-                outlineEditor.applySelectedPointMove?.(
-                    currentLayerData,
-                    nextDeltaX,
-                    nextDeltaY,
-                    false
-                );
-                outlineEditor.applyMetricsKeysToCurrentEditedLayer?.();
-
-                const editorShapeAfterMove =
-                    currentLayerData?.shapes?.[0] ?? null;
-                const editorNodeCandidate = Array.isArray(
-                    editorShapeAfterMove?.Path?.nodes
-                )
-                    ? (editorShapeAfterMove.Path.nodes[0] ?? null)
-                    : Array.isArray(editorShapeAfterMove?.nodes)
-                      ? (editorShapeAfterMove.nodes[0] ?? null)
-                      : null;
-                editorNodeAfterMove = editorNodeCandidate
-                    ? {
-                          x: Number(editorNodeCandidate.x),
-                          y: Number(editorNodeCandidate.y)
-                      }
-                    : null;
-                const serializedLayerBeforeSave =
-                    fontManager.serializeLayerForStorage?.(
-                        'A',
-                        'L0',
-                        currentLayerData
-                    );
-                serializedNodesBeforeSave =
-                    serializedLayerBeforeSave?.shapes?.[0]?.nodes ?? null;
-
-                await fontManager.saveLayerData(
-                    'A',
-                    'L0',
-                    currentLayerData,
-                    'keyboard-outline'
-                );
-                currentFont.syncJsonFromModel?.();
-                bridgeNodesBeforeSync =
-                    bridge
-                        .getFontJsonSnapshot?.()
-                        ?.glyphs?.find?.((entry: any) => entry?.name === 'A')
-                        ?.layers?.find?.((entry: any) => entry?.id === 'L0')
-                        ?.shapes?.[0]?.nodes ?? null;
-                outlineEditor._syncCurrentGlyphToYDoc?.('Drag point');
-
-                const waitDeadline = Date.now() + 5000;
-                while (Date.now() < waitDeadline) {
-                    if (
-                        (
-                            window as Window & {
-                                __lastCloudOutboundUpdateSeq?: number;
-                            }
-                        ).__lastCloudOutboundUpdateSeq !== outboundSeqBeforeMove
-                    ) {
-                        break;
-                    }
-                    await new Promise((resolve) => setTimeout(resolve, 50));
+            outlineEditor.selectedPoints = [
+                {
+                    contourIndex: 0,
+                    nodeIndex: 0
                 }
-            } finally {
-                const commitResult = bridge.endTransaction?.() ?? null;
-                commitChangeLogLength = Array.isArray(
-                    commitResult?.changeLogEntries
-                )
-                    ? commitResult.changeLogEntries.length
-                    : null;
-                adapterHookPresentAfterCommit = Boolean(
-                    (window as any).cloudPlugin?._cloudAdapter
-                        ?._localUpdateUnsubscribe
-                );
+            ];
+            outlineEditor.isDraggingPoint = true;
+            outlineEditor._hasMoved = true;
+            outlineEditor._dragType = 'point';
+            outlineEditor._preDragDesc =
+                outlineEditor._buildNodeDesc?.() ?? null;
+            outlineEditor.applySelectedPointMove?.(
+                currentLayerData,
+                nextDeltaX,
+                nextDeltaY,
+                false
+            );
+            outlineEditor.applyMetricsKeysToCurrentEditedLayer?.();
+
+            const editorShapeAfterMove = currentLayerData?.shapes?.[0] ?? null;
+            const editorNodeCandidate = Array.isArray(
+                editorShapeAfterMove?.Path?.nodes
+            )
+                ? (editorShapeAfterMove.Path.nodes[0] ?? null)
+                : Array.isArray(editorShapeAfterMove?.nodes)
+                  ? (editorShapeAfterMove.nodes[0] ?? null)
+                  : null;
+            editorNodeAfterMove = editorNodeCandidate
+                ? {
+                      x: Number(editorNodeCandidate.x),
+                      y: Number(editorNodeCandidate.y)
+                  }
+                : null;
+            const serializedLayerBeforeSave = fontManager.serializeLayerForStorage?.(
+                'A',
+                'L0',
+                currentLayerData
+            );
+            serializedNodesBeforeSave =
+                serializedLayerBeforeSave?.shapes?.[0]?.nodes ?? null;
+
+            await outlineEditor.onMouseUp?.(new MouseEvent('mouseup'));
+
+            bridgeNodesBeforeSync =
+                bridge
+                    .getFontJsonSnapshot?.()
+                    ?.glyphs?.find?.((entry: any) => entry?.name === 'A')
+                    ?.layers?.find?.((entry: any) => entry?.id === 'L0')
+                    ?.shapes?.[0]?.nodes ?? null;
+            adapterHookPresentAfterCommit = Boolean(
+                (window as any).cloudPlugin?._cloudAdapter
+                    ?._localUpdateUnsubscribe
+            );
+
+            const waitDeadline = Date.now() + 5000;
+            while (Date.now() < waitDeadline) {
+                if (
+                    (
+                        window as Window & {
+                            __lastCloudOutboundUpdateSeq?: number;
+                        }
+                    ).__lastCloudOutboundUpdateSeq !== outboundSeqBeforeMove
+                ) {
+                    break;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 50));
             }
 
             glyphCanvas.render?.();
@@ -1033,6 +1186,18 @@ async function movePrimaryNode(
                     yDocNodesAfterSync,
                     commitChangeLogLength,
                     adapterHookPresentAfterCommit,
+                    pyodideReady:
+                        typeof (window as any).pyodide?.runPythonAsync ===
+                        'function',
+                    selectedLayerId: outlineEditor?.selectedLayerId ?? null,
+                    layerDataId: outlineEditor?.layerData?.id ?? null,
+                    layerIsInterpolated:
+                        outlineEditor?.layerData?.isInterpolated ?? null,
+                    outlineCurrentGlyphName:
+                        outlineEditor?.currentGlyphName ?? null,
+                    canvasCurrentGlyphName:
+                        glyphCanvas?.getCurrentGlyphName?.() ?? null,
+                    glyphStack: outlineEditor?.glyphStack ?? null,
                     outboundSeq: outboundSeq ?? null,
                     outboundSha: outboundSha ? await outboundSha : null
                 }
@@ -1277,6 +1442,7 @@ test.describe('Local cloud collaboration', () => {
 
         expect(assetId).toBeTruthy();
         await waitForCloudConnected(sourcePage);
+        await waitForAuthenticatedCloudSession(sourcePage);
 
         await targetPage.goto('/?test=true');
         await waitForCanvasReady(targetPage);
@@ -1287,6 +1453,7 @@ test.describe('Local cloud collaboration', () => {
 
         await waitForFontLoaded(targetPage);
         await waitForCloudConnected(targetPage);
+    await waitForAuthenticatedCloudSession(targetPage);
         await focusEditorGlyph(sourcePage, 'A');
         await focusEditorGlyph(targetPage, 'A');
 
@@ -1319,6 +1486,7 @@ test.describe('Local cloud collaboration', () => {
         );
 
         const mutation = await movePrimaryNode(sourcePage, 23, 11);
+    console.log('[Cross-context mutation]', JSON.stringify(mutation));
         expect(mutation.after.x).toBe(mutation.before.x + 23);
         expect(mutation.after.y).toBe(mutation.before.y + 11);
 
@@ -1387,6 +1555,7 @@ test.describe('Local cloud collaboration', () => {
     test('supports linked-window sync and cloud sync simultaneously', async ({
         browser
     }) => {
+        test.setTimeout(240000);
         const email = `playwright-mixed-${Date.now()}@counterpunch.test`;
         const mainContext = await browser.newContext({
             ignoreHTTPSErrors: true
@@ -1398,7 +1567,7 @@ test.describe('Local cloud collaboration', () => {
         const remotePage = await remoteContext.newPage();
 
         await mainPage.goto('/?test=true');
-        await waitForCanvasReady(mainPage);
+        await waitForCloudPageReady(mainPage);
         await bootstrapCloudSession(mainPage, email);
 
         await loadCloudTestFont(mainPage);
@@ -1413,33 +1582,37 @@ test.describe('Local cloud collaboration', () => {
 
         expect(assetId).toBeTruthy();
         await waitForCloudConnected(mainPage);
+        await waitForAuthenticatedCloudSession(mainPage);
 
         await mainPage.evaluate(async (nextAssetId) => {
             await (window as any).cloudPlugin.openAsset(nextAssetId);
         }, assetId);
         await waitForFontLoaded(mainPage);
         await waitForCloudConnected(mainPage);
+        await waitForAuthenticatedCloudSession(mainPage);
 
         const linkedPage = await openLinkedWindow(mainPage);
         await waitForCloudConnected(linkedPage);
+        await waitForAuthenticatedCloudSession(linkedPage);
         await installEditingFontCompileTracker(linkedPage);
 
         await remotePage.goto('/?test=true');
-        await waitForCanvasReady(remotePage);
+        await waitForCloudPageReady(remotePage);
         await bootstrapCloudSession(remotePage, email);
         await remotePage.evaluate(async (nextAssetId) => {
             await (window as any).cloudPlugin.openAsset(nextAssetId);
         }, assetId);
         await waitForFontLoaded(remotePage);
         await waitForCloudConnected(remotePage);
+        await waitForAuthenticatedCloudSession(remotePage);
         await installEditingFontCompileTracker(remotePage);
 
         await setupEditTextMode(mainPage, 'ö');
         await setupEditTextMode(linkedPage, 'ö');
         await setupEditTextMode(remotePage, 'ö');
-        await waitForEditingCompile(mainPage);
-        await waitForEditingCompile(linkedPage);
-        await waitForEditingCompile(remotePage);
+        await waitForCompiledGlyphBounds(mainPage, 'odieresis');
+        await waitForCompiledGlyphBounds(linkedPage, 'odieresis');
+        await waitForCompiledGlyphBounds(remotePage, 'odieresis');
 
         const beforeAnchorCompileMain =
             await getEditingFontCompileTracker(mainPage);

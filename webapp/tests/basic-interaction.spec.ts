@@ -247,13 +247,11 @@ test.describe('Font Editor Basic Workflow', () => {
         await page.evaluate(async () => {
             await (window as any).showFontFileDialog?.({ mode: 'open' });
         });
-        await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
+        const fileDialog = page.locator('#font-file-dialog');
+        await fileDialog.waitFor({ state: 'visible' });
 
-        const firstFontItem = page.locator(
+        const firstFontItem = fileDialog.locator(
             '.file-item[data-name="Fustat.glyphs"]'
-        );
-        const secondFontItem = page.locator(
-            '.file-item[data-name="YanoneKaffeesatz.designspace"]'
         );
 
         await firstFontItem.dblclick();
@@ -299,7 +297,11 @@ test.describe('Font Editor Basic Workflow', () => {
         await page.evaluate(async () => {
             await (window as any).showFontFileDialog?.({ mode: 'open' });
         });
-        await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
+        await fileDialog.waitFor({ state: 'visible' });
+
+        const secondFontItem = fileDialog.locator(
+            '.file-item[data-name="YanoneKaffeesatz.designspace"]'
+        );
 
         await expect(secondFontItem).toBeVisible();
         await secondFontItem.click({ button: 'right', force: true });

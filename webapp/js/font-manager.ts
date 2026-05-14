@@ -4240,6 +4240,11 @@ class FontManager {
             storedLayer
         );
 
+        // Local layer saves mutate the authoritative font object in place.
+        // Re-point the bridge snapshot immediately so the subsequent Yjs sync
+        // diffs against the just-saved layer instead of a stale detached JSON.
+        window.patchSyncEngine?.setFontJson?.(this.currentFont!.babelfontData);
+
         if (isInteractiveEdit) {
             this.pendingBabelfontJsonSyncAfterDrag = true;
         } else {
