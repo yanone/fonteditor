@@ -58,6 +58,10 @@
     z-index: 11000;
 }
 
+.file-context-menu-backdrop {
+    z-index: 11098;
+}
+
 .file-dialog-shell {
     width: min(980px, calc(100vw - 48px));
     max-width: min(980px, calc(100vw - 48px));

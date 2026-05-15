@@ -938,6 +938,7 @@ function setupMenuItemHandlers(
 
 // Track file context menu tippy instances for cleanup
 let fileContextMenuTippyInstances: TippyInstance[] = [];
+const FILE_DIALOG_CONTEXT_MENU_Z_INDEX = 11099;
 
 function setupFileContextMenus() {
     // Destroy old tippy instances to prevent orphaned poppers
@@ -961,6 +962,8 @@ function setupFileContextMenus() {
         const name = element.getAttribute('data-name') || '';
         const isDir = element.getAttribute('data-is-dir') === 'true';
 
+        element.dataset.hasContextMenu = 'true';
+
         // Create Tippy context menu
         const tippyInstance = tippy(element, {
             content: createFileContextMenuHtml(path, name, isDir),
@@ -973,7 +976,7 @@ function setupFileContextMenus() {
             offset: [0, 0],
             appendTo: document.body,
             hideOnClick: false,
-            zIndex: 9999,
+            zIndex: FILE_DIALOG_CONTEXT_MENU_Z_INDEX,
             getReferenceClientRect: null as any, // Will be set on show
             onShown: (instance) => {
                 const menu = instance.popper.querySelector(
@@ -1037,28 +1040,47 @@ function setupFileContextMenus() {
             activeClass: 'file-item-active'
         });
 
-        // Prevent default context menu and show Tippy menu at mouse position
-        element.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+        const showContextMenuAtEvent = (event: MouseEvent): void => {
+            event.preventDefault();
+            event.stopPropagation();
 
-            // Set position to mouse cursor
+            if (!isDir) {
+                selectFile(path);
+            }
+
+            tippyInstance.hide();
+
+            // Refresh content and anchor point on every open so reused file rows
+            // keep their current action set and menu position.
             tippyInstance.setProps({
                 content: createFileContextMenuHtml(path, name, isDir),
                 getReferenceClientRect: () => ({
                     width: 0,
                     height: 0,
-                    top: e.clientY,
-                    bottom: e.clientY,
-                    left: e.clientX,
-                    right: e.clientX,
-                    x: e.clientX,
-                    y: e.clientY,
+                    top: event.clientY,
+                    bottom: event.clientY,
+                    left: event.clientX,
+                    right: event.clientX,
+                    x: event.clientX,
+                    y: event.clientY,
                     toJSON: () => ({})
                 })
             });
 
             tippyInstance.show();
+        };
+
+        element.addEventListener('pointerdown', (event: PointerEvent) => {
+            if (event.button !== 2) {
+                return;
+            }
+
+            showContextMenuAtEvent(event);
+        });
+
+        // Prevent default context menu and show Tippy menu at mouse position
+        element.addEventListener('contextmenu', (e) => {
+            showContextMenuAtEvent(e);
         });
 
         // Store tippy instance on element (for debugging access)
@@ -3008,6 +3030,15 @@ function initFileDialogModal(): void {
             closeFontFileDialog();
         }
     });
+
+    dialog.addEventListener(
+        'contextmenu',
+        (event: Event) => {
+            event.preventDefault();
+            event.stopPropagation();
+        },
+        true
+    );
 
     document.addEventListener('keydown', (event: KeyboardEvent) => {
         if (event.key === 'Escape' && isFileDialogOpen()) {

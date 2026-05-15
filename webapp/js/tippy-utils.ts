@@ -11,7 +11,37 @@ type EscapeHandler = () => void;
 
 const visibleTippyStack: any[] = [];
 const tippyEscapeHandlers = new WeakMap<any, EscapeHandler>();
+const nativeContextMenuSuppressedElements = new WeakSet<HTMLElement>();
 let escapePriorityListenerInstalled = false;
+
+function suppressNativeContextMenu(element: HTMLElement | null): void {
+    if (!element || nativeContextMenuSuppressedElements.has(element)) {
+        return;
+    }
+
+    nativeContextMenuSuppressedElements.add(element);
+    element.dataset.hasContextMenu = 'true';
+
+    element.addEventListener(
+        'contextmenu',
+        (event: Event) => {
+            event.preventDefault();
+        },
+        true
+    );
+
+    element.addEventListener(
+        'pointerdown',
+        (event: PointerEvent) => {
+            if (event.button !== 2) {
+                return;
+            }
+
+            event.preventDefault();
+        },
+        true
+    );
+}
 
 function removeFromVisibleStack(instance: any): void {
     const idx = visibleTippyStack.lastIndexOf(instance);
@@ -94,6 +124,10 @@ export function addTippyBackdropSupport(
     }
 ): void {
     installEscapePriorityListener();
+
+    suppressNativeContextMenu(options?.targetElement || null);
+    suppressNativeContextMenu(tippyInstance.popper || null);
+    suppressNativeContextMenu(backdrop);
 
     const originalOnShow = tippyInstance.props.onShow;
     const originalOnShown = tippyInstance.props.onShown;

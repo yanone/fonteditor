@@ -363,15 +363,28 @@ if (document.readyState === 'loading') {
     showUnsupportedBrowserOverlay();
 }
 
-// Disable default browser context menu in production
-// Allow only on elements with custom tippy menus (marked with data-has-context-menu)
-// or text input elements where selection context menu is useful
+// Disable default browser context menu in production.
+// Custom Tippy menu targets opt in with data-has-context-menu so the native
+// browser menu is suppressed while the app's own handler can still run.
+// Text input elements remain exempt so copy/paste stays available.
 const disableDefaultContextMenu = () => {
     if (window.isProduction && window.isProduction()) {
         document.addEventListener(
             'contextmenu',
             (e) => {
                 const target = e.target as HTMLElement;
+
+                // Suppress the browser menu on custom context-menu targets,
+                // but do not stop propagation so app handlers can still open
+                // their own Tippy menus.
+                if (
+                    target.closest(
+                        '[data-has-context-menu="true"], .tippy-box, .plugin-menu-backdrop'
+                    )
+                ) {
+                    e.preventDefault();
+                    return;
+                }
 
                 // Allow on text input/textarea for copy/paste
                 if (
