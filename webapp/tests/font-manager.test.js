@@ -311,7 +311,7 @@ describe('FontManager saveLayerData', () => {
         expect(topAnchor?.x).toBe(333);
     });
 
-    test('interactive saves commit stored layer data in place before deferred JSON sync', async () => {
+    test('interactive saves reject malformed path nodes before mutating stored data', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
         );
@@ -327,12 +327,14 @@ describe('FontManager saveLayerData', () => {
             }
         ];
 
-        await fontManager.saveLayerData(
-            'a',
-            layer.id,
-            editedLayer,
-            'keyboard-outline'
-        );
+        await expect(
+            fontManager.saveLayerData(
+                'a',
+                layer.id,
+                editedLayer,
+                'keyboard-outline'
+            )
+        ).rejects.toThrow(/Path shape nodes must be an array/);
 
         const savedLayer = fontManager.currentFont.babelfontData.glyphs
             .find((entry) => entry.name === 'a')
@@ -344,7 +346,7 @@ describe('FontManager saveLayerData', () => {
         expect(savedLayer).toBe(originalLayerRef);
         expect(savedLayer.shapes).toEqual(layer.shapes);
         expect(modelLayer.toJSON().shapes).toEqual(layer.shapes);
-        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
+        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
     });
 
     test('interactive saves rebind the bridge snapshot to the authoritative font JSON', async () => {
@@ -475,74 +477,42 @@ describe('FontManager saveLayerData', () => {
         expect(serialized.shapes).toBeUndefined();
     });
 
-    test('serializeLayerForStorage preserves existing paths when incoming shapes have legacy string nodes', () => {
+    test('serializeLayerForStorage rejects malformed path nodes instead of repairing them', () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
         );
         const layer = glyph.layers.find(
             (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
         );
-        const originalFirstShape = cloneJson(layer.shapes[0]);
-        const originalSecondShape = cloneJson(layer.shapes[1]);
-
-        const serialized = fontManager.serializeLayerForStorage(
-            'a',
-            layer.id,
-            {
-                ...cloneJson(layer),
-                shapes: [
-                    {
-                        nodes: '0 0 l 100 0 l',
-                        closed: false
-                    },
-                    {
-                        Path: {
-                            nodes: '0 0 l 50 50 l',
+        expect(() =>
+            fontManager.serializeLayerForStorage(
+                'a',
+                layer.id,
+                {
+                    ...cloneJson(layer),
+                    shapes: [
+                        {
+                            nodes: '0 0 l 100 0 l',
                             closed: false
                         }
-                    },
-                    {
-                        nodes: [
-                            { x: 0, y: 0, type: 'l' },
-                            { x: 100, y: 0, type: 'l' }
-                        ]
-                    },
-                    {
-                        reference: 'acute',
-                        transform: [1, 0, 0, 1, 10, 20]
-                    }
-                ]
-            },
-            undefined
-        );
-
-        expect(serialized.shapes).toEqual([
-            {
-                nodes: [
-                    { x: 0, y: 0, type: 'l' },
-                    { x: 100, y: 0, type: 'l' }
-                ],
-                closed: false
-            },
-            {
-                reference: 'acute',
-                transform: {
-                    translation: [10, 20],
-                    scale: [1, 1],
-                    rotation: -0,
-                    skew: [0, 0],
-                    order: 'RestOfTheWorld'
-                }
-            }
-        ]);
+                    ]
+                },
+                undefined
+            )
+        ).toThrow(/Path shape nodes must be an array/);
     });
 
     test('saveLayerData rejects missing layer widths before mutating stored data', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
         );
-            originalFirstShape,
-            originalSecondShape,
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        const originalLayer = cloneJson(layer);
+        const editedLayer = cloneJson(layer);
+        delete editedLayer.width;
+
         await expect(
             fontManager.saveLayerData(
                 'a',
@@ -802,7 +772,7 @@ describe('FontManager saveLayerData', () => {
         ).toBe(explicitLayer.width);
     });
 
-    test('refreshGlyphsAfterModelBatch drops invalid hybrid shapes before sending layer data to Rust', async () => {
+    test('refreshGlyphsAfterModelBatch rejects invalid path nodes before sending layer data to Rust', async () => {
         const currentFont = fontManager.currentFont;
         const glyph = currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
@@ -826,16 +796,10 @@ describe('FontManager saveLayerData', () => {
             }
         ];
 
-        await fontManager.refreshGlyphsAfterModelBatch(['a'], layerId);
-
-        expect(sendMessageSpy).toHaveBeenCalledWith(
-            expect.objectContaining({
-                type: 'applyYjsUpdate',
-                invalidateLayoutClosure: false,
-                update: expect.any(Uint8Array),
-                changedGlyphs: ['a']
-            })
-        );
+        await expect(
+            fontManager.refreshGlyphsAfterModelBatch(['a'], layerId)
+        ).rejects.toThrow(/Path shape nodes must be an array/);
+        expect(sendMessageSpy).not.toHaveBeenCalled();
     });
 
     test('refreshGlyphsAfterModelBatch incrementally patches multiple changed glyph layers', async () => {
@@ -1092,34 +1056,35 @@ describe('FontManager editing subset inclusion', () => {
         fontCompilation.isInitialized = originalFontCompilationInitialized;
     });
 
-    test('validateAndFixBabelfontJsonForRust canonicalizes DefaultForMaster layer ids to their master ids', () => {
+    test('validateBabelfontJsonForRust preserves DefaultForMaster layer ids instead of rewriting them', () => {
         const fontData = cloneJson(fontManager.currentFont.babelfontData);
         fontData.glyphs[0].name = 'a';
         fontData.glyphs[0].layers[0].id = 'temp-layer-id';
+        const masterId = fontData.masters[0].id;
         fontData.glyphs[0].layers[0].master = {
             type: 'DefaultForMaster',
-            master: 'master-1'
+            master: masterId
         };
 
-        const validatedJson = fontManager['validateAndFixBabelfontJsonForRust'](
+        const validatedJson = fontManager['validateBabelfontJsonForRust'](
             JSON.stringify(fontData),
             true
         );
         const validatedData = JSON.parse(validatedJson);
 
-        expect(validatedData.glyphs[0].layers[0].id).toBe('master-1');
+        expect(validatedData.glyphs[0].layers[0].id).toBe('temp-layer-id');
         expect(validatedData.glyphs[0].layers[0].master).toEqual({
             type: 'DefaultForMaster',
-            master: 'master-1'
+            master: masterId
         });
     });
 
-    test('validateAndFixBabelfontJsonForRust rejects missing layer widths instead of synthesizing zero', () => {
+    test('validateBabelfontJsonForRust rejects missing layer widths instead of synthesizing zero', () => {
         const fontData = cloneJson(fontManager.currentFont.babelfontData);
         delete fontData.glyphs[0].layers[0].width;
 
         expect(() =>
-            fontManager['validateAndFixBabelfontJsonForRust'](
+            fontManager['validateBabelfontJsonForRust'](
                 JSON.stringify(fontData),
                 true
             )
@@ -2261,6 +2226,83 @@ describe('FontManager boundary-crossing budget', () => {
         }
     });
 
+    test('serializes overlapping incremental worker Yjs sends', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+        const modelLayer = currentFont.fontModel
+            .findGlyph('a')
+            .findLayerById(layerId);
+
+        let inFlight = 0;
+        let maxInFlight = 0;
+        const resolvers = [];
+
+        sendMessageSpy.mockReset();
+        sendMessageSpy.mockImplementation((message) => {
+            if (message?.type !== 'applyYjsUpdate') {
+                return Promise.resolve({ success: true });
+            }
+
+            inFlight += 1;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+
+            return new Promise((resolve) => {
+                resolvers.push(() => {
+                    inFlight -= 1;
+                    resolve({ success: true });
+                });
+            });
+        });
+
+        const flushMacrotask = () =>
+            new Promise((resolve) => setTimeout(resolve, 0));
+
+        let firstRefresh;
+        let secondRefresh;
+        try {
+            modelLayer.width += 10;
+            firstRefresh = fontManager.refreshGlyphsAfterModelBatch(
+                ['a'],
+                layerId,
+                { skipFingerprintBaseline: true }
+            );
+
+            await flushMacrotask();
+            expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+            expect(maxInFlight).toBe(1);
+
+            modelLayer.width += 11;
+            secondRefresh = fontManager.refreshGlyphsAfterModelBatch(
+                ['a'],
+                layerId,
+                { skipFingerprintBaseline: true }
+            );
+
+            await flushMacrotask();
+            expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+            expect(maxInFlight).toBe(1);
+
+            resolvers.shift()?.();
+            await flushMacrotask();
+            await flushMacrotask();
+
+            expect(sendMessageSpy).toHaveBeenCalledTimes(2);
+            expect(maxInFlight).toBe(1);
+
+            resolvers.shift()?.();
+            await Promise.all([firstRefresh, secondRefresh]);
+
+            expect(maxInFlight).toBe(1);
+        } finally {
+            while (resolvers.length) {
+                resolvers.shift()?.();
+            }
+            await Promise.allSettled(
+                [firstRefresh, secondRefresh].filter(Boolean)
+            );
+        }
+    });
+
     test('undo/redo replay targets keep boundary crossing budget at zero full-font crossings', async () => {
         const currentFont = fontManager.currentFont;
         const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
@@ -2425,6 +2467,29 @@ describe('FontCompilation worker cache readiness', () => {
                 type: 'compileEditingCached',
                 subsetKey: 'alef\u001fbeh',
                 layoutClosureKey: 'alef\u001fbeh\u001ekern\u001fliga'
+            })
+        );
+    });
+
+    test('compileEditingFromJsonCached forwards undo/redo compile source metadata to the worker', async () => {
+        fontCompilation.setWorkerCacheDocumentReady(true);
+
+        await fontCompilation.compileEditingFromJsonCached(
+            '{"glyphs":[]}',
+            '12',
+            ['o', 'odieresis'],
+            {
+                compileSource: 'keyboard-undo-redo',
+                selectedFeatures: ['kern']
+            }
+        );
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'compileEditingCached',
+                subsetGlyphs: ['o', 'odieresis'],
+                layoutClosureKey: 'o\u001fodieresis\u001ekern',
+                _compileSource: 'keyboard-undo-redo'
             })
         );
     });

@@ -73,7 +73,12 @@ export class LayerDataNormalizer {
     static normalizeShapes(shapes: any[], isInterpolated: boolean): any[] {
         return shapes.map((shape, shapeIndex) => {
             if ('nodes' in shape) {
-                // Nodes are always arrays from all sources now.
+                if (!Array.isArray(shape.nodes)) {
+                    throw new TypeError(
+                        `Path shape nodes must be an array before layer data normalization (shape ${shapeIndex}).`
+                    );
+                }
+
                 return {
                     ...shape,
                     isInterpolated: isInterpolated

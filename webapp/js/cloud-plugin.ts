@@ -78,12 +78,10 @@ function getCloudRequestHeaders(
     return headers;
 }
 
-function normalizeCloudExportForFontOpen(
+function validateCloudExportForFontOpen(
     fontJson: Record<string, unknown>,
     _operation: 'open' | 'save' = 'open'
 ) {
-    let fixCount = 0;
-
     const glyphs = Array.isArray(fontJson.glyphs) ? fontJson.glyphs : [];
     for (const glyph of glyphs) {
         const glyphRecord =
@@ -111,27 +109,18 @@ function normalizeCloudExportForFontOpen(
                     typeof shapeRecord.Path === 'object' &&
                     !Array.isArray(shapeRecord.Path)
                 ) {
-                    const payload = shapeRecord.Path as Record<string, unknown>;
-                    for (const key of Object.keys(shapeRecord)) {
-                        delete shapeRecord[key];
-                    }
-                    Object.assign(shapeRecord, payload);
-                    fixCount++;
+                    throw new TypeError(
+                        'Wrapped Path shapes are not allowed in cloud-exported font data.'
+                    );
                 } else if (
                     'Component' in shapeRecord &&
                     shapeRecord.Component &&
                     typeof shapeRecord.Component === 'object' &&
                     !Array.isArray(shapeRecord.Component)
                 ) {
-                    const payload = shapeRecord.Component as Record<
-                        string,
-                        unknown
-                    >;
-                    for (const key of Object.keys(shapeRecord)) {
-                        delete shapeRecord[key];
-                    }
-                    Object.assign(shapeRecord, payload);
-                    fixCount++;
+                    throw new TypeError(
+                        'Wrapped Component shapes are not allowed in cloud-exported font data.'
+                    );
                 }
 
                 const pathShape = shape as {
@@ -140,8 +129,9 @@ function normalizeCloudExportForFontOpen(
                 };
                 if (Array.isArray(pathShape.nodes)) {
                     if (pathShape.closed === undefined) {
-                        pathShape.closed = false;
-                        fixCount++;
+                        throw new TypeError(
+                            'Cloud-exported path shapes must carry an explicit closed flag.'
+                        );
                     }
                     continue;
                 }
@@ -159,15 +149,14 @@ function normalizeCloudExportForFontOpen(
                         JSON.stringify(componentShape.transform) !==
                         JSON.stringify(normalizedTransform)
                     ) {
-                        componentShape.transform = normalizedTransform;
-                        fixCount++;
+                        throw new TypeError(
+                            'Cloud-exported component shapes must carry canonical transform objects.'
+                        );
                     }
                 }
             }
         }
     }
-
-    return fixCount;
 }
 
 function getCloudFontJsonFromBridge(
@@ -191,7 +180,7 @@ function assertCloudBridgeStateCanBeSaved(
     if (!fontJson) {
         throw new Error('No active font data to save to cloud');
     }
-    normalizeCloudExportForFontOpen(fontJson, 'save');
+    validateCloudExportForFontOpen(fontJson, 'save');
 }
 
 function cloneCloudFontJson(
@@ -994,17 +983,11 @@ export class CloudPlugin extends FilesystemPlugin {
             throw new Error(`Cloud asset ${assetId} has no font data`);
         }
 
-        let sanitizeFixCount: number;
         try {
-            sanitizeFixCount = normalizeCloudExportForFontOpen(fontJson);
+            validateCloudExportForFontOpen(fontJson);
         } catch (error) {
             bootstrapAdapter.disconnect();
             throw error;
-        }
-        if (sanitizeFixCount > 0) {
-            console.warn(
-                `[${assetId}] sanitized ${sanitizeFixCount} cloud-exported babelfont fields before font open`
-            );
         }
 
         const babelfontJson = JSON.stringify(fontJson);
@@ -1120,7 +1103,7 @@ export class CloudPlugin extends FilesystemPlugin {
         }
 
         const seedFontJson = await waitForCloudSaveSeedFontJson();
-        normalizeCloudExportForFontOpen(seedFontJson, 'save');
+        validateCloudExportForFontOpen(seedFontJson, 'save');
 
         await waitForCloudSaveBridge();
 

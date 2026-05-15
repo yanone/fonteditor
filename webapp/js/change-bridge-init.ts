@@ -1998,7 +1998,7 @@ export function runBridgeUndoRedo(
             glyphName,
             {
                 workerReplayTargets:
-                    workerReplayTargets.length === 0 ? workerReplayTargets : [],
+                    workerReplayTargets.length > 0 ? workerReplayTargets : [],
                 skipDeferredCanvasRepaint:
                     appliedImmediateSidebearingSync &&
                     isDirectSidebearingHistory,
@@ -2006,20 +2006,14 @@ export function runBridgeUndoRedo(
             }
         );
 
-        if (workerReplayTargets.length === 0) {
-            // Start the Rust/cache refresh before requesting an editing compile so
-            // the compile loop can observe the in-flight worker update and wait for it.
-            await requestUndoRedoEditingFontCompile(false, undoEditType);
-            await rustCacheRefreshPromise;
-
-            // Undo/redo can request a compile before the Rust cache refresh above
-            // has finished, which risks compiling against stale worker data.
-            // Re-request compilation after the refresh completes so the editing
-            // font is rebuilt from the restored state.
-            await requestUndoRedoEditingFontCompile(true, undoEditType);
-        } else {
-            await rustCacheRefreshPromise;
-        }
+        // Undo/redo must follow the same compile handshake regardless of
+        // whether replay targets are available: request an immediate editing
+        // compile so the loop is awake while the worker refresh is in flight,
+        // then request again after the refresh settles so the rebuilt editing
+        // font sees the restored Rust cache state.
+        await requestUndoRedoEditingFontCompile(false, undoEditType);
+        await rustCacheRefreshPromise;
+        await requestUndoRedoEditingFontCompile(true, undoEditType);
 
         // Anchor-only and outline-only compiles still use the interactive
         // fast path; schedule a trailing debounced full compile so the editor

@@ -6419,9 +6419,11 @@ export class OutlineEditor {
                 );
 
                 const currentLayerData = this.getCurrentLayerDataFromStack();
-                const exactCurrentLayerData = this.cloneLayerData(
-                    preservedExactNormalized
-                );
+                const exactCurrentLayerData = preferExactComponentTransforms
+                    ? this.cloneLayerData(preservedExactNormalized)
+                    : this.stripComponentTransformsFromLayerData(
+                          preservedExactNormalized
+                      );
 
                 if (
                     exactCurrentLayerData.shapes &&
@@ -6464,8 +6466,13 @@ export class OutlineEditor {
             (interpolatedNormalized?.shapes?.length ||
                 exactLayerBase?.shapes?.length)
         ) {
+            const exactShapesForMerge = preferExactComponentTransforms
+                ? mergedExactNormalized.shapes
+                : this.stripComponentTransformsFromLayerData({
+                      shapes: mergedExactNormalized.shapes
+                  }).shapes;
             mergedExactNormalized.shapes = this.mergeSelectedLayerShapes(
-                mergedExactNormalized.shapes,
+                exactShapesForMerge,
                 interpolatedNormalized?.shapes || exactLayerBase?.shapes || [],
                 preferExactComponentTransforms
             );
@@ -6602,10 +6609,14 @@ export class OutlineEditor {
                               }
 
                               if ('nodes' in shape) {
+                                  if (!Array.isArray(shape.nodes)) {
+                                      throw new TypeError(
+                                          '[OutlineEditor] Path shape nodes must be an array before interpolation payload serialization.'
+                                      );
+                                  }
+
                                   const serializedPath: Record<string, any> = {
-                                      nodes: Array.isArray(shape.nodes)
-                                          ? shape.nodes
-                                          : shape.nodes
+                                      nodes: this.cloneLayerData(shape.nodes)
                                   };
 
                                   if (shape.closed !== undefined) {
@@ -6701,6 +6712,41 @@ export class OutlineEditor {
         delete serializedLayerData._interpolationLocation;
 
         return serializedLayerData;
+    }
+
+    private stripComponentTransformsFromLayerData(layerData: any): any {
+        if (!layerData || typeof layerData !== 'object') {
+            return layerData;
+        }
+
+        const clonedLayerData = this.cloneLayerData(layerData);
+        if (!Array.isArray(clonedLayerData.shapes)) {
+            return clonedLayerData;
+        }
+
+        clonedLayerData.shapes = clonedLayerData.shapes.map((shape: any) => {
+            if (
+                !shape ||
+                typeof shape !== 'object' ||
+                !('reference' in shape)
+            ) {
+                return shape;
+            }
+
+            const { transform: _transform, ...shapeWithoutTransform } = shape;
+            return {
+                ...shapeWithoutTransform,
+                ...(shape.layerData
+                    ? {
+                          layerData: this.stripComponentTransformsFromLayerData(
+                              shape.layerData
+                          )
+                      }
+                    : {})
+            };
+        });
+
+        return clonedLayerData;
     }
 
     private getPreferredComponentLayer(
@@ -6887,11 +6933,13 @@ export class OutlineEditor {
 
         const serializedLayerData =
             this.serializeLayerDataAsInterpolationPayload(exactLayerData);
+        const preferExactComponentTransforms =
+            this.shouldPreferExactSelectedLayerComponentTransforms(layer);
         const preservedSerializedLayerData = this.preserveMissingLayerFields(
             serializedLayerData,
             rawLayerData
         );
-        if (this.shouldPreferExactSelectedLayerComponentTransforms(layer)) {
+        if (preferExactComponentTransforms) {
             preservedSerializedLayerData.__preferExactComponentTransforms = true;
         }
 
@@ -7078,12 +7126,18 @@ export class OutlineEditor {
         return closestMaster?.id || null;
     }
 
-    private sanitizeShapeForStoredLayer(shape: any): any {
+    private copyShapeForStoredLayer(shape: any): any {
         if (!shape || typeof shape !== 'object') {
             return shape;
         }
 
         if ('nodes' in shape) {
+            if (!Array.isArray(shape.nodes)) {
+                throw new TypeError(
+                    '[OutlineEditor] Path shape nodes must be an array before stored-layer materialization.'
+                );
+            }
+
             return {
                 nodes: this.cloneLayerData(shape.nodes),
                 closed: !!shape.closed,
@@ -7119,7 +7173,7 @@ export class OutlineEditor {
         return this.cloneLayerData(shape);
     }
 
-    private sanitizeLayerDataForStoredLayer(layerData: any): {
+    private copyLayerDataForStoredLayer(layerData: any): {
         width: number;
         height?: number;
         vertWidth?: number;
@@ -7146,7 +7200,7 @@ export class OutlineEditor {
             ...(Array.isArray(layerData?.shapes)
                 ? {
                       shapes: layerData.shapes.map((shape: any) =>
-                          this.sanitizeShapeForStoredLayer(shape)
+                          this.copyShapeForStoredLayer(shape)
                       )
                   }
                 : {}),
@@ -7295,8 +7349,7 @@ export class OutlineEditor {
             interpolatedLayer,
             true
         );
-        const layerPayload =
-            this.sanitizeLayerDataForStoredLayer(normalizedLayer);
+        const layerPayload = this.copyLayerDataForStoredLayer(normalizedLayer);
         const newLayer = this.materializeStoredInterpolatedLayer(
             glyph,
             {
@@ -7446,7 +7499,7 @@ export class OutlineEditor {
         }
 
         const changeSource = options?.changeSource || 'layer-reinterpolate';
-        const originalLayerPayload = this.sanitizeLayerDataForStoredLayer(
+        const originalLayerPayload = this.copyLayerDataForStoredLayer(
             layer.toJSON()
         );
         const bridge = window.patchSyncEngine;
@@ -7477,7 +7530,7 @@ export class OutlineEditor {
                 true
             );
             const layerPayload =
-                this.sanitizeLayerDataForStoredLayer(normalizedLayer);
+                this.copyLayerDataForStoredLayer(normalizedLayer);
             const newLayer = this.materializeStoredInterpolatedLayer(
                 glyph,
                 {

@@ -94,23 +94,44 @@ const defaultCloudFontJson = {
                     width: 600,
                     shapes: [
                         {
+                            nodes: [
+                                { x: 0, y: 0, type: 'l' },
+                                { x: 100, y: 0, type: 'l' }
+                            ],
+                            closed: false
+                        },
+                        {
+                            reference: 'acutecomb',
+                            transform: {
+                                translation: [12, 34],
+                                rotation: 15,
+                                scale: [1.2, 0.8],
+                                skew: [3, 4],
+                                order: 'Glyphs'
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+};
+
+const wrappedCloudFontJson = {
+    glyphs: [
+        {
+            name: 'A',
+            layers: [
+                {
+                    id: 'L0',
+                    width: 600,
+                    shapes: [
+                        {
                             Path: {
                                 nodes: [
                                     { x: 0, y: 0, type: 'l' },
                                     { x: 100, y: 0, type: 'l' }
                                 ]
-                            }
-                        },
-                        {
-                            Component: {
-                                reference: 'acutecomb',
-                                transform: {
-                                    translation: [12, 34],
-                                    rotation: 15,
-                                    scale: [1.2, 0.8],
-                                    skew: [3, 4],
-                                    order: 'Glyphs'
-                                }
                             }
                         }
                     ]
@@ -185,8 +206,8 @@ describe('CloudPlugin.openAsset', () => {
                     handler();
                 }
             }
-            return true;
         });
+
         window.dispatchEvent = dispatchSpy;
 
         plugin = new CloudPlugin();
@@ -208,43 +229,18 @@ describe('CloudPlugin.openAsset', () => {
         delete window.patchSyncEngine;
     });
 
-    test('sanitizes wrapped cloud-exported shapes before dispatching fontLoaded', async () => {
-        await plugin.openAsset('asset-1');
+    test('rejects wrapped cloud-exported shapes before dispatching fontLoaded', async () => {
+        mockYDocToJson.mockReturnValueOnce(wrappedCloudFontJson);
+
+        await expect(plugin.openAsset('asset-1')).rejects.toThrow(
+            'Wrapped Path shapes are not allowed in cloud-exported font data.'
+        );
 
         const fontLoadedEvent = dispatchSpy.mock.calls
             .map(([event]) => event)
             .find((event) => event.type === 'fontLoaded');
 
-        expect(fontLoadedEvent).toBeDefined();
-
-        const parsed = JSON.parse(fontLoadedEvent.detail.babelfontJson);
-        const layer = parsed.glyphs[0].layers[0];
-
-        expect(layer.shapes[0]).toEqual({
-            nodes: [
-                { type: 'l', x: 0, y: 0 },
-                { type: 'l', x: 100, y: 0 }
-            ],
-            closed: false
-        });
-        expect(layer.shapes[1]).toEqual({
-            reference: 'acutecomb',
-            transform: {
-                translation: [12, 34],
-                rotation: 15,
-                scale: [1.2, 0.8],
-                skew: [3, 4],
-                order: 'Glyphs'
-            }
-        });
-        expect(window.__pendingCloudBridgeBootstrapState).toBe(mockBridgeState);
-        expect(window.__pendingCloudBridgeBootstrapChangeLog).toEqual(
-            mockLatestTempBridge.getChangeLog()
-        );
-        expect(window.addEventListener).toHaveBeenCalledWith(
-            'fontModelReady',
-            expect.any(Function)
-        );
+        expect(fontLoadedEvent).toBeUndefined();
     });
 
     test('allows cloud-exported layers missing width on open (sparse delta pipeline self-heals)', async () => {

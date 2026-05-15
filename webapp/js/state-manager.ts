@@ -169,6 +169,36 @@ async function sendErrorReportToServer(payload: Record<string, any>) {
     }
 }
 
+/**
+ * Build the full runtime-style error payload used for server reporting.
+ */
+export async function buildErrorReportPayload(
+    error: Error | any,
+    source: string,
+    actionContext?: string
+): Promise<Record<string, any>> {
+    const runtimeContext = getErrorRuntimeContext();
+    const mappedReport = await stateManager.captureErrorMapped(
+        error,
+        actionContext
+    );
+    const snapshot = stateManager.getStateSnapshot();
+
+    return {
+        ...mappedReport,
+        state: snapshot.state,
+        history: snapshot.history,
+        events: snapshot.events,
+        source,
+        reason: safeErrorReason(error),
+        runtimeContext,
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        appVersion: (window as any).EDITOR_VERSION || null,
+        buildHash: (window as any).BUILD_HASH_FULL || null
+    };
+}
+
 export class StateManager {
     private _state: Record<string, any> = {};
     private _history: StateChange[] = [];
@@ -647,53 +677,27 @@ const stateManager = new StateManager();
 // Install global error handlers
 window.addEventListener('error', async (event) => {
     const reason = event.error || event.message || 'Unknown window error';
-    const runtimeContext = getErrorRuntimeContext();
     stateManager.captureError(reason, 'window.error');
-    const mappedReport = await stateManager.captureErrorMapped(
+    const payload = await buildErrorReportPayload(
         reason,
+        'editor.window.error',
         'window.error'
     );
-    const snapshot = stateManager.getStateSnapshot();
 
-    void sendErrorReportToServer({
-        ...mappedReport,
-        state: snapshot.state,
-        history: snapshot.history,
-        events: snapshot.events,
-        source: 'editor.window.error',
-        reason: safeErrorReason(reason),
-        runtimeContext,
-        url: window.location.href,
-        userAgent: navigator.userAgent,
-        appVersion: (window as any).EDITOR_VERSION || null,
-        buildHash: (window as any).BUILD_HASH_FULL || null
-    });
+    void sendErrorReportToServer(payload);
 });
 
 window.addEventListener('unhandledrejection', async (event) => {
     const reason = event.reason || 'Unhandled promise rejection';
-    const runtimeContext = getErrorRuntimeContext();
 
     stateManager.captureError(reason, 'window.unhandledrejection');
-    const mappedReport = await stateManager.captureErrorMapped(
+    const payload = await buildErrorReportPayload(
         reason,
+        'editor.window.unhandledrejection',
         'window.unhandledrejection'
     );
-    const snapshot = stateManager.getStateSnapshot();
 
-    void sendErrorReportToServer({
-        ...mappedReport,
-        state: snapshot.state,
-        history: snapshot.history,
-        events: snapshot.events,
-        source: 'editor.window.unhandledrejection',
-        reason: safeErrorReason(reason),
-        runtimeContext,
-        url: window.location.href,
-        userAgent: navigator.userAgent,
-        appVersion: (window as any).EDITOR_VERSION || null,
-        buildHash: (window as any).BUILD_HASH_FULL || null
-    });
+    void sendErrorReportToServer(payload);
 });
 
 export default stateManager;

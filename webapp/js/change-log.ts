@@ -121,6 +121,8 @@ export interface ChangeLogEntry {
     visualAnchorSide?: 'left' | 'right' | null;
     /** Exact worker cache layer targets needed to replay this edit incrementally */
     workerReplayTargets: WorkerReplayTarget[];
+    /** Original semantic entries represented by an undo/redo control row. */
+    semanticChangeLogEntries?: ChangeLogEntry[];
 }
 
 let _nextId = 1;
@@ -138,6 +140,7 @@ export function createLogEntry(
         | 'historyTargetKey'
         | 'historyTargetLabel'
         | 'workerReplayTargets'
+        | 'semanticChangeLogEntries'
     > & {
         historyItemId?: string;
         historyAction?: HistoryAction;
@@ -158,6 +161,7 @@ export function createLogEntry(
         workerReplayTargets?: WorkerReplayTarget[];
         replayOldValue?: unknown;
         replayNewValue?: unknown;
+        semanticChangeLogEntries?: ChangeLogEntry[];
     }
 ): ChangeLogEntry {
     const nextId = _nextId++;
@@ -186,7 +190,8 @@ export function createLogEntry(
         visualAnchorSide: fields.visualAnchorSide ?? null,
         workerReplayTargets: normalizeWorkerReplayTargets(
             fields.workerReplayTargets
-        )
+        ),
+        semanticChangeLogEntries: fields.semanticChangeLogEntries ?? undefined
     });
 }
 
@@ -214,6 +219,7 @@ export type ChangeLogEntryLike = Omit<
     workerReplayTargets?: WorkerReplayTarget[] | null;
     replayOldValue?: unknown;
     replayNewValue?: unknown;
+    semanticChangeLogEntries?: ChangeLogEntryLike[] | null;
 };
 
 export interface HistoryStackItem {
@@ -961,6 +967,9 @@ export function normalizeChangeLogEntry(
         visualAnchorSide: entry.visualAnchorSide ?? null,
         workerReplayTargets: normalizeWorkerReplayTargets(
             entry.workerReplayTargets
+        ),
+        semanticChangeLogEntries: entry.semanticChangeLogEntries?.map(
+            (semanticEntry) => normalizeChangeLogEntry(semanticEntry)
         ),
         windowRoleLabel: normalizeWindowRoleLabel(
             entry.windowRoleLabel,

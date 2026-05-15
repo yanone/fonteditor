@@ -9740,7 +9740,12 @@ describe('OutlineEditor exact selected layers', () => {
             width: 999.75,
             shapes: [
                 {
-                    nodes: '150.5 0 l 450.5 0 l 450.5 700 l 150.5 700 l'
+                    nodes: [
+                        { x: 150.5, y: 0, nodetype: 'Line' },
+                        { x: 450.5, y: 0, nodetype: 'Line' },
+                        { x: 450.5, y: 700, nodetype: 'Line' },
+                        { x: 150.5, y: 700, nodetype: 'Line' }
+                    ]
                 },
                 {
                     reference: 'componentGlyph',
@@ -9749,7 +9754,12 @@ describe('OutlineEditor exact selected layers', () => {
                         width: 333.5,
                         shapes: [
                             {
-                                nodes: '33.5 0 l 299.5 0 l 299.5 444.5 l 33.5 444.5 l'
+                                nodes: [
+                                    { x: 33.5, y: 0, nodetype: 'Line' },
+                                    { x: 299.5, y: 0, nodetype: 'Line' },
+                                    { x: 299.5, y: 444.5, nodetype: 'Line' },
+                                    { x: 33.5, y: 444.5, nodetype: 'Line' }
+                                ]
                             }
                         ],
                         anchors: [],
@@ -9863,7 +9873,12 @@ describe('OutlineEditor exact selected layers', () => {
                         width: 300,
                         shapes: [
                             {
-                                nodes: '20 0 l 280 0 l 280 400 l 20 400 l'
+                                nodes: [
+                                    { x: 20, y: 0, nodetype: 'Line' },
+                                    { x: 280, y: 0, nodetype: 'Line' },
+                                    { x: 280, y: 400, nodetype: 'Line' },
+                                    { x: 20, y: 400, nodetype: 'Line' }
+                                ]
                             }
                         ],
                         anchors: [],
@@ -9898,7 +9913,12 @@ describe('OutlineEditor exact selected layers', () => {
                         width: 999.75,
                         shapes: [
                             {
-                                nodes: '150.5 0 l 450.5 0 l 450.5 700 l 150.5 700 l'
+                                nodes: [
+                                    { x: 150.5, y: 0, nodetype: 'Line' },
+                                    { x: 450.5, y: 0, nodetype: 'Line' },
+                                    { x: 450.5, y: 700, nodetype: 'Line' },
+                                    { x: 150.5, y: 700, nodetype: 'Line' }
+                                ]
                             },
                             {
                                 reference: 'componentGlyph',
@@ -11259,7 +11279,13 @@ describe('OutlineEditor exact selected layers', () => {
                 width: 999.75,
                 shapes: [
                     {
-                        nodes: '150.5 0 l 450.5 0 l 450.5 700 l 150.5 700 l'
+                        nodes: [
+                            { x: 150.5, y: 0, type: 'l' },
+                            { x: 450.5, y: 0, type: 'l' },
+                            { x: 450.5, y: 700, type: 'l' },
+                            { x: 150.5, y: 700, type: 'l' }
+                        ],
+                        closed: true
                     }
                 ],
                 anchors: [{ name: 'top', x: 999.9, y: 999.9 }],

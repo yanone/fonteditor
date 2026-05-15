@@ -148,6 +148,64 @@ type UndoTarget = {
     layerId: string | null;
 };
 
+function cloneChangeLogEntryForHistoryAction(
+    entry: ChangeLogEntry,
+    historyAction: 'undo' | 'redo',
+    targetHistoryItemId: string | null,
+    timestamp: number,
+    windowId: string,
+    windowRoleLabel: string
+): ChangeLogEntry {
+    const { semanticChangeLogEntries: _semanticChangeLogEntries, ...fields } =
+        entry;
+    return normalizeChangeLogEntry({
+        ...fields,
+        timestamp,
+        windowId,
+        windowRoleLabel,
+        historyAction,
+        targetHistoryItemId,
+        transactionId: null
+    });
+}
+
+function getSemanticEntriesForHistoryItem(
+    item: HistoryStackItem | null | undefined,
+    historyAction: 'undo' | 'redo',
+    targetHistoryItemId: string | null,
+    timestamp: number,
+    windowId: string,
+    windowRoleLabel: string
+): ChangeLogEntry[] | null {
+    const sourceEntries = item?.entries?.length
+        ? item.entries[0].semanticChangeLogEntries?.length
+            ? item.entries[0].semanticChangeLogEntries
+            : item.entries
+        : null;
+    if (!sourceEntries?.length) {
+        return null;
+    }
+    return sourceEntries.map((itemEntry) =>
+        cloneChangeLogEntryForHistoryAction(
+            itemEntry,
+            historyAction,
+            targetHistoryItemId,
+            timestamp,
+            windowId,
+            windowRoleLabel
+        )
+    );
+}
+
+function getEffectiveEmissionEntries(
+    changeLogEntries: ChangeLogEntry[]
+): ChangeLogEntry[] {
+    const semanticEntries = changeLogEntries.flatMap(
+        (entry) => entry.semanticChangeLogEntries ?? []
+    );
+    return semanticEntries.length ? semanticEntries : changeLogEntries;
+}
+
 type HistoryTarget = {
     type: 'feature' | 'class' | 'prefix';
     key: string;
@@ -617,6 +675,45 @@ export class PatchSyncEngine {
         update: YjsUpdate,
         changeLogEntries: ChangeLogEntry[]
     ): void {
+        const emissionEntries = getEffectiveEmissionEntries(changeLogEntries);
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                emissionEntries,
+                {
+                    localSequence: this._nextCollaborationMessageSequence++,
+                    source: 'change-bridge',
+                    windowId: this.windowId
+                }
+            );
+        if (collaborationMessage) {
+            this._appendCollaborationLogItems([
+                this._createCollaborationLogItem(
+                    collaborationMessage,
+                    update,
+                    'local',
+                    this._deriveForwardChangesFromChangeLogEntries(
+                        emissionEntries
+                    )
+                )
+            ]);
+        }
+        for (const cb of this._localUpdateListeners) {
+            cb(update, collaborationMessage, emissionEntries);
+        }
+        this._yjsWorkerCallback?.(update, emissionEntries);
+        for (const cb of this._committedChangeListeners) {
+            cb(emissionEntries, { origin: 'local', update });
+        }
+    }
+
+    private _emitLocalUpdateWithMetadata(
+        update: YjsUpdate,
+        changeLogEntries: ChangeLogEntry[]
+    ): void {
+        if (!update.length) {
+            return;
+        }
+
         const collaborationMessage =
             createCollaborationMessageEnvelopeFromChangeLogEntries(
                 changeLogEntries,
@@ -879,6 +976,7 @@ export class PatchSyncEngine {
                 path: operation.path,
                 oldValue: cloneHistoryValue(operation.oldValue),
                 newValue: cloneHistoryValue(operation.newValue),
+                visualAnchorSide: operation.visualAnchorSide ?? null,
                 workerReplayTargets: normalizeWorkerReplayTargets(
                     operation.workerReplayTargets
                 )
@@ -1441,6 +1539,15 @@ export class PatchSyncEngine {
         this._suppressRecording = true;
         try {
             const targetHistoryItemId = targetItem?.id ?? null;
+            const timestamp = Date.now();
+            const metadataEntries = getSemanticEntriesForHistoryItem(
+                targetItem,
+                'undo',
+                targetHistoryItemId,
+                timestamp,
+                this.windowId,
+                this._getWindowRoleLabel()
+            );
             const workerReplayTargets = normalizeWorkerReplayTargets([
                 ...(targetItem?.workerReplayTargets ?? []),
                 ...(target.glyphName && target.layerId
@@ -1450,7 +1557,7 @@ export class PatchSyncEngine {
             // Log entry before um.undo() so it's available when the
             // Y.Doc update event fires and WindowSync broadcasts it.
             const entry = createLogEntry({
-                timestamp: Date.now(),
+                timestamp,
                 windowId: this.windowId,
                 windowRoleLabel: this._getWindowRoleLabel(),
                 historyAction: 'undo',
@@ -1467,7 +1574,8 @@ export class PatchSyncEngine {
                           : 'font',
                 oldValue: undefined,
                 newValue: 'undo',
-                workerReplayTargets
+                workerReplayTargets,
+                semanticChangeLogEntries: metadataEntries ?? undefined
             });
             this._appendChangeLogEntry(entry);
 
@@ -1494,7 +1602,19 @@ export class PatchSyncEngine {
                 !this._isApplyingRemote &&
                 !this._suppressAutomaticLocalUpdateEmission
             ) {
-                this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
+                if (metadataEntries?.length) {
+                    const update = Y.encodeStateAsUpdate(
+                        this.yDoc,
+                        localUpdateBaseline
+                    );
+                    this._lastLocalUpdateLogIndex = this._changeLog.length;
+                    this._lastBroadcastStateVector = Y.encodeStateVector(
+                        this.yDoc
+                    );
+                    this._emitLocalUpdateWithMetadata(update, metadataEntries);
+                } else {
+                    this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
+                }
             }
             return {
                 scope,
@@ -1551,6 +1671,15 @@ export class PatchSyncEngine {
         this._suppressRecording = true;
         try {
             const targetHistoryItemId = targetItem?.id ?? null;
+            const timestamp = Date.now();
+            const metadataEntries = getSemanticEntriesForHistoryItem(
+                targetItem,
+                'redo',
+                targetHistoryItemId,
+                timestamp,
+                this.windowId,
+                this._getWindowRoleLabel()
+            );
             const workerReplayTargets = normalizeWorkerReplayTargets([
                 ...(targetItem?.workerReplayTargets ?? []),
                 ...(target.glyphName && target.layerId
@@ -1559,7 +1688,7 @@ export class PatchSyncEngine {
             ]);
             // Log entry before um.redo() so it's available for broadcast.
             const entry = createLogEntry({
-                timestamp: Date.now(),
+                timestamp,
                 windowId: this.windowId,
                 windowRoleLabel: this._getWindowRoleLabel(),
                 historyAction: 'redo',
@@ -1576,7 +1705,8 @@ export class PatchSyncEngine {
                           : 'font',
                 oldValue: undefined,
                 newValue: 'redo',
-                workerReplayTargets
+                workerReplayTargets,
+                semanticChangeLogEntries: metadataEntries ?? undefined
             });
             this._appendChangeLogEntry(entry);
 
@@ -1603,7 +1733,19 @@ export class PatchSyncEngine {
                 !this._isApplyingRemote &&
                 !this._suppressAutomaticLocalUpdateEmission
             ) {
-                this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
+                if (metadataEntries?.length) {
+                    const update = Y.encodeStateAsUpdate(
+                        this.yDoc,
+                        localUpdateBaseline
+                    );
+                    this._lastLocalUpdateLogIndex = this._changeLog.length;
+                    this._lastBroadcastStateVector = Y.encodeStateVector(
+                        this.yDoc
+                    );
+                    this._emitLocalUpdateWithMetadata(update, metadataEntries);
+                } else {
+                    this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
+                }
             }
             return {
                 scope,
@@ -4512,6 +4654,21 @@ export class PatchSyncEngine {
             if (value === null || value === undefined) {
                 layerMap.delete(key);
             } else {
+                // Preserve the layer root map for layer-scoped undo, but
+                // replace array-backed visual subtrees atomically. Repeated
+                // in-place Y.Array rewrites here were observed to stay clean
+                // in JS while producing Rust-side Shape deserialization
+                // failures during incremental worker updates.
+                if (
+                    (key === 'shapes' ||
+                        key === 'anchors' ||
+                        key === 'guides') &&
+                    Array.isArray(value)
+                ) {
+                    layerMap.set(key, toYType(value));
+                    continue;
+                }
+
                 this._replaceYMapEntry(layerMap, key, value);
             }
         }

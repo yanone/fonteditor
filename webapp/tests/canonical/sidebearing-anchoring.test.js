@@ -143,12 +143,14 @@ describe('Sidebearing undo visual anchoring', () => {
     const originalWindow = global.window;
     const originalGlyphCanvas = originalWindow.glyphCanvas;
     const originalFontManager = originalWindow.fontManager;
+    const originalPatchSyncEngine = originalWindow.patchSyncEngine;
     const originalChangeBridge = originalWindow.changeBridge;
     const originalAutoCompileManager = originalWindow.autoCompileManager;
 
     afterEach(() => {
         originalWindow.glyphCanvas = originalGlyphCanvas;
         originalWindow.fontManager = originalFontManager;
+        originalWindow.patchSyncEngine = originalPatchSyncEngine;
         originalWindow.changeBridge = originalChangeBridge;
         originalWindow.autoCompileManager = originalAutoCompileManager;
         jest.clearAllMocks();
@@ -195,7 +197,7 @@ describe('Sidebearing undo visual anchoring', () => {
             lastChangeSource: null,
             lastEditType: null
         };
-        originalWindow.changeBridge = {
+        originalWindow.patchSyncEngine = originalWindow.changeBridge = {
             undo: jest.fn(() => {
                 currentFont.fontModel = {
                     findGlyph: jest.fn(() => ({
@@ -354,7 +356,7 @@ describe('Sidebearing undo visual anchoring', () => {
             lastChangeSource: null,
             lastEditType: null
         };
-        originalWindow.changeBridge = {
+        originalWindow.patchSyncEngine = originalWindow.changeBridge = {
             undo: jest.fn(() => {
                 currentWidth = nextWidth;
                 // Font-scoped: appliedChange has no glyphName/layerId.

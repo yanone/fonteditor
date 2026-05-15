@@ -1240,7 +1240,7 @@ describe('change-bridge-ydoc', () => {
         expect(fromYType(shapes)).toEqual([{ nodes: [{ x: 123 }] }]);
     });
 
-    test('jsonToYDoc writes only flat array-based shapes at ingress', () => {
+    test('jsonToYDoc rejects wrapped shapes at ingress', () => {
         const json = makeMinimalFont();
         json.glyphs[0].layers[0].shapes = [
             {
@@ -1260,37 +1260,9 @@ describe('change-bridge-ydoc', () => {
         const doc = new Y.Doc();
         const fontMap = doc.getMap('font');
 
-        doc.transact(() => jsonToYDoc(json, fontMap));
-
-        expect(
-            fromYType(
-                getYPath(fontMap, [
-                    'glyphs',
-                    'A',
-                    'layers',
-                    'layer-1',
-                    'shapes'
-                ])
-            )
-        ).toEqual([
-            {
-                nodes: [
-                    { x: 1, y: 2, nodetype: 'line' },
-                    { x: 3, y: 4, nodetype: 'line' }
-                ],
-                closed: false
-            },
-            {
-                reference: 'B',
-                transform: {
-                    translation: [0, 0],
-                    rotation: 0,
-                    scale: [1, 1],
-                    skew: [0, 0],
-                    order: 'RestOfTheWorld'
-                }
-            }
-        ]);
+        expect(() => {
+            doc.transact(() => jsonToYDoc(json, fontMap));
+        }).toThrow(/Wrapped shapes|Path shape nodes must be an array/);
     });
 
     test('deleteYPath removes keyed entries', () => {
@@ -4209,7 +4181,7 @@ describe('syncGlyphFromJson', () => {
         expect(committedChanges[0].entries).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    transactionLabel: 'Undo',
+                    transactionLabel: 'Drag',
                     historyAction: 'undo',
                     workerReplayTargets: [
                         {
@@ -4256,7 +4228,7 @@ describe('syncGlyphFromJson', () => {
         expect(committedChanges[0].entries).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    transactionLabel: 'Redo',
+                    transactionLabel: 'Drag',
                     historyAction: 'redo',
                     workerReplayTargets: [
                         {
@@ -4267,6 +4239,162 @@ describe('syncGlyphFromJson', () => {
                 })
             ])
         );
+    });
+
+    test.each([
+        {
+            label: 'anchor movement',
+            path: ['glyphs', 'A', 'layers', 'layer-1', 'anchors', 0, 'y'],
+            transactionLabel: 'Drag anchor',
+            oldValue: 700,
+            newValue: 725,
+            expectedPath: 'glyphs.A:layers.layer-1:anchors.0.y',
+            expectedVisualAnchorSide: null
+        },
+        {
+            label: 'outline movement',
+            path: [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ],
+            transactionLabel: 'Drag outline',
+            oldValue: 10,
+            newValue: 18,
+            expectedPath: 'glyphs.A:layers.layer-1:shapes.0.nodes.0.x',
+            expectedVisualAnchorSide: null
+        },
+        {
+            label: 'sidebearing edit',
+            path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+            transactionLabel: 'Set RSB',
+            oldValue: 600,
+            newValue: 640,
+            expectedPath: 'glyphs.A:layers.layer-1:width',
+            expectedVisualAnchorSide: 'left'
+        }
+    ])(
+        'undo forwards the original semantic metadata for $label',
+        ({
+            path,
+            transactionLabel,
+            oldValue,
+            newValue,
+            expectedPath,
+            expectedVisualAnchorSide
+        }) => {
+            const { bridge } = createTestBridge(
+                `test-undo-metadata-${transactionLabel}`
+            );
+            const workerUpdates = [];
+
+            bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+                workerUpdates.push({ update, changeLogEntries });
+            });
+
+            bridge.applySyntheticChangeSet(transactionLabel, [
+                {
+                    op: 'set',
+                    path,
+                    oldValue,
+                    newValue,
+                    visualAnchorSide: expectedVisualAnchorSide,
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ]
+                }
+            ]);
+
+            const forwardEntries = workerUpdates.at(-1).changeLogEntries;
+
+            workerUpdates.length = 0;
+            const result = bridge.undo('A', 'layer-1');
+
+            expect(result).not.toBeNull();
+            expect(workerUpdates).toHaveLength(1);
+            const undoEntries = workerUpdates[0].changeLogEntries;
+            expect(undoEntries).toHaveLength(forwardEntries.length);
+
+            for (let index = 0; index < forwardEntries.length; index++) {
+                expect(undoEntries[index]).toEqual(
+                    expect.objectContaining({
+                        historyAction: 'undo',
+                        targetHistoryItemId:
+                            forwardEntries[index].historyItemId,
+                        transactionLabel:
+                            forwardEntries[index].transactionLabel,
+                        path: forwardEntries[index].path,
+                        op: forwardEntries[index].op,
+                        undoScope: forwardEntries[index].undoScope,
+                        visualAnchorSide:
+                            forwardEntries[index].visualAnchorSide,
+                        workerReplayTargets:
+                            forwardEntries[index].workerReplayTargets
+                    })
+                );
+            }
+
+            expect(undoEntries[0]).toEqual(
+                expect.objectContaining({
+                    path: expectedPath,
+                    transactionLabel,
+                    visualAnchorSide: expectedVisualAnchorSide,
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ]
+                })
+            );
+        }
+    );
+
+    test('redo after undo preserves flat original semantic metadata', () => {
+        const { bridge } = createTestBridge('test-redo-flat-metadata');
+        const workerUpdates = [];
+
+        bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+            workerUpdates.push({ update, changeLogEntries });
+        });
+
+        bridge.applySyntheticChangeSet('Set RSB', [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 640,
+                visualAnchorSide: 'left',
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        ]);
+
+        const forwardEntry = workerUpdates.at(-1).changeLogEntries[0];
+        workerUpdates.length = 0;
+
+        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
+        const undoEntry = workerUpdates.at(-1).changeLogEntries[0];
+        workerUpdates.length = 0;
+
+        expect(bridge.redo('A', 'layer-1')).not.toBeNull();
+        const redoEntry = workerUpdates.at(-1).changeLogEntries[0];
+
+        for (const entry of [undoEntry, redoEntry]) {
+            expect(entry).toEqual(
+                expect.objectContaining({
+                    path: forwardEntry.path,
+                    transactionLabel: forwardEntry.transactionLabel,
+                    visualAnchorSide: forwardEntry.visualAnchorSide,
+                    workerReplayTargets: forwardEntry.workerReplayTargets
+                })
+            );
+            expect(entry.semanticChangeLogEntries).toBeUndefined();
+        }
+        expect(undoEntry.historyAction).toBe('undo');
+        expect(redoEntry.historyAction).toBe('redo');
     });
 
     test('remote apply forwards the Yjs update to the worker callback', () => {

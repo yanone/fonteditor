@@ -1891,3 +1891,58 @@ describe('syncRustCacheAndRefreshCanvas', () => {
         awaitWorkerDocumentSync.mockRestore();
     });
 });
+
+describe('requestUndoRedoEditingFontCompile', () => {
+    let changeBridgeInit;
+    let originalWindow;
+
+    beforeEach(() => {
+        jest.resetModules();
+        originalWindow = global.window;
+        global.window = originalWindow;
+        changeBridgeInit = require('../js/change-bridge-init');
+    });
+
+    afterEach(() => {
+        jest.clearAllMocks();
+    });
+
+    test('undo/redo compile requests tag the compile source and preserve the edit type', async () => {
+        const checkAndSchedule = jest.fn();
+        const forceTrigger = jest.fn().mockResolvedValue(undefined);
+        const requestRecompileWithoutDataChange = jest.fn(function () {
+            this.compileRequestVersion += 1;
+        });
+
+        window.autoCompileManager = {
+            checkAndSchedule,
+            forceTrigger
+        };
+        window.fontManager = {
+            lastChangeSource: null,
+            lastEditType: null,
+            currentFont: {
+                compileRequestVersion: 10,
+                requestRecompileWithoutDataChange
+            }
+        };
+
+        const waitSpy = jest
+            .spyOn(changeBridgeInit, 'waitForEditingFontCompileRevision')
+            .mockResolvedValue();
+
+        await changeBridgeInit.requestUndoRedoEditingFontCompile(
+            true,
+            'anchor'
+        );
+
+        expect(window.fontManager.lastChangeSource).toBe('keyboard-undo-redo');
+        expect(window.fontManager.lastEditType).toBe('anchor');
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(checkAndSchedule).toHaveBeenCalledTimes(1);
+        expect(forceTrigger).toHaveBeenCalledTimes(1);
+        expect(waitSpy).toHaveBeenCalledWith(11);
+
+        waitSpy.mockRestore();
+    });
+});

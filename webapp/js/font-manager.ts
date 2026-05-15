@@ -408,8 +408,6 @@ class OpenedFont {
      * Nodes are stored as arrays (the format babelfont-rs now accepts natively).
      */
     syncJsonFromModel(): void {
-        let wrappersFixed = 0;
-
         assertBabelfontLayerWidths(this.babelfontData, 'syncJsonFromModel');
 
         // Process all layers to prepare for serialization
@@ -418,35 +416,16 @@ class OpenedFont {
                 if (!layer?.shapes) continue;
 
                 for (let i = 0; i < layer.shapes.length; i++) {
-                    let shape = layer.shapes[i];
+                    const shape = layer.shapes[i];
 
-                    // Handle wrapped Path shapes { Path: { nodes, closed } }
                     if (
-                        'Path' in shape &&
-                        shape.Path &&
-                        typeof shape.Path === 'object'
+                        shape &&
+                        typeof shape === 'object' &&
+                        ('Path' in shape || 'Component' in shape)
                     ) {
-                        const payload = shape.Path;
-                        for (const key of Object.keys(shape)) {
-                            delete shape[key];
-                        }
-                        Object.assign(shape, payload);
-                        wrappersFixed++;
-                    }
-
-                    // Handle wrapped Component shapes { Component: { reference, transform } }
-                    if (
-                        'Component' in shape &&
-                        shape.Component &&
-                        typeof shape.Component === 'object' &&
-                        !('Path' in shape)
-                    ) {
-                        const payload = shape.Component;
-                        for (const key of Object.keys(shape)) {
-                            delete shape[key];
-                        }
-                        Object.assign(shape, payload);
-                        wrappersFixed++;
+                        throw new TypeError(
+                            'Wrapped shapes are not allowed in syncJsonFromModel.'
+                        );
                     }
 
                     const componentCandidate =
@@ -463,13 +442,6 @@ class OpenedFont {
         }
 
         this.babelfontJson = this.fontModel.toJSONString();
-
-        if (wrappersFixed > 0) {
-            console.log(
-                `[syncJsonFromModel] Fixed ${wrappersFixed} wrapped shapes. ` +
-                    `JSON length: ${this.babelfontJson.length}`
-            );
-        }
     }
 
     /**
@@ -560,9 +532,10 @@ class FontManager {
     forceFullEditingCacheRefresh: boolean;
     workerLayerFingerprintCache: Map<string, string>;
     private workerCacheYDoc: Y.Doc | null;
+    private workerYjsSendQueue: Promise<unknown>;
 
     /**
-     * Memoizes the result of validateAndFixBabelfontJsonForRust.
+     * Memoizes the result of validateBabelfontJsonForRust.
      * The validator parses, walks, and re-serializes the entire babelfontJson.
      * Only runs when `pendingBabelfontJsonSyncAfterDrag` is set (after
      * undo/redo/remote-sync) or when forceValidation is explicitly requested.
@@ -620,6 +593,7 @@ class FontManager {
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache = new Map();
         this.workerCacheYDoc = null;
+        this.workerYjsSendQueue = Promise.resolve();
 
         window.addEventListener('cloudConnectionStatusChanged', () => {
             void this.updateDirtyIndicator();
@@ -1505,11 +1479,9 @@ class FontManager {
 
         if ('nodes' in pathCandidate) {
             if (!Array.isArray(pathCandidate.nodes)) {
-                console.warn(
-                    '[FontManager] Dropping invalid path shape with non-array nodes during Rust normalization',
-                    shape
+                throw new TypeError(
+                    'Path shape nodes must be an array before Rust normalization.'
                 );
-                return null;
             }
 
             return {
@@ -1584,9 +1556,9 @@ class FontManager {
         });
 
         const shapes = Array.isArray(layerData.shapes)
-            ? layerData.shapes
-                  .map((shape: any) => this.normalizeShapeForRust(shape))
-                  .filter((shape: any) => shape !== null)
+            ? layerData.shapes.map((shape: any) =>
+                  this.normalizeShapeForRust(shape)
+              )
             : [];
 
         const normalizedLayer = {
@@ -1713,7 +1685,7 @@ class FontManager {
         })();
 
         // Capture whether JSON was stale before sync clears the flag,
-        // so validateAndFixBabelfontJsonForRust knows to run.
+        // so validateBabelfontJsonForRust knows to run.
         const wasJsonStale = this.pendingBabelfontJsonSyncAfterDrag;
 
         // Always sync when the JSON is stale (e.g. after undo/redo/remote sync),
@@ -1903,14 +1875,13 @@ class FontManager {
                     };
                 }
 
-                // Pre-compilation validation: fix Y.Doc roundtrip corruption
-                // (wrapped shapes, missing `closed` fields, object-to-array)
-                // that JSON.stringify's replacer may miss.
+                // Pre-compilation validation: assert canonical shape/array
+                // structure before crossing into Rust.
                 const jsonToSend = this.currentFont.babelfontJson;
-                // Always validate after undo/redo (wasJsonStale) to catch
-                // Y.Doc roundtrip corruption that toJSONString's replacer
-                // may miss (e.g. wrapped shapes from Y.Map with numeric keys)
-                const validatedJson = this.validateAndFixBabelfontJsonForRust(
+                // Always validate after undo/redo (wasJsonStale) because
+                // canonical structure must still hold after every model/Yjs
+                // roundtrip; compile must fail rather than repair drift.
+                const validatedJson = this.validateBabelfontJsonForRust(
                     jsonToSend,
                     wasJsonStale || this.pendingBabelfontJsonSyncAfterDrag
                 );
@@ -2389,12 +2360,11 @@ class FontManager {
     }
 
     /**
-     * Validate and fix babelfont JSON for Y.Doc roundtrip corruption.
-     * Fixes wrapped shapes, missing `closed` fields, and objects-that-should-be-arrays
-     * (from Y.Doc roundtrips where Y.Map is used instead of Y.Array).
-     * Returns the fixed JSON string.
+     * Validate canonical babelfont JSON before Rust compilation.
+     * Rejects wrapped shapes, non-array path nodes, and object-for-array drift.
+     * Returns the validated JSON string unchanged.
      */
-    private validateAndFixBabelfontJsonForRust(
+    private validateBabelfontJsonForRust(
         babelfontJson: string,
         forceValidation: boolean = false
     ): string {
@@ -2646,10 +2616,7 @@ class FontManager {
                 });
             }
 
-            assertBabelfontLayerWidths(
-                data,
-                'validateAndFixBabelfontJsonForRust'
-            );
+            assertBabelfontLayerWidths(data, 'validateBabelfontJsonForRust');
 
             const fixValue = (val: any, path: string = ''): void => {
                 if (!val || typeof val !== 'object') return;
@@ -2662,93 +2629,38 @@ class FontManager {
                     return;
                 }
 
-                // Ensure Path shapes have required `closed` field
-                // (Y.Doc roundtrip can lose it; serde requires it)
-                if ('nodes' in val && !('closed' in val)) {
-                    val.closed = false;
-                    fixCount++;
-                }
-
-                // Fix wrapped Path shapes {Path: {nodes, closed}} → flat {nodes, closed}
-                // Rust serde expects untagged enum, not the wrapped form
-                if (
-                    'Path' in val &&
-                    val.Path &&
-                    typeof val.Path === 'object' &&
-                    !Array.isArray(val.Path)
-                ) {
-                    const pathPayload = val.Path;
-                    if (pathPayload && typeof pathPayload === 'object') {
-                        const result: any = { ...pathPayload };
-                        // Ensure closed field after unwrapping
-                        if (!('closed' in result)) {
-                            result.closed = false;
-                        }
-                        // Replace the wrapper with the flat shape
-                        for (const key of Object.keys(val)) {
-                            delete val[key];
-                        }
-                        Object.assign(val, result);
-                        fixCount++;
-                        console.warn(
-                            `[FontManager] Unwrapped Path shape at ${path}`
+                if ('nodes' in val) {
+                    if (!Array.isArray(val.nodes)) {
+                        throw new TypeError(
+                            `Path shape nodes must be an array before compile validation at ${path || 'root'}.`
+                        );
+                    }
+                    if (!('closed' in val)) {
+                        throw new TypeError(
+                            `Path shape closed flag must be explicit before compile validation at ${path || 'root'}.`
                         );
                     }
                 }
 
-                // Fix wrapped Component shapes {Component: {reference, transform}} → flat
-                if (
-                    'Component' in val &&
-                    val.Component &&
-                    typeof val.Component === 'object' &&
-                    !Array.isArray(val.Component) &&
-                    !('Path' in val)
-                ) {
-                    const compPayload = val.Component;
-                    if (compPayload && typeof compPayload === 'object') {
-                        const result: any = { ...compPayload };
-                        if (Array.isArray(result.transform)) {
-                            result.transform =
-                                DecomposedAffineTransform.fromAffine(
-                                    result.transform
-                                );
-                        }
-                        for (const key of Object.keys(val)) {
-                            delete val[key];
-                        }
-                        Object.assign(val, result);
-                        fixCount++;
-                        console.warn(
-                            `[FontManager] Unwrapped Component shape at ${path}`
-                        );
-                    }
-                }
-
-                // Fix flat Component shapes with array transforms
-                if (
-                    'reference' in val &&
-                    'transform' in val &&
-                    Array.isArray(val.transform)
-                ) {
-                    val.transform = DecomposedAffineTransform.fromAffine(
-                        val.transform
+                if ('Path' in val || 'Component' in val) {
+                    throw new TypeError(
+                        `Wrapped shapes are not allowed before compile validation at ${path || 'root'}.`
                     );
-                    fixCount++;
                 }
 
-                // Ensure Component shapes have required `transform` field
-                if ('reference' in val && !('transform' in val)) {
-                    val.transform = {
-                        translation: [0, 0],
-                        rotation: 0,
-                        scale: [1, 1],
-                        skew: 0,
-                        tcenter: [0, 0]
-                    };
-                    fixCount++;
+                if ('reference' in val) {
+                    if (!('transform' in val)) {
+                        throw new TypeError(
+                            `Component shapes must carry an explicit transform before compile validation at ${path || 'root'}.`
+                        );
+                    }
+                    if (Array.isArray(val.transform)) {
+                        throw new TypeError(
+                            `Component transforms must be decomposed objects before compile validation at ${path || 'root'}.`
+                        );
+                    }
                 }
 
-                // Fix known array fields that became objects (Y.Doc roundtrip)
                 for (const field of arrayFields) {
                     if (
                         field in val &&
@@ -2756,14 +2668,9 @@ class FontManager {
                         typeof val[field] === 'object' &&
                         !Array.isArray(val[field])
                     ) {
-                        const fixed = numericKeyObjectToArray(val[field]);
-                        if (fixed.length > 0) {
-                            val[field] = fixed;
-                            fixCount++;
-                            console.warn(
-                                `[FontManager] Fixed "${field}" field from object to array (${fixed.length} elements) at ${path}`
-                            );
-                        }
+                        throw new TypeError(
+                            `Field "${field}" must remain an array before compile validation at ${path || 'root'}.`
+                        );
                     }
                 }
                 // Recurse into all object values
@@ -2776,7 +2683,7 @@ class FontManager {
                 fixValue(data);
                 assertBabelfontLayerWidths(
                     data,
-                    'validateAndFixBabelfontJsonForRust'
+                    'validateBabelfontJsonForRust'
                 );
 
                 // Post-fix scan: detect shapes that still don't match
@@ -2860,10 +2767,9 @@ class FontManager {
             }
 
             if (fixCount > 0) {
-                console.warn(
-                    `[FontManager] Fixed ${fixCount} issues in babelfontJson before compile`
+                throw new Error(
+                    '[FontManager] validateBabelfontJsonForRust must not repair node or shape structure.'
                 );
-                return cacheAndReturn(JSON.stringify(data, null, 2));
             } else if (forceValidation) {
                 console.log(
                     `[FontManager] Validation ran (forceValidation=${forceValidation}), no issues found`
@@ -3007,11 +2913,9 @@ class FontManager {
                 'nodes' in pathCandidate
             ) {
                 if (!Array.isArray(pathCandidate.nodes)) {
-                    console.warn(
-                        '[FontManager] Rejecting invalid path shape with non-array nodes during layer storage serialization',
-                        shape
+                    throw new TypeError(
+                        'Path shape nodes must be an array before layer storage serialization.'
                     );
-                    return null;
                 }
 
                 return {
@@ -3033,11 +2937,9 @@ class FontManager {
                 'reference' in componentCandidate
             ) {
                 if (typeof componentCandidate.reference !== 'string') {
-                    console.warn(
-                        '[FontManager] Dropping invalid component shape without string reference during layer storage serialization',
-                        shape
+                    throw new TypeError(
+                        'Component shapes must have a string reference before layer storage serialization.'
                     );
-                    return null;
                 }
 
                 return {
@@ -3077,22 +2979,10 @@ class FontManager {
         });
 
         const cleanOriginalShapes = Array.isArray(originalLayer?.shapes)
-            ? originalLayer.shapes
-                  .map(cleanShapeForSaving)
-                  .filter((shape) => shape !== null)
+            ? originalLayer.shapes.map(cleanShapeForSaving)
             : originalLayer?.shapes;
         const cleanShapes = Array.isArray(layerData.shapes)
-            ? layerData.shapes
-                  .map((shape, index) => {
-                      const cleanedShape = cleanShapeForSaving(shape);
-                      if (cleanedShape !== null) {
-                          return cleanedShape;
-                      }
-                      return Array.isArray(cleanOriginalShapes)
-                          ? cleanOriginalShapes[index]
-                          : null;
-                  })
-                  .filter((shape) => shape !== null && shape !== undefined)
+            ? layerData.shapes.map(cleanShapeForSaving)
             : cleanOriginalShapes;
         const storedShapes =
             options?.preserveExistingShapes && originalLayer?.shapes
@@ -3448,52 +3338,60 @@ class FontManager {
         changedGlyphs: string[],
         invalidateLayoutClosure: boolean
     ): Promise<boolean> {
-        if (!fontCompilation?.isInitialized) {
-            return false;
-        }
-
-        if (!update.length) {
-            return true;
-        }
-
-        try {
-            const response = await fontCompilation.sendMessage({
-                type: 'applyYjsUpdate',
-                update,
-                changedGlyphs,
-                invalidateLayoutClosure
-            });
-
-            // The worker surfaces the skipped reason at the top level of the
-            // response message (added alongside the result JSON string) so
-            // this check does not need to parse response.result.
-            if (response?.skipped === 'ydoc_not_initialized') {
-                this.workerCacheYDoc = null;
-                fontCompilation.setWorkerCacheDocumentReady(false);
-                console.warn(
-                    '[FontManager] Worker Y.Doc was not initialized for incremental Yjs update',
-                    {
-                        changedGlyphs,
-                        invalidateLayoutClosure
-                    }
-                );
+        const runSend = async (): Promise<boolean> => {
+            if (!fontCompilation?.isInitialized) {
                 return false;
             }
 
-            return true;
-        } catch (error) {
-            this.workerCacheYDoc = null;
-            fontCompilation.setWorkerCacheDocumentReady(false);
-            console.warn(
-                '[FontManager] Failed to send worker Yjs update:',
-                {
+            if (!update.length) {
+                return true;
+            }
+
+            try {
+                const response = await fontCompilation.sendMessage({
+                    type: 'applyYjsUpdate',
+                    update,
                     changedGlyphs,
                     invalidateLayoutClosure
-                },
-                error
-            );
-            return false;
-        }
+                });
+
+                // Keep incremental worker updates strictly serialized.
+                // Overlapping applyYjsUpdate calls can otherwise race the
+                // worker-side Y.Doc/cache state during rapid GUI edits.
+                if (response?.skipped === 'ydoc_not_initialized') {
+                    this.workerCacheYDoc = null;
+                    fontCompilation.setWorkerCacheDocumentReady(false);
+                    console.warn(
+                        '[FontManager] Worker Y.Doc was not initialized for incremental Yjs update',
+                        {
+                            changedGlyphs,
+                            invalidateLayoutClosure
+                        }
+                    );
+                    return false;
+                }
+
+                return true;
+            } catch (error) {
+                this.workerCacheYDoc = null;
+                fontCompilation.setWorkerCacheDocumentReady(false);
+                console.warn(
+                    '[FontManager] Failed to send worker Yjs update:',
+                    {
+                        changedGlyphs,
+                        invalidateLayoutClosure
+                    },
+                    error
+                );
+                return false;
+            }
+        };
+
+        const queuedSend = this.workerYjsSendQueue
+            .catch(() => undefined)
+            .then(runSend);
+        this.workerYjsSendQueue = queuedSend.catch(() => undefined);
+        return queuedSend;
     }
 
     private async recoverWorkerCacheFromAuthoritativeState(

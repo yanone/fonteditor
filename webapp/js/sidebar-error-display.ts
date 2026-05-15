@@ -3,6 +3,7 @@
 
 import { Logger } from './logger';
 import { extractFeatureIssuesFromCompilationError } from './feature-error-parser';
+import { buildErrorReportPayload } from './state-manager';
 
 const console = new Logger('SidebarErrorDisplay');
 
@@ -11,6 +12,7 @@ export class SidebarErrorDisplay {
     private errorContainer: HTMLElement | null = null;
     private normalContent: HTMLElement[] = [];
     private initialized: boolean = false;
+    private copyFeedbackResetTimer: number | null = null;
 
     constructor() {
         // Don't initialize here - wait until first use
@@ -135,6 +137,17 @@ export class SidebarErrorDisplay {
                 ">Open in Features</button>`
             : '';
 
+        const renderedCopyButton = `<button id="sidebar-copy-error-report-btn" style="
+                margin-top: 4px;
+                padding: 6px 10px;
+                border-radius: 6px;
+                border: 1px solid var(--border-primary);
+                background: var(--background-secondary);
+                color: var(--text-primary);
+                font-size: 12px;
+                cursor: pointer;
+            ">Copy Error Report</button>`;
+
         window.fontInfoManager?.showFeatureCompilationError?.(errorInput);
 
         console.log('[SidebarError] Showing error in sidebar');
@@ -180,7 +193,15 @@ export class SidebarErrorDisplay {
                 ">${title}</div>
                 ${renderedLocation}
                 ${renderedMessages}
-                ${renderedOpenButton}
+                <div style="
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                    gap: 8px;
+                ">
+                    ${renderedOpenButton}
+                    ${renderedCopyButton}
+                </div>
                 
                 <div style="
                     font-size: 12px;
@@ -202,6 +223,13 @@ export class SidebarErrorDisplay {
                 );
             });
         }
+
+        const copyButton = this.errorContainer.querySelector(
+            '#sidebar-copy-error-report-btn'
+        ) as HTMLButtonElement | null;
+        copyButton?.addEventListener('click', async () => {
+            await this.copyErrorReport(errorInput, copyButton);
+        });
 
         // Show error container
         this.errorContainer.style.display = 'block';
@@ -236,6 +264,53 @@ export class SidebarErrorDisplay {
         });
 
         this.normalContent = [];
+    }
+
+    /**
+     * Copy a runtime-style error report for the current sidebar error.
+     */
+    private async copyErrorReport(
+        errorInput: unknown,
+        button: HTMLButtonElement
+    ): Promise<void> {
+        const originalLabel = button.textContent || 'Copy Error Report';
+        button.disabled = true;
+        button.textContent = 'Copying...';
+
+        try {
+            const payload = await buildErrorReportPayload(
+                errorInput,
+                'editor.compilation.sidebar',
+                'sidebar-error-display'
+            );
+            await navigator.clipboard.writeText(
+                JSON.stringify(payload, null, 2)
+            );
+            this.setCopyButtonFeedback(button, 'Copied', originalLabel);
+        } catch (error) {
+            console.error('[SidebarError] Failed to copy error report:', error);
+            this.setCopyButtonFeedback(button, 'Copy failed', originalLabel);
+        }
+    }
+
+    /**
+     * Show transient copy feedback and restore the button label.
+     */
+    private setCopyButtonFeedback(
+        button: HTMLButtonElement,
+        feedbackLabel: string,
+        originalLabel: string
+    ): void {
+        if (this.copyFeedbackResetTimer !== null) {
+            window.clearTimeout(this.copyFeedbackResetTimer);
+        }
+
+        button.disabled = false;
+        button.textContent = feedbackLabel;
+        this.copyFeedbackResetTimer = window.setTimeout(() => {
+            button.textContent = originalLabel;
+            this.copyFeedbackResetTimer = null;
+        }, 1500);
     }
 
     /**

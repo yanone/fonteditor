@@ -66,23 +66,10 @@ function normalizeValueForYDocWrite(value: unknown): unknown {
 
     const record = value as Record<string, unknown>;
 
-    if (
-        'Path' in record &&
-        record.Path &&
-        typeof record.Path === 'object' &&
-        !Array.isArray(record.Path)
-    ) {
-        return normalizeValueForYDocWrite(record.Path);
-    }
-
-    if (
-        'Component' in record &&
-        record.Component &&
-        typeof record.Component === 'object' &&
-        !Array.isArray(record.Component) &&
-        !('Path' in record)
-    ) {
-        return normalizeValueForYDocWrite(record.Component);
+    if ('Path' in record || 'Component' in record) {
+        throw new TypeError(
+            'Wrapped shapes are not allowed before writing to Y.Doc.'
+        );
     }
 
     if ('nodes' in record) {
