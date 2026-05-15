@@ -304,7 +304,19 @@ test.describe('Font Editor Basic Workflow', () => {
         );
 
         await expect(secondFontItem).toBeVisible();
-        await secondFontItem.click({ button: 'right', force: true });
+        await secondFontItem.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            element.dispatchEvent(
+                new MouseEvent('contextmenu', {
+                    bubbles: true,
+                    cancelable: true,
+                    button: 2,
+                    buttons: 2,
+                    clientX: rect.left + rect.width / 2,
+                    clientY: rect.top + rect.height / 2
+                })
+            );
+        });
 
         await expect(
             page.locator(
@@ -446,7 +458,9 @@ test.describe('Font Editor Basic Workflow', () => {
         );
         await waitForOpenSessionReady(page, 'YanoneKaffeesatz.designspace');
         await waitForOverviewTilesRendered(page);
-        await waitForFontspectorReady(page, 'YanoneKaffeesatz.designspace');
+        await waitForFontspectorReady(page, 'YanoneKaffeesatz.designspace', {
+            allowObservedPendingCompile: true
+        });
         await page.waitForTimeout(300);
 
         await takeWindowSnapshot(

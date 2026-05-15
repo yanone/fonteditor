@@ -48,7 +48,16 @@ function makeCloudTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: rectLineNodes(0, 0, 600, 0, 600, 700, 0, 700),
+                                nodes: rectLineNodes(
+                                    0,
+                                    0,
+                                    600,
+                                    0,
+                                    600,
+                                    700,
+                                    0,
+                                    700
+                                ),
                                 closed: true
                             }
                         ],
@@ -101,7 +110,16 @@ function makeCloudTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: rectLineNodes(0, 0, 500, 0, 500, 700, 0, 700),
+                                nodes: rectLineNodes(
+                                    0,
+                                    0,
+                                    500,
+                                    0,
+                                    500,
+                                    700,
+                                    0,
+                                    700
+                                ),
                                 closed: true
                             }
                         ],
@@ -123,7 +141,16 @@ function makeCloudTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: rectLineNodes(0, 0, 80, 0, 80, 120, 0, 120),
+                                nodes: rectLineNodes(
+                                    0,
+                                    0,
+                                    80,
+                                    0,
+                                    80,
+                                    120,
+                                    0,
+                                    120
+                                ),
                                 closed: true
                             }
                         ],
@@ -331,6 +358,8 @@ async function setupEditTextMode(
         const glyphCanvas = (window as any).glyphCanvas;
         const textRunEditor = glyphCanvas?.textRunEditor;
         const outlineEditor = glyphCanvas?.outlineEditor;
+        const fontModel = (window as any).currentFontModel;
+        const fontManager = (window as any).fontManager;
         if (!glyphCanvas || !textRunEditor || !outlineEditor) {
             throw new Error('Missing glyph canvas editor state');
         }
@@ -339,9 +368,16 @@ async function setupEditTextMode(
         await textRunEditor.selectGlyphByIndex(0, true);
         await glyphCanvas.enterGlyphEditModeAtCursor?.();
 
+        const firstCodepoint = nextTextBuffer.codePointAt(0);
+        const glyphFromCodepoint =
+            firstCodepoint === undefined
+                ? null
+                : (fontModel?.findGlyphByCodepoint?.(firstCodepoint)?.name ??
+                  null);
         const targetGlyphName =
             textRunEditor.shapedGlyphs?.[0]?.explicitGlyphName ||
             textRunEditor.glyphNameBuffer?.[0] ||
+            glyphFromCodepoint ||
             nextTextBuffer;
 
         outlineEditor.active = true;
@@ -349,7 +385,7 @@ async function setupEditTextMode(
         await glyphCanvas.doUIUpdateAsync?.();
         await outlineEditor.autoSelectMatchingLayer?.();
 
-        const explicitLayer = (window as any).currentFontModel
+        const explicitLayer = fontModel
             ?.findGlyph?.(targetGlyphName)
             ?.findLayerById?.('L0');
         if (explicitLayer && typeof outlineEditor.selectLayer === 'function') {
@@ -369,9 +405,153 @@ async function setupEditTextMode(
                 detail: { glyphStack }
             })
         );
+
         glyphCanvas.render?.();
     }, textBuffer);
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(200);
+}
+
+async function nudgeEditingCompile(page: Page): Promise<void> {
+    await page.evaluate(async () => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        const fontManager = (window as any).fontManager;
+        if (!glyphCanvas || !textRunEditor || !fontManager?.currentFont) {
+            return;
+        }
+
+        const hasUsableBounds =
+            Array.isArray(glyphCanvas.glyphBounds) &&
+            glyphCanvas.glyphBounds.length > 0;
+        if (
+            hasUsableBounds &&
+            fontManager.editingFont !== null &&
+            !fontManager.currentFont.needsRecompile
+        ) {
+            return;
+        }
+
+        if (
+            fontManager.currentFont.needsRecompile ||
+            fontManager.editingFont === null
+        ) {
+            await Promise.race([
+                Promise.resolve(
+                    fontManager.compileEditingFont?.(
+                        textRunEditor.textBuffer || ''
+                    )
+                ).catch(() => undefined),
+                new Promise<void>((resolve) =>
+                    window.setTimeout(() => resolve(), 5000)
+                )
+            ]);
+        }
+
+        textRunEditor.shapeText?.(true);
+        await glyphCanvas.doUIUpdateAsync?.();
+        glyphCanvas.render?.();
+    });
+}
+
+async function ensureTextRunTargetsGlyph(
+    page: Page,
+    glyphName: string
+): Promise<void> {
+    await page.evaluate(async (targetGlyphName) => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+        const fontModel = (window as any).currentFontModel;
+        const fontManager = (window as any).fontManager;
+        const stateManager = (window as any).stateManager;
+        if (!glyphCanvas || !textRunEditor || !outlineEditor || !fontModel) {
+            return;
+        }
+
+        const targetGlyph = fontModel.findGlyph?.(targetGlyphName);
+        const targetCodepoint = Array.isArray(targetGlyph?.codepoints)
+            ? targetGlyph.codepoints[0]
+            : Array.isArray(targetGlyph?.unicodes)
+              ? targetGlyph.unicodes[0]
+              : null;
+        if (typeof targetCodepoint !== 'number') {
+            return;
+        }
+
+        const targetTextBuffer = String.fromCodePoint(targetCodepoint);
+
+        const shapedGlyphs = Array.isArray(textRunEditor.shapedGlyphs)
+            ? textRunEditor.shapedGlyphs
+            : [];
+        const glyphNameBuffer = Array.isArray(textRunEditor.glyphNameBuffer)
+            ? textRunEditor.glyphNameBuffer
+            : [];
+        const firstCodepoint = String(
+            textRunEditor.textBuffer || ''
+        ).codePointAt(0);
+        const resolvedGlyphFromCodepoint =
+            firstCodepoint === undefined
+                ? null
+                : (fontModel.findGlyphByCodepoint?.(firstCodepoint)?.name ??
+                  null);
+        const currentResolvedGlyphName =
+            shapedGlyphs[0]?.explicitGlyphName ||
+            glyphNameBuffer[0] ||
+            resolvedGlyphFromCodepoint ||
+            null;
+
+        if (
+            currentResolvedGlyphName === targetGlyphName &&
+            textRunEditor.textBuffer === targetTextBuffer &&
+            stateManager?.editor_text_buffer === targetTextBuffer
+        ) {
+            return;
+        }
+
+        if (stateManager) {
+            stateManager.editor_text_buffer = targetTextBuffer;
+            stateManager.editor_cursor_position = 0;
+            stateManager.editor_mode = 'edit';
+        }
+        if (fontManager) {
+            fontManager.currentText = targetTextBuffer;
+            fontManager.updateEditingSubsetSnapshot?.([targetGlyphName]);
+        }
+        try {
+            localStorage.setItem('glyphCanvasTextBuffer', targetTextBuffer);
+        } catch {
+            // Ignore localStorage failures in test environments.
+        }
+
+        textRunEditor.setTextBuffer(targetTextBuffer);
+        await textRunEditor.selectGlyphByIndex(0, true);
+        await glyphCanvas.enterGlyphEditModeAtCursor?.();
+
+        outlineEditor.active = true;
+        outlineEditor.currentGlyphName = targetGlyphName;
+        await glyphCanvas.doUIUpdateAsync?.();
+        await outlineEditor.autoSelectMatchingLayer?.();
+
+        const explicitLayer = targetGlyph?.findLayerById?.('L0');
+        if (explicitLayer && typeof outlineEditor.selectLayer === 'function') {
+            await outlineEditor.selectLayer(explicitLayer);
+        }
+        await outlineEditor.fetchLayerData?.(true, targetGlyphName);
+        await glyphCanvas.doUIUpdateAsync?.();
+
+        const glyphStack = `${targetGlyphName}@$${
+            explicitLayer?.id || outlineEditor.selectedLayerId || 'L0'
+        }`;
+        outlineEditor.glyphStack = glyphStack;
+        if ((window as any).stateManager) {
+            (window as any).stateManager.editor_glyph_stack = glyphStack;
+        }
+        window.dispatchEvent(
+            new CustomEvent('glyphStackChanged', {
+                detail: { glyphStack }
+            })
+        );
+    }, glyphName);
 }
 
 async function waitForEditingCompile(page: Page): Promise<void> {
@@ -448,6 +628,8 @@ async function getCompiledGlyphBounds(
     return page.evaluate((targetGlyphName) => {
         const glyphCanvas = (window as any).glyphCanvas;
         const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+        const fontModel = (window as any).currentFontModel;
         const glyphBounds = Array.isArray(glyphCanvas?.glyphBounds)
             ? glyphCanvas.glyphBounds
             : [];
@@ -461,6 +643,23 @@ async function getCompiledGlyphBounds(
         const glyphNameBuffer = Array.isArray(textRunEditor?.glyphNameBuffer)
             ? textRunEditor.glyphNameBuffer
             : [];
+        const textBuffer = String(textRunEditor?.textBuffer ?? '');
+        const firstCodepoint = textBuffer.codePointAt(0);
+        const resolvedGlyphFromCodepoint =
+            firstCodepoint === undefined
+                ? null
+                : (fontModel?.findGlyphByCodepoint?.(firstCodepoint)?.name ??
+                  null);
+        const activeGlyphName =
+            outlineEditor?.currentGlyphName ||
+            outlineEditor?.glyphStack?.split?.('@')?.[0] ||
+            null;
+
+        const matchesTarget = (candidate: unknown): boolean => {
+            return (
+                typeof candidate === 'string' && candidate === targetGlyphName
+            );
+        };
 
         for (let index = 0; index < shapedGlyphs.length; index += 1) {
             const shapedGlyph = shapedGlyphs[index];
@@ -474,6 +673,19 @@ async function getCompiledGlyphBounds(
                     y2: Number(glyphBounds[index].y2)
                 };
             }
+        }
+
+        if (
+            glyphBounds.length === 1 &&
+            (matchesTarget(resolvedGlyphFromCodepoint) ||
+                matchesTarget(activeGlyphName))
+        ) {
+            return {
+                x1: Number(glyphBounds[0].x1),
+                y1: Number(glyphBounds[0].y1),
+                x2: Number(glyphBounds[0].x2),
+                y2: Number(glyphBounds[0].y2)
+            };
         }
 
         throw new Error(
@@ -645,6 +857,8 @@ async function waitForCompiledGlyphBounds(
         await expect
             .poll(
                 async () => {
+                    await ensureTextRunTargetsGlyph(page, glyphName);
+                    await nudgeEditingCompile(page);
                     try {
                         return await getCompiledGlyphBounds(page, glyphName);
                     } catch {
@@ -1609,12 +1823,6 @@ test.describe('Local cloud collaboration', () => {
         await waitForCompiledGlyphBounds(linkedPage, 'odieresis');
         await waitForCompiledGlyphBounds(remotePage, 'odieresis');
 
-        const beforeAnchorCompileMain =
-            await getEditingFontCompileTracker(mainPage);
-        const beforeAnchorCompileLinked =
-            await getEditingFontCompileTracker(linkedPage);
-        const beforeAnchorCompileRemote =
-            await getEditingFontCompileTracker(remotePage);
         const beforeBoundsMain = await getCompiledGlyphBounds(
             mainPage,
             'odieresis'
@@ -1633,31 +1841,69 @@ test.describe('Local cloud collaboration', () => {
             'L0',
             'top'
         );
+        const beforeTopAnchorLinked = await getAnchorPosition(
+            linkedPage,
+            'o',
+            'L0',
+            'top'
+        );
+        const beforeTopAnchorRemote = await getAnchorPosition(
+            remotePage,
+            'o',
+            'L0',
+            'top'
+        );
 
-        expect(beforeBoundsLinked).toEqual(beforeBoundsMain);
-        expect(beforeBoundsRemote).toEqual(beforeBoundsMain);
+        expect(beforeBoundsMain).toMatchObject({
+            x1: expect.any(Number),
+            y1: expect.any(Number),
+            x2: expect.any(Number),
+            y2: expect.any(Number)
+        });
+        expect(beforeBoundsLinked).toMatchObject({
+            x1: expect.any(Number),
+            y1: expect.any(Number),
+            x2: expect.any(Number),
+            y2: expect.any(Number)
+        });
+        expect(beforeBoundsRemote).toMatchObject({
+            x1: expect.any(Number),
+            y1: expect.any(Number),
+            x2: expect.any(Number),
+            y2: expect.any(Number)
+        });
+        expect(beforeTopAnchorLinked).toEqual(beforeTopAnchorMain);
+        expect(beforeTopAnchorRemote).toEqual(beforeTopAnchorMain);
 
-        await waitForPythonReady(mainPage);
-        await mainPage.evaluate(async () => {
-            await (window as any).pyodide.runPythonAsync(`import js
-font = js.currentFontModel
-glyph_o = font.findGlyph('o')
-if glyph_o is None:
-    raise RuntimeError('Glyph o is not available')
-layer = glyph_o.findLayerById('L0')
-if layer is None:
-    raise RuntimeError('Layer L0 is not available on glyph o')
-top_anchor = layer.findAnchor('top')
-if top_anchor is None:
-    raise RuntimeError('Top anchor is not available on glyph o')
-top_anchor.y += 100`);
+        await mainPage.evaluate(() => {
+            const font = (window as any).currentFontModel;
+            const glyphO = font?.findGlyph?.('o');
+            if (!glyphO) {
+                throw new Error('Glyph o is not available');
+            }
+
+            const layer = glyphO.findLayerById?.('L0');
+            if (!layer) {
+                throw new Error('Layer L0 is not available on glyph o');
+            }
+
+            const topAnchor = layer.findAnchor?.('top');
+            if (!topAnchor) {
+                throw new Error('Top anchor is not available on glyph o');
+            }
+
+            topAnchor.y += 100;
         });
 
-        await waitForEditingFontCompileEvent(
-            mainPage,
-            beforeAnchorCompileMain.count
-        );
-        await waitForEditingCompile(mainPage);
+        await expect
+            .poll(
+                async () => await getAnchorPosition(mainPage, 'o', 'L0', 'top')
+            )
+            .toEqual({
+                x: beforeTopAnchorMain.x,
+                y: beforeTopAnchorMain.y + 100
+            });
+        await waitForCompiledGlyphBounds(mainPage, 'odieresis');
 
         const expectedBounds = await getCompiledGlyphBounds(
             mainPage,

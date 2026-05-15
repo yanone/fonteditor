@@ -194,10 +194,7 @@ async function waitForPortRelease(
     throw new Error(`Timed out waiting for port ${port} to be released`);
 }
 
-async function reclaimStalePort(
-    port: number,
-    readyUrl: string
-): Promise<void> {
+async function reclaimStalePort(port: number, readyUrl: string): Promise<void> {
     if (await isHttpReady(readyUrl)) {
         return;
     }

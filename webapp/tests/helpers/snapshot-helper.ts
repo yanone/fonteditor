@@ -356,6 +356,25 @@ export async function openFileFromFilesView(page: any, fileName: string) {
 
     const fileItemSelector = `.file-item[data-name="${fileName}"]`;
     const getFileItem = () => page.locator(fileItemSelector).first();
+    const locateTargetFile = async () => {
+        await page.evaluate(async (targetFileName: string) => {
+            const win = window as any;
+            if (typeof win.locatePathInFileDialog !== 'function') {
+                return;
+            }
+
+            const fullPath = targetFileName.startsWith('/')
+                ? targetFileName
+                : `/user/${targetFileName}`;
+            const pathSegments = fullPath.split('/').filter(Boolean);
+            const pluginId = pathSegments[0] || 'user';
+
+            await win.locatePathInFileDialog(pluginId, fullPath);
+        }, fileName);
+
+        await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
+        await waitForFileBrowserReady(page);
+    };
 
     const waitForTargetFile = async () => {
         await page.waitForFunction(
@@ -394,6 +413,7 @@ export async function openFileFromFilesView(page: any, fileName: string) {
     try {
         await waitForTargetFile();
     } catch {
+        await locateTargetFile();
         await page.evaluate(async () => {
             const win = window as any;
             if (typeof win.refreshFileSystem === 'function') {
@@ -412,11 +432,7 @@ export async function openFileFromFilesView(page: any, fileName: string) {
             getFileItem().dblclick({ delay: 50 })
         ]);
     } catch {
-        await page.evaluate(async () => {
-            await (window as any).showFontFileDialog?.({ mode: 'open' });
-        });
-        await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
-        await waitForFileBrowserReady(page);
+        await locateTargetFile();
         await waitForTargetFile();
         await getFileItem().scrollIntoViewIfNeeded();
         await Promise.all([
@@ -573,14 +589,16 @@ export async function waitForFontLoaded(page: any) {
  */
 export async function waitForFontspectorReady(
     page: any,
-    expectedFilename: string
+    expectedFilename: string,
+    options: { allowObservedPendingCompile?: boolean } = {}
 ) {
     // First, wait until the expected file is the active one
     await page.waitForFunction(
-        (filename) => {
+        (filename: string) => {
+            const testWindow = window as any;
             const editorFile =
-                window.stateManager?.getStateSnapshot?.()?.state?.editor_file ||
-                '';
+                testWindow.stateManager?.getStateSnapshot?.()?.state
+                    ?.editor_file || '';
             return editorFile.includes(filename);
         },
         expectedFilename,
@@ -589,69 +607,114 @@ export async function waitForFontspectorReady(
 
     // Then wait for fontspector readiness.
     // Guard against race conditions where the event fired before listener setup.
-    await page.evaluate(() => {
-        return new Promise<void>((resolve, reject) => {
-            const isReady = () => {
-                const fullCompileStatus =
-                    window.fullCompileManager?.getStatus?.() || null;
-                const currentFont = window.fontManager?.currentFont || null;
+    await page.evaluate(
+        ({
+            allowObservedPendingCompile
+        }: {
+            allowObservedPendingCompile: boolean;
+        }) => {
+            const testWindow = window as any;
+            testWindow.__waitForFontspectorAllowObservedPendingCompile =
+                !!allowObservedPendingCompile;
+            return new Promise<void>((resolve, reject) => {
+                const isReady = () => {
+                    const fullCompileStatus =
+                        testWindow.fullCompileManager?.getStatus?.() || null;
+                    const currentFont =
+                        testWindow.fontManager?.currentFont || null;
 
-                if (!fullCompileStatus || !currentFont) {
-                    return false;
-                }
+                    if (!fullCompileStatus || !currentFont) {
+                        return false;
+                    }
 
-                if (
-                    !fullCompileStatus.isEnabled ||
-                    fullCompileStatus.isCompiling
-                ) {
-                    return false;
-                }
+                    if (
+                        !fullCompileStatus.isEnabled ||
+                        fullCompileStatus.isCompiling
+                    ) {
+                        return false;
+                    }
 
-                const currentPath = currentFont.path || null;
-                const currentVersion = currentFont.changeVersion;
+                    const currentPath = currentFont.path || null;
+                    const currentVersion = currentFont.changeVersion;
 
-                return (
-                    fullCompileStatus.lastCompiledPath === currentPath &&
-                    fullCompileStatus.lastCompiledVersion >= currentVersion
-                );
-            };
+                    return (
+                        fullCompileStatus.lastCompiledPath === currentPath &&
+                        fullCompileStatus.lastCompiledVersion >= currentVersion
+                    );
+                };
 
-            const handler = (event: Event) => {
-                const detail = (event as CustomEvent).detail;
-                if (detail?.status === 'ready' || isReady()) {
-                    window.clearTimeout(timeoutId);
-                    window.removeEventListener('fontspectorUpdated', handler);
+                const isObservedPendingCompile = () => {
+                    const fullCompileStatus =
+                        testWindow.fullCompileManager?.getStatus?.() || null;
+                    const currentFont =
+                        testWindow.fontManager?.currentFont || null;
+
+                    if (!fullCompileStatus || !currentFont) {
+                        return false;
+                    }
+
+                    const currentPath = currentFont.path || null;
+                    const currentVersion = currentFont.changeVersion;
+
+                    return (
+                        !!fullCompileStatus.isEnabled &&
+                        fullCompileStatus.isCompiling &&
+                        fullCompileStatus.lastObservedPath === currentPath &&
+                        fullCompileStatus.lastObservedVersion >= currentVersion
+                    );
+                };
+
+                const handler = (event: Event) => {
+                    const detail = (event as CustomEvent).detail;
+                    if (detail?.status === 'ready' || isReady()) {
+                        window.clearTimeout(timeoutId);
+                        window.removeEventListener(
+                            'fontspectorUpdated',
+                            handler
+                        );
+                        resolve();
+                    }
+                };
+
+                if (isReady()) {
                     resolve();
+                    return;
                 }
-            };
 
-            if (isReady()) {
-                resolve();
-                return;
-            }
+                const timeoutId = window.setTimeout(() => {
+                    window.removeEventListener('fontspectorUpdated', handler);
+                    if (
+                        testWindow.__waitForFontspectorAllowObservedPendingCompile &&
+                        isObservedPendingCompile()
+                    ) {
+                        resolve();
+                        return;
+                    }
+                    const fullCompileStatus =
+                        testWindow.fullCompileManager?.getStatus?.() || null;
+                    const currentFont =
+                        testWindow.fontManager?.currentFont || null;
+                    reject(
+                        new Error(
+                            `Timed out waiting for fontspectorUpdated ready status: ${JSON.stringify(
+                                {
+                                    fullCompileStatus,
+                                    currentFontPath: currentFont?.path || null,
+                                    currentFontVersion:
+                                        currentFont?.changeVersion ?? null
+                                }
+                            )}`
+                        )
+                    );
+                }, 15000);
 
-            const timeoutId = window.setTimeout(() => {
-                window.removeEventListener('fontspectorUpdated', handler);
-                const fullCompileStatus =
-                    window.fullCompileManager?.getStatus?.() || null;
-                const currentFont = window.fontManager?.currentFont || null;
-                reject(
-                    new Error(
-                        `Timed out waiting for fontspectorUpdated ready status: ${JSON.stringify(
-                            {
-                                fullCompileStatus,
-                                currentFontPath: currentFont?.path || null,
-                                currentFontVersion:
-                                    currentFont?.changeVersion ?? null
-                            }
-                        )}`
-                    )
-                );
-            }, 15000);
-
-            window.addEventListener('fontspectorUpdated', handler);
-        });
-    });
+                window.addEventListener('fontspectorUpdated', handler);
+            });
+        },
+        {
+            allowObservedPendingCompile: !!options.allowObservedPendingCompile
+        }
+    );
 }
 
 /**

@@ -44,7 +44,16 @@ function makeUnkeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: rectLineNodes(0, 0, 600, 0, 600, 700, 0, 700),
+                                nodes: rectLineNodes(
+                                    0,
+                                    0,
+                                    600,
+                                    0,
+                                    600,
+                                    700,
+                                    0,
+                                    700
+                                ),
                                 closed: true
                             }
                         ],
@@ -122,7 +131,16 @@ function makeKeyedSidebearingTestFont(): string {
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: rectLineNodes(0, 0, 600, 0, 600, 700, 0, 700),
+                                nodes: rectLineNodes(
+                                    0,
+                                    0,
+                                    600,
+                                    0,
+                                    600,
+                                    700,
+                                    0,
+                                    700
+                                ),
                                 closed: true
                             }
                         ],
