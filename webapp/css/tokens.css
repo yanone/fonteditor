@@ -89,9 +89,9 @@
 /* Light theme */
 :root[data-theme="light"] {
     --border-tertiary: rgba(0, 0, 0, 0.2);
-    --border-secondary: #b0b0b0;
-    --border-primary: #d0d0d0;
-    --border-active: #a0a0a0;
+    --border-secondary: #999999;
+    --border-primary: #c0c0c0;
+    --border-active: #888888;
     --modal-bg: #ffffff;
     --modal-overlay: rgba(0, 0, 0, 0.3);
     --font-context-focused-bg: #00aeef;

@@ -120,6 +120,10 @@ body {
     overscroll-behavior-y: none;
 }
 
+html {
+    background-color: var(--border-primary);
+}
+
 body {
     font-family:
         'Inter',
@@ -412,8 +416,7 @@ kbd + kbd {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background-color: var(--background-tertiary);
-    border-bottom: 2px solid var(--border-primary);
+    background-color: var(--border-primary);
     padding: 12px 20px;
     padding-left: 9px;
     padding-right: 9px;
@@ -427,14 +430,19 @@ kbd + kbd {
 }
 
 .app-name {
-    font-family: 'Funnel Display', sans-serif;
-    font-size: 24px;
-    font-weight: 400;
+    font-family: 'Inter', sans-serif;
+    font-size: 20px;
+    font-weight: 500;
     position: relative;
     left: 4px;
     top: -1px;
     margin: 0;
-    letter-spacing: 0.5px;
+}
+
+.app-name > span {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 400;
 }
 
 .toolbar-center {
@@ -673,6 +681,7 @@ kbd + kbd {
     flex-direction: column;
     height: calc(100vh - 50px);
     width: 100vw;
+    background-color: var(--border-primary);
 }
 
 .top-row {
@@ -695,7 +704,7 @@ kbd + kbd {
 
 .view {
     background-color: var(--background-secondary);
-    border: 1px solid var(--border-primary);
+    border: 2px solid var(--border-primary);
     overflow: hidden;
     min-width: 100px;
     min-height: 24px; /* Title bar height - allows secondary views to collapse */
@@ -707,6 +716,7 @@ kbd + kbd {
         color 0.2s ease;
     display: flex;
     flex-direction: column;
+    border-radius: 6px;
 }
 
 /* Primary view (editor) - larger minimum size */
@@ -1297,40 +1307,49 @@ kbd + kbd {
     /* Fixed size, no growing or shrinking */
 }
 
-/* View specific colors for better distinction - Cyberpunk style */
+/* View specific title colors - remove left border, color title instead */
 .view-fontinfo {
-    border-left: 4px solid var(--view-fontinfo);
     flex: 1;
 }
 
 .view-overview {
-    border-left: 4px solid var(--view-overview);
     flex: 1;
 }
 
 .view-editor {
-    border-left: 4px solid var(--view-editor);
     flex: 2;
 }
 
-.view-files {
-    border-left: 4px solid var(--view-files);
+.view-fontinfo .view-title-name {
+    color: var(--view-fontinfo);
 }
 
-.view-console {
-    border-left: 4px solid var(--view-console);
+.view-overview .view-title-name {
+    color: var(--view-overview);
 }
 
-.view-scripts {
-    border-left: 4px solid var(--view-scripts);
+.view-editor .view-title-name {
+    color: var(--view-editor);
 }
 
-.view-assistant {
-    border-left: 4px solid var(--view-assistant);
+.view-files .view-title-name {
+    color: var(--view-files);
 }
 
-.view-history {
-    border-left: 4px solid var(--accent-cyan);
+.view-console .view-title-name {
+    color: var(--view-console);
+}
+
+.view-scripts .view-title-name {
+    color: var(--view-scripts);
+}
+
+.view-assistant .view-title-name {
+    color: var(--view-assistant);
+}
+
+.view-history .view-title-name {
+    color: var(--accent-cyan);
 }
 
 /* View Title Button */

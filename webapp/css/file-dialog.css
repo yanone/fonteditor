@@ -1,16 +1,16 @@
 .toolbar-menu-bar {
     display: flex;
     align-items: center;
-    gap: 2px;
-    margin-left: 18px;
+    gap: 1px;
+    margin-left: 12px;
 }
 
 .toolbar-menu-trigger {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    height: 30px;
-    padding: 0 10px;
+    gap: 2px;
+    height: 26px;
+    padding: 0 6px;
     border: 1px solid transparent;
     border-radius: 6px;
     background: transparent;
