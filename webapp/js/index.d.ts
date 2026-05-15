@@ -418,18 +418,13 @@ declare global {
             editor_cursor_position: number;
             editor_mode: 'text' | 'edit';
             editor_glyph_stack: string;
-            editor_harfbuzz_glyph_buffer: Array<{
-                dx: number;
-                dy: number;
-                ax: number;
-                ay: number;
-                cl: number;
-                g: number;
-                explicitGlyphName?: string;
-                explicitTokenStart?: number;
-                explicitTokenEnd?: number;
-            }>;
-            editor_harfbuzz_gid_to_name: Array<{ gid: number; name: string }>;
+            editor_harfbuzz_glyph_names: string;
+            editor_harfbuzz_gids: string;
+            editor_harfbuzz_dx: string;
+            editor_harfbuzz_dy: string;
+            editor_harfbuzz_ax: string;
+            editor_harfbuzz_ay: string;
+            editor_harfbuzz_cl: string;
             editor_isInterpolating: boolean;
             editor_isAnimating: boolean;
             editor_opentype_features_in_subset: Record<string, boolean>;

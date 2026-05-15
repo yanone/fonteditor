@@ -71,26 +71,35 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
             return;
         }
 
-        const glyphBuffer = (textRunEditor.shapedGlyphs || []).map((glyph) => ({
-            ...glyph
-        }));
-        window.stateManager.editor_harfbuzz_glyph_buffer = glyphBuffer;
+        const glyphBuffer = textRunEditor.shapedGlyphs || [];
 
-        const uniqueGids = new Set<number>();
-        for (const glyph of glyphBuffer) {
-            if (Number.isFinite(glyph.g)) {
-                uniqueGids.add(glyph.g as number);
-            }
+        // Compact per-field strings for low-noise runtime inspection and
+        // test snapshot diffing. Each is a single space-separated line.
+        const nameBuffer = Array.isArray(textRunEditor.glyphNameBuffer)
+            ? textRunEditor.glyphNameBuffer
+            : [];
+        window.stateManager.editor_harfbuzz_glyph_names = nameBuffer.join(' ');
+
+        const gids: string[] = [];
+        const dxs: string[] = [];
+        const dys: string[] = [];
+        const axs: string[] = [];
+        const ays: string[] = [];
+        const cls: string[] = [];
+        for (const g of glyphBuffer) {
+            gids.push(String(g.g ?? ''));
+            dxs.push(String(g.dx ?? ''));
+            dys.push(String(g.dy ?? ''));
+            axs.push(String(g.ax ?? ''));
+            ays.push(String(g.ay ?? ''));
+            cls.push(String(g.cl ?? ''));
         }
-
-        const gidToName = Array.from(uniqueGids)
-            .sort((a, b) => a - b)
-            .map((gid) => ({
-                gid,
-                name: textRunEditor.getGlyphNameForGid(gid)
-            }));
-
-        window.stateManager.editor_harfbuzz_gid_to_name = gidToName;
+        window.stateManager.editor_harfbuzz_gids = gids.join(' ');
+        window.stateManager.editor_harfbuzz_dx = dxs.join(' ');
+        window.stateManager.editor_harfbuzz_dy = dys.join(' ');
+        window.stateManager.editor_harfbuzz_ax = axs.join(' ');
+        window.stateManager.editor_harfbuzz_ay = ays.join(' ');
+        window.stateManager.editor_harfbuzz_cl = cls.join(' ');
     };
 
     // Monitor text buffer changes

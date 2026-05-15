@@ -133,33 +133,35 @@ export async function captureSnapshot(
         };
 
         if (textRunEditor) {
-            const glyphBuffer = Array.isArray(textRunEditor.shapedGlyphs)
-                ? textRunEditor.shapedGlyphs.map(
-                      (glyph: Record<string, any>) => ({
-                          ...glyph
-                      })
-                  )
+            // Compact per-field strings are populated by state-sync.ts on every
+            // render. Override with a live read to avoid race conditions between
+            // render events and snapshot timing.
+            const nameBuffer = Array.isArray(textRunEditor.glyphNameBuffer)
+                ? textRunEditor.glyphNameBuffer
                 : [];
+            snapshot.state.editor_harfbuzz_glyph_names = nameBuffer.join(' ');
 
-            const uniqueGids = new Set<number>();
-            for (const glyph of glyphBuffer) {
-                if (Number.isFinite(glyph.g)) {
-                    uniqueGids.add(glyph.g as number);
-                }
+            const glyphBuffer = textRunEditor.shapedGlyphs || [];
+            const gids: string[] = [];
+            const dxs: string[] = [];
+            const dys: string[] = [];
+            const axs: string[] = [];
+            const ays: string[] = [];
+            const cls: string[] = [];
+            for (const g of glyphBuffer) {
+                gids.push(String(g.g ?? ''));
+                dxs.push(String(g.dx ?? ''));
+                dys.push(String(g.dy ?? ''));
+                axs.push(String(g.ax ?? ''));
+                ays.push(String(g.ay ?? ''));
+                cls.push(String(g.cl ?? ''));
             }
-
-            const gidToName = Array.from(uniqueGids)
-                .sort((a, b) => a - b)
-                .map((gid) => ({
-                    gid,
-                    name: textRunEditor.getGlyphNameForGid(gid)
-                }));
-
-            // Read the live text-run state so JSON snapshots match the exact
-            // glyph stream currently rendered on the canvas, even when async
-            // editing-font apply paths repaint without going through state sync.
-            snapshot.state.editor_harfbuzz_glyph_buffer = glyphBuffer;
-            snapshot.state.editor_harfbuzz_gid_to_name = gidToName;
+            snapshot.state.editor_harfbuzz_gids = gids.join(' ');
+            snapshot.state.editor_harfbuzz_dx = dxs.join(' ');
+            snapshot.state.editor_harfbuzz_dy = dys.join(' ');
+            snapshot.state.editor_harfbuzz_ax = axs.join(' ');
+            snapshot.state.editor_harfbuzz_ay = ays.join(' ');
+            snapshot.state.editor_harfbuzz_cl = cls.join(' ');
         }
 
         // Ensure everything is JSON-serializable by doing a round-trip
