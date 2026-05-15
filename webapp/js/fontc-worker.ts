@@ -1092,7 +1092,8 @@ self.onmessage = async (event) => {
                     'font.worker.compileEditingCached.primeLayoutClosure'
                 );
                 const needsPrimeClosure =
-                    cachedBaseSubsetKey !== effectiveSubsetKey;
+                    cachedBaseSubsetKey !== effectiveSubsetKey ||
+                    cachedClosureGlyphCount === null;
                 const isOutlineIncrementalCompile =
                     String(_compileSource || '').startsWith('mouse-drag') ||
                     String(_compileSource || '').startsWith('keyboard');

@@ -103,7 +103,14 @@ const defaultCloudFontJson = {
                         },
                         {
                             Component: {
-                                reference: 'acutecomb'
+                                reference: 'acutecomb',
+                                transform: {
+                                    translation: [12, 34],
+                                    rotation: 15,
+                                    scale: [1.2, 0.8],
+                                    skew: [3, 4],
+                                    order: 'Glyphs'
+                                }
                             }
                         }
                     ]
@@ -223,11 +230,11 @@ describe('CloudPlugin.openAsset', () => {
         expect(layer.shapes[1]).toEqual({
             reference: 'acutecomb',
             transform: {
-                translation: [0, 0],
-                rotation: 0,
-                scale: [1, 1],
-                skew: [0, 0],
-                order: 'RestOfTheWorld'
+                translation: [12, 34],
+                rotation: 15,
+                scale: [1.2, 0.8],
+                skew: [3, 4],
+                order: 'Glyphs'
             }
         });
         expect(window.__pendingCloudBridgeBootstrapState).toBe(mockBridgeState);

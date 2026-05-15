@@ -18,8 +18,7 @@ import {
     getYPath,
     setJsonPath,
     deleteJsonPath,
-    getJsonPath,
-    sanitizeBabelfontArrays
+    getJsonPath
 } from './change-bridge-ydoc';
 import {
     buildHistoryStackItems,
@@ -2064,15 +2063,7 @@ export class PatchSyncEngine {
             return;
         }
 
-        const snapshot = cloneHistoryValue(fromYType(value));
-        if (
-            snapshot &&
-            typeof snapshot === 'object' &&
-            !Array.isArray(snapshot)
-        ) {
-            sanitizeBabelfontArrays(snapshot as Unsafe);
-        }
-        fontRecord[key] = snapshot;
+        fontRecord[key] = cloneHistoryValue(fromYType(value));
     }
 
     private _readNormalizedGlyphSnapshotFromYDoc(
@@ -2093,7 +2084,6 @@ export class PatchSyncEngine {
             fromYType(glyphMap),
             existingGlyphSnapshot
         ) as Unsafe;
-        sanitizeBabelfontArrays(glyphSnapshot);
         return glyphSnapshot;
     }
 
@@ -2625,7 +2615,6 @@ export class PatchSyncEngine {
             }
         }
 
-        sanitizeBabelfontArrays(patchedLayer);
         layers[layerIdx] = patchedLayer;
         return true;
     }
@@ -4394,7 +4383,6 @@ export class PatchSyncEngine {
             delete mergedLayerRecord.isInterpolated;
         }
 
-        sanitizeBabelfontArrays(mergedLayerRecord as Unsafe);
         return mergedLayerRecord;
     }
 
@@ -4518,9 +4506,6 @@ export class PatchSyncEngine {
         if (workingRecord.isInterpolated === false) {
             workingRecord.isInterpolated = null;
         }
-
-        // Sanitize any array fields in the delta.
-        sanitizeBabelfontArrays(workingRecord as Unsafe);
 
         // Apply each delta key to the Y.Map.
         for (const [key, value] of Object.entries(workingRecord)) {

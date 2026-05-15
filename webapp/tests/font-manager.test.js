@@ -342,12 +342,8 @@ describe('FontManager saveLayerData', () => {
             .findLayerById(layer.id);
 
         expect(savedLayer).toBe(originalLayerRef);
-        expect(savedLayer.shapes[0].nodes).toBe(
-            '97 89 l 420 80 l 420 620 l 80 620 l'
-        );
-        expect(modelLayer.toJSON().shapes[0].nodes).toBe(
-            '97 89 l 420 80 l 420 620 l 80 620 l'
-        );
+        expect(savedLayer.shapes).toEqual(layer.shapes);
+        expect(modelLayer.toJSON().shapes).toEqual(layer.shapes);
         expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
     });
 
@@ -479,17 +475,74 @@ describe('FontManager saveLayerData', () => {
         expect(serialized.shapes).toBeUndefined();
     });
 
-    test('saveLayerData rejects missing layer widths before mutating stored data', async () => {
+    test('serializeLayerForStorage preserves existing paths when incoming shapes have legacy string nodes', () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
         );
         const layer = glyph.layers.find(
             (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
         );
-        const originalLayer = cloneJson(layer);
-        const editedLayer = cloneJson(layer);
-        delete editedLayer.width;
+        const originalFirstShape = cloneJson(layer.shapes[0]);
+        const originalSecondShape = cloneJson(layer.shapes[1]);
 
+        const serialized = fontManager.serializeLayerForStorage(
+            'a',
+            layer.id,
+            {
+                ...cloneJson(layer),
+                shapes: [
+                    {
+                        nodes: '0 0 l 100 0 l',
+                        closed: false
+                    },
+                    {
+                        Path: {
+                            nodes: '0 0 l 50 50 l',
+                            closed: false
+                        }
+                    },
+                    {
+                        nodes: [
+                            { x: 0, y: 0, type: 'l' },
+                            { x: 100, y: 0, type: 'l' }
+                        ]
+                    },
+                    {
+                        reference: 'acute',
+                        transform: [1, 0, 0, 1, 10, 20]
+                    }
+                ]
+            },
+            undefined
+        );
+
+        expect(serialized.shapes).toEqual([
+            {
+                nodes: [
+                    { x: 0, y: 0, type: 'l' },
+                    { x: 100, y: 0, type: 'l' }
+                ],
+                closed: false
+            },
+            {
+                reference: 'acute',
+                transform: {
+                    translation: [10, 20],
+                    scale: [1, 1],
+                    rotation: -0,
+                    skew: [0, 0],
+                    order: 'RestOfTheWorld'
+                }
+            }
+        ]);
+    });
+
+    test('saveLayerData rejects missing layer widths before mutating stored data', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+            originalFirstShape,
+            originalSecondShape,
         await expect(
             fontManager.saveLayerData(
                 'a',

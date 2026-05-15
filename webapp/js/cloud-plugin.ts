@@ -17,12 +17,55 @@ import {
     CloudConnectionStatus,
     normalizeCloudRoomWebSocketUrl
 } from './cloud-adapter';
-import { sanitizeBabelfontArrays, yDocToJson } from './change-bridge-ydoc';
+import { yDocToJson } from './change-bridge-ydoc';
 import { PatchSyncEngine } from './patch-sync-engine';
 import { Logger } from './logger';
 import { resolveWebsiteURL } from './website-url';
 
 const console = new Logger('CloudPlugin');
+
+function normalizeCloudComponentTransform(
+    transform: unknown
+): Record<string, unknown> {
+    if (
+        !transform ||
+        typeof transform !== 'object' ||
+        Array.isArray(transform)
+    ) {
+        return {
+            translation: [0, 0],
+            rotation: 0,
+            scale: [1, 1],
+            skew: [0, 0],
+            order: 'RestOfTheWorld'
+        };
+    }
+
+    const record = transform as Record<string, unknown>;
+    const translation = Array.isArray(record.translation)
+        ? [
+              Number(record.translation[0]) || 0,
+              Number(record.translation[1]) || 0
+          ]
+        : [0, 0];
+    const scale = Array.isArray(record.scale)
+        ? [Number(record.scale[0]) || 1, Number(record.scale[1]) || 1]
+        : [1, 1];
+    const rawSkew = Array.isArray(record.skew)
+        ? record.skew
+        : [record.skew ?? 0, 0];
+
+    return {
+        translation,
+        rotation: Number(record.rotation) || 0,
+        scale,
+        skew: [Number(rawSkew[0]) || 0, Number(rawSkew[1]) || 0],
+        order:
+            record.order === 'Glyphs' || record.order === 'RestOfTheWorld'
+                ? record.order
+                : 'RestOfTheWorld'
+    };
+}
 
 function getCloudRequestHeaders(
     extraHeaders: Record<string, string> = {}
@@ -39,7 +82,7 @@ function normalizeCloudExportForFontOpen(
     fontJson: Record<string, unknown>,
     _operation: 'open' | 'save' = 'open'
 ) {
-    let fixCount = sanitizeBabelfontArrays(fontJson);
+    let fixCount = 0;
 
     const glyphs = Array.isArray(fontJson.glyphs) ? fontJson.glyphs : [];
     for (const glyph of glyphs) {
@@ -61,6 +104,36 @@ function normalizeCloudExportForFontOpen(
                     continue;
                 }
 
+                const shapeRecord = shape as Record<string, unknown>;
+                if (
+                    'Path' in shapeRecord &&
+                    shapeRecord.Path &&
+                    typeof shapeRecord.Path === 'object' &&
+                    !Array.isArray(shapeRecord.Path)
+                ) {
+                    const payload = shapeRecord.Path as Record<string, unknown>;
+                    for (const key of Object.keys(shapeRecord)) {
+                        delete shapeRecord[key];
+                    }
+                    Object.assign(shapeRecord, payload);
+                    fixCount++;
+                } else if (
+                    'Component' in shapeRecord &&
+                    shapeRecord.Component &&
+                    typeof shapeRecord.Component === 'object' &&
+                    !Array.isArray(shapeRecord.Component)
+                ) {
+                    const payload = shapeRecord.Component as Record<
+                        string,
+                        unknown
+                    >;
+                    for (const key of Object.keys(shapeRecord)) {
+                        delete shapeRecord[key];
+                    }
+                    Object.assign(shapeRecord, payload);
+                    fixCount++;
+                }
+
                 const pathShape = shape as {
                     nodes?: unknown;
                     closed?: boolean;
@@ -68,8 +141,27 @@ function normalizeCloudExportForFontOpen(
                 if (Array.isArray(pathShape.nodes)) {
                     if (pathShape.closed === undefined) {
                         pathShape.closed = false;
+                        fixCount++;
                     }
-                    fixCount++;
+                    continue;
+                }
+
+                const componentShape = shape as {
+                    reference?: unknown;
+                    transform?: unknown;
+                };
+                if (typeof componentShape.reference === 'string') {
+                    const normalizedTransform =
+                        normalizeCloudComponentTransform(
+                            componentShape.transform
+                        );
+                    if (
+                        JSON.stringify(componentShape.transform) !==
+                        JSON.stringify(normalizedTransform)
+                    ) {
+                        componentShape.transform = normalizedTransform;
+                        fixCount++;
+                    }
                 }
             }
         }

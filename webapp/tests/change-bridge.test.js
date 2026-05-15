@@ -19,8 +19,7 @@ const {
     deleteYPath,
     setJsonPath,
     deleteJsonPath,
-    getJsonPath,
-    sanitizeBabelfontArrays
+    getJsonPath
 } = require('../js/change-bridge-ydoc');
 const {
     buildHistoryStackItems,
@@ -1110,7 +1109,6 @@ describe('change-bridge-ydoc', () => {
         doc.transact(() => jsonToYDoc(json, fontMap));
 
         const result = yDocToJson(fontMap);
-        sanitizeBabelfontArrays(result);
         const braceLayer = result.glyphs[0].layers.find(
             (layer) => layer.id === 'layer-brace-550'
         );
@@ -1201,31 +1199,98 @@ describe('change-bridge-ydoc', () => {
         );
     });
 
-    test('sanitizeBabelfontArrays canonicalizes malformed component transforms', () => {
+    test('fromYType preserves numeric-key maps instead of repairing them into arrays', () => {
+        const doc = new Y.Doc();
+        const map = doc.getMap('numeric');
+        map.set('0', 'a');
+        map.set('1', 'b');
+
+        expect(fromYType(map)).toEqual({ 0: 'a', 1: 'b' });
+    });
+
+    test('setYPath creates missing numeric path containers as real Y.Arrays', () => {
+        const doc = new Y.Doc();
+        const fontMap = doc.getMap('font');
+
+        setYPath(
+            fontMap,
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0, 'x'],
+            123
+        );
+
+        const shapes = getYPath(fontMap, [
+            'glyphs',
+            'A',
+            'layers',
+            'layer-1',
+            'shapes'
+        ]);
+        const nodes = getYPath(fontMap, [
+            'glyphs',
+            'A',
+            'layers',
+            'layer-1',
+            'shapes',
+            0,
+            'nodes'
+        ]);
+
+        expect(shapes).toBeInstanceOf(Y.Array);
+        expect(nodes).toBeInstanceOf(Y.Array);
+        expect(fromYType(shapes)).toEqual([{ nodes: [{ x: 123 }] }]);
+    });
+
+    test('jsonToYDoc writes only flat array-based shapes at ingress', () => {
         const json = makeMinimalFont();
         json.glyphs[0].layers[0].shapes = [
             {
-                reference: 'A',
+                Path: {
+                    nodes: [
+                        { x: 1, y: 2, nodetype: 'line' },
+                        { x: 3, y: 4, nodetype: 'line' }
+                    ]
+                }
+            },
+            {
+                Component: {
+                    reference: 'B'
+                }
+            }
+        ];
+        const doc = new Y.Doc();
+        const fontMap = doc.getMap('font');
+
+        doc.transact(() => jsonToYDoc(json, fontMap));
+
+        expect(
+            fromYType(
+                getYPath(fontMap, [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'shapes'
+                ])
+            )
+        ).toEqual([
+            {
+                nodes: [
+                    { x: 1, y: 2, nodetype: 'line' },
+                    { x: 3, y: 4, nodetype: 'line' }
+                ],
+                closed: false
+            },
+            {
+                reference: 'B',
                 transform: {
                     translation: [0, 0],
                     rotation: 0,
                     scale: [1, 1],
-                    skew: 0,
-                    tcenter: [0, 0]
+                    skew: [0, 0],
+                    order: 'RestOfTheWorld'
                 }
             }
-        ];
-
-        const fixCount = sanitizeBabelfontArrays(json);
-
-        expect(fixCount).toBeGreaterThan(0);
-        expect(json.glyphs[0].layers[0].shapes[0].transform).toEqual({
-            translation: [0, 0],
-            rotation: 0,
-            scale: [1, 1],
-            skew: [0, 0],
-            order: 'RestOfTheWorld'
-        });
+        ]);
     });
 
     test('deleteYPath removes keyed entries', () => {

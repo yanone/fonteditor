@@ -13,6 +13,18 @@ import fontManager from './font-manager';
     let initialCheckTimeoutId: number | null = null;
     let isStartupBlocked = false;
     let triggerQueued = false;
+    let failedCompileRequestVersion: number | null = null;
+
+    function getCurrentCompileRequestVersion() {
+        return fontManager.currentFont?.compileRequestVersion ?? null;
+    }
+
+    function isCurrentRequestFailureLatched() {
+        return (
+            failedCompileRequestVersion !== null &&
+            failedCompileRequestVersion === getCurrentCompileRequestVersion()
+        );
+    }
 
     function queueImmediateTrigger() {
         if (triggerQueued) {
@@ -45,7 +57,11 @@ import fontManager from './font-manager';
         }
 
         // Check if font needs recompilation and we're not already compiling
-        if (fontManager.currentFont?.needsRecompile && !isCompiling) {
+        if (
+            fontManager.currentFont?.needsRecompile &&
+            !isCompiling &&
+            !isCurrentRequestFailureLatched()
+        ) {
             // Trigger compilation immediately (non-blocking)
             triggerCompilation().catch((err) => {
                 console.error('Compilation error:', err);
@@ -109,7 +125,10 @@ import fontManager from './font-manager';
             return;
         }
 
-        if (fontManager.currentFont?.needsRecompile) {
+        if (
+            fontManager.currentFont?.needsRecompile &&
+            !isCurrentRequestFailureLatched()
+        ) {
             isCompiling = true;
 
             try {
@@ -137,8 +156,19 @@ import fontManager from './font-manager';
 
                     // Trigger recompilation - returns true if data changed and needs another compile
                     if (fontManager && fontManager.isReady()) {
-                        needsRecompile =
-                            await fontManager.recompileEditingFont();
+                        try {
+                            needsRecompile =
+                                await fontManager.recompileEditingFont();
+                            failedCompileRequestVersion = null;
+                        } catch (err) {
+                            failedCompileRequestVersion =
+                                getCurrentCompileRequestVersion();
+                            if (fontManager.currentFont) {
+                                fontManager.currentFont.needsRecompile = false;
+                            }
+                            console.error('Compilation error:', err);
+                            needsRecompile = false;
+                        }
                     } else {
                         needsRecompile = false;
                     }

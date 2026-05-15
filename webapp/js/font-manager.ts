@@ -21,12 +21,7 @@ import {
     DecomposedAffineTransform,
     withSuppressedModelRecording
 } from './babelfont-model';
-import {
-    jsonToYDoc,
-    sanitizeBabelfontArrays,
-    deleteYPath,
-    setYPath
-} from './change-bridge-ydoc';
+import { jsonToYDoc, deleteYPath, setYPath } from './change-bridge-ydoc';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
@@ -415,9 +410,6 @@ class OpenedFont {
     syncJsonFromModel(): void {
         let wrappersFixed = 0;
 
-        // Sanitize array fields that Y.Doc undo/redo roundtrips may have
-        // corrupted into objects with numeric keys (e.g. shapes → {"0":…})
-        sanitizeBabelfontArrays(this.babelfontData);
         assertBabelfontLayerWidths(this.babelfontData, 'syncJsonFromModel');
 
         // Process all layers to prepare for serialization
@@ -1512,6 +1504,14 @@ class FontManager {
         const pathCandidate = hasPathWrapper ? shape.Path : shape;
 
         if ('nodes' in pathCandidate) {
+            if (!Array.isArray(pathCandidate.nodes)) {
+                console.warn(
+                    '[FontManager] Dropping invalid path shape with non-array nodes during Rust normalization',
+                    shape
+                );
+                return null;
+            }
+
             return {
                 nodes: pathCandidate.nodes,
                 closed: pathCandidate.closed,
@@ -1584,9 +1584,9 @@ class FontManager {
         });
 
         const shapes = Array.isArray(layerData.shapes)
-            ? layerData.shapes.map((shape: any) =>
-                  this.normalizeShapeForRust(shape)
-              )
+            ? layerData.shapes
+                  .map((shape: any) => this.normalizeShapeForRust(shape))
+                  .filter((shape: any) => shape !== null)
             : [];
 
         const normalizedLayer = {
@@ -3006,9 +3006,20 @@ class FontManager {
                 typeof pathCandidate === 'object' &&
                 'nodes' in pathCandidate
             ) {
+                if (!Array.isArray(pathCandidate.nodes)) {
+                    console.warn(
+                        '[FontManager] Rejecting invalid path shape with non-array nodes during layer storage serialization',
+                        shape
+                    );
+                    return null;
+                }
+
                 return {
                     nodes: pathCandidate.nodes,
-                    closed: pathCandidate.closed,
+                    closed:
+                        pathCandidate.closed === undefined
+                            ? false
+                            : pathCandidate.closed,
                     ...(pathCandidate.format_specific && {
                         format_specific: pathCandidate.format_specific
                     })
@@ -3021,6 +3032,14 @@ class FontManager {
                 typeof componentCandidate === 'object' &&
                 'reference' in componentCandidate
             ) {
+                if (typeof componentCandidate.reference !== 'string') {
+                    console.warn(
+                        '[FontManager] Dropping invalid component shape without string reference during layer storage serialization',
+                        shape
+                    );
+                    return null;
+                }
+
                 return {
                     reference: componentCandidate.reference,
                     transform: this.normalizeComponentTransformForRust(
@@ -3057,12 +3076,27 @@ class FontManager {
             operation: 'serializeLayerForStorage'
         });
 
-        const cleanShapes = Array.isArray(layerData.shapes)
-            ? layerData.shapes.map(cleanShapeForSaving)
+        const cleanOriginalShapes = Array.isArray(originalLayer?.shapes)
+            ? originalLayer.shapes
+                  .map(cleanShapeForSaving)
+                  .filter((shape) => shape !== null)
             : originalLayer?.shapes;
+        const cleanShapes = Array.isArray(layerData.shapes)
+            ? layerData.shapes
+                  .map((shape, index) => {
+                      const cleanedShape = cleanShapeForSaving(shape);
+                      if (cleanedShape !== null) {
+                          return cleanedShape;
+                      }
+                      return Array.isArray(cleanOriginalShapes)
+                          ? cleanOriginalShapes[index]
+                          : null;
+                  })
+                  .filter((shape) => shape !== null && shape !== undefined)
+            : cleanOriginalShapes;
         const storedShapes =
             options?.preserveExistingShapes && originalLayer?.shapes
-                ? originalLayer.shapes
+                ? cleanOriginalShapes
                 : cleanShapes;
 
         const cleanAnchors = Array.isArray(layerData.anchors)
