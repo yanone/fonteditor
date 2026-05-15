@@ -675,6 +675,11 @@ export class PatchSyncEngine {
         update: YjsUpdate,
         changeLogEntries: ChangeLogEntry[]
     ): void {
+        // Undo/redo may append a coarse control entry for history-stack state,
+        // but every emitted Yjs packet must still be observed through the same
+        // semantic metadata shape as the original forward edit. Unwrap control
+        // rows here so worker/cache/compile/broadcast consumers never need an
+        // undo-specific path.
         const emissionEntries = getEffectiveEmissionEntries(changeLogEntries);
         const collaborationMessage =
             createCollaborationMessageEnvelopeFromChangeLogEntries(
@@ -703,44 +708,6 @@ export class PatchSyncEngine {
         this._yjsWorkerCallback?.(update, emissionEntries);
         for (const cb of this._committedChangeListeners) {
             cb(emissionEntries, { origin: 'local', update });
-        }
-    }
-
-    private _emitLocalUpdateWithMetadata(
-        update: YjsUpdate,
-        changeLogEntries: ChangeLogEntry[]
-    ): void {
-        if (!update.length) {
-            return;
-        }
-
-        const collaborationMessage =
-            createCollaborationMessageEnvelopeFromChangeLogEntries(
-                changeLogEntries,
-                {
-                    localSequence: this._nextCollaborationMessageSequence++,
-                    source: 'change-bridge',
-                    windowId: this.windowId
-                }
-            );
-        if (collaborationMessage) {
-            this._appendCollaborationLogItems([
-                this._createCollaborationLogItem(
-                    collaborationMessage,
-                    update,
-                    'local',
-                    this._deriveForwardChangesFromChangeLogEntries(
-                        changeLogEntries
-                    )
-                )
-            ]);
-        }
-        for (const cb of this._localUpdateListeners) {
-            cb(update, collaborationMessage, changeLogEntries);
-        }
-        this._yjsWorkerCallback?.(update, changeLogEntries);
-        for (const cb of this._committedChangeListeners) {
-            cb(changeLogEntries, { origin: 'local', update });
         }
     }
 
@@ -1602,19 +1569,7 @@ export class PatchSyncEngine {
                 !this._isApplyingRemote &&
                 !this._suppressAutomaticLocalUpdateEmission
             ) {
-                if (metadataEntries?.length) {
-                    const update = Y.encodeStateAsUpdate(
-                        this.yDoc,
-                        localUpdateBaseline
-                    );
-                    this._lastLocalUpdateLogIndex = this._changeLog.length;
-                    this._lastBroadcastStateVector = Y.encodeStateVector(
-                        this.yDoc
-                    );
-                    this._emitLocalUpdateWithMetadata(update, metadataEntries);
-                } else {
-                    this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
-                }
+                this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
             }
             return {
                 scope,
@@ -1733,19 +1688,7 @@ export class PatchSyncEngine {
                 !this._isApplyingRemote &&
                 !this._suppressAutomaticLocalUpdateEmission
             ) {
-                if (metadataEntries?.length) {
-                    const update = Y.encodeStateAsUpdate(
-                        this.yDoc,
-                        localUpdateBaseline
-                    );
-                    this._lastLocalUpdateLogIndex = this._changeLog.length;
-                    this._lastBroadcastStateVector = Y.encodeStateVector(
-                        this.yDoc
-                    );
-                    this._emitLocalUpdateWithMetadata(update, metadataEntries);
-                } else {
-                    this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
-                }
+                this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
             }
             return {
                 scope,

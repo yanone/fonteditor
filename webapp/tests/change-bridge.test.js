@@ -3316,6 +3316,70 @@ describe('WindowSync', () => {
         bridge2.destroy();
     });
 
+    test('undo via history replay emits original semantic entries through the shared local-update path', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('win-history-semantic');
+        bridge.initFromJson(fontJson);
+
+        const localUpdates = [];
+        bridge.onLocalUpdate((update, _message, changeLogEntries) => {
+            localUpdates.push({ update, changeLogEntries });
+        });
+
+        bridge.applySyntheticChangeSet('Python script', [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 700,
+                visualAnchorSide: 'left',
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            },
+            {
+                op: 'set',
+                path: ['glyphs', 'B', 'layers', 'layer-2', 'width'],
+                oldValue: 600,
+                newValue: 710,
+                visualAnchorSide: 'right',
+                workerReplayTargets: [{ glyphName: 'B', layerId: 'layer-2' }]
+            }
+        ]);
+
+        const forwardEntries = localUpdates.at(-1).changeLogEntries;
+        localUpdates.length = 0;
+
+        expect(bridge.undo()).toEqual(
+            expect.objectContaining({
+                scope: 'font',
+                glyphName: null,
+                layerId: null
+            })
+        );
+
+        expect(localUpdates).toHaveLength(1);
+        expect(localUpdates[0].update).toBeInstanceOf(Uint8Array);
+        expect(localUpdates[0].changeLogEntries).toHaveLength(
+            forwardEntries.length
+        );
+
+        for (let index = 0; index < forwardEntries.length; index++) {
+            expect(localUpdates[0].changeLogEntries[index]).toEqual(
+                expect.objectContaining({
+                    historyAction: 'undo',
+                    targetHistoryItemId: forwardEntries[index].historyItemId,
+                    transactionLabel: forwardEntries[index].transactionLabel,
+                    path: forwardEntries[index].path,
+                    visualAnchorSide: forwardEntries[index].visualAnchorSide,
+                    workerReplayTargets:
+                        forwardEntries[index].workerReplayTargets,
+                    semanticChangeLogEntries: undefined
+                })
+            );
+        }
+
+        bridge.destroy();
+    });
+
     test('linked window can undo a main-window edit', () => {
         const fontJson1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('win-1');

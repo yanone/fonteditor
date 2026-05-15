@@ -49,6 +49,8 @@ When these files disagree with this document, treat that as a bug and reconcile 
 20. **Tighter layout-closure invalidation for visual paths only.** `shouldInvalidateLayoutClosureForCommittedEntries` MUST return `false` for any path that contains `.layers.` or `:layers.` — these are visual layer-scoped edits that only change data inside the existing closed glyph set. The function still returns `true` for `features.*` paths and `glyphs.*` paths without layer scope (structural changes). See `webapp/js/change-bridge-init.ts` `shouldInvalidateLayoutClosureForCommittedEntries`.
 21. **Worker-side sentinel clearing respects explicit `invalidateLayoutClosure: false`.** The `applyYjsUpdate` handler in `fontc-worker.ts` MUST NOT clear `cachedBaseSubsetKey` / `cachedClosureGlyphCount` when the sender passes `invalidateLayoutClosure: false`, even if `changedGlyphCount === 0`. The old condition `changedGlyphCount === 0` that overrode an explicit `false` was removed. Feature-code and top-level updates still invalidate closure by sending `invalidateLayoutClosure: true`. See `webapp/js/fontc-worker.ts` `applyYjsUpdate` handler.
 22. **Node arrays are producer invariants, never sanitizer output.** Path shapes MUST be produced with `nodes` already materialized as `Babelfont.Node[]` at the source of the edit or payload construction. No edit, exact-layer payload builder, Yjs serializer, compile validator, or worker-cache serializer may unwrap wrapped shapes, convert string path data to arrays, preserve old shapes to hide malformed nodes, or otherwise sanitize malformed path structure. If `nodes` is not an array when a path shape crosses one of those boundaries, that code path is buggy and MUST throw instead of repairing the data.
+23. **Undo/redo control rows must never define emitted packet semantics.** Undo and redo may append coarse control entries to the change log only to rotate history-stack state (`targetHistoryItemId`, `Undo`/`Redo` labels, scopes). Those control rows MUST NOT be forwarded as the semantic metadata observed by local update listeners, worker callbacks, collaboration transport, or the committed-change funnel. Emitted committed packets MUST always unwrap back to clones of the original forward entries from the same authoritative Yjs delta, with only `historyAction` changed to `undo` or `redo` and `targetHistoryItemId` attached. There must be exactly one local emission path for committed Yjs deltas: `_emitCanonicalLocalUpdateSince(...)` / Yjs `update` -> `_emitLocalUpdate(...)`. Undo/redo-specific local emission helpers are forbidden.
+24. **Worker document mutations close the compile-ready gate before posting.** `storeFontJson`, `seedYdoc`, and `applyYjsUpdate` mutate the Rust worker document/cache and may clear the primed layout closure. `FontCompilation.sendMessage()` MUST set `workerCacheDocumentReady = false` synchronously before posting any of those messages, then restore readiness only after the matching worker response succeeds. Cached editing compiles MUST wait for the tracked worker-document sync whenever that gate is closed. This prevents linked-window bootstrap or any other worker reseed/update from racing a cached editing compile that would otherwise try to reuse a JS-visible subset key after Rust cleared its layout-closure cache.
 
 ## Committed Packet Lifecycle
 
@@ -76,6 +78,13 @@ local JSON/model view is patched from the committed Yjs state immediately after
 that mutation, and the local and remote post-commit reactors are both supposed
 to consume the same authoritative Yjs packet rather than parallel ad hoc local
 reaction paths.
+
+Undo and redo add one extra constraint on top of that chain: if history UI
+state needs a coarse control row in the change log, that row is history-only.
+The packet observed by post-commit consumers must still be the same semantic
+entry shape as the original forward edit. In other words, history may record
+"Undo"/"Redo", but worker/cache/compile/broadcast consumers must observe only
+the cloned original forward entries from the committed Yjs delta.
 
 ## Boundary-Crossing Budget
 
@@ -320,6 +329,8 @@ The worker may re-prime layout closure only when one of these inputs changes:
 - Feature source data or glyphset-level structure changes in a committed Yjs packet.
 
 Layer-scoped visual updates forwarded through `applyYjsUpdate` must pass `invalidateLayoutClosure: false`. This applies equally to local commits, linked-window replay, undo/redo replay, and Python edits that only touch visual layer data.
+
+If `compile_cached_font_from_last_layout_closure()` reports that no layout closure is primed while the JS worker sentinel believed the closure was reusable, the worker must treat that as stale closure metadata and re-prime from the current Yjs-backed `subsetGlyphs`/layout-closure key before retrying the cached compile. This is not a full-document fallback and must not rebuild state from JSON; it only restores the Rust closure cache for the already-authoritative worker Y.Doc.
 
 Any change that introduces or increases any full-document transfer during normal editing is a regression unless explicitly documented and approved for bootstrap-only behavior.
 

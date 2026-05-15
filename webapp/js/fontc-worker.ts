@@ -552,6 +552,52 @@ function postCompiledResult(
     timelineSpanEnd(transferSpanId);
 }
 
+export function isMissingPrimedLayoutClosureError(error: unknown): boolean {
+    const message =
+        error instanceof Error
+            ? error.message
+            : typeof error === 'string'
+              ? error
+              : error && typeof error === 'object' && 'message' in error
+                ? String((error as { message?: unknown }).message || '')
+                : '';
+    return message.includes('No primed layout closure');
+}
+
+export function shouldReprimeMissingLayoutClosure(
+    error: unknown,
+    baseSubsetGlyphs: unknown
+): boolean {
+    return (
+        isMissingPrimedLayoutClosureError(error) &&
+        Array.isArray(baseSubsetGlyphs)
+    );
+}
+
+export function compileFromLastLayoutClosureWithReprime(
+    options: Record<string, unknown>,
+    effectiveSubsetKey: string,
+    baseSubsetGlyphs: string[] | null,
+    compileFromLastClosure: (options: Record<string, unknown>) => Uint8Array,
+    primeLayoutClosure: (subsetKey: string, subsetGlyphsJson: string) => number,
+    onReprime?: (closureGlyphCount: number) => void
+): Uint8Array {
+    try {
+        return compileFromLastClosure(options);
+    } catch (error) {
+        if (!shouldReprimeMissingLayoutClosure(error, baseSubsetGlyphs)) {
+            throw error;
+        }
+
+        const closureGlyphCount = primeLayoutClosure(
+            effectiveSubsetKey,
+            JSON.stringify(baseSubsetGlyphs)
+        );
+        onReprime?.(closureGlyphCount);
+        return compileFromLastClosure(options);
+    }
+}
+
 /**
  * Strip layerData fields from components in the font JSON,
  * ensure all layers have a shapes array,
@@ -1153,8 +1199,21 @@ self.onmessage = async (event) => {
                 );
                 // YJS_ONLY: Reads from CANONICAL_JSON_CACHE (Rust-internal) —
                 // no JSON crosses the JS/Rust boundary.
-                const compiledBytes =
-                    compile_cached_font_from_last_layout_closure(options || {});
+                const compiledBytes = compileFromLastLayoutClosureWithReprime(
+                    options || {},
+                    effectiveSubsetKey,
+                    baseSubsetGlyphs,
+                    compile_cached_font_from_last_layout_closure,
+                    prime_layout_closure_cache,
+                    (closureGlyphCount) => {
+                        timelineMark(
+                            'font.worker.compileEditingCached.compileCachedFont.reprimeMissingClosure',
+                            { parentSpanId: compileCachedSpanId }
+                        );
+                        cachedClosureGlyphCount = closureGlyphCount;
+                        cachedBaseSubsetKey = effectiveSubsetKey;
+                    }
+                );
                 timelineMark(
                     'font.worker.compileEditingCached.compileCachedFont.resultReady',
                     {

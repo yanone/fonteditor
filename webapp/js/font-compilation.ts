@@ -161,7 +161,7 @@ async function shapeTextWithFont(
     return Array.from(glyphNames);
 }
 
-class FontCompilation {
+export class FontCompilation {
     worker: Worker | null;
     isInitialized: boolean;
     initializationPromise: Promise<boolean> | null;
@@ -682,6 +682,18 @@ class FontCompilation {
                 );
                 return this.pendingStoreFontJsonPromise;
             }
+        }
+
+        if (
+            messageType === 'storeFontJson' ||
+            messageType === 'seedYdoc' ||
+            messageType === 'applyYjsUpdate'
+        ) {
+            // These messages mutate the Rust worker's document/cache state and
+            // may clear the primed layout closure. Close the ready gate before
+            // posting so any compile requested in the same turn waits for the
+            // tracked document sync instead of racing stale JS readiness.
+            this.workerCacheDocumentReady = false;
         }
 
         const spanId = timelineSpanStart(
@@ -1346,7 +1358,7 @@ if (typeof document !== 'undefined') {
 (window as any).fontCompilation = fontCompilation;
 (window as any).fullFontCompilation = fullFontCompilation;
 
-export type { CompilationOptions, FontCompilation };
+export type { CompilationOptions };
 export {
     fontCompilation,
     fullFontCompilation,
