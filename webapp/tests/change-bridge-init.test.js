@@ -107,20 +107,11 @@ describe('handleRemoteChangeRefresh', () => {
             'keyboard-anchor',
             'anchor'
         );
-        expect(queueCacheRefresh).toHaveBeenCalledWith(
-            undefined,
-            undefined,
-            {
-                allowSelectedLayerFallback: false,
-                workerReplayTargets: [
-                    {
-                        glyphName: 'a',
-                        layerId: 'master-regular'
-                    }
-                ]
-            }
-        );
-        expect(refreshOrder).toEqual(['sync', 'queue', 'compile']);
+        // Local GUI-complete layer packet: the Yjs worker callback already
+        // forwarded the update, so the post-commit skips the duplicate
+        // replay-target cache refresh.
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(refreshOrder).toEqual(['sync', 'compile']);
         expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
         expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
             glyphName: 'a',
@@ -214,13 +205,9 @@ describe('handleRemoteChangeRefresh', () => {
         const requestCompile = jest.fn(async () => {
             refreshOrder.push('compile');
         });
-        let resolveReplayTargetRefresh;
-        const replayTargetRefresh = new Promise((resolve) => {
-            resolveReplayTargetRefresh = resolve;
-        });
         const queueCacheRefresh = jest.fn(() => {
             refreshOrder.push('queue');
-            return replayTargetRefresh;
+            return Promise.resolve();
         });
         const glyphChangedHandler = jest.fn();
 
@@ -287,11 +274,17 @@ describe('handleRemoteChangeRefresh', () => {
             resolveSecondCacheUpdate();
             await new Promise((resolve) => setTimeout(resolve, 0));
 
-            expect(queueCacheRefresh).toHaveBeenCalledTimes(1);
-            expect(requestCompile).not.toHaveBeenCalled();
-            expect(glyphChangedHandler).not.toHaveBeenCalled();
+            // Local GUI-complete layer packet: the Yjs worker callback already
+            // forwarded the update, so the post-commit skips the duplicate
+            // replay-target cache refresh and goes straight to compile.
+            expect(queueCacheRefresh).not.toHaveBeenCalled();
+            // requestCompile is called immediately after worker sync settles
+            // because we skip the cache refresh for GUI-complete packets.
+            expect(requestCompile).toHaveBeenCalledTimes(1);
+            // glyphChanged is also dispatched after compile request
+            // (overview refresh from committed entries)
+            expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
 
-            resolveReplayTargetRefresh();
             await refreshPromise;
         } finally {
             window.removeEventListener('glyphChanged', glyphChangedHandler);
@@ -308,30 +301,13 @@ describe('handleRemoteChangeRefresh', () => {
             glyphName: 'a',
             glyphNames: ['a', 'adieresis']
         });
-        expect(queueCacheRefresh).toHaveBeenCalledWith(
-            undefined,
-            undefined,
-            {
-                allowSelectedLayerFallback: false,
-                workerReplayTargets: [
-                    {
-                        glyphName: 'a',
-                        layerId: 'master-regular'
-                    },
-                    {
-                        glyphName: 'adieresis',
-                        layerId: 'master-regular'
-                    }
-                ]
-            }
-        );
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(refreshOrder).toEqual([
             'sync',
             'cache-1',
             'sync',
             'cache-2',
             'sync',
-            'queue',
             'compile'
         ]);
     });
@@ -373,19 +349,15 @@ describe('handleRemoteChangeRefresh', () => {
             queueCacheRefresh
         });
 
-        expect(queueCacheRefresh).toHaveBeenCalledWith(
-            undefined,
-            undefined,
-            {
-                allowSelectedLayerFallback: false,
-                workerReplayTargets: [
-                    {
-                        glyphName: 'a',
-                        layerId: 'master-regular'
-                    }
-                ]
-            }
-        );
+        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
+            allowSelectedLayerFallback: false,
+            workerReplayTargets: [
+                {
+                    glyphName: 'a',
+                    layerId: 'master-regular'
+                }
+            ]
+        });
         expect(requestCompile).not.toHaveBeenCalled();
         expect(refreshOrder).toEqual(['queue']);
 
@@ -443,14 +415,10 @@ describe('handleRemoteChangeRefresh', () => {
             }
         );
 
-        expect(queueCacheRefresh).toHaveBeenCalledWith(
-            undefined,
-            undefined,
-            {
-                allowSelectedLayerFallback: false,
-                workerReplayTargets: replayTargets
-            }
-        );
+        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
+            allowSelectedLayerFallback: false,
+            workerReplayTargets: replayTargets
+        });
         expect(requestCompile).toHaveBeenNthCalledWith(
             1,
             'remote-outline',
@@ -477,14 +445,107 @@ describe('handleRemoteChangeRefresh', () => {
             }
         );
 
-        expect(queueCacheRefresh).toHaveBeenCalledWith(
-            undefined,
-            undefined,
-            {
-                allowSelectedLayerFallback: false
-            }
-        );
+        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
+            allowSelectedLayerFallback: false
+        });
         expect(requestCompile).toHaveBeenCalledWith('remote-change', null);
+    });
+
+    test('local GUI commit with layer-scoped replay targets skips duplicate cache refresh after Yjs worker already forwarded', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const queueCacheRefresh = jest.fn(async () => {});
+        const glyphChangedHandler = jest.fn();
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            lastChangeSource: 'keyboard-outline',
+            lastEditType: 'outline'
+        };
+        window.addEventListener('glyphChanged', glyphChangedHandler);
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Set sidebearing',
+                        path: 'glyphs.A.layers.layer-1',
+                        visualAnchorSide: 'right',
+                        workerReplayTargets: [
+                            { glyphName: 'A', layerId: 'layer-1' },
+                            { glyphName: 'B', layerId: 'layer-2' }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
+            delete window.fontManager;
+        }
+
+        // The Yjs worker callback already forwarded the update to Rust.
+        // The local post-commit should NOT send a second refreshWorkerCacheForReplayTargets.
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
+        );
+    });
+
+    test('local commit without layer-scoped paths still runs cache refresh', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const queueCacheRefresh = jest.fn(async () => {});
+        const glyphChangedHandler = jest.fn();
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            lastChangeSource: 'feature-code',
+            lastEditType: null
+        };
+        window.addEventListener('glyphChanged', glyphChangedHandler);
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Edit feature code',
+                        path: 'features.features.0.1.code',
+                        workerReplayTargets: []
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
+            delete window.fontManager;
+        }
+
+        // Feature-code commit without layer-scope paths still runs the
+        // cache refresh (it's not a GUI-complete layer packet).
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith('feature-code', null);
     });
 
     test('classifies local feature-code commits as feature-code recompiles', async () => {
@@ -912,6 +973,145 @@ describe('bridge Yjs worker callback', () => {
             }
         );
     });
+
+    test('outline edit forwards with invalidateLayoutClosure false and non-empty changedGlyphs', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const interpolationUpdateSpy = jest
+            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
+            .mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = {
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const bridge = initializeBridgeHarness();
+        workerSeedSpy.mockClear();
+
+        // Outline edit — layer-scoped node change
+        bridge._yjsWorkerCallback(new Uint8Array([7, 7]), [
+            {
+                path: 'glyphs.A.layers.layer-1.shapes.0.nodes.0.x',
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            ['A']
+        );
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            ['A'],
+            {
+                invalidateLayoutClosure: false,
+                layerTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        );
+    });
+
+    test('anchor edit forwards with invalidateLayoutClosure false and non-empty changedGlyphs', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const interpolationUpdateSpy = jest
+            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
+            .mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = {
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const bridge = initializeBridgeHarness();
+        workerSeedSpy.mockClear();
+
+        // Anchor edit — layer-scoped anchor change
+        bridge._yjsWorkerCallback(new Uint8Array([8, 8]), [
+            {
+                path: 'glyphs.A.layers.layer-1.anchors.0.x',
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            ['A']
+        );
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            ['A'],
+            {
+                invalidateLayoutClosure: false,
+                layerTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        );
+    });
+
+    test('sidebearing edit forwards with invalidateLayoutClosure false and non-empty changedGlyphs', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const interpolationUpdateSpy = jest
+            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
+            .mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = {
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const bridge = initializeBridgeHarness();
+        workerSeedSpy.mockClear();
+
+        // Sidebearing edit — layer-scoped width change
+        bridge._yjsWorkerCallback(new Uint8Array([6, 6]), [
+            {
+                path: 'glyphs.A.layers.layer-1.width',
+                visualAnchorSide: 'right',
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            ['A']
+        );
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            ['A'],
+            {
+                invalidateLayoutClosure: false,
+                layerTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        );
+    });
 });
 
 describe('buildCascadingRecompositionOperations', () => {
@@ -1256,6 +1456,249 @@ describe('buildCascadingRecompositionOperations', () => {
         expect(
             window.fontManager.currentFont.fontModel.recomputeMetricsKeys
         ).not.toHaveBeenCalled();
+    });
+
+    test('skips recomposition when GUI layer-snapshot operation carries complete replay targets', () => {
+        const fontJson = makeBridgeFont();
+        const bridge = new ChangeBridge('cascade-test');
+        bridge.initFromJson(fontJson);
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    rebuildAutomaticCompositesForGlyphs: jest.fn(),
+                    recomputeMetricsKeys: jest.fn()
+                }
+            }
+        };
+
+        // A layer-snapshot operation with explicit workerReplayTargets
+        // that includes the source glyph/layer should bypass recomposition.
+        const operations = buildCascadingRecompositionOperations(bridge, [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1'],
+                oldValue: {
+                    id: 'layer-1',
+                    width: 600,
+                    anchors: [],
+                    shapes: []
+                },
+                newValue: {
+                    id: 'layer-1',
+                    width: 700,
+                    anchors: [],
+                    shapes: []
+                },
+                applyPath: ['glyphs', 'A', 'layers', 'layer-1'],
+                applyMode: 'layer-snapshot',
+                applyNewValue: { id: 'layer-1', width: 700 },
+                workerReplayTargets: [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'B', layerId: 'layer-2' }
+                ]
+            }
+        ]);
+
+        expect(operations).toEqual([]);
+        expect(
+            window.fontManager.currentFont.fontModel
+                .rebuildAutomaticCompositesForGlyphs
+        ).not.toHaveBeenCalled();
+        expect(
+            window.fontManager.currentFont.fontModel.recomputeMetricsKeys
+        ).not.toHaveBeenCalled();
+    });
+
+    test('falls back to recomposition when width path lacks explicit replay targets', () => {
+        const fontJson = makeBridgeFont();
+        const bridge = new ChangeBridge('cascade-test');
+        bridge.initFromJson(fontJson);
+
+        fontJson.glyphs[0].layers[0].width = 700;
+
+        const sourceLayer = {
+            id: 'layer-1',
+            getMatchingLayerOnGlyph: jest.fn((glyphName) =>
+                glyphName === 'B' ? { id: 'layer-2' } : null
+            )
+        };
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    findGlyph: jest.fn((glyphName) => {
+                        if (glyphName === 'A') {
+                            return {
+                                findLayerById: jest.fn((layerId) =>
+                                    layerId === 'layer-1' ? sourceLayer : null
+                                )
+                            };
+                        }
+
+                        if (glyphName === 'B') {
+                            return {
+                                findLayerById: jest.fn((layerId) =>
+                                    layerId === 'layer-2'
+                                        ? { id: 'layer-2' }
+                                        : null
+                                )
+                            };
+                        }
+
+                        return null;
+                    }),
+                    rebuildAutomaticCompositesForGlyphs: jest.fn(() => {
+                        fontJson.glyphs[1].layers[0].width = 710;
+                        return new Set(['B']);
+                    }),
+                    recomputeMetricsKeys: jest.fn(() => new Set())
+                }
+            }
+        };
+
+        // A width path without explicit workerReplayTargets should still
+        // trigger recomposition (fallback for non-GUI or incomplete packets).
+        const operations = buildCascadingRecompositionOperations(bridge, [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 700
+            }
+        ]);
+
+        expect(operations.length).toBeGreaterThan(0);
+        expect(
+            window.fontManager.currentFont.fontModel
+                .rebuildAutomaticCompositesForGlyphs
+        ).toHaveBeenCalled();
+        expect(
+            window.fontManager.currentFont.fontModel.recomputeMetricsKeys
+        ).toHaveBeenCalled();
+    });
+
+    test('falls back to recomposition when anchor path lacks explicit replay targets', () => {
+        const fontJson = makeBridgeFont();
+        const bridge = new ChangeBridge('cascade-test');
+        bridge.initFromJson(fontJson);
+
+        fontJson.glyphs[0].layers[0].anchors = [];
+
+        const sourceLayer = {
+            id: 'layer-1',
+            getMatchingLayerOnGlyph: jest.fn(() => null)
+        };
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    findGlyph: jest.fn((glyphName) => {
+                        if (glyphName === 'A') {
+                            return {
+                                findLayerById: jest.fn((layerId) =>
+                                    layerId === 'layer-1' ? sourceLayer : null
+                                )
+                            };
+                        }
+
+                        return null;
+                    }),
+                    rebuildAutomaticCompositesForGlyphs: jest.fn(
+                        () => new Set()
+                    ),
+                    recomputeMetricsKeys: jest.fn(() => new Set(['A']))
+                }
+            }
+        };
+
+        // An anchor removal path without explicit workerReplayTargets
+        // should still trigger recomposition (the recomputeMetricsKeys
+        // call proves the fallback path was taken).
+        const operations = buildCascadingRecompositionOperations(bridge, [
+            {
+                op: 'remove',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'anchors', 0],
+                oldValue: { name: 'top', x: 100, y: 700 },
+                newValue: undefined
+            }
+        ]);
+
+        expect(
+            window.fontManager.currentFont.fontModel.recomputeMetricsKeys
+        ).toHaveBeenCalled();
+        // No cascade layer targets because getMatchingLayerOnGlyph returns
+        // null, so no layer operations are emitted.
+        expect(operations).toEqual([]);
+    });
+});
+
+describe('shouldInvalidateLayoutClosureForCommittedEntries', () => {
+    // Import the function directly from the module
+    const changeBridgeInit = require('../js/change-bridge-init');
+
+    test('returns false for visual layer-scoped paths (outline, anchor, sidebearing)', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                { path: 'glyphs.A.layers.layer-1.shapes.0.nodes.0.x' }
+            ]);
+        expect(result).toBe(false);
+    });
+
+    test('returns false for layer-snapshot paths with colon separator', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                { path: 'glyphs.alef:layers.A.0:anchors.0.x' }
+            ]);
+        expect(result).toBe(false);
+    });
+
+    test('returns false for sidebearing layer path', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                { path: 'glyphs.A.layers.layer-1.width' }
+            ]);
+        expect(result).toBe(false);
+    });
+
+    test('returns true for feature-code paths', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                { path: 'features.features.0.1.code' }
+            ]);
+        expect(result).toBe(true);
+    });
+
+    test('returns true for top-level glyph paths (structural changes)', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                { path: 'glyphs.A' }
+            ]);
+        expect(result).toBe(true);
+    });
+
+    test('returns true for glyph-removal paths', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                { path: 'glyphs.alef' }
+            ]);
+        expect(result).toBe(true);
+    });
+
+    test('returns false for mixed visual layer paths', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                { path: 'glyphs.A.layers.layer-1.anchors.0.x' },
+                { path: 'glyphs.B.layers.layer-2.width' }
+            ]);
+        expect(result).toBe(false);
+    });
+
+    test('returns true when any entry is a non-layer glyph path', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                { path: 'glyphs.A.layers.layer-1.anchors.0.x' },
+                { path: 'glyphs.B' }
+            ]);
+        expect(result).toBe(true);
     });
 });
 

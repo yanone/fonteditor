@@ -3998,13 +3998,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         nodetype: Babelfont.NodeType = 'Line' as Babelfont.NodeType,
         smooth?: boolean
     ): Node {
-        return this.insertNode(
-            this.data.nodes.length,
-            x,
-            y,
-            nodetype,
-            smooth
-        );
+        return this.insertNode(this.data.nodes.length, x, y, nodetype, smooth);
     }
 
     _addPoint(segmentId: number, t: number): number | null {

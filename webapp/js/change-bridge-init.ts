@@ -207,12 +207,20 @@ function collectWorkerLayerTargetsFromChangeLogEntries(
     return normalizeWorkerReplayTargets(targets);
 }
 
-function shouldInvalidateLayoutClosureForCommittedEntries(
+export function shouldInvalidateLayoutClosureForCommittedEntries(
     changeLogEntries: ChangeLogEntry[]
 ): boolean {
     for (const entry of changeLogEntries) {
         const path = typeof entry.path === 'string' ? entry.path : '';
         if (!path) {
+            continue;
+        }
+
+        // Visual layer-scoped paths must NOT invalidate layout closure.
+        // This covers outline, anchor, sidebearing, component, guide, and
+        // layer-visual edits that only change data inside the existing
+        // closed glyph set.
+        if (path.includes('.layers.') || path.includes(':layers.')) {
             continue;
         }
 
@@ -586,12 +594,78 @@ function buildCascadeLayerOperations(
     return operations;
 }
 
+/**
+ * Check whether a cascade-triggering operation already carries complete
+ * GUI recomposed layer snapshots, so the bridge finalizer can skip
+ * duplicate recomposition.
+ *
+ * A transaction is considered complete when all cascade-triggering
+ * operations are layer-scoped snapshot operations that already carry
+ * explicit `workerReplayTargets` including the source and downstream
+ * layers.
+ */
+function operationCarriesCompleteGuiReplayTargets(
+    operation: TransactionBufferedOperation
+): boolean {
+    const applyPath = operation.applyPath ?? operation.path;
+    const replayTargets = normalizeWorkerReplayTargets(
+        operation.workerReplayTargets
+    );
+
+    if (!replayTargets.length) {
+        return false;
+    }
+
+    const glyphName = deriveGlyphName(applyPath);
+    const layerId = deriveLayerId(applyPath);
+    if (!glyphName || !layerId) {
+        return false;
+    }
+
+    return replayTargets.some(
+        (target) => target.glyphName === glyphName && target.layerId === layerId
+    );
+}
+
 export function buildCascadingRecompositionOperations(
     bridge: PatchSyncEngine,
     operations: TransactionBufferedOperation[]
 ): TransactionBufferedOperation[] {
     const sourceTargets = collectCascadeTriggerSourceTargets(operations);
     if (!sourceTargets.length) {
+        return [];
+    }
+
+    // Check if every cascade-triggering operation already carries complete
+    // GUI replay targets. If so, the producer already recomposed and
+    // included the downstream layer snapshots — skip duplicate recomposition.
+    const allOperationsComplete = operations.every((op) => {
+        const applyPath = op.applyPath ?? op.path;
+        // Only check operations that are cascade triggers
+        if (
+            !isWidthPath(applyPath) &&
+            !isAnchorPath(applyPath) &&
+            !(
+                op.applyMode === 'layer-snapshot' &&
+                applyPath.length === 4 &&
+                applyPath[0] === 'glyphs' &&
+                applyPath[2] === 'layers' &&
+                (layerSnapshotTouchesCascade(op.applyOldValue) ||
+                    layerSnapshotTouchesCascade(op.applyNewValue))
+            ) &&
+            !(
+                op.applyMode === 'glyph-snapshot' &&
+                applyPath.length === 2 &&
+                applyPath[0] === 'glyphs'
+            )
+        ) {
+            // Non-cascade-triggering operations don't affect completeness
+            return true;
+        }
+        return operationCarriesCompleteGuiReplayTargets(op);
+    });
+
+    if (allOperationsComplete) {
         return [];
     }
 
@@ -1743,15 +1817,39 @@ export async function handleCommittedChangeRefresh(
             (() => fontCompilation.awaitWorkerDocumentSync());
         await awaitLocalCommittedWorkerCacheSettled(awaitWorkerSync);
 
-        const replayTargets = collectReplayTargetsFromEntries(entries);
-        if (replayTargets.length > 0) {
+        // For local GUI commits whose Yjs worker update was already forwarded
+        // by setYjsWorkerCallback, skip the duplicate replay-target cache
+        // refresh. The authoritative Yjs update already reached Rust through
+        // forwardWorkerYjsUpdate. A second refreshWorkerCacheForReplayTargets
+        // would serialize model layers again and send another applyYjsUpdate.
+        //
+        // Detect GUI-complete layer packets: all entries carry explicit
+        // workerReplayTargets and their paths are layer-scoped visual edits.
+        const allEntriesAreGuiCompleteLayerPackets =
+            entries.length > 0 &&
+            entries.every((entry) => {
+                const targets = normalizeWorkerReplayTargets(
+                    entry.workerReplayTargets
+                );
+                if (!targets.length) {
+                    return false;
+                }
+                const path = entry.path ?? '';
+                // Must be a layer-scoped visual path
+                return path.includes('.layers.') || path.includes(':layers.');
+            });
+
+        if (
+            !allEntriesAreGuiCompleteLayerPackets &&
+            collectReplayTargetsFromEntries(entries).length > 0
+        ) {
             const queueCacheRefresh =
                 dependencies?.queueCacheRefresh ??
                 queueRustCacheAndRefreshCanvas;
 
             await queueCacheRefresh(undefined, undefined, {
                 allowSelectedLayerFallback: false,
-                workerReplayTargets: replayTargets
+                workerReplayTargets: collectReplayTargetsFromEntries(entries)
             });
         }
 

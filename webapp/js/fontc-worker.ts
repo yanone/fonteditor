@@ -1505,11 +1505,10 @@ self.onmessage = async (event) => {
                 // feature caches from the Y.Doc. Mirror that invalidation in
                 // the worker-side subset sentinel so the next compile always
                 // re-primes closure state instead of reusing a stale key.
-                if (
-                    !wasSkipped &&
-                    (invalidateLayoutClosure !== false ||
-                        changedGlyphCount === 0)
-                ) {
+                // However, if the sender explicitly passed
+                // invalidateLayoutClosure: false, respect that — visual
+                // layer-scoped edits must not clear the closure cache.
+                if (!wasSkipped && invalidateLayoutClosure !== false) {
                     cachedBaseSubsetKey = null;
                     cachedClosureGlyphCount = null;
                     fontCacheEpoch += 1;
