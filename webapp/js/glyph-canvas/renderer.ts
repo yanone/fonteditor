@@ -277,9 +277,9 @@ export class GlyphCanvasRenderer {
                 .getPropertyValue('--background-primary')
                 .trim();
         } else {
-            // Inactive background (same as .view)
+            // Inactive background (same as editor sidebar)
             this.ctx.fillStyle = computedStyle
-                .getPropertyValue('--background-secondary')
+                .getPropertyValue('--background-editor-sidebar')
                 .trim();
         }
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);

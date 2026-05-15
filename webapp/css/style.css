@@ -703,14 +703,14 @@ kbd + kbd {
 }
 
 .view {
-    background-color: var(--background-secondary);
+    background-color: var(--background-primary);
     border: 2px solid var(--border-primary);
     overflow: hidden;
     min-width: 100px;
     min-height: 24px; /* Title bar height - allows secondary views to collapse */
     flex: 1 1 0;
     position: relative;
-    color: var(--text-secondary);
+    color: var(--text-primary);
     transition:
         background-color 0.2s ease,
         color 0.2s ease;
@@ -746,14 +746,10 @@ kbd + kbd {
     min-height: 100px;
 }
 
-.view.focused {
-    background-color: var(--background-primary);
-    color: var(--text-primary);
-}
-
 /* Collapsed secondary views (height collapsed to title bar) */
 .view:not(.view-editor).collapsed {
     overflow: hidden;
+    background-color: var(--background-secondary);
 }
 
 .view:not(.view-editor).collapsed .view-content,
@@ -888,16 +884,6 @@ kbd + kbd {
     font-size: 10px;
 }
 
-/* Hide button shortcuts in view title bars when view is not focused */
-.view:not(.focused) .view-title-button .ai-button-shortcut {
-    display: none;
-}
-
-/* Hide button shortcuts in view title bars when view is not focused (inline shortcuts) */
-.view:not(.focused) .view-title-button span[style*='opacity'] {
-    display: none;
-}
-
 /* Keyboard shortcut styling in buttons */
 .button-shortcut {
     font-size: 10px !important;
@@ -909,27 +895,6 @@ kbd + kbd {
     font-size: 12px !important;
     position: relative;
     top: -1px;
-}
-
-/* Disable view title bar buttons when their shortcuts are hidden (view not focused) */
-.view:not(.focused) .view-title-button,
-.view:not(.focused) .view-title-action-btn,
-.view:not(.focused) .script-file-dropdown-btn,
-.view:not(.focused) .script-file-reload-btn,
-.view:not(.focused) .editor-plugins-toggle {
-    pointer-events: none;
-    opacity: 0.5;
-}
-
-/* Re-enable buttons with always-visible shortcuts (global shortcuts) */
-.view:not(.focused) .view-title-button:has(.console-clear-shortcut) {
-    pointer-events: auto;
-    opacity: 1;
-}
-
-/* Keep console clear shortcut always visible (global shortcut) */
-.console-clear-shortcut {
-    display: inline !important;
 }
 
 /* Content containers for views with text content */
@@ -1241,37 +1206,7 @@ kbd + kbd {
     letter-spacing: 0.03em;
 }
 
-.view-history:not(.focused) .history-entry:hover {
-    background-color: transparent;
-}
-
-.view-history:not(.focused) .history-badge,
-.view-history:not(.focused) .history-change-count,
-.view-history:not(.focused) .history-path {
-    color: var(--text-secondary);
-}
-
-.view-history:not(.focused) .history-status,
-.view-history:not(.focused) .history-time,
-.view-history:not(.focused) .history-badge,
-.view-history:not(.focused) .history-breadcrumb-item:not(.active) {
-    color: var(--text-faint);
-}
-
-.view-history:not(.focused) .history-breadcrumb-item.active {
-    color: var(--text-secondary);
-}
-
-.view-history:not(.focused) .history-info-button {
-    color: var(--text-faint);
-    border-color: var(--border-primary);
-}
-
-.view-history:not(.focused) .history-search-input::placeholder {
-    color: var(--text-faint);
-}
-
-.view-history.focused .history-search-input::placeholder {
+.view-history .history-search-input::placeholder {
     color: var(--text-faint);
 }
 
@@ -1431,14 +1366,6 @@ kbd + kbd {
 
 /* Auto-run button - active state in dark theme */
 :root:not([data-theme='light']) .view-title-button.auto-run.active {
-    background-color: var(--autorun-active-bg);
-    border-color: var(--autorun-active-bg);
-    color: var(--autorun-active-text) !important;
-}
-
-:root:not([data-theme='light'])
-    .view-assistant.focused
-    .view-title-button.auto-run.active {
     background-color: var(--autorun-active-focused-bg);
     border-color: var(--autorun-active-focused-bg);
     color: var(--autorun-active-text) !important;
@@ -1446,14 +1373,6 @@ kbd + kbd {
 
 /* Auto-run button - active state in light theme */
 :root[data-theme='light'] .view-title-button.auto-run.active {
-    background-color: var(--autorun-active-bg);
-    border-color: var(--autorun-active-bg);
-    color: var(--autorun-active-text) !important;
-}
-
-:root[data-theme='light']
-    .view-assistant.focused
-    .view-title-button.auto-run.active {
     background-color: var(--autorun-active-focused-bg);
     border-color: var(--autorun-active-focused-bg);
     color: var(--autorun-active-focused-text) !important;
@@ -1461,14 +1380,6 @@ kbd + kbd {
 
 /* AI Context Buttons - Font Context - Dark Theme */
 :root:not([data-theme='light']) .ai-context-btn.font-context.active {
-    background-color: var(--font-context-bg);
-    border-color: var(--font-context-bg);
-    color: var(--font-context-text);
-}
-
-:root:not([data-theme='light'])
-    .view-assistant.focused
-    .ai-context-btn.font-context.active {
     background-color: var(--font-context-focused-bg);
     border-color: var(--font-context-focused-bg);
     color: var(--font-context-focused-text);
@@ -1476,47 +1387,9 @@ kbd + kbd {
 
 /* AI Context Buttons - Font Context - Light Theme */
 :root[data-theme='light'] .ai-context-btn.font-context.active {
-    background-color: var(--font-context-bg);
-    border-color: var(--font-context-bg);
-    color: var(--font-context-text);
-}
-
-:root[data-theme='light']
-    .view-assistant.focused
-    .ai-context-btn.font-context.active {
     background-color: var(--font-context-focused-bg);
     border-color: var(--font-context-focused-bg);
     color: var(--font-context-focused-text);
-}
-
-/* AI Context Buttons - Script Context - Dark Theme */
-:root:not([data-theme='light']) .ai-context-btn.script-context.active {
-    background-color: var(--script-context-bg);
-    border-color: var(--script-context-bg);
-    color: var(--script-context-text);
-}
-
-:root:not([data-theme='light'])
-    .view-assistant.focused
-    .ai-context-btn.script-context.active {
-    background-color: var(--script-context-focused-bg);
-    border-color: var(--script-context-focused-bg);
-    color: var(--script-context-focused-text);
-}
-
-/* AI Context Buttons - Script Context - Light Theme */
-:root[data-theme='light'] .ai-context-btn.script-context.active {
-    background-color: var(--script-context-bg);
-    border-color: var(--script-context-bg);
-    color: var(--script-context-text);
-}
-
-:root[data-theme='light']
-    .view-assistant.focused
-    .ai-context-btn.script-context.active {
-    background-color: var(--script-context-focused-bg);
-    border-color: var(--script-context-focused-bg);
-    color: var(--script-context-focused-text);
 }
 
 /* AI Context Buttons - Inactive state (no background) */
@@ -1529,16 +1402,6 @@ kbd + kbd {
 /* AI Context Label & Prompt Prefix - Font Context - Dark Theme */
 :root:not([data-theme='light']) #ai-context-label.font-context,
 :root:not([data-theme='light']) #ai-prompt-prefix.font-context {
-    background-color: var(--font-context-bg);
-    color: var(--font-context-text);
-}
-
-:root:not([data-theme='light'])
-    .view-assistant.focused
-    #ai-context-label.font-context,
-:root:not([data-theme='light'])
-    .view-assistant.focused
-    #ai-prompt-prefix.font-context {
     background-color: var(--font-context-focused-bg);
     color: var(--font-context-focused-text);
 }
@@ -1546,16 +1409,6 @@ kbd + kbd {
 /* AI Context Label & Prompt Prefix - Font Context - Light Theme */
 :root[data-theme='light'] #ai-context-label.font-context,
 :root[data-theme='light'] #ai-prompt-prefix.font-context {
-    background-color: var(--font-context-bg);
-    color: var(--font-context-text);
-}
-
-:root[data-theme='light']
-    .view-assistant.focused
-    #ai-context-label.font-context,
-:root[data-theme='light']
-    .view-assistant.focused
-    #ai-prompt-prefix.font-context {
     background-color: var(--font-context-focused-bg);
     color: var(--font-context-focused-text);
 }
@@ -1563,16 +1416,6 @@ kbd + kbd {
 /* AI Context Label & Prompt Prefix - Script Context - Dark Theme */
 :root:not([data-theme='light']) #ai-context-label.script-context,
 :root:not([data-theme='light']) #ai-prompt-prefix.script-context {
-    background-color: var(--script-context-bg);
-    color: var(--script-context-text);
-}
-
-:root:not([data-theme='light'])
-    .view-assistant.focused
-    #ai-context-label.script-context,
-:root:not([data-theme='light'])
-    .view-assistant.focused
-    #ai-prompt-prefix.script-context {
     background-color: var(--script-context-focused-bg);
     color: var(--script-context-focused-text);
 }
@@ -1580,16 +1423,6 @@ kbd + kbd {
 /* AI Context Label & Prompt Prefix - Script Context - Light Theme */
 :root[data-theme='light'] #ai-context-label.script-context,
 :root[data-theme='light'] #ai-prompt-prefix.script-context {
-    background-color: var(--script-context-bg);
-    color: var(--script-context-text);
-}
-
-:root[data-theme='light']
-    .view-assistant.focused
-    #ai-context-label.script-context,
-:root[data-theme='light']
-    .view-assistant.focused
-    #ai-prompt-prefix.script-context {
     background-color: var(--script-context-focused-bg);
     color: var(--script-context-focused-text);
 }
@@ -2156,13 +1989,9 @@ kbd + kbd {
     background-color: transparent;
 }
 
-/* Background color based on view focus state */
-.view-scripts.focused #script-editor {
+/* Background color */
+#script-editor {
     background-color: var(--background-primary);
-}
-
-.view-scripts:not(.focused) #script-editor {
-    background-color: var(--background-secondary);
 }
 
 /* Cyberpunk Syntax Highlighting */
@@ -2509,12 +2338,8 @@ kbd + kbd {
     flex: 1;
     position: relative;
     overflow: hidden;
-    background-color: var(--background-secondary);
-    transition: background-color 0.2s ease;
-}
-
-.view.focused #console-container {
     background-color: var(--background-primary);
+    transition: background-color 0.2s ease;
 }
 
 #console-container .terminal {
@@ -2604,8 +2429,8 @@ kbd + kbd {
 }
 
 /* Disable interaction when files view is not focused */
-.view-files:not(.focused) #file-browser {
-    pointer-events: none;
+#file-browser {
+    pointer-events: auto;
 }
 
 #file-browser {
@@ -3311,14 +3136,9 @@ kbd + kbd {
     font-size: 12px;
 }
 
-/* Hide shortcuts when assistant view is not focused, but reserve space */
-.view-assistant:not(.focused) .ai-message .ai-btn-shortcut {
-    visibility: hidden;
-}
-
-/* Disable all button clicks when assistant view is not focused */
-.view-assistant:not(.focused) button {
-    pointer-events: none;
+/* Keep header button shortcuts visible */
+.view-title-bar .ai-button-shortcut {
+    display: inline-flex;
 }
 
 .ai-login-note {
@@ -3670,10 +3490,6 @@ kbd + kbd {
     color: var(--text-tertiary);
 }
 
-.view-assistant:not(.focused) .ai-code {
-    background-color: var(--background-secondary);
-}
-
 .ai-code code {
     color: var(--text-tertiary);
 }
@@ -3847,8 +3663,8 @@ kbd + kbd {
 }
 
 /* Keep header button shortcuts visible */
-.view-assistant:not(.focused) .view-title-bar .ai-button-shortcut {
-    display: none;
+.view-title-bar .ai-button-shortcut {
+    display: inline-flex;
 }
 
 #ai-input-container {
@@ -4933,6 +4749,7 @@ kbd + kbd {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    background-color: var(--background-editor-sidebar);
 }
 
 .glyph-canvas-viewport {
@@ -4956,10 +4773,6 @@ kbd + kbd {
     justify-content: center;
     padding: 0 12px;
     border-top: 1px solid var(--border-primary);
-    background: var(--background-secondary);
-}
-
-.view.focused .glyph-property-panel {
     background: var(--background-editor-sidebar);
 }
 
@@ -5195,38 +5008,20 @@ kbd + kbd {
     background-color: rgba(255, 255, 255, 0.05);
 }
 
-:root:not([data-theme='light'])
-    .view-editor.focused
-    .editor-layer-item:hover:not(.selected) {
+:root:not([data-theme='light']) .editor-layer-item:hover:not(.selected) {
     background-color: rgba(255, 255, 255, 0.08);
 }
 
 :root:not([data-theme='light']) .editor-layer-item.selected {
-    background-color: rgba(255, 255, 255, 0.08);
-}
-
-:root:not([data-theme='light'])
-    .view-editor.focused
-    .editor-layer-item.selected {
     background-color: rgba(255, 255, 255, 0.12);
 }
 
 /* Light theme colors - matches consolidated sidebar-item pattern */
 :root[data-theme='light'] .editor-layer-item:hover:not(.selected) {
-    background-color: rgba(0, 0, 0, 0.03);
-}
-
-:root[data-theme='light']
-    .view-editor.focused
-    .editor-layer-item:hover:not(.selected) {
     background-color: rgba(0, 0, 0, 0.06);
 }
 
 :root[data-theme='light'] .editor-layer-item.selected {
-    background-color: rgba(0, 0, 0, 0.06);
-}
-
-:root[data-theme='light'] .view-editor.focused .editor-layer-item.selected {
     background-color: rgba(0, 0, 0, 0.1);
 }
 
@@ -5500,8 +5295,8 @@ kbd + kbd {
     border-color: var(--border-primary);
 }
 
-/* Sidebar background when parent view is focused */
-.view.focused .view-sidebar {
+/* Sidebar background */
+.view-sidebar {
     background-color: var(--background-editor-sidebar);
 }
 
@@ -5559,45 +5354,23 @@ kbd + kbd {
     /* border-top: 1px solid var(--border-primary); */
 }
 
-/* Dark theme - sidebar item hover (view not focused) */
+/* Dark theme - sidebar item hover */
 :root:not([data-theme='light']) .sidebar-item:hover:not(.selected) {
-    background-color: rgba(255, 255, 255, 0.05);
-}
-
-/* Dark theme - sidebar item hover (view focused) */
-:root:not([data-theme='light'])
-    .view.focused
-    .sidebar-item:hover:not(.selected) {
     background-color: rgba(255, 255, 255, 0.08);
 }
 
-/* Dark theme - sidebar item selected (view not focused) */
+/* Dark theme - sidebar item selected */
 :root:not([data-theme='light']) .sidebar-item.selected {
-    background-color: rgba(255, 255, 255, 0.08);
-}
-
-/* Dark theme - sidebar item selected (view focused) */
-:root:not([data-theme='light']) .view.focused .sidebar-item.selected {
     background-color: rgba(255, 255, 255, 0.12);
 }
 
-/* Light theme - sidebar item hover (view not focused) */
+/* Light theme - sidebar item hover */
 :root[data-theme='light'] .sidebar-item:hover:not(.selected) {
-    background-color: rgba(0, 0, 0, 0.03);
-}
-
-/* Light theme - sidebar item hover (view focused) */
-:root[data-theme='light'] .view.focused .sidebar-item:hover:not(.selected) {
     background-color: rgba(0, 0, 0, 0.06);
 }
 
-/* Light theme - sidebar item selected (view not focused) */
+/* Light theme - sidebar item selected */
 :root[data-theme='light'] .sidebar-item.selected {
-    background-color: rgba(0, 0, 0, 0.06);
-}
-
-/* Light theme - sidebar item selected (view focused) */
-:root[data-theme='light'] .view.focused .sidebar-item.selected {
     background-color: rgba(0, 0, 0, 0.1);
 }
 
@@ -6186,18 +5959,6 @@ kbd + kbd {
     opacity: 0.8;
 }
 
-/* When assistant view is not focused, make inactive options even more subtle */
-.view-assistant:not(.focused) .ai-context-radio-custom {
-    opacity: 0.3;
-}
-
-.view-assistant:not(.focused)
-    .ai-context-radio-label
-    input:checked
-    + .ai-context-radio-custom {
-    opacity: 0.7;
-}
-
 .ai-context-radio-custom strong {
     font-family: var(--font-families-sans);
     font-size: 13px;
@@ -6382,38 +6143,16 @@ kbd + kbd {
     background-color: rgba(255, 255, 255, 0.05);
 }
 
-:root:not([data-theme='light'])
-    .view-fontinfo.focused
-    .feature-list-item:hover:not(.selected) {
-    background-color: rgba(255, 255, 255, 0.08);
-}
-
 :root:not([data-theme='light']) .feature-list-item.selected {
-    background-color: rgba(255, 255, 255, 0.08);
-}
-
-:root:not([data-theme='light'])
-    .view-fontinfo.focused
-    .feature-list-item.selected {
     background-color: rgba(255, 255, 255, 0.12);
 }
 
 /* Light theme colors - matches consolidated sidebar-item pattern */
 :root[data-theme='light'] .feature-list-item:hover:not(.selected) {
-    background-color: rgba(0, 0, 0, 0.03);
-}
-
-:root[data-theme='light']
-    .view-fontinfo.focused
-    .feature-list-item:hover:not(.selected) {
     background-color: rgba(0, 0, 0, 0.06);
 }
 
 :root[data-theme='light'] .feature-list-item.selected {
-    background-color: rgba(0, 0, 0, 0.06);
-}
-
-:root[data-theme='light'] .view-fontinfo.focused .feature-list-item.selected {
     background-color: rgba(0, 0, 0, 0.1);
 }
 
