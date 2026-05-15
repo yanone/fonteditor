@@ -261,23 +261,8 @@ class FontCompilation {
     }
 
     async bootstrapWorkerCacheFromFontState(
-        _babelfontJson: string,
         state: Uint8Array | ArrayBufferLike | null | undefined
     ): Promise<void> {
-        // Note: _babelfontJson is retained for backward compatibility of
-        // callers but is no longer sent to the worker. The worker's seedYdoc
-        // handler (init_ydoc_from_state) populates all caches from the Yjs
-        // binary state alone, eliminating the full JSON crossing.
-
-        if (!this.isInitialized) {
-            const initialized = await this.initialize();
-            if (!initialized) {
-                throw new Error(
-                    'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
-                );
-            }
-        }
-
         await this.seedWorkerYDocFromState(state);
     }
 

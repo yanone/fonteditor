@@ -77,7 +77,6 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
         }
 
         await fullFontCompilation.bootstrapWorkerCacheFromFontState(
-            currentFont.babelfontJson,
             normalizedState
         );
     }

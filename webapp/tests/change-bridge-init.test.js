@@ -110,7 +110,6 @@ describe('handleRemoteChangeRefresh', () => {
         expect(queueCacheRefresh).toHaveBeenCalledWith(
             undefined,
             undefined,
-            false,
             {
                 allowSelectedLayerFallback: false,
                 workerReplayTargets: [
@@ -312,7 +311,6 @@ describe('handleRemoteChangeRefresh', () => {
         expect(queueCacheRefresh).toHaveBeenCalledWith(
             undefined,
             undefined,
-            false,
             {
                 allowSelectedLayerFallback: false,
                 workerReplayTargets: [
@@ -378,7 +376,6 @@ describe('handleRemoteChangeRefresh', () => {
         expect(queueCacheRefresh).toHaveBeenCalledWith(
             undefined,
             undefined,
-            false,
             {
                 allowSelectedLayerFallback: false,
                 workerReplayTargets: [
@@ -449,7 +446,6 @@ describe('handleRemoteChangeRefresh', () => {
         expect(queueCacheRefresh).toHaveBeenCalledWith(
             undefined,
             undefined,
-            false,
             {
                 allowSelectedLayerFallback: false,
                 workerReplayTargets: replayTargets
@@ -484,7 +480,6 @@ describe('handleRemoteChangeRefresh', () => {
         expect(queueCacheRefresh).toHaveBeenCalledWith(
             undefined,
             undefined,
-            false,
             {
                 allowSelectedLayerFallback: false
             }
@@ -1337,7 +1332,7 @@ describe('syncRustCacheAndRefreshCanvas', () => {
             }
         };
 
-        await syncRustCacheAndRefreshCanvas(undefined, 'l', false, {
+        await syncRustCacheAndRefreshCanvas(undefined, 'l', {
             skipDeferredCanvasRepaint: true,
             workerReplayTargets: [
                 { glyphName: 'l', layerId: 'active-brace-layer' },
@@ -1394,7 +1389,7 @@ describe('syncRustCacheAndRefreshCanvas', () => {
             }
         };
 
-        await syncRustCacheAndRefreshCanvas(undefined, 'l', false, {
+        await syncRustCacheAndRefreshCanvas(undefined, 'l', {
             skipDeferredCanvasRepaint: true,
             workerReplayTargets: [{ glyphName: 'l', layerId: 'master-regular' }]
         });
@@ -1440,7 +1435,7 @@ describe('syncRustCacheAndRefreshCanvas', () => {
             }
         };
 
-        await syncRustCacheAndRefreshCanvas(undefined, undefined, false, {
+        await syncRustCacheAndRefreshCanvas(undefined, undefined, {
             skipDeferredCanvasRepaint: true,
             allowSelectedLayerFallback: false
         });

@@ -33,7 +33,11 @@ declare global {
             | ((
                   rootGlyphName?: string,
                   editedGlyphName?: string,
-                  forceFullRustSync?: boolean
+                  options?: {
+                      skipDeferredCanvasRepaint?: boolean;
+                      workerReplayTargets?: WorkerReplayTarget[];
+                      allowSelectedLayerFallback?: boolean;
+                  }
               ) => Promise<void>)
             | undefined;
         runBridgeUndoRedo:

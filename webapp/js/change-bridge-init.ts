@@ -823,17 +823,10 @@ function getActiveEditedGlyphName(): string | null {
  * Update the Rust FONT_CACHE with the current layer data and
  * refresh the outline editor canvas. Call after undo/redo/remote
  * changes so the Rust interpolation reads up-to-date layer data.
- *
- * Note: forceFullRustSync is retained for backward compatibility
- * but is intentionally ignored — the worker's seedYdoc handler
- * (init_ydoc_from_state) populates all caches from binary Yjs state,
- * making storeFontJson unnecessary. Incremental replay-target or
- * selected-layer paths handle all post-edit/undo/redo cache refreshes.
  */
 export async function syncRustCacheAndRefreshCanvas(
     rootGlyphName?: string,
     editedGlyphName?: string,
-    _forceFullRustSync: boolean = false,
     options?: {
         skipDeferredCanvasRepaint?: boolean;
         workerReplayTargets?: WorkerReplayTarget[];
@@ -856,11 +849,6 @@ export async function syncRustCacheAndRefreshCanvas(
             );
             const allowSelectedLayerFallback =
                 options?.allowSelectedLayerFallback !== false;
-            // forceFullRustSync is intentionally ignored — the worker's
-            // seedYdoc handler (init_ydoc_from_state) populates all caches
-            // from binary Yjs state, making storeFontJson unnecessary.
-            // The incremental paths (replayTargets, selectedLayerFallback)
-            // are always sufficient for post-edit/undo/redo cache refresh.
             if (
                 replayTargets.length > 0 &&
                 typeof window.fontManager
@@ -1064,65 +1052,6 @@ function syncImmediateUndoOutlineLayerFromModel(
     gc.updatePropertyPanel?.();
     outlineEditor?.performHitDetection?.(null);
     gc.render?.();
-}
-
-function shouldForceFullRustSyncAfterUndoRedo(
-    scope: 'font' | 'glyph' | 'layer',
-    historyItem: HistoryStackItem | null,
-    workerReplayTargets?: WorkerReplayTarget[]
-): boolean {
-    const normalizedReplayTargets =
-        normalizeWorkerReplayTargets(workerReplayTargets);
-    if (
-        normalizedReplayTargets.length > 0 &&
-        historyItemHasIncrementalWorkerReplayTargets(historyItem) &&
-        historyItemChangeEntriesAreLayerReplayable(historyItem)
-    ) {
-        return false;
-    }
-
-    if (scope === 'layer' && normalizedReplayTargets.length > 0) {
-        return false;
-    }
-
-    if (scope !== 'layer') {
-        return true;
-    }
-
-    return (
-        historyItemTouchesAnchors(historyItem) ||
-        historyItem?.transactionLabel === 'Scale selection' ||
-        (historyItem?.transactionLabel === 'Drag point' &&
-            inferSidebearingSideFromHistoryItem(historyItem) !== null) ||
-        historyItem?.transactionLabel === 'Drag anchor' ||
-        (inferSidebearingSideFromHistoryItem(historyItem) !== null &&
-            !historyItemHasIncrementalWorkerReplayTargets(historyItem))
-    );
-}
-
-function historyItemHasIncrementalWorkerReplayTargets(
-    historyItem: HistoryStackItem | null
-): boolean {
-    return (
-        normalizeWorkerReplayTargets(historyItem?.workerReplayTargets).length >
-        0
-    );
-}
-
-function historyItemChangeEntriesAreLayerReplayable(
-    historyItem: HistoryStackItem | null
-): boolean {
-    const changeEntries = (historyItem?.entries ?? []).filter(
-        (entry) => entry.historyAction === 'change'
-    );
-    if (!changeEntries.length) {
-        return false;
-    }
-
-    return changeEntries.every(
-        (entry) =>
-            normalizeWorkerReplayTargets(entry.workerReplayTargets).length > 0
-    );
 }
 
 function recomputeMetricsKeysAfterUndoRedo(
@@ -1763,7 +1692,6 @@ export async function handleCommittedChangeRefresh(
         queueCacheRefresh?: (
             rootGlyphName?: string,
             editedGlyphName?: string,
-            forceFullRustSync?: boolean,
             options?: {
                 skipDeferredCanvasRepaint?: boolean;
                 workerReplayTargets?: WorkerReplayTarget[];
@@ -1797,7 +1725,7 @@ export async function handleCommittedChangeRefresh(
         const queueCacheRefresh =
             dependencies?.queueCacheRefresh ?? queueRustCacheAndRefreshCanvas;
 
-        await queueCacheRefresh(undefined, undefined, false, {
+        await queueCacheRefresh(undefined, undefined, {
             allowSelectedLayerFallback: false,
             ...(replayTargets.length > 0
                 ? { workerReplayTargets: replayTargets }
@@ -1821,7 +1749,7 @@ export async function handleCommittedChangeRefresh(
                 dependencies?.queueCacheRefresh ??
                 queueRustCacheAndRefreshCanvas;
 
-            await queueCacheRefresh(undefined, undefined, false, {
+            await queueCacheRefresh(undefined, undefined, {
                 allowSelectedLayerFallback: false,
                 workerReplayTargets: replayTargets
             });
@@ -1835,9 +1763,6 @@ export async function handleCommittedChangeRefresh(
     await refreshGlyphOverviewFromCommittedEntries(entries);
 }
 
-/**
- * Backward-compatible remote wrapper retained for focused tests.
- */
 export async function handleRemoteChangeRefresh(
     entries: ChangeLogEntry[],
     dependencies?: {
@@ -1848,7 +1773,6 @@ export async function handleRemoteChangeRefresh(
         queueCacheRefresh?: (
             rootGlyphName?: string,
             editedGlyphName?: string,
-            forceFullRustSync?: boolean,
             options?: {
                 skipDeferredCanvasRepaint?: boolean;
                 workerReplayTargets?: WorkerReplayTarget[];
@@ -1863,7 +1787,6 @@ export async function handleRemoteChangeRefresh(
 export function queueRustCacheAndRefreshCanvas(
     rootGlyphName?: string,
     editedGlyphName?: string,
-    forceFullRustSync?: boolean,
     options?: {
         skipDeferredCanvasRepaint?: boolean;
         workerReplayTargets?: WorkerReplayTarget[];
@@ -1873,7 +1796,6 @@ export function queueRustCacheAndRefreshCanvas(
         await syncRustCacheAndRefreshCanvas(
             rootGlyphName,
             editedGlyphName,
-            forceFullRustSync,
             options
         );
     });
@@ -1976,7 +1898,6 @@ export function runBridgeUndoRedo(
         const rustCacheRefreshPromise = syncRustCacheAndRefreshCanvas(
             refreshRootGlyphName,
             glyphName,
-            false,
             {
                 workerReplayTargets:
                     workerReplayTargets.length === 0 ? workerReplayTargets : [],

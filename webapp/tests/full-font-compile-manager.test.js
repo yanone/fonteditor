@@ -145,7 +145,6 @@ describe('full font compile manager', () => {
             1
         );
         expect(bootstrapWorkerCacheFromFontStateMock).toHaveBeenCalledWith(
-            mockFontManager.currentFont.babelfontJson,
             expect.any(Uint8Array)
         );
         expect(compileCachedMock).toHaveBeenCalledTimes(1);
