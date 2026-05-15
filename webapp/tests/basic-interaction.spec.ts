@@ -304,19 +304,7 @@ test.describe('Font Editor Basic Workflow', () => {
         );
 
         await expect(secondFontItem).toBeVisible();
-        await secondFontItem.evaluate((element) => {
-            const rect = element.getBoundingClientRect();
-            element.dispatchEvent(
-                new MouseEvent('contextmenu', {
-                    bubbles: true,
-                    cancelable: true,
-                    button: 2,
-                    buttons: 2,
-                    clientX: rect.left + rect.width / 2,
-                    clientY: rect.top + rect.height / 2
-                })
-            );
-        });
+        await secondFontItem.click({ button: 'right' });
 
         await expect(
             page.locator(
