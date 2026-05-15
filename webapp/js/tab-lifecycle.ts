@@ -190,6 +190,11 @@ class TabLifecycleManager {
     }
 
     setupBeforeUnloadWarning() {
+        // Skip beforeunload warning in development mode so tests can run uninterrupted
+        if (window.isDevelopment?.()) {
+            return;
+        }
+
         // Track mailto: clicks to exclude from beforeunload warning
         let isMailtoNavigation = false;
 
