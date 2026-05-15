@@ -820,14 +820,20 @@ function getActiveEditedGlyphName(): string | null {
 }
 
 /**
- * Update the Rust FONT_CACHE with the current babelfontJson and
+ * Update the Rust FONT_CACHE with the current layer data and
  * refresh the outline editor canvas. Call after undo/redo/remote
  * changes so the Rust interpolation reads up-to-date layer data.
+ *
+ * Note: forceFullRustSync is retained for backward compatibility
+ * but is intentionally ignored — the worker's seedYdoc handler
+ * (init_ydoc_from_state) populates all caches from binary Yjs state,
+ * making storeFontJson unnecessary. Incremental replay-target or
+ * selected-layer paths handle all post-edit/undo/redo cache refreshes.
  */
 export async function syncRustCacheAndRefreshCanvas(
     rootGlyphName?: string,
     editedGlyphName?: string,
-    forceFullRustSync: boolean = false,
+    _forceFullRustSync: boolean = false,
     options?: {
         skipDeferredCanvasRepaint?: boolean;
         workerReplayTargets?: WorkerReplayTarget[];
@@ -850,20 +856,12 @@ export async function syncRustCacheAndRefreshCanvas(
             );
             const allowSelectedLayerFallback =
                 options?.allowSelectedLayerFallback !== false;
-            if (forceFullRustSync) {
-                // FULLJSON_UNNECESSARY (U1/A2): Full babelfont JSON string sent
-                // to Rust. Should be replaced by forwarding the Yjs binary update
-                // from undo/redo or using the incremental layer-batch path.
-                currentFont.syncJsonFromModel?.();
-                if (currentFont.babelfontJson) {
-                    await fontCompilation.sendMessage({
-                        type: 'storeFontJson',
-                        babelfontJson: currentFont.babelfontJson,
-                        forceStore: true
-                    });
-                    didStoreLayer = true;
-                }
-            } else if (
+            // forceFullRustSync is intentionally ignored — the worker's
+            // seedYdoc handler (init_ydoc_from_state) populates all caches
+            // from binary Yjs state, making storeFontJson unnecessary.
+            // The incremental paths (replayTargets, selectedLayerFallback)
+            // are always sufficient for post-edit/undo/redo cache refresh.
+            if (
                 replayTargets.length > 0 &&
                 typeof window.fontManager
                     ?.refreshWorkerCacheForReplayTargets === 'function'
@@ -875,7 +873,6 @@ export async function syncRustCacheAndRefreshCanvas(
             }
             if (
                 !didStoreLayer &&
-                !forceFullRustSync &&
                 selectedLayerId &&
                 allowSelectedLayerFallback
             ) {
@@ -1965,13 +1962,10 @@ export function runBridgeUndoRedo(
 
         // For layer-scoped undo/redo, the incremental layer-update batch path
         // is sufficient (reads directly from the model, no babelfontJson needed).
-        // For glyph/font scope, force a full Rust font cache refresh.
-        // When the undone history item was an anchor edit, propagate the
-        // edit type so the compile loop uses anchor-only mode (keep
-        // positioning tables live, skip VARC) instead of falling back to a
-        // full compile.
-        // When the undone history item was a sidebearing edit, use outline-only
-        // mode for the same speed benefit.
+        // For glyph/font scope, the selected-layer fallback in
+        // syncRustCacheAndRefreshCanvas handles the cache refresh.
+        // forceFullRustSync is no longer used — the worker's seedYdoc handler
+        // (init_ydoc_from_state) populates all caches from binary Yjs state.
         const historyItem =
             appliedChange.historyItem as HistoryStackItem | null;
         const undoEditType = historyItemTouchesAnchors(historyItem)
@@ -1979,18 +1973,10 @@ export function runBridgeUndoRedo(
             : inferSidebearingSideFromHistoryItem(historyItem) !== null
               ? 'outline'
               : null;
-        let forceFullRustSync = shouldForceFullRustSyncAfterUndoRedo(
-            appliedChange.scope,
-            appliedChange.historyItem as HistoryStackItem | null,
-            workerReplayTargets
-        );
-        if (workerReplayTargets.length > 0) {
-            forceFullRustSync = false;
-        }
         const rustCacheRefreshPromise = syncRustCacheAndRefreshCanvas(
             refreshRootGlyphName,
             glyphName,
-            forceFullRustSync,
+            false,
             {
                 workerReplayTargets:
                     workerReplayTargets.length === 0 ? workerReplayTargets : [],
@@ -2112,8 +2098,10 @@ function initializeBridge(detail: {
     //   • For layer-scoped undo/redo, syncRustCacheAndRefreshCanvas uses the
     //     incremental layer-update batch path which reads directly from the model
     //     (no babelfontJson needed).
-    //   • If the fallback full-sync path is needed, syncRustCacheAndRefreshCanvas
-    //     rebuilds babelfontJson just before sending it to the Rust worker.
+    //   • The forceFullRustSync/storeFontJson fallback has been eliminated —
+    //     the worker's seedYdoc handler (init_ydoc_from_state) populates all
+    //     caches from binary Yjs state, and incremental replay-target or
+    //     selected-layer paths handle all post-edit/undo/redo cache refreshes.
     //   • For the next full compile, compileEditingFont rebuilds babelfontJson
     //     via syncBabelfontJsonFromCurrentModel() before invoking fontc.
     bridge.onAfterSync(() => {

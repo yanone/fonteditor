@@ -8,7 +8,7 @@ import init, {
     compile_cached_full_font_with_filter_pipeline,
     compile_cached_font_from_last_layout_closure,
     store_font,
-    seed_ydoc,
+    init_ydoc_from_state,
     apply_yjs_update,
     prime_layout_closure_cache,
     interpolate_glyph,
@@ -1417,23 +1417,30 @@ self.onmessage = async (event) => {
 
         // ── Yjs-based cache initialisation ──────────────────────────────────
         // seedYdoc: initialise the Rust Y.Doc from a full binary Yjs state
-        // without rebuilding all caches (called immediately after openFont).
+        // and rebuild all caches (CANONICAL_JSON_CACHE, FONT_CACHE, etc.)
+        // from the Y.Doc data. Called immediately after openFont (bootstrap).
         // YJS_ONLY: Binary Yjs state sent once as CRDT baseline (N3).
-        // No JSON conversion — the Yjs binary update is ~20-40% smaller than
+        // No JSON crossing — the Yjs binary update is ~20-40% smaller than
         // the equivalent babelfont JSON and avoids a full JSON roundtrip.
+        // Uses init_ydoc_from_state (not seed_ydoc) so canonical caches are
+        // populated at seed time, making the worker compile-ready without a
+        // separate storeFontJson call.
         if (data.type === 'seedYdoc') {
             const { id, state } = data;
             try {
                 if (!initialized) {
                     await initializeWasm();
                 }
-                seed_ydoc(
+                init_ydoc_from_state(
                     state instanceof Uint8Array ? state : new Uint8Array(state)
                 );
-                // Seeding replaces Rust's authoritative Y.Doc baseline.
-                // Any previously primed layout-closure cache is no longer
-                // guaranteed to match that new document, so force the next
-                // cached editing compile to re-prime closure state.
+                // init_ydoc_from_state seeds the Y.Doc AND populates all
+                // caches from it, so the worker is immediately compile-ready
+                // without a separate storeFontJson call.
+                // The JS-side fontCacheEpoch is managed by the init_ydoc_from_state
+                // Rust call (it increments FONT_CACHE_EPOCH), so reset our local
+                // copy to match — the next compile will re-prime closure state.
+                cachedBabelfontJson = null;
                 cachedBaseSubsetKey = null;
                 cachedClosureGlyphCount = null;
                 fontCacheEpoch += 1;

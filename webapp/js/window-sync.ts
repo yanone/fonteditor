@@ -398,14 +398,6 @@ export class WindowSync {
                             );
                         }
 
-                        const synced =
-                            fontManager.syncBabelfontJsonFromCurrentModel?.();
-                        if (synced === false) {
-                            throw new Error(
-                                'Failed to sync linked-window font JSON from full-state response'
-                            );
-                        }
-
                         // Build a worker seed state (array-format nodes).
                         // Rust now accepts array nodes natively via the updated serde.
                         // YJS_ONLY (N2): Binary Yjs full-state-response —
@@ -424,19 +416,11 @@ export class WindowSync {
                             seedState
                         );
                         await seedInterpolationRustCacheFromState(seedState);
-                        // FULLJSON_UNNECESSARY (U1/A2): storeFontJson sends full JSON
-                        // after linked-window bootstrap. The seedYdoc below already
-                        // provides the worker its CRDT baseline.
-                        // TODO(FULLJSON_UNNECESSARY): remove this once seedYdoc
-                        // also primes the Rust-side canonical/font caches needed for
-                        // immediate linked-window compile readiness, so bootstrap can
-                        // stay binary-only before the first apply_yjs_update arrives.
-                        await fontCompilation.sendMessage({
-                            type: 'storeFontJson',
-                            babelfontJson: fontManager.currentFont.babelfontJson
-                        });
                         // YJS_ONLY (N3): Binary Yjs seed for the worker
                         // Y.Doc — the CRDT baseline, not a JSON crossing.
+                        // seedYdoc (init_ydoc_from_state) populates all Rust
+                        // caches from the binary Yjs state, so no storeFontJson
+                        // is needed.
                         await fontCompilation.sendMessage({
                             type: 'seedYdoc',
                             state: seedState

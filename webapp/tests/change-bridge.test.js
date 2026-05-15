@@ -3436,17 +3436,14 @@ describe('WindowSync', () => {
         expect(initialize).toHaveBeenCalledTimes(1);
         expect(replaceWorkerYjsMirrorFromState).toHaveBeenCalledTimes(1);
         expect(buildWorkerSeedYjsState).toHaveBeenCalledTimes(1);
-        expect(syncBabelfontJsonFromCurrentModel).toHaveBeenCalledTimes(1);
         expect(recordFullFontCrossing).toHaveBeenCalledTimes(1);
+        // syncBabelfontJsonFromCurrentModel is no longer called — the worker's
+        // seedYdoc handler (init_ydoc_from_state) populates all caches from
+        // binary Yjs state alone, eliminating the storeFontJson step.
+        // storeFontJson is no longer sent during linked-window bootstrap.
+        expect(sendMessage).toHaveBeenCalledTimes(1);
         expect(sendMessage).toHaveBeenNthCalledWith(
             1,
-            expect.objectContaining({
-                type: 'storeFontJson',
-                babelfontJson: expect.stringContaining('999')
-            })
-        );
-        expect(sendMessage).toHaveBeenNthCalledWith(
-            2,
             expect.objectContaining({
                 type: 'seedYdoc',
                 state: expect.any(Uint8Array)

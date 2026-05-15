@@ -261,15 +261,13 @@ class FontCompilation {
     }
 
     async bootstrapWorkerCacheFromFontState(
-        babelfontJson: string,
+        _babelfontJson: string,
         state: Uint8Array | ArrayBufferLike | null | undefined
     ): Promise<void> {
-        if (!babelfontJson) {
-            this.workerCacheDocumentReady = false;
-            throw new Error(
-                'Cannot bootstrap worker cache without babelfont JSON'
-            );
-        }
+        // Note: _babelfontJson is retained for backward compatibility of
+        // callers but is no longer sent to the worker. The worker's seedYdoc
+        // handler (init_ydoc_from_state) populates all caches from the Yjs
+        // binary state alone, eliminating the full JSON crossing.
 
         if (!this.isInitialized) {
             const initialized = await this.initialize();
@@ -278,25 +276,6 @@ class FontCompilation {
                     'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
                 );
             }
-        }
-
-        this.workerCacheDocumentReady = false;
-
-        // FULLJSON_UNNECESSARY (U1): storeFontJson full JSON string sent to worker.
-        // This is the ensureWorkerCacheDocumentReady cold-start path — only needed
-        // when the worker Y.Doc hasn't been seeded yet. Once seedYdoc runs, this
-        // should never be reached.
-        const storeResult = await this.sendMessage({
-            type: 'storeFontJson',
-            babelfontJson,
-            forceStore: true
-        });
-
-        if (storeResult?.error) {
-            this.workerCacheDocumentReady = false;
-            throw new Error(
-                `Failed to store font JSON in worker cache: ${storeResult.error}`
-            );
         }
 
         await this.seedWorkerYDocFromState(state);
@@ -684,6 +663,16 @@ class FontCompilation {
                 typeof data.babelfontJson === 'string'
                     ? data.babelfontJson
                     : '';
+
+            // GUARDRAIL: storeFontJson should only be used for bootstrap (font open).
+            // After the worker has a cached document (seedYdoc completed), this
+            // indicates a regression — steady-state edits should use applyYjsUpdate
+            // or incremental replay-target paths.
+            if (this.workerCacheDocumentReady) {
+                console.warn(
+                    '[FontCompilation] GUARDRAIL: storeFontJson called when worker cache is already ready. This should not happen during steady-state editing — use incremental Yjs update paths instead.'
+                );
+            }
 
             if (!forceStore && payload && payload === this.lastStoredFontJson) {
                 timelineMark(
