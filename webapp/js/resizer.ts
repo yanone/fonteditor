@@ -194,8 +194,8 @@ class ResizableViews {
                 }
             });
 
-            if (collapsedViews.length > 0 && nonCollapsedViews.length > 0) {
-                // Lock collapsed views to fixed width
+            if (nonCollapsedViews.length > 0) {
+                // Lock collapsed views to fixed width (if any)
                 collapsedViews.forEach(({ view, width }) => {
                     view.style.flex = `0 0 ${width}px`;
                 });
@@ -878,6 +878,8 @@ function initResizableViews() {
     // Update collapsed states after layout is loaded
     setTimeout(() => {
         window.resizableViews.updateCollapsedStates();
+        // Normalize flex values to current viewport after startup layout settles
+        window.resizableViews.handleWindowResize();
     }, 150);
     console.log('[Resizer]', 'ResizableViews initialized');
 }

@@ -752,3 +752,129 @@ test('top-row sidebars interpolate width and padding per view width', async ({
     expect(expandedMetrics.fontInfoFeatureItemPaddingVar).toBeCloseTo(12, 0);
     expect(expandedMetrics.fontInfoElementGapVar).toBeCloseTo(8, 0);
 });
+
+/**
+ * Get the bounding rect of the root .container and the current window dimensions.
+ */
+async function getContainerBounds(page: Page) {
+    return await page.evaluate(() => {
+        const container = document.querySelector(
+            '.container'
+        ) as HTMLElement | null;
+        if (!container) {
+            return {
+                containerWidth: 0,
+                containerHeight: 0,
+                windowWidth: 0,
+                windowHeight: 0
+            };
+        }
+        const rect = container.getBoundingClientRect();
+        return {
+            containerWidth: Math.round(rect.width),
+            containerHeight: Math.round(rect.height),
+            windowWidth: window.innerWidth,
+            windowHeight: window.innerHeight
+        };
+    });
+}
+
+/**
+ * Get the width of the editor view and its canvas container.
+ */
+async function getEditorContentBounds(page: Page) {
+    return await page.evaluate(() => {
+        const editorView = document.getElementById('view-editor');
+        const canvasContainer = document.getElementById(
+            'glyph-canvas-container'
+        );
+        return {
+            editorWidth: editorView
+                ? Math.round(editorView.getBoundingClientRect().width)
+                : 0,
+            canvasWidth: canvasContainer
+                ? Math.round(canvasContainer.getBoundingClientRect().width)
+                : 0,
+            topRowWidth: (() => {
+                const topRow = document.querySelector(
+                    '.top-row'
+                ) as HTMLElement | null;
+                return topRow
+                    ? Math.round(topRow.getBoundingClientRect().width)
+                    : 0;
+            })()
+        };
+    });
+}
+
+test('container and top-row match viewport width on startup with no saved layout', async ({
+    page
+}) => {
+    await clearStoredViewLayout(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+
+    // Let layout settle
+    await page.waitForTimeout(350);
+
+    const bounds = await getContainerBounds(page);
+    const editorBounds = await getEditorContentBounds(page);
+
+    // Container width must match viewport width (2px tolerance for rounding)
+    expect(
+        Math.abs(bounds.containerWidth - bounds.windowWidth)
+    ).toBeLessThanOrEqual(2);
+    // Container height must be viewport height minus 50px chrome
+    expect(
+        Math.abs(bounds.containerHeight - (bounds.windowHeight - 50))
+    ).toBeLessThanOrEqual(2);
+    // Top-row must fill the container width
+    expect(
+        Math.abs(editorBounds.topRowWidth - bounds.containerWidth)
+    ).toBeLessThanOrEqual(2);
+    // Editor view and canvas must have positive widths
+    expect(editorBounds.editorWidth).toBeGreaterThan(100);
+    expect(editorBounds.canvasWidth).toBeGreaterThan(100);
+});
+
+test('container and views resize when viewport changes', async ({ page }) => {
+    await clearStoredViewLayout(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+    await page.waitForTimeout(350);
+
+    const startBounds = await getContainerBounds(page);
+    expect(Math.abs(startBounds.containerWidth - 1280)).toBeLessThanOrEqual(2);
+
+    // Shrink the viewport
+    await page.setViewportSize({ width: 960, height: 600 });
+    await page.waitForTimeout(400);
+
+    const shrunkBounds = await getContainerBounds(page);
+    const shrunkEditor = await getEditorContentBounds(page);
+    expect(Math.abs(shrunkBounds.containerWidth - 960)).toBeLessThanOrEqual(2);
+    expect(
+        Math.abs(shrunkBounds.containerHeight - (600 - 50))
+    ).toBeLessThanOrEqual(2);
+    expect(
+        Math.abs(shrunkEditor.topRowWidth - shrunkBounds.containerWidth)
+    ).toBeLessThanOrEqual(2);
+
+    // Expand the viewport
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.waitForTimeout(400);
+
+    const expandedBounds = await getContainerBounds(page);
+    const expandedEditor = await getEditorContentBounds(page);
+    expect(Math.abs(expandedBounds.containerWidth - 1920)).toBeLessThanOrEqual(
+        2
+    );
+    expect(
+        Math.abs(expandedBounds.containerHeight - (1080 - 50))
+    ).toBeLessThanOrEqual(2);
+    expect(
+        Math.abs(expandedEditor.topRowWidth - expandedBounds.containerWidth)
+    ).toBeLessThanOrEqual(2);
+});
