@@ -1005,7 +1005,7 @@ class GlyphCanvas {
                 console.log(
                     '[GlyphCanvas] Calling outlineEditor.onSliderMouseUp()'
                 );
-                this.outlineEditor.onSliderMouseUp();
+                await this.outlineEditor.onSliderMouseUp();
             } else {
                 await this.finalizeTextModeSliderInteraction();
                 // In text editing mode, restore focus to canvas

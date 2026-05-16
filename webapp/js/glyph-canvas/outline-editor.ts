@@ -8080,7 +8080,7 @@ export class OutlineEditor {
         this.glyphCanvas.updatePropertyPanel();
     }
 
-    onEscapeKey(e: KeyboardEvent) {
+    async onEscapeKey(e: KeyboardEvent) {
         if (!this.active) return;
 
         // Check if editor view is focused
@@ -8142,7 +8142,7 @@ export class OutlineEditor {
 
                     // Imitate clicking on the layer in the list by calling selectLayer
                     // This will handle everything: fetch data, animate sliders, update UI
-                    this.selectLayer(layerToSelect);
+                    await this.selectLayer(layerToSelect);
                     return;
                 }
 
@@ -16401,6 +16401,14 @@ export class OutlineEditor {
 
         this.cancelPendingLayerSwitchAnimation();
         this.suppressAutoLayerMatching = true;
+
+        // Clear all slider/play interpolation state so explicit layer selection
+        // is a hard boundary — stale in-flight or incomplete interpolation results
+        // must not apply after this point.
+        this.isInterpolating = false;
+        this.autoPanAnchorScreen = null;
+        this.clearQueuedInterpolationRequest();
+        fontInterpolation.resetRequestTracking();
 
         // Select a layer and update axis sliders to match its master location
         // Clear previous state when explicitly selecting a layer

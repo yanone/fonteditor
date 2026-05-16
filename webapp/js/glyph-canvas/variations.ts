@@ -14,6 +14,17 @@ interface VariationAxis {
     default: UserspaceCoordinate;
 }
 
+/**
+ * Persistent state for a play-loop animation on one axis.
+ * Stored in a map keyed by axis tag so it survives axes UI rebuilds.
+ */
+interface LoopAnimationState {
+    active: boolean;
+    startTime: number;
+    frameId: number | null;
+    startValue: number;
+}
+
 export class AxesManager {
     variationSettings: UserspaceLocation;
     axesSection: HTMLElement | null;
@@ -31,6 +42,8 @@ export class AxesManager {
     lastSliderReleaseTime: number;
     isLoopAnimating: boolean;
     loopAnimationStopCallbacks: (() => void)[];
+    /** Per-axis persistent play-loop state (survives axes UI DOM rebuilds). */
+    loopAnimationStates: Map<string, LoopAnimationState>;
 
     constructor() {
         this.variationSettings = {}; // Current variation settings
@@ -50,26 +63,63 @@ export class AxesManager {
         this.lastSliderReleaseTime = 0;
         this.isLoopAnimating = false;
         this.loopAnimationStopCallbacks = [];
+        this.loopAnimationStates = new Map();
 
         this.fontBytes = null; // To be set externally
         this.callbacks = {}; // Array of callbacks for each event
     }
 
     stopAllLoopAnimations() {
-        if (this.loopAnimationStopCallbacks.length > 0) {
-            console.log('[AxesManager] Stopping all loop animations');
-            // Call all stop callbacks
-            this.loopAnimationStopCallbacks.forEach((stop) => stop());
-            this.loopAnimationStopCallbacks = [];
-            this.isLoopAnimating = false;
-            // Trigger sliderMouseUp to finalize
-            this.isSliderActive = false;
-            if (this.isAnimating) {
-                this.pendingSliderMouseUp = true;
-            } else {
-                this.call('sliderMouseUp');
+        // Stop via persistent states — handles cases where button DOM was
+        // rebuilt while an animation was running.
+        for (const state of this.loopAnimationStates.values()) {
+            if (state.active) {
+                if (state.frameId !== null) {
+                    cancelAnimationFrame(state.frameId);
+                    state.frameId = null;
+                }
+                state.active = false;
             }
         }
+        // Also call legacy-style stop callbacks for safety.
+        if (this.loopAnimationStopCallbacks.length > 0) {
+            console.log('[AxesManager] Stopping all loop animations');
+            this.loopAnimationStopCallbacks.forEach((stop) => stop());
+            this.loopAnimationStopCallbacks = [];
+        }
+        this.isLoopAnimating = false;
+        // Update any remaining button DOM to play icon
+        this.syncLoopButtonDom();
+
+        // Trigger sliderMouseUp to finalize
+        this.isSliderActive = false;
+        if (this.isAnimating) {
+            this.pendingSliderMouseUp = true;
+        } else {
+            this.call('sliderMouseUp');
+        }
+    }
+
+    /** Sync play/pause button icons in the DOM to match persistent state. */
+    private syncLoopButtonDom(): void {
+        if (!this.axesSection) return;
+        this.axesSection.querySelectorAll('.editor-axis-play-button').forEach(
+            (btn) => {
+                const button = btn as HTMLElement;
+                const tag = button.getAttribute('data-axis-tag');
+                if (!tag) return;
+                const state = this.loopAnimationStates.get(tag);
+                if (state?.active) {
+                    button.innerHTML =
+                        '<span class="material-symbols-outlined">pause</span>';
+                    button.classList.add('playing');
+                } else {
+                    button.innerHTML =
+                        '<span class="material-symbols-outlined">play_arrow</span>';
+                    button.classList.remove('playing');
+                }
+            }
+        );
     }
 
     on(event: string, callback: Function) {
@@ -207,136 +257,43 @@ export class AxesManager {
             const valueLabel = document.createElement('input');
             valueLabel.type = 'text';
             valueLabel.className = 'editor-axis-value';
-            valueLabel.value = axis.default.toFixed(0);
-            valueLabel.setAttribute('data-axis-tag', axis.tag); // Add identifier for programmatic updates
+            valueLabel.setAttribute('data-axis-tag', axis.tag);
             valueLabel.setAttribute('inputmode', 'numeric');
 
-            // Play/pause button for animation
+            // Play/pause button — get persistent state, create if missing
             const playButton = document.createElement('button');
             playButton.className = 'editor-axis-play-button';
-            playButton.innerHTML =
-                '<span class="material-symbols-outlined">play_arrow</span>';
+            playButton.setAttribute('data-axis-tag', axis.tag);
             playButton.title = 'Animate axis';
 
-            let animationActive = false;
-            let animationStartTime = 0;
-            let animationFrameId: number | null = null;
-            let animationStartValue = 0;
+            let state = this.loopAnimationStates.get(axis.tag);
+            if (!state) {
+                state = {
+                    active: false,
+                    startTime: 0,
+                    frameId: null,
+                    startValue: 0
+                };
+                this.loopAnimationStates.set(axis.tag, state);
+            }
 
-            const animateAxis = () => {
-                if (!animationActive) return;
-
-                const now = performance.now();
-                const elapsed = now - animationStartTime;
-                const wavelength =
-                    (window as any).APP_SETTINGS?.AXIS_ANIMATION_WAVELENGTH ||
-                    5000;
-
-                // Calculate phase offset so animation starts from current value
-                const midpoint = (Number(axis.min) + Number(axis.max)) / 2;
-                const amplitude = (Number(axis.max) - Number(axis.min)) / 2;
-                // Find the phase that corresponds to the start value: sin(phase) = (startValue - midpoint) / amplitude
-                const normalizedStart =
-                    (animationStartValue - midpoint) / amplitude;
-                const startPhase = Math.asin(
-                    Math.max(-1, Math.min(1, normalizedStart))
-                );
-
-                // Sine wave oscillation starting from the calculated phase
-                const sineValue = Math.sin(
-                    startPhase + (elapsed / wavelength) * 2 * Math.PI
-                );
-                // Map sine (-1 to 1) to axis range (min to max)
-                const value = midpoint + sineValue * amplitude;
-
-                // Update slider and value label
-                slider.value = value.toString();
-                valueLabel.value = value.toFixed(0);
-                updateSliderFill();
-
-                // Use immediate update — no nested eased animation per tick
-                this.variationSettings[axis.tag] = value;
-                this.updateAxisSliders();
-                this.call('onSliderChange', axis.tag, value);
-                this.call('animationInProgress');
-
-                animationFrameId = requestAnimationFrame(animateAxis);
-            };
-
-            // Function to stop this animation (called by stopAllLoopAnimations or click)
-            const stopAnimation = () => {
-                animationActive = false;
+            // Set button icon from persistent state
+            if (state.active) {
+                playButton.innerHTML =
+                    '<span class="material-symbols-outlined">pause</span>';
+                playButton.classList.add('playing');
+            } else {
                 playButton.innerHTML =
                     '<span class="material-symbols-outlined">play_arrow</span>';
-                playButton.classList.remove('playing');
-                if (animationFrameId !== null) {
-                    cancelAnimationFrame(animationFrameId);
-                    animationFrameId = null;
-                }
-            };
+            }
 
-            playButton.addEventListener('click', async () => {
-                // Toggle: if was active, we're stopping; if was inactive, we're starting
-                const wasActive = animationActive;
-
-                if (!wasActive) {
-                    // Start animation
-                    animationActive = true;
-                    playButton.innerHTML =
-                        '<span class="material-symbols-outlined">pause</span>';
-                    playButton.classList.add('playing');
-                    animationStartTime = performance.now();
-                    animationStartValue = parseFloat(slider.value);
-
-                    // Mark as loop animating to suppress layer selection
-                    this.isLoopAnimating = true;
-
-                    // Register stop callback
-                    this.loopAnimationStopCallbacks.push(stopAnimation);
-
-                    // Enter preview mode (same as slider mousedown)
-                    this.isSliderActive = true;
-                    await this.call('sliderMouseDown');
-
-                    animateAxis();
-                } else {
-                    // Stop animation
-                    stopAnimation();
-
-                    // Remove from callbacks list
-                    const index =
-                        this.loopAnimationStopCallbacks.indexOf(stopAnimation);
-                    if (index > -1) {
-                        this.loopAnimationStopCallbacks.splice(index, 1);
-                    }
-
-                    // Clear loop animating flag if no more animations
-                    if (this.loopAnimationStopCallbacks.length === 0) {
-                        this.isLoopAnimating = false;
-                    }
-
-                    // Exit preview mode (same as slider mouseup)
-                    this.isSliderActive = false;
-                    if (this.isAnimating) {
-                        this.pendingSliderMouseUp = true;
-                    } else {
-                        this.call('sliderMouseUp');
-                    }
-                }
-            });
-
-            labelRow.appendChild(axisLabel);
-            labelRow.appendChild(playButton);
-            labelRow.appendChild(valueLabel);
-
-            // Slider
             const slider = document.createElement('input');
             slider.type = 'range';
             slider.className = 'editor-axis-slider';
             slider.min = axis.min.toString();
             slider.max = axis.max.toString();
             slider.step = '1';
-            slider.setAttribute('data-axis-tag', axis.tag); // Add identifier for programmatic updates
+            slider.setAttribute('data-axis-tag', axis.tag);
 
             // Restore value if it exists, otherwise use default
             const initialValue =
@@ -354,13 +311,119 @@ export class AxesManager {
             const updateSliderFill = () => {
                 const min = parseFloat(slider.min);
                 const max = parseFloat(slider.max);
-                const value = parseFloat(slider.value);
-                const percent = ((value - min) / (max - min)) * 100;
+                const theValue = parseFloat(slider.value);
+                const percent = ((theValue - min) / (max - min)) * 100;
                 slider.style.setProperty('--value-percent', `${percent}%`);
             };
 
             // Set initial fill
             updateSliderFill();
+
+            const animateAxis = () => {
+                if (!state!.active) return;
+
+                const now = performance.now();
+                const elapsed = now - state!.startTime;
+                const wavelength =
+                    (window as any).APP_SETTINGS?.AXIS_ANIMATION_WAVELENGTH ||
+                    5000;
+
+                const midpoint = (Number(axis.min) + Number(axis.max)) / 2;
+                const amplitude = (Number(axis.max) - Number(axis.min)) / 2;
+                const normalizedStart =
+                    (state!.startValue - midpoint) / amplitude;
+                const startPhase = Math.asin(
+                    Math.max(-1, Math.min(1, normalizedStart))
+                );
+
+                const sineValue = Math.sin(
+                    startPhase + (elapsed / wavelength) * 2 * Math.PI
+                );
+                const value = midpoint + sineValue * amplitude;
+
+                // Update slider and value label in current DOM
+                slider.value = value.toString();
+                valueLabel.value = value.toFixed(0);
+                updateSliderFill();
+
+                // Immediate update — no nested eased animation per tick
+                this.variationSettings[axis.tag] = value;
+                this.updateAxisSliders();
+                this.call('onSliderChange', axis.tag, value);
+                this.call('animationInProgress');
+
+                state!.frameId = requestAnimationFrame(animateAxis);
+            };
+
+            // Helper to update a specific button's icon from persistent state
+            const updateButtonIcon = () => {
+                if (state!.active) {
+                    playButton.innerHTML =
+                        '<span class="material-symbols-outlined">pause</span>';
+                    playButton.classList.add('playing');
+                } else {
+                    playButton.innerHTML =
+                        '<span class="material-symbols-outlined">play_arrow</span>';
+                    playButton.classList.remove('playing');
+                }
+            };
+
+            playButton.addEventListener('click', async () => {
+                if (!state!.active) {
+                    // --- START ---
+                    state!.active = true;
+                    state!.frameId = null;
+                    state!.startTime = performance.now();
+                    state!.startValue = parseFloat(slider.value);
+                    updateButtonIcon();
+
+                    this.isLoopAnimating = true;
+
+                    this.isSliderActive = true;
+                    await this.call('sliderMouseDown');
+
+                    // Start animation only if still active (not stopped during await)
+                    if (state!.active) {
+                        animateAxis();
+                    }
+                } else {
+                    // --- STOP ---
+                    state!.active = false;
+                    if (state!.frameId !== null) {
+                        cancelAnimationFrame(state!.frameId);
+                        state!.frameId = null;
+                    }
+                    updateButtonIcon();
+
+                    // Check if any other axis still has an active animation
+                    let hasActive = false;
+                    for (const [_, s] of this.loopAnimationStates) {
+                        if (s.active) {
+                            hasActive = true;
+                            break;
+                        }
+                    }
+                    if (!hasActive) {
+                        this.isLoopAnimating = false;
+                    }
+
+                    this.isSliderActive = false;
+                    if (this.isAnimating) {
+                        this.pendingSliderMouseUp = true;
+                    } else {
+                        await this.call('sliderMouseUp');
+                    }
+                }
+            });
+
+            labelRow.appendChild(axisLabel);
+            labelRow.appendChild(playButton);
+            labelRow.appendChild(valueLabel);
+
+            // Slider
+            axisContainer.appendChild(labelRow);
+            axisContainer.appendChild(slider);
+            tempContainer.appendChild(axisContainer);
 
             // Handle value input changes
             valueLabel.addEventListener('input', (e) => {
@@ -479,10 +542,6 @@ export class AxesManager {
                 '[Variations] Attached input listener to slider for axis:',
                 axis.tag
             );
-
-            axisContainer.appendChild(labelRow);
-            axisContainer.appendChild(slider);
-            tempContainer.appendChild(axisContainer);
         });
 
         console.log(

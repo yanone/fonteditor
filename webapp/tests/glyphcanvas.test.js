@@ -11264,6 +11264,77 @@ describe('OutlineEditor exact selected layers', () => {
         applySpy.mockRestore();
     });
 
+    test('selectLayer clears interpolation state from previous slider drag', async () => {
+        const font = makeComponentFont();
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+        currentFontSpy.mockReturnValue(currentFont);
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = null;
+        canvas.outlineEditor.isInterpolating = true;
+        canvas.outlineEditor.autoPanAnchorScreen = { x: 100, y: 200 };
+        canvas.outlineEditor.layerData = {
+            width: 520,
+            shapes: [],
+            anchors: [],
+            guides: [],
+            isInterpolated: true
+        };
+        canvas.axesManager.variationSettings = { wght: 30 };
+
+        // User clicks an exact layer in the list
+        const masterLayer = currentFont.fontModel
+            .findGlyph('A')
+            .findLayerById('master-layer');
+        await canvas.outlineEditor.selectLayer(masterLayer);
+
+        // After selectLayer, interpolation state must be fully cleared
+        expect(canvas.outlineEditor.selectedLayerId).toBe('master-layer');
+        expect(canvas.outlineEditor.isInterpolating).toBe(false);
+        expect(canvas.outlineEditor.autoPanAnchorScreen).toBe(null);
+    });
+
+    test('selectLayer clears interpolation state after play-loop animation', async () => {
+        const font = makeComponentFont();
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+        currentFontSpy.mockReturnValue(currentFont);
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = null;
+        canvas.outlineEditor.isInterpolating = true;
+        canvas.outlineEditor.layerData = {
+            width: 520,
+            shapes: [],
+            anchors: [],
+            guides: [],
+            isInterpolated: true
+        };
+        canvas.axesManager.isLoopAnimating = false;
+        canvas.axesManager.isSliderActive = false;
+        canvas.axesManager.variationSettings = { wght: 75 };
+
+        // User clicks an exact layer in the list
+        const masterLayer = currentFont.fontModel
+            .findGlyph('A')
+            .findLayerById('master-layer');
+        await canvas.outlineEditor.selectLayer(masterLayer);
+
+        // After selectLayer, interpolation state must be fully cleared
+        expect(canvas.outlineEditor.selectedLayerId).toBe('master-layer');
+        expect(canvas.outlineEditor.isInterpolating).toBe(false);
+        expect(canvas.outlineEditor.autoPanAnchorScreen).toBe(null);
+    });
+
     test('createInterpolatedLayer routes structural layer additions through patch sync funnel', async () => {
         const font = makeComponentFont();
         const currentFont = {
