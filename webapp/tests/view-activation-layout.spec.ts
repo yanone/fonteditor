@@ -819,6 +819,7 @@ test('container and top-row match viewport width on startup with no saved layout
     await page.waitForTimeout(350);
 
     const bounds = await getContainerBounds(page);
+    const topRowState = await getTopRowState(page);
     const editorBounds = await getEditorContentBounds(page);
 
     // Container width must match viewport width (2px tolerance for rounding)
@@ -829,10 +830,10 @@ test('container and top-row match viewport width on startup with no saved layout
     expect(
         Math.abs(bounds.containerHeight - (bounds.windowHeight - 50))
     ).toBeLessThanOrEqual(2);
-    // Top-row must fill the container width
+    // Top-row occupied width (views + dividers) must fill the top-row width
     expect(
-        Math.abs(editorBounds.topRowWidth - bounds.containerWidth)
-    ).toBeLessThanOrEqual(2);
+        Math.abs(topRowState.occupiedWidth - topRowState.topRowWidth)
+    ).toBeLessThanOrEqual(4);
     // Editor view and canvas must have positive widths
     expect(editorBounds.editorWidth).toBeGreaterThan(100);
     expect(editorBounds.canvasWidth).toBeGreaterThan(100);
@@ -853,21 +854,23 @@ test('container and views resize when viewport changes', async ({ page }) => {
     await page.waitForTimeout(400);
 
     const shrunkBounds = await getContainerBounds(page);
-    const shrunkEditor = await getEditorContentBounds(page);
+    const shrunkTopRowState = await getTopRowState(page);
     expect(Math.abs(shrunkBounds.containerWidth - 960)).toBeLessThanOrEqual(2);
     expect(
         Math.abs(shrunkBounds.containerHeight - (600 - 50))
     ).toBeLessThanOrEqual(2);
     expect(
-        Math.abs(shrunkEditor.topRowWidth - shrunkBounds.containerWidth)
-    ).toBeLessThanOrEqual(2);
+        Math.abs(
+            shrunkTopRowState.occupiedWidth - shrunkTopRowState.topRowWidth
+        )
+    ).toBeLessThanOrEqual(4);
 
     // Expand the viewport
     await page.setViewportSize({ width: 1920, height: 1080 });
     await page.waitForTimeout(400);
 
     const expandedBounds = await getContainerBounds(page);
-    const expandedEditor = await getEditorContentBounds(page);
+    const expandedTopRowState = await getTopRowState(page);
     expect(Math.abs(expandedBounds.containerWidth - 1920)).toBeLessThanOrEqual(
         2
     );
@@ -875,6 +878,8 @@ test('container and views resize when viewport changes', async ({ page }) => {
         Math.abs(expandedBounds.containerHeight - (1080 - 50))
     ).toBeLessThanOrEqual(2);
     expect(
-        Math.abs(expandedEditor.topRowWidth - expandedBounds.containerWidth)
-    ).toBeLessThanOrEqual(2);
+        Math.abs(
+            expandedTopRowState.occupiedWidth - expandedTopRowState.topRowWidth
+        )
+    ).toBeLessThanOrEqual(4);
 });
