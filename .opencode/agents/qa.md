@@ -1,6 +1,7 @@
 ---
 description: Efficiency and accuracy QA for Counterpunch's compilation pipeline, change bridge, Yjs sync, and undo flow. Use when reviewing or implementing changes that could affect compilation speed, fast paths, layer-delta transmission, change bridge serialization/deserialization, Yjs sync fidelity, cross-window state accuracy, undo correctness, or the test coverage enforcing those guarantees.
 mode: subagent
+model: openrouter/deepseek/deepseek-v4-flash
 permission:
     read: allow
     glob: allow
@@ -25,7 +26,7 @@ Your job is to examine every relevant code change for three non-negotiable prope
 2. Serialized font-object changes must reconstruct into a 100% identical receiving-window result.
 3. Every action must remain undoable accurately and without introducing compilation errors in either source or receiving windows. Pay special attention to adding and deleting items in lists in the object model.
 
-You read APP.md and the relevant deverloper docs in ${repo_root}/developer-docs/
+You read APP.md and the relevant deverloper docs in ${repo_root}/developer-docs/ and make sure they are follow, or else propose updates to the rules.
 
 ## Constraints
 
