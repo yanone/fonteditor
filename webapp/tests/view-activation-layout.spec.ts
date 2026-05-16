@@ -543,31 +543,6 @@ test('editor title-bar X collapses the editor and hides the last remaining top-r
     ).toBeLessThanOrEqual(4);
 });
 
-test('cmd+escape collapses the focused editor view', async ({ page }) => {
-    await clearStoredViewLayout(page);
-
-    await page.goto('/?test=true');
-    await waitForCanvasReady(page);
-
-    await activateView(page, 'E', 'view-editor');
-    await page.keyboard.press('Meta+Escape');
-
-    await page.waitForFunction(() => {
-        const visibleTopRow = Array.from(
-            document.querySelectorAll('.top-row')
-        ).find((row) => (row as HTMLElement).offsetWidth > 0) as
-            | HTMLElement
-            | undefined;
-        const editorView = visibleTopRow?.querySelector('#view-editor');
-        return !!editorView && editorView.classList.contains('collapsed-width');
-    });
-
-    const topRowState = await getTopRowState(page);
-
-    expect(topRowState.collapsed['view-editor']).toBe(true);
-    expect(topRowState.widths['view-editor']).toBeLessThanOrEqual(30);
-});
-
 test('editor collapse and reopen restores the previous canvas viewport', async ({
     page
 }) => {

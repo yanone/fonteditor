@@ -1708,32 +1708,6 @@
             return;
         }
 
-        // Cmd+Escape - Collapse active view
-        if (cmdKey && !shiftKey && !event.altKey && key === 'escape') {
-            console.log(
-                '[KeyboardNav]',
-                'Cmd+Escape pressed, currentFocusedView:',
-                currentFocusedView
-            );
-            event.preventDefault();
-            event.stopPropagation();
-            event.stopImmediatePropagation();
-
-            if (currentFocusedView) {
-                console.log(
-                    '[KeyboardNav]',
-                    'Collapsing view:',
-                    currentFocusedView
-                );
-                collapseActiveView(currentFocusedView);
-            } else {
-                console.log(
-                    '[KeyboardNav]',
-                    'Not collapsing - no focused view'
-                );
-            }
-            return;
-        }
     }
 
     // Store console scroll position from click handler (before any other events fire)
