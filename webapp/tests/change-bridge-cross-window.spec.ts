@@ -47,12 +47,28 @@ async function setupEditTextMode(
     page: Page,
     textBuffer: string = 'ä'
 ): Promise<void> {
+    // Step 1: Set text buffer and select glyph
     await page.evaluate(async (nextTextBuffer) => {
         const gc = (window as any).glyphCanvas;
         gc.textRunEditor.setTextBuffer(nextTextBuffer);
         await gc.textRunEditor.selectGlyphByIndex(0, true);
     }, textBuffer);
-    await page.waitForTimeout(500);
+
+    // Wait for shaping to complete
+    await page.waitForFunction(
+        (targetBuf: string) => {
+            const tr = (window as any).glyphCanvas?.textRunEditor;
+            if (!tr) return false;
+            return (
+                Array.isArray(tr.shapedGlyphs) &&
+                tr.shapedGlyphs.length > 0 &&
+                tr.textBuffer === targetBuf
+            );
+        },
+        textBuffer,
+        { timeout: 20000 }
+    );
+
     // Zoom to fit
     await page.keyboard.press('Meta+0');
     await page.waitForTimeout(300);
@@ -869,8 +885,18 @@ async function setInterpolatedEditorState(
 ): Promise<Record<string, any>> {
     await focusView(page, 'Meta+Shift+E', 'view-editor');
     await dismissVisibleTippies(page);
+    // setupEditTextMode already waits for shaping to complete
     await setupEditTextMode(page, glyphName);
     await waitForEditingCompile(page);
+
+    // Wait for editing font to exist
+    await page.waitForFunction(
+        () => {
+            const fm = (window as any).fontManager;
+            return fm?.editingFont !== null;
+        },
+        { timeout: 20000 }
+    );
 
     const interpolationResult = await page.evaluate(
         async ({ glyphName, location }) => {
@@ -878,6 +904,7 @@ async function setInterpolatedEditorState(
             const textRunEditor = glyphCanvas?.textRunEditor;
             const outlineEditor = glyphCanvas?.outlineEditor;
             const axesManager = glyphCanvas?.axesManager;
+            const fontManager = (window as any).fontManager;
             if (
                 !glyphCanvas ||
                 !textRunEditor ||
@@ -887,13 +914,22 @@ async function setInterpolatedEditorState(
                 return { error: 'Missing glyph canvas editor dependencies' };
             }
 
-            textRunEditor.setTextBuffer(glyphName);
-            await textRunEditor.selectGlyphByIndex(0, true);
+            // Do NOT unconditionally re-set text buffer here.
+            // Only switch if we're not already on this glyph.
+            const currentName =
+                outlineEditor.currentGlyphName ||
+                glyphCanvas.getCurrentGlyphName?.();
+            if (currentName !== glyphName) {
+                textRunEditor.setTextBuffer(glyphName);
+                await textRunEditor.selectGlyphByIndex(0, true);
+            }
+
             outlineEditor.active = true;
             outlineEditor.currentGlyphName = glyphName;
             axesManager.variationSettings = { ...location };
             outlineEditor.isInterpolating = true;
             await glyphCanvas.doUIUpdateAsync();
+
             const beforeAutoSelect = {
                 selectedLayerId: outlineEditor.selectedLayerId,
                 currentGlyphName: outlineEditor.currentGlyphName,
@@ -927,7 +963,11 @@ async function setInterpolatedEditorState(
                     };
                 }
             }
-            await glyphCanvas.doUIUpdateAsync();
+
+            // After interpolation, wait for layer data
+            if (!outlineEditor.layerData) {
+                await glyphCanvas.doUIUpdateAsync();
+            }
 
             return {
                 beforeAutoSelect,

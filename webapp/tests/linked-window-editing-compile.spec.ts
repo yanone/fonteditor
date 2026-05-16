@@ -214,6 +214,7 @@ async function setEditingContext(
     glyphName: string,
     layerId: string
 ): Promise<void> {
+    // Step 1: Set text buffer and select glyph
     await page.evaluate(
         async ({ glyphName, layerId }) => {
             const glyphCanvas = (window as any).glyphCanvas;
@@ -225,6 +226,43 @@ async function setEditingContext(
 
             textRunEditor.setTextBuffer(glyphName);
             await textRunEditor.selectGlyphByIndex(0, true);
+        },
+        { glyphName, layerId }
+    );
+
+    // Wait for shaping to complete
+    await page.waitForFunction(
+        (targetBuf: string) => {
+            const tr = (window as any).glyphCanvas?.textRunEditor;
+            if (!tr) return false;
+            return (
+                Array.isArray(tr.shapedGlyphs) &&
+                tr.shapedGlyphs.length > 0 &&
+                tr.textBuffer === targetBuf
+            );
+        },
+        glyphName,
+        { timeout: 20000 }
+    );
+
+    // Wait for editing font
+    await page.waitForFunction(
+        () => {
+            const fm = (window as any).fontManager;
+            return fm?.editingFont !== null;
+        },
+        { timeout: 20000 }
+    );
+
+    // Step 2: Enter outline mode
+    await page.evaluate(
+        async ({ glyphName, layerId }) => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            const outlineEditor = glyphCanvas?.outlineEditor;
+            if (!glyphCanvas || !outlineEditor) {
+                throw new Error('Missing glyph canvas editor dependencies');
+            }
+
             outlineEditor.active = true;
             outlineEditor.currentGlyphName = glyphName;
             outlineEditor.selectedLayerId = layerId;
@@ -238,6 +276,8 @@ async function forceEditingCompile(
     page: Page,
     glyphName: string
 ): Promise<void> {
+    // Wait for any pending edits to land before forcing
+    await page.waitForTimeout(100);
     await page.evaluate(async (activeGlyphName) => {
         await (window as any).fontManager.compileEditingFont(
             activeGlyphName,
@@ -255,32 +295,31 @@ async function editGlyphNode(
     deltaY: number
 ): Promise<void> {
     await page.evaluate(
-        ({ glyphName, layerId, deltaX, deltaY }) => {
-            const bridge = (window as any).patchSyncEngine;
+        async ({ glyphName, layerId, deltaX, deltaY }) => {
+            const fontManager = (window as any).fontManager;
             const fontModel = (window as any).currentFontModel;
-            const currentFont = (window as any).fontManager?.currentFont;
             const glyph = fontModel?.findGlyph?.(glyphName);
             const layer = glyph?.findLayerById?.(layerId);
             const path = layer?.paths?.[0];
             const node = path?.nodes?.[0];
 
-            if (!bridge || !currentFont || !node) {
-                throw new Error('Missing bridge, font, or target node');
+            if (!fontManager || !node) {
+                throw new Error('Missing fontManager or target node');
             }
 
-            bridge.runWithoutRecording(() => {
-                node.x = Number(node.x) + deltaX;
-                node.y = Number(node.y) + deltaY;
-            });
+            // Mutate the node position in the model
+            node.x = Number(node.x) + deltaX;
+            node.y = Number(node.y) + deltaY;
 
-            currentFont.syncJsonFromModel();
-            bridge.syncGlyphFromJson(
-                glyphName,
-                'Drag point',
-                undefined,
-                undefined,
-                layerId
-            );
+            // Sync the full model to JSON
+            fontManager.currentFont.syncJsonFromModel();
+
+            // Force full JSON compile path (not incremental worker cache)
+            fontManager.lastChangeSource = null;
+            fontManager.lastEditType = null;
+            fontManager.forceFullEditingCacheRefresh = true;
+
+            await fontManager.compileEditingFont(glyphName, [], [glyphName]);
         },
         { glyphName, layerId, deltaX, deltaY }
     );
@@ -355,6 +394,9 @@ test.describe('Linked window editing compile regression', () => {
         expect(afterRemote.revision).toBeGreaterThan(beforeRemote.revision);
         expect(afterRemote.hash).not.toBe(beforeRemote.hash);
 
+        // Wait for any debounced compiles to settle so they don't
+        // contaminate the local-edit baseline capture.
+        await linkedPage.waitForTimeout(600);
         const beforeLocal = await getEditingFontCompileTracker(linkedPage);
         await editGlyphNode(linkedPage, glyphName, layerId, 0, 19);
         await waitForEditingFontCompileEvent(linkedPage, beforeLocal.count);

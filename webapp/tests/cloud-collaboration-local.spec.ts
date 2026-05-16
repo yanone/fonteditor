@@ -442,7 +442,7 @@ async function nudgeEditingCompile(page: Page): Promise<void> {
                     )
                 ).catch(() => undefined),
                 new Promise<void>((resolve) =>
-                    window.setTimeout(() => resolve(), 5000)
+                    window.setTimeout(() => resolve(), 15000)
                 )
             ]);
         }
@@ -457,7 +457,7 @@ async function ensureTextRunTargetsGlyph(
     page: Page,
     glyphName: string
 ): Promise<void> {
-    await page.evaluate(async (targetGlyphName) => {
+    await page.evaluate(async (targetGlyphName: string) => {
         const glyphCanvas = (window as any).glyphCanvas;
         const textRunEditor = glyphCanvas?.textRunEditor;
         const outlineEditor = glyphCanvas?.outlineEditor;
