@@ -252,9 +252,9 @@
                 const scriptEditor = window.scriptEditor;
                 if (scriptEditor && scriptEditor.editor) {
                     if (theme === THEMES.LIGHT) {
-                        scriptEditor.editor.setTheme('ace/theme/chrome');
+                        scriptEditor.editor.setTheme('ace/theme/tomorrow');
                     } else {
-                        scriptEditor.editor.setTheme('ace/theme/monokai');
+                        scriptEditor.editor.setTheme('ace/theme/tomorrow_night');
                     }
                 }
 

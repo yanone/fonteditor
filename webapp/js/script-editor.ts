@@ -176,11 +176,11 @@ const console = new Logger('ScriptEditor');
                 const isDark = window.matchMedia(
                     '(prefers-color-scheme: dark)'
                 ).matches;
-                return isDark ? 'ace/theme/monokai' : 'ace/theme/chrome';
+                return isDark ? 'ace/theme/tomorrow_night' : 'ace/theme/tomorrow';
             }
             return savedTheme === 'light'
-                ? 'ace/theme/chrome'
-                : 'ace/theme/monokai';
+                ? 'ace/theme/tomorrow'
+                : 'ace/theme/tomorrow_night';
         };
 
         editor.setTheme(getInitialTheme());
