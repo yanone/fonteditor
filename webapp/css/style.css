@@ -826,7 +826,7 @@ kbd + kbd {
     align-items: center;
     justify-content: space-between;
     padding: 0 0 0 8px;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 2px solid var(--border-primary);
     font-family: var(--font-families-sans);
     font-size: 11px;
     background-color: inherit;

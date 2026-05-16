@@ -31,15 +31,7 @@
     flex: 1;
     position: relative;
     overflow: hidden;
-}
-
-/* Background color based on view focus state */
-.view-fontinfo.focused .features-editor {
     background-color: var(--background-primary);
-}
-
-.view-fontinfo:not(.focused) .features-editor {
-    background-color: var(--background-secondary);
 }
 
 /* Ace Editor in features view */
@@ -49,110 +41,8 @@
     line-height: 1.6;
 }
 
-/* OpenType Feature File (.fea) Syntax Highlighting */
-
-/* Core keywords - bold magenta */
-.features-editor .ace_keyword.ace_fea {
-    color: var(--accent-magenta);
-    font-weight: bold;
-}
-
-/* Table keywords - bold blue */
-.features-editor .ace_keyword.ace_other.ace_fea {
-    color: var(--accent-blue);
-    font-weight: bold;
-}
-
-/* Lookupflag values - bold cyan */
-.features-editor .ace_support.ace_function.ace_fea {
-    color: var(--accent-cyan);
-    font-weight: bold;
-}
-
-/* Language keywords - bold orange */
-.features-editor .ace_keyword.ace_control.ace_fea {
-    color: var(--accent-orange);
-    font-weight: bold;
-}
-
-/* Glyph classes (@...) - yellow, normal weight */
-.features-editor .ace_variable.ace_fea {
-    color: var(--accent-yellow);
-    font-weight: normal;
-}
-
-/* Comments - gray */
-.features-editor .ace_comment.ace_fea {
-    color: var(--text-muted);
-    font-weight: normal;
-    opacity: 0.8;
-}
-
-/* Numbers - green */
-.features-editor .ace_constant.ace_numeric.ace_fea {
-    color: var(--accent-green);
-    font-weight: normal;
-}
-
-/* Strings (text in quotes) - purple */
-.features-editor .ace_string.ace_fea {
-    color: var(--accent-purple);
-    font-weight: normal;
-}
-
-/* CIDs (backslash numbers) - cyan */
-.features-editor .ace_constant.ace_character.ace_fea {
-    color: var(--accent-cyan);
-    font-weight: normal;
-}
-
-/* Operators and delimiters - subtle */
-.features-editor .ace_keyword.ace_operator.ace_fea {
-    color: var(--text-secondary);
-    font-weight: normal;
-}
-
-/* Constant language (NULL keyword) - cyan */
-.features-editor .ace_constant.ace_language.ace_fea {
-    color: var(--accent-cyan);
-    font-weight: normal;
-}
-
-/* Light theme adjustments for feature editor */
-:root[data-theme='light'] .features-editor .ace_keyword.ace_fea {
-    color: var(--accent-magenta);
-}
-
-:root[data-theme='light'] .features-editor .ace_keyword.ace_other.ace_fea {
-    color: var(--accent-blue);
-}
-
-:root[data-theme='light'] .features-editor .ace_support.ace_function.ace_fea {
-    color: var(--accent-cyan);
-}
-
-:root[data-theme='light'] .features-editor .ace_keyword.ace_control.ace_fea {
-    color: var(--accent-orange);
-}
-
-:root[data-theme='light'] .features-editor .ace_variable.ace_fea {
-    color: var(--accent-yellow);
-}
-
-:root[data-theme='light'] .features-editor .ace_constant.ace_numeric.ace_fea {
-    color: var(--accent-green);
-}
-
-:root[data-theme='light'] .features-editor .ace_constant.ace_character.ace_fea {
-    color: var(--accent-cyan);
-}
-
-:root[data-theme='light'] .features-editor .ace_constant.ace_language.ace_fea {
-    color: var(--accent-cyan);
-}
-
-:root[data-theme='light'] .features-editor .ace_string.ace_fea {
-    color: var(--accent-purple);
+.features-editor .ace_gutter {
+    background-color: var(--background-editor-sidebar);
 }
 
 /* Search control in overview title bar */
