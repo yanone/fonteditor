@@ -1636,7 +1636,9 @@ class FontInfoManager {
                 const isDark = window.matchMedia(
                     '(prefers-color-scheme: dark)'
                 ).matches;
-                return isDark ? 'ace/theme/tomorrow_night' : 'ace/theme/tomorrow';
+                return isDark
+                    ? 'ace/theme/tomorrow_night'
+                    : 'ace/theme/tomorrow';
             }
             return savedTheme === 'light'
                 ? 'ace/theme/tomorrow'
@@ -3259,7 +3261,9 @@ class FontInfoManager {
     updateEditorTheme(theme: 'light' | 'dark') {
         if (this.featuresEditor) {
             const aceTheme =
-                theme === 'light' ? 'ace/theme/tomorrow' : 'ace/theme/tomorrow_night';
+                theme === 'light'
+                    ? 'ace/theme/tomorrow'
+                    : 'ace/theme/tomorrow_night';
             this.featuresEditor.setTheme(aceTheme);
         }
     }

@@ -176,7 +176,9 @@ const console = new Logger('ScriptEditor');
                 const isDark = window.matchMedia(
                     '(prefers-color-scheme: dark)'
                 ).matches;
-                return isDark ? 'ace/theme/tomorrow_night' : 'ace/theme/tomorrow';
+                return isDark
+                    ? 'ace/theme/tomorrow_night'
+                    : 'ace/theme/tomorrow';
             }
             return savedTheme === 'light'
                 ? 'ace/theme/tomorrow'

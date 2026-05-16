@@ -666,18 +666,14 @@ class AIAssistant {
                     );
                 } else {
                     // Development: restore saved model from localStorage, or use server default
-                    const savedModel = localStorage.getItem(
-                        'ai_selected_model'
-                    );
+                    const savedModel =
+                        localStorage.getItem('ai_selected_model');
                     const validModel = this.availableModels.find(
                         (m: { id: string }) => m.id === savedModel
                     );
                     if (validModel) {
                         this.selectedModelId = savedModel;
-                        console.log(
-                            '[AI] Restored saved model:',
-                            savedModel
-                        );
+                        console.log('[AI] Restored saved model:', savedModel);
                     } else if (settings.defaultModel) {
                         this.selectedModelId = settings.defaultModel;
                         console.log(

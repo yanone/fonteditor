@@ -254,7 +254,9 @@
                     if (theme === THEMES.LIGHT) {
                         scriptEditor.editor.setTheme('ace/theme/tomorrow');
                     } else {
-                        scriptEditor.editor.setTheme('ace/theme/tomorrow_night');
+                        scriptEditor.editor.setTheme(
+                            'ace/theme/tomorrow_night'
+                        );
                     }
                 }
 

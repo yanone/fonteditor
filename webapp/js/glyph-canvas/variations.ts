@@ -103,8 +103,9 @@ export class AxesManager {
     /** Sync play/pause button icons in the DOM to match persistent state. */
     private syncLoopButtonDom(): void {
         if (!this.axesSection) return;
-        this.axesSection.querySelectorAll('.editor-axis-play-button').forEach(
-            (btn) => {
+        this.axesSection
+            .querySelectorAll('.editor-axis-play-button')
+            .forEach((btn) => {
                 const button = btn as HTMLElement;
                 const tag = button.getAttribute('data-axis-tag');
                 if (!tag) return;
@@ -118,8 +119,7 @@ export class AxesManager {
                         '<span class="material-symbols-outlined">play_arrow</span>';
                     button.classList.remove('playing');
                 }
-            }
-        );
+            });
     }
 
     on(event: string, callback: Function) {

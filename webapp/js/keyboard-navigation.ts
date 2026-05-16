@@ -1707,7 +1707,6 @@
             }
             return;
         }
-
     }
 
     // Store console scroll position from click handler (before any other events fire)
