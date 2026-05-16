@@ -254,9 +254,11 @@ export class AxesManager {
                 valueLabel.value = value.toFixed(0);
                 updateSliderFill();
 
-                // Trigger the same callbacks as manual slider interaction
+                // Use immediate update — no nested eased animation per tick
+                this.variationSettings[axis.tag] = value;
+                this.updateAxisSliders();
                 this.call('onSliderChange', axis.tag, value);
-                this.setVariation(axis.tag, value);
+                this.call('animationInProgress');
 
                 animationFrameId = requestAnimationFrame(animateAxis);
             };
@@ -530,6 +532,18 @@ export class AxesManager {
 
     setVariation(axisTag: string, value: number) {
         this._setupAnimation({ [axisTag]: value });
+    }
+
+    /**
+     * Set variation immediately without eased animation.
+     * Used by play-loop animation which needs to update every RAF frame
+     * without starting a nested 10-frame eased animation per tick.
+     */
+    setVariationImmediate(axisTag: string, value: number) {
+        this.variationSettings[axisTag] = value;
+        this.updateAxisSliders();
+        this.call('onSliderChange', axisTag, value);
+        this.call('animationInProgress');
     }
 
     _setupAnimation(newSettings: UserspaceLocation) {

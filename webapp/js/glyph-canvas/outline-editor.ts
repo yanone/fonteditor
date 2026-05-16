@@ -3022,11 +3022,8 @@ export class OutlineEditor {
     suppressAutoLayerMatching: boolean = false;
     currentInterpolationId: number = 0;
     private interpolationRequestInFlight: boolean = false;
-    private interpolationRequestQueued: boolean = false;
-    private interpolationQueuedForce: boolean = false;
-    private interpolationQueuedPromise: Promise<void> | null = null;
-    private interpolationQueuedResolve: (() => void) | null = null;
-    private interpolationQueuedReject: ((error: unknown) => void) | null = null;
+    private interpolationNeeded: boolean = false;
+    private interpolationNeededForce: boolean = false;
     isDeterministicRefreshActive: boolean = false;
     lastGlyphX: number | null = null;
     lastGlyphY: number | null = null;
@@ -3046,13 +3043,8 @@ export class OutlineEditor {
 
     private clearQueuedInterpolationRequest(): void {
         this.currentInterpolationId++;
-        const queuedResolve = this.interpolationQueuedResolve;
-        this.interpolationRequestQueued = false;
-        this.interpolationQueuedForce = false;
-        this.interpolationQueuedPromise = null;
-        this.interpolationQueuedResolve = null;
-        this.interpolationQueuedReject = null;
-        queuedResolve?.();
+        this.interpolationNeeded = false;
+        this.interpolationNeededForce = false;
     }
     marqueeInitialPoints: Point[] = [];
     private layerSelectionStateByKey = new Map<string, LayerSelectionState>();
@@ -15936,42 +15928,43 @@ export class OutlineEditor {
         }
 
         // Allow interpolation during active interpolation OR layer switch animation
-        // Unless force=true (e.g., entering edit mode at interpolated position)
-        if (!force && !this.isInterpolating && !this.isLayerSwitchAnimating) {
+        // OR loop animation (play button). Unless force=true (e.g., entering edit
+        // mode at interpolated position)
+        if (
+            !force &&
+            !this.isInterpolating &&
+            !this.isLayerSwitchAnimating &&
+            !this.glyphCanvas.axesManager?.isLoopAnimating
+        ) {
             console.log(
                 '[OutlineEditor] Skipping interpolation - not in active interpolation state'
             );
             return;
         }
 
+        // Latest-request-wins coalescing: if a request is already in flight,
+        // mark that another is needed and abort — the in-flight one will pick
+        // up the latest location when it finishes.
         if (this.interpolationRequestInFlight) {
-            this.currentInterpolationId++;
-            this.interpolationRequestQueued = true;
-            this.interpolationQueuedForce =
-                this.interpolationQueuedForce || force;
-            if (!this.interpolationQueuedPromise) {
-                this.interpolationQueuedPromise = new Promise(
-                    (resolve, reject) => {
-                        this.interpolationQueuedResolve = resolve;
-                        this.interpolationQueuedReject = reject;
-                    }
-                );
-            }
-            return this.interpolationQueuedPromise;
+            this.interpolationNeeded = true;
+            this.interpolationNeededForce =
+                this.interpolationNeededForce || force;
+            return;
         }
 
         this.interpolationRequestInFlight = true;
 
-        // Increment counter and capture it locally - this invalidates all previous calls
+        // Capture the current Id and location snapshot for staleness check
         const myInterpolationId = ++this.currentInterpolationId;
+        const requestLocation = {
+            ...this.glyphCanvas.axesManager!.variationSettings
+        };
         console.log(
             '[OutlineEditor] Starting interpolation',
             myInterpolationId
         );
 
         try {
-            const location = this.glyphCanvas.axesManager!.variationSettings;
-
             // ALWAYS interpolate the root glyph (with full component tree)
             // This matches the architecture where layerData always contains the root glyph
             // and we navigate to nested components using glyphStack
@@ -15979,23 +15972,12 @@ export class OutlineEditor {
             const shouldExtrapolate = true;
             const interpolatedLayer = await fontInterpolation.interpolateGlyph(
                 rootGlyphName,
-                location,
+                requestLocation,
                 shouldExtrapolate
             );
 
             // Check if we've been superseded by a newer interpolation call
-            if (myInterpolationId !== this.currentInterpolationId) {
-                console.log(
-                    '[OutlineEditor] 🚫 Aborting stale interpolation',
-                    myInterpolationId,
-                    '(current is',
-                    this.currentInterpolationId,
-                    ')'
-                );
-                return;
-            }
-
-            // Final check before rendering
+            // or if the location has moved on while we were computing
             if (myInterpolationId !== this.currentInterpolationId) {
                 console.log(
                     '[OutlineEditor] 🚫 Aborting stale interpolation',
@@ -16017,6 +15999,7 @@ export class OutlineEditor {
             if (
                 !this.isInterpolating &&
                 !this.isLayerSwitchAnimating &&
+                !this.glyphCanvas.axesManager?.isLoopAnimating &&
                 !force
             ) {
                 console.log(
@@ -16028,20 +16011,22 @@ export class OutlineEditor {
             // Apply interpolated data via shared normalizer
             this.applyRustLayerData(interpolatedLayer, true);
 
-            // In editing mode, update HarfBuzz and auto-pan together to keep them in sync
-            if (
-                interpolatedLayer._interpolationLocation &&
-                this.autoPanAnchorScreen !== null
-            ) {
-                // Update the axes manager's variation settings to match the interpolated location
-                // This ensures HarfBuzz renders at the same location as the interpolated outline
-                this.glyphCanvas.axesManager!.variationSettings = {
-                    ...interpolatedLayer._interpolationLocation
-                };
-
-                // Update HarfBuzz font with the new variation settings (updates text width)
-                // Skip render here - we'll render after auto-pan adjustment
-                this.glyphCanvas.textRunEditor!.shapeText(true);
+            // In editing mode, sync HarfBuzz to the current authoritative
+            // axis location (not the returned location, which may be stale).
+            // This ensures the text preview always reflects the latest slider position.
+            if (this.autoPanAnchorScreen !== null) {
+                const currentLocation =
+                    this.glyphCanvas.axesManager!.variationSettings;
+                // Sync HarfBuzz to current location
+                const textRun = this.glyphCanvas.textRunEditor;
+                if (
+                    textRun &&
+                    textRun.hbFont &&
+                    Object.keys(currentLocation).length > 0
+                ) {
+                    textRun.hbFont.setVariations(currentLocation);
+                    textRun.shapeText(true);
+                }
 
                 // Apply auto-pan adjustment now that text width is updated
                 this.applyAutoPanAdjustment();
@@ -16077,29 +16062,15 @@ export class OutlineEditor {
             // On error, keep showing whatever data we have
         } finally {
             this.interpolationRequestInFlight = false;
-            if (this.interpolationRequestQueued) {
-                const queuedForce = this.interpolationQueuedForce;
-                const queuedResolve = this.interpolationQueuedResolve;
-                const queuedReject = this.interpolationQueuedReject;
-                this.interpolationRequestQueued = false;
-                this.interpolationQueuedForce = false;
-                this.interpolationQueuedPromise = null;
-                this.interpolationQueuedResolve = null;
-                this.interpolationQueuedReject = null;
 
-                if (
-                    queuedForce ||
-                    this.isInterpolating ||
-                    this.isLayerSwitchAnimating ||
-                    this.glyphCanvas.axesManager?.isLoopAnimating
-                ) {
-                    void this.interpolateCurrentGlyph(queuedForce).then(
-                        () => queuedResolve?.(),
-                        (error) => queuedReject?.(error)
-                    );
-                } else {
-                    queuedResolve?.();
-                }
+            // If another interpolation was requested while we were busy,
+            // start a new one with the latest current location.
+            // This is "latest-request-wins" — at most one follow-up per completion.
+            if (this.interpolationNeeded) {
+                this.interpolationNeeded = false;
+                const neededForce = this.interpolationNeededForce;
+                this.interpolationNeededForce = false;
+                void this.interpolateCurrentGlyph(neededForce);
             }
         }
     }

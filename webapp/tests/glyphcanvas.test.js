@@ -11165,26 +11165,30 @@ describe('OutlineEditor exact selected layers', () => {
         canvas.outlineEditor.isInterpolating = true;
         canvas.axesManager.variationSettings = { wght: 500 };
 
+        // First call starts interpolation — captured by pending mock
         const first = canvas.outlineEditor.interpolateCurrentGlyph();
+
+        // Subsequent calls while in-flight are coalesced (latest-location-wins)
+        // and return void — they do NOT create a separate promise anymore.
         canvas.axesManager.variationSettings = { wght: 650 };
         const queued = canvas.outlineEditor.interpolateCurrentGlyph();
-        let queuedSettled = false;
-        queued.then(() => {
-            queuedSettled = true;
-        });
         canvas.axesManager.variationSettings = { wght: 800 };
         const latest = canvas.outlineEditor.interpolateCurrentGlyph();
 
+        // Only one call should have been made so far (the first, with 500)
         expect(interpolateSpy).toHaveBeenCalledTimes(1);
-        await Promise.resolve();
-        expect(queuedSettled).toBe(false);
         expect(interpolateSpy).toHaveBeenNthCalledWith(
             1,
             'A',
             { wght: 500 },
             true
         );
+        // Coalesced calls return immediately-resolved promises (async function
+        // return; behavior), not new pending promises.
+        expect(queued).toBeInstanceOf(Promise);
+        expect(latest).toBeInstanceOf(Promise);
 
+        // Resolve the first pending interpolation
         firstRequest.resolve({
             width: 700,
             shapes: [],
@@ -11192,9 +11196,9 @@ describe('OutlineEditor exact selected layers', () => {
             guides: []
         });
         await first;
-        await queued;
-        await latest;
 
+        // After first resolves, the follow-up should have run with the latest
+        // location (800, not 650)
         expect(interpolateSpy).toHaveBeenCalledTimes(2);
         expect(interpolateSpy).toHaveBeenNthCalledWith(
             2,

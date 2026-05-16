@@ -1035,10 +1035,22 @@ class GlyphCanvas {
                 this.textRunEditor!.shapeText(true); // Skip render - we'll render after auto-pan
                 this.applyTextModeAutoPanAdjustment();
                 this.render(); // Single render after both HarfBuzz and auto-pan are updated
+            } else {
+                // In editing mode, sync HarfBuzz to the current variation settings
+                // before calling outlineEditor. The outline handles interpolation of
+                // glyph shapes, but HarfBuzz must match the current axis location
+                // so text preview stays in sync during play-loop or slider animation.
+                const textRun = this.textRunEditor;
+                const location = this.axesManager!.variationSettings;
+                if (
+                    textRun &&
+                    textRun.hbFont &&
+                    Object.keys(location).length > 0
+                ) {
+                    textRun.hbFont.setVariations(location);
+                }
+                this.outlineEditor.animationInProgress();
             }
-            // In editing mode, don't reshape HarfBuzz here - wait for interpolated data
-            // The outlineEditor will handle HarfBuzz update when interpolation completes
-            this.outlineEditor.animationInProgress();
         });
         this.axesManager!.on('animationComplete', async () => {
             try {
@@ -1054,22 +1066,6 @@ class GlyphCanvas {
                     e
                 );
             }
-            // Skip layer matching during manual slider interpolation
-            // It will be handled properly in sliderMouseUp
-            if (this.outlineEditor.isInterpolating) {
-                // Don't call shapeText() here - it's already been called in the interpolation callback
-                // with auto-pan adjustment. Calling it again would render without auto-pan causing jitter.
-
-                // Only clear flags if slider is not currently active (dragging)
-                // If still dragging, keep flags set so auto-pan continues
-                if (!this.axesManager!.isSliderActive) {
-                    this.outlineEditor.isInterpolating = false;
-                    this.outlineEditor.autoPanAnchorScreen = null;
-                    this.textModeAutoPanAnchorScreen = null;
-                }
-                return;
-            }
-
             // If we were animating a layer switch, restore the target layer data
             if (this.outlineEditor.isLayerSwitchAnimating) {
                 console.log(
@@ -1092,7 +1088,23 @@ class GlyphCanvas {
                 return;
             }
 
+            // Final HarfBuzz sync — ensure text preview matches the final
+            // axis location, even during or after outline interpolation.
+            // This fixes the case where HarfBuzz lagged behind after stop or
+            // layer switch animation completion.
             this.textRunEditor!.shapeText();
+
+            // During manual slider interpolation (isInterpolating), clear flags
+            // if slider is no longer active. The interpolation callback already
+            // synced HarfBuzz, but we sync again here for safety.
+            if (this.outlineEditor.isInterpolating) {
+                if (!this.axesManager!.isSliderActive) {
+                    this.outlineEditor.isInterpolating = false;
+                    this.outlineEditor.autoPanAnchorScreen = null;
+                    this.textModeAutoPanAnchorScreen = null;
+                }
+                return;
+            }
 
             // Restore focus to canvas after animation completes (for text editing mode)
             if (!this.outlineEditor.active) {
