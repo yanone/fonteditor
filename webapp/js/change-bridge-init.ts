@@ -1398,7 +1398,7 @@ async function refreshGlyphOverviewAfterUndoRedo(
     }
 }
 
-function waitForEditingFontCompileRevision(
+export function waitForEditingFontCompileRevision(
     targetRevision: number,
     timeoutMs: number = 4000
 ): Promise<void> {
@@ -1443,7 +1443,7 @@ function waitForEditingFontCompileRevision(
     });
 }
 
-async function requestUndoRedoEditingFontCompile(
+export async function requestUndoRedoEditingFontCompile(
     waitForCompletion: boolean = false,
     editType?: 'outline' | 'anchor' | null
 ): Promise<void> {

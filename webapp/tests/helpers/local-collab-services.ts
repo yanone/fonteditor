@@ -47,10 +47,14 @@ function spawnManagedProcess(options: {
     command: string;
     args: string[];
     cwd: string;
+    env?: Record<string, string | undefined>;
 }): ManagedProcess {
     const child = spawn(options.command, options.args, {
         cwd: options.cwd,
-        env: process.env,
+        env: {
+            ...process.env,
+            ...(options.env || {})
+        },
         stdio: ['ignore', 'pipe', 'pipe']
     });
 
@@ -61,6 +65,27 @@ function spawnManagedProcess(options: {
         child,
         name: options.name
     };
+}
+
+function sanitizeNodeOptionsForChild(
+    nodeOptions: string | undefined
+): string | undefined {
+    if (!nodeOptions) {
+        return nodeOptions;
+    }
+
+    const tokens = nodeOptions
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+        .filter(
+            (token) =>
+                !token.startsWith('--inspect') &&
+                !token.startsWith('--inspect-brk') &&
+                !token.startsWith('--inspect-port')
+        );
+
+    return tokens.length ? tokens.join(' ') : undefined;
 }
 
 function requestStatus(urlString: string): Promise<number> {
@@ -236,6 +261,9 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
     const children: ManagedProcess[] = [];
     let websiteProcess: ManagedProcess | undefined;
     let roomWorkerProcess: ManagedProcess | undefined;
+    const childNodeOptions = sanitizeNodeOptionsForChild(
+        process.env.NODE_OPTIONS
+    );
 
     await reclaimStalePort(8788, 'http://localhost:8788/');
     if (!(await isHttpReady('http://localhost:8788/'))) {
@@ -243,7 +271,10 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
             name: 'website',
             command: 'npm',
             args: ['run', 'dev'],
-            cwd: websiteRoot
+            cwd: websiteRoot,
+            env: {
+                NODE_OPTIONS: childNodeOptions
+            }
         });
         children.push(websiteProcess);
     }
@@ -254,7 +285,10 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
             name: 'room-worker',
             command: 'npx',
             args: ['wrangler', 'dev', '--port', '8787'],
-            cwd: roomWorkerRoot
+            cwd: roomWorkerRoot,
+            env: {
+                NODE_OPTIONS: childNodeOptions
+            }
         });
         children.push(roomWorkerProcess);
     }

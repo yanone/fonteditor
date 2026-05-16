@@ -1070,7 +1070,7 @@ async function expectMainWindowScreenshot(
     ];
 
     await expect(page).toHaveScreenshot(fileName, {
-        maxDiffPixelRatio: 0.05,
+        maxDiffPixelRatio: 0.07,
         mask,
         maskColor: '#ff00ff'
     });

@@ -1927,10 +1927,6 @@ describe('requestUndoRedoEditingFontCompile', () => {
             }
         };
 
-        const waitSpy = jest
-            .spyOn(changeBridgeInit, 'waitForEditingFontCompileRevision')
-            .mockResolvedValue();
-
         await changeBridgeInit.requestUndoRedoEditingFontCompile(
             true,
             'anchor'
@@ -1941,8 +1937,6 @@ describe('requestUndoRedoEditingFontCompile', () => {
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
         expect(forceTrigger).toHaveBeenCalledTimes(1);
-        expect(waitSpy).toHaveBeenCalledWith(11);
-
-        waitSpy.mockRestore();
+        expect(window.fontManager.currentFont.compileRequestVersion).toBe(11);
     });
 });

@@ -156,9 +156,11 @@ async function openFustatAndPrepareEditor(page: Page): Promise<void> {
 
     const fileDialog = page.locator('#font-file-dialog');
     await fileDialog.waitFor({ state: 'visible' });
-    await fileDialog
-        .locator('.file-item[data-name="Fustat.glyphs"]')
-        .dblclick();
+    const fustatItem = fileDialog.locator(
+        '.file-item[data-name="Fustat.glyphs"]'
+    );
+    await fustatItem.waitFor({ state: 'visible' });
+    await fustatItem.dblclick();
 
     await waitForOpenSessionReady(page, 'Fustat.glyphs');
     await focusView(page, 'Meta+Shift+E', 'view-editor');
@@ -225,6 +227,9 @@ test.describe('anchor drag compile stability', () => {
     test('moving the top anchor of o three times does not trigger a shape deserialization compile error', async ({
         page
     }) => {
+        test.slow();
+        test.setTimeout(300000);
+
         const consoleMessages: string[] = [];
         page.on('dialog', async (dialog) => {
             await dialog.dismiss();

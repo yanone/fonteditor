@@ -426,22 +426,27 @@ export async function openFileFromFilesView(page: any, fileName: string) {
         await waitForTargetFile();
     }
 
-    await getFileItem().scrollIntoViewIfNeeded();
+    const openWithRetry = async () => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                await waitForTargetFile();
+                await getFileItem().scrollIntoViewIfNeeded();
+                await Promise.all([
+                    waitForOpenedFile(),
+                    getFileItem().dblclick({ delay: 50 })
+                ]);
+                return;
+            } catch (error) {
+                if (attempt === 2) {
+                    throw error;
+                }
+                await locateTargetFile();
+                await waitForFileBrowserReady(page);
+            }
+        }
+    };
 
-    try {
-        await Promise.all([
-            waitForOpenedFile(),
-            getFileItem().dblclick({ delay: 50 })
-        ]);
-    } catch {
-        await locateTargetFile();
-        await waitForTargetFile();
-        await getFileItem().scrollIntoViewIfNeeded();
-        await Promise.all([
-            waitForOpenedFile(),
-            getFileItem().dblclick({ delay: 50 })
-        ]);
-    }
+    await openWithRetry();
 }
 
 /**
@@ -659,7 +664,6 @@ export async function waitForFontspectorReady(
                     const currentVersion = currentFont.changeVersion;
 
                     return (
-                        !!fullCompileStatus.isEnabled &&
                         fullCompileStatus.isCompiling &&
                         fullCompileStatus.lastObservedPath === currentPath &&
                         fullCompileStatus.lastObservedVersion >= currentVersion

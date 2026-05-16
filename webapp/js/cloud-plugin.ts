@@ -78,6 +78,45 @@ function getCloudRequestHeaders(
     return headers;
 }
 
+function canonicalizeCloudExportFontJson(
+    fontJson: Record<string, unknown>
+): Record<string, unknown> {
+    const glyphs = Array.isArray(fontJson.glyphs) ? fontJson.glyphs : [];
+    for (const glyph of glyphs) {
+        const glyphRecord =
+            glyph && typeof glyph === 'object' && !Array.isArray(glyph)
+                ? (glyph as Record<string, unknown>)
+                : null;
+        const layers = Array.isArray(glyphRecord?.layers)
+            ? (glyphRecord.layers as unknown[])
+            : [];
+        for (const layer of layers) {
+            const shapes = Array.isArray(
+                (layer as { shapes?: unknown[] }).shapes
+            )
+                ? (layer as { shapes: unknown[] }).shapes
+                : [];
+            for (const shape of shapes) {
+                if (!shape || typeof shape !== 'object') {
+                    continue;
+                }
+
+                const componentShape = shape as {
+                    reference?: unknown;
+                    transform?: unknown;
+                };
+                if (typeof componentShape.reference === 'string') {
+                    componentShape.transform = normalizeCloudComponentTransform(
+                        componentShape.transform
+                    );
+                }
+            }
+        }
+    }
+
+    return fontJson;
+}
+
 function validateCloudExportForFontOpen(
     fontJson: Record<string, unknown>,
     _operation: 'open' | 'save' = 'open'
@@ -337,7 +376,9 @@ async function waitForCloudSaveSeedFontJson(
                 );
                 const preSyncScore = getCloudFontContentScore(preSyncFontJson);
                 if (preSyncFontJson && preSyncScore > bestCandidateScore) {
-                    bestCandidate = cloneCloudFontJson(preSyncFontJson);
+                    bestCandidate = canonicalizeCloudExportFontJson(
+                        cloneCloudFontJson(preSyncFontJson)
+                    );
                     bestCandidateScore = preSyncScore;
                 }
 
@@ -347,7 +388,9 @@ async function waitForCloudSaveSeedFontJson(
                     | undefined;
                 const syncedScore = getCloudFontContentScore(fontJson);
                 if (fontJson && syncedScore > bestCandidateScore) {
-                    bestCandidate = cloneCloudFontJson(fontJson);
+                    bestCandidate = canonicalizeCloudExportFontJson(
+                        cloneCloudFontJson(fontJson)
+                    );
                     bestCandidateScore = syncedScore;
                 }
                 const modelSignature =
@@ -361,7 +404,11 @@ async function waitForCloudSaveSeedFontJson(
                     fontJsonSignature &&
                     modelSignature === fontJsonSignature
                 ) {
-                    resolve(cloneCloudFontJson(fontJson));
+                    resolve(
+                        canonicalizeCloudExportFontJson(
+                            cloneCloudFontJson(fontJson)
+                        )
+                    );
                     return;
                 }
             }
@@ -1102,7 +1149,9 @@ export class CloudPlugin extends FilesystemPlugin {
             throw new Error('Authentication required');
         }
 
-        const seedFontJson = await waitForCloudSaveSeedFontJson();
+        const seedFontJson = canonicalizeCloudExportFontJson(
+            await waitForCloudSaveSeedFontJson()
+        );
         validateCloudExportForFontOpen(seedFontJson, 'save');
 
         await waitForCloudSaveBridge();
