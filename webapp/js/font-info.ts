@@ -1636,11 +1636,11 @@ class FontInfoManager {
                 const isDark = window.matchMedia(
                     '(prefers-color-scheme: dark)'
                 ).matches;
-                return isDark ? 'ace/theme/monokai' : 'ace/theme/chrome';
+                return isDark ? 'ace/theme/tomorrow_night' : 'ace/theme/tomorrow';
             }
             return savedTheme === 'light'
-                ? 'ace/theme/chrome'
-                : 'ace/theme/monokai';
+                ? 'ace/theme/tomorrow'
+                : 'ace/theme/tomorrow_night';
         };
 
         this.featuresEditor.setTheme(getInitialTheme());
@@ -3259,7 +3259,7 @@ class FontInfoManager {
     updateEditorTheme(theme: 'light' | 'dark') {
         if (this.featuresEditor) {
             const aceTheme =
-                theme === 'light' ? 'ace/theme/chrome' : 'ace/theme/monokai';
+                theme === 'light' ? 'ace/theme/tomorrow' : 'ace/theme/tomorrow_night';
             this.featuresEditor.setTheme(aceTheme);
         }
     }
