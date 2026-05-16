@@ -103,8 +103,10 @@ class ResizableViews {
 
     /**
      * Update collapsed state classes based on current view dimensions
+     * @param options.allowFocusShift - when false, skip focus reassignment (safe for startup)
      */
-    updateCollapsedStates() {
+    updateCollapsedStates(options?: { allowFocusShift?: boolean }) {
+        const allowFocusShift = options?.allowFocusShift !== false; // Default true
         const views = document.querySelectorAll('.view');
         let replacementFocusViewId: string | null = null;
         const currentFocusedView = window.getCurrentFocusedView
@@ -128,6 +130,7 @@ class ResizableViews {
 
                 // If this view just became collapsed and it was the focused view, move focus to an expanded sibling
                 if (
+                    allowFocusShift &&
                     isWidthCollapsed &&
                     !wasCollapsed &&
                     viewEl.id === currentFocusedView
@@ -145,6 +148,7 @@ class ResizableViews {
 
                 // If this view just became collapsed and it was the focused view, mark to focus editor
                 if (
+                    allowFocusShift &&
                     isHeightCollapsed &&
                     !wasCollapsed &&
                     viewEl.id === currentFocusedView
@@ -155,67 +159,77 @@ class ResizableViews {
         });
 
         // Focus a still-expanded replacement if the currently focused view collapsed
-        if (replacementFocusViewId && window.focusView) {
+        if (allowFocusShift && replacementFocusViewId && window.focusView) {
             window.focusView(replacementFocusViewId);
         }
     }
 
     /**
-     * Handle window resize: lock collapsed views to fixed width and adjust others
+     * Pure layout helper: normalize top-row flex widths to current viewport.
+     * Does NOT update collapsed-state classes or reassign focus.
+     * Safe to call at startup without side effects on editor state.
      */
-    handleWindowResize() {
-        // Process top row (horizontal layout)
+    normalizeTopRowWidths(): void {
         const topRow = document.querySelector('.top-row') as HTMLElement | null;
-        if (topRow) {
-            const views = Array.from(
-                topRow.querySelectorAll('.view')
-            ) as HTMLElement[];
-            const threshold = 5;
+        if (!topRow) {
+            return;
+        }
 
-            let totalFixedWidth = 0;
-            const collapsedViews: Array<{ view: HTMLElement; width: number }> =
-                [];
-            const nonCollapsedViews: Array<{
-                view: HTMLElement;
-                width: number;
-            }> = [];
+        const views = Array.from(
+            topRow.querySelectorAll('.view')
+        ) as HTMLElement[];
+        const threshold = 5;
 
-            // Identify collapsed and non-collapsed views
-            views.forEach((view) => {
-                const rect = view.getBoundingClientRect();
-                const minWidth = this.getMinWidth(view);
-                const isCollapsed = rect.width <= minWidth + threshold;
+        let totalFixedWidth = 0;
+        const collapsedViews: Array<{ view: HTMLElement; width: number }> = [];
+        const nonCollapsedViews: Array<{
+            view: HTMLElement;
+            width: number;
+        }> = [];
 
-                if (isCollapsed) {
-                    collapsedViews.push({ view, width: minWidth });
-                    totalFixedWidth += minWidth;
-                } else {
-                    nonCollapsedViews.push({ view, width: rect.width });
-                }
+        // Identify collapsed and non-collapsed views
+        views.forEach((view) => {
+            const rect = view.getBoundingClientRect();
+            const minWidth = this.getMinWidth(view);
+            const isCollapsed = rect.width <= minWidth + threshold;
+
+            if (isCollapsed) {
+                collapsedViews.push({ view, width: minWidth });
+                totalFixedWidth += minWidth;
+            } else {
+                nonCollapsedViews.push({ view, width: rect.width });
+            }
+        });
+
+        if (nonCollapsedViews.length > 0) {
+            // Lock collapsed views to fixed width (if any)
+            collapsedViews.forEach(({ view, width }) => {
+                view.style.flex = `0 0 ${width}px`;
             });
 
-            if (nonCollapsedViews.length > 0) {
-                // Lock collapsed views to fixed width (if any)
-                collapsedViews.forEach(({ view, width }) => {
-                    view.style.flex = `0 0 ${width}px`;
-                });
+            // Set non-collapsed views to flexible with proper proportions
+            const containerWidth = topRow.offsetWidth;
+            const availableWidth = containerWidth - totalFixedWidth;
 
-                // Set non-collapsed views to flexible with proper proportions
-                const containerWidth = topRow.offsetWidth;
-                const availableWidth = containerWidth - totalFixedWidth;
+            let totalNonCollapsedWidth = 0;
+            nonCollapsedViews.forEach(({ width }) => {
+                totalNonCollapsedWidth += width;
+            });
 
-                let totalNonCollapsedWidth = 0;
-                nonCollapsedViews.forEach(({ width }) => {
-                    totalNonCollapsedWidth += width;
-                });
-
-                nonCollapsedViews.forEach(({ view, width }) => {
-                    const proportion = width / totalNonCollapsedWidth;
-                    const targetWidth = availableWidth * proportion;
-                    view.style.flex = `${targetWidth}`;
-                });
-            }
+            nonCollapsedViews.forEach(({ view, width }) => {
+                const proportion = width / totalNonCollapsedWidth;
+                const targetWidth = availableWidth * proportion;
+                view.style.flex = `${targetWidth}`;
+            });
         }
+    }
+
+    /**
+     * Handle window resize: normalize top-row widths and update collapsed states.
+     */
+    handleWindowResize() {
+        // Normalize top-row flex widths to current viewport
+        this.normalizeTopRowWidths();
 
         // Process bottom row (horizontal layout)
         const bottomRow = document.querySelector(
@@ -399,6 +413,10 @@ class ResizableViews {
                 window.setViewVisitOrder(layout.visitOrder);
             }
 
+            // Normalize flex values to current viewport after restoring saved layout.
+            // Saved layouts may contain stale pixel values from a different window size.
+            this.normalizeTopRowWidths();
+
             console.log(
                 '[Resizer]',
                 '✅ View layout restored from localStorage'
@@ -431,7 +449,7 @@ class ResizableViews {
 
         // Update collapsed states to reflect the collapsed fontinfo
         setTimeout(() => {
-            this.updateCollapsedStates();
+            this.normalizeTopRowWidths();
         }, 100);
     }
 
@@ -875,12 +893,7 @@ class ResizableViews {
 function initResizableViews() {
     console.log('[Resizer]', 'Initializing ResizableViews...');
     window.resizableViews = new ResizableViews();
-    // Update collapsed states after layout is loaded
-    setTimeout(() => {
-        window.resizableViews.updateCollapsedStates();
-        // Normalize flex values to current viewport after startup layout settles
-        window.resizableViews.handleWindowResize();
-    }, 150);
+    // collapsed states are updated after layout settles via applyDefaultLayout's own timer
     console.log('[Resizer]', 'ResizableViews initialized');
 }
 
