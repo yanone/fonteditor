@@ -184,28 +184,51 @@ export async function waitForCanvasReady(page: any) {
         try {
             await page.waitForFunction(predicate, { timeout });
         } catch (error) {
-            const debugState = await page.evaluate(() => {
-                const win = window as any;
-                const loadingOverlay =
-                    document.getElementById('loading-overlay');
+            let debugState: unknown = null;
 
-                return {
-                    loadingOverlayHidden:
-                        !!loadingOverlay?.classList.contains('hidden'),
-                    hasGlyphCanvas: !!win.glyphCanvas,
-                    hasCanvasElement: !!win.glyphCanvas?.canvas,
-                    hasRenderer: !!win.glyphCanvas?.renderer,
-                    hasViewSettings: !!win.VIEW_SETTINGS,
-                    hasGetCurrentFocusedView:
-                        typeof win.getCurrentFocusedView === 'function',
-                    hasFocusView: typeof win.focusView === 'function',
-                    hasStateManager: !!win.stateManager,
-                    hasInitFileBrowser:
-                        typeof win.initFileBrowser === 'function',
-                    hasWaitForFileBrowserReady:
-                        typeof win.waitForFileBrowserReady === 'function'
+            try {
+                if (!page.isClosed()) {
+                    debugState = await page.evaluate(() => {
+                        const win = window as any;
+                        const loadingOverlay =
+                            document.getElementById('loading-overlay');
+
+                        return {
+                            loadingOverlayHidden:
+                                !!loadingOverlay?.classList.contains('hidden'),
+                            loadingStatusText:
+                                document.getElementById('loading-status')
+                                    ?.textContent || null,
+                            currentUrl: window.location.href,
+                            pyodidePresent: !!win.pyodide,
+                            loadPyodidePresent:
+                                typeof win.loadPyodide === 'function',
+                            hasGlyphCanvas: !!win.glyphCanvas,
+                            hasCanvasElement: !!win.glyphCanvas?.canvas,
+                            hasRenderer: !!win.glyphCanvas?.renderer,
+                            hasViewSettings: !!win.VIEW_SETTINGS,
+                            hasGetCurrentFocusedView:
+                                typeof win.getCurrentFocusedView === 'function',
+                            hasFocusView: typeof win.focusView === 'function',
+                            hasStateManager: !!win.stateManager,
+                            hasInitFileBrowser:
+                                typeof win.initFileBrowser === 'function',
+                            hasWaitForFileBrowserReady:
+                                typeof win.waitForFileBrowserReady ===
+                                'function'
+                        };
+                    });
+                } else {
+                    debugState = { pageClosed: true };
+                }
+            } catch (debugError) {
+                debugState = {
+                    debugCollectionFailed:
+                        debugError instanceof Error
+                            ? debugError.message
+                            : String(debugError)
                 };
-            });
+            }
 
             throw new Error(
                 `Timed out waiting for canvas startup state: ${label}: ${JSON.stringify(debugState)}`,
@@ -356,8 +379,29 @@ export async function openFileFromFilesView(page: any, fileName: string) {
     await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
     await waitForFileBrowserReady(page);
 
+    // Wait for the DOM-driven file tree rebuild to settle. The app uses
+    // requestAnimationFrame to swap fileTree.innerHTML, so locators can
+    // resolve to elements that get detached between check and interaction.
+    const waitForFileTreeStable = async () => {
+        await page.waitForFunction(() => {
+            const fileTree = document.getElementById('file-tree');
+            return (
+                !!fileTree && fileTree.querySelectorAll('.file-item').length > 0
+            );
+        });
+        await page.evaluate(
+            () =>
+                new Promise<void>((resolve) =>
+                    requestAnimationFrame(() =>
+                        requestAnimationFrame(() => resolve())
+                    )
+                )
+        );
+    };
+
+    await waitForFileTreeStable();
+
     const fileItemSelector = `.file-item[data-name="${fileName}"]`;
-    const getFileItem = () => page.locator(fileItemSelector).first();
     const locateTargetFile = async () => {
         await page.evaluate(async (targetFileName: string) => {
             const win = window as any;
@@ -376,6 +420,7 @@ export async function openFileFromFilesView(page: any, fileName: string) {
 
         await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
         await waitForFileBrowserReady(page);
+        await waitForFileTreeStable();
     };
 
     const waitForTargetFile = async () => {
@@ -389,7 +434,6 @@ export async function openFileFromFilesView(page: any, fileName: string) {
             fileItemSelector,
             { timeout: 30000 }
         );
-        await getFileItem().waitFor({ state: 'visible', timeout: 30000 });
     };
 
     const waitForOpenedFile = async () => {
@@ -412,6 +456,28 @@ export async function openFileFromFilesView(page: any, fileName: string) {
         );
     };
 
+    // Open the file by dispatching a synthetic dblclick inside a single
+    // evaluate call. This eliminates the race where the file-tree DOM is
+    // rebuilt between the visibility check and the interaction.
+    const openVisibleFileItem = async () => {
+        await page.evaluate((selector: string) => {
+            const item = document.querySelector(selector) as HTMLElement | null;
+            if (!item || !item.isConnected || item.offsetParent === null) {
+                throw new Error(`File item not ready: ${selector}`);
+            }
+
+            item.scrollIntoView({ block: 'center', behavior: 'auto' });
+            item.dispatchEvent(
+                new MouseEvent('dblclick', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                    detail: 2
+                })
+            );
+        }, fileItemSelector);
+    };
+
     try {
         await waitForTargetFile();
     } catch {
@@ -423,6 +489,7 @@ export async function openFileFromFilesView(page: any, fileName: string) {
             }
         });
         await waitForFileBrowserReady(page);
+        await waitForFileTreeStable();
         await waitForTargetFile();
     }
 
@@ -430,11 +497,7 @@ export async function openFileFromFilesView(page: any, fileName: string) {
         for (let attempt = 0; attempt < 3; attempt++) {
             try {
                 await waitForTargetFile();
-                await getFileItem().scrollIntoViewIfNeeded();
-                await Promise.all([
-                    waitForOpenedFile(),
-                    getFileItem().dblclick({ delay: 50 })
-                ]);
+                await Promise.all([waitForOpenedFile(), openVisibleFileItem()]);
                 return;
             } catch (error) {
                 if (attempt === 2) {
@@ -442,6 +505,7 @@ export async function openFileFromFilesView(page: any, fileName: string) {
                 }
                 await locateTargetFile();
                 await waitForFileBrowserReady(page);
+                await waitForFileTreeStable();
             }
         }
     };
