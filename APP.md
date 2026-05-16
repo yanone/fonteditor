@@ -2,6 +2,10 @@
 
 This is a human-written document. Agents may alter it on request, but it must undergo human review.
 
+# Alpha Stage
+
+This project is in **Alpha stage**. There is no backward compatibility. Old code, old APIs, and old parameters are removed aggressively. If a function signature, parameter, or behavior is no longer needed, it is deleted entirely — not deprecated, not kept for compatibility. Always prefer clean deletion over maintaining dead paths.
+
 # Purpose
 
 `APP.md` is the principal authority document over how the app functions, described in human language, and translated into code and tests by agents.
@@ -29,6 +33,8 @@ Wherever the `cmd` key is mentioned, on Windows and Linux the `ctrl` key is to b
 Yjs is the single source of truth for all edits. Reliable document convergence is the primary design goal.
 
 The Patch Engine must treat Yjs diffs as authoritative for normal edits, undo, and redo. Replay targets are allowed only as narrow metadata for efficient cache refresh and compilation. A short human-readable edit summary must also be attached, along with edit-source metadata such as mouse, keyboard, or Python, for display in the history view.
+
+Undo and redo may append coarse control rows to the change log so the history UI can rotate items between active and undone stacks, but those control rows are history-only metadata. Every post-commit consumer must still process clones of the original forward semantic entries from the same authoritative Yjs delta. There must not be a second undo-specific or redo-specific local emission path beside the normal committed Yjs update flow.
 
 Committed post-commit reactions must also be driven from that same authoritative Yjs packet. After `PatchSyncEngine` emits or applies a committed Yjs update, both the local sender and every remote receiver must enter the same serialized committed-change funnel for edit-type inference, editing-compile wakeup, and glyph-overview invalidation. Sender-local save helpers may prepare model state or arm trailing debounces, but they must not run a separate committed reaction path in parallel.
 
