@@ -650,27 +650,53 @@ class AIAssistant {
 
                 this.availableModels = settings.models;
 
-                // Restore saved model from localStorage, or use server default
-                const savedModel = localStorage.getItem('ai_selected_model');
-                const validModel = this.availableModels.find(
-                    (m: { id: string }) => m.id === savedModel
-                );
-                if (validModel) {
-                    this.selectedModelId = savedModel;
-                    console.log('[AI] Restored saved model:', savedModel);
-                } else if (settings.defaultModel) {
-                    this.selectedModelId = settings.defaultModel;
+                const isProd = window.isProduction?.();
+
+                if (isProd) {
+                    // Production: always use server default, override any saved selection
+                    localStorage.removeItem('ai_selected_model');
+                    this.selectedModelId =
+                        settings.defaultModel ||
+                        (this.availableModels.length > 0
+                            ? this.availableModels[0].id
+                            : null);
                     console.log(
-                        '[AI] Using default model:',
-                        settings.defaultModel
+                        '[AI] Production mode - using default model:',
+                        this.selectedModelId
                     );
-                } else if (this.availableModels.length > 0) {
-                    this.selectedModelId = this.availableModels[0].id;
+                } else {
+                    // Development: restore saved model from localStorage, or use server default
+                    const savedModel = localStorage.getItem(
+                        'ai_selected_model'
+                    );
+                    const validModel = this.availableModels.find(
+                        (m: { id: string }) => m.id === savedModel
+                    );
+                    if (validModel) {
+                        this.selectedModelId = savedModel;
+                        console.log(
+                            '[AI] Restored saved model:',
+                            savedModel
+                        );
+                    } else if (settings.defaultModel) {
+                        this.selectedModelId = settings.defaultModel;
+                        console.log(
+                            '[AI] Using default model:',
+                            settings.defaultModel
+                        );
+                    } else if (this.availableModels.length > 0) {
+                        this.selectedModelId = this.availableModels[0].id;
+                    }
                 }
 
                 this.updateModelButtonText();
                 this.populateModelPicker();
                 this.setupModelPickerEvents();
+
+                // Hide model selector button in production
+                if (isProd && this.modelBtn) {
+                    this.modelBtn.style.display = 'none';
+                }
             } else {
                 console.error(
                     '[AI] Settings request failed:',
@@ -750,7 +776,9 @@ class AIAssistant {
 
     selectModel(modelId: string) {
         this.selectedModelId = modelId;
-        localStorage.setItem('ai_selected_model', modelId);
+        if (!window.isProduction?.()) {
+            localStorage.setItem('ai_selected_model', modelId);
+        }
         console.log('[AI] Saved model selection:', modelId);
 
         this.updateModelButtonText();
