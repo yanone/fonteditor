@@ -81,6 +81,13 @@ def _get_constructor_name(value):
         return ''
 
 
+def _get_object_tag(value):
+    try:
+        return str(js.Object.prototype.toString.call(value))
+    except Exception:
+        return ''
+
+
 def _is_js_array(value):
     try:
         if bool(js.Array.isArray(value)):
@@ -88,11 +95,8 @@ def _is_js_array(value):
     except Exception:
         pass
 
-    try:
-        if str(js.Object.prototype.toString.call(value)) == '[object Array]':
-            return True
-    except Exception:
-        pass
+    if _get_object_tag(value) == '[object Array]':
+        return True
 
     return _get_constructor_name(value) == 'Array'
 
@@ -102,7 +106,25 @@ def _is_plain_js_object(value):
         return False
     if _is_js_array(value):
         return False
-    return _get_constructor_name(value) == 'Object'
+    if _is_js_map(value):
+        return False
+
+    constructor_name = _get_constructor_name(value)
+    if constructor_name == 'Object':
+        return True
+
+    if constructor_name not in ('', 'Proxy'):
+        return False
+
+    return _get_object_tag(value) == '[object Object]'
+
+
+def _is_js_map(value):
+    if not isinstance(value, pyodide.ffi.JsProxy):
+        return False
+    if _get_constructor_name(value) == 'Map':
+        return True
+    return _get_object_tag(value) == '[object Map]'
 
 
 def _unwrap_py_value(value):
@@ -110,6 +132,8 @@ def _unwrap_py_value(value):
         return value._js_obj
     if isinstance(value, LiveDictProxy):
         return value._js_obj
+    if isinstance(value, LiveMapProxy):
+        return value._js_map
     if isinstance(value, LiveListProxy):
         return value._js_array
     if isinstance(value, (dict, list, tuple)):
@@ -122,6 +146,8 @@ def _unwrap_py_value(value):
 
 def _materialize_py_value(value):
     if isinstance(value, LiveDictProxy):
+        return value.to_py()
+    if isinstance(value, LiveMapProxy):
         return value.to_py()
     if isinstance(value, LiveListProxy):
         return value.to_py()
@@ -139,11 +165,13 @@ def _js_set(target, key, value):
 
 
 def _is_mapping_assignment_value(value):
-    if isinstance(value, (LiveDictProxy, ModelObjectProxy)):
+    if isinstance(value, (LiveDictProxy, LiveMapProxy, ModelObjectProxy)):
         return True
     if isinstance(value, MutableMapping):
         return True
-    if isinstance(value, pyodide.ffi.JsProxy) and _is_plain_js_object(value):
+    if isinstance(value, pyodide.ffi.JsProxy) and (
+        _is_plain_js_object(value) or _is_js_map(value)
+    ):
         return True
     return False
 
@@ -152,7 +180,7 @@ def _wrap_js_value(value, owner_class_name=None, attr_name=None):
     if _is_js_null_or_undefined(value):
         return None
 
-    if isinstance(value, (ModelObjectProxy, LiveDictProxy, LiveListProxy)):
+    if isinstance(value, (ModelObjectProxy, LiveDictProxy, LiveMapProxy, LiveListProxy)):
         return value
 
     if _is_js_array(value):
@@ -165,8 +193,14 @@ def _wrap_js_value(value, owner_class_name=None, attr_name=None):
     dict_fields = _DICT_LIKE_FIELDS_BY_CLASS.get(owner_class_name, set())
     force_dict_wrap = attr_name in dict_fields
 
+    if force_dict_wrap and _is_js_map(value):
+        return LiveMapProxy(value)
+
     if force_dict_wrap and _is_plain_js_object(value):
         return LiveDictProxy(value)
+
+    if _is_js_map(value):
+        return LiveMapProxy(value)
 
     if _is_plain_js_object(value):
         return LiveDictProxy(value)
@@ -246,6 +280,79 @@ class LiveDictProxy(MutableMapping):
             key: _materialize_py_value(self[key])
             for key in js.Object.keys(self._js_obj).to_py()
         }
+
+    def as_dict(self):
+        return self.to_py()
+
+    def __repr__(self):
+        return repr(self.to_py())
+
+    def __getattr__(self, name):
+        if self._is_attr_key(name):
+            try:
+                return self[name]
+            except KeyError as error:
+                raise AttributeError(name) from error
+        raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        if name.startswith('_'):
+            object.__setattr__(self, name, value)
+            return
+        if self._is_attr_key(name):
+            self[name] = value
+            return
+        object.__setattr__(self, name, value)
+
+    def __delattr__(self, name):
+        if self._is_attr_key(name):
+            try:
+                del self[name]
+                return
+            except KeyError as error:
+                raise AttributeError(name) from error
+        object.__delattr__(self, name)
+
+
+class LiveMapProxy(MutableMapping):
+    def __init__(self, js_map):
+        object.__setattr__(self, '_js_map', js_map)
+
+    def _is_attr_key(self, name):
+        return isinstance(name, str) and name.isidentifier() and not iskeyword(name)
+
+    def __getitem__(self, key):
+        if not bool(self._js_map.has(key)):
+            raise KeyError(key)
+        return _wrap_js_value(self._js_map.get(key))
+
+    def __setitem__(self, key, value):
+        key_exists = bool(self._js_map.has(key))
+        if key_exists:
+            existing = self._js_map.get(key)
+            if (_is_plain_js_object(existing) or _is_js_map(existing)) and not _is_mapping_assignment_value(value):
+                value_type = type(value).__name__
+                raise TypeError(
+                    f"Cannot overwrite dictionary entry '{key}' with non-dictionary value ({value_type}). "
+                    f"Use '{key}[\"dflt\"] = ...' for language values, or assign a full mapping like "
+                    f"{key} = {{\"dflt\": ...}}."
+                )
+
+        self._js_map.set(key, _unwrap_py_value(value))
+
+    def __delitem__(self, key):
+        if not bool(self._js_map.delete(key)):
+            raise KeyError(key)
+
+    def __iter__(self):
+        keys = getattr(js.Array, 'from')(self._js_map.keys()).to_py()
+        return iter(keys)
+
+    def __len__(self):
+        return int(self._js_map.size)
+
+    def to_py(self):
+        return {key: _materialize_py_value(self[key]) for key in self}
 
     def as_dict(self):
         return self.to_py()
@@ -582,6 +689,45 @@ def Layer():
     raise RuntimeError(
         f'Active layer "{layer_id}" on glyph "{glyph_name}" is not available'
     )
+
+
+def Master():
+    """
+    Get the currently selected master.
+
+    In outline editing mode, the master is resolved from the active layer and
+    returned only when that layer reflects a stored master. In text mode, the
+    selected master is resolved from the text-run editor's selected master ID.
+
+    Returns:
+        Master | None: The selected live Master object, or None when the
+        current designspace location does not correspond to a stored master.
+
+    Raises:
+        RuntimeError: If no font is currently open, or if outline editing is
+        active but the active glyph/layer cannot be resolved.
+    """
+    host = _cp_get_host_object()
+    glyph_canvas = getattr(host, 'glyphCanvas', None)
+    outline_editor = getattr(glyph_canvas, 'outlineEditor', None)
+
+    if not _is_js_null_or_undefined(outline_editor) and bool(outline_editor.active):
+        layer = Layer()
+        return layer.getMaster()
+
+    text_run_editor = getattr(glyph_canvas, 'textRunEditor', None)
+    if _is_js_null_or_undefined(text_run_editor):
+        return None
+
+    selected_master_id = getattr(text_run_editor, 'selectedMasterId', None)
+    if _is_js_null_or_undefined(selected_master_id) or selected_master_id is None:
+        return None
+
+    selected_master_id = str(selected_master_id)
+    if not selected_master_id or selected_master_id == 'undefined':
+        return None
+
+    return Font().findMaster(selected_master_id)
 
 
 def Context():
