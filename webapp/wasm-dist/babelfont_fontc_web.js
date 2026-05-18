@@ -4,8 +4,8 @@
  * Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
  * update the CANONICAL_JSON_CACHE.
  *
- * `changed_glyphs_json` is a JSON array of glyph name strings that the JS
- * side knows were affected by this update (extracted from ChangeLogEntry paths).
+ * `update_metadata_json` is a JSON payload produced by the JS side that can
+ * contain `changedGlyphs` plus `nonGlyphChangeHints` for top-level edits.
  * When non-empty the function performs a targeted update — only those glyphs
  * are re-serialised from the Y.Doc and replaced in CANONICAL_JSON_CACHE,
  * making drag-step updates cheap even for large fonts.
@@ -15,16 +15,16 @@
  * Returns a JSON string `{ "changedGlyphs": ["a", …], "changedLayerIds": [] }`
  * that the JS side can use to drive subset-cache replay.
  * @param {Uint8Array} update
- * @param {string} changed_glyphs_json
+ * @param {string} update_metadata_json
  * @returns {string}
  */
-export function apply_yjs_update(update, changed_glyphs_json) {
+export function apply_yjs_update(update, update_metadata_json) {
     let deferred4_0;
     let deferred4_1;
     try {
         const ptr0 = passArray8ToWasm0(update, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(changed_glyphs_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr1 = passStringToWasm0(update_metadata_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len1 = WASM_VECTOR_LEN;
         const ret = wasm.apply_yjs_update(ptr0, len0, ptr1, len1);
         var ptr3 = ret[0];

@@ -128,9 +128,13 @@ initBabelfontWasm.compile_cached_font = jest.fn(
     (options) => new Uint8Array(100)
 );
 initBabelfontWasm.apply_yjs_update = jest.fn((update, changedGlyphsJson) => {
+    const parsedMetadata = JSON.parse(changedGlyphsJson || '[]');
+    const changedGlyphs = Array.isArray(parsedMetadata)
+        ? parsedMetadata
+        : parsedMetadata.changedGlyphs || [];
     if (!storedYDoc) {
         return JSON.stringify({
-            changedGlyphs: JSON.parse(changedGlyphsJson || '[]'),
+            changedGlyphs,
             changedLayerIds: [],
             skipped: 'ydoc_not_initialized'
         });
@@ -140,7 +144,7 @@ initBabelfontWasm.apply_yjs_update = jest.fn((update, changedGlyphsJson) => {
     updateStoredFontJsonFromYDoc();
 
     return JSON.stringify({
-        changedGlyphs: JSON.parse(changedGlyphsJson || '[]'),
+        changedGlyphs,
         changedLayerIds: []
     });
 });

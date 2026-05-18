@@ -24,6 +24,10 @@ describe('TextRunEditor live advance refresh', () => {
             { ax: 500, dx: 0, dy: 0, g: 10, cl: 2 }
         ];
         editor.glyphNameBuffer = ['a', 'b', 'a'];
+        editor.intrinsicGlyphAdvances = new Map([
+            ['a', 500],
+            ['b', 320]
+        ]);
         editor.clusterMap = [
             {
                 glyphIndex: 0,
@@ -108,6 +112,37 @@ describe('TextRunEditor live advance refresh', () => {
         expect(buildClusterMapSpy).toHaveBeenCalledTimes(1);
         expect(updateCursorSpy).toHaveBeenCalledTimes(1);
         expect(renderCallback).not.toHaveBeenCalled();
+    });
+
+    test('does not clobber kerning-shaped advances when raw widths are unchanged', () => {
+        editor.shapedGlyphs = [
+            { ax: 460, dx: 0, dy: 0, g: 10, cl: 0 },
+            { ax: 320, dx: 0, dy: 0, g: 11, cl: 1 },
+            { ax: 460, dx: 0, dy: 0, g: 10, cl: 2 }
+        ];
+
+        const changed = editor.refreshGlyphAdvancesLive({ a: 500 });
+
+        expect(changed).toBe(false);
+        expect(editor.shapedGlyphs.map((glyph) => glyph.ax)).toEqual([
+            460, 320, 460
+        ]);
+    });
+
+    test('preserves existing kerning delta when a live width edit changes advance', () => {
+        editor.shapedGlyphs = [
+            { ax: 460, dx: 0, dy: 0, g: 10, cl: 0 },
+            { ax: 320, dx: 0, dy: 0, g: 11, cl: 1 },
+            { ax: 460, dx: 0, dy: 0, g: 10, cl: 2 }
+        ];
+
+        const changed = editor.refreshGlyphAdvancesLive({ a: 520 });
+
+        expect(changed).toBe(true);
+        expect(editor.shapedGlyphs.map((glyph) => glyph.ax)).toEqual([
+            480, 320, 480
+        ]);
+        expect(editor.intrinsicGlyphAdvances.get('a')).toBe(520);
     });
 
     test('skips explicit outline prefetch while an outline drag is active', async () => {

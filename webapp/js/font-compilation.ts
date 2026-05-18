@@ -1013,6 +1013,7 @@ export class FontCompilation {
             optionOverrides?: {
                 skip_features?: boolean;
                 skip_kerning?: boolean;
+                skip_outlines?: boolean;
                 produce_varc_table?: boolean;
             };
             usePatchedWorkerCache?: boolean;

@@ -59,8 +59,12 @@ export class TextRunEditor {
     hbFont: any;
     hbFace: any;
     hbBlob: any;
+    shapingHbFont: any;
+    shapingHbFace: any;
+    shapingHbBlob: any;
     // Stage 2 output: glyph names in current visual order
     glyphNameBuffer: string[];
+    intrinsicGlyphAdvances: Map<string, number>;
     // GID→name map for the editing font (rebuilt when editing font changes)
     editingFontNameToGid: Map<string, number>;
     explicitGlyphTokens: ExplicitGlyphToken[];
@@ -82,6 +86,7 @@ export class TextRunEditor {
     selectionStart: number | null;
     selectionEnd: number | null;
     fontBlob: Uint8Array | null;
+    shapingFontBlob: Uint8Array | null;
     selectedMasterId: string | null; // Currently selected master ID for text mode rendering
     spaceKeyTimer: number | null; // Timer for space key delay
     spaceKeyPressTime: number | null; // Timestamp when space was pressed
@@ -102,10 +107,15 @@ export class TextRunEditor {
         this.hbFont = null;
         this.hbFace = null;
         this.hbBlob = null;
+        this.shapingHbFont = null;
+        this.shapingHbFace = null;
+        this.shapingHbBlob = null;
         this.fontBlob = null;
+        this.shapingFontBlob = null;
 
         // Stage 2 output
         this.glyphNameBuffer = [];
+        this.intrinsicGlyphAdvances = new Map();
         this.editingFontNameToGid = new Map();
         this.explicitGlyphTokens = [];
         this.explicitGlyphOutlineCache = new Map();
@@ -1648,6 +1658,24 @@ export class TextRunEditor {
             this.hbBlob.destroy();
             this.hbBlob = null;
         }
+
+        this.destroyShapingHarfbuzz();
+    }
+
+    destroyShapingHarfbuzz() {
+        if (this.shapingHbFont) {
+            this.shapingHbFont.destroy();
+            this.shapingHbFont = null;
+        }
+        if (this.shapingHbFace) {
+            this.shapingHbFace.destroy();
+            this.shapingHbFace = null;
+        }
+        if (this.shapingHbBlob) {
+            this.shapingHbBlob.destroy();
+            this.shapingHbBlob = null;
+        }
+        this.shapingFontBlob = null;
     }
 
     invalidateExplicitGlyphOutlineCache(): void {
@@ -1689,6 +1717,23 @@ export class TextRunEditor {
         );
     }
 
+    setShapingFontBlob(fontData: Uint8Array): void {
+        this.destroyShapingHarfbuzz();
+        this.shapingFontBlob = fontData;
+        this.shapingHbBlob = this.hb.createBlob(fontData);
+        this.shapingHbFace = this.hb.createFace(this.shapingHbBlob, 0);
+        this.shapingHbFont = this.hb.createFont(this.shapingHbFace);
+
+        if (
+            this.shapingHbFont &&
+            Object.keys(this.axesManager.variationSettings).length > 0
+        ) {
+            this.shapingHbFont.setVariations(
+                this.axesManager.variationSettings
+            );
+        }
+    }
+
     /**
      * Swap the HarfBuzz font blob without reshaping.
      * Used during interactive outline editing to update glyph outlines
@@ -1711,6 +1756,14 @@ export class TextRunEditor {
         ) {
             this.hbFont.setVariations(this.axesManager.variationSettings);
         }
+    }
+
+    private getActiveShapingFont(): any {
+        return this.shapingHbFont || this.hbFont;
+    }
+
+    private getActiveShapingFontBlob(): Uint8Array | null {
+        return this.shapingFontBlob || this.fontBlob;
     }
 
     // Load text buffer from font.format_specific via Python
@@ -1840,6 +1893,7 @@ export class TextRunEditor {
             this.shapedGlyphs = [];
             this.bidiRuns = [];
             this.explicitGlyphTokens = [];
+            this.intrinsicGlyphAdvances.clear();
             this.call('render');
             return;
         }
@@ -1852,24 +1906,27 @@ export class TextRunEditor {
             );
 
             // Single-stage processing with editing font.
-            if (this.hbFont) {
+            const shapingFont = this.getActiveShapingFont();
+            if (shapingFont) {
                 if (
                     Object.keys(this.axesManager.variationSettings).length > 0
                 ) {
-                    this.hbFont.setVariations(
+                    shapingFont.setVariations(
                         this.axesManager.variationSettings
                     );
                 }
                 if (this.bidi) {
-                    this.shapeTextWithBidi(this.hbFont);
+                    this.shapeTextWithBidi(shapingFont);
                 } else {
-                    this.shapeTextSimple();
+                    this.shapeTextSimple(shapingFont);
                 }
             } else {
                 this.shapedGlyphs = [];
                 this.bidiRuns = [];
                 this.glyphNameBuffer = [];
             }
+
+            this.rebuildIntrinsicGlyphAdvanceCache();
 
             console.log('Shaped glyphs:', this.shapedGlyphs);
             if (this.bidiRuns.length > 0) {
@@ -1893,7 +1950,83 @@ export class TextRunEditor {
             console.error('Error shaping text:', error);
             this.shapedGlyphs = [];
             this.bidiRuns = [];
+            this.intrinsicGlyphAdvances.clear();
             this.call('render');
+        }
+    }
+
+    private resolveIntrinsicAdvanceForGlyph(
+        glyphName: string,
+        glyphIndex: number
+    ): number | null {
+        if (!glyphName) {
+            return null;
+        }
+
+        const glyph = this.shapedGlyphs[glyphIndex];
+        if (glyph?.explicitGlyphName) {
+            return this.estimateExplicitGlyphAdvance(glyph.explicitGlyphName);
+        }
+
+        const glyphCanvas = window.glyphCanvas;
+        const currentGlyphName = glyphCanvas?.outlineEditor?.active
+            ? glyphCanvas.getCurrentGlyphName?.()
+            : null;
+        if (currentGlyphName === glyphName) {
+            const currentLayer = (glyphCanvas as any)?.getCurrentLayerModel?.();
+            if (currentLayer && Number.isFinite(currentLayer.width)) {
+                return currentLayer.width;
+            }
+        }
+
+        const fontModel = window.currentFontModel;
+        const modelGlyph = fontModel?.findGlyph?.(glyphName);
+        if (!modelGlyph) {
+            return null;
+        }
+
+        let layer =
+            this.selectedMasterId && modelGlyph.findLayerByMasterId
+                ? modelGlyph.findLayerByMasterId(this.selectedMasterId)
+                : null;
+
+        if (!layer && modelGlyph.layers && modelGlyph.layers.length > 0) {
+            layer = modelGlyph.layers[0];
+        }
+
+        if (layer && Number.isFinite(layer.width)) {
+            return layer.width;
+        }
+
+        return null;
+    }
+
+    private rebuildIntrinsicGlyphAdvanceCache(): void {
+        this.intrinsicGlyphAdvances.clear();
+
+        for (
+            let glyphIndex = 0;
+            glyphIndex < this.shapedGlyphs.length;
+            glyphIndex++
+        ) {
+            const glyph = this.shapedGlyphs[glyphIndex];
+            const glyphName =
+                glyph.explicitGlyphName || this.glyphNameBuffer[glyphIndex];
+
+            if (!glyphName || this.intrinsicGlyphAdvances.has(glyphName)) {
+                continue;
+            }
+
+            const intrinsicAdvance = this.resolveIntrinsicAdvanceForGlyph(
+                glyphName,
+                glyphIndex
+            );
+            if (
+                intrinsicAdvance !== null &&
+                Number.isFinite(intrinsicAdvance)
+            ) {
+                this.intrinsicGlyphAdvances.set(glyphName, intrinsicAdvance);
+            }
         }
     }
 
@@ -1946,7 +2079,8 @@ export class TextRunEditor {
      * Rebuild the current glyph-name buffer from the latest shaped glyph stream.
      */
     private rebuildGlyphNameBufferFromShapedGlyphs() {
-        if (!this.fontBlob || !this.shapedGlyphs.length) {
+        const shapingFontBlob = this.getActiveShapingFontBlob();
+        if (!shapingFontBlob || !this.shapedGlyphs.length) {
             this.glyphNameBuffer = [];
             return;
         }
@@ -1964,7 +2098,7 @@ export class TextRunEditor {
             }
 
             try {
-                const name = get_glyph_name(this.fontBlob, glyph.g);
+                const name = get_glyph_name(shapingFontBlob, glyph.g);
                 if (name && name !== '.notdef') {
                     names.push(name);
                 }
@@ -1985,9 +2119,10 @@ export class TextRunEditor {
             return '';
         }
 
-        if (this.fontBlob) {
+        const shapingFontBlob = this.getActiveShapingFontBlob();
+        if (shapingFontBlob) {
             try {
-                const resolvedName = get_glyph_name(this.fontBlob, gid);
+                const resolvedName = get_glyph_name(shapingFontBlob, gid);
                 if (resolvedName) {
                     return resolvedName;
                 }
@@ -2516,6 +2651,34 @@ export class TextRunEditor {
         }
 
         let metricsChanged = false;
+        const advanceDeltas = new Map<string, number>();
+
+        for (const [glyphName, nextAdvance] of Object.entries(glyphAdvances)) {
+            if (!Number.isFinite(nextAdvance)) {
+                continue;
+            }
+
+            const previousIntrinsicAdvance =
+                this.intrinsicGlyphAdvances.get(glyphName);
+            if (
+                previousIntrinsicAdvance === undefined ||
+                !Number.isFinite(previousIntrinsicAdvance)
+            ) {
+                continue;
+            }
+
+            const advanceDelta = nextAdvance - previousIntrinsicAdvance;
+            if (Math.abs(advanceDelta) <= 0.01) {
+                continue;
+            }
+
+            advanceDeltas.set(glyphName, advanceDelta);
+            this.intrinsicGlyphAdvances.set(glyphName, nextAdvance);
+        }
+
+        if (advanceDeltas.size === 0) {
+            return false;
+        }
 
         for (
             let glyphIndex = 0;
@@ -2530,17 +2693,12 @@ export class TextRunEditor {
                 continue;
             }
 
-            const nextAdvance = glyphAdvances[glyphName];
-            if (!Number.isFinite(nextAdvance)) {
+            const advanceDelta = advanceDeltas.get(glyphName);
+            if (advanceDelta === undefined || !Number.isFinite(advanceDelta)) {
                 continue;
             }
 
-            const previousAdvance = glyph.ax || 0;
-            if (Math.abs(previousAdvance - nextAdvance) <= 0.01) {
-                continue;
-            }
-
-            glyph.ax = nextAdvance;
+            glyph.ax = (glyph.ax || 0) + advanceDelta;
             metricsChanged = true;
         }
 
@@ -2683,6 +2841,7 @@ export class TextRunEditor {
                 const previousAdvance = glyph.ax || 0;
                 if (Math.abs(previousAdvance - cached.width) > 0.01) {
                     glyph.ax = cached.width;
+                    this.intrinsicGlyphAdvances.set(explicitName, cached.width);
                     metricsChanged = true;
                 }
             }
@@ -2879,7 +3038,7 @@ export class TextRunEditor {
         return merged;
     }
 
-    shapeTextSimple() {
+    shapeTextSimple(hbFont: any) {
         // Simple shaping without BiDi support (old behavior, uses editing font)
         const displayText = this.displayTextBuffer;
         const buffer = this.hb.createBuffer();
@@ -2889,9 +3048,9 @@ export class TextRunEditor {
         // Shape the text with features
         const features = this.featuresManager.getHarfBuzzFeatures();
         if (features) {
-            this.hb.shape(this.hbFont, buffer, features);
+            this.hb.shape(hbFont, buffer, features);
         } else {
-            this.hb.shape(this.hbFont, buffer);
+            this.hb.shape(hbFont, buffer);
         }
 
         // Log the glyph buffer after shaping
@@ -3130,7 +3289,9 @@ export class TextRunEditor {
             const newAdvance = glyphAdvances[name];
             if (!Number.isFinite(newAdvance)) continue;
 
-            delta += newAdvance - (glyph.ax || 0);
+            const previousIntrinsicAdvance =
+                this.intrinsicGlyphAdvances.get(name) ?? (glyph.ax || 0);
+            delta += newAdvance - previousIntrinsicAdvance;
         }
         return delta;
     }

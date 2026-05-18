@@ -823,15 +823,17 @@ describe('bridge Yjs worker callback', () => {
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             [],
-            {
-                invalidateLayoutClosure: true
-            }
+            expect.objectContaining({
+                invalidateLayoutClosure: true,
+                nonGlyphChangeHints: ['feature-code']
+            })
         );
         expect(hasWorkerCacheDocumentSpy).toHaveBeenCalled();
         expect(fullWorkerUpdateSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'applyYjsUpdate',
                 changedGlyphs: [],
+                nonGlyphChangeHints: ['feature-code'],
                 invalidateLayoutClosure: true
             })
         );
@@ -874,9 +876,116 @@ describe('bridge Yjs worker callback', () => {
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             [],
-            {
+            expect.objectContaining({
                 invalidateLayoutClosure: false
+            })
+        );
+    });
+
+    test('forwards kerning-pair Yjs updates with non-glyph kerning hints', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const interpolationUpdateSpy = jest
+            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
+            .mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+        const hasWorkerCacheDocumentSpy = jest
+            .spyOn(fullFontCompilation, 'hasWorkerCacheDocument')
+            .mockReturnValue(true);
+        const fullWorkerUpdateSpy = jest
+            .spyOn(fullFontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = {
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const bridge = initializeBridgeHarness();
+        workerSeedSpy.mockClear();
+        fullWorkerUpdateSpy.mockClear();
+
+        bridge._yjsWorkerCallback(new Uint8Array([4, 4]), [
+            {
+                path: 'masters.0.kerning.A.V',
+                transactionLabel: 'Edit kerning pair'
             }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            []
+        );
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            [],
+            expect.objectContaining({
+                invalidateLayoutClosure: false,
+                nonGlyphChangeHints: ['kerning-value']
+            })
+        );
+        expect(hasWorkerCacheDocumentSpy).toHaveBeenCalled();
+        expect(fullWorkerUpdateSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: [],
+                nonGlyphChangeHints: ['kerning-value'],
+                invalidateLayoutClosure: false
+            })
+        );
+    });
+
+    test('forwards kern-group Yjs updates with non-glyph kerning hints', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const interpolationUpdateSpy = jest
+            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
+            .mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = {
+            buildWorkerYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const bridge = initializeBridgeHarness();
+        workerSeedSpy.mockClear();
+
+        bridge._yjsWorkerCallback(new Uint8Array([5, 5]), [
+            {
+                path: 'first_kern_groups.A.0',
+                transactionLabel: 'Add kern group membership'
+            }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            []
+        );
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            [],
+            expect.objectContaining({
+                invalidateLayoutClosure: false,
+                nonGlyphChangeHints: ['kerning-groups']
+            })
         );
     });
 
@@ -921,13 +1030,13 @@ describe('bridge Yjs worker callback', () => {
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             ['alef'],
-            {
+            expect.objectContaining({
                 invalidateLayoutClosure: false,
                 layerTargets: [
                     { glyphName: 'beh', layerId: 'A.0' },
                     { glyphName: 'alef', layerId: 'A.0' }
                 ]
-            }
+            })
         );
     });
 
@@ -968,9 +1077,9 @@ describe('bridge Yjs worker callback', () => {
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             ['alef'],
-            {
+            expect.objectContaining({
                 invalidateLayoutClosure: true
-            }
+            })
         );
     });
 
@@ -1013,10 +1122,10 @@ describe('bridge Yjs worker callback', () => {
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             ['A'],
-            {
+            expect.objectContaining({
                 invalidateLayoutClosure: false,
                 layerTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
-            }
+            })
         );
     });
 
@@ -1059,10 +1168,10 @@ describe('bridge Yjs worker callback', () => {
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             ['A'],
-            {
+            expect.objectContaining({
                 invalidateLayoutClosure: false,
                 layerTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
-            }
+            })
         );
     });
 
@@ -1106,10 +1215,10 @@ describe('bridge Yjs worker callback', () => {
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             ['A'],
-            {
+            expect.objectContaining({
                 invalidateLayoutClosure: false,
                 layerTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
-            }
+            })
         );
     });
 });
@@ -1938,5 +2047,34 @@ describe('requestUndoRedoEditingFontCompile', () => {
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
         expect(forceTrigger).toHaveBeenCalledTimes(1);
         expect(window.fontManager.currentFont.compileRequestVersion).toBe(11);
+    });
+
+    test('undo/redo compile requests preserve kerning edit types', async () => {
+        const checkAndSchedule = jest.fn();
+        const requestRecompileWithoutDataChange = jest.fn(function () {
+            this.compileRequestVersion += 1;
+        });
+
+        window.autoCompileManager = {
+            checkAndSchedule
+        };
+        window.fontManager = {
+            lastChangeSource: null,
+            lastEditType: null,
+            currentFont: {
+                compileRequestVersion: 2,
+                requestRecompileWithoutDataChange
+            }
+        };
+
+        await changeBridgeInit.requestUndoRedoEditingFontCompile(
+            false,
+            'kerning-value'
+        );
+
+        expect(window.fontManager.lastChangeSource).toBe('keyboard-undo-redo');
+        expect(window.fontManager.lastEditType).toBe('kerning-value');
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(checkAndSchedule).toHaveBeenCalledTimes(1);
     });
 });

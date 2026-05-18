@@ -511,11 +511,17 @@ class FontManager {
     isCompiling: boolean;
     glyphOrderCache: string[] | null;
     lastChangeSource: string | null = null; // Track what triggered the last change (keyboard, mouse-drag, etc.)
-    lastEditType: 'outline' | 'anchor' | null = null; // Track edit type for compilation optimization
+    lastEditType:
+        | 'outline'
+        | 'anchor'
+        | 'kerning-value'
+        | 'kerning-groups'
+        | null = null; // Track edit type for compilation optimization
     lastCompilationMode:
         | 'full'
         | 'outline-only'
         | 'anchor-only'
+        | 'kerning-only'
         | 'text-input' = 'full'; // Track last compilation mode
     fullCompileDebounceTimer: ReturnType<typeof setTimeout> | null = null; // Timer for debounced full compile after interactive editing
     closureCache: {
@@ -1796,6 +1802,7 @@ class FontManager {
                 | 'full'
                 | 'outline-only'
                 | 'anchor-only'
+                | 'kerning-only'
                 | 'text-input' = 'full';
             try {
                 timelineMark(
@@ -1843,6 +1850,7 @@ class FontManager {
                     | {
                           skip_features?: boolean;
                           skip_kerning?: boolean;
+                                                    skip_outlines?: boolean;
                           produce_varc_table?: boolean;
                       }
                     | undefined;
@@ -1862,6 +1870,16 @@ class FontManager {
                 ) {
                     compilationMode = 'anchor-only';
                     optionOverrides = {
+                        produce_varc_table: false
+                    };
+                } else if (
+                    (isInteractiveEdit || isRemoteFastPathEdit) &&
+                    (editTypeAtRequest === 'kerning-value' ||
+                        editTypeAtRequest === 'kerning-groups')
+                ) {
+                    compilationMode = 'kerning-only';
+                    optionOverrides = {
+                        skip_outlines: true,
                         produce_varc_table: false
                     };
                 } else if (isTextInputEdit) {
@@ -3336,7 +3354,8 @@ class FontManager {
     private async sendWorkerYjsUpdate(
         update: Uint8Array,
         changedGlyphs: string[],
-        invalidateLayoutClosure: boolean
+        invalidateLayoutClosure: boolean,
+        nonGlyphChangeHints: string[] = []
     ): Promise<boolean> {
         const runSend = async (): Promise<boolean> => {
             if (!fontCompilation?.isInitialized) {
@@ -3352,6 +3371,7 @@ class FontManager {
                     type: 'applyYjsUpdate',
                     update,
                     changedGlyphs,
+                    nonGlyphChangeHints,
                     invalidateLayoutClosure
                 });
 
@@ -3485,10 +3505,14 @@ class FontManager {
         options?: {
             invalidateLayoutClosure?: boolean;
             layerTargets?: WorkerReplayTarget[];
+            nonGlyphChangeHints?: string[];
         }
     ): Promise<boolean> {
         const normalizedChangedGlyphs = Array.from(
             new Set(changedGlyphs.filter((glyphName) => !!glyphName))
+        );
+        const normalizedNonGlyphChangeHints = Array.from(
+            new Set((options?.nonGlyphChangeHints || []).filter(Boolean))
         );
         const normalizedLayerTargets = normalizeWorkerReplayTargets(
             options?.layerTargets || []
@@ -3498,7 +3522,8 @@ class FontManager {
             return this.sendWorkerYjsUpdate(
                 update,
                 [],
-                options?.invalidateLayoutClosure !== false
+                options?.invalidateLayoutClosure !== false,
+                normalizedNonGlyphChangeHints
             );
         }
 
@@ -3522,7 +3547,8 @@ class FontManager {
         const sent = await this.sendWorkerYjsUpdate(
             update,
             normalizedChangedGlyphs,
-            options?.invalidateLayoutClosure !== false
+            options?.invalidateLayoutClosure !== false,
+            normalizedNonGlyphChangeHints
         );
 
         if (!sent) {

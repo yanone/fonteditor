@@ -5203,10 +5203,25 @@ class GlyphCanvas {
     }
 
     private scheduleTextModeKerningCompile(reason: string): void {
-        fontManager.lastChangeSource = 'keyboard';
-        fontManager.lastEditType = null;
+        const isGroupEdit = reason === 'kerning-group-membership';
+        fontManager.lastChangeSource = isGroupEdit
+            ? 'keyboard-kerning-groups'
+            : 'keyboard-kerning-value';
+        fontManager.lastEditType = isGroupEdit
+            ? 'kerning-groups'
+            : 'kerning-value';
         fontManager.currentFont?.markDirty(reason);
-        window.autoCompileManager?.checkAndSchedule?.();
+        fontManager.scheduleFullCompileDebounce?.();
+        // Kerning edits already flow through PatchSyncEngine and the shared
+        // committed-change funnel, which requests the authoritative immediate
+        // editing compile after the worker Yjs update settles. Waking the
+        // auto-compile loop here creates a second local compile race that can
+        // briefly apply an intermediate kerning result before the committed
+        // compile lands.
+        if (!window.patchSyncEngine) {
+            fontManager.currentFont?.requestRecompileWithoutDataChange?.();
+            window.autoCompileManager?.checkAndSchedule?.();
+        }
     }
 
     private updateTextModeKerningGroupMembership(
@@ -8582,6 +8597,22 @@ function setupFontLoadingListener() {
                         gc.textRunEditor!.shapeText(true);
                         timelineMark(
                             'canvas.editingFontCompiled.anchorOnlySwapped'
+                        );
+
+                        if (Number.isFinite(incomingRevision)) {
+                            latestAppliedEditingRevision = incomingRevision;
+                        }
+
+                        gc.requestRepaintAfterCompile();
+                        return;
+                    }
+
+                    if (compilationMode === 'kerning-only') {
+                        const fontBytesArray = new Uint8Array(arrayBuffer);
+                        gc.textRunEditor!.setShapingFontBlob(fontBytesArray);
+                        gc.textRunEditor!.shapeText(true);
+                        timelineMark(
+                            'canvas.editingFontCompiled.kerningOnlyShaped'
                         );
 
                         if (Number.isFinite(incomingRevision)) {

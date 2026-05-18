@@ -1965,6 +1965,58 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
     });
 
+    test('text-mode kerning commits do not directly wake auto-compile when PatchSyncEngine is present', async () => {
+        const markDirty = jest.fn();
+        const requestRecompileWithoutDataChange = jest.fn();
+        const originalPatchSyncEngine = window.patchSyncEngine;
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    markDirty,
+                    requestRecompileWithoutDataChange
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+        window.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+        window.patchSyncEngine = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn()
+        };
+
+        try {
+            await canvas.commitTextModeKerningValue(
+                '-90',
+                {
+                    master: {
+                        kerning: {}
+                    },
+                    selectedFirstKey: 'A',
+                    selectedSecondKey: 'V',
+                    selectedValue: null,
+                    hasSelectedValue: false
+                },
+                false
+            );
+
+            expect(markDirty).toHaveBeenCalledWith('kerning-property-panel');
+            expect(
+                fontManager.scheduleFullCompileDebounce
+            ).toHaveBeenCalledTimes(1);
+            expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
+            expect(
+                window.autoCompileManager.checkAndSchedule
+            ).not.toHaveBeenCalled();
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+        }
+    });
+
     test('commitPropertyPanelValue uses full-font refresh for glyph-wide sidebearing keys', async () => {
         const requestRecompileWithoutDataChange = jest.fn();
         const layer = {

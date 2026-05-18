@@ -1069,6 +1069,215 @@ fn ydoc_get_top_level_json_with_txn<T: ReadTxn>(
     Some(yrs_value_to_json(value, txn))
 }
 
+fn extract_string_array(value: &serde_json::Value) -> Vec<String> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(|text| text.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_apply_yjs_update_metadata(
+    update_metadata_json: &str,
+) -> (Vec<String>, Vec<String>) {
+    if update_metadata_json.is_empty() || update_metadata_json == "[]" {
+        return (Vec::new(), Vec::new());
+    }
+
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(update_metadata_json) else {
+        return (Vec::new(), Vec::new());
+    };
+
+    if parsed.is_array() {
+        return (extract_string_array(&parsed), Vec::new());
+    }
+
+    let Some(object) = parsed.as_object() else {
+        return (Vec::new(), Vec::new());
+    };
+
+    let changed_glyphs = object
+        .get("changedGlyphs")
+        .map(extract_string_array)
+        .unwrap_or_default();
+    let non_glyph_change_hints = object
+        .get("nonGlyphChangeHints")
+        .map(extract_string_array)
+        .unwrap_or_default();
+
+    (changed_glyphs, non_glyph_change_hints)
+}
+
+fn replace_top_level_json_entry(
+    font_json: &mut serde_json::Value,
+    key: &str,
+    new_value: Option<serde_json::Value>,
+) -> bool {
+    let Some(font_object) = font_json.as_object_mut() else {
+        return false;
+    };
+
+    match new_value {
+        Some(value) => {
+            if font_object.get(key) == Some(&value) {
+                return false;
+            }
+            font_object.insert(key.to_string(), value);
+            true
+        }
+        None => font_object.remove(key).is_some(),
+    }
+}
+
+fn replace_masters_kerning_in_json(
+    font_json: &mut serde_json::Value,
+    masters_json: Option<&serde_json::Value>,
+) -> bool {
+    let Some(font_object) = font_json.as_object_mut() else {
+        return false;
+    };
+    let Some(existing_masters) = font_object
+        .get_mut("masters")
+        .and_then(|value| value.as_array_mut())
+    else {
+        return false;
+    };
+    let Some(incoming_masters) = masters_json.and_then(|value| value.as_array()) else {
+        return false;
+    };
+
+    let mut changed = false;
+    for (existing_master, incoming_master) in
+        existing_masters.iter_mut().zip(incoming_masters.iter())
+    {
+        let Some(existing_object) = existing_master.as_object_mut() else {
+            continue;
+        };
+
+        match incoming_master.get("kerning").cloned() {
+            Some(kerning_value) => {
+                if existing_object.get("kerning") != Some(&kerning_value) {
+                    existing_object.insert("kerning".to_string(), kerning_value);
+                    changed = true;
+                }
+            }
+            None => {
+                if existing_object.remove("kerning").is_some() {
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    changed
+}
+
+fn refresh_kerning_related_caches_from_ydoc<T: ReadTxn>(
+    txn: &T,
+    refresh_master_kerning: bool,
+    refresh_kern_groups: bool,
+) -> Result<(), JsValue> {
+    if !refresh_master_kerning && !refresh_kern_groups {
+        return Ok(());
+    }
+
+    let masters_json = if refresh_master_kerning {
+        ydoc_get_top_level_json_with_txn("masters", txn)
+    } else {
+        None
+    };
+    let first_kern_groups_json = if refresh_kern_groups {
+        ydoc_get_top_level_json_with_txn("first_kern_groups", txn)
+    } else {
+        None
+    };
+    let second_kern_groups_json = if refresh_kern_groups {
+        ydoc_get_top_level_json_with_txn("second_kern_groups", txn)
+    } else {
+        None
+    };
+
+    let mut canonical_missing = false;
+    {
+        let mut canonical_lock = CANONICAL_JSON_CACHE.lock().unwrap();
+        if let Some(ref mut canonical) = *canonical_lock {
+            if refresh_master_kerning {
+                replace_masters_kerning_in_json(canonical, masters_json.as_ref());
+            }
+            if refresh_kern_groups {
+                replace_top_level_json_entry(
+                    canonical,
+                    "first_kern_groups",
+                    first_kern_groups_json.clone(),
+                );
+                replace_top_level_json_entry(
+                    canonical,
+                    "second_kern_groups",
+                    second_kern_groups_json.clone(),
+                );
+            }
+        } else {
+            canonical_missing = true;
+        }
+    }
+
+    if canonical_missing {
+        set_canonical_json_cache(ydoc_to_babelfont_json_with_txn(txn));
+        *FONT_CACHE.lock().unwrap() = None;
+        *SUBSET_JSON_CACHE.lock().unwrap() = None;
+        *SUBSET_GLYPH_INDEX_CACHE.lock().unwrap() = None;
+        *SUBSET_FONT_CACHE.lock().unwrap() = None;
+        *FILTERED_FONT_CACHE.lock().unwrap() = None;
+        FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
+        FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+        SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+        FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
+        return Ok(());
+    }
+
+    {
+        let mut subset_lock = SUBSET_JSON_CACHE.lock().unwrap();
+        if let Some((_, subset_epoch, subset_json)) = subset_lock.as_mut() {
+            let mut subset_changed = false;
+            if refresh_master_kerning {
+                subset_changed |=
+                    replace_masters_kerning_in_json(subset_json, masters_json.as_ref());
+            }
+            if refresh_kern_groups {
+                subset_changed |= replace_top_level_json_entry(
+                    subset_json,
+                    "first_kern_groups",
+                    first_kern_groups_json.clone(),
+                );
+                subset_changed |= replace_top_level_json_entry(
+                    subset_json,
+                    "second_kern_groups",
+                    second_kern_groups_json.clone(),
+                );
+            }
+
+            if subset_changed {
+                *subset_epoch = subset_epoch.saturating_add(1);
+            }
+        }
+    }
+
+    *FONT_CACHE.lock().unwrap() = None;
+    *SUBSET_FONT_CACHE.lock().unwrap() = None;
+    *FILTERED_FONT_CACHE.lock().unwrap() = None;
+
+    FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
+    FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+    SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+    FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
+
+    Ok(())
+}
+
 fn refresh_non_glyph_feature_caches_from_ydoc<T: ReadTxn>(txn: &T) -> Result<(), JsValue> {
     let rebuilt = ydoc_to_babelfont_json_with_txn(txn);
     set_canonical_json_cache(rebuilt);
@@ -1209,8 +1418,8 @@ pub fn init_ydoc_from_state(state_update: &[u8]) -> Result<(), JsValue> {
 /// Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
 /// update the CANONICAL_JSON_CACHE.
 ///
-/// `changed_glyphs_json` is a JSON array of glyph name strings that the JS
-/// side knows were affected by this update (extracted from ChangeLogEntry paths).
+/// `update_metadata_json` is a JSON payload produced by the JS side that can
+/// contain `changedGlyphs` plus `nonGlyphChangeHints` for top-level edits.
 /// When non-empty the function performs a targeted update — only those glyphs
 /// are re-serialised from the Y.Doc and replaced in CANONICAL_JSON_CACHE,
 /// making drag-step updates cheap even for large fonts.
@@ -1220,7 +1429,7 @@ pub fn init_ydoc_from_state(state_update: &[u8]) -> Result<(), JsValue> {
 /// Returns a JSON string `{ "changedGlyphs": ["a", …], "changedLayerIds": [] }`
 /// that the JS side can use to drive subset-cache replay.
 #[wasm_bindgen]
-pub fn apply_yjs_update(update: &[u8], changed_glyphs_json: &str) -> Result<String, JsValue> {
+pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<String, JsValue> {
     // YJS_ONLY when changedGlyphs is populated: targeted per-glyph
     // patching of CANONICAL_JSON_CACHE — no full rebuild.
     // FULLJSON_INTERNAL_RUST (C1b/U5) when changedGlyphs is empty: falls to
@@ -1257,14 +1466,9 @@ pub fn apply_yjs_update(update: &[u8], changed_glyphs_json: &str) -> Result<Stri
         let mut txn = doc.transact_mut();
         txn.apply_update(yrs_update);
 
-        // -- 2. Parse JS-supplied changed-glyph hint --------------------------
-        let changed_glyphs: Vec<String> = if changed_glyphs_json.is_empty()
-            || changed_glyphs_json == "[]"
-        {
-            Vec::new()
-        } else {
-            serde_json::from_str(changed_glyphs_json).unwrap_or_default()
-        };
+        // -- 2. Parse JS-supplied update metadata -----------------------------
+        let (changed_glyphs, non_glyph_change_hints) =
+            parse_apply_yjs_update_metadata(update_metadata_json);
         let changed_glyph_snapshots: Vec<(String, Option<serde_json::Value>)> = changed_glyphs
             .iter()
             .map(|glyph_name| {
@@ -1277,13 +1481,34 @@ pub fn apply_yjs_update(update: &[u8], changed_glyphs_json: &str) -> Result<Stri
 
         // -- 3. Update CANONICAL_JSON_CACHE -----------------------------------
         if changed_glyphs.is_empty() {
-            // Font-level edits such as feature-code commits do not identify
-            // changed glyphs, but they still need the worker caches to stay
-            // in sync. Refresh the top-level features data directly from the
-            // Y.Doc and invalidate derived caches without forcing a full font
-            // JSON rebuild for every feature edit.
-            let _rebuild_span = PerfSpan::start("apply_yjs_update.feature_refresh");
-            refresh_non_glyph_feature_caches_from_ydoc(&txn)?;
+            let refresh_feature_caches = non_glyph_change_hints
+                .iter()
+                .any(|hint| hint == "feature-code");
+            let refresh_master_kerning = non_glyph_change_hints
+                .iter()
+                .any(|hint| hint == "kerning-value");
+            let refresh_kern_groups = non_glyph_change_hints
+                .iter()
+                .any(|hint| hint == "kerning-groups");
+
+            if !refresh_feature_caches
+                && (refresh_master_kerning || refresh_kern_groups)
+            {
+                let _rebuild_span = PerfSpan::start("apply_yjs_update.kerning_refresh");
+                refresh_kerning_related_caches_from_ydoc(
+                    &txn,
+                    refresh_master_kerning,
+                    refresh_kern_groups,
+                )?;
+            } else {
+                // Font-level edits such as feature-code commits do not identify
+                // changed glyphs, but they still need the worker caches to stay
+                // in sync. Refresh the top-level features data directly from the
+                // Y.Doc and invalidate derived caches without forcing a full font
+                // JSON rebuild for every feature edit.
+                let _rebuild_span = PerfSpan::start("apply_yjs_update.feature_refresh");
+                refresh_non_glyph_feature_caches_from_ydoc(&txn)?;
+            }
         } else {
             // Partial update — only re-serialise the glyphs that changed
             let _partial_span = PerfSpan::start("apply_yjs_update.partial_update");

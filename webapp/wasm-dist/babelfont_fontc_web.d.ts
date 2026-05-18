@@ -5,8 +5,8 @@
  * Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
  * update the CANONICAL_JSON_CACHE.
  *
- * `changed_glyphs_json` is a JSON array of glyph name strings that the JS
- * side knows were affected by this update (extracted from ChangeLogEntry paths).
+ * `update_metadata_json` is a JSON payload produced by the JS side that can
+ * contain `changedGlyphs` plus `nonGlyphChangeHints` for top-level edits.
  * When non-empty the function performs a targeted update — only those glyphs
  * are re-serialised from the Y.Doc and replaced in CANONICAL_JSON_CACHE,
  * making drag-step updates cheap even for large fonts.
@@ -16,7 +16,7 @@
  * Returns a JSON string `{ "changedGlyphs": ["a", …], "changedLayerIds": [] }`
  * that the JS side can use to drive subset-cache replay.
  */
-export function apply_yjs_update(update: Uint8Array, changed_glyphs_json: string): string;
+export function apply_yjs_update(update: Uint8Array, update_metadata_json: string): string;
 
 /**
  * Clear the cached font from memory
@@ -326,13 +326,13 @@ export interface InitOutput {
     readonly seed_ydoc: (a: number, b: number) => [number, number];
     readonly store_font: (a: number, b: number) => [number, number];
     readonly version: () => [number, number];
+    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
     readonly get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
     readonly get_glyph_order: (a: number, b: number) => [number, number, number, number];
     readonly get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
-    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

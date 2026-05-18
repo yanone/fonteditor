@@ -694,20 +694,97 @@ export function buildCascadingRecompositionOperations(
  * (anchor-only / outline-only) instead of always falling back to
  * a full compile after the Yjs commit lands.
  */
+type CommittedCompileEditType =
+    | 'anchor'
+    | 'outline'
+    | 'kerning-value'
+    | 'kerning-groups'
+    | null;
+
+type NonGlyphChangeHint =
+    | 'feature-code'
+    | 'kerning-value'
+    | 'kerning-groups';
+
+function pathTouchesMasterKerning(path: string): boolean {
+    return /(^|\.)masters\.[^.]+\.kerning(\.|$)/.test(path);
+}
+
+function pathTouchesKerningGroups(path: string): boolean {
+    return (
+        path === 'first_kern_groups' ||
+        path === 'second_kern_groups' ||
+        path.startsWith('first_kern_groups.') ||
+        path.startsWith('second_kern_groups.')
+    );
+}
+
+function inferKerningEditTypeFromMetadata(
+    label: string,
+    path: string
+): CommittedCompileEditType {
+    const normalizedLabel = label.toLowerCase();
+    if (
+        normalizedLabel.includes('kern group membership') ||
+        pathTouchesKerningGroups(path)
+    ) {
+        return 'kerning-groups';
+    }
+    if (
+        normalizedLabel.includes('kerning pair') ||
+        pathTouchesMasterKerning(path)
+    ) {
+        return 'kerning-value';
+    }
+    return null;
+}
+
+function collectNonGlyphChangeHints(
+    entries: ChangeLogEntry[]
+): NonGlyphChangeHint[] {
+    const hints = new Set<NonGlyphChangeHint>();
+
+    for (const entry of entries) {
+        const path = entry.path ?? '';
+        if (path.startsWith('features.')) {
+            hints.add('feature-code');
+        }
+
+        const kerningEditType = inferKerningEditTypeFromMetadata(
+            entry.transactionLabel ?? '',
+            path
+        );
+        if (kerningEditType === 'kerning-value') {
+            hints.add('kerning-value');
+        }
+        if (kerningEditType === 'kerning-groups') {
+            hints.add('kerning-groups');
+        }
+    }
+
+    return [...hints];
+}
+
 function inferCommittedEditTypeFromEntries(
     entries: ChangeLogEntry[],
     origin: CommittedChangeOrigin
 ): {
-    editType: 'anchor' | 'outline' | null;
+    editType: CommittedCompileEditType;
     changeSource: string;
 } {
-    const changeSourceFor = (editType: 'anchor' | 'outline' | null): string => {
+    const changeSourceFor = (editType: CommittedCompileEditType): string => {
         if (origin === 'remote') {
             if (editType === 'anchor') {
                 return 'remote-anchor';
             }
             if (editType === 'outline') {
                 return 'remote-outline';
+            }
+            if (editType === 'kerning-value') {
+                return 'remote-kerning-value';
+            }
+            if (editType === 'kerning-groups') {
+                return 'remote-kerning-groups';
             }
             return 'remote-change';
         }
@@ -717,6 +794,12 @@ function inferCommittedEditTypeFromEntries(
         }
         if (editType === 'outline') {
             return 'keyboard-outline';
+        }
+        if (editType === 'kerning-value') {
+            return 'keyboard-kerning-value';
+        }
+        if (editType === 'kerning-groups') {
+            return 'keyboard-kerning-groups';
         }
         return 'change-bridge-local';
     };
@@ -751,6 +834,14 @@ function inferCommittedEditTypeFromEntries(
             return {
                 editType: 'outline',
                 changeSource: changeSourceFor('outline')
+            };
+        }
+
+        const kerningEditType = inferKerningEditTypeFromMetadata(label, path);
+        if (kerningEditType) {
+            return {
+                editType: kerningEditType,
+                changeSource: changeSourceFor(kerningEditType)
             };
         }
     }
@@ -1445,7 +1536,7 @@ export function waitForEditingFontCompileRevision(
 
 export async function requestUndoRedoEditingFontCompile(
     waitForCompletion: boolean = false,
-    editType?: 'outline' | 'anchor' | null
+    editType?: CommittedCompileEditType
 ): Promise<void> {
     const fm = window.fontManager;
     if (!fm?.currentFont) {
@@ -1485,7 +1576,7 @@ export async function requestUndoRedoEditingFontCompile(
 
 async function requestCommittedEditingFontCompile(
     changeSource: string,
-    editType?: 'outline' | 'anchor' | null,
+    editType?: CommittedCompileEditType,
     options?: {
         forceTrigger?: boolean;
     }
@@ -1558,8 +1649,29 @@ async function awaitLocalCommittedWorkerCacheSettled(
 
 type LocalCommittedCompileContext = {
     changeSource: string;
-    editType: 'outline' | 'anchor' | null;
+    editType: CommittedCompileEditType;
 };
+
+function inferHistoryItemKerningEditType(
+    historyItem: HistoryStackItem | null
+): CommittedCompileEditType {
+    if (!historyItem) {
+        return null;
+    }
+
+    const transactionLabel = historyItem.transactionLabel ?? '';
+    for (const path of historyItem.touchedPaths ?? []) {
+        const editType = inferKerningEditTypeFromMetadata(
+            transactionLabel,
+            path
+        );
+        if (editType) {
+            return editType;
+        }
+    }
+
+    return inferKerningEditTypeFromMetadata(transactionLabel, '');
+}
 
 function resolveLocalCommittedCompileContext(
     entries: ChangeLogEntry[]
@@ -1761,7 +1873,7 @@ export async function handleCommittedChangeRefresh(
     dependencies?: {
         requestCompile?: (
             changeSource: string,
-            editType?: 'outline' | 'anchor' | null
+            editType?: CommittedCompileEditType
         ) => Promise<void>;
         queueCacheRefresh?: (
             rootGlyphName?: string,
@@ -1866,7 +1978,7 @@ export async function handleRemoteChangeRefresh(
     dependencies?: {
         requestCompile?: (
             changeSource: string,
-            editType?: 'outline' | 'anchor' | null
+            editType?: CommittedCompileEditType
         ) => Promise<void>;
         queueCacheRefresh?: (
             rootGlyphName?: string,
@@ -1992,7 +2104,7 @@ export function runBridgeUndoRedo(
             ? 'anchor'
             : inferSidebearingSideFromHistoryItem(historyItem) !== null
               ? 'outline'
-              : null;
+              : inferHistoryItemKerningEditType(historyItem);
         const rustCacheRefreshPromise = syncRustCacheAndRefreshCanvas(
             refreshRootGlyphName,
             glyphName,
@@ -2018,7 +2130,12 @@ export function runBridgeUndoRedo(
         // Anchor-only and outline-only compiles still use the interactive
         // fast path; schedule a trailing debounced full compile so the editor
         // returns to a fully correct font (same pattern as the forward edit path).
-        if (undoEditType === 'anchor' || undoEditType === 'outline') {
+        if (
+            undoEditType === 'anchor' ||
+            undoEditType === 'outline' ||
+            undoEditType === 'kerning-value' ||
+            undoEditType === 'kerning-groups'
+        ) {
             window.fontManager?.scheduleFullCompileDebounce?.();
         }
 
@@ -2219,6 +2336,9 @@ function initializeBridge(detail: {
         const changedGlyphs = deriveGlyphNamesFromPaths(
             changeLogEntries.map((e) => e.path).filter(Boolean)
         );
+        const nonGlyphChangeHints = collectNonGlyphChangeHints(
+            changeLogEntries
+        );
         const layerTargets =
             collectWorkerLayerTargetsFromChangeLogEntries(changeLogEntries);
         const invalidateLayoutClosure =
@@ -2231,6 +2351,7 @@ function initializeBridge(detail: {
             changedGlyphs,
             {
                 invalidateLayoutClosure,
+                nonGlyphChangeHints,
                 ...(layerTargets.length ? { layerTargets } : undefined)
             }
         );
@@ -2241,6 +2362,7 @@ function initializeBridge(detail: {
                     type: 'applyYjsUpdate',
                     update,
                     changedGlyphs,
+                    nonGlyphChangeHints,
                     invalidateLayoutClosure
                 })
                 .catch((error) => {

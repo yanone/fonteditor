@@ -1264,6 +1264,44 @@ describe('FontManager editing subset inclusion', () => {
         ).not.toHaveProperty('skip_features');
     });
 
+    test('keyboard kerning-value compiles use the kerning-only fast path', async () => {
+        fontManager.lastChangeSource = 'keyboard-kerning-value';
+        fontManager.lastEditType = 'kerning-value';
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'keyboard-kerning-value',
+            optionOverrides: {
+                skip_outlines: true,
+                produce_varc_table: false
+            }
+        });
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_kerning');
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_features');
+    });
+
+    test('remote kern-group compiles use the kerning-only fast path', async () => {
+        fontManager.lastChangeSource = 'remote-kerning-groups';
+        fontManager.lastEditType = 'kerning-groups';
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'remote-kerning-groups',
+            optionOverrides: {
+                skip_outlines: true,
+                produce_varc_table: false
+            }
+        });
+    });
+
     test('debounced post-interaction full compiles do not send incremental dirty-layer patches', async () => {
         fontManager.lastChangeSource =
             'debounced-post-interaction-full-compile';
@@ -1979,6 +2017,24 @@ describe('FontManager boundary-crossing budget', () => {
             expect.objectContaining({
                 type: 'applyYjsUpdate',
                 changedGlyphs: [],
+                invalidateLayoutClosure: true
+            })
+        );
+    });
+
+    test('forwardWorkerYjsUpdate forwards non-glyph kerning hints with font-wide updates', async () => {
+        await expect(
+            fontManager.forwardWorkerYjsUpdate(new Uint8Array([1, 2, 3]), [], {
+                nonGlyphChangeHints: ['kerning-value']
+            })
+        ).resolves.toBe(true);
+
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: [],
+                nonGlyphChangeHints: ['kerning-value'],
                 invalidateLayoutClosure: true
             })
         );

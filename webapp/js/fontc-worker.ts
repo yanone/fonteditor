@@ -1524,19 +1524,32 @@ self.onmessage = async (event) => {
         // boundary. When changedGlyphs is empty, Rust falls back to a full
         // internal Y.Doc→JSON rebuild (FULLJSON_INTERNAL_RUST — candidate for targeted patching).
         if (data.type === 'applyYjsUpdate') {
-            const { id, update, changedGlyphs, invalidateLayoutClosure } = data;
+            const {
+                id,
+                update,
+                changedGlyphs,
+                nonGlyphChangeHints,
+                invalidateLayoutClosure
+            } = data;
             try {
                 if (!initialized) {
                     await initializeWasm();
                 }
-                const changedGlyphsJson = JSON.stringify(
-                    Array.isArray(changedGlyphs) ? changedGlyphs : []
+                const updateMetadataJson = JSON.stringify(
+                    {
+                        changedGlyphs: Array.isArray(changedGlyphs)
+                            ? changedGlyphs
+                            : [],
+                        nonGlyphChangeHints: Array.isArray(nonGlyphChangeHints)
+                            ? nonGlyphChangeHints
+                            : []
+                    }
                 );
                 const resultJson = apply_yjs_update(
                     update instanceof Uint8Array
                         ? update
                         : new Uint8Array(update),
-                    changedGlyphsJson
+                    updateMetadataJson
                 );
                 // Parse the result to check whether the update was skipped
                 // (e.g. Y.Doc not yet seeded). Avoid mutating JS-side caches
