@@ -972,7 +972,7 @@ export class GlyphCanvasRenderer {
         const negativeColor = computedStyle
             .getPropertyValue('--accent-red')
             .trim();
-        const markerHeight = 10;
+        const markerHeight = 20;
 
         this.ctx.save();
         for (const overlay of markerOverlays) {

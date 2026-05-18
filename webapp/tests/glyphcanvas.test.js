@@ -262,14 +262,14 @@ describe('GlyphCanvas renderer kerning overlays', () => {
             10,
             -200,
             40,
-            10
+            20
         );
         expect(canvas.renderer.ctx.fillRect).toHaveBeenNthCalledWith(
             2,
             60,
             -200,
             30,
-            10
+            20
         );
         expect(canvas.renderer.ctx.fillRect).toHaveBeenNthCalledWith(
             3,

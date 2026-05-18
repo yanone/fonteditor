@@ -6268,8 +6268,14 @@ class GlyphCanvas {
             });
 
             addCodeToken('pos ');
-            addCodeToken(`${context.selectedFirstLabel || ''} `);
-            addCodeToken(`${context.selectedSecondLabel || ''} `);
+            addCodeToken(
+                `${context.selectedFirstLabel || ''} `,
+                'glyph-property-value glyph-kerning-code-first'
+            );
+            addCodeToken(
+                `${context.selectedSecondLabel || ''} `,
+                'glyph-property-value glyph-kerning-code-second'
+            );
 
             if (context.isRTL) {
                 addCodeToken('<0 0 ');

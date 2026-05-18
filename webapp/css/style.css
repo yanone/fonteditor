@@ -4776,7 +4776,7 @@ kbd + kbd {
     appearance: none;
     -webkit-appearance: none;
     background-color: var(--background-secondary);
-    border: 1px solid var(--border-primary);
+    border: 1px solid transparent;
     border-radius: 999px;
     cursor: pointer;
     min-width: 0;
@@ -4785,40 +4785,46 @@ kbd + kbd {
     align-items: center;
     justify-content: center;
     gap: 4px;
-    padding: 3px 9px;
+    box-sizing: border-box;
+    min-height: 26px;
+    padding: 0 9px;
+    font-family: var(--font-families-mono);
+    color: var(--text-secondary);
     transition:
         background-color 0.15s ease,
         border-color 0.15s ease,
-        box-shadow 0.15s ease;
+        box-shadow 0.15s ease,
+        color 0.15s ease;
 }
 
 .glyph-kerning-pill-base {
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .glyph-kerning-pill-participates {
     background-color: var(--background-hover);
-    border-color: var(--border-hover);
-}
-
-.glyph-kerning-pill.active {
-    background-color: var(--background-hover);
-    border-color: var(--accent-blue);
-    box-shadow: inset 0 0 0 1px var(--accent-blue);
-}
-
-.glyph-kerning-pill.active .glyph-kerning-pill-label {
     color: var(--text-primary);
 }
 
+.glyph-kerning-pill.active[data-kerning-side='first'] {
+    background-color: var(--accent-blue);
+    color: var(--background-primary);
+}
+
+.glyph-kerning-pill.active[data-kerning-side='second'] {
+    background-color: var(--accent-orange);
+    color: var(--background-primary);
+}
+
 .glyph-kerning-pill.selected-glyph-group {
-    border-color: var(--border-hover);
-    box-shadow: inset 0 0 0 1px var(--border-hover);
+    border-color: var(--text-primary);
 }
 
 .glyph-kerning-pill-label {
     overflow: hidden;
     text-overflow: ellipsis;
+    font-family: inherit;
+    line-height: 1;
 }
 
 .glyph-kerning-pill-remove {
@@ -4826,25 +4832,25 @@ kbd + kbd {
     align-items: center;
     justify-content: center;
     margin-left: 2px;
-    min-width: 16px;
-    height: 16px;
+    min-width: 12px;
+    height: 12px;
     border-radius: 999px;
     background-color: transparent;
-    color: var(--text-secondary);
-    font-size: 12px;
+    color: currentColor;
+    font-size: 10px;
     line-height: 1;
     flex: 0 0 auto;
 }
 
 .glyph-kerning-pill-remove-icon {
-    font-size: 14px;
+    font-size: 11px;
     line-height: 1;
 }
 
 .glyph-kerning-pill:hover .glyph-kerning-pill-remove,
 .glyph-kerning-pill.active .glyph-kerning-pill-remove {
-    background-color: var(--background-tertiary);
-    color: var(--text-primary);
+    background-color: transparent;
+    color: currentColor;
 }
 
 .glyph-kerning-pill-add {
@@ -4884,11 +4890,21 @@ kbd + kbd {
     justify-content: center;
     gap: 3px;
     min-width: 0;
+    font-family: var(--font-families-mono);
+}
+
+.glyph-kerning-code-first {
+    color: var(--accent-blue);
+}
+
+.glyph-kerning-code-second {
+    color: var(--accent-orange);
 }
 
 .glyph-kerning-value-input {
     width: 60px;
     text-align: right;
+    font-family: var(--font-families-mono);
 }
 
 @media (max-width: 900px) {
