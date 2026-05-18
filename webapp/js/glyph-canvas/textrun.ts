@@ -1881,6 +1881,11 @@ export class TextRunEditor {
                 this.call('render');
             }
 
+            // Shaping can change the glyphs adjacent to the current cursor
+            // without changing cursorPosition itself, so cursor-dependent UI
+            // such as the kerning panel needs an explicit refresh here.
+            this.call('cursormoved');
+
             // Prefetch explicit glyph outlines/advances in background for tokens
             // that are missing in the current editing font subset.
             this.prefetchExplicitGlyphOutlinesForCurrentState();

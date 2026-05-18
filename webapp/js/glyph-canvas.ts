@@ -20,7 +20,8 @@ import {
     Component,
     DecomposedAffineTransform,
     Glyph,
-    Layer
+    Layer,
+    Master
 } from './babelfont-model';
 import { updateUrlState, encodeLocation } from './url-state';
 import { isSyncEnabled } from './state-sync';
@@ -107,6 +108,211 @@ type LayerListContextTarget = {
     designLocation: DesignspaceLocation | null;
     isMasterBound: boolean;
 };
+
+type KerningSide = 'first' | 'second';
+
+type TextModeKerningStatus =
+    | 'ready'
+    | 'off-master'
+    | 'bidi-boundary'
+    | 'no-pair';
+
+type TextRunClusterInfo = {
+    glyphIndex: number;
+    glyphCount: number;
+    start: number;
+    end: number;
+    x: number;
+    width: number;
+    isRTL: boolean;
+};
+
+type TextModeKerningOperand = {
+    side: KerningSide;
+    kind: 'glyph' | 'group';
+    name: string;
+    key: string;
+    label: string;
+    removable: boolean;
+    participates: boolean;
+    compatible: boolean;
+    active: boolean;
+};
+
+type TextModeKerningSelection = {
+    firstKey: string | null;
+    secondKey: string | null;
+};
+
+type TextModeKerningContext = {
+    status: TextModeKerningStatus;
+    message: string;
+    isRTL: boolean;
+    master: Master | null;
+    metrics: Record<string, number> | null;
+    firstGlyphName: string | null;
+    secondGlyphName: string | null;
+    firstCluster: TextRunClusterInfo | null;
+    secondCluster: TextRunClusterInfo | null;
+    firstOptions: TextModeKerningOperand[];
+    secondOptions: TextModeKerningOperand[];
+    selectedFirstKey: string | null;
+    selectedSecondKey: string | null;
+    selectedFirstLabel: string | null;
+    selectedSecondLabel: string | null;
+    selectedValue: number | null;
+    hasSelectedValue: boolean;
+};
+
+type KerningRow = Map<string, number> | Record<string, number>;
+type KerningContainer =
+    | Map<string, KerningRow | number>
+    | Record<string, KerningRow | number>;
+
+function isKerningRow(
+    value: KerningRow | number | null | undefined
+): value is KerningRow {
+    return value instanceof Map || (!!value && typeof value === 'object');
+}
+
+function getFlatKerningPairKey(firstKey: string, secondKey: string): string {
+    return `${firstKey}:${secondKey}`;
+}
+
+function getFlatKerningPairValue(
+    kerning: KerningContainer,
+    firstKey: string,
+    secondKey: string
+): number | null {
+    const flatKey = getFlatKerningPairKey(firstKey, secondKey);
+
+    if (kerning instanceof Map) {
+        const value = kerning.get(flatKey);
+        return typeof value === 'number' ? value : null;
+    }
+
+    const value = kerning[flatKey];
+    return typeof value === 'number' ? value : null;
+}
+
+function usesFlatKerningPairs(kerning: KerningContainer | undefined): boolean {
+    if (!kerning) {
+        return false;
+    }
+
+    if (kerning instanceof Map) {
+        for (const [key, value] of kerning.entries()) {
+            if (typeof value === 'number' || key.includes(':')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    return Object.entries(kerning).some(
+        ([key, value]) => typeof value === 'number' || key.includes(':')
+    );
+}
+
+function findAdjacentKerningClusters(
+    clusterMap: TextRunClusterInfo[] | undefined,
+    cursorPosition: number
+): {
+    firstCluster: TextRunClusterInfo | null;
+    secondCluster: TextRunClusterInfo | null;
+} {
+    if (!clusterMap || clusterMap.length === 0) {
+        return {
+            firstCluster: null,
+            secondCluster: null
+        };
+    }
+
+    let firstCluster: TextRunClusterInfo | null = null;
+    let secondCluster: TextRunClusterInfo | null = null;
+
+    for (const cluster of clusterMap) {
+        if (cluster.end === cursorPosition) {
+            firstCluster = cluster;
+        }
+        if (secondCluster === null && cluster.start === cursorPosition) {
+            secondCluster = cluster;
+        }
+    }
+
+    return {
+        firstCluster,
+        secondCluster
+    };
+}
+
+function collectKerningGroupMemberships(
+    groups: Record<string, string[]> | undefined,
+    glyphName: string | null
+): string[] {
+    if (!groups || !glyphName) {
+        return [];
+    }
+
+    const memberships: string[] = [];
+    for (const [groupName, members] of Object.entries(groups)) {
+        if (!Array.isArray(members) || !members.includes(glyphName)) {
+            continue;
+        }
+        memberships.push(groupName);
+    }
+
+    memberships.sort((left, right) => left.localeCompare(right));
+    return memberships;
+}
+
+function formatKerningOperandLabel(
+    kind: 'glyph' | 'group',
+    name: string
+): string {
+    return kind === 'group' ? `@${name}` : name;
+}
+
+function getKerningPairValue(
+    kerning: KerningContainer | undefined,
+    firstKey: string,
+    secondKey: string
+): number | null {
+    if (!kerning) {
+        return null;
+    }
+
+    const flatValue = getFlatKerningPairValue(kerning, firstKey, secondKey);
+    if (flatValue !== null) {
+        return flatValue;
+    }
+
+    if (kerning instanceof Map) {
+        const row = kerning.get(firstKey);
+        if (!isKerningRow(row)) {
+            return null;
+        }
+        if (row instanceof Map) {
+            const value = row.get(secondKey);
+            return typeof value === 'number' ? value : null;
+        }
+        const value = row[secondKey];
+        return typeof value === 'number' ? value : null;
+    }
+
+    const row = kerning[firstKey];
+    if (!isKerningRow(row)) {
+        return null;
+    }
+
+    if (row instanceof Map) {
+        const value = row.get(secondKey);
+        return typeof value === 'number' ? value : null;
+    }
+
+    const value = row[secondKey];
+    return typeof value === 'number' ? value : null;
+}
 
 function compareLocationMaps(
     left: Record<string, any> | null | undefined,
@@ -265,6 +471,14 @@ class GlyphCanvas {
     axesSection: HTMLElement | null = null;
     glyphStackLabel: HTMLElement | null = null;
     restoreCanvasFocusAfterPropertyCommit: boolean = false;
+    textModeKerningSelection: TextModeKerningSelection = {
+        firstKey: null,
+        secondKey: null
+    };
+    textModeKerningSelectionPinned: boolean = false;
+    textModeKerningSelectionScopeKey: string | null = null;
+    textModeKerningDraftPairKey: string | null = null;
+    textModeKerningDraftValue: string | null = null;
 
     zoomAnimation: {
         active: boolean;
@@ -1157,6 +1371,7 @@ class GlyphCanvas {
 
     setupTextEditorEventHandlers(): void {
         this.textRunEditor!.on('cursormoved', () => {
+            this.updatePropertyPanel();
             this.panToCursor();
             this.render();
         });
@@ -1179,6 +1394,7 @@ class GlyphCanvas {
                 }
             }
 
+            this.updatePropertyPanel();
             this.render();
         });
         this.textRunEditor!.on('exitcomponentediting', () => {
@@ -2934,6 +3150,7 @@ class GlyphCanvas {
 
         // Update master list UI
         this.updateMasterSelection();
+        this.updatePropertyPanel();
 
         // Capture cursor position for auto-pan during animation
         this.captureTextModeAutoPanAnchor();
@@ -3212,6 +3429,7 @@ class GlyphCanvas {
             );
             this.textRunEditor!.selectedMasterId = matchingMaster.id;
             this.updateMasterSelection();
+            this.updatePropertyPanel();
         } else if (
             !matchingMaster &&
             this.textRunEditor!.selectedMasterId !== null
@@ -3219,6 +3437,7 @@ class GlyphCanvas {
             console.log('[GlyphCanvas] Deselecting master (no match)');
             this.textRunEditor!.selectedMasterId = null;
             this.updateMasterSelection();
+            this.updatePropertyPanel();
         }
     }
 
@@ -4371,6 +4590,775 @@ class GlyphCanvas {
         return true;
     }
 
+    private getSelectedTextModeKerningMaster(): Master | null {
+        if (!this.textRunEditor?.selectedMasterId) {
+            return null;
+        }
+
+        const fontModel = fontManager.currentFont?.fontModel;
+        return (
+            fontModel?.masters?.find(
+                (candidate: Master) =>
+                    candidate.id === this.textRunEditor?.selectedMasterId
+            ) ?? null
+        );
+    }
+
+    private getKerningGlyphNameForCluster(
+        cluster: TextRunClusterInfo | null
+    ): string | null {
+        if (!cluster || !this.textRunEditor) {
+            return null;
+        }
+
+        const glyphIndex = cluster.isRTL
+            ? this.textRunEditor.findLastGlyphAtClusterPosition(cluster.start)
+            : this.textRunEditor.findFirstGlyphAtClusterPosition(cluster.start);
+        if (glyphIndex < 0) {
+            return null;
+        }
+
+        return this.textRunEditor.glyphNameBuffer[glyphIndex] || null;
+    }
+
+    private syncTextModeKerningSelection(
+        firstKeys: string[],
+        secondKeys: string[]
+    ): TextModeKerningSelection {
+        const previousFirstKey = this.textModeKerningSelection.firstKey;
+        const previousSecondKey = this.textModeKerningSelection.secondKey;
+        const nextFirstKey = firstKeys.includes(
+            this.textModeKerningSelection.firstKey || ''
+        )
+            ? this.textModeKerningSelection.firstKey
+            : null;
+        const nextSecondKey = secondKeys.includes(
+            this.textModeKerningSelection.secondKey || ''
+        )
+            ? this.textModeKerningSelection.secondKey
+            : null;
+
+        this.textModeKerningSelection = {
+            firstKey: nextFirstKey,
+            secondKey: nextSecondKey
+        };
+
+        if (
+            nextFirstKey !== previousFirstKey ||
+            nextSecondKey !== previousSecondKey
+        ) {
+            this.textModeKerningSelectionPinned = false;
+        }
+
+        const pairKey =
+            nextFirstKey && nextSecondKey
+                ? `${nextFirstKey}\u0000${nextSecondKey}`
+                : null;
+        if (pairKey !== this.textModeKerningDraftPairKey) {
+            this.textModeKerningDraftPairKey = null;
+            this.textModeKerningDraftValue = null;
+        }
+
+        return this.textModeKerningSelection;
+    }
+
+    private syncTextModeKerningSelectionScope(scopeKey: string | null): void {
+        if (this.textModeKerningSelectionScopeKey === scopeKey) {
+            return;
+        }
+
+        this.textModeKerningSelectionScopeKey = scopeKey;
+        this.textModeKerningSelectionPinned = false;
+    }
+
+    private getPreferredTextModeKerningSelection(
+        master: Master | null,
+        firstKeys: string[],
+        secondKeys: string[]
+    ): TextModeKerningSelection {
+        const fallbackSelection = {
+            firstKey: firstKeys[0] || null,
+            secondKey: secondKeys[0] || null
+        };
+
+        if (!master) {
+            return fallbackSelection;
+        }
+
+        const kerning = master.kerning as KerningContainer | undefined;
+        if (!kerning) {
+            return fallbackSelection;
+        }
+
+        const glyphFirstKeys = firstKeys.filter((key) => !key.startsWith('@'));
+        const groupFirstKeys = firstKeys.filter((key) => key.startsWith('@'));
+        const glyphSecondKeys = secondKeys.filter(
+            (key) => !key.startsWith('@')
+        );
+        const groupSecondKeys = secondKeys.filter((key) => key.startsWith('@'));
+        const preferredPairs: Array<[string, string]> = [];
+
+        const appendPairs = (
+            currentFirstKeys: string[],
+            currentSecondKeys: string[]
+        ) => {
+            for (const firstKey of currentFirstKeys) {
+                for (const secondKey of currentSecondKeys) {
+                    preferredPairs.push([firstKey, secondKey]);
+                }
+            }
+        };
+
+        appendPairs(glyphFirstKeys, glyphSecondKeys);
+        appendPairs(glyphFirstKeys, groupSecondKeys);
+        appendPairs(groupFirstKeys, glyphSecondKeys);
+        appendPairs(groupFirstKeys, groupSecondKeys);
+
+        for (const [firstKey, secondKey] of preferredPairs) {
+            const value = getKerningPairValue(kerning, firstKey, secondKey);
+            if (value !== null && value !== 0) {
+                return { firstKey, secondKey };
+            }
+        }
+
+        for (const [firstKey, secondKey] of preferredPairs) {
+            const value = getKerningPairValue(kerning, firstKey, secondKey);
+            if (value !== null) {
+                return { firstKey, secondKey };
+            }
+        }
+
+        return fallbackSelection;
+    }
+
+    private resolveTextModeKerningSelection(
+        master: Master | null,
+        firstKeys: string[],
+        secondKeys: string[],
+        currentSelection: TextModeKerningSelection
+    ): TextModeKerningSelection {
+        const preferredSelection = this.getPreferredTextModeKerningSelection(
+            master,
+            firstKeys,
+            secondKeys
+        );
+
+        if (!currentSelection.firstKey || !currentSelection.secondKey) {
+            return preferredSelection;
+        }
+
+        if (
+            !firstKeys.includes(currentSelection.firstKey) ||
+            !secondKeys.includes(currentSelection.secondKey)
+        ) {
+            return preferredSelection;
+        }
+
+        if (!master) {
+            return currentSelection;
+        }
+
+        const kerning = master.kerning as KerningContainer | undefined;
+        const currentValue = kerning
+            ? getKerningPairValue(
+                  kerning,
+                  currentSelection.firstKey,
+                  currentSelection.secondKey
+              )
+            : null;
+        const preferredValue =
+            preferredSelection.firstKey &&
+            preferredSelection.secondKey &&
+            kerning
+                ? getKerningPairValue(
+                      kerning,
+                      preferredSelection.firstKey,
+                      preferredSelection.secondKey
+                  )
+                : null;
+
+        if (
+            (currentValue === null || currentValue === 0) &&
+            !this.textModeKerningSelectionPinned &&
+            preferredValue !== null &&
+            preferredValue !== 0
+        ) {
+            return preferredSelection;
+        }
+
+        return currentSelection;
+    }
+
+    private buildTextModeKerningOperands(
+        side: KerningSide,
+        glyphName: string,
+        groupNames: string[],
+        master: Master | null,
+        oppositeKeys: string[],
+        selectedOppositeKey: string | null,
+        activeKey: string | null
+    ): TextModeKerningOperand[] {
+        const kerning =
+            (master?.kerning as KerningContainer | undefined) || undefined;
+        const options = [
+            {
+                side,
+                kind: 'glyph' as const,
+                name: glyphName,
+                key: glyphName,
+                label: formatKerningOperandLabel('glyph', glyphName),
+                removable: false
+            },
+            ...groupNames.map((groupName) => ({
+                side,
+                kind: 'group' as const,
+                name: groupName,
+                key: `@${groupName}`,
+                label: formatKerningOperandLabel('group', groupName),
+                removable: true
+            }))
+        ];
+
+        return options.map((option) => {
+            let participates = false;
+            let compatible = false;
+
+            if (kerning) {
+                for (const oppositeKey of oppositeKeys) {
+                    const value =
+                        side === 'first'
+                            ? getKerningPairValue(
+                                  kerning,
+                                  option.key,
+                                  oppositeKey
+                              )
+                            : getKerningPairValue(
+                                  kerning,
+                                  oppositeKey,
+                                  option.key
+                              );
+                    if (value !== null && value !== 0) {
+                        participates = true;
+                        break;
+                    }
+                }
+
+                if (selectedOppositeKey) {
+                    const selectedValue =
+                        side === 'first'
+                            ? getKerningPairValue(
+                                  kerning,
+                                  option.key,
+                                  selectedOppositeKey
+                              )
+                            : getKerningPairValue(
+                                  kerning,
+                                  selectedOppositeKey,
+                                  option.key
+                              );
+                    compatible = selectedValue !== null && selectedValue !== 0;
+                }
+            }
+
+            return {
+                ...option,
+                participates,
+                compatible,
+                active: option.key === activeKey
+            };
+        });
+    }
+
+    private getCurrentTextModeKerningContext(): TextModeKerningContext {
+        const defaultContext: TextModeKerningContext = {
+            status: 'no-pair',
+            message: 'Place the cursor between two glyphs',
+            isRTL: false,
+            master: null,
+            metrics: null,
+            firstGlyphName: null,
+            secondGlyphName: null,
+            firstCluster: null,
+            secondCluster: null,
+            firstOptions: [],
+            secondOptions: [],
+            selectedFirstKey: null,
+            selectedSecondKey: null,
+            selectedFirstLabel: null,
+            selectedSecondLabel: null,
+            selectedValue: null,
+            hasSelectedValue: false
+        };
+
+        if (!this.textRunEditor || !fontManager.currentFont?.fontModel) {
+            this.syncTextModeKerningSelectionScope(null);
+            return defaultContext;
+        }
+
+        const { firstCluster, secondCluster } = findAdjacentKerningClusters(
+            this.textRunEditor.clusterMap as TextRunClusterInfo[] | undefined,
+            this.textRunEditor.cursorPosition
+        );
+        if (!firstCluster || !secondCluster) {
+            this.syncTextModeKerningSelectionScope(null);
+            return defaultContext;
+        }
+
+        if (firstCluster.isRTL !== secondCluster.isRTL) {
+            return {
+                ...defaultContext,
+                status: 'bidi-boundary',
+                message: 'Kerning is disabled at direction boundaries',
+                isRTL: firstCluster.isRTL,
+                firstCluster,
+                secondCluster
+            };
+        }
+
+        const firstGlyphName = this.getKerningGlyphNameForCluster(firstCluster);
+        const secondGlyphName =
+            this.getKerningGlyphNameForCluster(secondCluster);
+        if (!firstGlyphName || !secondGlyphName) {
+            this.syncTextModeKerningSelectionScope(null);
+            return defaultContext;
+        }
+
+        this.syncTextModeKerningSelectionScope(
+            [
+                this.textRunEditor.selectedMasterId || '',
+                firstGlyphName,
+                secondGlyphName,
+                String(firstCluster.start),
+                String(secondCluster.start),
+                firstCluster.isRTL ? 'rtl' : 'ltr'
+            ].join('\u0000')
+        );
+
+        const fontModel = fontManager.currentFont.fontModel;
+        const firstGroupNames = collectKerningGroupMemberships(
+            fontModel.first_kern_groups,
+            firstGlyphName
+        );
+        const secondGroupNames = collectKerningGroupMemberships(
+            fontModel.second_kern_groups,
+            secondGlyphName
+        );
+        const firstKeys = [
+            firstGlyphName,
+            ...firstGroupNames.map((name) => `@${name}`)
+        ];
+        const secondKeys = [
+            secondGlyphName,
+            ...secondGroupNames.map((name) => `@${name}`)
+        ];
+        const selection = this.syncTextModeKerningSelection(
+            firstKeys,
+            secondKeys
+        );
+        const master = this.getSelectedTextModeKerningMaster();
+        const resolvedSelection = this.resolveTextModeKerningSelection(
+            master,
+            firstKeys,
+            secondKeys,
+            selection
+        );
+
+        this.textModeKerningSelection = resolvedSelection;
+        const firstOptions = this.buildTextModeKerningOperands(
+            'first',
+            firstGlyphName,
+            firstGroupNames,
+            master,
+            secondKeys,
+            resolvedSelection.secondKey,
+            resolvedSelection.firstKey
+        );
+        const secondOptions = this.buildTextModeKerningOperands(
+            'second',
+            secondGlyphName,
+            secondGroupNames,
+            master,
+            firstKeys,
+            resolvedSelection.firstKey,
+            resolvedSelection.secondKey
+        );
+
+        const selectedValue =
+            master && resolvedSelection.firstKey && resolvedSelection.secondKey
+                ? getKerningPairValue(
+                      master.kerning as KerningContainer | undefined,
+                      resolvedSelection.firstKey,
+                      resolvedSelection.secondKey
+                  )
+                : null;
+        const selectedFirstLabel =
+            firstOptions.find(
+                (option) => option.key === resolvedSelection.firstKey
+            )?.label ?? null;
+        const selectedSecondLabel =
+            secondOptions.find(
+                (option) => option.key === resolvedSelection.secondKey
+            )?.label ?? null;
+
+        return {
+            status: master ? 'ready' : 'off-master',
+            message: master ? '' : 'Select an exact master to edit kerning',
+            isRTL: firstCluster.isRTL,
+            master,
+            metrics: (master?.metrics as Record<string, number> | null) || null,
+            firstGlyphName,
+            secondGlyphName,
+            firstCluster,
+            secondCluster,
+            firstOptions,
+            secondOptions,
+            selectedFirstKey: resolvedSelection.firstKey,
+            selectedSecondKey: resolvedSelection.secondKey,
+            selectedFirstLabel,
+            selectedSecondLabel,
+            selectedValue,
+            hasSelectedValue: selectedValue !== null
+        };
+    }
+
+    private setTextModeKerningSelection(side: KerningSide, key: string): void {
+        this.textModeKerningSelection = {
+            ...this.textModeKerningSelection,
+            [side === 'first' ? 'firstKey' : 'secondKey']: key
+        };
+        this.textModeKerningSelectionPinned = true;
+        this.textModeKerningDraftPairKey = null;
+        this.textModeKerningDraftValue = null;
+        this.updatePropertyPanel();
+        this.render();
+    }
+
+    private scheduleTextModeKerningCompile(reason: string): void {
+        fontManager.lastChangeSource = 'keyboard';
+        fontManager.lastEditType = null;
+        fontManager.currentFont?.markDirty(reason);
+        window.autoCompileManager?.checkAndSchedule?.();
+    }
+
+    private updateTextModeKerningGroupMembership(
+        side: KerningSide,
+        glyphName: string,
+        groupName: string,
+        include: boolean
+    ): void {
+        const normalizedGroupName = groupName.trim().replace(/^@+/, '');
+        if (!normalizedGroupName) {
+            return;
+        }
+
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel) {
+            return;
+        }
+
+        let groups =
+            side === 'first'
+                ? fontModel.first_kern_groups
+                : fontModel.second_kern_groups;
+        if (!groups) {
+            if (!include) {
+                return;
+            }
+
+            if (side === 'first') {
+                fontModel.first_kern_groups = {};
+                groups = fontModel.first_kern_groups;
+            } else {
+                fontModel.second_kern_groups = {};
+                groups = fontModel.second_kern_groups;
+            }
+        }
+        if (!groups) {
+            return;
+        }
+
+        window.patchSyncEngine?.beginTransaction(
+            include
+                ? 'Add kern group membership'
+                : 'Remove kern group membership'
+        );
+        try {
+            if (include) {
+                if (!Array.isArray(groups[normalizedGroupName])) {
+                    groups[normalizedGroupName] = [];
+                }
+                if (!groups[normalizedGroupName].includes(glyphName)) {
+                    groups[normalizedGroupName].push(glyphName);
+                    groups[normalizedGroupName].sort((left, right) =>
+                        left.localeCompare(right)
+                    );
+                }
+            } else {
+                const members = groups[normalizedGroupName];
+                if (!Array.isArray(members)) {
+                    return;
+                }
+                const memberIndex = members.indexOf(glyphName);
+                if (memberIndex >= 0) {
+                    members.splice(memberIndex, 1);
+                }
+                if (members.length === 0) {
+                    delete groups[normalizedGroupName];
+                }
+            }
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        this.scheduleTextModeKerningCompile('kerning-group-membership');
+        this.updatePropertyPanel();
+        this.render();
+    }
+
+    private promptAndAddTextModeKerningGroup(
+        side: KerningSide,
+        glyphName: string | null
+    ): void {
+        if (!glyphName) {
+            return;
+        }
+
+        const groupName = window.prompt(
+            `Add ${glyphName} to a ${side} kerning group`
+        );
+        if (groupName === null) {
+            return;
+        }
+
+        this.updateTextModeKerningGroupMembership(
+            side,
+            glyphName,
+            groupName,
+            true
+        );
+    }
+
+    private setKerningPairValueOnMaster(
+        master: Master,
+        firstKey: string,
+        secondKey: string,
+        nextValue: number | null
+    ): void {
+        const kerning = master.kerning as KerningContainer | undefined;
+        const flatKey = getFlatKerningPairKey(firstKey, secondKey);
+
+        if (!kerning || usesFlatKerningPairs(kerning)) {
+            if (kerning instanceof Map) {
+                if (nextValue === null) {
+                    kerning.delete(flatKey);
+                } else {
+                    kerning.set(flatKey, nextValue);
+                }
+                return;
+            }
+
+            if (!kerning) {
+                if (nextValue === null) {
+                    return;
+                }
+                master.kerning = {
+                    [flatKey]: nextValue
+                } as unknown as Master['kerning'];
+                return;
+            }
+
+            if (nextValue === null) {
+                delete kerning[flatKey];
+            } else {
+                kerning[flatKey] = nextValue;
+            }
+            return;
+        }
+
+        if (kerning instanceof Map) {
+            if (nextValue === null) {
+                const row = kerning.get(firstKey);
+                if (row instanceof Map) {
+                    row.delete(secondKey);
+                    if (row.size === 0) {
+                        kerning.delete(firstKey);
+                    }
+                } else if (isKerningRow(row) && secondKey in row) {
+                    delete row[secondKey];
+                    if (Object.keys(row).length === 0) {
+                        kerning.delete(firstKey);
+                    }
+                }
+                return;
+            }
+
+            const existingRow = kerning.get(firstKey);
+            if (existingRow instanceof Map) {
+                existingRow.set(secondKey, nextValue);
+                return;
+            }
+            if (isKerningRow(existingRow)) {
+                existingRow[secondKey] = nextValue;
+                return;
+            }
+
+            kerning.set(firstKey, new Map([[secondKey, nextValue]]));
+            return;
+        }
+
+        if (!kerning) {
+            if (nextValue === null) {
+                return;
+            }
+            master.kerning = {
+                [firstKey]: {
+                    [secondKey]: nextValue
+                }
+            } as unknown as Master['kerning'];
+            return;
+        }
+
+        if (nextValue === null) {
+            const row = kerning[firstKey];
+            if (!isKerningRow(row)) {
+                return;
+            }
+            if (row instanceof Map) {
+                row.delete(secondKey);
+                if (row.size === 0) {
+                    delete kerning[firstKey];
+                }
+                return;
+            }
+
+            delete row[secondKey];
+            if (Object.keys(row).length === 0) {
+                delete kerning[firstKey];
+            }
+            return;
+        }
+
+        if (!kerning[firstKey]) {
+            kerning[firstKey] = {};
+        }
+
+        const row = kerning[firstKey];
+        if (row instanceof Map) {
+            row.set(secondKey, nextValue);
+        } else if (isKerningRow(row)) {
+            row[secondKey] = nextValue;
+        }
+    }
+
+    private async commitTextModeKerningValue(
+        value: string,
+        context: TextModeKerningContext
+    ): Promise<void> {
+        if (
+            !context.master ||
+            !context.selectedFirstKey ||
+            !context.selectedSecondKey
+        ) {
+            return;
+        }
+
+        const trimmedValue = value.trim();
+        const nextValue = trimmedValue === '' ? null : Number(trimmedValue);
+        if (trimmedValue !== '' && !Number.isFinite(nextValue)) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const currentValue = context.hasSelectedValue
+            ? context.selectedValue
+            : null;
+        const nextPairKey = `${context.selectedFirstKey}\u0000${context.selectedSecondKey}`;
+        if (currentValue === nextValue) {
+            this.textModeKerningDraftPairKey = nextPairKey;
+            this.textModeKerningDraftValue = trimmedValue;
+            this.updatePropertyPanel();
+            return;
+        }
+
+        window.patchSyncEngine?.beginTransaction('Edit kerning pair');
+        try {
+            this.setKerningPairValueOnMaster(
+                context.master,
+                context.selectedFirstKey,
+                context.selectedSecondKey,
+                nextValue
+            );
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        this.textModeKerningDraftPairKey = nextPairKey;
+        this.textModeKerningDraftValue = trimmedValue;
+        this.scheduleTextModeKerningCompile('kerning-property-panel');
+        this.updatePropertyPanel();
+        this.render();
+    }
+
+    private updateTextModeKerningMirror(
+        input: HTMLInputElement,
+        mirror: HTMLElement
+    ): void {
+        const nextValue = input.value.trim() || input.placeholder || '0';
+        mirror.textContent = nextValue;
+        mirror.classList.toggle(
+            'glyph-kerning-value-mirror-empty',
+            !input.value.trim()
+        );
+    }
+
+    getTextModeKerningOverlayState(): {
+        minX: number;
+        maxX: number;
+        topY: number;
+        bottomY: number;
+        value: number;
+    } | null {
+        const context = this.getCurrentTextModeKerningContext();
+        if (
+            context.status !== 'ready' ||
+            !context.firstCluster ||
+            !context.secondCluster ||
+            !context.metrics ||
+            !context.hasSelectedValue ||
+            context.selectedValue === null ||
+            context.selectedValue === 0
+        ) {
+            return null;
+        }
+
+        const secondVisualEdge = context.isRTL
+            ? context.secondCluster.x + context.secondCluster.width
+            : context.secondCluster.x;
+        const directionSign = context.isRTL ? -1 : 1;
+        const adjustmentEdge =
+            secondVisualEdge - directionSign * context.selectedValue;
+        const metricValues = Object.values(context.metrics).filter((value) =>
+            Number.isFinite(value)
+        );
+        const fontUpm = Number(fontManager.currentFont?.fontModel?.upm) || 1000;
+        const topY =
+            metricValues.length > 0
+                ? Math.max(...metricValues, 0)
+                : fontUpm * 0.8;
+        const bottomY =
+            metricValues.length > 0
+                ? Math.min(...metricValues, 0)
+                : -fontUpm * 0.2;
+
+        return {
+            minX: Math.min(secondVisualEdge, adjustmentEdge),
+            maxX: Math.max(secondVisualEdge, adjustmentEdge),
+            topY,
+            bottomY,
+            value: context.selectedValue
+        };
+    }
+
     updatePropertyPanel(): void {
         if (!this.propertyPanel) {
             return;
@@ -4378,11 +5366,12 @@ class GlyphCanvas {
 
         const activeInputState = this.getActivePropertyInputState();
         this.propertyPanel.classList.remove('component-properties');
+        this.propertyPanel.classList.remove('text-mode-kerning-panel');
 
         this.propertyPanel.textContent = '';
 
         if (!this.outlineEditor.active) {
-            this.propertyPanel.classList.add('hidden');
+            this.renderTextModePropertyPanel(activeInputState);
             return;
         }
 
@@ -4859,6 +5848,313 @@ class GlyphCanvas {
         content.appendChild(createControl('left', 'LSB'));
         content.appendChild(createWidthDisplay());
         content.appendChild(createControl('right', 'RSB'));
+        this.propertyPanel.appendChild(content);
+        this.restoreActivePropertyInput(activeInputState);
+    }
+
+    private renderTextModePropertyPanel(
+        activeInputState: ActivePropertyInputState | null
+    ): void {
+        if (!this.propertyPanel || !this.textRunEditor) {
+            return;
+        }
+
+        this.propertyPanel.classList.remove('hidden');
+        this.propertyPanel.classList.add('text-mode-kerning-panel');
+
+        const context = this.getCurrentTextModeKerningContext();
+        if (
+            context.status === 'no-pair' ||
+            context.status === 'bidi-boundary'
+        ) {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'glyph-property-panel-placeholder';
+
+            const message = document.createElement('span');
+            message.className = 'glyph-property-value';
+            message.textContent = context.message;
+
+            placeholder.appendChild(message);
+            this.propertyPanel.appendChild(placeholder);
+            return;
+        }
+
+        const content = document.createElement('div');
+        content.className =
+            'glyph-property-panel-content glyph-kerning-panel-content';
+
+        const shell = document.createElement('div');
+        shell.className = 'glyph-kerning-panel-shell';
+
+        const createSide = (
+            side: KerningSide,
+            title: string,
+            glyphName: string | null,
+            options: TextModeKerningOperand[]
+        ) => {
+            const sideElement = document.createElement('div');
+            sideElement.className = 'glyph-kerning-side';
+
+            const header = document.createElement('span');
+            header.className = 'glyph-property-control-label';
+            header.textContent = title;
+            sideElement.appendChild(header);
+
+            const pills = document.createElement('div');
+            pills.className = 'glyph-kerning-pills';
+
+            for (const option of options) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className =
+                    'glyph-filter-legend-item glyph-kerning-pill';
+                button.dataset.kerningSide = side;
+                button.dataset.kerningKey = option.key;
+                button.title = option.label;
+
+                const label = document.createElement('span');
+                label.className =
+                    'glyph-filter-legend-label glyph-kerning-pill-label';
+                label.textContent = option.label;
+
+                button.appendChild(label);
+
+                button.classList.toggle(
+                    'glyph-kerning-pill-base',
+                    option.kind === 'glyph'
+                );
+                if (option.participates) {
+                    button.classList.add('glyph-kerning-pill-participates');
+                }
+                if (option.compatible && !option.active) {
+                    button.classList.add('selected-glyph-group');
+                }
+                if (option.active) {
+                    button.classList.add('active');
+                }
+
+                if (option.removable) {
+                    const removeBadge = document.createElement('span');
+                    removeBadge.className = 'glyph-kerning-pill-remove';
+                    removeBadge.title = `Remove ${glyphName || ''} from ${option.label}`;
+                    removeBadge.setAttribute('aria-hidden', 'true');
+
+                    const removeIcon = document.createElement('span');
+                    removeIcon.className =
+                        'material-symbols-outlined glyph-kerning-pill-remove-icon';
+                    removeIcon.textContent = 'close';
+                    removeIcon.setAttribute('aria-hidden', 'true');
+                    removeBadge.appendChild(removeIcon);
+                    button.appendChild(removeBadge);
+                }
+
+                button.addEventListener('click', (event) => {
+                    const removeTarget = (
+                        event.target as HTMLElement | null
+                    )?.closest('.glyph-kerning-pill-remove');
+                    if (removeTarget) {
+                        event.preventDefault();
+                        if (!glyphName) {
+                            return;
+                        }
+                        this.updateTextModeKerningGroupMembership(
+                            side,
+                            glyphName,
+                            option.name,
+                            false
+                        );
+                        return;
+                    }
+
+                    this.setTextModeKerningSelection(side, option.key);
+                });
+
+                pills.appendChild(button);
+            }
+
+            sideElement.appendChild(pills);
+            return sideElement;
+        };
+
+        const createAddButton = (
+            side: KerningSide,
+            glyphName: string | null
+        ) => {
+            const addButton = document.createElement('button');
+            addButton.type = 'button';
+            addButton.className = 'glyph-kerning-pill-add';
+            addButton.textContent = '+';
+            addButton.title = `Add ${side} kerning group`;
+            addButton.addEventListener('click', () => {
+                this.promptAndAddTextModeKerningGroup(side, glyphName);
+            });
+            return addButton;
+        };
+
+        const center = document.createElement('div');
+        center.className = 'glyph-kerning-center';
+
+        if (context.status === 'off-master') {
+            const message = document.createElement('span');
+            message.className = 'glyph-property-value';
+            message.textContent = context.message;
+            center.appendChild(message);
+        } else {
+            const code = document.createElement('div');
+            code.className = 'glyph-kerning-code';
+
+            const addCodeToken = (text: string, className?: string) => {
+                const token = document.createElement('span');
+                token.className = className || 'glyph-property-value';
+                token.textContent = text;
+                code.appendChild(token);
+            };
+
+            const pairKey =
+                context.selectedFirstKey && context.selectedSecondKey
+                    ? `${context.selectedFirstKey}\u0000${context.selectedSecondKey}`
+                    : null;
+            const initialValue =
+                pairKey && this.textModeKerningDraftPairKey === pairKey
+                    ? this.textModeKerningDraftValue || ''
+                    : context.hasSelectedValue && context.selectedValue !== null
+                      ? String(context.selectedValue)
+                      : '';
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'glyph-property-input glyph-kerning-value-input';
+            input.dataset.propertyField = 'text-mode-kerning-value';
+            input.value = initialValue;
+            input.placeholder = '0';
+
+            const arrowInputController = new ArrowAdjustableTextInput({
+                input,
+                getValue: () => {
+                    const trimmedValue = input.value.trim();
+                    if (isPlainNumericInputValue(trimmedValue)) {
+                        return Number(trimmedValue);
+                    }
+
+                    return context.selectedValue ?? 0;
+                },
+                applyValue: async (nextValue) => {
+                    input.dataset.skipNextPropertyCommit = 'true';
+                    if (pairKey) {
+                        this.textModeKerningDraftPairKey = pairKey;
+                        this.textModeKerningDraftValue = String(nextValue);
+                    }
+                    await this.commitTextModeKerningValue(
+                        String(nextValue),
+                        context
+                    );
+                },
+                findReplacementInput: () =>
+                    this.propertyPanel?.querySelector(
+                        '.glyph-property-input[data-property-field="text-mode-kerning-value"]'
+                    ) as HTMLInputElement | null
+            });
+
+            input.addEventListener('input', () => {
+                if (pairKey) {
+                    this.textModeKerningDraftPairKey = pairKey;
+                    this.textModeKerningDraftValue = input.value;
+                }
+            });
+
+            input.addEventListener('change', () => {
+                if (input.dataset.skipNextPropertyCommit === 'true') {
+                    delete input.dataset.skipNextPropertyCommit;
+                    return;
+                }
+
+                void this.commitTextModeKerningValue(input.value, context);
+            });
+
+            input.addEventListener('keydown', (event) => {
+                if (this.handlePropertyInputUndoRedo(event)) {
+                    return;
+                }
+
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.textModeKerningDraftPairKey = null;
+                    this.textModeKerningDraftValue = null;
+                    this.updatePropertyPanel();
+                    return;
+                }
+
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    input.dataset.skipNextPropertyCommit = 'true';
+                    void this.commitTextModeKerningValue(input.value, context);
+                    input.blur();
+                }
+            });
+
+            addCodeToken('pos ');
+            addCodeToken(`${context.selectedFirstLabel || ''} `);
+            addCodeToken(`${context.selectedSecondLabel || ''} `);
+
+            if (context.isRTL) {
+                addCodeToken('<0 0 ');
+                code.appendChild(input);
+                addCodeToken(' 0>;');
+            } else {
+                code.appendChild(input);
+                addCodeToken(';');
+            }
+
+            input.addEventListener('blur', () => {
+                setTimeout(() => {
+                    const activeElement =
+                        document.activeElement as HTMLElement | null;
+                    if (
+                        activeElement &&
+                        this.isTextInputElement(activeElement)
+                    ) {
+                        return;
+                    }
+
+                    if (arrowInputController.isApplyingStep) {
+                        return;
+                    }
+
+                    if (input.dataset.skipNextPropertyCommit === 'true') {
+                        delete input.dataset.skipNextPropertyCommit;
+                        return;
+                    }
+
+                    void this.commitTextModeKerningValue(input.value, context);
+                }, 0);
+            });
+
+            center.appendChild(code);
+        }
+
+        shell.appendChild(createAddButton('first', context.firstGlyphName));
+        shell.appendChild(
+            createSide(
+                'first',
+                'First',
+                context.firstGlyphName,
+                context.firstOptions
+            )
+        );
+        shell.appendChild(center);
+        shell.appendChild(
+            createSide(
+                'second',
+                'Second',
+                context.secondGlyphName,
+                context.secondOptions
+            )
+        );
+        shell.appendChild(createAddButton('second', context.secondGlyphName));
+
+        content.appendChild(shell);
+
         this.propertyPanel.appendChild(content);
         this.restoreActivePropertyInput(activeInputState);
     }

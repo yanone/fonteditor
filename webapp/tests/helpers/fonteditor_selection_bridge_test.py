@@ -34,12 +34,54 @@ class FakeJsArray(list, JsProxy):
     def length(self):
         return len(self)
 
+    def to_py(self):
+        return list(self)
+
     def splice(self, index, delete_count, *items):
         if index < 0:
             index = max(0, len(self) + index)
         removed = self[index : index + delete_count]
         self[index : index + delete_count] = list(items)
         return FakeJsArray(removed)
+
+
+class FakeJsMap(JsProxy):
+    constructor_name = 'Map'
+
+    def __init__(self, entries=None):
+        self.constructor = FakeConstructor(self.constructor_name)
+        self._store = dict(entries or [])
+
+    @property
+    def size(self):
+        return len(self._store)
+
+    def has(self, key):
+        return key in self._store
+
+    def get(self, key):
+        return self._store.get(key)
+
+    def set(self, key, value):
+        self._store[key] = value
+        return self
+
+    def delete(self, key):
+        if key not in self._store:
+            return False
+        del self._store[key]
+        return True
+
+    def keys(self):
+        return list(self._store.keys())
+
+
+class FakeJsObjectProxy(JsProxy):
+    constructor_name = 'Proxy'
+
+    def __init__(self, data=None):
+        self.constructor = FakeConstructor(self.constructor_name)
+        self._data = dict(data or {})
 
 
 class FakeAnchor(FakeJsBase):
@@ -88,7 +130,98 @@ class FakeLayer(FakeJsBase):
         self._selection = FakeJsArray(items)
 
 
+class FakeMaster(FakeJsBase):
+    constructor_name = 'Master'
+
+    def __init__(self, kerning, master_id='master-1'):
+        super().__init__()
+        self.id = master_id
+        self.kerning = kerning
+
+
+class FakeGlyph(FakeJsBase):
+    constructor_name = 'Glyph'
+
+    def __init__(self, name, layers):
+        super().__init__()
+        self.name = name
+        self.layers = FakeJsArray(layers)
+
+
+class FakeFont(FakeJsBase):
+    constructor_name = 'Font'
+
+    def __init__(self, glyphs, masters):
+        super().__init__()
+        self.glyphs = FakeJsArray(glyphs)
+        self.masters = FakeJsArray(masters)
+
+    def findGlyph(self, name):
+        for glyph in self.glyphs:
+            if glyph.name == name:
+                return glyph
+        return None
+
+    def findMaster(self, master_id):
+        for master in self.masters:
+            if master.id == master_id:
+                return master
+        return None
+
+
+class FakeLayerForMaster(FakeJsBase):
+    constructor_name = 'Layer'
+
+    def __init__(self, layer_id, master=None):
+        super().__init__()
+        self.id = layer_id
+        self._master = master
+
+    def getMaster(self):
+        return self._master
+
+
+class FakeOutlineEditor(FakeJsBase):
+    constructor_name = 'OutlineEditor'
+
+    def __init__(self, active=False, stack_entries=None):
+        super().__init__()
+        self.active = active
+        self._stack_entries = FakeJsArray(stack_entries or [])
+
+    def parseGlyphStack(self):
+        return FakeJsArray(self._stack_entries)
+
+
+class FakeTextRunEditor(FakeJsBase):
+    constructor_name = 'TextRunEditor'
+
+    def __init__(self, selected_master_id=None):
+        super().__init__()
+        self.selectedMasterId = selected_master_id
+
+
+class FakeGlyphCanvas(FakeJsBase):
+    constructor_name = 'GlyphCanvas'
+
+    def __init__(self, outline_editor=None, text_run_editor=None):
+        super().__init__()
+        self.outlineEditor = outline_editor if outline_editor is not None else JsNull()
+        self.textRunEditor = text_run_editor if text_run_editor is not None else JsNull()
+
+
+class FakeHost(FakeJsBase):
+    constructor_name = 'Window'
+
+    def __init__(self, font_model=None, glyph_canvas=None):
+        super().__init__()
+        self.currentFontModel = font_model if font_model is not None else JsNull()
+        self.glyphCanvas = glyph_canvas if glyph_canvas is not None else JsNull()
+
+
 def _fake_has_own_property(obj, key):
+    if isinstance(obj, FakeJsObjectProxy):
+        return str(key) in obj._data
     if isinstance(obj, dict):
         return str(key) in obj
     return hasattr(obj, str(key))
@@ -97,10 +230,16 @@ def _fake_has_own_property(obj, key):
 def _fake_to_string(value):
     if isinstance(value, FakeJsArray):
         return '[object Array]'
+    if isinstance(value, FakeJsMap):
+        return '[object Map]'
+    if isinstance(value, FakeJsObjectProxy):
+        return '[object Object]'
     return '[object Object]'
 
 
 def _fake_keys(obj):
+    if isinstance(obj, FakeJsObjectProxy):
+        return FakeJsArray(list(obj._data.keys()))
     if isinstance(obj, dict):
         return FakeJsArray(list(obj.keys()))
     return FakeJsArray(
@@ -115,6 +254,8 @@ def _fake_keys(obj):
 def _fake_reflect_get(target, key):
     if isinstance(target, (list, FakeJsArray)):
         return target[key]
+    if isinstance(target, FakeJsObjectProxy):
+        return target._data[str(key)]
     if isinstance(target, dict):
         return target[str(key)]
     return getattr(target, str(key))
@@ -129,6 +270,9 @@ def _fake_reflect_set(target, key, value):
         while len(target) <= index:
             target.append(None)
         target[index] = value
+        return True
+    if isinstance(target, FakeJsObjectProxy):
+        target._data[str(key)] = value
         return True
     if isinstance(target, dict):
         target[str(key)] = value
@@ -149,7 +293,11 @@ def _install_stub_modules():
     sys.modules['pyodide.ffi'] = ffi_module
 
     js_module = types.ModuleType('js')
-    js_module.Array = types.SimpleNamespace(isArray=lambda value: isinstance(value, FakeJsArray))
+    js_module.Array = types.SimpleNamespace(
+        isArray=lambda value: isinstance(value, FakeJsArray),
+        from_=lambda value: FakeJsArray(list(value)),
+    )
+    setattr(js_module.Array, 'from', js_module.Array.from_)
     js_module.Object = types.SimpleNamespace(
         prototype=types.SimpleNamespace(
             hasOwnProperty=types.SimpleNamespace(call=_fake_has_own_property),
@@ -159,6 +307,13 @@ def _install_stub_modules():
         keys=_fake_keys,
     )
     js_module.Reflect = types.SimpleNamespace(get=_fake_reflect_get, set=_fake_reflect_set)
+    js_module.Reflect.deleteProperty = lambda target, key: (
+        target._data.pop(str(key), None) is not None
+        if isinstance(target, FakeJsObjectProxy)
+        else target.pop(str(key), None) is not None
+        if isinstance(target, dict)
+        else False
+    )
     sys.modules['js'] = js_module
 
 
@@ -212,6 +367,119 @@ class FontEditorSelectionBridgeTest(unittest.TestCase):
             self.layer_proxy.selection.append(
                 self.fonteditor.ModelObjectProxy(self.foreign_anchor)
             )
+
+    def test_master_kerning_map_is_wrapped_as_native_python_mapping(self):
+        kerning_map = FakeJsMap(
+            {
+                'A': FakeJsMap({'V': -80}),
+                '@Left': {'@Right': -120},
+            }.items()
+        )
+        master_proxy = self.fonteditor.ModelObjectProxy(FakeMaster(kerning_map))
+
+        kerning = master_proxy.kerning
+
+        self.assertIsInstance(kerning, self.fonteditor.MutableMapping)
+        self.assertEqual(kerning['A']['V'], -80)
+        self.assertEqual(kerning['@Left']['@Right'], -120)
+
+        kerning['A']['W'] = -70
+        kerning['B'] = {'Y': -40}
+
+        self.assertEqual(kerning_map.get('A').get('W'), -70)
+        self.assertEqual(kerning['B']['Y'], -40)
+        self.assertEqual(
+            kerning.as_dict(),
+            {
+                'A': {'V': -80, 'W': -70},
+                '@Left': {'@Right': -120},
+                'B': {'Y': -40},
+            },
+        )
+
+    def test_master_kerning_proxy_object_is_wrapped_as_native_python_mapping(self):
+        kerning_proxy = FakeJsObjectProxy({'@T:@A': -120, '@T:@O': -80})
+        master_proxy = self.fonteditor.ModelObjectProxy(FakeMaster(kerning_proxy))
+
+        kerning = master_proxy.kerning
+
+        self.assertIsInstance(kerning, self.fonteditor.MutableMapping)
+        self.assertEqual(kerning['@T:@A'], -120)
+        kerning['@T:@V'] = -140
+        self.assertEqual(kerning_proxy._data['@T:@V'], -140)
+
+    def test_master_returns_selected_text_mode_master(self):
+        master = FakeMaster({}, master_id='master-selected')
+        font = FakeFont([], [master])
+        host = FakeHost(
+            font_model=font,
+            glyph_canvas=FakeGlyphCanvas(
+                outline_editor=FakeOutlineEditor(active=False),
+                text_run_editor=FakeTextRunEditor('master-selected'),
+            ),
+        )
+        self.fonteditor.js.window = host
+
+        resolved = self.fonteditor.Master()
+
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.id, 'master-selected')
+
+    def test_master_returns_none_when_text_mode_location_is_not_a_master(self):
+        master = FakeMaster({}, master_id='master-selected')
+        font = FakeFont([], [master])
+        host = FakeHost(
+            font_model=font,
+            glyph_canvas=FakeGlyphCanvas(
+                outline_editor=FakeOutlineEditor(active=False),
+                text_run_editor=FakeTextRunEditor(None),
+            ),
+        )
+        self.fonteditor.js.window = host
+
+        self.assertIsNone(self.fonteditor.Master())
+
+    def test_master_uses_active_layer_master_in_edit_mode(self):
+        selected_master = FakeMaster({}, master_id='master-edit')
+        active_layer = FakeLayerForMaster('layer-1', selected_master)
+        interpolated_layer = FakeLayerForMaster('layer-2', None)
+        glyph = FakeGlyph('A', [interpolated_layer, active_layer])
+        font = FakeFont([glyph], [selected_master])
+        host = FakeHost(
+            font_model=font,
+            glyph_canvas=FakeGlyphCanvas(
+                outline_editor=FakeOutlineEditor(
+                    active=True,
+                    stack_entries=[types.SimpleNamespace(glyphName='A', layerId='layer-1')],
+                ),
+                text_run_editor=FakeTextRunEditor('other-master'),
+            ),
+        )
+        self.fonteditor.js.window = host
+
+        resolved = self.fonteditor.Master()
+
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.id, 'master-edit')
+
+    def test_master_returns_none_for_interpolated_edit_layer(self):
+        selected_master = FakeMaster({}, master_id='master-edit')
+        interpolated_layer = FakeLayerForMaster('layer-2', None)
+        glyph = FakeGlyph('A', [interpolated_layer])
+        font = FakeFont([glyph], [selected_master])
+        host = FakeHost(
+            font_model=font,
+            glyph_canvas=FakeGlyphCanvas(
+                outline_editor=FakeOutlineEditor(
+                    active=True,
+                    stack_entries=[types.SimpleNamespace(glyphName='A', layerId='layer-2')],
+                ),
+                text_run_editor=FakeTextRunEditor('master-edit'),
+            ),
+        )
+        self.fonteditor.js.window = host
+
+        self.assertIsNone(self.fonteditor.Master())
 
 
 if __name__ == '__main__':

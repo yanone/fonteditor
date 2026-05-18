@@ -320,6 +320,7 @@ export class GlyphCanvasRenderer {
 
             // Draw shaped glyphs
             this.drawShapedGlyphs();
+            this.drawTextModeKerningOverlay();
 
             // Draw canvas plugins below outline editor
             this.drawCanvasPluginsBelow();
@@ -949,6 +950,36 @@ export class GlyphCanvasRenderer {
             this.ctx.stroke();
         }
 
+        this.ctx.restore();
+    }
+
+    private drawTextModeKerningOverlay(): void {
+        if (this.glyphCanvas.outlineEditor.active) {
+            return;
+        }
+
+        const overlay = this.glyphCanvas.getTextModeKerningOverlayState();
+        if (!overlay || overlay.maxX <= overlay.minX) {
+            return;
+        }
+
+        const computedStyle = getComputedStyle(document.documentElement);
+        const positiveColor = computedStyle
+            .getPropertyValue('--accent-green')
+            .trim();
+        const negativeColor = computedStyle
+            .getPropertyValue('--accent-red')
+            .trim();
+
+        this.ctx.save();
+        this.ctx.globalAlpha = 0.22;
+        this.ctx.fillStyle = overlay.value > 0 ? positiveColor : negativeColor;
+        this.ctx.fillRect(
+            overlay.minX,
+            overlay.bottomY,
+            overlay.maxX - overlay.minX,
+            overlay.topY - overlay.bottomY
+        );
         this.ctx.restore();
     }
 

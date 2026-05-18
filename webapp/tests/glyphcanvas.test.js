@@ -9492,6 +9492,385 @@ describe('GlyphCanvas property panel', () => {
     });
 });
 
+describe('Text-mode kerning property panel', () => {
+    let canvas;
+    let currentFontSpy;
+    let fontModel;
+
+    const makeKerningFont = () =>
+        Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {
+                        ascender: 800,
+                        descender: -200,
+                        WinDescent: 200
+                    },
+                    kerning: {
+                        'A:@VSecond': -40,
+                        '@AFirst:@VSecond': -120
+                    }
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-A',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'V',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-V',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Kerning Panel Test' }
+            },
+            note: '',
+            date: '2026-05-18',
+            features: {},
+            first_kern_groups: {
+                AFirst: ['A']
+            },
+            second_kern_groups: {
+                VSecond: ['V']
+            },
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+    const setTextRunState = ({ rtl = false, masterId = 'master-1' } = {}) => {
+        const clusterMap = rtl
+            ? [
+                  {
+                      glyphIndex: 0,
+                      glyphCount: 1,
+                      start: 0,
+                      end: 1,
+                      x: 120,
+                      width: 40,
+                      isRTL: true
+                  },
+                  {
+                      glyphIndex: 1,
+                      glyphCount: 1,
+                      start: 1,
+                      end: 2,
+                      x: 60,
+                      width: 50,
+                      isRTL: true
+                  }
+              ]
+            : [
+                  {
+                      glyphIndex: 0,
+                      glyphCount: 1,
+                      start: 0,
+                      end: 1,
+                      x: 0,
+                      width: 40,
+                      isRTL: false
+                  },
+                  {
+                      glyphIndex: 1,
+                      glyphCount: 1,
+                      start: 1,
+                      end: 2,
+                      x: 60,
+                      width: 50,
+                      isRTL: false
+                  }
+              ];
+
+        canvas.textRunEditor.cursorPosition = 1;
+        canvas.textRunEditor.selectedMasterId = masterId;
+        canvas.textRunEditor.clusterMap = clusterMap;
+        canvas.textRunEditor.glyphNameBuffer = ['A', 'V'];
+        canvas.textRunEditor.findFirstGlyphAtClusterPosition = jest.fn(
+            (clusterPos) => (clusterPos === 0 ? 0 : 1)
+        );
+        canvas.textRunEditor.findLastGlyphAtClusterPosition = jest.fn(
+            (clusterPos) => (clusterPos === 0 ? 0 : 1)
+        );
+    };
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        fontModel = makeKerningFont();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel });
+        canvas.outlineEditor.active = false;
+        canvas.outlineEditor.selectedLayerId = null;
+        canvas.render = jest.fn();
+    });
+
+    afterEach(() => {
+        currentFontSpy.mockRestore();
+        canvas.destroy();
+    });
+
+    test('renders first-second pills in text mode while off-master', () => {
+        setTextRunState({ masterId: null });
+
+        canvas.updatePropertyPanel();
+
+        const sideLabels = Array.from(
+            document.querySelectorAll(
+                '.glyph-kerning-side .glyph-property-control-label'
+            )
+        ).map((element) => element.textContent);
+        const sides = document.querySelectorAll('.glyph-kerning-side');
+        const firstPills = Array.from(
+            sides[0].querySelectorAll('.glyph-kerning-pill')
+        ).map(
+            (element) =>
+                element.querySelector('.glyph-kerning-pill-label')?.textContent
+        );
+        const secondPills = Array.from(
+            sides[1].querySelectorAll('.glyph-kerning-pill')
+        ).map(
+            (element) =>
+                element.querySelector('.glyph-kerning-pill-label')?.textContent
+        );
+
+        expect(sideLabels).toEqual(['First', 'Second']);
+        expect(firstPills).toEqual(['A', '@AFirst']);
+        expect(secondPills).toEqual(['V', '@VSecond']);
+        expect(
+            document.querySelectorAll('.glyph-kerning-pill-remove')
+        ).toHaveLength(2);
+        expect(
+            document.querySelectorAll(
+                '.glyph-kerning-pill-remove .material-symbols-outlined'
+            )
+        ).toHaveLength(2);
+        expect(
+            document.querySelector('.glyph-kerning-center').textContent
+        ).toContain('Select an exact master');
+    });
+
+    test('shows a short message at direction boundaries', () => {
+        canvas.textRunEditor.cursorPosition = 1;
+        canvas.textRunEditor.selectedMasterId = 'master-1';
+        canvas.textRunEditor.clusterMap = [
+            {
+                glyphIndex: 0,
+                glyphCount: 1,
+                start: 0,
+                end: 1,
+                x: 0,
+                width: 40,
+                isRTL: false
+            },
+            {
+                glyphIndex: 1,
+                glyphCount: 1,
+                start: 1,
+                end: 2,
+                x: 60,
+                width: 50,
+                isRTL: true
+            }
+        ];
+        canvas.textRunEditor.glyphNameBuffer = ['A', 'V'];
+        canvas.textRunEditor.findFirstGlyphAtClusterPosition = jest.fn(
+            (clusterPos) => (clusterPos === 0 ? 0 : 1)
+        );
+        canvas.textRunEditor.findLastGlyphAtClusterPosition = jest.fn(
+            (clusterPos) => (clusterPos === 0 ? 0 : 1)
+        );
+
+        canvas.updatePropertyPanel();
+
+        expect(document.querySelectorAll('.glyph-kerning-side')).toHaveLength(
+            0
+        );
+        expect(
+            document.querySelector('.glyph-property-panel').textContent
+        ).toContain('direction boundaries');
+    });
+
+    test('prefers a defined kerning pair and returns overlay for the active combination', () => {
+        setTextRunState();
+        canvas.textModeKerningSelection = {
+            firstKey: '@AFirst',
+            secondKey: 'V'
+        };
+
+        canvas.updatePropertyPanel();
+        expect(canvas.textModeKerningSelection).toEqual({
+            firstKey: 'A',
+            secondKey: '@VSecond'
+        });
+        expect(
+            document
+                .querySelector(
+                    '.glyph-kerning-pill[data-kerning-side="first"][data-kerning-key="A"]'
+                )
+                ?.classList.contains('active')
+        ).toBe(true);
+        expect(
+            document
+                .querySelector(
+                    '.glyph-kerning-pill[data-kerning-side="second"][data-kerning-key="@VSecond"]'
+                )
+                ?.classList.contains('active')
+        ).toBe(true);
+        expect(
+            document.querySelector('.glyph-kerning-value-input')?.value
+        ).toBe('-40');
+
+        const overlay = canvas.getTextModeKerningOverlayState();
+        expect(overlay).toMatchObject({
+            minX: 60,
+            maxX: 100,
+            value: -40,
+            topY: 800,
+            bottomY: -200
+        });
+    });
+
+    test('keeps an explicitly selected base chip active even when only the group pair is defined', () => {
+        fontModel.masters[0].kerning = {
+            '@AFirst:@VSecond': -120
+        };
+        setTextRunState();
+
+        canvas.updatePropertyPanel();
+
+        const glyphChip = document.querySelector(
+            '.glyph-kerning-pill[data-kerning-side="first"][data-kerning-key="A"]'
+        );
+        glyphChip.click();
+
+        expect(canvas.textModeKerningSelection).toEqual({
+            firstKey: 'A',
+            secondKey: '@VSecond'
+        });
+        expect(
+            document
+                .querySelector(
+                    '.glyph-kerning-pill[data-kerning-side="first"][data-kerning-key="A"]'
+                )
+                ?.classList.contains('active')
+        ).toBe(true);
+        expect(
+            document.querySelector('.glyph-kerning-value-input')?.value
+        ).toBe('');
+    });
+
+    test('returns a non-collapsed overlay when negative kerning closes the glyph gap', () => {
+        setTextRunState();
+        canvas.textRunEditor.clusterMap = [
+            {
+                glyphIndex: 0,
+                glyphCount: 1,
+                start: 0,
+                end: 1,
+                x: 0,
+                width: 40,
+                isRTL: false
+            },
+            {
+                glyphIndex: 1,
+                glyphCount: 1,
+                start: 1,
+                end: 2,
+                x: 40,
+                width: 50,
+                isRTL: false
+            }
+        ];
+
+        canvas.updatePropertyPanel();
+
+        const overlay = canvas.getTextModeKerningOverlayState();
+        expect(overlay).toMatchObject({
+            minX: 40,
+            maxX: 80,
+            value: -40,
+            topY: 800,
+            bottomY: -200
+        });
+    });
+
+    test('shows active selection state on the chosen pill pair', () => {
+        setTextRunState();
+
+        canvas.updatePropertyPanel();
+
+        const activePills = Array.from(
+            document.querySelectorAll('.glyph-kerning-pill.active')
+        ).map(
+            (element) =>
+                element.querySelector('.glyph-kerning-pill-label')?.textContent
+        );
+
+        expect(activePills).toEqual(['A', '@VSecond']);
+    });
+
+    test('renders a single RTL ValueRecord field', () => {
+        setTextRunState({ rtl: true });
+        canvas.textModeKerningSelection = {
+            firstKey: '@AFirst',
+            secondKey: '@VSecond'
+        };
+
+        canvas.updatePropertyPanel();
+
+        const input = document.querySelector('.glyph-kerning-value-input');
+        const code = document.querySelector('.glyph-kerning-code');
+
+        expect(code.textContent).toContain('<0 0');
+        expect(code.textContent).toContain('0>;');
+        expect(
+            document.querySelectorAll('.glyph-kerning-value-input')
+        ).toHaveLength(1);
+        expect(
+            document.querySelector('.glyph-kerning-value-mirror')
+        ).toBeNull();
+        expect(input.value).toBe('-120');
+    });
+});
+
 describe('OutlineEditor exact selected layers', () => {
     let canvas;
     let currentFontSpy;
