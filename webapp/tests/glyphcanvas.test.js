@@ -9868,6 +9868,32 @@ describe('Text-mode kerning property panel', () => {
         ).toBe('');
     });
 
+    test('preselects group chips when no kerning pair is defined and groups exist', () => {
+        fontModel.masters[0].kerning = {};
+        setTextRunState();
+
+        canvas.updatePropertyPanel();
+
+        expect(canvas.textModeKerningSelection).toEqual({
+            firstKey: '@AFirst',
+            secondKey: '@VSecond'
+        });
+        expect(
+            document
+                .querySelector(
+                    '.glyph-kerning-pill[data-kerning-side="first"][data-kerning-key="@AFirst"]'
+                )
+                ?.classList.contains('active')
+        ).toBe(true);
+        expect(
+            document
+                .querySelector(
+                    '.glyph-kerning-pill[data-kerning-side="second"][data-kerning-key="@VSecond"]'
+                )
+                ?.classList.contains('active')
+        ).toBe(true);
+    });
+
     test('returns a non-collapsed overlay when negative kerning closes the glyph gap', () => {
         setTextRunState();
         canvas.textRunEditor.clusterMap = [
@@ -10076,9 +10102,10 @@ describe('Text-mode kerning property panel', () => {
 
         const input = document.querySelector('.glyph-kerning-value-input');
         const code = document.querySelector('.glyph-kerning-code');
+        const normalizedCodeText = code.textContent.replace(/\u00a0/g, ' ');
 
-        expect(code.textContent).toContain('<0 0');
-        expect(code.textContent).toContain('0>;');
+        expect(normalizedCodeText).toContain('<0 0');
+        expect(normalizedCodeText).toContain('0>;');
         expect(
             document.querySelectorAll('.glyph-kerning-value-input')
         ).toHaveLength(1);

@@ -4712,9 +4712,14 @@ class GlyphCanvas {
         firstKeys: string[],
         secondKeys: string[]
     ): TextModeKerningSelection {
+        const pickFallbackKey = (keys: string[]): string | null => {
+            const firstGroupKey = keys.find((key) => key.startsWith('@'));
+            return firstGroupKey || keys[0] || null;
+        };
+
         const fallbackSelection = {
-            firstKey: firstKeys[0] || null,
-            secondKey: secondKeys[0] || null
+            firstKey: pickFallbackKey(firstKeys),
+            secondKey: pickFallbackKey(secondKeys)
         };
 
         if (!master) {
@@ -6102,7 +6107,9 @@ class GlyphCanvas {
                 if (option.removable) {
                     const removeBadge = document.createElement('span');
                     removeBadge.className = 'glyph-kerning-pill-remove';
-                    removeBadge.title = `Remove ${glyphName || ''} from ${option.label}`;
+                    removeBadge.title = glyphName
+                        ? `Remove kerning group "${option.name}" from glyph "${glyphName}"`
+                        : `Remove kerning group "${option.name}"`;
                     removeBadge.setAttribute('aria-hidden', 'true');
 
                     const removeIcon = document.createElement('span');
@@ -6150,7 +6157,9 @@ class GlyphCanvas {
             addButton.type = 'button';
             addButton.className = 'glyph-kerning-pill-add';
             addButton.textContent = '+';
-            addButton.title = `Add ${side} kerning group`;
+            addButton.title = glyphName
+                ? `Add kerning group to glyph "${glyphName}"`
+                : 'Add kerning group';
             addButton.addEventListener('click', () => {
                 this.promptAndAddTextModeKerningGroup(side, glyphName);
             });
@@ -6267,20 +6276,20 @@ class GlyphCanvas {
                 }
             });
 
-            addCodeToken('pos ');
+            addCodeToken('pos\u00A0');
             addCodeToken(
-                `${context.selectedFirstLabel || ''} `,
+                `${context.selectedFirstLabel || ''}\u00A0`,
                 'glyph-property-value glyph-kerning-code-first'
             );
             addCodeToken(
-                `${context.selectedSecondLabel || ''} `,
+                `${context.selectedSecondLabel || ''}\u00A0`,
                 'glyph-property-value glyph-kerning-code-second'
             );
 
             if (context.isRTL) {
-                addCodeToken('<0 0 ');
+                addCodeToken('<0\u00A00\u00A0');
                 code.appendChild(input);
-                addCodeToken(' 0>;');
+                addCodeToken('\u00A00>;');
             } else {
                 code.appendChild(input);
                 addCodeToken(';');

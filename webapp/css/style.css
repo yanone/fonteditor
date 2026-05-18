@@ -105,6 +105,13 @@
     --font-families-sans:
         'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
         sans-serif;
+    --kerning-accent-first: #4ea7cf;
+    --kerning-accent-second: #d98a4a;
+}
+
+:root[data-theme='light'] {
+    --kerning-accent-first: #00bfff;
+    --kerning-accent-second: #ffab57;
 }
 
 * {
@@ -4745,9 +4752,10 @@ kbd + kbd {
 }
 
 .glyph-kerning-panel-shell {
-    width: min(100%, 900px);
+    width: fit-content;
+    max-width: 100%;
     display: grid;
-    grid-template-columns: 28px minmax(180px, 240px) minmax(220px, auto) minmax(180px, 240px) 28px;
+    grid-template-columns: 28px auto auto auto 28px;
     justify-content: center;
     justify-items: center;
     align-items: center;
@@ -4770,6 +4778,11 @@ kbd + kbd {
     align-items: center;
     justify-content: center;
     max-width: 100%;
+}
+
+.glyph-property-panel.text-mode-kerning-panel {
+    --glyph-kerning-first-accent: var(--kerning-accent-first);
+    --glyph-kerning-second-accent: var(--kerning-accent-second);
 }
 
 .glyph-kerning-pill {
@@ -4807,13 +4820,13 @@ kbd + kbd {
 }
 
 .glyph-kerning-pill.active[data-kerning-side='first'] {
-    background-color: var(--accent-blue);
-    color: var(--background-primary);
+    background-color: var(--glyph-kerning-first-accent);
+    color: var(--text-primary);
 }
 
 .glyph-kerning-pill.active[data-kerning-side='second'] {
-    background-color: var(--accent-orange);
-    color: var(--background-primary);
+    background-color: var(--glyph-kerning-second-accent);
+    color: var(--text-primary);
 }
 
 .glyph-kerning-pill.selected-glyph-group {
@@ -4824,6 +4837,7 @@ kbd + kbd {
     overflow: hidden;
     text-overflow: ellipsis;
     font-family: inherit;
+    font-weight: 700;
     line-height: 1;
 }
 
@@ -4888,28 +4902,33 @@ kbd + kbd {
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 3px;
+    gap: 0;
     min-width: 0;
     font-family: var(--font-families-mono);
+    font-size: 15px;
+    line-height: 1.3;
 }
 
 .glyph-kerning-code-first {
-    color: var(--accent-blue);
+    color: var(--glyph-kerning-first-accent);
+    font-weight: 700;
 }
 
 .glyph-kerning-code-second {
-    color: var(--accent-orange);
+    color: var(--glyph-kerning-second-accent);
+    font-weight: 700;
 }
 
 .glyph-kerning-value-input {
     width: 60px;
     text-align: right;
     font-family: var(--font-families-mono);
+    font-size: 11px;
 }
 
 @media (max-width: 900px) {
     .glyph-kerning-panel-shell {
-        grid-template-columns: auto minmax(130px, 1fr) auto minmax(130px, 1fr) auto;
+        grid-template-columns: 28px auto auto auto 28px;
         column-gap: 10px;
     }
 }
