@@ -2366,6 +2366,7 @@ class GlyphCanvas {
         this.autoSelectMatchingMaster();
 
         console.log(`Exited glyph edit mode - returned to text edit mode`);
+        this.updatePropertyPanel();
         this.updatePropertiesUI();
         this.render();
         this.dispatchModeActivationEvent('text', 'exitGlyphEditMode');

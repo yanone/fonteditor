@@ -9037,6 +9037,24 @@ describe('GlyphCanvas mode switching', () => {
 
         expect(canvas.outlineEditor.isDraggingPoint).toBe(false);
     });
+
+    test('should refresh the property panel when exiting glyph edit mode', () => {
+        canvas.outlineEditor.active = true;
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.outlineEditor.layerData = { shapes: [], anchors: [] };
+
+        const updatePropertyPanelSpy = jest
+            .spyOn(canvas, 'updatePropertyPanel')
+            .mockImplementation(() => {});
+
+        try {
+            canvas.exitGlyphEditMode();
+
+            expect(updatePropertyPanelSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            updatePropertyPanelSpy.mockRestore();
+        }
+    });
 });
 
 // ==================== Viewport Tests ====================
