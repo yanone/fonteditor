@@ -9,6 +9,7 @@ import { FilesystemPlugin } from './filesystem-plugins';
 import type {
     FileContextAction,
     FileContextTarget,
+    PluginMessageOptions,
     TitleBarMenuItem
 } from './filesystem-plugins';
 import {
@@ -533,6 +534,7 @@ export class CloudPlugin extends FilesystemPlugin {
         CloudConnectionStatus
     >();
     private _connectedAssetIds = new Set<string>();
+    private _availabilityErrorMessage: string | null = null;
 
     constructor(
         options: Omit<CloudAdapterOptions, 'assetId'> & {
@@ -674,6 +676,10 @@ export class CloudPlugin extends FilesystemPlugin {
         return true; // Cloud syncs continuously
     }
 
+    showsManualRefreshButton(): boolean {
+        return true;
+    }
+
     supportsUpload(): boolean {
         return false;
     }
@@ -764,14 +770,23 @@ export class CloudPlugin extends FilesystemPlugin {
      * updateUI which shows the appropriate cloud-panel message.
      */
     async onActivate(): Promise<boolean> {
-        const user = await this._ensureCloudUser({
-            allowLoginRedirect: true
-        });
-        if (!user) return false;
+        this._availabilityErrorMessage = null;
 
-        this._eligibility = null; // bust cache on every activation
-        const eligibility = await this.checkEligibility();
-        return eligibility?.cloudHostingEnabled === true;
+        try {
+            const user = await this._ensureCloudUser({
+                allowLoginRedirect: true
+            });
+            if (!user) return false;
+
+            this._eligibility = null; // bust cache on every activation
+            const eligibility = await this.checkEligibility();
+            return eligibility?.cloudHostingEnabled === true;
+        } catch (error) {
+            const message = this._describeAvailabilityError(error);
+            this._availabilityErrorMessage = message;
+            console.warn('[CloudPlugin]', 'Cloud activation failed:', error);
+            return false;
+        }
     }
 
     async onDeactivate(): Promise<void> {
@@ -790,15 +805,33 @@ export class CloudPlugin extends FilesystemPlugin {
         showPermissionBanner: (show: boolean) => void;
         showUnsupportedBrowserUI: () => void;
         hideUnsupportedBrowserUI: () => void;
+        showPluginMessage: (options: PluginMessageOptions) => void;
+        hidePluginMessage: () => void;
     }): Promise<void> {
         uiCallbacks.hideUnsupportedBrowserUI();
         uiCallbacks.showPermissionBanner(false);
         uiCallbacks.hideOpenFolderUI();
+        uiCallbacks.hidePluginMessage();
 
         const cloudPanel = document.getElementById('cloud-panel');
         const titleEl = document.getElementById('cloud-panel-title');
         const msgEl = document.getElementById('cloud-panel-message');
         const loginBtn = document.getElementById('cloud-panel-login-btn');
+
+        if (this._availabilityErrorMessage) {
+            if (cloudPanel) cloudPanel.classList.remove('visible');
+            uiCallbacks.showPluginMessage({
+                icon: 'cloud_off',
+                title: 'Cloud Unavailable',
+                message: this._availabilityErrorMessage,
+                tone: 'warning',
+                actionLabel: 'Retry',
+                onAction: () => {
+                    void (window as any).switchContext?.(this.getId());
+                }
+            });
+            return;
+        }
 
         const authMgr = (window as any).authManager;
         const user = authMgr
@@ -1367,6 +1400,17 @@ export class CloudPlugin extends FilesystemPlugin {
         }
 
         return null;
+    }
+
+    private _describeAvailabilityError(error: unknown): string {
+        const message =
+            error instanceof Error ? error.message : String(error || '');
+
+        if (/failed to fetch/i.test(message)) {
+            return 'The local cloud server is not reachable right now.';
+        }
+
+        return `Cloud storage could not be reached: ${message}`;
     }
 
     private async _fetchRoomToken(

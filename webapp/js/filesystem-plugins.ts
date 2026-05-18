@@ -30,6 +30,17 @@ export interface FileContextTarget {
     isDir: boolean;
 }
 
+export interface PluginMessageOptions {
+    icon: string;
+    title: string;
+    message: string;
+    detail?: string;
+    tone?: 'info' | 'warning' | 'error';
+    actionLabel?: string;
+    onAction?: () => void;
+    spinning?: boolean;
+}
+
 /**
  * Abstract base class for filesystem plugins
  * Each plugin represents a different method of accessing files (OPFS, disk, cloud, etc.)
@@ -147,11 +158,14 @@ export abstract class FilesystemPlugin {
         showPermissionBanner: (show: boolean) => void;
         showUnsupportedBrowserUI: () => void;
         hideUnsupportedBrowserUI: () => void;
+        showPluginMessage: (options: PluginMessageOptions) => void;
+        hidePluginMessage: () => void;
     }): Promise<void> {
         // Default: hide all special UI elements
         uiCallbacks.hideOpenFolderUI();
         uiCallbacks.showPermissionBanner(false);
         uiCallbacks.hideUnsupportedBrowserUI();
+        uiCallbacks.hidePluginMessage();
     }
 
     /**
@@ -193,6 +207,11 @@ export abstract class FilesystemPlugin {
                 detail: { pluginId: this.getId() }
             })
         );
+    }
+
+    /** Whether the file dialog should show a manual refresh button. */
+    showsManualRefreshButton(): boolean {
+        return true;
     }
 
     // ==========================================
@@ -325,6 +344,10 @@ export class DiskPlugin extends FilesystemPlugin {
 
     requiresPermission(): boolean {
         return true;
+    }
+
+    showsManualRefreshButton(): boolean {
+        return !this.observerSupported;
     }
 
     async onActivate(): Promise<boolean> {

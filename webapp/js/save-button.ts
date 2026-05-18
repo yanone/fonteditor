@@ -3,6 +3,8 @@
  * Handles the save button state and save functionality
  */
 
+import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
+
 declare const $: any;
 
 class SaveButton {
@@ -93,6 +95,7 @@ class SaveButton {
         console.log('[SaveButton]', '🔵 Save button clicked');
 
         this.isSaving = true;
+        beginLoadingCursor();
 
         try {
             // Get current font
@@ -149,6 +152,8 @@ class SaveButton {
                 this.isSaving = false;
                 this.showError();
             }
+        } finally {
+            endLoadingCursor();
         }
     }
 

@@ -15,7 +15,8 @@ import {
     DiskPlugin,
     TitleBarMenuItem,
     type FileContextAction,
-    type FileContextTarget
+    type FileContextTarget,
+    type PluginMessageOptions
 } from './filesystem-plugins';
 import {
     getOrCreateBackdrop,
@@ -100,9 +101,176 @@ type ShowFileDialogOptions = {
     suggestedName?: string;
 };
 
+type FileDialogBusyOptions = {
+    message: string;
+    actionLabel: string;
+    useLoadingCursor?: boolean;
+};
+
 let activeFileDialogMode: FileDialogMode = 'open';
 let selectedDialogPath: string | null = null;
 let pendingDialogHighlightPath: string | null = null;
+let fileDialogBusyDepth = 0;
+let fileDialogBusyMessage: string | null = null;
+let fileDialogBusyActionLabel: string | null = null;
+let lastFileTreeRefreshAt: number | null = null;
+let pathDisplayFrame: number | null = null;
+
+function getDefaultDialogSelectionPath(pluginId: string): string | null {
+    const currentFont = window.fontManager?.currentFont;
+    if (!currentFont?.path) {
+        return null;
+    }
+
+    const currentPluginId = currentFont.sourcePlugin?.getId?.();
+    return currentPluginId === pluginId ? currentFont.path : null;
+}
+
+function getFooterSelectionPath(): string | null {
+    return (
+        selectedDialogPath ||
+        getDefaultDialogSelectionPath(fileSystemCache.currentPlugin.getId())
+    );
+}
+
+function getCurrentPluginSelectionPath(): string | null {
+    if (!selectedDialogPath) {
+        return null;
+    }
+
+    return getVisibleFileItem(selectedDialogPath) ? selectedDialogPath : null;
+}
+
+function reconcileDialogSelection(): void {
+    if (selectedDialogPath && !getVisibleFileItem(selectedDialogPath)) {
+        selectedDialogPath = null;
+    }
+}
+
+function formatDialogSelectionPath(path: string): string {
+    return createFileUri(fileSystemCache.currentPlugin.getId(), path);
+}
+
+function formatLastRefreshedTimestamp(timestamp: number | null): string {
+    if (!timestamp) {
+        return 'Not refreshed yet';
+    }
+
+    return new Date(timestamp).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+}
+
+function updateLastRefreshedStatus(): void {
+    const statusElement = document.getElementById('file-last-refreshed');
+    if (!statusElement) {
+        return;
+    }
+
+    if (!fileSystemCache.currentPlugin.showsManualRefreshButton()) {
+        statusElement.textContent = '';
+        statusElement.style.display = 'none';
+        return;
+    }
+
+    statusElement.style.display = '';
+    statusElement.textContent = `Last refreshed ${formatLastRefreshedTimestamp(lastFileTreeRefreshAt)}`;
+}
+
+function normalizeOpenComparisonPath(pluginId: string, path: string): string {
+    if (pluginId === 'cloud') {
+        return path.replace(/^cloud:\/\//, '').replace(/^\/+/, '');
+    }
+
+    return path;
+}
+
+function isCurrentFontAlreadyOpen(
+    path: string,
+    sourcePlugin: FilesystemPlugin
+): boolean {
+    const currentFont = window.fontManager?.currentFont;
+    const currentPluginId = currentFont?.sourcePlugin?.getId?.();
+    if (!currentFont?.path || !currentPluginId) {
+        return false;
+    }
+
+    const sourcePluginId = sourcePlugin.getId();
+    if (currentPluginId !== sourcePluginId) {
+        return false;
+    }
+
+    return (
+        normalizeOpenComparisonPath(sourcePluginId, currentFont.path) ===
+        normalizeOpenComparisonPath(sourcePluginId, path)
+    );
+}
+
+function updateFileDialogBusyUi(): void {
+    const dialog = getDialogRoot();
+    if (!dialog) {
+        return;
+    }
+
+    const shell = dialog.querySelector('.file-dialog-shell') as HTMLElement;
+    const closeBtn = document.getElementById(
+        'font-file-dialog-close-btn'
+    ) as HTMLButtonElement | null;
+    const cancelBtn = document.getElementById(
+        'file-dialog-cancel-btn'
+    ) as HTMLButtonElement | null;
+    const saveNameInput = document.getElementById(
+        'file-dialog-save-name'
+    ) as HTMLInputElement | null;
+    const isBusy = fileDialogBusyDepth > 0;
+
+    dialog.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+    shell?.classList.toggle('is-busy', isBusy);
+    closeBtn && (closeBtn.disabled = isBusy);
+    cancelBtn && (cancelBtn.disabled = isBusy);
+    saveNameInput && (saveNameInput.disabled = isBusy);
+
+    document
+        .querySelectorAll('.file-dialog-plugin-tab')
+        .forEach((tab: Element) => {
+            (tab as HTMLButtonElement).disabled = isBusy;
+        });
+}
+
+async function withFileDialogBusy<T>(
+    options: FileDialogBusyOptions,
+    task: () => Promise<T>
+): Promise<T> {
+    fileDialogBusyDepth += 1;
+    fileDialogBusyMessage = options.message;
+    fileDialogBusyActionLabel = options.actionLabel;
+
+    if (options.useLoadingCursor) {
+        beginLoadingCursor();
+    }
+
+    updateFileDialogBusyUi();
+    updateFileDialogFooter();
+
+    try {
+        return await task();
+    } finally {
+        if (options.useLoadingCursor) {
+            endLoadingCursor();
+        }
+
+        fileDialogBusyDepth = Math.max(0, fileDialogBusyDepth - 1);
+        if (fileDialogBusyDepth === 0) {
+            fileDialogBusyMessage = null;
+            fileDialogBusyActionLabel = null;
+        }
+
+        updateFileDialogBusyUi();
+        updateFileDialogFooter();
+    }
+}
 
 function getDialogRoot(): HTMLElement | null {
     return document.getElementById('font-file-dialog');
@@ -146,32 +314,36 @@ function getVisibleFileItem(path: string): HTMLElement | null {
 }
 
 function isSelectedPathOpenableFont(): boolean {
-    if (!selectedDialogPath) {
+    const selectedPath = getCurrentPluginSelectionPath();
+    if (!selectedPath) {
         return false;
     }
 
-    const selectedItem = getVisibleFileItem(selectedDialogPath);
+    const selectedItem = getVisibleFileItem(selectedPath);
     return selectedItem?.dataset.isFont === 'true';
 }
 
 function getSelectedDialogTarget(): FileContextTarget | null {
-    if (!selectedDialogPath) {
+    const selectedPath = getCurrentPluginSelectionPath();
+    if (!selectedPath) {
         return null;
     }
 
-    const selectedItem = getVisibleFileItem(selectedDialogPath);
+    const selectedItem = getVisibleFileItem(selectedPath);
     if (!selectedItem) {
         return null;
     }
 
     return {
-        path: selectedDialogPath,
+        path: selectedPath,
         name: selectedItem.dataset.name || '',
         isDir: selectedItem.dataset.isDir === 'true'
     };
 }
 
 function updateFileSelectionUi(): void {
+    reconcileDialogSelection();
+
     document.querySelectorAll('.file-item.selected').forEach((item) => {
         item.classList.remove('selected');
     });
@@ -194,9 +366,10 @@ function updateFileDialogFooter(): void {
     const confirmButton = document.getElementById(
         'file-dialog-confirm-btn'
     ) as HTMLButtonElement | null;
-    const deleteButton = document.getElementById(
-        'file-dialog-delete-btn'
-    ) as HTMLButtonElement | null;
+    const selectionPath =
+        getCurrentPluginSelectionPath() ||
+        getDefaultDialogSelectionPath(fileSystemCache.currentPlugin.getId());
+    const isBusy = fileDialogBusyDepth > 0;
 
     if (title) {
         title.textContent =
@@ -211,14 +384,19 @@ function updateFileDialogFooter(): void {
     }
 
     if (selection) {
-        if (!selectedDialogPath) {
-            selection.textContent =
-                activeFileDialogMode === 'open'
-                    ? 'No file selected.'
-                    : `Saving into ${fileSystemCache.currentPath}`;
-        } else {
-            selection.textContent = selectedDialogPath;
+        let selectionText = selectionPath
+            ? formatDialogSelectionPath(selectionPath)
+            : activeFileDialogMode === 'open'
+              ? 'No file selected.'
+              : `Saving into ${fileSystemCache.currentPath}`;
+
+        if (fileDialogBusyMessage) {
+            selectionText = selectionPath
+                ? `${selectionText} • ${fileDialogBusyMessage}`
+                : fileDialogBusyMessage;
         }
+
+        selection.textContent = selectionText;
     }
 
     if (saveFields) {
@@ -228,25 +406,13 @@ function updateFileDialogFooter(): void {
 
     if (confirmButton) {
         confirmButton.textContent =
-            activeFileDialogMode === 'open' ? 'Open' : 'Save As';
+            fileDialogBusyActionLabel ||
+            (activeFileDialogMode === 'open' ? 'Open' : 'Save As');
         confirmButton.disabled =
-            activeFileDialogMode === 'open'
+            isBusy ||
+            (activeFileDialogMode === 'open'
                 ? !isSelectedPathOpenableFont()
-                : !saveNameInput?.value.trim();
-    }
-
-    if (deleteButton) {
-        const target = getSelectedDialogTarget();
-        const canDelete =
-            activeFileDialogMode === 'open' &&
-            !!target &&
-            fileSystemCache.currentPlugin.supportsFileContextAction(
-                'delete',
-                target
-            );
-        deleteButton.style.display =
-            activeFileDialogMode === 'open' ? '' : 'none';
-        deleteButton.disabled = !canDelete;
+                : !saveNameInput?.value.trim());
     }
 }
 
@@ -280,8 +446,11 @@ async function showFontFileDialog(
     }
 
     activeFileDialogMode = options.mode || 'open';
-    selectedDialogPath = options.highlightPath || null;
-    pendingDialogHighlightPath = options.highlightPath || null;
+    const targetPluginId =
+        options.pluginId || fileSystemCache.currentPlugin.getId();
+    selectedDialogPath =
+        options.highlightPath || getDefaultDialogSelectionPath(targetPluginId);
+    pendingDialogHighlightPath = selectedDialogPath;
 
     const saveNameInput = document.getElementById(
         'file-dialog-save-name'
@@ -319,6 +488,7 @@ async function showFontFileDialog(
     }
 
     updateFileDialogFooter();
+    updateFileDialogBusyUi();
 
     if (activeFileDialogMode === 'save-as') {
         setTimeout(() => saveNameInput?.focus(), 0);
@@ -721,15 +891,26 @@ function parseFileUri(uri: string): { pluginId: string; path: string } | null {
     };
 }
 
-function updatePathDisplay(path: string) {
+function schedulePathDisplayUpdate(path: string): void {
     const pathTextElement = document.querySelector(
         '.file-path-text'
-    ) as HTMLElement;
-    if (!pathTextElement) return;
+    ) as HTMLElement | null;
+    if (!pathTextElement) {
+        return;
+    }
 
-    const availableWidth = pathTextElement.offsetWidth;
-    const displayPath = truncatePathMiddle(path, availableWidth, 10);
-    pathTextElement.textContent = displayPath;
+    if (pathDisplayFrame !== null) {
+        cancelAnimationFrame(pathDisplayFrame);
+    }
+
+    pathDisplayFrame = requestAnimationFrame(() => {
+        pathDisplayFrame = null;
+        const availableWidth = pathTextElement.offsetWidth;
+        const displayPath = truncatePathMiddle(path, availableWidth, 10);
+        if (pathTextElement.textContent !== displayPath) {
+            pathTextElement.textContent = displayPath;
+        }
+    });
 }
 
 function fileTypeIcon(iconName: string): string {
@@ -1405,6 +1586,16 @@ async function openFont(
     fileHandle?: FileSystemFileHandle,
     options: OpenFontOptions = {}
 ) {
+    const sourcePlugin =
+        options.sourcePluginOverride || fileSystemCache.currentPlugin;
+
+    if (isCurrentFontAlreadyOpen(path, sourcePlugin)) {
+        if (options.closeDialogOnSuccess) {
+            closeFontFileDialog();
+        }
+        return;
+    }
+
     // Set loading cursor
     beginLoadingCursor();
     const openSpan = timelineSpanStart('font.open');
@@ -1418,8 +1609,6 @@ async function openFont(
             timelineSpanEnd(pythonReadySpan);
         }
 
-        const sourcePlugin =
-            options.sourcePluginOverride || fileSystemCache.currentPlugin;
         if (await sourcePlugin.handleOpenPath(path)) {
             const pluginId = sourcePlugin.getId();
             const normalizedPath =
@@ -1664,65 +1853,79 @@ async function saveCurrentFontAsToPath(): Promise<void> {
         return;
     }
 
-    // If the active plugin handles Save As itself (e.g. cloud), delegate and
-    // close the dialog — no writeFile needed.
-    if (fileSystemCache.currentPlugin?.interceptsSaveAs) {
-        const handled =
-            await fileSystemCache.currentPlugin.handleSaveAs(rawFileName);
-        if (handled) {
-            syncEditorFileStateFromCurrentFont();
+    await withFileDialogBusy(
+        {
+            message: 'Saving font…',
+            actionLabel: 'Saving…',
+            useLoadingCursor: true
+        },
+        async () => {
+            // If the active plugin handles Save As itself (e.g. cloud),
+            // delegate and close the dialog — no writeFile needed.
+            if (fileSystemCache.currentPlugin?.interceptsSaveAs) {
+                const handled =
+                    await fileSystemCache.currentPlugin.handleSaveAs(
+                        rawFileName
+                    );
+                if (handled) {
+                    syncEditorFileStateFromCurrentFont();
+                    await refreshFileSystem();
+                    closeFontFileDialog();
+                }
+                return;
+            }
+
+            const targetPath =
+                fileSystemCache.currentPath === '/'
+                    ? `/${rawFileName}`
+                    : `${fileSystemCache.currentPath.replace(/\/+$/, '')}/${rawFileName}`;
+
+            const fileExists =
+                await fileSystemCache.activeAdapter.fileExists(targetPath);
+            if (
+                fileExists &&
+                !confirm(`Overwrite existing file "${rawFileName}"?`)
+            ) {
+                return;
+            }
+
+            currentFont.syncJsonFromModel();
+            await fileSystemCache.activeAdapter.writeFile(
+                targetPath,
+                currentFont.babelfontJson
+            );
+
+            currentFont.path = targetPath;
+            currentFont.sourcePlugin = fileSystemCache.currentPlugin;
+            currentFont.fileHandle = await getDiskFileHandleForPath(
+                fileSystemCache.currentPlugin,
+                targetPath
+            );
+            currentFont.directoryHandle =
+                fileSystemCache.currentPlugin.getId() === 'disk'
+                    ? (
+                          fileSystemCache.currentPlugin.getAdapter() as {
+                              directoryHandle?: FileSystemDirectoryHandle;
+                          }
+                      ).directoryHandle
+                    : undefined;
+            currentFont.needsRecompile = false;
+            currentFont.hasUnsavedChanges = false;
+
+            const pluginId = fileSystemCache.currentPlugin.getId();
+            const fileUri = createFileUri(pluginId, targetPath);
+            syncEditorFileState(fileUri, 'file_saved_as');
+
+            await window.fontManager.updateFontDisplay();
+            await window.fontManager.updateDirtyIndicator();
+            window.saveButton?.updateButtonState?.();
+
             await refreshFileSystem();
+            selectedDialogPath = targetPath;
+            updateFileSelectionUi();
             closeFontFileDialog();
         }
-        return;
-    }
-
-    const targetPath =
-        fileSystemCache.currentPath === '/'
-            ? `/${rawFileName}`
-            : `${fileSystemCache.currentPath.replace(/\/+$/, '')}/${rawFileName}`;
-
-    const fileExists =
-        await fileSystemCache.activeAdapter.fileExists(targetPath);
-    if (fileExists && !confirm(`Overwrite existing file "${rawFileName}"?`)) {
-        return;
-    }
-
-    currentFont.syncJsonFromModel();
-    await fileSystemCache.activeAdapter.writeFile(
-        targetPath,
-        currentFont.babelfontJson
     );
-
-    currentFont.path = targetPath;
-    currentFont.sourcePlugin = fileSystemCache.currentPlugin;
-    currentFont.fileHandle = await getDiskFileHandleForPath(
-        fileSystemCache.currentPlugin,
-        targetPath
-    );
-    currentFont.directoryHandle =
-        fileSystemCache.currentPlugin.getId() === 'disk'
-            ? (
-                  fileSystemCache.currentPlugin.getAdapter() as {
-                      directoryHandle?: FileSystemDirectoryHandle;
-                  }
-              ).directoryHandle
-            : undefined;
-    currentFont.needsRecompile = false;
-    currentFont.hasUnsavedChanges = false;
-
-    const pluginId = fileSystemCache.currentPlugin.getId();
-    const fileUri = createFileUri(pluginId, targetPath);
-    syncEditorFileState(fileUri, 'file_saved_as');
-
-    await window.fontManager.updateFontDisplay();
-    await window.fontManager.updateDirtyIndicator();
-    window.saveButton?.updateButtonState?.();
-
-    await refreshFileSystem();
-    selectedDialogPath = targetPath;
-    updateFileSelectionUi();
-    closeFontFileDialog();
 }
 
 async function confirmFileDialogPrimaryAction(): Promise<void> {
@@ -1737,24 +1940,17 @@ async function confirmFileDialogPrimaryAction(): Promise<void> {
     }
 
     const fileHandle = (window as any)._fileHandles?.[selectedDialogPath];
-    await openFont(selectedDialogPath, fileHandle, {
-        closeDialogOnSuccess: true
-    });
-}
-
-async function deleteSelectedDialogItem(): Promise<void> {
-    const target = getSelectedDialogTarget();
-    if (!target) {
-        updateFileDialogFooter();
-        return;
-    }
-
-    await deleteItem(target.path, target.name, target.isDir);
-    if (selectedDialogPath === target.path) {
-        selectedDialogPath = null;
-        updateFileSelectionUi();
-        updateFileDialogFooter();
-    }
+    await withFileDialogBusy(
+        {
+            message: 'Opening font…',
+            actionLabel: 'Opening…'
+        },
+        async () => {
+            await openFont(selectedDialogPath!, fileHandle, {
+                closeDialogOnSuccess: true
+            });
+        }
+    );
 }
 
 async function locatePathInFileDialog(
@@ -1779,86 +1975,149 @@ async function switchContext(pluginId: string) {
         return;
     }
 
-    // Deactivate old plugin
-    await fileSystemCache.currentPlugin.onDeactivate();
+    showPluginMessage({
+        icon: 'progress_activity',
+        title: `Loading ${plugin.getName()}…`,
+        message: 'Fetching files and plugin state.',
+        tone: 'info',
+        spinning: true
+    });
 
-    // Activate new plugin
-    fileSystemCache.currentPlugin = plugin;
-    fileSystemCache.activeAdapter = plugin.getAdapter();
-
-    // Save to localStorage
     try {
-        localStorage.setItem(LAST_CONTEXT_KEY, pluginId);
-    } catch (e) {
-        console.warn(
-            '[FileBrowser]',
-            'Failed to save context to localStorage:',
-            e
-        );
-    }
+        await withFileDialogBusy(
+            {
+                message: `Loading ${plugin.getName()}…`,
+                actionLabel: 'Loading…'
+            },
+            async () => {
+                selectedDialogPath = getDefaultDialogSelectionPath(pluginId);
+                pendingDialogHighlightPath = selectedDialogPath;
+                updateFileSelectionUi();
+                updateFileDialogFooter();
 
-    // Update tab UI
-    document
-        .querySelectorAll('.context-tab[data-plugin-id]')
-        .forEach((tab: Element) => {
-            tab.classList.remove('active');
-            if (tab.getAttribute('data-plugin-id') === pluginId) {
-                tab.classList.add('active');
+                // Deactivate old plugin
+                await fileSystemCache.currentPlugin.onDeactivate();
+
+                // Activate new plugin
+                fileSystemCache.currentPlugin = plugin;
+                fileSystemCache.activeAdapter = plugin.getAdapter();
+
+                // Save to localStorage
+                try {
+                    localStorage.setItem(LAST_CONTEXT_KEY, pluginId);
+                } catch (e) {
+                    console.warn(
+                        '[FileBrowser]',
+                        'Failed to save context to localStorage:',
+                        e
+                    );
+                }
+
+                // Update tab UI
+                document
+                    .querySelectorAll('.context-tab[data-plugin-id]')
+                    .forEach((tab: Element) => {
+                        tab.classList.remove('active');
+                        if (tab.getAttribute('data-plugin-id') === pluginId) {
+                            tab.classList.add('active');
+                        }
+                    });
+
+                // Update dropdown icon visibility for all plugins
+                pluginRegistry.getAll().forEach((p) => {
+                    updatePluginMenuButtonVisibility(p);
+                });
+
+                // Try to activate plugin (may fail if setup needed)
+                const activated = await plugin.onActivate();
+                if (!activated) {
+                    fileSystemCache.currentPath = plugin.getDefaultPath();
+                    renderFilePathHeader(fileSystemCache.currentPath);
+                    await plugin.updateUI({
+                        showOpenFolderUI,
+                        hideOpenFolderUI,
+                        showPermissionBanner,
+                        showUnsupportedBrowserUI,
+                        hideUnsupportedBrowserUI,
+                        showPluginMessage,
+                        hidePluginMessage
+                    });
+                    return;
+                }
+
+                // Plugin activated successfully - let plugin update UI
+                await plugin.updateUI({
+                    showOpenFolderUI,
+                    hideOpenFolderUI,
+                    showPermissionBanner,
+                    showUnsupportedBrowserUI,
+                    hideUnsupportedBrowserUI,
+                    showPluginMessage,
+                    hidePluginMessage
+                });
+
+                // Update dropdown menu button visibility based on plugin capabilities
+                updatePluginMenuButtonVisibility(plugin);
+
+                // Restore last visited path for this plugin, or use default path
+                let targetPath = plugin.getDefaultPath();
+                try {
+                    const savedPath = localStorage.getItem(
+                        getPathStorageKey(pluginId)
+                    );
+                    if (savedPath) {
+                        targetPath = savedPath;
+                        console.log(
+                            '[FileBrowser]',
+                            `Restored last path for ${pluginId}: ${savedPath}`
+                        );
+                    }
+                } catch (e) {
+                    console.warn(
+                        '[FileBrowser]',
+                        'Failed to restore path from localStorage:',
+                        e
+                    );
+                }
+
+                fileSystemCache.currentPath = targetPath;
+                showPluginMessage({
+                    icon: 'progress_activity',
+                    title: `Loading ${plugin.getName()}…`,
+                    message: `Opening ${targetPath}`,
+                    tone: 'info',
+                    spinning: true
+                });
+                await navigateToPath(targetPath);
+                const loadingMessageStillVisible = document.querySelector(
+                    '#plugin-message-container .plugin-message-icon.spinning'
+                );
+                if (loadingMessageStillVisible) {
+                    hidePluginMessage();
+                }
+            }
+        );
+    } catch (error) {
+        console.error('[FileBrowser]', 'Error switching file plugin:', error);
+        showPluginMessage({
+            icon: pluginId === 'cloud' ? 'cloud_off' : 'folder_off',
+            title: `${plugin.getName()} Unavailable`,
+            message:
+                pluginId === 'cloud' &&
+                /failed to fetch/i.test(getErrorMessage(error))
+                    ? 'The local cloud server is not reachable right now.'
+                    : `Could not load files from ${plugin.getName()}.`,
+            detail:
+                pluginId === 'cloud'
+                    ? 'Start the local cloud services and retry.'
+                    : getErrorMessage(error),
+            tone: 'warning',
+            actionLabel: 'Retry',
+            onAction: () => {
+                void switchContext(pluginId);
             }
         });
-
-    // Update dropdown icon visibility for all plugins
-    pluginRegistry.getAll().forEach((p) => {
-        updatePluginMenuButtonVisibility(p);
-    });
-
-    // Try to activate plugin (may fail if setup needed)
-    const activated = await plugin.onActivate();
-    if (!activated) {
-        // Plugin needs setup - let plugin update its own UI
-        await plugin.updateUI({
-            showOpenFolderUI,
-            hideOpenFolderUI,
-            showPermissionBanner,
-            showUnsupportedBrowserUI,
-            hideUnsupportedBrowserUI
-        });
-        return;
     }
-
-    // Plugin activated successfully - let plugin update UI
-    await plugin.updateUI({
-        showOpenFolderUI,
-        hideOpenFolderUI,
-        showPermissionBanner,
-        showUnsupportedBrowserUI,
-        hideUnsupportedBrowserUI
-    });
-
-    // Update dropdown menu button visibility based on plugin capabilities
-    updatePluginMenuButtonVisibility(plugin);
-
-    // Restore last visited path for this plugin, or use default path
-    let targetPath = plugin.getDefaultPath();
-    try {
-        const savedPath = localStorage.getItem(getPathStorageKey(pluginId));
-        if (savedPath) {
-            targetPath = savedPath;
-            console.log(
-                '[FileBrowser]',
-                `Restored last path for ${pluginId}: ${savedPath}`
-            );
-        }
-    } catch (e) {
-        console.warn(
-            '[FileBrowser]',
-            'Failed to restore path from localStorage:',
-            e
-        );
-    }
-
-    fileSystemCache.currentPath = targetPath;
-    await navigateToPath(targetPath);
 }
 
 function updateOpenFolderPromptForDetachedLaunch() {
@@ -1997,29 +2256,73 @@ function hideFileTree() {
     }
 }
 
-function showUnsupportedBrowserUI() {
+function showPluginMessage(options: PluginMessageOptions) {
     const container = document.getElementById('plugin-message-container');
-    if (container) {
-        container.innerHTML = `
-            <div class="plugin-message-content">
-                <span class="material-symbols-outlined plugin-message-icon warning">info</span>
-                <h3>Browser Not Supported</h3>
-                <p>Your browser doesn't support native file system access for the Disk context.</p>
-                <p class="browser-suggestion">Please use Chrome/Chromium 86+, Edge 86+, or Safari 15.2+ for full functionality.<br>You can use the Memory context for browser storage.</p>
-            </div>
-        `;
-        container.classList.add('visible');
+    if (!container) {
+        return;
     }
+
+    const toneClass =
+        options.tone && options.tone !== 'info' ? ` ${options.tone}` : '';
+    const spinningClass = options.spinning ? ' spinning' : '';
+
+    container.innerHTML = `
+        <div class="plugin-message-content">
+            <span class="material-symbols-outlined plugin-message-icon${toneClass}${spinningClass}">${options.icon}</span>
+            <h3>${options.title}</h3>
+            <p>${options.message}</p>
+            ${options.detail ? `<p class="browser-suggestion">${options.detail}</p>` : ''}
+            ${options.actionLabel ? `<button class="open-folder-button plugin-message-button" type="button">${options.actionLabel}</button>` : ''}
+        </div>
+    `;
+    container.classList.add('visible');
+
+    if (options.actionLabel && options.onAction) {
+        const actionButton = container.querySelector(
+            '.plugin-message-button'
+        ) as HTMLButtonElement | null;
+        actionButton?.addEventListener('click', () => {
+            options.onAction?.();
+        });
+    }
+
     hideFileTree();
 }
 
-function hideUnsupportedBrowserUI() {
+function hidePluginMessage() {
     const container = document.getElementById('plugin-message-container');
-    if (container) {
-        container.innerHTML = '';
-        container.classList.remove('visible');
+    if (!container) {
+        return;
     }
-    showFileTree();
+
+    container.innerHTML = '';
+    container.classList.remove('visible');
+
+    const openFolderVisible = document
+        .getElementById('open-folder-container')
+        ?.classList.contains('visible');
+    const cloudPanelVisible = document
+        .getElementById('cloud-panel')
+        ?.classList.contains('visible');
+
+    if (!openFolderVisible && !cloudPanelVisible) {
+        showFileTree();
+    }
+}
+
+function showUnsupportedBrowserUI() {
+    showPluginMessage({
+        icon: 'info',
+        title: 'Browser Not Supported',
+        message:
+            "Your browser doesn't support native file system access for the Disk context.",
+        detail: 'Please use Chrome/Chromium 86+, Edge 86+, or Safari 15.2+ for full functionality. You can use the Memory context for browser storage.',
+        tone: 'warning'
+    });
+}
+
+function hideUnsupportedBrowserUI() {
+    hidePluginMessage();
 }
 
 async function reEnableAccess() {
@@ -2520,6 +2823,92 @@ async function navigateToParent() {
     await navigateToPath(parentPath, previousFolderName);
 }
 
+function renderFilePathHeader(path: string): HTMLElement | null {
+    let pathHeader = document.getElementById('file-path-header');
+    if (!pathHeader) {
+        pathHeader = document.createElement('div');
+        pathHeader.id = 'file-path-header';
+        const fileBrowser = document.getElementById('file-browser');
+        fileBrowser!.insertBefore(pathHeader, fileBrowser!.firstChild);
+    }
+
+    const parentBtn =
+        path !== '/'
+            ? `<button onclick="navigateToParent()" class="file-header-btn" title="Go to parent directory">
+                <span class="material-symbols-outlined">arrow_upward</span>
+                <span class="file-header-btn-label">Parent</span>
+            </button>`
+            : '';
+
+    const currentPlugin = fileSystemCache.currentPlugin;
+    const showsMemoryUploadButtons = currentPlugin.getId() === 'memory';
+    const uploadButtons = showsMemoryUploadButtons
+        ? `
+            <button onclick="document.getElementById('file-upload-input').click()" class="file-header-btn" title="Upload files">
+                <span class="material-symbols-outlined">upload_file</span>
+                <span class="file-header-btn-label">Upload Files</span>
+            </button>
+            <button onclick="document.getElementById('folder-upload-input').click()" class="file-header-btn" title="Upload folder">
+                <span class="material-symbols-outlined">drive_folder_upload</span>
+                <span class="file-header-btn-label">Upload Folder</span>
+            </button>
+        `
+        : '';
+
+    const newFolderBtn = currentPlugin.supportsNewFolder()
+        ? `<button onclick="createFolder()" class="file-header-btn" title="Create new folder">
+                <span class="material-symbols-outlined">create_new_folder</span>
+                <span class="file-header-btn-label">New Folder</span>
+            </button>`
+        : '';
+
+    const refreshBtn = currentPlugin.showsManualRefreshButton()
+        ? `<button onclick="refreshFileSystem()" class="file-header-btn" title="Refresh">
+                <span class="material-symbols-outlined">refresh</span>
+                <span class="file-header-btn-label">Refresh</span>
+            </button>`
+        : '';
+
+    pathHeader.innerHTML = `
+        <div class="file-path-meta">
+            <span class="file-path-text" title="${path}" data-full-path="${path}">${path}</span>
+            <span class="file-last-refreshed" id="file-last-refreshed"></span>
+        </div>
+        <div class="file-header-actions">
+            ${parentBtn}
+            ${newFolderBtn}
+            ${uploadButtons}
+            ${refreshBtn}
+        </div>
+    `;
+
+    schedulePathDisplayUpdate(path);
+    updateLastRefreshedStatus();
+
+    const pathTextElement = pathHeader.querySelector(
+        '.file-path-text'
+    ) as HTMLElement | null;
+    const pathMetaElement = pathHeader.querySelector(
+        '.file-path-meta'
+    ) as HTMLElement | null;
+    if (
+        pathTextElement &&
+        pathMetaElement &&
+        !(pathMetaElement as any)._resizeObserver
+    ) {
+        const resizeObserver = new ResizeObserver(() => {
+            const fullPath =
+                pathTextElement.getAttribute('data-full-path') || path;
+            schedulePathDisplayUpdate(fullPath);
+        });
+        resizeObserver.observe(pathHeader);
+        resizeObserver.observe(pathMetaElement);
+        (pathMetaElement as any)._resizeObserver = resizeObserver;
+    }
+
+    return pathHeader;
+}
+
 async function navigateToPath(path: string, highlightFolder?: string) {
     try {
         const fileTree = document.getElementById('file-tree');
@@ -2527,83 +2916,7 @@ async function navigateToPath(path: string, highlightFolder?: string) {
         // Build content first (off-screen)
         const html = await buildFileTree(path);
 
-        // Update path header with toolbar buttons
-        let pathHeader = document.getElementById('file-path-header');
-        if (!pathHeader) {
-            pathHeader = document.createElement('div');
-            pathHeader.id = 'file-path-header';
-            const fileBrowser = document.getElementById('file-browser');
-            fileBrowser!.insertBefore(pathHeader, fileBrowser!.firstChild);
-        }
-
-        // Generate toolbar buttons
-        const parentBtn =
-            path !== '/'
-                ? `<button onclick="navigateToParent()" class="file-header-btn" title="Go to parent directory">
-                <span class="material-symbols-outlined">arrow_upward</span>
-                <span class="file-header-btn-label">Parent</span>
-            </button>`
-                : '';
-
-        const currentPlugin = fileSystemCache.currentPlugin;
-        const supportsUpload = currentPlugin.supportsUpload();
-        const uploadButtons = supportsUpload
-            ? `
-                <button onclick="document.getElementById('file-upload-input').click()" class="file-header-btn" title="Upload files">
-                    <span class="material-symbols-outlined">upload_file</span>
-                    <span class="file-header-btn-label">Upload Files</span>
-                </button>
-                <button onclick="document.getElementById('folder-upload-input').click()" class="file-header-btn" title="Upload folder">
-                    <span class="material-symbols-outlined">drive_folder_upload</span>
-                    <span class="file-header-btn-label">Upload Folder</span>
-                </button>
-            `
-            : '';
-
-        const newFileBtn = currentPlugin.supportsNewFile()
-            ? `<button onclick="createFile()" class="file-header-btn" title="Create new file">
-                    <span class="material-symbols-outlined">note_add</span>
-                    <span class="file-header-btn-label">New File</span>
-                </button>`
-            : '';
-
-        const newFolderBtn = currentPlugin.supportsNewFolder()
-            ? `<button onclick="createFolder()" class="file-header-btn" title="Create new folder">
-                    <span class="material-symbols-outlined">create_new_folder</span>
-                    <span class="file-header-btn-label">New Folder</span>
-                </button>`
-            : '';
-
-        pathHeader.innerHTML = `
-            <span class="file-path-text" title="${path}" data-full-path="${path}">${path}</span>
-            <div class="file-header-actions">
-                ${parentBtn}
-                ${newFileBtn}
-                ${newFolderBtn}
-                ${uploadButtons}
-                <button onclick="refreshFileSystem()" class="file-header-btn" title="Refresh">
-                    <span class="material-symbols-outlined">refresh</span>
-                    <span class="file-header-btn-label">Refresh</span>
-                </button>
-            </div>
-        `;
-
-        // Update path display after DOM is ready
-        setTimeout(() => updatePathDisplay(path), 0);
-
-        // Set up ResizeObserver to update path on container resize
-        const pathTextElement = pathHeader.querySelector(
-            '.file-path-text'
-        ) as HTMLElement;
-        if (pathTextElement && !(pathTextElement as any)._resizeObserver) {
-            const resizeObserver = new ResizeObserver(() => {
-                const fullPath =
-                    pathTextElement.getAttribute('data-full-path') || path;
-                updatePathDisplay(fullPath);
-            });
-            resizeObserver.observe(pathTextElement);
-            (pathTextElement as any)._resizeObserver = resizeObserver;
-        }
+        renderFilePathHeader(path);
 
         // Update file tree content in a single frame to prevent flickering
         requestAnimationFrame(() => {
@@ -2680,6 +2993,8 @@ async function navigateToPath(path: string, highlightFolder?: string) {
 
         // Cache the current path
         fileSystemCache.currentPath = path;
+        lastFileTreeRefreshAt = Date.now();
+        updateLastRefreshedStatus();
 
         // Save path to localStorage for current plugin
         try {
@@ -2701,9 +3016,17 @@ async function navigateToPath(path: string, highlightFolder?: string) {
         }
     } catch (error: any) {
         console.error('[FileBrowser]', 'Error navigating to path:', error);
-        document.getElementById('file-tree')!.innerHTML = `
-            <div style="color: #ff3300;">Error loading directory: ${error.message}</div>
-        `;
+        showPluginMessage({
+            icon: 'folder_off',
+            title: 'Could Not Load Files',
+            message: `Failed to load files from ${fileSystemCache.currentPlugin.getName()}.`,
+            detail: getErrorMessage(error),
+            tone: 'warning',
+            actionLabel: 'Retry',
+            onAction: () => {
+                void refreshFileSystem();
+            }
+        });
     }
 }
 
@@ -2809,6 +3132,10 @@ function setupFileItemClickHandlers() {
         element.addEventListener('dblclick', (e: Event) => {
             e.preventDefault();
             e.stopPropagation();
+
+            if (activeFileDialogMode !== 'open') {
+                return;
+            }
 
             if (isFont) {
                 console.log(
@@ -3007,12 +3334,11 @@ function initFileDialogModal(): void {
     const closeBtn = document.getElementById('font-file-dialog-close-btn');
     const cancelBtn = document.getElementById('file-dialog-cancel-btn');
     const confirmBtn = document.getElementById('file-dialog-confirm-btn');
-    const deleteBtn = document.getElementById('file-dialog-delete-btn');
     const saveNameInput = document.getElementById(
         'file-dialog-save-name'
     ) as HTMLInputElement | null;
 
-    if (!dialog || !closeBtn || !cancelBtn || !confirmBtn || !deleteBtn) {
+    if (!dialog || !closeBtn || !cancelBtn || !confirmBtn) {
         return;
     }
 
@@ -3020,9 +3346,6 @@ function initFileDialogModal(): void {
     cancelBtn.addEventListener('click', closeFontFileDialog);
     confirmBtn.addEventListener('click', () => {
         void confirmFileDialogPrimaryAction();
-    });
-    deleteBtn.addEventListener('click', () => {
-        void deleteSelectedDialogItem();
     });
 
     dialog.addEventListener('click', (event: Event) => {
@@ -3290,7 +3613,9 @@ async function initFileBrowser() {
                 hideOpenFolderUI,
                 showPermissionBanner,
                 showUnsupportedBrowserUI,
-                hideUnsupportedBrowserUI
+                hideUnsupportedBrowserUI,
+                showPluginMessage,
+                hidePluginMessage
             });
 
             // Restore last visited path for this plugin
@@ -3514,7 +3839,9 @@ window.addEventListener('pluginFolderClosed', async () => {
             hideOpenFolderUI,
             showPermissionBanner,
             showUnsupportedBrowserUI,
-            hideUnsupportedBrowserUI
+            hideUnsupportedBrowserUI,
+            showPluginMessage,
+            hidePluginMessage
         });
         updatePluginMenuButtonVisibility(currentPlugin);
     }

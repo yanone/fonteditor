@@ -2532,6 +2532,14 @@ kbd + kbd {
     color: var(--accent-yellow);
 }
 
+.plugin-message-icon.error {
+    color: var(--accent-red);
+}
+
+.plugin-message-icon.spinning {
+    animation: file-dialog-message-spin 0.9s linear infinite;
+}
+
 .plugin-message-content h3 {
     margin: 0;
     font-size: calc(var(--size, 1) * (14px / var(--pixel-density, 1)));
