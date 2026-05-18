@@ -958,8 +958,8 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        const overlay = this.glyphCanvas.getTextModeKerningOverlayState();
-        if (!overlay || overlay.maxX <= overlay.minX) {
+        const overlays = this.glyphCanvas.getTextModeKerningOverlayStates();
+        if (overlays.length === 0) {
             return;
         }
 
@@ -973,13 +973,20 @@ export class GlyphCanvasRenderer {
 
         this.ctx.save();
         this.ctx.globalAlpha = 0.22;
-        this.ctx.fillStyle = overlay.value > 0 ? positiveColor : negativeColor;
-        this.ctx.fillRect(
-            overlay.minX,
-            overlay.bottomY,
-            overlay.maxX - overlay.minX,
-            overlay.topY - overlay.bottomY
-        );
+        for (const overlay of overlays) {
+            if (overlay.maxX <= overlay.minX) {
+                continue;
+            }
+
+            this.ctx.fillStyle =
+                overlay.value > 0 ? positiveColor : negativeColor;
+            this.ctx.fillRect(
+                overlay.minX,
+                overlay.bottomY,
+                overlay.maxX - overlay.minX,
+                overlay.topY - overlay.bottomY
+            );
+        }
         this.ctx.restore();
     }
 

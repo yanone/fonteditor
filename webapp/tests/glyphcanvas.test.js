@@ -9495,6 +9495,7 @@ describe('GlyphCanvas property panel', () => {
 describe('Text-mode kerning property panel', () => {
     let canvas;
     let currentFontSpy;
+    let currentFont;
     let fontModel;
 
     const makeKerningFont = () =>
@@ -9634,9 +9635,13 @@ describe('Text-mode kerning property panel', () => {
         document.body.innerHTML = '<div id="test-container"></div>';
         canvas = new GlyphCanvas('test-container');
         fontModel = makeKerningFont();
+        currentFont = {
+            fontModel,
+            markDirty: jest.fn()
+        };
         currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
-            .mockReturnValue({ fontModel });
+            .mockReturnValue(currentFont);
         canvas.outlineEditor.active = false;
         canvas.outlineEditor.selectedLayerId = null;
         canvas.render = jest.fn();
@@ -9830,6 +9835,133 @@ describe('Text-mode kerning property panel', () => {
             topY: 800,
             bottomY: -200
         });
+    });
+
+    test('returns focus to the canvas after selecting a kerning chip', () => {
+        setTextRunState();
+
+        canvas.updatePropertyPanel();
+
+        const chip = document.querySelector(
+            '.glyph-kerning-pill[data-kerning-side="first"][data-kerning-key="A"]'
+        );
+        chip.click();
+
+        expect(document.activeElement).toBe(canvas.canvas);
+    });
+
+    test('returns focus to the canvas after committing a kerning value', async () => {
+        setTextRunState();
+
+        canvas.updatePropertyPanel();
+
+        const input = document.querySelector('.glyph-kerning-value-input');
+        input.focus();
+        input.value = '-55';
+        input.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+        await Promise.resolve();
+
+        expect(document.activeElement).toBe(canvas.canvas);
+        expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-55);
+    });
+
+    test('alt arrow keys nudge text-mode kerning with modifier scaling', async () => {
+        setTextRunState();
+
+        await canvas.onKeyDown(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowLeft',
+                altKey: true
+            })
+        );
+        expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-41);
+
+        await canvas.onKeyDown(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowRight',
+                altKey: true,
+                shiftKey: true
+            })
+        );
+        expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-31);
+
+        await canvas.onKeyDown(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowRight',
+                altKey: true,
+                shiftKey: true,
+                metaKey: true
+            })
+        );
+        expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(69);
+    });
+
+    test('returns overlays for all defined kerning pairs in the text run', () => {
+        fontModel.masters[0].kerning = {
+            'A:@VSecond': -40,
+            'V:W': -30
+        };
+        setTextRunState();
+        canvas.textRunEditor.clusterMap = [
+            {
+                glyphIndex: 0,
+                glyphCount: 1,
+                start: 0,
+                end: 1,
+                x: 0,
+                width: 40,
+                isRTL: false
+            },
+            {
+                glyphIndex: 1,
+                glyphCount: 1,
+                start: 1,
+                end: 2,
+                x: 60,
+                width: 50,
+                isRTL: false
+            },
+            {
+                glyphIndex: 2,
+                glyphCount: 1,
+                start: 2,
+                end: 3,
+                x: 120,
+                width: 40,
+                isRTL: false
+            }
+        ];
+        canvas.textRunEditor.glyphNameBuffer = ['A', 'V', 'W'];
+        canvas.textRunEditor.findFirstGlyphAtClusterPosition = jest.fn(
+            (clusterPos) => clusterPos
+        );
+        canvas.textRunEditor.findLastGlyphAtClusterPosition = jest.fn(
+            (clusterPos) => clusterPos
+        );
+
+        const overlays = canvas.getTextModeKerningOverlayStates();
+
+        expect(overlays).toEqual([
+            {
+                minX: 60,
+                maxX: 100,
+                value: -40,
+                topY: 800,
+                bottomY: -200
+            },
+            {
+                minX: 120,
+                maxX: 150,
+                value: -30,
+                topY: 800,
+                bottomY: -200
+            }
+        ]);
     });
 
     test('shows active selection state on the chosen pill pair', () => {

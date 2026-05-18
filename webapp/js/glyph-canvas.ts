@@ -164,6 +164,14 @@ type TextModeKerningContext = {
     hasSelectedValue: boolean;
 };
 
+type TextModeKerningOverlay = {
+    minX: number;
+    maxX: number;
+    topY: number;
+    bottomY: number;
+    value: number;
+};
+
 type KerningRow = Map<string, number> | Record<string, number>;
 type KerningContainer =
     | Map<string, KerningRow | number>
@@ -1160,6 +1168,14 @@ class GlyphCanvas {
         }
 
         this.canvas.focus({ preventScroll: true });
+    }
+
+    private focusCanvasForTextModeKerning(): void {
+        if (this.outlineEditor.active) {
+            return;
+        }
+
+        this.focusCanvasForMeasurementTab();
     }
 
     shouldBlockTextEditingDuringLoopAnimation(e: KeyboardEvent): boolean {
@@ -5021,6 +5037,133 @@ class GlyphCanvas {
         };
     }
 
+    private buildTextModeKerningOverlay(
+        secondCluster: TextRunClusterInfo,
+        isRTL: boolean,
+        metrics: Record<string, number> | null,
+        value: number
+    ): TextModeKerningOverlay | null {
+        if (!metrics || value === 0) {
+            return null;
+        }
+
+        const secondVisualEdge = isRTL
+            ? secondCluster.x + secondCluster.width
+            : secondCluster.x;
+        const directionSign = isRTL ? -1 : 1;
+        const adjustmentEdge = secondVisualEdge - directionSign * value;
+        const metricValues = Object.values(metrics).filter((metricValue) =>
+            Number.isFinite(metricValue)
+        );
+        const fontUpm = Number(fontManager.currentFont?.fontModel?.upm) || 1000;
+        const topY =
+            metricValues.length > 0
+                ? Math.max(...metricValues, 0)
+                : fontUpm * 0.8;
+        const bottomY =
+            metricValues.length > 0
+                ? Math.min(...metricValues, 0)
+                : -fontUpm * 0.2;
+
+        return {
+            minX: Math.min(secondVisualEdge, adjustmentEdge),
+            maxX: Math.max(secondVisualEdge, adjustmentEdge),
+            topY,
+            bottomY,
+            value
+        };
+    }
+
+    getTextModeKerningOverlayStates(): TextModeKerningOverlay[] {
+        if (!this.textRunEditor || !fontManager.currentFont?.fontModel) {
+            return [];
+        }
+
+        const master = this.getSelectedTextModeKerningMaster();
+        if (!master) {
+            return [];
+        }
+
+        const kerning = master.kerning as KerningContainer | undefined;
+        const metrics =
+            (master.metrics as Record<string, number> | null) || null;
+        if (!kerning || !metrics) {
+            return [];
+        }
+
+        const fontModel = fontManager.currentFont.fontModel;
+        const sortedClusters = [
+            ...((this.textRunEditor.clusterMap as TextRunClusterInfo[]) || [])
+        ].sort((left, right) => left.start - right.start);
+        const overlays: TextModeKerningOverlay[] = [];
+
+        for (let index = 0; index < sortedClusters.length - 1; index++) {
+            const firstCluster = sortedClusters[index];
+            const secondCluster = sortedClusters[index + 1];
+            if (
+                firstCluster.end !== secondCluster.start ||
+                firstCluster.isRTL !== secondCluster.isRTL
+            ) {
+                continue;
+            }
+
+            const firstGlyphName =
+                this.getKerningGlyphNameForCluster(firstCluster);
+            const secondGlyphName =
+                this.getKerningGlyphNameForCluster(secondCluster);
+            if (!firstGlyphName || !secondGlyphName) {
+                continue;
+            }
+
+            const firstGroupNames = collectKerningGroupMemberships(
+                fontModel.first_kern_groups,
+                firstGlyphName
+            );
+            const secondGroupNames = collectKerningGroupMemberships(
+                fontModel.second_kern_groups,
+                secondGlyphName
+            );
+            const firstKeys = [
+                firstGlyphName,
+                ...firstGroupNames.map((name) => `@${name}`)
+            ];
+            const secondKeys = [
+                secondGlyphName,
+                ...secondGroupNames.map((name) => `@${name}`)
+            ];
+            const preferredSelection =
+                this.getPreferredTextModeKerningSelection(
+                    master,
+                    firstKeys,
+                    secondKeys
+                );
+            if (!preferredSelection.firstKey || !preferredSelection.secondKey) {
+                continue;
+            }
+
+            const value = getKerningPairValue(
+                kerning,
+                preferredSelection.firstKey,
+                preferredSelection.secondKey
+            );
+            if (value === null || value === 0) {
+                continue;
+            }
+
+            const overlay = this.buildTextModeKerningOverlay(
+                secondCluster,
+                firstCluster.isRTL,
+                metrics,
+                value
+            );
+            if (overlay) {
+                overlays.push(overlay);
+            }
+        }
+
+        return overlays;
+    }
+
     private setTextModeKerningSelection(side: KerningSide, key: string): void {
         this.textModeKerningSelection = {
             ...this.textModeKerningSelection,
@@ -5031,6 +5174,7 @@ class GlyphCanvas {
         this.textModeKerningDraftValue = null;
         this.updatePropertyPanel();
         this.render();
+        this.focusCanvasForTextModeKerning();
     }
 
     private scheduleTextModeKerningCompile(reason: string): void {
@@ -5252,7 +5396,8 @@ class GlyphCanvas {
 
     private async commitTextModeKerningValue(
         value: string,
-        context: TextModeKerningContext
+        context: TextModeKerningContext,
+        focusCanvas: boolean = false
     ): Promise<void> {
         if (
             !context.master ||
@@ -5266,6 +5411,9 @@ class GlyphCanvas {
         const nextValue = trimmedValue === '' ? null : Number(trimmedValue);
         if (trimmedValue !== '' && !Number.isFinite(nextValue)) {
             this.updatePropertyPanel();
+            if (focusCanvas) {
+                this.focusCanvasForTextModeKerning();
+            }
             return;
         }
 
@@ -5277,6 +5425,9 @@ class GlyphCanvas {
             this.textModeKerningDraftPairKey = nextPairKey;
             this.textModeKerningDraftValue = trimmedValue;
             this.updatePropertyPanel();
+            if (focusCanvas) {
+                this.focusCanvasForTextModeKerning();
+            }
             return;
         }
 
@@ -5297,6 +5448,27 @@ class GlyphCanvas {
         this.scheduleTextModeKerningCompile('kerning-property-panel');
         this.updatePropertyPanel();
         this.render();
+        if (focusCanvas) {
+            this.focusCanvasForTextModeKerning();
+        }
+    }
+
+    private async nudgeTextModeKerningValue(delta: number): Promise<void> {
+        const context = this.getCurrentTextModeKerningContext();
+        if (
+            context.status !== 'ready' ||
+            !context.selectedFirstKey ||
+            !context.selectedSecondKey
+        ) {
+            return;
+        }
+
+        const currentValue = context.selectedValue ?? 0;
+        await this.commitTextModeKerningValue(
+            String(currentValue + delta),
+            context,
+            true
+        );
     }
 
     private updateTextModeKerningMirror(
@@ -5311,13 +5483,7 @@ class GlyphCanvas {
         );
     }
 
-    getTextModeKerningOverlayState(): {
-        minX: number;
-        maxX: number;
-        topY: number;
-        bottomY: number;
-        value: number;
-    } | null {
+    getTextModeKerningOverlayState(): TextModeKerningOverlay | null {
         const context = this.getCurrentTextModeKerningContext();
         if (
             context.status !== 'ready' ||
@@ -5331,32 +5497,12 @@ class GlyphCanvas {
             return null;
         }
 
-        const secondVisualEdge = context.isRTL
-            ? context.secondCluster.x + context.secondCluster.width
-            : context.secondCluster.x;
-        const directionSign = context.isRTL ? -1 : 1;
-        const adjustmentEdge =
-            secondVisualEdge - directionSign * context.selectedValue;
-        const metricValues = Object.values(context.metrics).filter((value) =>
-            Number.isFinite(value)
+        return this.buildTextModeKerningOverlay(
+            context.secondCluster,
+            context.isRTL,
+            context.metrics,
+            context.selectedValue
         );
-        const fontUpm = Number(fontManager.currentFont?.fontModel?.upm) || 1000;
-        const topY =
-            metricValues.length > 0
-                ? Math.max(...metricValues, 0)
-                : fontUpm * 0.8;
-        const bottomY =
-            metricValues.length > 0
-                ? Math.min(...metricValues, 0)
-                : -fontUpm * 0.2;
-
-        return {
-            minX: Math.min(secondVisualEdge, adjustmentEdge),
-            maxX: Math.max(secondVisualEdge, adjustmentEdge),
-            topY,
-            bottomY,
-            value: context.selectedValue
-        };
     }
 
     updatePropertyPanel(): void {
@@ -6046,7 +6192,8 @@ class GlyphCanvas {
                     }
                     await this.commitTextModeKerningValue(
                         String(nextValue),
-                        context
+                        context,
+                        true
                     );
                 },
                 findReplacementInput: () =>
@@ -6068,7 +6215,11 @@ class GlyphCanvas {
                     return;
                 }
 
-                void this.commitTextModeKerningValue(input.value, context);
+                void this.commitTextModeKerningValue(
+                    input.value,
+                    context,
+                    true
+                );
             });
 
             input.addEventListener('keydown', (event) => {
@@ -6088,8 +6239,11 @@ class GlyphCanvas {
                 if (event.key === 'Enter') {
                     event.preventDefault();
                     input.dataset.skipNextPropertyCommit = 'true';
-                    void this.commitTextModeKerningValue(input.value, context);
-                    input.blur();
+                    void this.commitTextModeKerningValue(
+                        input.value,
+                        context,
+                        true
+                    );
                 }
             });
 
@@ -6126,7 +6280,11 @@ class GlyphCanvas {
                         return;
                     }
 
-                    void this.commitTextModeKerningValue(input.value, context);
+                    void this.commitTextModeKerningValue(
+                        input.value,
+                        context,
+                        true
+                    );
                 }, 0);
             });
 
@@ -6919,6 +7077,19 @@ class GlyphCanvas {
         ) {
             e.preventDefault();
             this.cycleMasters(e.key === 'ArrowUp');
+            return;
+        }
+
+        if (
+            !this.outlineEditor.active &&
+            e.altKey &&
+            (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+        ) {
+            e.preventDefault();
+            const magnitude =
+                e.metaKey || e.ctrlKey ? 100 : e.shiftKey ? 10 : 1;
+            const delta = e.key === 'ArrowLeft' ? -magnitude : magnitude;
+            void this.nudgeTextModeKerningValue(delta);
             return;
         }
 
