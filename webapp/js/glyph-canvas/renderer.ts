@@ -958,8 +958,10 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        const overlays = this.glyphCanvas.getTextModeKerningOverlayStates();
-        if (overlays.length === 0) {
+        const markerOverlays =
+            this.glyphCanvas.getTextModeKerningOverlayStates();
+        const activeOverlay = this.glyphCanvas.getTextModeKerningOverlayState();
+        if (markerOverlays.length === 0 && !activeOverlay) {
             return;
         }
 
@@ -970,10 +972,10 @@ export class GlyphCanvasRenderer {
         const negativeColor = computedStyle
             .getPropertyValue('--accent-red')
             .trim();
+        const markerHeight = 10;
 
         this.ctx.save();
-        this.ctx.globalAlpha = 0.22;
-        for (const overlay of overlays) {
+        for (const overlay of markerOverlays) {
             if (overlay.maxX <= overlay.minX) {
                 continue;
             }
@@ -984,7 +986,19 @@ export class GlyphCanvasRenderer {
                 overlay.minX,
                 overlay.bottomY,
                 overlay.maxX - overlay.minX,
-                overlay.topY - overlay.bottomY
+                markerHeight
+            );
+        }
+
+        if (activeOverlay && activeOverlay.maxX > activeOverlay.minX) {
+            this.ctx.globalAlpha = 0.22;
+            this.ctx.fillStyle =
+                activeOverlay.value > 0 ? positiveColor : negativeColor;
+            this.ctx.fillRect(
+                activeOverlay.minX,
+                activeOverlay.bottomY,
+                activeOverlay.maxX - activeOverlay.minX,
+                activeOverlay.topY - activeOverlay.bottomY
             );
         }
         this.ctx.restore();

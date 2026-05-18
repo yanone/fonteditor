@@ -215,6 +215,72 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
     });
 });
 
+describe('GlyphCanvas renderer kerning overlays', () => {
+    let canvas;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        canvas.outlineEditor.active = false;
+    });
+
+    afterEach(() => {
+        canvas.destroy();
+    });
+
+    test('draws solid markers for all pairs and a translucent band only for the active pair', () => {
+        jest.spyOn(canvas, 'getTextModeKerningOverlayStates').mockReturnValue([
+            {
+                minX: 10,
+                maxX: 50,
+                topY: 800,
+                bottomY: -200,
+                value: -40
+            },
+            {
+                minX: 60,
+                maxX: 90,
+                topY: 800,
+                bottomY: -200,
+                value: 30
+            }
+        ]);
+        jest.spyOn(canvas, 'getTextModeKerningOverlayState').mockReturnValue({
+            minX: 60,
+            maxX: 90,
+            topY: 800,
+            bottomY: -200,
+            value: 30
+        });
+        canvas.renderer.ctx.fillRect.mockClear();
+
+        canvas.renderer.drawTextModeKerningOverlay();
+
+        expect(canvas.renderer.ctx.fillRect).toHaveBeenCalledTimes(3);
+        expect(canvas.renderer.ctx.fillRect).toHaveBeenNthCalledWith(
+            1,
+            10,
+            -200,
+            40,
+            10
+        );
+        expect(canvas.renderer.ctx.fillRect).toHaveBeenNthCalledWith(
+            2,
+            60,
+            -200,
+            30,
+            10
+        );
+        expect(canvas.renderer.ctx.fillRect).toHaveBeenNthCalledWith(
+            3,
+            60,
+            -200,
+            30,
+            1000
+        );
+    });
+});
+
 describe('GlyphCanvas renderer snap visualization', () => {
     let canvas;
 
@@ -9962,6 +10028,26 @@ describe('Text-mode kerning property panel', () => {
                 bottomY: -200
             }
         ]);
+    });
+
+    test('clears kerning draft state on font model sync so undo or redo refreshes the value field', () => {
+        setTextRunState();
+
+        canvas.updatePropertyPanel();
+
+        const input = document.querySelector('.glyph-kerning-value-input');
+        input.value = '-55';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(canvas.textModeKerningDraftPairKey).toBe('A\u0000@VSecond');
+
+        fontModel.masters[0].kerning['A:@VSecond'] = -70;
+        window.dispatchEvent(new CustomEvent('fontModelSync'));
+
+        expect(canvas.textModeKerningDraftPairKey).toBeNull();
+        expect(canvas.textModeKerningDraftValue).toBeNull();
+        expect(
+            document.querySelector('.glyph-kerning-value-input')?.value
+        ).toBe('-70');
     });
 
     test('shows active selection state on the chosen pill pair', () => {

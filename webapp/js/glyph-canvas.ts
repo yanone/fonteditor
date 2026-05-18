@@ -566,6 +566,25 @@ class GlyphCanvas {
         void this.updatePropertiesUI();
     };
 
+    private handleFontModelSync = (): void => {
+        if (
+            this.textModeKerningDraftPairKey === null &&
+            this.textModeKerningDraftValue === null
+        ) {
+            return;
+        }
+
+        this.textModeKerningDraftPairKey = null;
+        this.textModeKerningDraftValue = null;
+
+        if (this.outlineEditor.active || !this.propertyPanel) {
+            return;
+        }
+
+        this.updatePropertyPanel();
+        this.render();
+    };
+
     constructor(containerId: string) {
         this.container = document.getElementById(containerId)!;
         if (!this.container) {
@@ -665,6 +684,7 @@ class GlyphCanvas {
             'layerFingerprintChanged',
             this.handleLayerFingerprintChanged
         );
+        window.addEventListener('fontModelSync', this.handleFontModelSync);
 
         // Mouse events for panning
         this.canvas!.addEventListener('mousedown', (e) => this.onMouseDown(e));
@@ -7002,6 +7022,7 @@ class GlyphCanvas {
             'layerFingerprintChanged',
             this.handleLayerFingerprintChanged
         );
+        window.removeEventListener('fontModelSync', this.handleFontModelSync);
 
         // Clear any pending blur timeout
         if (this.blurTimeoutId) {
