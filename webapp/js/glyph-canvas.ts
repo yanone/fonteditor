@@ -5262,6 +5262,18 @@ class GlyphCanvas {
             return;
         }
 
+        const existingGroupNames = collectKerningGroupMemberships(
+            groups,
+            glyphName
+        );
+        if (
+            include &&
+            existingGroupNames.length > 0 &&
+            !existingGroupNames.includes(normalizedGroupName)
+        ) {
+            return;
+        }
+
         window.patchSyncEngine?.beginTransaction(
             include
                 ? 'Add kern group membership'
@@ -5305,6 +5317,17 @@ class GlyphCanvas {
         glyphName: string | null
     ): void {
         if (!glyphName) {
+            return;
+        }
+
+        const fontModel = fontManager.currentFont?.fontModel;
+        const existingGroupNames = collectKerningGroupMemberships(
+            side === 'first'
+                ? fontModel?.first_kern_groups
+                : fontModel?.second_kern_groups,
+            glyphName
+        );
+        if (existingGroupNames.length > 0) {
             return;
         }
 
@@ -6169,12 +6192,24 @@ class GlyphCanvas {
             side: KerningSide,
             glyphName: string | null
         ) => {
+            const fontModel = fontManager.currentFont?.fontModel;
+            const hasExistingGroup = glyphName
+                ? collectKerningGroupMemberships(
+                      side === 'first'
+                          ? fontModel?.first_kern_groups
+                          : fontModel?.second_kern_groups,
+                      glyphName
+                  ).length > 0
+                : false;
             const addButton = document.createElement('button');
             addButton.type = 'button';
             addButton.className = 'glyph-kerning-pill-add';
             addButton.textContent = '+';
+            addButton.disabled = hasExistingGroup;
             addButton.title = glyphName
-                ? `Add kerning group to glyph "${glyphName}"`
+                ? hasExistingGroup
+                    ? `Glyph "${glyphName}" already has a ${side} kerning group`
+                    : `Add kerning group to glyph "${glyphName}"`
                 : 'Add kerning group';
             addButton.addEventListener('click', () => {
                 this.promptAndAddTextModeKerningGroup(side, glyphName);

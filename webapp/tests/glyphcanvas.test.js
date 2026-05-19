@@ -9828,6 +9828,31 @@ describe('Text-mode kerning property panel', () => {
         ).toContain('Select an exact master');
     });
 
+    test('disables add kerning group buttons when the glyph already has one group per side', () => {
+        setTextRunState();
+
+        canvas.updatePropertyPanel();
+
+        const addButtons = Array.from(
+            document.querySelectorAll('.glyph-kerning-pill-add')
+        );
+
+        expect(addButtons).toHaveLength(2);
+        expect(addButtons.every((button) => button.disabled)).toBe(true);
+    });
+
+    test('blocks adding a second kerning group on the same side', () => {
+        canvas['updateTextModeKerningGroupMembership'](
+            'second',
+            'V',
+            'VOther',
+            true
+        );
+
+        expect(fontModel.second_kern_groups.VSecond).toEqual(['V']);
+        expect(fontModel.second_kern_groups.VOther).toBeUndefined();
+    });
+
     test('shows a short message at direction boundaries', () => {
         canvas.textRunEditor.cursorPosition = 1;
         canvas.textRunEditor.selectedMasterId = 'master-1';
