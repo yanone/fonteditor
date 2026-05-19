@@ -59,6 +59,7 @@ This documentation is designed as a practical user guide for real font-productio
 - [Axes, Masters, and Interpolation](editor/02-axes-masters-interpolation.md)
 - [Sidebearing Arithmetics](editor/03-sidebearing-arithmetics.md)
 - [Layer Operations](editor/05-layer-operations.md)
+- [Text-Mode Kerning](editor/06-text-mode-kerning.md)
 
 ### Features
 
