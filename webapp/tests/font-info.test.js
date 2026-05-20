@@ -1435,6 +1435,7 @@ describe('FontInfo feature code compilation scheduling', () => {
             '[data-fontinfo-list-action="masters-remove"]'
         );
         removeMasterButton.focus();
+        fontInfoManager.setDeleteConfirmationHandler(true);
         removeMasterButton.click();
 
         expect(applySyntheticChangeSet).toHaveBeenCalledWith('Remove master', [
@@ -1817,6 +1818,7 @@ describe('FontInfo feature code compilation scheduling', () => {
             '[data-fontinfo-list-action="instances-remove"]'
         );
         removeInstanceButton.focus();
+        fontInfoManager.setDeleteConfirmationHandler(true);
         removeInstanceButton.click();
 
         expect(applySyntheticChangeSet).toHaveBeenCalledWith(
@@ -2329,6 +2331,7 @@ describe('FontInfo feature code compilation scheduling', () => {
             '[data-fontinfo-list-action="axes-remove"]'
         );
         removeAxesButton.focus();
+        fontInfoManager.setDeleteConfirmationHandler(true);
         removeAxesButton.click();
 
         expect(applySyntheticChangeSet).toHaveBeenCalledWith('Remove axis', [
@@ -2734,6 +2737,7 @@ describe('FontInfo feature code compilation scheduling', () => {
             '[data-fontinfo-list-action="axes-remove"]'
         );
         removeAxesButton.focus();
+        fontInfoManager.setDeleteConfirmationHandler(true);
         removeAxesButton.click();
 
         const removeCall = applySyntheticChangeSet.mock.calls.find(
@@ -2752,5 +2756,480 @@ describe('FontInfo feature code compilation scheduling', () => {
         expect(masterRemoveChange).toBeDefined();
         expect(Object.keys(masterRemoveChange.newValue ?? {})).toHaveLength(1);
         expect(masterRemoveChange.newValue).toHaveProperty('wght');
+    });
+
+    // ── Layer sync + multi-select tests ─────────────────────────────────────
+
+    test('adding a master adds a layer to every glyph', () => {
+        document.body.innerHTML = `
+            <div id="view-fontinfo" class="view view-fontinfo focused">
+                <div class="view-title-bar">
+                    <div class="view-title-right">
+                        <div id="fontinfo-search-control" style="display: none;">
+                            <input id="fontinfo-search-input" />
+                        </div>
+                    </div>
+                </div>
+                <div class="view-content">
+                    <div id="browser-compat"></div>
+                </div>
+            </div>
+        `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        const addLayer = jest.fn();
+        window.currentFontModel = {
+            axes: [],
+            names: {},
+            features: { features: [] },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: {},
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    addLayer,
+                    layers: [{ width: 600 }]
+                }
+            ]
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('masters');
+
+        const addMasterButton = document.querySelector(
+            '[data-fontinfo-list-action="masters-add"]'
+        );
+        addMasterButton.click();
+
+        // addLayer must have been called once for the single glyph
+        expect(addLayer).toHaveBeenCalledTimes(1);
+        // It should be called with a width and a master linkage for DefaultForMaster
+        const [width, masterObj] = addLayer.mock.calls[0];
+        expect(typeof width).toBe('number');
+        expect(masterObj).toMatchObject({ type: 'DefaultForMaster' });
+        expect(typeof masterObj.master).toBe('string');
+    });
+
+    test('removing a master removes linked layers from all glyphs', () => {
+        document.body.innerHTML = `
+            <div id="view-fontinfo" class="view view-fontinfo focused">
+                <div class="view-title-bar">
+                    <div class="view-title-right">
+                        <div id="fontinfo-search-control" style="display: none;">
+                            <input id="fontinfo-search-input" />
+                        </div>
+                    </div>
+                </div>
+                <div class="view-content">
+                    <div id="browser-compat"></div>
+                </div>
+            </div>
+        `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        const removeLayerById = jest.fn();
+        window.currentFontModel = {
+            axes: [],
+            names: {},
+            features: { features: [] },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: {},
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                },
+                {
+                    id: 'M2',
+                    name: { dflt: 'Bold' },
+                    location: {},
+                    metrics: { ascender: 820 },
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    removeLayerById,
+                    data: {
+                        layers: [
+                            {
+                                id: 'L1',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M1'
+                                }
+                            },
+                            {
+                                id: 'L2',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'M2'
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('masters');
+
+        // Select M2 (index 1)
+        const masterItems = document.querySelectorAll(
+            '#fontinfo-masters-content .fontinfo-record-item'
+        );
+        masterItems[1].click();
+
+        fontInfoManager.setDeleteConfirmationHandler(true);
+        document
+            .querySelector('[data-fontinfo-list-action="masters-remove"]')
+            .click();
+
+        expect(removeLayerById).toHaveBeenCalledWith('L2');
+        expect(removeLayerById).not.toHaveBeenCalledWith('L1');
+    });
+
+    test('confirmation cancel aborts master deletion', () => {
+        document.body.innerHTML = `
+            <div id="view-fontinfo" class="view view-fontinfo focused">
+                <div class="view-title-bar">
+                    <div class="view-title-right">
+                        <div id="fontinfo-search-control" style="display: none;">
+                            <input id="fontinfo-search-input" />
+                        </div>
+                    </div>
+                </div>
+                <div class="view-content">
+                    <div id="browser-compat"></div>
+                </div>
+            </div>
+        `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [],
+            names: {},
+            features: { features: [] },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: {},
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                }
+            ],
+            glyphs: []
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('masters');
+
+        // Cancel the deletion
+        fontInfoManager.setDeleteConfirmationHandler(false);
+        document
+            .querySelector('[data-fontinfo-list-action="masters-remove"]')
+            .click();
+
+        // No transaction should have been started
+        expect(beginTransaction).not.toHaveBeenCalledWith('Remove master');
+        expect(applySyntheticChangeSet).not.toHaveBeenCalledWith(
+            'Remove master',
+            expect.anything()
+        );
+        // List is unchanged
+        expect(
+            document.querySelectorAll(
+                '#fontinfo-masters-content .fontinfo-record-item'
+            )
+        ).toHaveLength(1);
+    });
+
+    test('multi-select: Ctrl+click adds to master selection, delete removes both', () => {
+        document.body.innerHTML = `
+            <div id="view-fontinfo" class="view view-fontinfo focused">
+                <div class="view-title-bar">
+                    <div class="view-title-right">
+                        <div id="fontinfo-search-control" style="display: none;">
+                            <input id="fontinfo-search-input" />
+                        </div>
+                    </div>
+                </div>
+                <div class="view-content">
+                    <div id="browser-compat"></div>
+                </div>
+            </div>
+        `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [],
+            names: {},
+            features: { features: [] },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: {},
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                },
+                {
+                    id: 'M2',
+                    name: { dflt: 'Bold' },
+                    location: {},
+                    metrics: { ascender: 820 },
+                    kerning: {}
+                },
+                {
+                    id: 'M3',
+                    name: { dflt: 'ExtraBold' },
+                    location: {},
+                    metrics: { ascender: 830 },
+                    kerning: {}
+                }
+            ],
+            glyphs: []
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('masters');
+
+        const masterItems = () =>
+            document.querySelectorAll(
+                '#fontinfo-masters-content .fontinfo-record-item'
+            );
+
+        // Click M1 (index 0) to select it
+        masterItems()[0].click();
+
+        // Ctrl+click M3 (index 2) to add to selection
+        masterItems()[2].dispatchEvent(
+            new MouseEvent('click', { bubbles: true, metaKey: true })
+        );
+
+        // Both 0 and 2 should be selected
+        expect(masterItems()[0].classList.contains('selected')).toBe(true);
+        expect(masterItems()[1].classList.contains('selected')).toBe(false);
+        expect(masterItems()[2].classList.contains('selected')).toBe(true);
+
+        // Delete the selection
+        fontInfoManager.setDeleteConfirmationHandler(true);
+        document
+            .querySelector('[data-fontinfo-list-action="masters-remove"]')
+            .click();
+
+        // Only M2 (index 1) should remain
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Remove master',
+            expect.arrayContaining([
+                expect.objectContaining({
+                    newValue: expect.arrayContaining([
+                        expect.objectContaining({ id: 'M2' })
+                    ])
+                })
+            ])
+        );
+        expect(masterItems()).toHaveLength(1);
+    });
+
+    test('confirmation cancel aborts instance deletion', () => {
+        document.body.innerHTML = `
+            <div id="view-fontinfo" class="view view-fontinfo focused">
+                <div class="view-title-bar">
+                    <div class="view-title-right">
+                        <div id="fontinfo-search-control" style="display: none;">
+                            <input id="fontinfo-search-input" />
+                        </div>
+                    </div>
+                </div>
+                <div class="view-content">
+                    <div id="browser-compat"></div>
+                </div>
+            </div>
+        `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [],
+            names: {},
+            features: { features: [] },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: {},
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                }
+            ],
+            instances: [
+                {
+                    id: 'I1',
+                    name: { dflt: 'Regular' },
+                    location: {}
+                }
+            ],
+            glyphs: []
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('instances');
+
+        fontInfoManager.setDeleteConfirmationHandler(false);
+        document
+            .querySelector('[data-fontinfo-list-action="instances-remove"]')
+            .click();
+
+        expect(applySyntheticChangeSet).not.toHaveBeenCalledWith(
+            'Remove instance',
+            expect.anything()
+        );
+        expect(
+            document.querySelectorAll(
+                '#fontinfo-instances-content .fontinfo-record-item'
+            )
+        ).toHaveLength(1);
+    });
+
+    test('confirmation cancel aborts axis deletion', () => {
+        document.body.innerHTML = `
+            <div id="view-fontinfo" class="view view-fontinfo focused">
+                <div class="view-title-bar">
+                    <div class="view-title-right">
+                        <div id="fontinfo-search-control" style="display: none;">
+                            <input id="fontinfo-search-input" />
+                        </div>
+                    </div>
+                </div>
+                <div class="view-content">
+                    <div id="browser-compat"></div>
+                </div>
+            </div>
+        `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: { features: [] },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                }
+            ],
+            instances: [],
+            glyphs: []
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('axes');
+
+        fontInfoManager.setDeleteConfirmationHandler(false);
+        document
+            .querySelector('[data-fontinfo-list-action="axes-remove"]')
+            .click();
+
+        expect(applySyntheticChangeSet).not.toHaveBeenCalledWith(
+            'Remove axis',
+            expect.anything()
+        );
+        expect(
+            document.querySelectorAll(
+                '#fontinfo-axes-content .fontinfo-record-item'
+            )
+        ).toHaveLength(1);
     });
 });

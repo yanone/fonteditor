@@ -707,6 +707,10 @@ class FontInfoManager {
     private selectedMasterIndex = 0;
     private selectedInstanceIndex = 0;
     private selectedAxisIndex = 0;
+    private selectedMasterIndices: Set<number> = new Set([0]);
+    private selectedInstanceIndices: Set<number> = new Set([0]);
+    private selectedAxisIndices: Set<number> = new Set([0]);
+    private _deleteConfirmationHandler: boolean | null = null;
     private renderedMasterListSignature = '';
     private renderedInstanceListSignature = '';
     private renderedAxisListSignature = '';
@@ -3544,7 +3548,7 @@ class FontInfoManager {
         primary: string;
         secondary: string;
         selected: boolean;
-        onSelect: () => void;
+        onClick: (event: MouseEvent) => void;
         draggable?: boolean;
         onDragStart?: (event: DragEvent) => void;
         onDragOver?: (event: DragEvent) => void;
@@ -3554,7 +3558,7 @@ class FontInfoManager {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = `editor-layer-item fontinfo-record-item${options.selected ? ' selected' : ''}`;
-        button.addEventListener('click', options.onSelect);
+        button.addEventListener('click', options.onClick);
 
         if (options.draggable) {
             button.draggable = true;
@@ -3917,11 +3921,21 @@ class FontInfoManager {
 
         if (masters.length === 0) {
             this.selectedMasterIndex = 0;
+            this.selectedMasterIndices = new Set();
         } else {
             this.selectedMasterIndex = Math.min(
                 this.selectedMasterIndex,
                 masters.length - 1
             );
+            const clamped = new Set(
+                [...this.selectedMasterIndices].filter(
+                    (i) => i < masters.length
+                )
+            );
+            this.selectedMasterIndices =
+                clamped.size > 0
+                    ? clamped
+                    : new Set([this.selectedMasterIndex]);
         }
         const selectedMaster = masters[this.selectedMasterIndex];
 
@@ -3934,7 +3948,8 @@ class FontInfoManager {
         sidebar.appendChild(
             this.createRecordsSidebarHeader({
                 title: 'Masters',
-                canRemove: masters.length > 0,
+                canRemove:
+                    masters.length > 0 && this.selectedMasterIndices.size > 0,
                 onAdd: () => this.addMasterRecord(),
                 onRemove: () => this.removeSelectedMasterRecord()
             })
@@ -3949,10 +3964,46 @@ class FontInfoManager {
                 this.createRecordListButton({
                     primary: summary.primary,
                     secondary: summary.secondary,
-                    selected: index === this.selectedMasterIndex,
+                    selected: this.selectedMasterIndices.has(index),
                     draggable: masters.length > 1,
-                    onSelect: () => {
-                        this.selectedMasterIndex = index;
+                    onClick: (event: MouseEvent) => {
+                        const isMulti = event.ctrlKey || event.metaKey;
+                        const isRange = event.shiftKey;
+                        if (isMulti) {
+                            if (this.selectedMasterIndices.has(index)) {
+                                if (this.selectedMasterIndices.size > 1) {
+                                    this.selectedMasterIndices = new Set(
+                                        [...this.selectedMasterIndices].filter(
+                                            (i) => i !== index
+                                        )
+                                    );
+                                }
+                            } else {
+                                this.selectedMasterIndices = new Set([
+                                    ...this.selectedMasterIndices,
+                                    index
+                                ]);
+                                this.selectedMasterIndex = index;
+                            }
+                        } else if (isRange) {
+                            const lo = Math.min(
+                                this.selectedMasterIndex,
+                                index
+                            );
+                            const hi = Math.max(
+                                this.selectedMasterIndex,
+                                index
+                            );
+                            const newSet = new Set(this.selectedMasterIndices);
+                            for (let i = lo; i <= hi; i++) {
+                                newSet.add(i);
+                            }
+                            this.selectedMasterIndices = newSet;
+                            this.selectedMasterIndex = index;
+                        } else {
+                            this.selectedMasterIndices = new Set([index]);
+                            this.selectedMasterIndex = index;
+                        }
                         this.renderMastersContent();
                     },
                     onDragStart: (event) =>
@@ -4090,11 +4141,21 @@ class FontInfoManager {
 
         if (instances.length === 0) {
             this.selectedInstanceIndex = 0;
+            this.selectedInstanceIndices = new Set();
         } else {
             this.selectedInstanceIndex = Math.min(
                 this.selectedInstanceIndex,
                 instances.length - 1
             );
+            const clamped = new Set(
+                [...this.selectedInstanceIndices].filter(
+                    (i) => i < instances.length
+                )
+            );
+            this.selectedInstanceIndices =
+                clamped.size > 0
+                    ? clamped
+                    : new Set([this.selectedInstanceIndex]);
         }
         const selectedInstance = instances[this.selectedInstanceIndex];
 
@@ -4107,7 +4168,9 @@ class FontInfoManager {
         sidebar.appendChild(
             this.createRecordsSidebarHeader({
                 title: 'Instances',
-                canRemove: instances.length > 0,
+                canRemove:
+                    instances.length > 0 &&
+                    this.selectedInstanceIndices.size > 0,
                 onAdd: () => this.addInstanceRecord(),
                 onRemove: () => this.removeSelectedInstanceRecord()
             })
@@ -4122,10 +4185,48 @@ class FontInfoManager {
                 this.createRecordListButton({
                     primary: summary.primary,
                     secondary: summary.secondary,
-                    selected: index === this.selectedInstanceIndex,
+                    selected: this.selectedInstanceIndices.has(index),
                     draggable: instances.length > 1,
-                    onSelect: () => {
-                        this.selectedInstanceIndex = index;
+                    onClick: (event: MouseEvent) => {
+                        const isMulti = event.ctrlKey || event.metaKey;
+                        const isRange = event.shiftKey;
+                        if (isMulti) {
+                            if (this.selectedInstanceIndices.has(index)) {
+                                if (this.selectedInstanceIndices.size > 1) {
+                                    this.selectedInstanceIndices = new Set(
+                                        [
+                                            ...this.selectedInstanceIndices
+                                        ].filter((i) => i !== index)
+                                    );
+                                }
+                            } else {
+                                this.selectedInstanceIndices = new Set([
+                                    ...this.selectedInstanceIndices,
+                                    index
+                                ]);
+                                this.selectedInstanceIndex = index;
+                            }
+                        } else if (isRange) {
+                            const lo = Math.min(
+                                this.selectedInstanceIndex,
+                                index
+                            );
+                            const hi = Math.max(
+                                this.selectedInstanceIndex,
+                                index
+                            );
+                            const newSet = new Set(
+                                this.selectedInstanceIndices
+                            );
+                            for (let i = lo; i <= hi; i++) {
+                                newSet.add(i);
+                            }
+                            this.selectedInstanceIndices = newSet;
+                            this.selectedInstanceIndex = index;
+                        } else {
+                            this.selectedInstanceIndices = new Set([index]);
+                            this.selectedInstanceIndex = index;
+                        }
                         this.renderInstancesContent();
                     },
                     onDragStart: (event) =>
@@ -4265,11 +4366,17 @@ class FontInfoManager {
 
         if (axes.length === 0) {
             this.selectedAxisIndex = 0;
+            this.selectedAxisIndices = new Set();
         } else {
             this.selectedAxisIndex = Math.min(
                 this.selectedAxisIndex,
                 axes.length - 1
             );
+            const clamped = new Set(
+                [...this.selectedAxisIndices].filter((i) => i < axes.length)
+            );
+            this.selectedAxisIndices =
+                clamped.size > 0 ? clamped : new Set([this.selectedAxisIndex]);
         }
         const selectedAxis = axes[this.selectedAxisIndex];
 
@@ -4282,7 +4389,7 @@ class FontInfoManager {
         sidebar.appendChild(
             this.createRecordsSidebarHeader({
                 title: 'Axes',
-                canRemove: axes.length > 0,
+                canRemove: axes.length > 0 && this.selectedAxisIndices.size > 0,
                 onAdd: () => this.addAxisRecord(),
                 onRemove: () => this.removeSelectedAxisRecord()
             })
@@ -4297,10 +4404,40 @@ class FontInfoManager {
                 this.createRecordListButton({
                     primary: summary.primary,
                     secondary: summary.secondary,
-                    selected: index === this.selectedAxisIndex,
+                    selected: this.selectedAxisIndices.has(index),
                     draggable: axes.length > 1,
-                    onSelect: () => {
-                        this.selectedAxisIndex = index;
+                    onClick: (event: MouseEvent) => {
+                        const isMulti = event.ctrlKey || event.metaKey;
+                        const isRange = event.shiftKey;
+                        if (isMulti) {
+                            if (this.selectedAxisIndices.has(index)) {
+                                if (this.selectedAxisIndices.size > 1) {
+                                    this.selectedAxisIndices = new Set(
+                                        [...this.selectedAxisIndices].filter(
+                                            (i) => i !== index
+                                        )
+                                    );
+                                }
+                            } else {
+                                this.selectedAxisIndices = new Set([
+                                    ...this.selectedAxisIndices,
+                                    index
+                                ]);
+                                this.selectedAxisIndex = index;
+                            }
+                        } else if (isRange) {
+                            const lo = Math.min(this.selectedAxisIndex, index);
+                            const hi = Math.max(this.selectedAxisIndex, index);
+                            const newSet = new Set(this.selectedAxisIndices);
+                            for (let i = lo; i <= hi; i++) {
+                                newSet.add(i);
+                            }
+                            this.selectedAxisIndices = newSet;
+                            this.selectedAxisIndex = index;
+                        } else {
+                            this.selectedAxisIndices = new Set([index]);
+                            this.selectedAxisIndex = index;
+                        }
                         this.renderAxesContent();
                     },
                     onDragStart: (event) => this.onAxisDragStart(event, index),
@@ -4650,6 +4787,64 @@ class FontInfoManager {
 
         if (this.pendingNamesModelSyncRefresh && this.currentTab === 'names') {
             requestAnimationFrame(() => this.refreshVisibleNamesContent());
+        }
+    }
+
+    /**
+     * Override the deletion confirmation dialog for testing.
+     * Pass `true` to auto-confirm, `false` to auto-cancel, `null` to restore the real dialog.
+     */
+    setDeleteConfirmationHandler(value: boolean | null): void {
+        this._deleteConfirmationHandler = value;
+    }
+
+    private showDeleteConfirmDialog(
+        message: string,
+        callback: (confirmed: boolean) => void
+    ): void {
+        if (this._deleteConfirmationHandler !== null) {
+            callback(this._deleteConfirmationHandler);
+            return;
+        }
+
+        const dialog = document.createElement('dialog') as HTMLDialogElement;
+        dialog.className = 'fontinfo-confirm-dialog';
+        dialog.innerHTML = `
+            <div class="fontinfo-confirm-content">
+                <p class="fontinfo-confirm-message"></p>
+                <div class="fontinfo-confirm-actions">
+                    <button type="button" class="fontinfo-confirm-cancel">Cancel</button>
+                    <button type="button" class="fontinfo-confirm-ok">Delete</button>
+                </div>
+            </div>`;
+        (
+            dialog.querySelector('.fontinfo-confirm-message') as HTMLElement
+        ).textContent = message;
+        document.body.appendChild(dialog);
+
+        const cleanup = (result: boolean) => {
+            try {
+                dialog.close();
+            } catch {
+                // ignore
+            }
+            dialog.remove();
+            callback(result);
+        };
+
+        dialog
+            .querySelector('.fontinfo-confirm-cancel')!
+            .addEventListener('click', () => cleanup(false));
+        dialog
+            .querySelector('.fontinfo-confirm-ok')!
+            .addEventListener('click', () => cleanup(true));
+        dialog.addEventListener('cancel', () => cleanup(false));
+
+        try {
+            dialog.showModal();
+        } catch {
+            dialog.remove();
+            callback(false);
         }
     }
 
@@ -5370,12 +5565,85 @@ class FontInfoManager {
             return;
         }
 
+        const newMaster = this.createDefaultMasterRecord();
+        const masterId = newMaster.id!;
         const nextMasters = [
             ...rawArray(font.masters).map(cloneMasterRecord),
-            this.createDefaultMasterRecord()
+            newMaster
         ];
         this.selectedMasterIndex = nextMasters.length - 1;
-        this.commitMastersListChange('Add master', nextMasters);
+        this.selectedMasterIndices = new Set([this.selectedMasterIndex]);
+
+        const previousMasters = rawArray(font.masters).map(cloneMasterRecord);
+        const clonedNextMasters = rawArray(nextMasters).map(cloneMasterRecord);
+
+        const bridge = window.patchSyncEngine as
+            | {
+                  beginTransaction: (label: string) => void;
+                  endTransaction: () => void;
+                  applySyntheticChangeSet: (
+                      label: string,
+                      operations: Array<{
+                          op: 'set' | 'remove';
+                          path: (string | number)[];
+                          oldValue: unknown;
+                          newValue: unknown;
+                      }>
+                  ) => void;
+                  runWithoutRecording?: <T>(fn: () => T) => T;
+              }
+            | undefined;
+
+        if (bridge) {
+            bridge.beginTransaction('Add master');
+            try {
+                if (bridge.runWithoutRecording) {
+                    bridge.runWithoutRecording(() =>
+                        this.applyLocalMastersList(clonedNextMasters)
+                    );
+                } else {
+                    this.applyLocalMastersList(clonedNextMasters);
+                }
+                bridge.applySyntheticChangeSet('Add master', [
+                    {
+                        op: 'set',
+                        path: ['masters'],
+                        oldValue:
+                            previousMasters.length > 0
+                                ? previousMasters
+                                : undefined,
+                        newValue: clonedNextMasters
+                    }
+                ]);
+                // Add a new layer to every glyph for this master.
+                // Recorded naturally (outside runWithoutRecording) inside the transaction.
+                const fontModel = window.currentFontModel as any;
+                for (const glyph of fontModel?.glyphs ?? []) {
+                    const defaultWidth =
+                        (glyph as any).layers?.[0]?.width ?? 500;
+                    (glyph as any).addLayer(defaultWidth, {
+                        type: 'DefaultForMaster',
+                        master: masterId
+                    });
+                }
+            } finally {
+                bridge.endTransaction();
+            }
+        } else {
+            this.applyLocalMastersList(clonedNextMasters);
+            const fontModel = window.currentFontModel as any;
+            for (const glyph of fontModel?.glyphs ?? []) {
+                (glyph as any).addLayer(
+                    (glyph as any).layers?.[0]?.width ?? 500,
+                    { type: 'DefaultForMaster', master: masterId }
+                );
+            }
+            const currentFont = window.fontManager?.currentFont;
+            currentFont?.syncJsonFromModel?.();
+            currentFont?.markDirty?.('font-info-masters-list');
+        }
+
+        this.forceRefreshVisibleMastersContent();
     }
 
     private removeSelectedMasterRecord() {
@@ -5387,14 +5655,158 @@ class FontInfoManager {
             return;
         }
 
-        const nextMasters = rawArray(masters)
-            .map(cloneMasterRecord)
-            .filter((_, index) => index !== this.selectedMasterIndex);
-        this.selectedMasterIndex = Math.max(
-            0,
-            Math.min(this.selectedMasterIndex - 1, nextMasters.length - 1)
+        const indicesToRemove = new Set(
+            [...this.selectedMasterIndices].filter((i) => i < masters.length)
         );
-        this.commitMastersListChange('Remove master', nextMasters);
+        if (indicesToRemove.size === 0) {
+            return;
+        }
+
+        const masterNames = [...indicesToRemove]
+            .sort((a, b) => a - b)
+            .map((i) => {
+                const m = masters[i];
+                const n = m?.name;
+                if (typeof n === 'string') return n;
+                if (n && typeof n === 'object' && 'dflt' in n)
+                    return (n as { dflt: string }).dflt;
+                return `Master ${i + 1}`;
+            })
+            .join(', ');
+        const count = indicesToRemove.size;
+        const message =
+            count === 1
+                ? `Delete master "${masterNames}"? This will also remove its layers from all glyphs.`
+                : `Delete ${count} masters (${masterNames})? This will also remove their layers from all glyphs.`;
+
+        this.showDeleteConfirmDialog(message, (confirmed) => {
+            if (!confirmed) {
+                return;
+            }
+
+            const masterIds = [...indicesToRemove]
+                .map((i) => (masters[i] as any)?.id as string | undefined)
+                .filter((id): id is string => typeof id === 'string');
+
+            const nextMasters = rawArray(masters)
+                .map(cloneMasterRecord)
+                .filter((_, i) => !indicesToRemove.has(i));
+
+            // Choose new primary selection: first remaining index
+            const firstRemaining = [...Array(masters.length).keys()].find(
+                (i) => !indicesToRemove.has(i)
+            );
+            this.selectedMasterIndex =
+                firstRemaining !== undefined
+                    ? firstRemaining
+                    : Math.max(0, nextMasters.length - 1);
+            this.selectedMasterIndices =
+                nextMasters.length > 0
+                    ? new Set([this.selectedMasterIndex])
+                    : new Set();
+
+            const previousMasters = rawArray(masters).map(cloneMasterRecord);
+            const clonedNextMasters =
+                rawArray(nextMasters).map(cloneMasterRecord);
+
+            const bridge = window.patchSyncEngine as
+                | {
+                      beginTransaction: (label: string) => void;
+                      endTransaction: () => void;
+                      applySyntheticChangeSet: (
+                          label: string,
+                          operations: Array<{
+                              op: 'set' | 'remove';
+                              path: (string | number)[];
+                              oldValue: unknown;
+                              newValue: unknown;
+                          }>
+                      ) => void;
+                      runWithoutRecording?: <T>(fn: () => T) => T;
+                  }
+                | undefined;
+
+            if (bridge) {
+                bridge.beginTransaction('Remove master');
+                try {
+                    if (bridge.runWithoutRecording) {
+                        bridge.runWithoutRecording(() =>
+                            this.applyLocalMastersList(clonedNextMasters)
+                        );
+                    } else {
+                        this.applyLocalMastersList(clonedNextMasters);
+                    }
+                    bridge.applySyntheticChangeSet('Remove master', [
+                        {
+                            op: 'set',
+                            path: ['masters'],
+                            oldValue:
+                                previousMasters.length > 0
+                                    ? previousMasters
+                                    : undefined,
+                            newValue:
+                                clonedNextMasters.length > 0
+                                    ? clonedNextMasters
+                                    : undefined
+                        }
+                    ]);
+                    // Remove layers from all glyphs for each removed master.
+                    // Collect IDs before iterating to avoid wrapper-index instability.
+                    const fontModel = window.currentFontModel as any;
+                    for (const glyph of fontModel?.glyphs ?? []) {
+                        const rawLayers: any[] =
+                            (glyph as any).data?.layers ?? [];
+                        const layerIdsToRemove: string[] = [];
+                        for (const layer of rawLayers) {
+                            const lm = layer.master;
+                            if (
+                                lm &&
+                                typeof lm === 'object' &&
+                                'master' in lm &&
+                                masterIds.includes(lm.master as string)
+                            ) {
+                                if (typeof layer.id === 'string') {
+                                    layerIdsToRemove.push(layer.id);
+                                }
+                            }
+                        }
+                        for (const layerId of layerIdsToRemove) {
+                            (glyph as any).removeLayerById(layerId);
+                        }
+                    }
+                } finally {
+                    bridge.endTransaction();
+                }
+            } else {
+                this.applyLocalMastersList(clonedNextMasters);
+                const fontModel = window.currentFontModel as any;
+                for (const glyph of fontModel?.glyphs ?? []) {
+                    const rawLayers: any[] = (glyph as any).data?.layers ?? [];
+                    const layerIdsToRemove: string[] = [];
+                    for (const layer of rawLayers) {
+                        const lm = layer.master;
+                        if (
+                            lm &&
+                            typeof lm === 'object' &&
+                            'master' in lm &&
+                            masterIds.includes(lm.master as string)
+                        ) {
+                            if (typeof layer.id === 'string') {
+                                layerIdsToRemove.push(layer.id);
+                            }
+                        }
+                    }
+                    for (const layerId of layerIdsToRemove) {
+                        (glyph as any).removeLayerById(layerId);
+                    }
+                }
+                const currentFont = window.fontManager?.currentFont;
+                currentFont?.syncJsonFromModel?.();
+                currentFont?.markDirty?.('font-info-masters-list');
+            }
+
+            this.forceRefreshVisibleMastersContent();
+        });
     }
 
     private reorderMastersList(fromIndex: number, insertionIndex: number) {
@@ -5607,6 +6019,7 @@ class FontInfoManager {
             this.createDefaultInstanceRecord()
         ];
         this.selectedInstanceIndex = nextInstances.length - 1;
+        this.selectedInstanceIndices = new Set([this.selectedInstanceIndex]);
         this.commitInstancesListChange('Add instance', nextInstances);
     }
 
@@ -5619,14 +6032,55 @@ class FontInfoManager {
             return;
         }
 
-        const nextInstances = rawArray(instances)
-            .map(cloneInstanceRecord)
-            .filter((_, index) => index !== this.selectedInstanceIndex);
-        this.selectedInstanceIndex = Math.max(
-            0,
-            Math.min(this.selectedInstanceIndex - 1, nextInstances.length - 1)
+        const indicesToRemove = new Set(
+            [...this.selectedInstanceIndices].filter(
+                (i) => i < instances.length
+            )
         );
-        this.commitInstancesListChange('Remove instance', nextInstances);
+        if (indicesToRemove.size === 0) {
+            return;
+        }
+
+        const instanceNames = [...indicesToRemove]
+            .sort((a, b) => a - b)
+            .map((i) => {
+                const inst = instances[i];
+                const n = inst?.name;
+                if (typeof n === 'string') return n;
+                if (n && typeof n === 'object' && 'dflt' in n)
+                    return (n as { dflt: string }).dflt;
+                return `Instance ${i + 1}`;
+            })
+            .join(', ');
+        const count = indicesToRemove.size;
+        const message =
+            count === 1
+                ? `Delete instance "${instanceNames}"?`
+                : `Delete ${count} instances (${instanceNames})?`;
+
+        this.showDeleteConfirmDialog(message, (confirmed) => {
+            if (!confirmed) {
+                return;
+            }
+
+            const nextInstances = rawArray(instances)
+                .map(cloneInstanceRecord)
+                .filter((_, i) => !indicesToRemove.has(i));
+
+            const firstRemaining = [...Array(instances.length).keys()].find(
+                (i) => !indicesToRemove.has(i)
+            );
+            this.selectedInstanceIndex =
+                firstRemaining !== undefined
+                    ? firstRemaining
+                    : Math.max(0, nextInstances.length - 1);
+            this.selectedInstanceIndices =
+                nextInstances.length > 0
+                    ? new Set([this.selectedInstanceIndex])
+                    : new Set();
+
+            this.commitInstancesListChange('Remove instance', nextInstances);
+        });
     }
 
     private reorderInstancesList(fromIndex: number, insertionIndex: number) {
@@ -5863,6 +6317,7 @@ class FontInfoManager {
         const newAxis = this.createDefaultAxisRecord();
         const nextAxes = [...rawArray(font.axes).map(cloneAxisRecord), newAxis];
         this.selectedAxisIndex = nextAxes.length - 1;
+        this.selectedAxisIndices = new Set([this.selectedAxisIndex]);
 
         const previousAxes = rawArray(font.axes).map(cloneAxisRecord);
         const clonedNextAxes = rawArray(nextAxes).map(cloneAxisRecord);
@@ -5941,94 +6396,135 @@ class FontInfoManager {
             return;
         }
 
-        const removedAxis = axes[this.selectedAxisIndex];
-        const tag = removedAxis?.tag;
-
-        const nextAxes = rawArray(axes)
-            .map(cloneAxisRecord)
-            .filter((_, index) => index !== this.selectedAxisIndex);
-        this.selectedAxisIndex = Math.max(
-            0,
-            Math.min(this.selectedAxisIndex - 1, nextAxes.length - 1)
+        const indicesToRemove = new Set(
+            [...this.selectedAxisIndices].filter((i) => i < axes.length)
         );
-
-        const previousAxes = rawArray(axes).map(cloneAxisRecord);
-        const clonedNextAxes = rawArray(nextAxes).map(cloneAxisRecord);
-
-        const changes: Array<{
-            path: (string | number)[];
-            oldValue: unknown;
-            newValue: unknown;
-        }> = [
-            {
-                path: ['axes'],
-                oldValue: previousAxes.length > 0 ? previousAxes : undefined,
-                newValue: clonedNextAxes
-            }
-        ];
-
-        if (tag) {
-            (font?.masters ?? []).forEach((master, index) => {
-                const loc = master.location as
-                    | Record<string, number>
-                    | undefined;
-                if (loc && tag in loc) {
-                    const restLoc = { ...loc };
-                    delete (restLoc as Record<string, unknown>)[tag];
-                    changes.push({
-                        path: ['masters', index, 'location'],
-                        oldValue: loc,
-                        newValue:
-                            Object.keys(restLoc).length > 0
-                                ? restLoc
-                                : undefined
-                    });
-                }
-            });
-
-            (font?.instances ?? []).forEach((instance, index) => {
-                const loc = instance.location as
-                    | Record<string, number>
-                    | undefined;
-                if (loc && tag in loc) {
-                    const restLoc = { ...loc };
-                    delete (restLoc as Record<string, unknown>)[tag];
-                    changes.push({
-                        path: ['instances', index, 'location'],
-                        oldValue: loc,
-                        newValue:
-                            Object.keys(restLoc).length > 0
-                                ? restLoc
-                                : undefined
-                    });
-                }
-            });
+        if (indicesToRemove.size === 0) {
+            return;
         }
 
-        this.commitMultipleFontPathChanges({
-            label: 'Remove axis',
-            changes,
-            applyLocal: () => {
-                this.applyLocalAxesList(clonedNextAxes);
-                if (tag) {
-                    (window.currentFontModel as any)?.masters?.forEach(
-                        (master: any) => {
-                            if (master.location) {
-                                delete master.location[tag];
-                            }
-                        }
-                    );
-                    (window.currentFontModel as any)?.instances?.forEach(
-                        (instance: any) => {
-                            if (instance.location) {
-                                delete instance.location[tag];
-                            }
-                        }
-                    );
+        const axisNames = [...indicesToRemove]
+            .sort((a, b) => a - b)
+            .map((i) => {
+                const ax = axes[i];
+                const n = ax?.name;
+                if (typeof n === 'string') return n;
+                if (n && typeof n === 'object' && 'dflt' in n)
+                    return (n as { dflt: string }).dflt;
+                return ax?.tag ?? `Axis ${i + 1}`;
+            })
+            .join(', ');
+        const count = indicesToRemove.size;
+        const message =
+            count === 1
+                ? `Delete axis "${axisNames}"?`
+                : `Delete ${count} axes (${axisNames})?`;
+
+        this.showDeleteConfirmDialog(message, (confirmed) => {
+            if (!confirmed) {
+                return;
+            }
+
+            // Collect tags of removed axes for location cleanup
+            const removedTags = [...indicesToRemove]
+                .map((i) => axes[i]?.tag)
+                .filter((t): t is string => typeof t === 'string');
+
+            const nextAxes = rawArray(axes)
+                .map(cloneAxisRecord)
+                .filter((_, i) => !indicesToRemove.has(i));
+
+            const firstRemaining = [...Array(axes.length).keys()].find(
+                (i) => !indicesToRemove.has(i)
+            );
+            this.selectedAxisIndex =
+                firstRemaining !== undefined
+                    ? firstRemaining
+                    : Math.max(0, nextAxes.length - 1);
+            this.selectedAxisIndices =
+                nextAxes.length > 0
+                    ? new Set([this.selectedAxisIndex])
+                    : new Set();
+
+            const previousAxes = rawArray(axes).map(cloneAxisRecord);
+            const clonedNextAxes = rawArray(nextAxes).map(cloneAxisRecord);
+
+            const changes: Array<{
+                path: (string | number)[];
+                oldValue: unknown;
+                newValue: unknown;
+            }> = [
+                {
+                    path: ['axes'],
+                    oldValue:
+                        previousAxes.length > 0 ? previousAxes : undefined,
+                    newValue: clonedNextAxes
                 }
-            },
-            markDirtyKey: 'font-info-axes-list',
-            refresh: () => this.forceRefreshVisibleAxesContent()
+            ];
+
+            for (const tag of removedTags) {
+                (font?.masters ?? []).forEach((master, index) => {
+                    const loc = master.location as
+                        | Record<string, number>
+                        | undefined;
+                    if (loc && tag in loc) {
+                        const restLoc = { ...loc };
+                        delete (restLoc as Record<string, unknown>)[tag];
+                        changes.push({
+                            path: ['masters', index, 'location'],
+                            oldValue: loc,
+                            newValue:
+                                Object.keys(restLoc).length > 0
+                                    ? restLoc
+                                    : undefined
+                        });
+                    }
+                });
+
+                (font?.instances ?? []).forEach((instance, index) => {
+                    const loc = instance.location as
+                        | Record<string, number>
+                        | undefined;
+                    if (loc && tag in loc) {
+                        const restLoc = { ...loc };
+                        delete (restLoc as Record<string, unknown>)[tag];
+                        changes.push({
+                            path: ['instances', index, 'location'],
+                            oldValue: loc,
+                            newValue:
+                                Object.keys(restLoc).length > 0
+                                    ? restLoc
+                                    : undefined
+                        });
+                    }
+                });
+            }
+
+            this.commitMultipleFontPathChanges({
+                label: 'Remove axis',
+                changes,
+                applyLocal: () => {
+                    this.applyLocalAxesList(clonedNextAxes);
+                    for (const tag of removedTags) {
+                        (window.currentFontModel as any)?.masters?.forEach(
+                            (master: any) => {
+                                if (master.location) {
+                                    delete master.location[tag];
+                                }
+                            }
+                        );
+                        (window.currentFontModel as any)?.instances?.forEach(
+                            (instance: any) => {
+                                if (instance.location) {
+                                    delete instance.location[tag];
+                                }
+                            }
+                        );
+                    }
+                },
+                markDirtyKey: 'font-info-axes-list',
+                refresh: () => this.forceRefreshVisibleAxesContent()
+            });
         });
     }
 
