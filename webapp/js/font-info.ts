@@ -4806,46 +4806,7 @@ class FontInfoManager {
             callback(this._deleteConfirmationHandler);
             return;
         }
-
-        const dialog = document.createElement('dialog') as HTMLDialogElement;
-        dialog.className = 'fontinfo-confirm-dialog';
-        dialog.innerHTML = `
-            <div class="fontinfo-confirm-content">
-                <p class="fontinfo-confirm-message"></p>
-                <div class="fontinfo-confirm-actions">
-                    <button type="button" class="fontinfo-confirm-cancel">Cancel</button>
-                    <button type="button" class="fontinfo-confirm-ok">Delete</button>
-                </div>
-            </div>`;
-        (
-            dialog.querySelector('.fontinfo-confirm-message') as HTMLElement
-        ).textContent = message;
-        document.body.appendChild(dialog);
-
-        const cleanup = (result: boolean) => {
-            try {
-                dialog.close();
-            } catch {
-                // ignore
-            }
-            dialog.remove();
-            callback(result);
-        };
-
-        dialog
-            .querySelector('.fontinfo-confirm-cancel')!
-            .addEventListener('click', () => cleanup(false));
-        dialog
-            .querySelector('.fontinfo-confirm-ok')!
-            .addEventListener('click', () => cleanup(true));
-        dialog.addEventListener('cancel', () => cleanup(false));
-
-        try {
-            dialog.showModal();
-        } catch {
-            dialog.remove();
-            callback(false);
-        }
+        callback(window.confirm(message));
     }
 
     private commitFontPathChange(options: {

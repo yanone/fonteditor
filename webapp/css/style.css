@@ -1938,69 +1938,7 @@ kbd + kbd {
 }
 
 /* ── Font-info confirmation dialog ─────────────────────────────────────── */
-
-.fontinfo-confirm-dialog {
-    background: var(--background-elevated, var(--modal-bg, #2a2a2a));
-    border: 1px solid var(--border-tertiary, #444);
-    border-radius: 8px;
-    padding: 0;
-    color: var(--text-primary);
-    min-width: 320px;
-    max-width: 480px;
-}
-
-.fontinfo-confirm-dialog::backdrop {
-    background: rgba(0, 0, 0, 0.5);
-}
-
-.fontinfo-confirm-content {
-    padding: 20px 24px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.fontinfo-confirm-message {
-    margin: 0;
-    font-size: 13px;
-    line-height: 1.5;
-    color: var(--text-primary);
-}
-
-.fontinfo-confirm-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-}
-
-.fontinfo-confirm-cancel,
-.fontinfo-confirm-ok {
-    padding: 6px 16px;
-    border-radius: 4px;
-    border: 1px solid var(--border-tertiary, #444);
-    cursor: pointer;
-    font-size: 13px;
-    font-family: inherit;
-}
-
-.fontinfo-confirm-cancel {
-    background: transparent;
-    color: var(--text-primary);
-}
-
-.fontinfo-confirm-cancel:hover {
-    background: var(--background-hover, rgba(255, 255, 255, 0.06));
-}
-
-.fontinfo-confirm-ok {
-    background: var(--accent-red, #e05252);
-    color: #fff;
-    border-color: transparent;
-}
-
-.fontinfo-confirm-ok:hover {
-    opacity: 0.85;
-}
+/* Placeholder — custom dialog UI to be added via the UI framework later. */
 
 .ai-info-section h3 {
     margin: 0 0 12px 0;
