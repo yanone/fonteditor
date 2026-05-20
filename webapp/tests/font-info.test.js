@@ -1245,7 +1245,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         expect(linkedStyleInput.value).toBe('Black');
     });
 
-    test('masters and instances sidebars do not reuse features view classes', () => {
+    test('masters and instances sidebars use dedicated split panes and editor-style lists', () => {
         document.body.innerHTML = `
                 <div id="view-fontinfo" class="view view-fontinfo focused">
                     <div class="view-title-bar">
@@ -1299,19 +1299,952 @@ describe('FontInfo feature code compilation scheduling', () => {
         jest.runOnlyPendingTimers();
 
         fontInfoManager.switchTab('masters');
+        const masterPane = document.getElementById('fontinfo-masters-fields');
         const masterSidebar = document.querySelector(
             '#fontinfo-masters-content .fontinfo-records-sidebar'
+        );
+        const masterList = document.querySelector(
+            '#fontinfo-masters-content .fontinfo-records-list'
+        );
+        const masterItem = document.querySelector(
+            '#fontinfo-masters-content .fontinfo-record-item'
+        );
+        expect(masterPane.classList.contains('fontinfo-records-pane')).toBe(
+            true
         );
         expect(masterSidebar.classList.contains('features-sidebar')).toBe(
             false
         );
+        expect(masterList.classList.contains('editor-layers-list')).toBe(true);
+        expect(masterItem.classList.contains('editor-layer-item')).toBe(true);
 
         fontInfoManager.switchTab('instances');
+        const instancePane = document.getElementById(
+            'fontinfo-instances-fields'
+        );
         const instanceSidebar = document.querySelector(
             '#fontinfo-instances-content .fontinfo-records-sidebar'
+        );
+        const instanceList = document.querySelector(
+            '#fontinfo-instances-content .fontinfo-records-list'
+        );
+        const instanceItem = document.querySelector(
+            '#fontinfo-instances-content .fontinfo-record-item'
+        );
+        expect(instancePane.classList.contains('fontinfo-records-pane')).toBe(
+            true
         );
         expect(instanceSidebar.classList.contains('features-sidebar')).toBe(
             false
         );
+        expect(instanceList.classList.contains('editor-layers-list')).toBe(
+            true
+        );
+        expect(instanceItem.classList.contains('editor-layer-item')).toBe(true);
+    });
+
+    test('masters list controls add, remove, and reorder through the patch funnel', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: {
+                features: []
+            },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                },
+                {
+                    id: 'M2',
+                    name: { dflt: 'Bold' },
+                    location: { wght: 700 },
+                    metrics: { ascender: 820 },
+                    kerning: {}
+                }
+            ]
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('masters');
+
+        const addMasterButton = document.querySelector(
+            '[data-fontinfo-list-action="masters-add"]'
+        );
+        addMasterButton.focus();
+        addMasterButton.click();
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Add master', [
+            {
+                op: 'set',
+                path: ['masters'],
+                oldValue: expect.any(Array),
+                newValue: expect.arrayContaining([
+                    expect.objectContaining({
+                        name: { dflt: 'Master 3' }
+                    })
+                ])
+            }
+        ]);
+        expect(
+            document.querySelectorAll(
+                '#fontinfo-masters-content .fontinfo-record-item'
+            )
+        ).toHaveLength(3);
+
+        const removeMasterButton = document.querySelector(
+            '[data-fontinfo-list-action="masters-remove"]'
+        );
+        removeMasterButton.focus();
+        removeMasterButton.click();
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Remove master', [
+            {
+                op: 'set',
+                path: ['masters'],
+                oldValue: expect.any(Array),
+                newValue: expect.arrayContaining([
+                    expect.objectContaining({ id: 'M1' }),
+                    expect.objectContaining({ id: 'M2' })
+                ])
+            }
+        ]);
+        expect(
+            document.querySelectorAll(
+                '#fontinfo-masters-content .fontinfo-record-item'
+            )
+        ).toHaveLength(2);
+
+        const masterItems = document.querySelectorAll(
+            '#fontinfo-masters-content .fontinfo-record-item'
+        );
+        masterItems[1].focus();
+        masterItems[0].getBoundingClientRect = () => ({
+            top: 0,
+            height: 20
+        });
+        fontInfoManager.onMasterDragStart(
+            {
+                currentTarget: masterItems[1],
+                dataTransfer: {}
+            },
+            1
+        );
+        fontInfoManager.onMasterDragOver(
+            {
+                preventDefault: jest.fn(),
+                currentTarget: masterItems[0],
+                dataTransfer: {},
+                clientY: 0
+            },
+            0
+        );
+        expect(
+            masterItems[0].classList.contains('feature-drop-target-before')
+        ).toBe(true);
+        fontInfoManager.onMasterDrop(
+            {
+                preventDefault: jest.fn()
+            },
+            0
+        );
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Reorder masters',
+            [
+                {
+                    op: 'set',
+                    path: ['masters'],
+                    oldValue: expect.any(Array),
+                    newValue: [
+                        expect.objectContaining({ id: 'M2' }),
+                        expect.objectContaining({ id: 'M1' })
+                    ]
+                }
+            ]
+        );
+        expect(
+            document.querySelector(
+                '#fontinfo-masters-content .fontinfo-record-item-primary'
+            ).textContent
+        ).toBe('Bold');
+    });
+
+    test('masters reorder rebuilds the visible list while a detail input remains focused', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: {
+                features: []
+            },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                },
+                {
+                    id: 'M2',
+                    name: { dflt: 'Bold' },
+                    location: { wght: 700 },
+                    metrics: { ascender: 820 },
+                    kerning: {}
+                }
+            ]
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('masters');
+
+        const masterMetricInput = document.querySelector(
+            '[data-font-field="masters.0.metrics.ascender"] .localized-string-input'
+        );
+        masterMetricInput.focus();
+
+        const masterItems = document.querySelectorAll(
+            '#fontinfo-masters-content .fontinfo-record-item'
+        );
+        masterItems[0].getBoundingClientRect = () => ({
+            top: 0,
+            height: 20
+        });
+
+        fontInfoManager.onMasterDragStart(
+            {
+                currentTarget: masterItems[1],
+                dataTransfer: {}
+            },
+            1
+        );
+        fontInfoManager.onMasterDragOver(
+            {
+                preventDefault: jest.fn(),
+                currentTarget: masterItems[0],
+                dataTransfer: {},
+                clientY: 0
+            },
+            0
+        );
+        fontInfoManager.onMasterDrop(
+            {
+                preventDefault: jest.fn()
+            },
+            0
+        );
+
+        const reorderedItems = document.querySelectorAll(
+            '#fontinfo-masters-content .fontinfo-record-item-primary'
+        );
+        expect(reorderedItems[0].textContent).toBe('Bold');
+        expect(reorderedItems[1].textContent).toBe('Regular');
+    });
+
+    test('masters reorder commits from dragend when drop is not delivered', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: {
+                features: []
+            },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                },
+                {
+                    id: 'M2',
+                    name: { dflt: 'Bold' },
+                    location: { wght: 700 },
+                    metrics: { ascender: 820 },
+                    kerning: {}
+                }
+            ]
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('masters');
+
+        const masterItems = document.querySelectorAll(
+            '#fontinfo-masters-content .fontinfo-record-item'
+        );
+        masterItems[0].getBoundingClientRect = () => ({
+            top: 0,
+            height: 20
+        });
+
+        fontInfoManager.onMasterDragStart(
+            {
+                currentTarget: masterItems[1],
+                dataTransfer: {
+                    effectAllowed: 'all',
+                    setData: jest.fn()
+                }
+            },
+            1
+        );
+        fontInfoManager.onMasterDragOver(
+            {
+                preventDefault: jest.fn(),
+                currentTarget: masterItems[0],
+                dataTransfer: {},
+                clientY: 0
+            },
+            0
+        );
+        fontInfoManager.onMasterDragEnd();
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Reorder masters',
+            [
+                {
+                    op: 'set',
+                    path: ['masters'],
+                    oldValue: expect.any(Array),
+                    newValue: [
+                        expect.objectContaining({ id: 'M2' }),
+                        expect.objectContaining({ id: 'M1' })
+                    ]
+                }
+            ]
+        );
+    });
+
+    test('instances list controls add, remove, and reorder through the patch funnel', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: {
+                features: []
+            },
+            instances: [
+                {
+                    id: 'I1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    custom_names: {},
+                    linked_style: 'Bold'
+                },
+                {
+                    id: 'I2',
+                    name: { dflt: 'Bold' },
+                    location: { wght: 700 },
+                    custom_names: {},
+                    linked_style: 'Regular'
+                }
+            ]
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('instances');
+
+        const addInstanceButton = document.querySelector(
+            '[data-fontinfo-list-action="instances-add"]'
+        );
+        addInstanceButton.focus();
+        addInstanceButton.click();
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Add instance', [
+            {
+                op: 'set',
+                path: ['instances'],
+                oldValue: expect.any(Array),
+                newValue: expect.arrayContaining([
+                    expect.objectContaining({
+                        name: { dflt: 'Instance 3' }
+                    })
+                ])
+            }
+        ]);
+        expect(
+            document.querySelectorAll(
+                '#fontinfo-instances-content .fontinfo-record-item'
+            )
+        ).toHaveLength(3);
+
+        const removeInstanceButton = document.querySelector(
+            '[data-fontinfo-list-action="instances-remove"]'
+        );
+        removeInstanceButton.focus();
+        removeInstanceButton.click();
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Remove instance',
+            [
+                {
+                    op: 'set',
+                    path: ['instances'],
+                    oldValue: expect.any(Array),
+                    newValue: expect.arrayContaining([
+                        expect.objectContaining({ id: 'I1' }),
+                        expect.objectContaining({ id: 'I2' })
+                    ])
+                }
+            ]
+        );
+        expect(
+            document.querySelectorAll(
+                '#fontinfo-instances-content .fontinfo-record-item'
+            )
+        ).toHaveLength(2);
+
+        const instanceItems = document.querySelectorAll(
+            '#fontinfo-instances-content .fontinfo-record-item'
+        );
+        instanceItems[1].focus();
+        instanceItems[0].getBoundingClientRect = () => ({
+            top: 0,
+            height: 20
+        });
+        fontInfoManager.onInstanceDragStart(
+            {
+                currentTarget: instanceItems[1],
+                dataTransfer: {}
+            },
+            1
+        );
+        fontInfoManager.onInstanceDragOver(
+            {
+                preventDefault: jest.fn(),
+                currentTarget: instanceItems[0],
+                dataTransfer: {},
+                clientY: 0
+            },
+            0
+        );
+        expect(
+            instanceItems[0].classList.contains('feature-drop-target-before')
+        ).toBe(true);
+        fontInfoManager.onInstanceDrop(
+            {
+                preventDefault: jest.fn()
+            },
+            0
+        );
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Reorder instances',
+            [
+                {
+                    op: 'set',
+                    path: ['instances'],
+                    oldValue: expect.any(Array),
+                    newValue: [
+                        expect.objectContaining({ id: 'I2' }),
+                        expect.objectContaining({ id: 'I1' })
+                    ]
+                }
+            ]
+        );
+        expect(
+            document.querySelector(
+                '#fontinfo-instances-content .fontinfo-record-item-primary'
+            ).textContent
+        ).toBe('Bold');
+    });
+
+    test('visible masters and instances lists rebuild on fontModelSync structural changes', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: {
+                features: []
+            },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    metrics: { ascender: 800 }
+                },
+                {
+                    id: 'M2',
+                    name: { dflt: 'Bold' },
+                    location: { wght: 700 },
+                    metrics: { ascender: 820 }
+                }
+            ],
+            instances: [
+                {
+                    id: 'I1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    custom_names: {},
+                    linked_style: 'Bold'
+                },
+                {
+                    id: 'I2',
+                    name: { dflt: 'Bold' },
+                    location: { wght: 700 },
+                    custom_names: {},
+                    linked_style: 'Regular'
+                }
+            ]
+        };
+
+        const fontInfoManager = loadFontInfoManager();
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+
+        fontInfoManager.switchTab('masters');
+        const masterMetricInput = document.querySelector(
+            '[data-font-field="masters.0.metrics.ascender"] .localized-string-input'
+        );
+        masterMetricInput.focus();
+
+        window.currentFontModel.masters = [
+            window.currentFontModel.masters[1],
+            window.currentFontModel.masters[0]
+        ];
+        window.dispatchEvent(new CustomEvent('fontModelSync'));
+        jest.runOnlyPendingTimers();
+
+        let reorderedMasterItems = document.querySelectorAll(
+            '#fontinfo-masters-content .fontinfo-record-item-primary'
+        );
+        expect(reorderedMasterItems[0].textContent).toBe('Bold');
+        expect(reorderedMasterItems[1].textContent).toBe('Regular');
+
+        fontInfoManager.switchTab('instances');
+        const instanceNameInput = document.querySelector(
+            '[data-font-field="instances.0.name"] .localized-string-input'
+        );
+        instanceNameInput.focus();
+
+        window.currentFontModel.instances = [
+            window.currentFontModel.instances[1],
+            window.currentFontModel.instances[0]
+        ];
+        window.dispatchEvent(new CustomEvent('fontModelSync'));
+        jest.runOnlyPendingTimers();
+
+        const reorderedInstanceItems = document.querySelectorAll(
+            '#fontinfo-instances-content .fontinfo-record-item-primary'
+        );
+        expect(reorderedInstanceItems[0].textContent).toBe('Bold');
+        expect(reorderedInstanceItems[1].textContent).toBe('Regular');
+    });
+
+    test('instances reorder commits from dragend when drop is not delivered', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: {
+                features: []
+            },
+            instances: [
+                {
+                    id: 'I1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    custom_names: {},
+                    linked_style: 'Bold'
+                },
+                {
+                    id: 'I2',
+                    name: { dflt: 'Bold' },
+                    location: { wght: 700 },
+                    custom_names: {},
+                    linked_style: 'Regular'
+                }
+            ]
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('instances');
+
+        const instanceItems = document.querySelectorAll(
+            '#fontinfo-instances-content .fontinfo-record-item'
+        );
+        instanceItems[0].getBoundingClientRect = () => ({
+            top: 0,
+            height: 20
+        });
+
+        fontInfoManager.onInstanceDragStart(
+            {
+                currentTarget: instanceItems[1],
+                dataTransfer: {
+                    effectAllowed: 'all',
+                    setData: jest.fn()
+                }
+            },
+            1
+        );
+        fontInfoManager.onInstanceDragOver(
+            {
+                preventDefault: jest.fn(),
+                currentTarget: instanceItems[0],
+                dataTransfer: {},
+                clientY: 0
+            },
+            0
+        );
+        fontInfoManager.onInstanceDragEnd();
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Reorder instances',
+            [
+                {
+                    op: 'set',
+                    path: ['instances'],
+                    oldValue: expect.any(Array),
+                    newValue: [
+                        expect.objectContaining({ id: 'I2' }),
+                        expect.objectContaining({ id: 'I1' })
+                    ]
+                }
+            ]
+        );
+    });
+
+    test('masters and instances sidebar summaries refresh after local name and location commits', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: {
+                features: []
+            },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                }
+            ],
+            instances: [
+                {
+                    id: 'I1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    custom_names: {},
+                    variable: false
+                }
+            ]
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+
+        fontInfoManager.switchTab('masters');
+
+        const masterNameInput = document.querySelector(
+            '[data-font-field="masters.0.name"] .localized-string-input'
+        );
+        masterNameInput.focus();
+        masterNameInput.value = 'Text';
+        masterNameInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+
+        const masterLocationInput = document.querySelector(
+            '[data-font-field="masters.0.location.wght"] .localized-string-input'
+        );
+        masterLocationInput.focus();
+        masterLocationInput.value = '650';
+        masterLocationInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+
+        expect(
+            document.querySelector(
+                '#fontinfo-masters-content .fontinfo-record-item-primary'
+            ).textContent
+        ).toBe('Text');
+        expect(
+            document.querySelector(
+                '#fontinfo-masters-content .fontinfo-record-item-secondary'
+            ).textContent
+        ).toBe('Weight 650');
+
+        fontInfoManager.switchTab('instances');
+
+        const instanceNameInput = document.querySelector(
+            '[data-font-field="instances.0.name"] .localized-string-input'
+        );
+        instanceNameInput.focus();
+        instanceNameInput.value = 'Display';
+        instanceNameInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+
+        const instanceLocationInput = document.querySelector(
+            '[data-font-field="instances.0.location.wght"] .localized-string-input'
+        );
+        instanceLocationInput.focus();
+        instanceLocationInput.value = '720';
+        instanceLocationInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+
+        expect(
+            document.querySelector(
+                '#fontinfo-instances-content .fontinfo-record-item-primary'
+            ).textContent
+        ).toBe('Display');
+        expect(
+            document.querySelector(
+                '#fontinfo-instances-content .fontinfo-record-item-secondary'
+            ).textContent
+        ).toBe('Weight 720');
     });
 });

@@ -2383,6 +2383,11 @@ kbd + kbd {
     padding: 12px;
 }
 
+.fontinfo-records-pane {
+    height: 100%;
+    min-height: 0;
+}
+
 .fontinfo-name-group {
     display: flex;
     flex-direction: column;
@@ -2397,18 +2402,26 @@ kbd + kbd {
 
 .fontinfo-records-layout {
     display: grid;
-    grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
-    gap: 18px;
-    align-items: start;
+    grid-template-columns: var(--top-row-sidebar-width, 200px) minmax(0, 1fr);
+    gap: 0;
+    align-items: stretch;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .fontinfo-records-sidebar {
-    min-width: 0;
+    width: var(--top-row-sidebar-width, 200px);
+    min-width: var(--top-row-sidebar-width, 200px);
+    height: 100%;
+    min-height: 0;
+    border-right: 1px solid var(--border-primary);
 }
 
 .fontinfo-records-list {
     display: flex;
     flex-direction: column;
+    margin: 0 -12px;
 }
 
 .fontinfo-records-detail {
@@ -2416,35 +2429,65 @@ kbd + kbd {
     flex-direction: column;
     gap: 18px;
     min-width: 0;
+    min-height: 0;
+    height: 100%;
+    overflow: auto;
+    padding: 12px 20px 12px 15px;
 }
 
 .fontinfo-record-item {
     width: 100%;
     text-align: left;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.fontinfo-record-item:first-child {
+    border-top: 1px solid var(--border-primary);
 }
 
 .fontinfo-record-item-content {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
     min-width: 0;
 }
 
 .fontinfo-record-item-primary {
+    font-family: var(--font-families-sans);
+    font-size: 11px;
     color: var(--text-primary);
-    font-weight: 600;
+    font-weight: 400;
     line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .fontinfo-record-item-secondary {
+    font-family: var(--font-families-sans);
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: 10px;
+    font-weight: 400;
     line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 @media (max-width: 900px) {
     .fontinfo-records-layout {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .fontinfo-records-sidebar {
+        height: auto;
+        max-height: 40%;
+        border-right: none;
+        border-bottom: 1px solid var(--border-primary);
+    }
+
+    .fontinfo-records-detail {
+        min-height: 0;
     }
 }
 
@@ -6507,6 +6550,7 @@ kbd + kbd {
 /* Draggable features */
 .draggable-feature {
     cursor: move;
+    position: relative;
 }
 
 .draggable-feature:active {

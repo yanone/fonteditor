@@ -10008,6 +10008,11 @@ export class Font extends ModelBase {
         );
     }
 
+    set instances(value: Babelfont.Instance[] | Babelfont.Instance) {
+        this._data.instances = value;
+        this._instanceWrappers = null;
+    }
+
     get masters(): Master[] | undefined {
         if (!this._data.masters) return undefined;
         if (
@@ -10023,6 +10028,11 @@ export class Font extends ModelBase {
             this._masterWrappers!,
             'Font.masters is a read-only collection view. Direct structural mutation is not supported.'
         );
+    }
+
+    set masters(value: Babelfont.Master[] | Babelfont.Master) {
+        this._data.masters = value;
+        this._masterWrappers = null;
     }
 
     get glyphs(): Glyph[] {

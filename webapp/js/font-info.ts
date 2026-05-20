@@ -48,6 +48,7 @@ type FontRootFieldKey = 'upm' | 'version' | 'note' | 'date';
 type CustomOTFieldKey = keyof Babelfont.CustomOTValues;
 type MasterFieldKey = 'id';
 type InstanceFieldKey = 'id' | 'variable' | 'linked_style';
+type RecordDropPlacement = 'before' | 'after';
 
 interface FontInfoSectionConfig {
     id: FontInfoTab;
@@ -524,6 +525,54 @@ function formatLocationSummary(
     return summary || 'Default location';
 }
 
+/** Extract a plain-data deep clone from an array that may contain model-wrapper objects.
+ * Calls toJSON() on each element (if available) via JSON.parse/stringify so that
+ * cloneMasterRecord / cloneInstanceRecord always receive plain Babelfont data objects.
+ */
+function rawArray<T>(arr: T[] | undefined): T[] {
+    return JSON.parse(JSON.stringify(arr ?? []));
+}
+
+function cloneKerningValue(value: unknown): unknown {
+    if (value instanceof Map) {
+        return new Map(value);
+    }
+
+    if (value && typeof value === 'object') {
+        return { ...(value as Record<string, unknown>) };
+    }
+
+    return value;
+}
+
+function cloneMasterRecord(master: Babelfont.Master): Babelfont.Master {
+    return {
+        ...master,
+        name: normalizeLocalizedStringValue(master.name),
+        location: cloneNumericRecord(
+            master.location as Record<string, number> | undefined
+        ),
+        metrics: cloneNumericRecord(master.metrics) ?? {},
+        kerning: cloneKerningValue(master.kerning) as any,
+        custom_ot_values: master.custom_ot_values
+            ? ({
+                  ...master.custom_ot_values
+              } as Babelfont.CustomOTValues)
+            : undefined
+    };
+}
+
+function cloneInstanceRecord(instance: Babelfont.Instance): Babelfont.Instance {
+    return {
+        ...instance,
+        name: normalizeLocalizedStringValue(instance.name),
+        location: cloneNumericRecord(
+            instance.location as Record<string, number> | undefined
+        ),
+        custom_names: { ...(instance.custom_names ?? {}) }
+    };
+}
+
 function cloneVersionValue(
     value?: [number, number]
 ): [number, number] | undefined {
@@ -633,6 +682,16 @@ class FontInfoManager {
     private pendingCustomOTValuesModelSyncRefresh = false;
     private selectedMasterIndex = 0;
     private selectedInstanceIndex = 0;
+    private renderedMasterListSignature = '';
+    private renderedInstanceListSignature = '';
+    private draggedMasterIndex: number | null = null;
+    private masterDragCommitted = false;
+    private masterDropTargetIndex: number | null = null;
+    private masterDropTargetPlacement: RecordDropPlacement | null = null;
+    private draggedInstanceIndex: number | null = null;
+    private instanceDragCommitted = false;
+    private instanceDropTargetIndex: number | null = null;
+    private instanceDropTargetPlacement: RecordDropPlacement | null = null;
     private featuresEditor: any = null;
     private featuresEditorInitialized = false;
     private suppressFeatureEditorChange = false;
@@ -2251,22 +2310,22 @@ class FontInfoManager {
         this.mastersTab.id = 'fontinfo-masters-content';
         this.mastersTab.style.display = 'none';
         this.mastersTab.style.height = '100%';
-        this.mastersTab.style.overflow = 'auto';
+        this.mastersTab.style.overflow = 'hidden';
 
         this.mastersFieldsContainer = document.createElement('div');
         this.mastersFieldsContainer.id = 'fontinfo-masters-fields';
-        this.mastersFieldsContainer.className = 'fontinfo-names-fields';
+        this.mastersFieldsContainer.className = 'fontinfo-records-pane';
         this.mastersTab.appendChild(this.mastersFieldsContainer);
 
         this.instancesTab = document.createElement('div');
         this.instancesTab.id = 'fontinfo-instances-content';
         this.instancesTab.style.display = 'none';
         this.instancesTab.style.height = '100%';
-        this.instancesTab.style.overflow = 'auto';
+        this.instancesTab.style.overflow = 'hidden';
 
         this.instancesFieldsContainer = document.createElement('div');
         this.instancesFieldsContainer.id = 'fontinfo-instances-fields';
-        this.instancesFieldsContainer.className = 'fontinfo-names-fields';
+        this.instancesFieldsContainer.className = 'fontinfo-records-pane';
         this.instancesTab.appendChild(this.instancesFieldsContainer);
 
         this.generalFieldsContainer = document.createElement('div');
@@ -2601,6 +2660,12 @@ class FontInfoManager {
         }
 
         if (this.currentTab === 'masters') {
+            if (this.hasMasterListStructureChanged()) {
+                requestAnimationFrame(() =>
+                    this.forceRefreshVisibleMastersContent()
+                );
+                return;
+            }
             if (this.isMastersEditing()) {
                 return;
             }
@@ -2609,6 +2674,12 @@ class FontInfoManager {
         }
 
         if (this.currentTab === 'instances') {
+            if (this.hasInstanceListStructureChanged()) {
+                requestAnimationFrame(() =>
+                    this.forceRefreshVisibleInstancesContent()
+                );
+                return;
+            }
             if (this.isInstancesEditing()) {
                 return;
             }
@@ -2638,7 +2709,7 @@ class FontInfoManager {
     }
 
     private isGeneralEditing(): boolean {
-        return this.generalTab?.contains(document.activeElement) ?? false;
+        return this.isEditableControlWithin(this.generalTab);
     }
 
     private isNamesEditing(): boolean {
@@ -2648,16 +2719,34 @@ class FontInfoManager {
     }
 
     private isMastersEditing(): boolean {
-        return this.mastersTab?.contains(document.activeElement) ?? false;
+        return this.isEditableControlWithin(this.mastersTab);
     }
 
     private isInstancesEditing(): boolean {
-        return this.instancesTab?.contains(document.activeElement) ?? false;
+        return this.isEditableControlWithin(this.instancesTab);
     }
 
     private isCustomOTValuesEditing(): boolean {
+        return this.isEditableControlWithin(this.customOTValuesTab);
+    }
+
+    private isEditableControlWithin(
+        container: HTMLElement | null | undefined
+    ): boolean {
+        const activeElement = document.activeElement as HTMLElement | null;
+        if (
+            !container ||
+            !activeElement ||
+            !container.contains(activeElement)
+        ) {
+            return false;
+        }
+
         return (
-            this.customOTValuesTab?.contains(document.activeElement) ?? false
+            activeElement instanceof HTMLInputElement ||
+            activeElement instanceof HTMLTextAreaElement ||
+            activeElement instanceof HTMLSelectElement ||
+            activeElement.isContentEditable
         );
     }
 
@@ -2703,6 +2792,16 @@ class FontInfoManager {
         this.pendingMastersModelSyncRefresh = false;
     }
 
+    private forceRefreshVisibleMastersContent() {
+        if (this.currentTab !== 'masters' || !window.currentFontModel) {
+            return;
+        }
+
+        this.renderMastersContent();
+        this.mastersDataLoaded = true;
+        this.pendingMastersModelSyncRefresh = false;
+    }
+
     private refreshVisibleInstancesContent() {
         if (this.currentTab !== 'instances' || !window.currentFontModel) {
             return;
@@ -2715,6 +2814,153 @@ class FontInfoManager {
         this.renderInstancesContent();
         this.instancesDataLoaded = true;
         this.pendingInstancesModelSyncRefresh = false;
+    }
+
+    private forceRefreshVisibleInstancesContent() {
+        if (this.currentTab !== 'instances' || !window.currentFontModel) {
+            return;
+        }
+
+        this.renderInstancesContent();
+        this.instancesDataLoaded = true;
+        this.pendingInstancesModelSyncRefresh = false;
+    }
+
+    private getMasterListStructureSignature(
+        masters?: Babelfont.Master[] | undefined
+    ): string {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const sourceMasters = masters ?? font?.masters ?? [];
+
+        return sourceMasters
+            .map((master, index) => master.id ?? `index:${index}`)
+            .join('|');
+    }
+
+    private getInstanceListStructureSignature(
+        instances?: Babelfont.Instance[] | undefined
+    ): string {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const sourceInstances = instances ?? font?.instances ?? [];
+
+        return sourceInstances
+            .map((instance, index) => instance.id ?? `index:${index}`)
+            .join('|');
+    }
+
+    private hasMasterListStructureChanged(): boolean {
+        return (
+            this.renderedMasterListSignature !==
+            this.getMasterListStructureSignature()
+        );
+    }
+
+    private hasInstanceListStructureChanged(): boolean {
+        return (
+            this.renderedInstanceListSignature !==
+            this.getInstanceListStructureSignature()
+        );
+    }
+
+    private getMasterListSummary(masterIndex: number): {
+        primary: string;
+        secondary: string;
+    } {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const master = font?.masters?.[masterIndex];
+
+        return {
+            primary: getLocalizedDictionarySummary(
+                master?.name,
+                `Master ${masterIndex + 1}`
+            ),
+            secondary: formatLocationSummary(
+                font?.axes,
+                master?.location as Record<string, number> | undefined
+            )
+        };
+    }
+
+    private getInstanceListSummary(instanceIndex: number): {
+        primary: string;
+        secondary: string;
+    } {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const instance = font?.instances?.[instanceIndex];
+
+        return {
+            primary: getLocalizedDictionarySummary(
+                instance?.name,
+                `Instance ${instanceIndex + 1}`
+            ),
+            secondary: formatLocationSummary(
+                font?.axes,
+                instance?.location as Record<string, number> | undefined
+            )
+        };
+    }
+
+    private getMasterListItems(): HTMLElement[] {
+        return Array.from(
+            this.mastersFieldsContainer?.querySelectorAll(
+                '.fontinfo-records-list .fontinfo-record-item'
+            ) ?? []
+        ) as HTMLElement[];
+    }
+
+    private getInstanceListItems(): HTMLElement[] {
+        return Array.from(
+            this.instancesFieldsContainer?.querySelectorAll(
+                '.fontinfo-records-list .fontinfo-record-item'
+            ) ?? []
+        ) as HTMLElement[];
+    }
+
+    private updateRecordListItemSummary(
+        item: Element | undefined,
+        summary: { primary: string; secondary: string }
+    ) {
+        const primary = item?.querySelector('.fontinfo-record-item-primary');
+        const secondary = item?.querySelector(
+            '.fontinfo-record-item-secondary'
+        );
+
+        if (primary) {
+            primary.textContent = summary.primary;
+        }
+        if (secondary) {
+            secondary.textContent = summary.secondary;
+        }
+    }
+
+    private refreshMasterSidebarItemSummary(masterIndex: number) {
+        if (this.currentTab !== 'masters') {
+            return;
+        }
+
+        this.updateRecordListItemSummary(
+            this.getMasterListItems()[masterIndex],
+            this.getMasterListSummary(masterIndex)
+        );
+    }
+
+    private refreshInstanceSidebarItemSummary(instanceIndex: number) {
+        if (this.currentTab !== 'instances') {
+            return;
+        }
+
+        this.updateRecordListItemSummary(
+            this.getInstanceListItems()[instanceIndex],
+            this.getInstanceListSummary(instanceIndex)
+        );
     }
 
     private refreshVisibleCustomOTValuesContent() {
@@ -3119,11 +3365,7 @@ class FontInfoManager {
         input.addEventListener('change', () => options.onCommit(input.checked));
 
         const text = document.createElement('span');
-        text.textContent = options.checked ? 'Enabled' : 'Disabled';
-
-        input.addEventListener('change', () => {
-            text.textContent = input.checked ? 'Enabled' : 'Disabled';
-        });
+        text.textContent = 'Enabled';
 
         checkboxLabel.appendChild(input);
         checkboxLabel.appendChild(text);
@@ -3144,14 +3386,33 @@ class FontInfoManager {
         secondary: string;
         selected: boolean;
         onSelect: () => void;
+        draggable?: boolean;
+        onDragStart?: (event: DragEvent) => void;
+        onDragOver?: (event: DragEvent) => void;
+        onDrop?: (event: DragEvent) => void;
+        onDragEnd?: () => void;
     }): HTMLButtonElement {
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = `sidebar-item fontinfo-record-item${options.selected ? ' selected' : ''}`;
+        button.className = `editor-layer-item fontinfo-record-item${options.selected ? ' selected' : ''}`;
         button.addEventListener('click', options.onSelect);
 
+        if (options.draggable) {
+            button.draggable = true;
+            button.classList.add('draggable-feature');
+            button.addEventListener('dragstart', (event) =>
+                options.onDragStart?.(event)
+            );
+            button.addEventListener('dragover', (event) =>
+                options.onDragOver?.(event)
+            );
+            button.addEventListener('drop', (event) => options.onDrop?.(event));
+            button.addEventListener('dragend', () => options.onDragEnd?.());
+        }
+
         const content = document.createElement('div');
-        content.className = 'fontinfo-record-item-content';
+        content.className =
+            'editor-layer-item-content fontinfo-record-item-content';
 
         const primary = document.createElement('div');
         primary.className = 'fontinfo-record-item-primary';
@@ -3165,7 +3426,76 @@ class FontInfoManager {
         content.appendChild(secondary);
         button.appendChild(content);
 
+        if (options.draggable) {
+            const handle = document.createElement('span');
+            handle.className = 'material-symbols-outlined feature-drag-handle';
+            handle.textContent = 'drag_indicator';
+            button.appendChild(handle);
+        }
+
         return button;
+    }
+
+    private createRecordsSidebarHeader(options: {
+        title: string;
+        canRemove: boolean;
+        onAdd: () => void;
+        onRemove: () => void;
+    }): HTMLElement {
+        const header = document.createElement('div');
+        header.className = 'editor-layers-header';
+
+        const title = document.createElement('div');
+        title.className = 'editor-section-title';
+        const titleText = document.createElement('span');
+        titleText.className = 'editor-section-title-text';
+        titleText.textContent = options.title;
+        title.appendChild(titleText);
+
+        const actions = document.createElement('div');
+        actions.className = 'editor-layers-header-actions';
+
+        const addButton = document.createElement('button');
+        addButton.type = 'button';
+        addButton.className = 'editor-layer-add-button';
+        addButton.setAttribute(
+            'aria-label',
+            `Add ${options.title.slice(0, -1).toLowerCase()}`
+        );
+        addButton.setAttribute(
+            'data-fontinfo-list-action',
+            `${options.title.toLowerCase()}-add`
+        );
+        addButton.textContent = '+';
+        addButton.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+        });
+        addButton.addEventListener('click', options.onAdd);
+
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'editor-layer-add-button';
+        removeButton.setAttribute(
+            'aria-label',
+            `Remove ${options.title.slice(0, -1).toLowerCase()}`
+        );
+        removeButton.setAttribute(
+            'data-fontinfo-list-action',
+            `${options.title.toLowerCase()}-remove`
+        );
+        removeButton.textContent = '−';
+        removeButton.disabled = !options.canRemove;
+        removeButton.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+        });
+        removeButton.addEventListener('click', options.onRemove);
+
+        actions.appendChild(addButton);
+        actions.appendChild(removeButton);
+        header.appendChild(title);
+        header.appendChild(actions);
+
+        return header;
     }
 
     private appendNameGroups(options: {
@@ -3421,25 +3751,20 @@ class FontInfoManager {
             | Babelfont.Font
             | undefined;
         const masters = font?.masters ?? [];
+        this.renderedMasterListSignature =
+            this.getMasterListStructureSignature(masters);
 
         this.mastersFieldsContainer.innerHTML = '';
 
         if (masters.length === 0) {
-            const helper = document.createElement('div');
-            helper.className = 'localized-string-helper';
-            helper.textContent = 'No masters defined.';
-            this.mastersFieldsContainer.appendChild(helper);
-            return;
+            this.selectedMasterIndex = 0;
+        } else {
+            this.selectedMasterIndex = Math.min(
+                this.selectedMasterIndex,
+                masters.length - 1
+            );
         }
-
-        this.selectedMasterIndex = Math.min(
-            this.selectedMasterIndex,
-            masters.length - 1
-        );
         const selectedMaster = masters[this.selectedMasterIndex];
-        if (!selectedMaster) {
-            return;
-        }
 
         const layout = document.createElement('div');
         layout.className = 'fontinfo-records-layout';
@@ -3447,25 +3772,35 @@ class FontInfoManager {
         const sidebar = document.createElement('aside');
         sidebar.className =
             'view-sidebar view-sidebar-left fontinfo-records-sidebar';
+        sidebar.appendChild(
+            this.createRecordsSidebarHeader({
+                title: 'Masters',
+                canRemove: masters.length > 0,
+                onAdd: () => this.addMasterRecord(),
+                onRemove: () => this.removeSelectedMasterRecord()
+            })
+        );
         const list = document.createElement('div');
-        list.className = 'sidebar-list fontinfo-records-list';
+        list.className =
+            'sidebar-list editor-layers-list fontinfo-records-list';
 
         masters.forEach((master, index) => {
+            const summary = this.getMasterListSummary(index);
             list.appendChild(
                 this.createRecordListButton({
-                    primary: getLocalizedDictionarySummary(
-                        master.name,
-                        `Master ${index + 1}`
-                    ),
-                    secondary: formatLocationSummary(
-                        font?.axes,
-                        master.location as Record<string, number> | undefined
-                    ),
+                    primary: summary.primary,
+                    secondary: summary.secondary,
                     selected: index === this.selectedMasterIndex,
+                    draggable: masters.length > 1,
                     onSelect: () => {
                         this.selectedMasterIndex = index;
                         this.renderMastersContent();
-                    }
+                    },
+                    onDragStart: (event) =>
+                        this.onMasterDragStart(event, index),
+                    onDragOver: (event) => this.onMasterDragOver(event, index),
+                    onDrop: (event) => this.onMasterDrop(event, index),
+                    onDragEnd: () => this.onMasterDragEnd()
                 })
             );
         });
@@ -3473,6 +3808,17 @@ class FontInfoManager {
 
         const detail = document.createElement('div');
         detail.className = 'fontinfo-records-detail';
+
+        if (!selectedMaster) {
+            const helper = document.createElement('div');
+            helper.className = 'localized-string-helper';
+            helper.textContent = 'No masters defined.';
+            detail.appendChild(helper);
+            layout.appendChild(sidebar);
+            layout.appendChild(detail);
+            this.mastersFieldsContainer.appendChild(layout);
+            return;
+        }
 
         const identitySection = document.createElement('section');
         identitySection.className = 'fontinfo-name-group';
@@ -3578,25 +3924,20 @@ class FontInfoManager {
             | Babelfont.Font
             | undefined;
         const instances = font?.instances ?? [];
+        this.renderedInstanceListSignature =
+            this.getInstanceListStructureSignature(instances);
 
         this.instancesFieldsContainer.innerHTML = '';
 
         if (instances.length === 0) {
-            const helper = document.createElement('div');
-            helper.className = 'localized-string-helper';
-            helper.textContent = 'No instances defined.';
-            this.instancesFieldsContainer.appendChild(helper);
-            return;
+            this.selectedInstanceIndex = 0;
+        } else {
+            this.selectedInstanceIndex = Math.min(
+                this.selectedInstanceIndex,
+                instances.length - 1
+            );
         }
-
-        this.selectedInstanceIndex = Math.min(
-            this.selectedInstanceIndex,
-            instances.length - 1
-        );
         const selectedInstance = instances[this.selectedInstanceIndex];
-        if (!selectedInstance) {
-            return;
-        }
 
         const layout = document.createElement('div');
         layout.className = 'fontinfo-records-layout';
@@ -3604,25 +3945,36 @@ class FontInfoManager {
         const sidebar = document.createElement('aside');
         sidebar.className =
             'view-sidebar view-sidebar-left fontinfo-records-sidebar';
+        sidebar.appendChild(
+            this.createRecordsSidebarHeader({
+                title: 'Instances',
+                canRemove: instances.length > 0,
+                onAdd: () => this.addInstanceRecord(),
+                onRemove: () => this.removeSelectedInstanceRecord()
+            })
+        );
         const list = document.createElement('div');
-        list.className = 'sidebar-list fontinfo-records-list';
+        list.className =
+            'sidebar-list editor-layers-list fontinfo-records-list';
 
         instances.forEach((instance, index) => {
+            const summary = this.getInstanceListSummary(index);
             list.appendChild(
                 this.createRecordListButton({
-                    primary: getLocalizedDictionarySummary(
-                        instance.name,
-                        `Instance ${index + 1}`
-                    ),
-                    secondary: formatLocationSummary(
-                        font?.axes,
-                        instance.location as Record<string, number> | undefined
-                    ),
+                    primary: summary.primary,
+                    secondary: summary.secondary,
                     selected: index === this.selectedInstanceIndex,
+                    draggable: instances.length > 1,
                     onSelect: () => {
                         this.selectedInstanceIndex = index;
                         this.renderInstancesContent();
-                    }
+                    },
+                    onDragStart: (event) =>
+                        this.onInstanceDragStart(event, index),
+                    onDragOver: (event) =>
+                        this.onInstanceDragOver(event, index),
+                    onDrop: (event) => this.onInstanceDrop(event, index),
+                    onDragEnd: () => this.onInstanceDragEnd()
                 })
             );
         });
@@ -3630,6 +3982,17 @@ class FontInfoManager {
 
         const detail = document.createElement('div');
         detail.className = 'fontinfo-records-detail';
+
+        if (!selectedInstance) {
+            const helper = document.createElement('div');
+            helper.className = 'localized-string-helper';
+            helper.textContent = 'No instances defined.';
+            detail.appendChild(helper);
+            layout.appendChild(sidebar);
+            layout.appendChild(detail);
+            this.instancesFieldsContainer.appendChild(layout);
+            return;
+        }
 
         const identitySection = document.createElement('section');
         identitySection.className = 'fontinfo-name-group';
@@ -3973,14 +4336,7 @@ class FontInfoManager {
                     normalizedNextValue
                 ),
             markDirtyKey: 'font-info-master-name',
-            refresh:
-                this.pendingMastersModelSyncRefresh &&
-                this.currentTab === 'masters'
-                    ? () =>
-                          requestAnimationFrame(() =>
-                              this.refreshVisibleMastersContent()
-                          )
-                    : undefined
+            refresh: () => this.refreshMasterSidebarItemSummary(masterIndex)
         });
     }
 
@@ -4081,7 +4437,8 @@ class FontInfoManager {
                     axisTag,
                     nextValue
                 ),
-            markDirtyKey: 'font-info-master-location'
+            markDirtyKey: 'font-info-master-location',
+            refresh: () => this.refreshMasterSidebarItemSummary(masterIndex)
         });
     }
 
@@ -4236,14 +4593,7 @@ class FontInfoManager {
                     normalizedNextValue
                 ),
             markDirtyKey: 'font-info-instance-name',
-            refresh:
-                this.pendingInstancesModelSyncRefresh &&
-                this.currentTab === 'instances'
-                    ? () =>
-                          requestAnimationFrame(() =>
-                              this.refreshVisibleInstancesContent()
-                          )
-                    : undefined
+            refresh: () => this.refreshInstanceSidebarItemSummary(instanceIndex)
         });
     }
 
@@ -4353,7 +4703,8 @@ class FontInfoManager {
                     axisTag,
                     nextValue
                 ),
-            markDirtyKey: 'font-info-instance-location'
+            markDirtyKey: 'font-info-instance-location',
+            refresh: () => this.refreshInstanceSidebarItemSummary(instanceIndex)
         });
     }
 
@@ -4420,6 +4771,533 @@ class FontInfoManager {
                 ),
             markDirtyKey: 'font-info-instance-custom-name'
         });
+    }
+
+    private createFontInfoRecordId(prefix: string): string {
+        if (
+            typeof crypto !== 'undefined' &&
+            typeof crypto.randomUUID === 'function'
+        ) {
+            return crypto.randomUUID();
+        }
+
+        return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    }
+
+    private getDefaultAxisLocation(): Record<string, number> | undefined {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const locationEntries = (font?.axes ?? [])
+            .filter((axis) => axis.default !== undefined)
+            .map((axis) => [axis.tag, axis.default as number] as const);
+
+        if (locationEntries.length === 0) {
+            return undefined;
+        }
+
+        return Object.fromEntries(locationEntries);
+    }
+
+    private createDefaultMasterRecord(): Babelfont.Master {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const nextIndex = (font?.masters?.length ?? 0) + 1;
+        const selectedMaster = font?.masters?.[this.selectedMasterIndex];
+        const metricTemplate =
+            selectedMaster?.metrics ?? font?.masters?.[0]?.metrics;
+        const metrics = Object.fromEntries(
+            Object.entries(metricTemplate ?? {}).map(([key, value]) => [
+                key,
+                typeof value === 'number' ? value : 0
+            ])
+        );
+
+        return {
+            id: this.createFontInfoRecordId('master'),
+            name: { dflt: `Master ${nextIndex}` },
+            location: this.getDefaultAxisLocation(),
+            metrics,
+            kerning: {} as any
+        };
+    }
+
+    private createDefaultInstanceRecord(): Babelfont.Instance {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const nextIndex = (font?.instances?.length ?? 0) + 1;
+
+        return {
+            id: this.createFontInfoRecordId('instance'),
+            name: { dflt: `Instance ${nextIndex}` },
+            location: this.getDefaultAxisLocation(),
+            custom_names: {},
+            variable: false
+        };
+    }
+
+    private applyLocalMastersList(nextMasters: Babelfont.Master[]) {
+        const font = window.currentFontModel as any;
+        if (!font) {
+            return;
+        }
+
+        font.masters = nextMasters;
+    }
+
+    private commitMastersListChange(
+        label: string,
+        nextMasters: Babelfont.Master[]
+    ) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) {
+            return;
+        }
+
+        const previousMasters = rawArray(font.masters).map(cloneMasterRecord);
+        const clonedNextMasters = rawArray(nextMasters).map(cloneMasterRecord);
+
+        this.commitFontPathChange({
+            label,
+            path: ['masters'],
+            oldValue: previousMasters.length > 0 ? previousMasters : undefined,
+            newValue: clonedNextMasters,
+            applyLocal: () => this.applyLocalMastersList(clonedNextMasters),
+            markDirtyKey: 'font-info-masters-list',
+            refresh: () => this.forceRefreshVisibleMastersContent()
+        });
+    }
+
+    private addMasterRecord() {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) {
+            return;
+        }
+
+        const nextMasters = [
+            ...rawArray(font.masters).map(cloneMasterRecord),
+            this.createDefaultMasterRecord()
+        ];
+        this.selectedMasterIndex = nextMasters.length - 1;
+        this.commitMastersListChange('Add master', nextMasters);
+    }
+
+    private removeSelectedMasterRecord() {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const masters = font?.masters ?? [];
+        if (masters.length === 0) {
+            return;
+        }
+
+        const nextMasters = rawArray(masters)
+            .map(cloneMasterRecord)
+            .filter((_, index) => index !== this.selectedMasterIndex);
+        this.selectedMasterIndex = Math.max(
+            0,
+            Math.min(this.selectedMasterIndex - 1, nextMasters.length - 1)
+        );
+        this.commitMastersListChange('Remove master', nextMasters);
+    }
+
+    private reorderMastersList(fromIndex: number, insertionIndex: number) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const masters = rawArray(font?.masters).map(cloneMasterRecord);
+        if (
+            fromIndex < 0 ||
+            fromIndex >= masters.length ||
+            insertionIndex < 0 ||
+            insertionIndex > masters.length
+        ) {
+            return;
+        }
+
+        const [movedMaster] = masters.splice(fromIndex, 1);
+        if (!movedMaster) {
+            return;
+        }
+
+        const adjustedTargetIndex =
+            fromIndex < insertionIndex ? insertionIndex - 1 : insertionIndex;
+        if (adjustedTargetIndex === fromIndex) {
+            return;
+        }
+
+        masters.splice(adjustedTargetIndex, 0, movedMaster);
+        this.selectedMasterIndex = adjustedTargetIndex;
+        this.commitMastersListChange('Reorder masters', masters);
+    }
+
+    private onMasterDragStart(event: DragEvent, index: number) {
+        this.draggedMasterIndex = index;
+        this.masterDragCommitted = false;
+        this.clearMasterDropIndicator();
+        (event.currentTarget as HTMLElement | null)?.classList.add('dragging');
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            try {
+                event.dataTransfer.setData('text/plain', String(index));
+            } catch {
+                // Some test environments expose partial dataTransfer shims.
+            }
+        }
+    }
+
+    private onMasterDragOver(event: DragEvent, targetIndex: number) {
+        event.preventDefault();
+        if (event.dataTransfer) {
+            event.dataTransfer.dropEffect = 'move';
+        }
+        if (this.draggedMasterIndex === null) {
+            return;
+        }
+
+        const target = event.currentTarget as HTMLElement | null;
+        if (!target) {
+            return;
+        }
+
+        const rect = target.getBoundingClientRect();
+        const placement: RecordDropPlacement =
+            event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+        this.setMasterDropIndicator(targetIndex, placement);
+    }
+
+    private onMasterDrop(event: DragEvent, targetIndex: number) {
+        event.preventDefault();
+        const insertionIndex = this.getMasterDropInsertionIndex(targetIndex);
+        this.clearMasterDropIndicator();
+
+        if (this.draggedMasterIndex === null || insertionIndex === null) {
+            return;
+        }
+
+        const originalIndex = this.draggedMasterIndex;
+        this.masterDragCommitted = true;
+        this.draggedMasterIndex = null;
+        this.reorderMastersList(originalIndex, insertionIndex);
+    }
+
+    private onMasterDragEnd() {
+        const originalIndex = this.draggedMasterIndex;
+        const insertionIndex =
+            originalIndex !== null && this.masterDropTargetIndex !== null
+                ? this.getMasterDropInsertionIndex(this.masterDropTargetIndex)
+                : null;
+        const shouldCommitFallback =
+            !this.masterDragCommitted &&
+            originalIndex !== null &&
+            insertionIndex !== null;
+
+        this.clearMasterDropIndicator();
+        this.draggedMasterIndex = null;
+        this.masterDragCommitted = false;
+        this.mastersFieldsContainer
+            ?.querySelectorAll('.fontinfo-record-item')
+            .forEach((item) => item.classList.remove('dragging'));
+
+        if (shouldCommitFallback) {
+            this.reorderMastersList(originalIndex, insertionIndex);
+        } else {
+            requestAnimationFrame(() =>
+                this.forceRefreshVisibleMastersContent()
+            );
+        }
+    }
+
+    private setMasterDropIndicator(
+        targetIndex: number,
+        placement: RecordDropPlacement
+    ) {
+        if (
+            this.masterDropTargetIndex === targetIndex &&
+            this.masterDropTargetPlacement === placement
+        ) {
+            return;
+        }
+
+        this.clearMasterDropIndicator();
+        const target = this.getMasterListItems()[targetIndex];
+        if (!target) {
+            return;
+        }
+
+        target.classList.add(
+            placement === 'before'
+                ? 'feature-drop-target-before'
+                : 'feature-drop-target-after'
+        );
+        this.masterDropTargetIndex = targetIndex;
+        this.masterDropTargetPlacement = placement;
+    }
+
+    private clearMasterDropIndicator() {
+        if (this.masterDropTargetIndex !== null) {
+            const previousTarget =
+                this.getMasterListItems()[this.masterDropTargetIndex];
+            previousTarget?.classList.remove(
+                'feature-drop-target-before',
+                'feature-drop-target-after'
+            );
+        }
+
+        this.masterDropTargetIndex = null;
+        this.masterDropTargetPlacement = null;
+    }
+
+    private getMasterDropInsertionIndex(
+        fallbackTargetIndex: number
+    ): number | null {
+        if (this.draggedMasterIndex === null) {
+            return null;
+        }
+
+        const targetIndex = this.masterDropTargetIndex ?? fallbackTargetIndex;
+        const placement = this.masterDropTargetPlacement ?? 'before';
+        return placement === 'after' ? targetIndex + 1 : targetIndex;
+    }
+
+    private applyLocalInstancesList(nextInstances: Babelfont.Instance[]) {
+        const font = window.currentFontModel as any;
+        if (!font) {
+            return;
+        }
+
+        font.instances = nextInstances;
+    }
+
+    private commitInstancesListChange(
+        label: string,
+        nextInstances: Babelfont.Instance[]
+    ) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) {
+            return;
+        }
+
+        const previousInstances = rawArray(font.instances).map(
+            cloneInstanceRecord
+        );
+        const clonedNextInstances =
+            rawArray(nextInstances).map(cloneInstanceRecord);
+
+        this.commitFontPathChange({
+            label,
+            path: ['instances'],
+            oldValue:
+                previousInstances.length > 0 ? previousInstances : undefined,
+            newValue: clonedNextInstances,
+            applyLocal: () => this.applyLocalInstancesList(clonedNextInstances),
+            markDirtyKey: 'font-info-instances-list',
+            refresh: () => this.forceRefreshVisibleInstancesContent()
+        });
+    }
+
+    private addInstanceRecord() {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) {
+            return;
+        }
+
+        const nextInstances = [
+            ...rawArray(font.instances).map(cloneInstanceRecord),
+            this.createDefaultInstanceRecord()
+        ];
+        this.selectedInstanceIndex = nextInstances.length - 1;
+        this.commitInstancesListChange('Add instance', nextInstances);
+    }
+
+    private removeSelectedInstanceRecord() {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const instances = font?.instances ?? [];
+        if (instances.length === 0) {
+            return;
+        }
+
+        const nextInstances = rawArray(instances)
+            .map(cloneInstanceRecord)
+            .filter((_, index) => index !== this.selectedInstanceIndex);
+        this.selectedInstanceIndex = Math.max(
+            0,
+            Math.min(this.selectedInstanceIndex - 1, nextInstances.length - 1)
+        );
+        this.commitInstancesListChange('Remove instance', nextInstances);
+    }
+
+    private reorderInstancesList(fromIndex: number, insertionIndex: number) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const instances = rawArray(font?.instances).map(cloneInstanceRecord);
+        if (
+            fromIndex < 0 ||
+            fromIndex >= instances.length ||
+            insertionIndex < 0 ||
+            insertionIndex > instances.length
+        ) {
+            return;
+        }
+
+        const [movedInstance] = instances.splice(fromIndex, 1);
+        if (!movedInstance) {
+            return;
+        }
+
+        const adjustedTargetIndex =
+            fromIndex < insertionIndex ? insertionIndex - 1 : insertionIndex;
+        if (adjustedTargetIndex === fromIndex) {
+            return;
+        }
+
+        instances.splice(adjustedTargetIndex, 0, movedInstance);
+        this.selectedInstanceIndex = adjustedTargetIndex;
+        this.commitInstancesListChange('Reorder instances', instances);
+    }
+
+    private onInstanceDragStart(event: DragEvent, index: number) {
+        this.draggedInstanceIndex = index;
+        this.instanceDragCommitted = false;
+        this.clearInstanceDropIndicator();
+        (event.currentTarget as HTMLElement | null)?.classList.add('dragging');
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            try {
+                event.dataTransfer.setData('text/plain', String(index));
+            } catch {
+                // Some test environments expose partial dataTransfer shims.
+            }
+        }
+    }
+
+    private onInstanceDragOver(event: DragEvent, targetIndex: number) {
+        event.preventDefault();
+        if (event.dataTransfer) {
+            event.dataTransfer.dropEffect = 'move';
+        }
+        if (this.draggedInstanceIndex === null) {
+            return;
+        }
+
+        const target = event.currentTarget as HTMLElement | null;
+        if (!target) {
+            return;
+        }
+
+        const rect = target.getBoundingClientRect();
+        const placement: RecordDropPlacement =
+            event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+        this.setInstanceDropIndicator(targetIndex, placement);
+    }
+
+    private onInstanceDrop(event: DragEvent, targetIndex: number) {
+        event.preventDefault();
+        const insertionIndex = this.getInstanceDropInsertionIndex(targetIndex);
+        this.clearInstanceDropIndicator();
+
+        if (this.draggedInstanceIndex === null || insertionIndex === null) {
+            return;
+        }
+
+        const originalIndex = this.draggedInstanceIndex;
+        this.instanceDragCommitted = true;
+        this.draggedInstanceIndex = null;
+        this.reorderInstancesList(originalIndex, insertionIndex);
+    }
+
+    private onInstanceDragEnd() {
+        const originalIndex = this.draggedInstanceIndex;
+        const insertionIndex =
+            originalIndex !== null && this.instanceDropTargetIndex !== null
+                ? this.getInstanceDropInsertionIndex(
+                      this.instanceDropTargetIndex
+                  )
+                : null;
+        const shouldCommitFallback =
+            !this.instanceDragCommitted &&
+            originalIndex !== null &&
+            insertionIndex !== null;
+
+        this.clearInstanceDropIndicator();
+        this.draggedInstanceIndex = null;
+        this.instanceDragCommitted = false;
+        this.instancesFieldsContainer
+            ?.querySelectorAll('.fontinfo-record-item')
+            .forEach((item) => item.classList.remove('dragging'));
+
+        if (shouldCommitFallback) {
+            this.reorderInstancesList(originalIndex, insertionIndex);
+        } else {
+            requestAnimationFrame(() =>
+                this.forceRefreshVisibleInstancesContent()
+            );
+        }
+    }
+
+    private setInstanceDropIndicator(
+        targetIndex: number,
+        placement: RecordDropPlacement
+    ) {
+        if (
+            this.instanceDropTargetIndex === targetIndex &&
+            this.instanceDropTargetPlacement === placement
+        ) {
+            return;
+        }
+
+        this.clearInstanceDropIndicator();
+        const target = this.getInstanceListItems()[targetIndex];
+        if (!target) {
+            return;
+        }
+
+        target.classList.add(
+            placement === 'before'
+                ? 'feature-drop-target-before'
+                : 'feature-drop-target-after'
+        );
+        this.instanceDropTargetIndex = targetIndex;
+        this.instanceDropTargetPlacement = placement;
+    }
+
+    private clearInstanceDropIndicator() {
+        if (this.instanceDropTargetIndex !== null) {
+            const previousTarget =
+                this.getInstanceListItems()[this.instanceDropTargetIndex];
+            previousTarget?.classList.remove(
+                'feature-drop-target-before',
+                'feature-drop-target-after'
+            );
+        }
+
+        this.instanceDropTargetIndex = null;
+        this.instanceDropTargetPlacement = null;
+    }
+
+    private getInstanceDropInsertionIndex(
+        fallbackTargetIndex: number
+    ): number | null {
+        if (this.draggedInstanceIndex === null) {
+            return null;
+        }
+
+        const targetIndex = this.instanceDropTargetIndex ?? fallbackTargetIndex;
+        const placement = this.instanceDropTargetPlacement ?? 'before';
+        return placement === 'after' ? targetIndex + 1 : targetIndex;
     }
 
     private applyLocalRootFontFieldValue(
