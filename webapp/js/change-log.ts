@@ -83,6 +83,8 @@ export interface ChangeLogEntry {
     id: number;
     /** Unix timestamp (ms) */
     timestamp: number;
+    /** Elapsed wall-clock time for the logical transaction, if measured */
+    transactionDurationMs: number | null;
     /** Opaque source window instance identifier */
     windowId: string;
     /** Human-readable source window label */
@@ -139,6 +141,7 @@ export function createLogEntry(
         | 'historyTargetType'
         | 'historyTargetKey'
         | 'historyTargetLabel'
+        | 'transactionDurationMs'
         | 'workerReplayTargets'
         | 'semanticChangeLogEntries'
     > & {
@@ -157,6 +160,7 @@ export function createLogEntry(
         historyTargetType?: HistoryTargetType | null;
         historyTargetKey?: string | null;
         historyTargetLabel?: string | null;
+        transactionDurationMs?: number | null;
         visualAnchorSide?: 'left' | 'right' | null;
         workerReplayTargets?: WorkerReplayTarget[];
         replayOldValue?: unknown;
@@ -174,6 +178,7 @@ export function createLogEntry(
         targetHistoryItemId: fields.targetHistoryItemId ?? null,
         undoScope: fields.undoScope ?? deriveUndoScope(glyphName, layerId),
         timestamp: fields.timestamp,
+        transactionDurationMs: fields.transactionDurationMs ?? null,
         windowId: fields.windowId,
         windowRoleLabel: fields.windowRoleLabel,
         transactionLabel: fields.transactionLabel,
@@ -226,6 +231,7 @@ export interface HistoryStackItem {
     id: string;
     entries: ChangeLogEntry[];
     timestamp: number;
+    transactionDurationMs: number | null;
     windowRoleLabel: string;
     transactionLabel: string | null;
     undoScope: UndoScope;
@@ -530,6 +536,7 @@ function processHistoryEntry(entry: ChangeLogEntry, state: HistoryState): void {
                 id: entry.historyItemId,
                 entries: [],
                 timestamp: entry.timestamp,
+                transactionDurationMs: entry.transactionDurationMs ?? null,
                 windowRoleLabel: entry.windowRoleLabel,
                 transactionLabel: entry.transactionLabel,
                 undoScope: entry.undoScope,
@@ -560,6 +567,8 @@ function processHistoryEntry(entry: ChangeLogEntry, state: HistoryState): void {
         const item = ensureItem(entry);
         item.entries.push(entry);
         item.timestamp = entry.timestamp;
+        item.transactionDurationMs =
+            entry.transactionDurationMs ?? item.transactionDurationMs;
         item.windowRoleLabel = entry.windowRoleLabel;
         item.transactionLabel = entry.transactionLabel;
         item.isActive = true;
@@ -948,6 +957,7 @@ export function normalizeChangeLogEntry(
     return attachDerivedEntryAccessors({
         id: entry.id,
         timestamp: entry.timestamp,
+        transactionDurationMs: entry.transactionDurationMs ?? null,
         windowId: entry.windowId,
         transactionLabel: entry.transactionLabel,
         transactionId: entry.transactionId,

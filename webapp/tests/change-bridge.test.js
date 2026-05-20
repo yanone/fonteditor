@@ -2275,6 +2275,33 @@ describe('Transactions', () => {
         expect(log[0].transactionId).not.toBeNull();
     });
 
+    test('committed transactions record duration on change-log and collaboration history items', () => {
+        const { bridge } = createTestBridge('test-duration');
+        const nowSpy = jest.spyOn(performance, 'now');
+
+        nowSpy.mockReturnValueOnce(1000);
+        bridge.beginTransaction('Drag node');
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
+            'x',
+            100,
+            110
+        );
+        nowSpy.mockReturnValueOnce(1016.5);
+        bridge.endTransaction();
+
+        const log = bridge.getChangeLog();
+        const collaborationLog = bridge.getCollaborationLog();
+
+        expect(log).toHaveLength(1);
+        expect(log[0].transactionDurationMs).toBeCloseTo(16.5);
+        expect(collaborationLog.at(-1)?.transactionDurationMs).toBeCloseTo(
+            16.5
+        );
+
+        nowSpy.mockRestore();
+    });
+
     test('net no-op point drag transaction does not emit history or Yjs changes', () => {
         const { bridge } = createTestBridge('test-noop-drag');
 

@@ -265,8 +265,11 @@ class HistoryViewController {
             this.formatTime(item.timestamp),
             item.windowRoleLabel,
             item.historyAction,
+            this.formatDuration(item.transactionDurationMs),
             `${item.updateByteLength} B`
-        ].join(' • ');
+        ]
+            .filter((part): part is string => !!part)
+            .join(' • ');
     }
 
     private getUndoContext(): HistoryUndoContext {
@@ -314,6 +317,22 @@ class HistoryViewController {
         });
     }
 
+    private formatDuration(
+        durationMs: number | null | undefined
+    ): string | null {
+        if (durationMs == null || Number.isNaN(durationMs)) {
+            return null;
+        }
+
+        const measuredDurationMs: number = durationMs;
+
+        if (measuredDurationMs >= 1000) {
+            return `${(measuredDurationMs / 1000).toFixed(2)} s`;
+        }
+
+        return `${measuredDurationMs.toFixed(1)} ms`;
+    }
+
     private destroyMetadataTooltips(): void {
         for (const tooltip of this.metadataTooltips) {
             tooltip.destroy();
@@ -347,6 +366,10 @@ class HistoryViewController {
             this.buildMetadataRow(
                 'Timestamp',
                 this.formatTimestamp(item.timestamp)
+            ),
+            this.buildMetadataRow(
+                'Transaction duration',
+                this.formatDuration(item.transactionDurationMs)
             ),
             this.buildMetadataRow('Window', item.windowRoleLabel),
             this.buildMetadataRow('History action', item.historyAction),

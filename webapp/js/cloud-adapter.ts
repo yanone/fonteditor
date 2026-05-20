@@ -213,6 +213,8 @@ function importCollaborationMessageHistory(
             id: collaborationMessageKey(message),
             direction: 'remote',
             timestamp: message.timestamp,
+            transactionDurationMs:
+                message.metadata.transactionDurationMs ?? null,
             summary: message.summary,
             label: message.label,
             source: message.source,

@@ -64,6 +64,7 @@ export type CollaborationMessageMetadata = {
     changedGlyphNames: string[];
     changedLayerIds: string[];
     workerReplayTargets: WorkerReplayTarget[];
+    transactionDurationMs?: number | null;
     historyItemId: string;
     historyAction: HistoryAction;
     targetHistoryItemId?: string | null;
@@ -244,6 +245,7 @@ export function createCollaborationMessageEnvelopeFromChangeLogEntries(
             changedGlyphNames,
             changedLayerIds,
             workerReplayTargets,
+            transactionDurationMs: entries[0].transactionDurationMs,
             historyItemId: entries[0].historyItemId,
             historyAction: entries[0].historyAction,
             targetHistoryItemId: entries[0].targetHistoryItemId,
@@ -327,6 +329,8 @@ export function createChangeLogEntriesFromCollaborationMessageEnvelope(
             windowRoleLabel:
                 envelope.metadata.sourceWindowRoleLabel ??
                 options.windowRoleLabel,
+            transactionDurationMs:
+                envelope.metadata.transactionDurationMs ?? null,
             historyItemId: namespacedHistoryItemId,
             historyAction: envelope.metadata.historyAction,
             targetHistoryItemId: namespacedTargetHistoryItemId,

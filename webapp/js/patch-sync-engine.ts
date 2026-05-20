@@ -79,6 +79,7 @@ export type CollaborationLogItem = {
     id: string;
     direction: 'local' | 'remote';
     timestamp: number;
+    transactionDurationMs: number | null;
     summary: string;
     label: string | null;
     source: string;
@@ -380,6 +381,8 @@ export class PatchSyncEngine {
     private _txHistoryItemId: string | null = null;
     /** Optional explicit history target for the current transaction */
     private _txHistoryTarget: TransactionHistoryTarget | null = null;
+    /** High-resolution timestamp captured at the start of the outermost transaction. */
+    private _txStartedAtMs: number | null = null;
     /** Compact state-vector captured at the start of the outermost transaction. */
     private _txStartStateVector: Uint8Array | null = null;
     /** Buffered operations for the current outermost transaction */
@@ -968,6 +971,7 @@ export class PatchSyncEngine {
             this._txId = this._nextTxId++;
             this._txHistoryItemId = this._createHistoryItemId();
             this._txHistoryTarget = historyTarget ?? null;
+            this._txStartedAtMs = performance.now();
             // Capture a compact state-vector (< 100 bytes) rather than the
             // full font serialization so the fallback canonical-diff path in
             // _emitCanonicalLocalUpdateSince stays cheap.
@@ -983,13 +987,18 @@ export class PatchSyncEngine {
         this._txDepth--;
         let commitResult: TransactionCommitResult | null = null;
         if (this._txDepth === 0) {
+            const transactionDurationMs =
+                this._txStartedAtMs === null
+                    ? null
+                    : Math.max(0, performance.now() - this._txStartedAtMs);
             if (this._txBufferedOperations.length) {
                 commitResult = this._commitOperations(
                     this._txBufferedOperations,
                     this._txLabel,
                     this._txId,
                     this._txHistoryItemId,
-                    this._txHistoryTarget
+                    this._txHistoryTarget,
+                    transactionDurationMs
                 );
             }
             this._txBufferedOperations = [];
@@ -997,6 +1006,7 @@ export class PatchSyncEngine {
             this._txId = null;
             this._txHistoryItemId = null;
             this._txHistoryTarget = null;
+            this._txStartedAtMs = null;
             this._txStartStateVector = null;
         }
         return commitResult;
@@ -2519,6 +2529,7 @@ export class PatchSyncEngine {
         this._txId = null;
         this._txHistoryItemId = null;
         this._txHistoryTarget = null;
+        this._txStartedAtMs = null;
         this._txBufferedOperations = [];
         this._nextTxId = 1;
         this._nextHistoryItemId = 1;
@@ -2863,7 +2874,8 @@ export class PatchSyncEngine {
         label: string | null,
         transactionId: number | null,
         historyItemId?: string | null,
-        historyTarget?: TransactionHistoryTarget | null
+        historyTarget?: TransactionHistoryTarget | null,
+        transactionDurationMs?: number | null
     ): TransactionCommitResult | null {
         const normalizedOperations = operations.filter(
             (operation) => operation.path.length > 0
@@ -2924,6 +2936,7 @@ export class PatchSyncEngine {
                 this._deriveWorkerReplayTargets(operation);
             const entry = createLogEntry({
                 timestamp,
+                transactionDurationMs: transactionDurationMs ?? null,
                 windowId: this.windowId,
                 windowRoleLabel: this._getWindowRoleLabel(),
                 historyItemId: nextHistoryItemId,
@@ -4720,6 +4733,8 @@ export class PatchSyncEngine {
             id: collaborationMessageKey(message),
             direction,
             timestamp: message.timestamp,
+            transactionDurationMs:
+                message.metadata.transactionDurationMs ?? null,
             summary: message.summary,
             label: message.label,
             source: message.source,

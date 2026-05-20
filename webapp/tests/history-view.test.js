@@ -31,6 +31,7 @@ describe('history view', () => {
                 id: 'message-1',
                 direction: 'local',
                 timestamp: 1000,
+                transactionDurationMs: 42.5,
                 summary: 'Resize glyph',
                 label: 'Resize glyph',
                 source: 'change-bridge',
@@ -60,6 +61,7 @@ describe('history view', () => {
                 id: 'message-2',
                 direction: 'local',
                 timestamp: 2000,
+                transactionDurationMs: null,
                 summary: 'Undo',
                 label: 'Undo',
                 source: 'change-bridge',
@@ -116,15 +118,25 @@ describe('history view', () => {
         expect(rows).toHaveLength(2);
         expect(document.body.textContent).toContain('Resize glyph');
         expect(document.body.textContent).toContain('Undo');
+        expect(document.body.textContent).toContain('42.5 ms');
         expect(
             document.querySelectorAll('[data-role="history-info-button"]')
         ).toHaveLength(2);
         expect(tippy).toHaveBeenCalled();
-        const tooltipMarkup = tippy.mock.calls[0][1].content;
-        expect(tooltipMarkup).toContain('Forward change 1');
-        expect(tooltipMarkup).toContain('glyphs.A:layers.layer-1:width');
-        expect(tooltipMarkup).toContain('600');
-        expect(tooltipMarkup).toContain('700');
+        const tooltipMarkups = tippy.mock.calls.map((call) => call[1].content);
+        expect(
+            tooltipMarkups.some((markup) => markup.includes('Forward change 1'))
+        ).toBe(true);
+        expect(
+            tooltipMarkups.some(
+                (markup) =>
+                    markup.includes('Transaction duration') &&
+                    markup.includes('42.5 ms') &&
+                    markup.includes('glyphs.A:layers.layer-1:width') &&
+                    markup.includes('600') &&
+                    markup.includes('700')
+            )
+        ).toBe(true);
         expect(window.getHistoryUndoContext()).toEqual({
             scope: 'layer',
             glyphName: 'A',

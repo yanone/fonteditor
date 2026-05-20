@@ -17,6 +17,7 @@ describe('collaboration-message scaffold', () => {
             changedGlyphNames: ['A'],
             changedLayerIds: ['L0'],
             workerReplayTargets: [{ glyphName: 'A', layerId: 'L0' }],
+            transactionDurationMs: 42.5,
             historyItemId: 'history-1',
             historyAction: 'change',
             undoScope: 'layer'
@@ -44,6 +45,7 @@ describe('collaboration-message scaffold', () => {
         expect(envelope.schemaVersion).toBe(1);
         expect(envelope.metadata).not.toBe(metadata);
         expect(envelope.metadata.changedGlyphNames).toEqual(['A']);
+        expect(envelope.metadata.transactionDurationMs).toBe(42.5);
         expect(envelope.changes).toEqual([
             expect.objectContaining({
                 op: 'set',
@@ -71,6 +73,7 @@ describe('collaboration-message scaffold', () => {
                 changedGlyphNames: [],
                 changedLayerIds: [],
                 workerReplayTargets: [],
+                transactionDurationMs: null,
                 historyItemId: 'history-1',
                 historyAction: 'change',
                 undoScope: 'font'
@@ -104,6 +107,7 @@ describe('collaboration-message scaffold', () => {
                 targetHistoryItemId: 'history-change-1',
                 transactionLabel: 'Undo',
                 transactionId: 44,
+                transactionDurationMs: 18.25,
                 op: 'set',
                 undoScope: 'glyph',
                 path: 'glyphs.A:name',
@@ -139,6 +143,7 @@ describe('collaboration-message scaffold', () => {
                 targetHistoryItemId: 'sender-window:history-change-1',
                 transactionLabel: 'Undo',
                 transactionId: 44,
+                transactionDurationMs: 18.25,
                 undoScope: 'glyph',
                 path: 'glyphs.A:name',
                 historyTargetType: 'feature',
