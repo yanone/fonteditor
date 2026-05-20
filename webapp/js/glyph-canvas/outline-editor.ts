@@ -7619,6 +7619,135 @@ export class OutlineEditor {
     }
 
     /**
+     * Batch-reinterpolates all glyph layers bound to `masterId` in parallel.
+     *
+     * All interpolation requests are fired concurrently (one worker round-trip
+     * covers all glyphs), then all model writes and Yjs syncs happen in a
+     * single synchronous pass with one `prepareCommittedStructuralOutlineChange`
+     * call at the end.  This is O(1) worker latency instead of O(N).
+     *
+     * Callers MUST wrap this in a bridge transaction.
+     */
+    async reinterpolateAllLayersForMaster(masterId: string): Promise<void> {
+        const font = window.currentFontModel as any;
+        if (!font) return;
+
+        type Target = {
+            glyph: any;
+            glyphName: string;
+            layerId: string;
+            userspaceLocation: UserspaceLocation;
+            isMasterBound: boolean;
+            designLocation: DesignspaceLocation | null;
+        };
+
+        // 1. Collect all glyph layers for this master (synchronous scan).
+        const targets: Target[] = [];
+        for (const glyph of font.glyphs ?? []) {
+            const glyphName: string = glyph.name;
+            if (!glyphName) continue;
+            const layers: any[] = glyph.layers ?? [];
+            const layer = layers.find(
+                (l: any) => l.master?.master === masterId
+            );
+            if (!layer?.id) continue;
+            const userspaceLocation = this.getUserspaceLocationForLayer(
+                layer.id,
+                glyphName
+            );
+            if (!userspaceLocation) continue;
+            targets.push({
+                glyph,
+                glyphName,
+                layerId: layer.id,
+                userspaceLocation,
+                isMasterBound: layer.master?.type === 'DefaultForMaster',
+                designLocation: layer.location
+                    ? this.cloneLayerData(layer.location)
+                    : null
+            });
+        }
+
+        if (targets.length === 0) return;
+
+        // 2. Fire all interpolation requests concurrently.
+        const interpolationResults = await Promise.allSettled(
+            targets.map((t) =>
+                fontInterpolation.interpolateGlyph(
+                    t.glyphName,
+                    t.userspaceLocation,
+                    true
+                )
+            )
+        );
+
+        // 3. Apply all results synchronously (no per-glyph UI refreshes).
+        const changeSource = 'master-reinterpolate-batch';
+        const bridge = window.patchSyncEngine;
+        const syncTargets: Array<{ glyphName: string; layerId: string }> = [];
+
+        for (let i = 0; i < targets.length; i++) {
+            const result = interpolationResults[i];
+            if (result.status === 'rejected') {
+                console.warn(
+                    `reinterpolateAllLayersForMaster: skipped ${targets[i].glyphName}:`,
+                    (result as PromiseRejectedResult).reason
+                );
+                continue;
+            }
+
+            const { glyph, glyphName, layerId, isMasterBound, designLocation } =
+                targets[i];
+            try {
+                const normalizedLayer = LayerDataNormalizer.normalize(
+                    result.value,
+                    true
+                );
+                const layerPayload =
+                    this.copyLayerDataForStoredLayer(normalizedLayer);
+                withSuppressedModelRecording(() => {
+                    glyph.removeLayerById?.(layerId);
+                });
+                this.materializeStoredInterpolatedLayer(
+                    glyph,
+                    { masterId, designLocation, isMasterBound, layerId },
+                    layerPayload
+                );
+                syncTargets.push({ glyphName, layerId });
+            } catch (err) {
+                console.warn(
+                    `reinterpolateAllLayersForMaster: failed to apply ${glyphName}:`,
+                    err
+                );
+            }
+        }
+
+        if (syncTargets.length === 0) return;
+
+        // 4. One structural commit + bulk Yjs sync.
+        if (bridge) {
+            this.prepareCommittedStructuralOutlineChange(changeSource, {
+                triggerCompile: false
+            });
+            for (const { glyphName, layerId } of syncTargets) {
+                bridge.syncGlyphFromJson(
+                    glyphName,
+                    'Reinterpolate layer batch sync',
+                    undefined,
+                    undefined,
+                    layerId
+                );
+            }
+        }
+
+        // 5. One final UI refresh (covers all glyphs in a single pass).
+        await this.refreshAfterStructuralLayerEdit('batch', changeSource, {
+            scheduleCompile: false,
+            dispatchGlyphChanged: false
+        });
+    }
+
+    /**
      * Look up the userspace location for a layer by its ID.
      * Finds the layer in the current glyph's font model, resolves its
      * design-space location (brace layer location or master location),

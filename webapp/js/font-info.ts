@@ -16,6 +16,7 @@ import {
     SCRIPT_TO_SHAPER
 } from './opentype-features';
 import { extractPrimaryFeatureIssue } from './feature-error-parser';
+import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import {
     addTippyBackdropSupport,
     getOrCreateBackdrop,
@@ -4044,6 +4045,7 @@ class FontInfoManager {
                                         ) {
                                             const bridge =
                                                 window.patchSyncEngine;
+                                            beginLoadingCursor();
                                             bridge?.beginTransaction(
                                                 'Reinterpolate layers for master'
                                             );
@@ -4058,6 +4060,7 @@ class FontInfoManager {
                                                 })
                                                 .finally(() => {
                                                     bridge?.endTransaction();
+                                                    endLoadingCursor();
                                                 });
                                         }
                                     };
@@ -5656,44 +5659,18 @@ class FontInfoManager {
 
     /**
      * Re-interpolates all glyph layers that are bound to the given master ID.
-     * Callers are responsible for wrapping this in a bridge transaction if
-     * they want the changes grouped atomically — this method does NOT open
-     * its own transaction so it can be called inside an existing one.
+     * Delegates to OutlineEditor.reinterpolateAllLayersForMaster which fires
+     * all interpolation requests concurrently (O(1) worker latency instead of
+     * O(N)) and applies all results in a single synchronous pass.
+     *
+     * Callers are responsible for wrapping this in a bridge transaction.
      */
     private async reinterpolateLayersForMaster(
         masterId: string
     ): Promise<void> {
-        const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
-        if (!font) return;
-
         const outlineEditor = (window.glyphCanvas as any)?.outlineEditor;
         if (!outlineEditor) return;
-
-        for (const glyph of (font as any).glyphs ?? []) {
-            const glyphName: string | undefined = glyph.name;
-            if (!glyphName) continue;
-
-            // Find the layer for this master.
-            const layers: any[] = (glyph as any).layers ?? [];
-            const layer = layers.find(
-                (l: any) => l.master?.master === masterId
-            );
-            if (!layer?.id) continue;
-
-            try {
-                await outlineEditor.reinterpolateLayerById(layer.id, {
-                    glyphName,
-                    selectNewLayer: false
-                });
-            } catch (err) {
-                console.warn(
-                    `reinterpolateLayersForMaster: skipped ${glyphName}:`,
-                    err
-                );
-            }
-        }
+        await outlineEditor.reinterpolateAllLayersForMaster(masterId);
     }
 
     private async addMasterRecord() {
@@ -5734,6 +5711,7 @@ class FontInfoManager {
             | undefined;
 
         if (bridge) {
+            beginLoadingCursor();
             bridge.beginTransaction('Add master');
             try {
                 // Phase 1: Apply local state (unrecorded) + synthetic changeset for masters.
@@ -5792,6 +5770,7 @@ class FontInfoManager {
                 console.warn('addMasterRecord: reinterpolation error:', err);
             } finally {
                 bridge.endTransaction();
+                endLoadingCursor();
             }
         } else {
             this.applyLocalMastersList(clonedNextMasters);
