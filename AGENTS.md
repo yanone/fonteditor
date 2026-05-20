@@ -385,6 +385,8 @@ Plugins are discovered dynamically from the `plugins/` directory.
 
 Use the Chrome DevTools MCP server for live app inspection. It attaches to the real Chrome runtime that is already running the webapp, which avoids the stale or wrong-session issues that came from separate browser contexts.
 
+When interactive debugging or joint investigation is needed, always open and use a regular Google Chrome window that both the user and the agent can control. Do not use the Playwright test browser for that work, because the user cannot directly inspect or steer that isolated browser session.
+
 When using MCP for live app inspection, always use the app instance already running in Chrome. Do not open or inspect the app in a VS Code browser tab, because that can attach MCP to the wrong runtime session and hide the real state.
 
 When reloading the live app through Chrome DevTools MCP, always do it headlessly and non-interactively. Do not rely on the user being present to confirm dialogs; choose reload/navigation paths that auto-accept or avoid confirmation prompts.
