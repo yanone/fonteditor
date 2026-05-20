@@ -119,6 +119,64 @@ describe('handleRemoteChangeRefresh', () => {
         });
     });
 
+    test('skips duplicate local cache refresh for forwarded master reinterpolation glyph snapshots', async () => {
+        const refreshOrder = [];
+        const awaitWorkerSync = jest.fn(async () => {
+            refreshOrder.push('sync');
+            window.fontManager.lastChangeSource = 'master-reinterpolate-batch';
+            window.fontManager.lastEditType = 'outline';
+        });
+        const requestCompile = jest.fn(async () => {
+            refreshOrder.push('compile');
+        });
+        const queueCacheRefresh = jest.fn(async () => {
+            refreshOrder.push('queue');
+        });
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            lastChangeSource: 'master-reinterpolate-batch',
+            lastEditType: 'outline'
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Reinterpolate layer batch sync',
+                        path: 'glyphs.A',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'A',
+                                layerId: 'master-bold'
+                            }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            delete window.fontManager;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'master-reinterpolate-batch',
+            'outline'
+        );
+        expect(refreshOrder).toEqual(['sync', 'compile']);
+    });
+
     test('skips bootstrap-style local compile wake-up before the first editing font exists', async () => {
         const awaitWorkerSync = jest.fn(async () => {});
         const requestRecompileWithoutDataChange = jest.fn();
@@ -449,6 +507,35 @@ describe('handleRemoteChangeRefresh', () => {
             allowSelectedLayerFallback: false
         });
         expect(requestCompile).toHaveBeenCalledWith('remote-change', null);
+    });
+
+    test('classifies forwarded master reinterpolation packets as remote outline edits', async () => {
+        const replayTargets = [{ glyphName: 'A', layerId: 'master-bold' }];
+        const queueCacheRefresh = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+
+        await handleRemoteChangeRefresh(
+            [
+                {
+                    transactionLabel: 'Reinterpolate layer batch sync',
+                    path: 'glyphs.A',
+                    workerReplayTargets: replayTargets
+                }
+            ],
+            {
+                requestCompile,
+                queueCacheRefresh
+            }
+        );
+
+        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
+            allowSelectedLayerFallback: false,
+            workerReplayTargets: replayTargets
+        });
+        expect(requestCompile).toHaveBeenCalledWith(
+            'remote-outline',
+            'outline'
+        );
     });
 
     test('local GUI commit with layer-scoped replay targets skips duplicate cache refresh after Yjs worker already forwarded', async () => {
@@ -1782,6 +1869,20 @@ describe('shouldInvalidateLayoutClosureForCommittedEntries', () => {
                 { path: 'glyphs.A' }
             ]);
         expect(result).toBe(true);
+    });
+
+    test('returns false for forwarded master reinterpolation glyph snapshots', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                {
+                    path: 'glyphs.A',
+                    transactionLabel: 'Reinterpolate layer batch sync',
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'master-bold' }
+                    ]
+                }
+            ]);
+        expect(result).toBe(false);
     });
 
     test('returns true for glyph-removal paths', () => {

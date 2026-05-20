@@ -212,7 +212,16 @@ export function shouldInvalidateLayoutClosureForCommittedEntries(
 ): boolean {
     for (const entry of changeLogEntries) {
         const path = typeof entry.path === 'string' ? entry.path : '';
+        const hasReplayTargets =
+            normalizeWorkerReplayTargets(entry.workerReplayTargets).length > 0;
         if (!path) {
+            continue;
+        }
+
+        if (
+            entry.transactionLabel === 'Reinterpolate layer batch sync' &&
+            hasReplayTargets
+        ) {
             continue;
         }
 
@@ -701,10 +710,7 @@ type CommittedCompileEditType =
     | 'kerning-groups'
     | null;
 
-type NonGlyphChangeHint =
-    | 'feature-code'
-    | 'kerning-value'
-    | 'kerning-groups';
+type NonGlyphChangeHint = 'feature-code' | 'kerning-value' | 'kerning-groups';
 
 function pathTouchesMasterKerning(path: string): boolean {
     return /(^|\.)masters\.[^.]+\.kerning(\.|$)/.test(path);
@@ -807,10 +813,18 @@ function inferCommittedEditTypeFromEntries(
     for (const entry of entries) {
         const label = entry.transactionLabel ?? '';
         const path = entry.path ?? '';
+        const hasReplayTargets =
+            normalizeWorkerReplayTargets(entry.workerReplayTargets).length > 0;
         if (origin === 'local' && path.startsWith('features.')) {
             return {
                 editType: null,
                 changeSource: 'feature-code'
+            };
+        }
+        if (label === 'Reinterpolate layer batch sync' && hasReplayTargets) {
+            return {
+                editType: 'outline',
+                changeSource: changeSourceFor('outline')
             };
         }
         if (
@@ -1950,9 +1964,21 @@ export async function handleCommittedChangeRefresh(
                 // Must be a layer-scoped visual path
                 return path.includes('.layers.') || path.includes(':layers.');
             });
+        const allEntriesAreForwardedMasterReinterpolationPackets =
+            entries.length > 0 &&
+            entries.every((entry) => {
+                const targets = normalizeWorkerReplayTargets(
+                    entry.workerReplayTargets
+                );
+                return (
+                    targets.length > 0 &&
+                    entry.transactionLabel === 'Reinterpolate layer batch sync'
+                );
+            });
 
         if (
             !allEntriesAreGuiCompleteLayerPackets &&
+            !allEntriesAreForwardedMasterReinterpolationPackets &&
             collectReplayTargetsFromEntries(entries).length > 0
         ) {
             const queueCacheRefresh =
@@ -2336,9 +2362,8 @@ function initializeBridge(detail: {
         const changedGlyphs = deriveGlyphNamesFromPaths(
             changeLogEntries.map((e) => e.path).filter(Boolean)
         );
-        const nonGlyphChangeHints = collectNonGlyphChangeHints(
-            changeLogEntries
-        );
+        const nonGlyphChangeHints =
+            collectNonGlyphChangeHints(changeLogEntries);
         const layerTargets =
             collectWorkerLayerTargetsFromChangeLogEntries(changeLogEntries);
         const invalidateLayoutClosure =

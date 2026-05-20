@@ -7683,18 +7683,14 @@ export class OutlineEditor {
 
         // 3. Apply all results synchronously (no per-glyph UI refreshes).
         // Both the remove and the re-add are fully suppressed so that no Yjs
-        // ops are emitted.  syncLayersFromJson below handles every target in
-        // one batched transaction:
-        //   • Existing layers (context-menu path): sparse delta of only the
-        //     changed fields — the Yjs entry is never clobbered, so unchanged
-        //     fields (e.g. `location` on brace layers) are preserved.
-        //   • New layers (add-master path): `syncLayersFromJson` now accepts
-        //     a null old-state, so it treats them as a full creation delta and
-        //     _applyLayerDelta builds the entry from scratch.
-        // Both cases are O(changed_fields) and all targets share one
-        // `_queueOrCommitOperations` call.
+        // ops are emitted mid-batch. Afterward, syncGlyphsFromJson writes the
+        // complete affected glyph snapshots in one bridge call. This preserves
+        // the working full-glyph replacement behavior for newly created and
+        // existing interpolated layers while still keeping interpolation and
+        // UI refresh batched.
         const changeSource = 'master-reinterpolate-batch';
         const bridge = window.patchSyncEngine;
+        const syncedGlyphs: string[] = [];
         const layerSyncTargets: Array<{ glyphName: string; layerId: string }> =
             [];
 
@@ -7725,6 +7721,7 @@ export class OutlineEditor {
                         layerPayload
                     );
                 });
+                syncedGlyphs.push(glyphName);
                 layerSyncTargets.push({ glyphName, layerId });
             } catch (err) {
                 console.warn(
@@ -7734,18 +7731,24 @@ export class OutlineEditor {
             }
         }
 
-        if (layerSyncTargets.length === 0) return;
+        if (syncedGlyphs.length === 0) return;
 
-        // 4. One structural commit + batched layer-scoped sync.
-        // syncLayersFromJson handles both new layers (delta vs null = full
-        // creation) and existing layers (sparse delta vs old Yjs state).
+        // 4. One structural commit + batched full-glyph sync.
+        // The historical working path used full glyph snapshots here. Calling
+        // syncGlyphsFromJson once keeps that state-replacement behavior while
+        // avoiding a per-glyph bridge loop.
         if (bridge) {
             this.prepareCommittedStructuralOutlineChange(changeSource, {
                 triggerCompile: false
             });
-            bridge.syncLayersFromJson(
-                layerSyncTargets,
-                'Reinterpolate layer batch sync'
+            bridge.syncGlyphsFromJson(
+                syncedGlyphs,
+                'Reinterpolate layer batch sync',
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                layerSyncTargets
             );
         }
 

@@ -11766,6 +11766,70 @@ describe('OutlineEditor exact selected layers', () => {
         }
     });
 
+    test('reinterpolateAllLayersForMaster keeps interpolation batched and syncs full glyph snapshots once', async () => {
+        const font = makeComponentFont();
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+        const dirtySpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const originalFontModel = window.currentFontModel;
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const syncGlyphsFromJsonSpy = jest.fn();
+        const syncLayersFromJsonSpy = jest.fn();
+
+        window.currentFontModel = font;
+        window.patchSyncEngine = {
+            syncGlyphsFromJson: syncGlyphsFromJsonSpy,
+            syncLayersFromJson: syncLayersFromJsonSpy,
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn(),
+            recordChange: jest.fn()
+        };
+
+        currentFontSpy.mockReturnValue(currentFont);
+
+        try {
+            await canvas.outlineEditor.reinterpolateAllLayersForMaster(
+                'master-1'
+            );
+
+            expect(interpolateSpy).toHaveBeenCalledWith(
+                'componentGlyph',
+                { wght: 0 },
+                true
+            );
+            expect(interpolateSpy).toHaveBeenCalledWith('A', { wght: 0 }, true);
+            expect(syncGlyphsFromJsonSpy).toHaveBeenCalledTimes(1);
+            expect(syncGlyphsFromJsonSpy).toHaveBeenCalledWith(
+                ['componentGlyph', 'A'],
+                'Reinterpolate layer batch sync',
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                [
+                    { glyphName: 'componentGlyph', layerId: 'component-layer' },
+                    { glyphName: 'A', layerId: 'master-layer' }
+                ]
+            );
+            expect(syncLayersFromJsonSpy).not.toHaveBeenCalled();
+            expect(
+                font.findGlyph('A').findLayerById('master-layer').width
+            ).toBe(999.75);
+            expect(currentFont.markDirty).toHaveBeenCalledWith(
+                'master-reinterpolate-batch'
+            );
+        } finally {
+            window.currentFontModel = originalFontModel;
+            window.patchSyncEngine = originalPatchSyncEngine;
+            dirtySpy.mockRestore();
+        }
+    });
+
     test('interpolateCurrentGlyph enables extrapolation for a selected missing master slot', async () => {
         const font = Font.fromData({
             upm: 1000,
