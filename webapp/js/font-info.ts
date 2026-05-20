@@ -3958,61 +3958,144 @@ class FontInfoManager {
         list.className =
             'sidebar-list editor-layers-list fontinfo-records-list';
 
+        const masterContextMenuBackdrop = getOrCreateBackdrop(
+            'fontinfo-master-context-menu-backdrop'
+        );
+
         masters.forEach((master, index) => {
+            const masterId = (master as any).id as string | undefined;
             const summary = this.getMasterListSummary(index);
-            list.appendChild(
-                this.createRecordListButton({
-                    primary: summary.primary,
-                    secondary: summary.secondary,
-                    selected: this.selectedMasterIndices.has(index),
-                    draggable: masters.length > 1,
-                    onClick: (event: MouseEvent) => {
-                        const isMulti = event.ctrlKey || event.metaKey;
-                        const isRange = event.shiftKey;
-                        if (isMulti) {
-                            if (this.selectedMasterIndices.has(index)) {
-                                if (this.selectedMasterIndices.size > 1) {
-                                    this.selectedMasterIndices = new Set(
-                                        [...this.selectedMasterIndices].filter(
-                                            (i) => i !== index
-                                        )
-                                    );
-                                }
-                            } else {
-                                this.selectedMasterIndices = new Set([
-                                    ...this.selectedMasterIndices,
-                                    index
-                                ]);
-                                this.selectedMasterIndex = index;
+            const btn = this.createRecordListButton({
+                primary: summary.primary,
+                secondary: summary.secondary,
+                selected: this.selectedMasterIndices.has(index),
+                draggable: masters.length > 1,
+                onClick: (event: MouseEvent) => {
+                    const isMulti = event.ctrlKey || event.metaKey;
+                    const isRange = event.shiftKey;
+                    if (isMulti) {
+                        if (this.selectedMasterIndices.has(index)) {
+                            if (this.selectedMasterIndices.size > 1) {
+                                this.selectedMasterIndices = new Set(
+                                    [...this.selectedMasterIndices].filter(
+                                        (i) => i !== index
+                                    )
+                                );
                             }
-                        } else if (isRange) {
-                            const lo = Math.min(
-                                this.selectedMasterIndex,
-                                index
-                            );
-                            const hi = Math.max(
-                                this.selectedMasterIndex,
-                                index
-                            );
-                            const newSet = new Set(this.selectedMasterIndices);
-                            for (let i = lo; i <= hi; i++) {
-                                newSet.add(i);
-                            }
-                            this.selectedMasterIndices = newSet;
-                            this.selectedMasterIndex = index;
                         } else {
-                            this.selectedMasterIndices = new Set([index]);
+                            this.selectedMasterIndices = new Set([
+                                ...this.selectedMasterIndices,
+                                index
+                            ]);
                             this.selectedMasterIndex = index;
                         }
-                        this.renderMastersContent();
-                    },
-                    onDragStart: (event) =>
-                        this.onMasterDragStart(event, index),
-                    onDragOver: (event) => this.onMasterDragOver(event, index),
-                    onDrop: (event) => this.onMasterDrop(event, index),
-                    onDragEnd: () => this.onMasterDragEnd()
-                })
-            );
+                    } else if (isRange) {
+                        const lo = Math.min(this.selectedMasterIndex, index);
+                        const hi = Math.max(this.selectedMasterIndex, index);
+                        const newSet = new Set(this.selectedMasterIndices);
+                        for (let i = lo; i <= hi; i++) {
+                            newSet.add(i);
+                        }
+                        this.selectedMasterIndices = newSet;
+                        this.selectedMasterIndex = index;
+                    } else {
+                        this.selectedMasterIndices = new Set([index]);
+                        this.selectedMasterIndex = index;
+                    }
+                    this.renderMastersContent();
+                },
+                onDragStart: (event) => this.onMasterDragStart(event, index),
+                onDragOver: (event) => this.onMasterDragOver(event, index),
+                onDrop: (event) => this.onMasterDrop(event, index),
+                onDragEnd: () => this.onMasterDragEnd()
+            });
+
+            // Context menu — appears on right-click.
+            if (masterId) {
+                const menuHtml = `<div class="plugin-menu" tabindex="0" role="menu">
+                    <div class="plugin-menu-item" data-action="reinterpolate" role="menuitem">
+                        <span class="material-symbols-outlined">refresh</span>
+                        <span>Reinterpolate all layers</span>
+                    </div>
+                </div>`;
+                const tippyInstance = tippy(btn, {
+                    content: menuHtml,
+                    allowHTML: true,
+                    trigger: 'manual',
+                    interactive: true,
+                    placement: 'right-start',
+                    theme: getTheme(),
+                    arrow: false,
+                    offset: [0, 4],
+                    hideOnClick: false,
+                    onShown: (instance) => {
+                        const menu =
+                            instance.popper.querySelector('.plugin-menu');
+                        if (menu) {
+                            setupMenuKeyboardNav(menu as HTMLElement);
+                            (menu as HTMLElement)
+                                .querySelectorAll('.plugin-menu-item')
+                                .forEach((item) => {
+                                    (item as HTMLElement).onclick = () => {
+                                        instance.hide();
+                                        if (
+                                            item.getAttribute('data-action') ===
+                                            'reinterpolate'
+                                        ) {
+                                            const bridge =
+                                                window.patchSyncEngine;
+                                            bridge?.beginTransaction(
+                                                'Reinterpolate layers for master'
+                                            );
+                                            this.reinterpolateLayersForMaster(
+                                                masterId
+                                            )
+                                                .catch((err) => {
+                                                    console.warn(
+                                                        'Reinterpolate all layers error:',
+                                                        err
+                                                    );
+                                                })
+                                                .finally(() => {
+                                                    bridge?.endTransaction();
+                                                });
+                                        }
+                                    };
+                                });
+                        }
+                    }
+                });
+                addTippyBackdropSupport(
+                    tippyInstance,
+                    masterContextMenuBackdrop,
+                    {
+                        targetElement: btn,
+                        activeClass: 'context-menu-active'
+                    }
+                );
+                btn.addEventListener('contextmenu', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const mouseX = event.clientX;
+                    const mouseY = event.clientY;
+                    tippyInstance.setProps({
+                        getReferenceClientRect: () => ({
+                            width: 0,
+                            height: 0,
+                            top: mouseY,
+                            bottom: mouseY,
+                            left: mouseX,
+                            right: mouseX,
+                            x: mouseX,
+                            y: mouseY,
+                            toJSON: () => ({})
+                        })
+                    });
+                    tippyInstance.show();
+                });
+            }
+
+            list.appendChild(btn);
         });
         sidebar.appendChild(list);
 
@@ -5445,6 +5528,59 @@ class FontInfoManager {
         return Object.fromEntries(locationEntries);
     }
 
+    /**
+     * Returns a design-space location for a new master that differs from all
+     * existing masters. For each axis we try, in order:
+     *   1. The axis maximum (if no existing master already sits there)
+     *   2. The axis minimum (if not already taken)
+     *   3. The axis default (fallback)
+     */
+    private computeNewMasterLocation(): Record<string, number> | undefined {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const axes = font?.axes ?? [];
+        if (axes.length === 0) {
+            return undefined;
+        }
+
+        // Collect existing master locations per axis.
+        const existingByAxis: Record<string, Set<number>> = {};
+        for (const master of font?.masters ?? []) {
+            const loc = master.location ?? {};
+            for (const axis of axes) {
+                const tag = axis.tag;
+                if (tag === undefined) continue;
+                if (!existingByAxis[tag]) existingByAxis[tag] = new Set();
+                const val =
+                    typeof loc[tag] === 'number'
+                        ? (loc[tag] as number)
+                        : ((axis.default as number | undefined) ?? 0);
+                existingByAxis[tag].add(val);
+            }
+        }
+
+        const entries: [string, number][] = [];
+        for (const axis of axes) {
+            const tag = axis.tag;
+            if (tag === undefined) continue;
+            const taken = existingByAxis[tag] ?? new Set<number>();
+            const axisMax = axis.max as number | undefined;
+            const axisMin = axis.min as number | undefined;
+            const axisDefault = axis.default as number | undefined;
+
+            let chosen: number = axisDefault ?? 0;
+            if (axisMax !== undefined && !taken.has(axisMax)) {
+                chosen = axisMax;
+            } else if (axisMin !== undefined && !taken.has(axisMin)) {
+                chosen = axisMin;
+            }
+            entries.push([tag, chosen]);
+        }
+
+        return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+    }
+
     private createDefaultMasterRecord(): Babelfont.Master {
         const font = window.currentFontModel as unknown as
             | Babelfont.Font
@@ -5463,7 +5599,7 @@ class FontInfoManager {
         return {
             id: this.createFontInfoRecordId('master'),
             name: { dflt: `Master ${nextIndex}` },
-            location: this.getDefaultAxisLocation(),
+            location: this.computeNewMasterLocation(),
             metrics,
             kerning: {} as any
         };
@@ -5518,7 +5654,49 @@ class FontInfoManager {
         });
     }
 
-    private addMasterRecord() {
+    /**
+     * Re-interpolates all glyph layers that are bound to the given master ID.
+     * Callers are responsible for wrapping this in a bridge transaction if
+     * they want the changes grouped atomically — this method does NOT open
+     * its own transaction so it can be called inside an existing one.
+     */
+    private async reinterpolateLayersForMaster(
+        masterId: string
+    ): Promise<void> {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) return;
+
+        const outlineEditor = (window.glyphCanvas as any)?.outlineEditor;
+        if (!outlineEditor) return;
+
+        for (const glyph of (font as any).glyphs ?? []) {
+            const glyphName: string | undefined = glyph.name;
+            if (!glyphName) continue;
+
+            // Find the layer for this master.
+            const layers: any[] = (glyph as any).layers ?? [];
+            const layer = layers.find(
+                (l: any) => l.master?.master === masterId
+            );
+            if (!layer?.id) continue;
+
+            try {
+                await outlineEditor.reinterpolateLayerById(layer.id, {
+                    glyphName,
+                    selectNewLayer: false
+                });
+            } catch (err) {
+                console.warn(
+                    `reinterpolateLayersForMaster: skipped ${glyphName}:`,
+                    err
+                );
+            }
+        }
+    }
+
+    private async addMasterRecord() {
         const font = window.currentFontModel as unknown as
             | Babelfont.Font
             | undefined;
@@ -5558,6 +5736,7 @@ class FontInfoManager {
         if (bridge) {
             bridge.beginTransaction('Add master');
             try {
+                // Phase 1: Apply local state (unrecorded) + synthetic changeset for masters.
                 if (bridge.runWithoutRecording) {
                     bridge.runWithoutRecording(() =>
                         this.applyLocalMastersList(clonedNextMasters)
@@ -5576,17 +5755,41 @@ class FontInfoManager {
                         newValue: clonedNextMasters
                     }
                 ]);
-                // Add a new layer to every glyph for this master.
-                // Recorded naturally (outside runWithoutRecording) inside the transaction.
+                // Phase 2: Add an empty layer to every glyph without recording —
+                // the final interpolated content will be recorded via syncGlyphFromJson
+                // inside reinterpolateLayerById, keeping the Yjs doc clean.
                 const fontModel = window.currentFontModel as any;
-                for (const glyph of fontModel?.glyphs ?? []) {
-                    const defaultWidth =
-                        (glyph as any).layers?.[0]?.width ?? 500;
-                    (glyph as any).addLayer(defaultWidth, {
-                        type: 'DefaultForMaster',
-                        master: masterId
+                if (bridge.runWithoutRecording) {
+                    bridge.runWithoutRecording(() => {
+                        for (const glyph of fontModel?.glyphs ?? []) {
+                            const defaultWidth =
+                                (glyph as any).layers?.[0]?.width ?? 500;
+                            (glyph as any).addLayer(defaultWidth, {
+                                type: 'DefaultForMaster',
+                                master: masterId
+                            });
+                        }
                     });
+                } else {
+                    for (const glyph of fontModel?.glyphs ?? []) {
+                        const defaultWidth =
+                            (glyph as any).layers?.[0]?.width ?? 500;
+                        (glyph as any).addLayer(defaultWidth, {
+                            type: 'DefaultForMaster',
+                            master: masterId
+                        });
+                    }
                 }
+                // Re-render the master list immediately so the UI is responsive
+                // while the async interpolation completes in the background (still
+                // inside the same Yjs transaction — endTransaction is in finally).
+                this.forceRefreshVisibleMastersContent();
+                // Phase 3: Reinterpolate all new layers inside the same transaction.
+                // Nested beginTransaction/endTransaction pairs are safe — the bridge
+                // uses a depth counter and won't commit until depth reaches 0.
+                await this.reinterpolateLayersForMaster(masterId);
+            } catch (err) {
+                console.warn('addMasterRecord: reinterpolation error:', err);
             } finally {
                 bridge.endTransaction();
             }
@@ -5599,12 +5802,18 @@ class FontInfoManager {
                     { type: 'DefaultForMaster', master: masterId }
                 );
             }
+            this.forceRefreshVisibleMastersContent();
+            // Best-effort interpolation for the no-bridge path.
+            await this.reinterpolateLayersForMaster(masterId).catch((err) => {
+                console.warn(
+                    'addMasterRecord (no-bridge): reinterpolation error:',
+                    err
+                );
+            });
             const currentFont = window.fontManager?.currentFont;
             currentFont?.syncJsonFromModel?.();
             currentFont?.markDirty?.('font-info-masters-list');
         }
-
-        this.forceRefreshVisibleMastersContent();
     }
 
     private removeSelectedMasterRecord() {
