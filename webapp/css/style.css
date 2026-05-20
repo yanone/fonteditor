@@ -2399,13 +2399,13 @@ kbd + kbd {
 
 .fontinfo-name-group-fields {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 12px;
 }
 
 .fontinfo-records-layout {
     display: grid;
-    grid-template-columns: var(--top-row-sidebar-width, 200px) minmax(0, 1fr);
+    grid-template-columns: var(--top-row-sidebar-width, 150px) minmax(0, 1fr);
     gap: 0;
     align-items: stretch;
     height: 100%;
