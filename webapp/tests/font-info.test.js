@@ -1,3 +1,40 @@
+jest.mock('tippy.js', () =>
+    jest.fn((element, props) => {
+        const popper = global.document.createElement('div');
+        if (typeof props.content === 'string') {
+            popper.innerHTML = props.content;
+        }
+        const instance = {
+            props,
+            popper,
+            state: { isVisible: false },
+            setContent: jest.fn((content) => {
+                if (typeof content === 'string') {
+                    popper.innerHTML = content;
+                }
+            }),
+            setProps: jest.fn((nextProps) => {
+                instance.props = {
+                    ...instance.props,
+                    ...nextProps
+                };
+            }),
+            show: jest.fn(() => {
+                instance.state.isVisible = true;
+                instance.props.onShow?.(instance);
+                instance.props.onShown?.(instance);
+            }),
+            hide: jest.fn(() => {
+                instance.state.isVisible = false;
+                instance.props.onHide?.(instance);
+            })
+        };
+
+        props.onCreate?.(instance);
+        return instance;
+    })
+);
+
 describe('FontInfo feature code compilation scheduling', () => {
     let originalReadyState;
     let originalAce;
@@ -132,6 +169,12 @@ describe('FontInfo feature code compilation scheduling', () => {
         jest.useFakeTimers();
         document.body.innerHTML = '';
         delete window.fontInfoManager;
+        global.ResizeObserver =
+            global.ResizeObserver ||
+            class ResizeObserver {
+                observe() {}
+                disconnect() {}
+            };
     });
 
     afterEach(() => {
@@ -329,5 +372,350 @@ describe('FontInfo feature code compilation scheduling', () => {
         expect(endTransaction).toHaveBeenCalledTimes(1);
         expect(codeData.automatic).toBe(true);
         expect(fontInfoManager.loadAllLists).toHaveBeenCalledTimes(1);
+    });
+
+    test('creates a section picker and toggles search visibility by section', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+        const fontInfoManager = loadFontInfoManager();
+
+        fontInfoManager.init();
+        fontInfoManager.switchTab('names');
+
+        expect(
+            document.querySelector('.fontinfo-section-button-label').textContent
+        ).toBe('Names');
+        expect(
+            document.getElementById('fontinfo-search-control').style.display
+        ).toBe('none');
+
+        fontInfoManager.switchTab('features');
+
+        expect(
+            document.querySelector('.fontinfo-section-button-label').textContent
+        ).toBe('Features');
+        expect(
+            document.getElementById('fontinfo-search-control').style.display
+        ).toBe('');
+    });
+
+    test('bridge-backed names commits use a precise names path', () => {
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+        const markDirty = jest.fn();
+        const syncJsonFromModel = jest.fn();
+
+        window.currentFontModel = {
+            names: {
+                family_name: { en: 'Old Family' }
+            }
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+        window.fontManager = {
+            currentFont: {
+                markDirty,
+                syncJsonFromModel
+            }
+        };
+
+        fontInfoManager.commitNameFieldValue('family_name', {
+            en: 'New Family'
+        });
+
+        expect(beginTransaction).toHaveBeenCalledWith('Edit font name');
+        expect(runWithoutRecording).toHaveBeenCalledTimes(1);
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Edit font name', [
+            {
+                op: 'set',
+                path: ['names', 'family_name'],
+                oldValue: { en: 'Old Family' },
+                newValue: { en: 'New Family' }
+            }
+        ]);
+        expect(endTransaction).toHaveBeenCalledTimes(1);
+        expect(window.currentFontModel.names.family_name).toEqual({
+            en: 'New Family'
+        });
+        expect(markDirty).not.toHaveBeenCalled();
+        expect(syncJsonFromModel).not.toHaveBeenCalled();
+    });
+
+    test('empty names fields default to dflt on commit', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            names: {},
+            features: {
+                features: []
+            }
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        fontInfoManager.switchTab('names');
+
+        const familyField = document.querySelector(
+            '[data-name-field="family_name"]'
+        );
+        const familyInput = familyField.querySelector(
+            '.localized-string-input'
+        );
+        const familyHelper = familyField.querySelector(
+            '.localized-string-helper'
+        );
+
+        expect(familyHelper.textContent).toBe(
+            'Editing Default language system (dflt).'
+        );
+
+        familyInput.focus();
+        familyInput.value = 'New Family';
+        familyInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Edit font name', [
+            {
+                op: 'set',
+                path: ['names', 'family_name'],
+                oldValue: undefined,
+                newValue: { dflt: 'New Family' }
+            }
+        ]);
+        expect(window.currentFontModel.names.family_name).toEqual({
+            dflt: 'New Family'
+        });
+    });
+
+    test('inline names fields commit on enter', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            names: {
+                family_name: { en: 'Old Family' }
+            },
+            features: {
+                features: []
+            }
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        fontInfoManager.switchTab('names');
+
+        const familyInput = document.querySelector(
+            '[data-name-field="family_name"] .localized-string-input'
+        );
+
+        familyInput.focus();
+        familyInput.value = 'New Family';
+        familyInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+
+        expect(beginTransaction).toHaveBeenCalledWith('Edit font name');
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Edit font name', [
+            {
+                op: 'set',
+                path: ['names', 'family_name'],
+                oldValue: { en: 'Old Family' },
+                newValue: { en: 'New Family' }
+            }
+        ]);
+        expect(window.currentFontModel.names.family_name).toEqual({
+            en: 'New Family'
+        });
+    });
+
+    test('names UI shows language names with OpenType tags', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        window.currentFontModel = {
+            names: {
+                family_name: { en: 'Legacy Family' }
+            },
+            features: {
+                features: []
+            }
+        };
+
+        const fontInfoManager = loadFontInfoManager();
+        fontInfoManager.init();
+        fontInfoManager.switchTab('names');
+
+        const familyField = document.querySelector(
+            '[data-name-field="family_name"]'
+        );
+        const familyHelper = familyField.querySelector(
+            '.localized-string-helper'
+        );
+        const localesButton = familyField.querySelector(
+            '.localized-string-locales-button'
+        );
+
+        expect(familyHelper.textContent).toBe(
+            'Editing English (ENG) because Default language system (dflt) is not defined.'
+        );
+
+        localesButton.click();
+
+        const localeRowLabel = document.querySelector(
+            '.localized-string-modal-locale'
+        );
+        const localeSelect = document.querySelector(
+            '.localized-string-locale-select'
+        );
+        const germanOption = Array.from(localeSelect.options).find(
+            (option) => option.value === 'DEU'
+        );
+
+        expect(localeRowLabel.textContent).toBe('English (ENG)');
+        expect(localeSelect.options[0].textContent).toBe(
+            'Default language system (dflt)'
+        );
+        expect(germanOption?.textContent).toBe('German (DEU)');
+    });
+
+    test('fontModelSync rebuilds names when active and defers while inactive', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        window.currentFontModel = {
+            names: {
+                family_name: { en: 'First Family' }
+            },
+            features: {
+                features: []
+            }
+        };
+
+        const fontInfoManager = loadFontInfoManager();
+        fontInfoManager.init();
+        fontInfoManager.switchTab('names');
+
+        let familyInput = document.querySelector(
+            '[data-name-field="family_name"] .localized-string-input'
+        );
+        expect(familyInput.value).toBe('First Family');
+
+        window.currentFontModel.names.family_name = { en: 'Second Family' };
+        window.dispatchEvent(new CustomEvent('fontModelSync'));
+        jest.runOnlyPendingTimers();
+
+        familyInput = document.querySelector(
+            '[data-name-field="family_name"] .localized-string-input'
+        );
+        expect(familyInput.value).toBe('Second Family');
+
+        fontInfoManager.switchTab('features');
+        window.currentFontModel.names.family_name = { en: 'Third Family' };
+        window.dispatchEvent(new CustomEvent('fontModelSync'));
+        jest.runOnlyPendingTimers();
+
+        fontInfoManager.switchTab('names');
+
+        familyInput = document.querySelector(
+            '[data-name-field="family_name"] .localized-string-input'
+        );
+        expect(familyInput.value).toBe('Third Family');
     });
 });

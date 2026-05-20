@@ -2370,6 +2370,177 @@ kbd + kbd {
     display: block;
 }
 
+.fontinfo-names-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 12px;
+}
+
+.fontinfo-name-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.fontinfo-name-group-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+}
+
+.localized-string-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.localized-string-editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.localized-string-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.localized-string-label {
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.localized-string-input {
+    width: 100%;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid var(--border-primary);
+    background-color: var(--input-bg);
+    color: var(--text-primary);
+    font-family: var(--font-families-sans);
+    font-size: 11px;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.localized-string-textarea {
+    min-height: 76px;
+    resize: vertical;
+}
+
+.localized-string-helper {
+    color: var(--text-faint);
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+.localized-string-locales-button,
+.localized-string-modal-button {
+    border: 1px solid var(--border-primary);
+    background-color: transparent;
+    color: var(--text-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: var(--font-families-sans);
+    font-size: 10px;
+    padding: 5px 8px;
+    transition:
+        background-color 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease;
+}
+
+.localized-string-locales-button:hover,
+.localized-string-modal-button:hover {
+    background-color: var(--input-bg);
+    border-color: var(--text-secondary);
+}
+
+.localized-string-locales-button:disabled,
+.localized-string-modal-button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.localized-string-modal .matplotlib-modal-body {
+    align-items: stretch;
+    justify-content: flex-start;
+}
+
+.localized-string-modal-content {
+    width: min(720px, calc(100vw - 40px));
+}
+
+.localized-string-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.localized-string-modal-controls,
+.localized-string-modal-actions,
+.localized-string-modal-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.localized-string-modal-actions {
+    justify-content: flex-end;
+}
+
+.localized-string-modal-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.localized-string-modal-locale-select,
+.localized-string-modal-locale {
+    width: 120px;
+    flex: 0 0 120px;
+}
+
+.localized-string-modal-locale-select {
+    border: 1px solid var(--border-primary);
+    background-color: var(--input-bg);
+    color: var(--text-primary);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-family: var(--font-families-sans);
+    font-size: 11px;
+}
+
+.localized-string-modal-locale {
+    color: var(--text-secondary);
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+    padding-top: 8px;
+}
+
+.localized-string-modal-input {
+    flex: 1 1 auto;
+}
+
+.localized-string-modal-button-primary {
+    background-color: var(--accent-green);
+    border-color: var(--accent-green);
+    color: var(--background-primary);
+}
+
+.localized-string-modal-button-primary:hover {
+    background-color: var(--accent-green);
+    border-color: var(--accent-green);
+    filter: brightness(1.05);
+}
+
 /* Tippy.js Theme - Dark */
 .tippy-box[data-theme='dark'] {
     background-color: var(--background-secondary);

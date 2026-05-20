@@ -3,6 +3,7 @@
  * Handles switching between Names and Features tabs in the font info view
  */
 
+import tippy, { type Instance as TippyInstance } from 'tippy.js';
 import { Logger } from './logger';
 import { fontCompilation } from './font-compilation';
 import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
@@ -15,6 +16,18 @@ import {
     SCRIPT_TO_SHAPER
 } from './opentype-features';
 import { extractPrimaryFeatureIssue } from './feature-error-parser';
+import {
+    addTippyBackdropSupport,
+    getOrCreateBackdrop,
+    getTheme,
+    setupMenuKeyboardNav
+} from './tippy-utils';
+import {
+    areLocalizedStringValuesEqual,
+    createLocalizedStringEditor,
+    normalizeLocalizedStringValue,
+    type LocalizedStringEditorHandle
+} from './localized-string-editor';
 // Import FEA mode for Ace Editor (registers the mode automatically)
 import './mode-fea';
 const console = new Logger('FontInfo');
@@ -24,6 +37,95 @@ const FEATURE_CODE_COMPILE_DEBOUNCE_MS = 5000;
 
 type FontInfoTab = 'names' | 'features';
 type FeatureItemType = 'prefix' | 'class' | 'feature';
+type FontNameFieldKey = keyof Babelfont.Names;
+
+interface FontInfoSectionConfig {
+    id: FontInfoTab;
+    label: string;
+    usesSearch: boolean;
+}
+
+interface FontNameFieldConfig {
+    key: FontNameFieldKey;
+    label: string;
+    multiline?: boolean;
+}
+
+interface FontNameGroupConfig {
+    title: string;
+    fields: FontNameFieldConfig[];
+}
+
+const FONTINFO_SECTIONS: FontInfoSectionConfig[] = [
+    {
+        id: 'names',
+        label: 'Names',
+        usesSearch: false
+    },
+    {
+        id: 'features',
+        label: 'Features',
+        usesSearch: true
+    }
+];
+
+const FONT_NAME_GROUPS: FontNameGroupConfig[] = [
+    {
+        title: 'Identity',
+        fields: [
+            { key: 'family_name', label: 'Family Name' },
+            {
+                key: 'preferred_subfamily_name',
+                label: 'Preferred Subfamily Name'
+            },
+            { key: 'typographic_family', label: 'Typographic Family' },
+            {
+                key: 'typographic_subfamily',
+                label: 'Typographic Subfamily'
+            },
+            { key: 'full_name', label: 'Full Name' },
+            { key: 'version', label: 'Version' }
+        ]
+    },
+    {
+        title: 'Technical/OpenType',
+        fields: [
+            { key: 'postscript_name', label: 'PostScript Name' },
+            {
+                key: 'variations_postscript_name_prefix',
+                label: 'Variations PostScript Name Prefix'
+            },
+            { key: 'unique_id', label: 'Unique ID' },
+            {
+                key: 'compatible_full_name',
+                label: 'Compatible Full Name'
+            },
+            { key: 'postscript_cid_name', label: 'PostScript CID Name' },
+            { key: 'wws_family_name', label: 'WWS Family Name' },
+            { key: 'wws_subfamily_name', label: 'WWS Subfamily Name' }
+        ]
+    },
+    {
+        title: 'Credits/URLs',
+        fields: [
+            { key: 'designer', label: 'Designer' },
+            { key: 'designer_url', label: 'Designer URL' },
+            { key: 'manufacturer', label: 'Manufacturer' },
+            { key: 'manufacturer_url', label: 'Manufacturer URL' }
+        ]
+    },
+    {
+        title: 'Legal/Descriptive',
+        fields: [
+            { key: 'copyright', label: 'Copyright', multiline: true },
+            { key: 'trademark', label: 'Trademark' },
+            { key: 'description', label: 'Description', multiline: true },
+            { key: 'license', label: 'License', multiline: true },
+            { key: 'license_url', label: 'License URL' },
+            { key: 'sample_text', label: 'Sample Text', multiline: true }
+        ]
+    }
+];
 
 interface SelectedItem {
     type: FeatureItemType;
@@ -78,6 +180,15 @@ class FontInfoManager {
     private currentTab: FontInfoTab = 'names';
     private namesTab: HTMLElement | null = null;
     private featuresTab: HTMLElement | null = null;
+    private namesFieldsContainer: HTMLElement | null = null;
+    private namesFieldEditors: Map<
+        FontNameFieldKey,
+        LocalizedStringEditorHandle
+    > = new Map();
+    private sectionMenuInstance: TippyInstance | null = null;
+    private sectionButton: HTMLButtonElement | null = null;
+    private namesDataLoaded = false;
+    private pendingNamesModelSyncRefresh = false;
     private featuresEditor: any = null;
     private featuresEditorInitialized = false;
     private suppressFeatureEditorChange = false;
@@ -121,8 +232,8 @@ class FontInfoManager {
             return;
         }
 
-        // Create tab selector buttons in title bar
-        this.createTabButtons();
+        // Create section selector in title bar
+        this.createSectionPicker();
 
         // Initialize search for features tab
         this.initFeaturesSearch();
@@ -300,7 +411,57 @@ class FontInfoManager {
         return 'names'; // Default to names tab
     }
 
-    private createTabButtons() {
+    private getCurrentSectionConfig(): FontInfoSectionConfig {
+        return (
+            FONTINFO_SECTIONS.find(
+                (section) => section.id === this.currentTab
+            ) ?? FONTINFO_SECTIONS[0]
+        );
+    }
+
+    private createSectionMenuHtml(): string {
+        const currentSection = this.getCurrentSectionConfig();
+
+        return `
+            <div class="plugin-menu" tabindex="0" role="menu" aria-label="Font info sections">
+                ${FONTINFO_SECTIONS.map((section) => {
+                    const isActive = section.id === currentSection.id;
+                    return `
+                        <div class="plugin-menu-item" data-section="${section.id}" role="menuitemradio" aria-checked="${isActive}" tabindex="-1">
+                            <span class="plugin-menu-check material-symbols-outlined${isActive ? '' : ' empty'}">${isActive ? 'check' : ''}</span>
+                            <span>${section.label}</span>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    private refreshSectionPicker() {
+        const currentSection = this.getCurrentSectionConfig();
+        const searchControl = document.getElementById(
+            'fontinfo-search-control'
+        );
+        const buttonLabel = this.sectionButton?.querySelector(
+            '.fontinfo-section-button-label'
+        );
+
+        if (buttonLabel) {
+            buttonLabel.textContent = currentSection.label;
+        }
+
+        if (this.sectionMenuInstance) {
+            this.sectionMenuInstance.setContent(this.createSectionMenuHtml());
+        }
+
+        if (searchControl) {
+            searchControl.style.display = currentSection.usesSearch
+                ? ''
+                : 'none';
+        }
+    }
+
+    private createSectionPicker() {
         const titleBar = document.querySelector(
             '#view-fontinfo .view-title-bar'
         );
@@ -316,28 +477,81 @@ class FontInfoManager {
             titleBar.appendChild(titleBarRight);
         }
 
-        // Remove existing tab buttons but preserve search control
-        const existingButtons = titleBarRight.querySelectorAll('.context-tab');
-        existingButtons.forEach((btn: Element) => btn.remove());
+        titleBarRight.querySelector('.fontinfo-section-button')?.remove();
 
-        // Create Names button
-        const namesButton = document.createElement('button');
-        namesButton.className = 'view-title-button context-tab';
-        namesButton.setAttribute('data-tab', 'names');
-        namesButton.textContent = 'Names';
-        namesButton.addEventListener('click', () => this.switchTab('names'));
-
-        // Create Features button
-        const featuresButton = document.createElement('button');
-        featuresButton.className = 'view-title-button context-tab';
-        featuresButton.setAttribute('data-tab', 'features');
-        featuresButton.textContent = 'Features';
-        featuresButton.addEventListener('click', () =>
-            this.switchTab('features')
+        this.sectionButton = document.createElement('button');
+        this.sectionButton.type = 'button';
+        this.sectionButton.className =
+            'view-title-button fontinfo-section-button';
+        this.sectionButton.innerHTML = `
+            <span class="fontinfo-section-button-label">Names</span>
+            <span class="material-symbols-outlined">expand_more</span>
+        `;
+        titleBarRight.insertBefore(
+            this.sectionButton,
+            titleBarRight.firstChild
         );
 
-        titleBarRight.appendChild(namesButton);
-        titleBarRight.appendChild(featuresButton);
+        const backdrop = getOrCreateBackdrop('fontinfo-section-menu-backdrop');
+        const tippyResult = tippy(this.sectionButton, {
+            content: this.createSectionMenuHtml(),
+            allowHTML: true,
+            interactive: true,
+            trigger: 'manual',
+            theme: getTheme(),
+            placement: 'bottom-end',
+            arrow: false,
+            offset: [0, 4],
+            appendTo: document.body,
+            hideOnClick: false,
+            zIndex: 9999,
+            onCreate: (instance) => {
+                instance.popper.addEventListener('click', (event) => {
+                    const item = (event.target as HTMLElement).closest(
+                        '.plugin-menu-item'
+                    );
+                    const nextSection = item?.getAttribute(
+                        'data-section'
+                    ) as FontInfoTab | null;
+                    if (!nextSection) {
+                        return;
+                    }
+                    instance.hide();
+                    this.switchTab(nextSection);
+                });
+            },
+            onShown: (instance) => {
+                const menu = instance.popper.querySelector('.plugin-menu');
+                if (menu) {
+                    setupMenuKeyboardNav(menu);
+                }
+            }
+        });
+
+        this.sectionMenuInstance = Array.isArray(tippyResult)
+            ? (tippyResult[0] ?? null)
+            : tippyResult;
+
+        if (this.sectionMenuInstance) {
+            addTippyBackdropSupport(this.sectionMenuInstance, backdrop, {
+                targetElement: this.sectionButton,
+                activeClass: 'fontinfo-section-button-active'
+            });
+        }
+
+        this.sectionButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (this.sectionMenuInstance?.state.isVisible) {
+                this.sectionMenuInstance.hide();
+            } else {
+                this.refreshSectionPicker();
+                this.sectionMenuInstance?.show();
+            }
+        });
+
+        this.refreshSectionPicker();
     }
 
     private initFeaturesSearch() {
@@ -1571,6 +1785,11 @@ class FontInfoManager {
             this.namesTab.appendChild(viewContent.firstChild);
         }
 
+        this.namesFieldsContainer = document.createElement('div');
+        this.namesFieldsContainer.id = 'fontinfo-names-fields';
+        this.namesFieldsContainer.className = 'fontinfo-names-fields';
+        this.namesTab.appendChild(this.namesFieldsContainer);
+
         // Create Features tab
         this.featuresTab = document.createElement('div');
         this.featuresTab.id = 'fontinfo-features-content';
@@ -1694,24 +1913,7 @@ class FontInfoManager {
         // Save to localStorage
         localStorage.setItem(FONTINFO_TAB_STORAGE_KEY, tab);
 
-        // Update button states - use a small delay to ensure DOM is updated
-        requestAnimationFrame(() => {
-            const buttons = document.querySelectorAll(
-                '#view-fontinfo .context-tab'
-            );
-            console.log(
-                `[FontInfo] Found ${buttons.length} buttons when switching to ${tab}`
-            );
-            buttons.forEach((button: Element) => {
-                const buttonTab = button.getAttribute('data-tab');
-                if (buttonTab === tab) {
-                    button.classList.add('active');
-                    console.log(`[FontInfo] Activated button: ${buttonTab}`);
-                } else {
-                    button.classList.remove('active');
-                }
-            });
-        });
+        this.refreshSectionPicker();
 
         // Show/hide content
         if (this.namesTab) {
@@ -1722,7 +1924,6 @@ class FontInfoManager {
                 tab === 'features' ? 'block' : 'none';
         }
 
-        // Initialize Ace editor and load content when switching to features tab
         if (tab === 'features') {
             // Initialize editor lazily on first show
             if (!this.featuresEditorInitialized) {
@@ -1737,21 +1938,14 @@ class FontInfoManager {
                 console.log('[FontInfo] Loading features lists (switchTab)');
                 this.refreshVisibleFeatureContent();
             }
-            // Show search control
-            const searchControl = document.getElementById(
-                'fontinfo-search-control'
-            );
-            if (searchControl) {
-                searchControl.style.display = '';
-            }
         } else {
-            // Hide search control and clear search when leaving features tab
-            const searchControl = document.getElementById(
-                'fontinfo-search-control'
-            );
-            if (searchControl) {
-                searchControl.style.display = 'none';
+            if (
+                window.currentFontModel &&
+                (!this.namesDataLoaded || this.pendingNamesModelSyncRefresh)
+            ) {
+                this.refreshVisibleNamesContent();
             }
+
             // Clear search terms and reset visibility
             if (this.searchTerms.length > 0) {
                 this.searchTerms = [];
@@ -1771,15 +1965,21 @@ class FontInfoManager {
             `[FontInfo] Font loaded event, current tab: ${this.currentTab}`
         );
         // Reset font data loaded flag for new font
+        this.namesDataLoaded = false;
+        this.pendingNamesModelSyncRefresh = false;
         this.fontDataLoaded = false;
         this.pendingModelSyncRefresh = false;
         this.featureCodeDirty = false;
         this.clearFeatureCodeCommitDebounce();
         // Clear editor state
         this.selectedItem = null;
+        this.namesFieldEditors.clear();
         this.prefixListItems.clear();
         this.classListItems.clear();
         this.featureListItems.clear();
+        if (this.currentTab === 'names') {
+            requestAnimationFrame(() => this.refreshVisibleNamesContent());
+        }
         // Load features data if we're on the features tab
         if (this.currentTab === 'features') {
             console.log('[FontInfo] Loading features lists (onFontLoaded)');
@@ -1799,8 +1999,18 @@ class FontInfoManager {
     }
 
     private onFontModelSynced() {
+        this.namesDataLoaded = false;
+        this.pendingNamesModelSyncRefresh = true;
         this.fontDataLoaded = false;
         this.pendingModelSyncRefresh = true;
+
+        if (this.currentTab === 'names') {
+            if (this.isNamesEditing()) {
+                return;
+            }
+            requestAnimationFrame(() => this.refreshVisibleNamesContent());
+            return;
+        }
 
         if (this.currentTab !== 'features') {
             return;
@@ -1811,6 +2021,176 @@ class FontInfoManager {
         }
 
         requestAnimationFrame(() => this.refreshVisibleFeatureContent());
+    }
+
+    private isNamesEditing(): boolean {
+        return Array.from(this.namesFieldEditors.values()).some((editor) =>
+            editor.isEditing()
+        );
+    }
+
+    private refreshVisibleNamesContent() {
+        if (this.currentTab !== 'names' || !window.currentFontModel) {
+            return;
+        }
+
+        if (this.isNamesEditing()) {
+            return;
+        }
+
+        this.renderNamesContent();
+        this.namesDataLoaded = true;
+        this.pendingNamesModelSyncRefresh = false;
+    }
+
+    private renderNamesContent() {
+        if (!this.namesFieldsContainer) {
+            return;
+        }
+
+        const font = window.currentFontModel;
+        const names = font?.names ?? {};
+
+        this.namesFieldsContainer.innerHTML = '';
+        this.namesFieldEditors.clear();
+
+        FONT_NAME_GROUPS.forEach((group) => {
+            const groupEl = document.createElement('section');
+            groupEl.className = 'fontinfo-name-group';
+
+            const titleEl = document.createElement('h3');
+            titleEl.className = 'sidebar-section-title';
+            titleEl.textContent = group.title;
+            groupEl.appendChild(titleEl);
+
+            const fieldsEl = document.createElement('div');
+            fieldsEl.className = 'fontinfo-name-group-fields';
+
+            group.fields.forEach((field) => {
+                const editor = createLocalizedStringEditor({
+                    label: field.label,
+                    value: names[field.key],
+                    multiline: field.multiline,
+                    onCommit: (nextValue) =>
+                        this.commitNameFieldValue(field.key, nextValue)
+                });
+
+                editor.element.setAttribute('data-name-field', field.key);
+                fieldsEl.appendChild(editor.element);
+                this.namesFieldEditors.set(field.key, editor);
+            });
+
+            groupEl.appendChild(fieldsEl);
+            this.namesFieldsContainer?.appendChild(groupEl);
+        });
+    }
+
+    private applyLocalNameFieldValue(
+        key: FontNameFieldKey,
+        nextValue: Babelfont.I18NDictionary
+    ) {
+        const font = window.currentFontModel;
+        if (!font) {
+            return;
+        }
+
+        const normalizedNextValue = normalizeLocalizedStringValue(nextValue);
+        if (Object.keys(normalizedNextValue).length === 0) {
+            if (font.names && key in font.names) {
+                delete font.names[key];
+            }
+            return;
+        }
+
+        if (!font.names) {
+            font.names = {};
+        }
+
+        font.names[key] = normalizedNextValue;
+    }
+
+    private commitNameFieldValue(
+        key: FontNameFieldKey,
+        nextValue: Babelfont.I18NDictionary
+    ) {
+        const font = window.currentFontModel;
+        if (!font) {
+            return;
+        }
+
+        const previousValue = normalizeLocalizedStringValue(font.names?.[key]);
+        const normalizedNextValue = normalizeLocalizedStringValue(nextValue);
+
+        if (areLocalizedStringValuesEqual(previousValue, normalizedNextValue)) {
+            if (
+                this.pendingNamesModelSyncRefresh &&
+                this.currentTab === 'names'
+            ) {
+                requestAnimationFrame(() => this.refreshVisibleNamesContent());
+            }
+            return;
+        }
+
+        const bridge = window.patchSyncEngine as
+            | {
+                  beginTransaction: (label: string) => void;
+                  endTransaction: () => void;
+                  applySyntheticChangeSet: (
+                      label: string,
+                      operations: Array<{
+                          op: 'set' | 'remove';
+                          path: (string | number)[];
+                          oldValue: unknown;
+                          newValue: unknown;
+                      }>
+                  ) => void;
+                  runWithoutRecording?: <T>(fn: () => T) => T;
+              }
+            | undefined;
+
+        const label = 'Edit font name';
+        if (bridge) {
+            bridge.beginTransaction(label);
+            try {
+                if (bridge.runWithoutRecording) {
+                    bridge.runWithoutRecording(() =>
+                        this.applyLocalNameFieldValue(key, normalizedNextValue)
+                    );
+                } else {
+                    this.applyLocalNameFieldValue(key, normalizedNextValue);
+                }
+
+                bridge.applySyntheticChangeSet(label, [
+                    Object.keys(normalizedNextValue).length === 0
+                        ? {
+                              op: 'remove',
+                              path: ['names', key],
+                              oldValue: { ...previousValue },
+                              newValue: undefined
+                          }
+                        : {
+                              op: 'set',
+                              path: ['names', key],
+                              oldValue:
+                                  Object.keys(previousValue).length > 0
+                                      ? { ...previousValue }
+                                      : undefined,
+                              newValue: { ...normalizedNextValue }
+                          }
+                ]);
+            } finally {
+                bridge.endTransaction();
+            }
+        } else {
+            this.applyLocalNameFieldValue(key, normalizedNextValue);
+            const currentFont = window.fontManager?.currentFont;
+            currentFont?.syncJsonFromModel?.();
+            currentFont?.markDirty?.('font-info-name');
+        }
+
+        if (this.pendingNamesModelSyncRefresh && this.currentTab === 'names') {
+            requestAnimationFrame(() => this.refreshVisibleNamesContent());
+        }
     }
 
     private refreshVisibleFeatureContent() {

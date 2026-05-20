@@ -224,6 +224,12 @@ class ResizableViews {
         }
     }
 
+    syncCollapsedStatesAfterLayoutRestore(): void {
+        requestAnimationFrame(() => {
+            this.updateCollapsedStates({ allowFocusShift: false });
+        });
+    }
+
     /**
      * Handle window resize: normalize top-row widths and update collapsed states.
      */
@@ -416,6 +422,7 @@ class ResizableViews {
             // Normalize flex values to current viewport after restoring saved layout.
             // Saved layouts may contain stale pixel values from a different window size.
             this.normalizeTopRowWidths();
+            this.syncCollapsedStatesAfterLayoutRestore();
 
             console.log(
                 '[Resizer]',
@@ -450,6 +457,7 @@ class ResizableViews {
         // Update collapsed states to reflect the collapsed fontinfo
         setTimeout(() => {
             this.normalizeTopRowWidths();
+            this.syncCollapsedStatesAfterLayoutRestore();
         }, 100);
     }
 
