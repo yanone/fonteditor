@@ -3114,6 +3114,11 @@ function setupFileItemClickHandlers() {
     const fileItems = fileTree.querySelectorAll('.file-item');
     fileItems.forEach((item: Element) => {
         const element = item as HTMLElement;
+        if (element.dataset.clickHandlersBound === 'true') {
+            return;
+        }
+
+        element.dataset.clickHandlersBound = 'true';
         const path = element.dataset.path!;
         const isDir = element.dataset.isDir === 'true';
         const isFont = element.dataset.isFont === 'true';
