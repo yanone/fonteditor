@@ -1139,13 +1139,12 @@ export class PatchSyncEngine {
             }
 
             const yLayerMap = layersMap.get(layerId);
-            if (!yLayerMap) {
-                continue;
-            }
-
-            // Build a sparse delta: diff _fontJson layer against current
-            // Y.Doc state. Only changed fields are included.
-            const yLayerJson = fromYType(yLayerMap);
+            // Build a delta: diff _fontJson layer against current Y.Doc state.
+            // For layers not yet in Yjs (e.g. newly added master) the old state
+            // is null — all fields are included and _applyLayerDelta will create
+            // the entry from scratch.  For existing layers only changed fields
+            // are included (sparse delta).
+            const yLayerJson = yLayerMap ? fromYType(yLayerMap) : null;
             const delta: Record<string, unknown> = { id: layerId };
             let hasChanges = false;
 
