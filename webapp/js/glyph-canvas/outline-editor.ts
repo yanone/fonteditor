@@ -7682,9 +7682,14 @@ export class OutlineEditor {
         );
 
         // 3. Apply all results synchronously (no per-glyph UI refreshes).
+        // Both the remove and the add are fully suppressed so that no partial
+        // Yjs ops are emitted mid-batch.  A full (unscoped) syncGlyphFromJson
+        // below writes the complete JS model state to Yjs in one shot, which
+        // avoids duplicate layer entries when the layers already existed in the
+        // Yjs doc (e.g. "Reinterpolate all layers" on an existing master).
         const changeSource = 'master-reinterpolate-batch';
         const bridge = window.patchSyncEngine;
-        const syncTargets: Array<{ glyphName: string; layerId: string }> = [];
+        const syncedGlyphs: string[] = [];
 
         for (let i = 0; i < targets.length; i++) {
             const result = interpolationResults[i];
@@ -7707,13 +7712,13 @@ export class OutlineEditor {
                     this.copyLayerDataForStoredLayer(normalizedLayer);
                 withSuppressedModelRecording(() => {
                     glyph.removeLayerById?.(layerId);
+                    this.materializeStoredInterpolatedLayer(
+                        glyph,
+                        { masterId, designLocation, isMasterBound, layerId },
+                        layerPayload
+                    );
                 });
-                this.materializeStoredInterpolatedLayer(
-                    glyph,
-                    { masterId, designLocation, isMasterBound, layerId },
-                    layerPayload
-                );
-                syncTargets.push({ glyphName, layerId });
+                syncedGlyphs.push(glyphName);
             } catch (err) {
                 console.warn(
                     `reinterpolateAllLayersForMaster: failed to apply ${glyphName}:`,
@@ -7722,20 +7727,20 @@ export class OutlineEditor {
             }
         }
 
-        if (syncTargets.length === 0) return;
+        if (syncedGlyphs.length === 0) return;
 
-        // 4. One structural commit + bulk Yjs sync.
+        // 4. One structural commit + full glyph sync (no layer-scoped filter).
+        // Writing the complete glyph JSON replaces whatever was in the Yjs doc,
+        // so there are no stale or duplicate layer entries regardless of
+        // whether the layers existed before.
         if (bridge) {
             this.prepareCommittedStructuralOutlineChange(changeSource, {
                 triggerCompile: false
             });
-            for (const { glyphName, layerId } of syncTargets) {
+            for (const glyphName of syncedGlyphs) {
                 bridge.syncGlyphFromJson(
                     glyphName,
-                    'Reinterpolate layer batch sync',
-                    undefined,
-                    undefined,
-                    layerId
+                    'Reinterpolate layer batch sync'
                 );
             }
         }
