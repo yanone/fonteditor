@@ -132,3 +132,7 @@ Cleanup, documentation, testing, videos
 Polish, incorporate user feedback
 
 ### v1.0 Public Release (October 2026)
+
+### v2.0
+
+- ✅ Live online collaboration
