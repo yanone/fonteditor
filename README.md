@@ -85,7 +85,8 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ◻️ Edit Font Info
 - ◻️ Master/instance management
 - ◻️ Path operations (boolean)
-- ✅ Kerning UI
+- ✅ Visual Kerning UI
+- ◻️ Kerning list UI
 - ✅ Automatic glyph metric updates
 - ✅ Automatic glyph composition
 - ◻️ Font export
