@@ -72,6 +72,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 
 - ✅ Basic layer operations
 - ◻️ Basic glyph operations
+- ◻️ Path operations
 - ✅ Edit outlines
 - ◻️ Edit components
 - ◻️ Edit anchors
@@ -82,9 +83,8 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ Undo/redo system
 - ◻️ Clipboard operations
 - ✅ Selection tools
-- ◻️ Edit Font Info
-- ◻️ Master/instance management
-- ◻️ Path operations (boolean)
+- ✅ Edit Font Info
+- ✅ Master/instance management
 - ✅ Visual Kerning UI
 - ◻️ Kerning list UI
 - ✅ Automatic glyph metric updates

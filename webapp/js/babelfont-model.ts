@@ -9991,6 +9991,11 @@ export class Font extends ModelBase {
         );
     }
 
+    set axes(value: Babelfont.Axis[] | Babelfont.Axis) {
+        this._data.axes = value;
+        this._axisWrappers = null;
+    }
+
     get instances(): Instance[] | undefined {
         if (!this._data.instances) return undefined;
         if (

@@ -2247,4 +2247,510 @@ describe('FontInfo feature code compilation scheduling', () => {
             ).textContent
         ).toBe('Weight 720');
     });
+
+    test('axes list controls add, remove, and reorder through the patch funnel', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                },
+                {
+                    name: { dflt: 'Width' },
+                    tag: 'wdth',
+                    min: 50,
+                    default: 100,
+                    max: 200
+                }
+            ],
+            names: {},
+            features: { features: [] }
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('axes');
+
+        const addAxesButton = document.querySelector(
+            '[data-fontinfo-list-action="axes-add"]'
+        );
+        addAxesButton.focus();
+        addAxesButton.click();
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Add axis', [
+            {
+                op: 'set',
+                path: ['axes'],
+                oldValue: expect.any(Array),
+                newValue: expect.arrayContaining([
+                    expect.objectContaining({
+                        name: { dflt: 'Axis 3' }
+                    })
+                ])
+            }
+        ]);
+        expect(
+            document.querySelectorAll(
+                '#fontinfo-axes-content .fontinfo-record-item'
+            )
+        ).toHaveLength(3);
+
+        const removeAxesButton = document.querySelector(
+            '[data-fontinfo-list-action="axes-remove"]'
+        );
+        removeAxesButton.focus();
+        removeAxesButton.click();
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Remove axis', [
+            {
+                op: 'set',
+                path: ['axes'],
+                oldValue: expect.any(Array),
+                newValue: expect.arrayContaining([
+                    expect.objectContaining({ tag: 'wght' }),
+                    expect.objectContaining({ tag: 'wdth' })
+                ])
+            }
+        ]);
+        expect(
+            document.querySelectorAll(
+                '#fontinfo-axes-content .fontinfo-record-item'
+            )
+        ).toHaveLength(2);
+
+        const axisItems = document.querySelectorAll(
+            '#fontinfo-axes-content .fontinfo-record-item'
+        );
+        axisItems[1].focus();
+        axisItems[0].getBoundingClientRect = () => ({
+            top: 0,
+            height: 20
+        });
+        fontInfoManager.onAxisDragStart(
+            {
+                currentTarget: axisItems[1],
+                dataTransfer: {}
+            },
+            1
+        );
+        fontInfoManager.onAxisDragOver(
+            {
+                preventDefault: jest.fn(),
+                currentTarget: axisItems[0],
+                dataTransfer: {},
+                clientY: 0
+            },
+            0
+        );
+        expect(
+            axisItems[0].classList.contains('feature-drop-target-before')
+        ).toBe(true);
+        fontInfoManager.onAxisDrop(
+            {
+                preventDefault: jest.fn()
+            },
+            0
+        );
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Reorder axes', [
+            {
+                op: 'set',
+                path: ['axes'],
+                oldValue: expect.any(Array),
+                newValue: [
+                    expect.objectContaining({ tag: 'wdth' }),
+                    expect.objectContaining({ tag: 'wght' })
+                ]
+            }
+        ]);
+        expect(
+            document.querySelector(
+                '#fontinfo-axes-content .fontinfo-record-item-primary'
+            ).textContent
+        ).toBe('Width');
+    });
+
+    test('axes reorder commits from dragend when drop is not delivered', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                },
+                {
+                    name: { dflt: 'Width' },
+                    tag: 'wdth',
+                    min: 50,
+                    default: 100,
+                    max: 200
+                }
+            ],
+            names: {},
+            features: { features: [] }
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('axes');
+
+        const axisItems = document.querySelectorAll(
+            '#fontinfo-axes-content .fontinfo-record-item'
+        );
+        axisItems[0].getBoundingClientRect = () => ({
+            top: 0,
+            height: 20
+        });
+
+        fontInfoManager.onAxisDragStart(
+            {
+                currentTarget: axisItems[1],
+                dataTransfer: {
+                    effectAllowed: 'all',
+                    setData: jest.fn()
+                }
+            },
+            1
+        );
+        fontInfoManager.onAxisDragOver(
+            {
+                preventDefault: jest.fn(),
+                currentTarget: axisItems[0],
+                dataTransfer: {},
+                clientY: 0
+            },
+            0
+        );
+        fontInfoManager.onAxisDragEnd();
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Reorder axes', [
+            {
+                op: 'set',
+                path: ['axes'],
+                oldValue: expect.any(Array),
+                newValue: [
+                    expect.objectContaining({ tag: 'wdth' }),
+                    expect.objectContaining({ tag: 'wght' })
+                ]
+            }
+        ]);
+    });
+
+    test('visible axes list rebuilds on fontModelSync structural changes', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                },
+                {
+                    name: { dflt: 'Width' },
+                    tag: 'wdth',
+                    min: 50,
+                    default: 100,
+                    max: 200
+                }
+            ],
+            names: {},
+            features: { features: [] }
+        };
+
+        const fontInfoManager = loadFontInfoManager();
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+
+        fontInfoManager.switchTab('axes');
+        const axisTagInput = document.querySelector(
+            '[data-font-field="axes.0.tag"] .localized-string-input'
+        );
+        axisTagInput.focus();
+
+        window.currentFontModel.axes = [
+            window.currentFontModel.axes[1],
+            window.currentFontModel.axes[0]
+        ];
+        window.dispatchEvent(new CustomEvent('fontModelSync'));
+        jest.runOnlyPendingTimers();
+
+        const reorderedAxisItems = document.querySelectorAll(
+            '#fontinfo-axes-content .fontinfo-record-item-primary'
+        );
+        expect(reorderedAxisItems[0].textContent).toBe('Width');
+        expect(reorderedAxisItems[1].textContent).toBe('Weight');
+    });
+
+    test('axes sidebar summaries refresh after local name and tag commits', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: { features: [] }
+        };
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        const fontInfoManager = loadFontInfoManager();
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('axes');
+
+        const nameInput = document.querySelector(
+            '[data-font-field="axes.0.name"] .localized-string-input'
+        );
+        nameInput.focus();
+        nameInput.value = 'Custom Weight';
+        nameInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+
+        expect(
+            document.querySelector(
+                '#fontinfo-axes-content .fontinfo-record-item-primary'
+            ).textContent
+        ).toBe('Custom Weight');
+    });
+
+    test('adding and removing axes syncs master and instance location fields', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: { features: [] },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                }
+            ],
+            instances: [
+                {
+                    id: 'I1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    custom_names: {}
+                }
+            ]
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('axes');
+
+        // Add a second axis — should insert location entry in master + instance
+        const addAxesButton = document.querySelector(
+            '[data-fontinfo-list-action="axes-add"]'
+        );
+        addAxesButton.focus();
+        addAxesButton.click();
+
+        const addCall = applySyntheticChangeSet.mock.calls.find(
+            ([label]) => label === 'Add axis'
+        );
+        expect(addCall).toBeDefined();
+        const addChanges = addCall[1];
+
+        // Must include the axes change
+        expect(addChanges).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ path: ['axes'] })
+            ])
+        );
+
+        // Must include a location update for master 0 with the new axis tag
+        const masterLocationChange = addChanges.find(
+            (c) =>
+                c.path.length === 3 &&
+                c.path[0] === 'masters' &&
+                c.path[1] === 0 &&
+                c.path[2] === 'location'
+        );
+        expect(masterLocationChange).toBeDefined();
+        expect(masterLocationChange.newValue).toMatchObject({ wght: 400 });
+        expect(Object.keys(masterLocationChange.newValue)).toHaveLength(2); // wght + new tag
+
+        // Must include a location update for instance 0
+        const instanceLocationChange = addChanges.find(
+            (c) =>
+                c.path.length === 3 &&
+                c.path[0] === 'instances' &&
+                c.path[1] === 0 &&
+                c.path[2] === 'location'
+        );
+        expect(instanceLocationChange).toBeDefined();
+        expect(Object.keys(instanceLocationChange.newValue)).toHaveLength(2);
+
+        // Now select and remove the new axis (index 1), which was auto-selected
+        applySyntheticChangeSet.mockClear();
+
+        const removeAxesButton = document.querySelector(
+            '[data-fontinfo-list-action="axes-remove"]'
+        );
+        removeAxesButton.focus();
+        removeAxesButton.click();
+
+        const removeCall = applySyntheticChangeSet.mock.calls.find(
+            ([label]) => label === 'Remove axis'
+        );
+        expect(removeCall).toBeDefined();
+        const removeChanges = removeCall[1];
+
+        // Master and instance locations should have the removed tag stripped
+        const masterRemoveChange = removeChanges.find(
+            (c) =>
+                c.path.length === 3 &&
+                c.path[0] === 'masters' &&
+                c.path[2] === 'location'
+        );
+        expect(masterRemoveChange).toBeDefined();
+        expect(Object.keys(masterRemoveChange.newValue ?? {})).toHaveLength(1);
+        expect(masterRemoveChange.newValue).toHaveProperty('wght');
+    });
 });

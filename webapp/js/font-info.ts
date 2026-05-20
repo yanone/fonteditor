@@ -38,6 +38,7 @@ const FEATURE_CODE_COMPILE_DEBOUNCE_MS = 5000;
 type FontInfoTab =
     | 'general'
     | 'names'
+    | 'axes'
     | 'masters'
     | 'instances'
     | 'custom_ot_values'
@@ -90,6 +91,11 @@ const FONTINFO_SECTIONS: FontInfoSectionConfig[] = [
     {
         id: 'names',
         label: 'Names',
+        usesSearch: false
+    },
+    {
+        id: 'axes',
+        label: 'Axes',
         usesSearch: false
     },
     {
@@ -562,6 +568,20 @@ function cloneMasterRecord(master: Babelfont.Master): Babelfont.Master {
     };
 }
 
+function cloneAxisRecord(axis: Babelfont.Axis): Babelfont.Axis {
+    return {
+        ...axis,
+        name: normalizeLocalizedStringValue(axis.name),
+        map: axis.map
+            ? axis.map.map(([u, d]) => [u, d] as [number, number])
+            : undefined,
+        values: axis.values ? [...axis.values] : undefined,
+        format_specific: axis.format_specific
+            ? { ...axis.format_specific }
+            : undefined
+    };
+}
+
 function cloneInstanceRecord(instance: Babelfont.Instance): Babelfont.Instance {
     return {
         ...instance,
@@ -657,12 +677,14 @@ class FontInfoManager {
     private namesTab: HTMLElement | null = null;
     private mastersTab: HTMLElement | null = null;
     private instancesTab: HTMLElement | null = null;
+    private axesTab: HTMLElement | null = null;
     private customOTValuesTab: HTMLElement | null = null;
     private featuresTab: HTMLElement | null = null;
     private generalFieldsContainer: HTMLElement | null = null;
     private namesFieldsContainer: HTMLElement | null = null;
     private mastersFieldsContainer: HTMLElement | null = null;
     private instancesFieldsContainer: HTMLElement | null = null;
+    private axesFieldsContainer: HTMLElement | null = null;
     private customOTValuesFieldsContainer: HTMLElement | null = null;
     private namesFieldEditors: Map<
         FontNameFieldKey,
@@ -678,12 +700,16 @@ class FontInfoManager {
     private pendingMastersModelSyncRefresh = false;
     private instancesDataLoaded = false;
     private pendingInstancesModelSyncRefresh = false;
+    private axesDataLoaded = false;
+    private pendingAxesModelSyncRefresh = false;
     private customOTValuesDataLoaded = false;
     private pendingCustomOTValuesModelSyncRefresh = false;
     private selectedMasterIndex = 0;
     private selectedInstanceIndex = 0;
+    private selectedAxisIndex = 0;
     private renderedMasterListSignature = '';
     private renderedInstanceListSignature = '';
+    private renderedAxisListSignature = '';
     private draggedMasterIndex: number | null = null;
     private masterDragCommitted = false;
     private masterDropTargetIndex: number | null = null;
@@ -692,6 +718,10 @@ class FontInfoManager {
     private instanceDragCommitted = false;
     private instanceDropTargetIndex: number | null = null;
     private instanceDropTargetPlacement: RecordDropPlacement | null = null;
+    private draggedAxisIndex: number | null = null;
+    private axisDragCommitted = false;
+    private axisDropTargetIndex: number | null = null;
+    private axisDropTargetPlacement: RecordDropPlacement | null = null;
     private featuresEditor: any = null;
     private featuresEditorInitialized = false;
     private suppressFeatureEditorChange = false;
@@ -911,6 +941,7 @@ class FontInfoManager {
         if (
             saved === 'general' ||
             saved === 'names' ||
+            saved === 'axes' ||
             saved === 'masters' ||
             saved === 'instances' ||
             saved === 'custom_ot_values' ||
@@ -2328,6 +2359,17 @@ class FontInfoManager {
         this.instancesFieldsContainer.className = 'fontinfo-records-pane';
         this.instancesTab.appendChild(this.instancesFieldsContainer);
 
+        this.axesTab = document.createElement('div');
+        this.axesTab.id = 'fontinfo-axes-content';
+        this.axesTab.style.display = 'none';
+        this.axesTab.style.height = '100%';
+        this.axesTab.style.overflow = 'hidden';
+
+        this.axesFieldsContainer = document.createElement('div');
+        this.axesFieldsContainer.id = 'fontinfo-axes-fields';
+        this.axesFieldsContainer.className = 'fontinfo-records-pane';
+        this.axesTab.appendChild(this.axesFieldsContainer);
+
         this.generalFieldsContainer = document.createElement('div');
         this.generalFieldsContainer.id = 'fontinfo-general-fields';
         this.generalFieldsContainer.className = 'fontinfo-names-fields';
@@ -2377,6 +2419,7 @@ class FontInfoManager {
         viewContent.appendChild(this.namesTab);
         viewContent.appendChild(this.mastersTab);
         viewContent.appendChild(this.instancesTab);
+        viewContent.appendChild(this.axesTab);
         viewContent.appendChild(this.customOTValuesTab);
         viewContent.appendChild(this.featuresTab);
 
@@ -2490,6 +2533,9 @@ class FontInfoManager {
             this.instancesTab.style.display =
                 tab === 'instances' ? 'block' : 'none';
         }
+        if (this.axesTab) {
+            this.axesTab.style.display = tab === 'axes' ? 'block' : 'none';
+        }
         if (this.customOTValuesTab) {
             this.customOTValuesTab.style.display =
                 tab === 'custom_ot_values' ? 'block' : 'none';
@@ -2547,6 +2593,13 @@ class FontInfoManager {
                 }
 
                 if (
+                    tab === 'axes' &&
+                    (!this.axesDataLoaded || this.pendingAxesModelSyncRefresh)
+                ) {
+                    this.refreshVisibleAxesContent();
+                }
+
+                if (
                     tab === 'custom_ot_values' &&
                     (!this.customOTValuesDataLoaded ||
                         this.pendingCustomOTValuesModelSyncRefresh)
@@ -2582,6 +2635,8 @@ class FontInfoManager {
         this.pendingMastersModelSyncRefresh = false;
         this.instancesDataLoaded = false;
         this.pendingInstancesModelSyncRefresh = false;
+        this.axesDataLoaded = false;
+        this.pendingAxesModelSyncRefresh = false;
         this.customOTValuesDataLoaded = false;
         this.pendingCustomOTValuesModelSyncRefresh = false;
         this.fontDataLoaded = false;
@@ -2605,6 +2660,9 @@ class FontInfoManager {
         }
         if (this.currentTab === 'instances') {
             requestAnimationFrame(() => this.refreshVisibleInstancesContent());
+        }
+        if (this.currentTab === 'axes') {
+            requestAnimationFrame(() => this.refreshVisibleAxesContent());
         }
         if (this.currentTab === 'custom_ot_values') {
             requestAnimationFrame(() =>
@@ -2638,6 +2696,8 @@ class FontInfoManager {
         this.pendingMastersModelSyncRefresh = true;
         this.instancesDataLoaded = false;
         this.pendingInstancesModelSyncRefresh = true;
+        this.axesDataLoaded = false;
+        this.pendingAxesModelSyncRefresh = true;
         this.customOTValuesDataLoaded = false;
         this.pendingCustomOTValuesModelSyncRefresh = true;
         this.fontDataLoaded = false;
@@ -2684,6 +2744,20 @@ class FontInfoManager {
                 return;
             }
             requestAnimationFrame(() => this.refreshVisibleInstancesContent());
+            return;
+        }
+
+        if (this.currentTab === 'axes') {
+            if (this.hasAxisListStructureChanged()) {
+                requestAnimationFrame(() =>
+                    this.forceRefreshVisibleAxesContent()
+                );
+                return;
+            }
+            if (this.isAxesEditing()) {
+                return;
+            }
+            requestAnimationFrame(() => this.refreshVisibleAxesContent());
             return;
         }
 
@@ -2826,6 +2900,34 @@ class FontInfoManager {
         this.pendingInstancesModelSyncRefresh = false;
     }
 
+    private isAxesEditing(): boolean {
+        return this.isEditableControlWithin(this.axesTab);
+    }
+
+    private refreshVisibleAxesContent() {
+        if (this.currentTab !== 'axes' || !window.currentFontModel) {
+            return;
+        }
+
+        if (this.isAxesEditing()) {
+            return;
+        }
+
+        this.renderAxesContent();
+        this.axesDataLoaded = true;
+        this.pendingAxesModelSyncRefresh = false;
+    }
+
+    private forceRefreshVisibleAxesContent() {
+        if (this.currentTab !== 'axes' || !window.currentFontModel) {
+            return;
+        }
+
+        this.renderAxesContent();
+        this.axesDataLoaded = true;
+        this.pendingAxesModelSyncRefresh = false;
+    }
+
     private getMasterListStructureSignature(
         masters?: Babelfont.Master[] | undefined
     ): string {
@@ -2864,6 +2966,44 @@ class FontInfoManager {
             this.renderedInstanceListSignature !==
             this.getInstanceListStructureSignature()
         );
+    }
+
+    private getAxisListStructureSignature(
+        axes?: Babelfont.Axis[] | undefined
+    ): string {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const sourceAxes = axes ?? font?.axes ?? [];
+
+        return sourceAxes
+            .map((axis, index) => axis.tag ?? `index:${index}`)
+            .join('|');
+    }
+
+    private hasAxisListStructureChanged(): boolean {
+        return (
+            this.renderedAxisListSignature !==
+            this.getAxisListStructureSignature()
+        );
+    }
+
+    private getAxisListSummary(axisIndex: number): {
+        primary: string;
+        secondary: string;
+    } {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const axis = font?.axes?.[axisIndex];
+
+        return {
+            primary: getLocalizedDictionarySummary(
+                axis?.name,
+                axis?.tag ?? `Axis ${axisIndex + 1}`
+            ),
+            secondary: axis?.tag ?? ''
+        };
     }
 
     private getMasterListSummary(masterIndex: number): {
@@ -2924,6 +3064,14 @@ class FontInfoManager {
         ) as HTMLElement[];
     }
 
+    private getAxisListItems(): HTMLElement[] {
+        return Array.from(
+            this.axesFieldsContainer?.querySelectorAll(
+                '.fontinfo-records-list .fontinfo-record-item'
+            ) ?? []
+        ) as HTMLElement[];
+    }
+
     private updateRecordListItemSummary(
         item: Element | undefined,
         summary: { primary: string; secondary: string }
@@ -2960,6 +3108,17 @@ class FontInfoManager {
         this.updateRecordListItemSummary(
             this.getInstanceListItems()[instanceIndex],
             this.getInstanceListSummary(instanceIndex)
+        );
+    }
+
+    private refreshAxisSidebarItemSummary(axisIndex: number) {
+        if (this.currentTab !== 'axes') {
+            return;
+        }
+
+        this.updateRecordListItemSummary(
+            this.getAxisListItems()[axisIndex],
+            this.getAxisListSummary(axisIndex)
         );
     }
 
@@ -4090,6 +4249,277 @@ class FontInfoManager {
         this.instancesFieldsContainer.appendChild(layout);
     }
 
+    private renderAxesContent() {
+        if (!this.axesFieldsContainer) {
+            return;
+        }
+
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const axes = font?.axes ?? [];
+        this.renderedAxisListSignature =
+            this.getAxisListStructureSignature(axes);
+
+        this.axesFieldsContainer.innerHTML = '';
+
+        if (axes.length === 0) {
+            this.selectedAxisIndex = 0;
+        } else {
+            this.selectedAxisIndex = Math.min(
+                this.selectedAxisIndex,
+                axes.length - 1
+            );
+        }
+        const selectedAxis = axes[this.selectedAxisIndex];
+
+        const layout = document.createElement('div');
+        layout.className = 'fontinfo-records-layout';
+
+        const sidebar = document.createElement('aside');
+        sidebar.className =
+            'view-sidebar view-sidebar-left fontinfo-records-sidebar';
+        sidebar.appendChild(
+            this.createRecordsSidebarHeader({
+                title: 'Axes',
+                canRemove: axes.length > 0,
+                onAdd: () => this.addAxisRecord(),
+                onRemove: () => this.removeSelectedAxisRecord()
+            })
+        );
+        const list = document.createElement('div');
+        list.className =
+            'sidebar-list editor-layers-list fontinfo-records-list';
+
+        axes.forEach((axis, index) => {
+            const summary = this.getAxisListSummary(index);
+            list.appendChild(
+                this.createRecordListButton({
+                    primary: summary.primary,
+                    secondary: summary.secondary,
+                    selected: index === this.selectedAxisIndex,
+                    draggable: axes.length > 1,
+                    onSelect: () => {
+                        this.selectedAxisIndex = index;
+                        this.renderAxesContent();
+                    },
+                    onDragStart: (event) => this.onAxisDragStart(event, index),
+                    onDragOver: (event) => this.onAxisDragOver(event, index),
+                    onDrop: (event) => this.onAxisDrop(event, index),
+                    onDragEnd: () => this.onAxisDragEnd()
+                })
+            );
+        });
+        sidebar.appendChild(list);
+
+        const detail = document.createElement('div');
+        detail.className = 'fontinfo-records-detail';
+
+        if (!selectedAxis) {
+            const helper = document.createElement('div');
+            helper.className = 'localized-string-helper';
+            helper.textContent = 'No axes defined.';
+            detail.appendChild(helper);
+            layout.appendChild(sidebar);
+            layout.appendChild(detail);
+            this.axesFieldsContainer.appendChild(layout);
+            return;
+        }
+
+        // Identity section
+        const identitySection = document.createElement('section');
+        identitySection.className = 'fontinfo-name-group';
+        const identityTitle = document.createElement('h3');
+        identityTitle.className = 'sidebar-section-title';
+        identityTitle.textContent = 'Identity';
+        identitySection.appendChild(identityTitle);
+        const identityFields = document.createElement('div');
+        identityFields.className = 'fontinfo-name-group-fields';
+
+        const nameEditor = createLocalizedStringEditor({
+            label: 'Name',
+            value: selectedAxis.name,
+            onCommit: (nextValue) =>
+                this.commitAxisNameFieldValue(this.selectedAxisIndex, nextValue)
+        });
+        nameEditor.element.setAttribute(
+            'data-font-field',
+            `axes.${this.selectedAxisIndex}.name`
+        );
+        identityFields.appendChild(nameEditor.element);
+
+        identityFields.appendChild(
+            this.createSimpleFieldEditor({
+                label: 'Tag',
+                value: selectedAxis.tag ?? '',
+                dataField: `axes.${this.selectedAxisIndex}.tag`,
+                helperText: 'Four-character OpenType axis tag, e.g. wght.',
+                onCommit: (rawValue) => {
+                    const trimmed = rawValue.trim().slice(0, 4);
+                    this.commitAxisTagFieldValue(
+                        this.selectedAxisIndex,
+                        trimmed
+                    );
+                    return trimmed;
+                }
+            })
+        );
+
+        identitySection.appendChild(identityFields);
+        detail.appendChild(identitySection);
+
+        // Range section
+        const rangeSection = document.createElement('section');
+        rangeSection.className = 'fontinfo-name-group';
+        const rangeTitle = document.createElement('h3');
+        rangeTitle.className = 'sidebar-section-title';
+        rangeTitle.textContent = 'Range';
+        rangeSection.appendChild(rangeTitle);
+        const rangeFields = document.createElement('div');
+        rangeFields.className = 'fontinfo-name-group-fields';
+
+        for (const [fieldKey, label, helperText] of [
+            ['min', 'Minimum', 'Minimum user-space value for this axis.'],
+            ['max', 'Maximum', 'Maximum user-space value for this axis.'],
+            ['default', 'Default', 'Default user-space value for this axis.']
+        ] as ['min' | 'max' | 'default', string, string][]) {
+            const currentValue = selectedAxis[fieldKey] as number | undefined;
+            rangeFields.appendChild(
+                this.createSimpleFieldEditor({
+                    label,
+                    value:
+                        currentValue === undefined ? '' : String(currentValue),
+                    inputType: 'number',
+                    dataField: `axes.${this.selectedAxisIndex}.${fieldKey}`,
+                    helperText,
+                    onCommit: (rawValue) => {
+                        const parsedValue = parseNumericInput(rawValue);
+                        if (parsedValue === null || parsedValue === undefined) {
+                            return currentValue === undefined
+                                ? ''
+                                : String(currentValue);
+                        }
+
+                        this.commitAxisRangeValue(
+                            this.selectedAxisIndex,
+                            fieldKey,
+                            parsedValue
+                        );
+                        return String(parsedValue);
+                    }
+                })
+            );
+        }
+
+        rangeSection.appendChild(rangeFields);
+        detail.appendChild(rangeSection);
+
+        // Designspace section
+        const dsSection = document.createElement('section');
+        dsSection.className = 'fontinfo-name-group';
+        const dsTitle = document.createElement('h3');
+        dsTitle.className = 'sidebar-section-title';
+        dsTitle.textContent = 'Designspace';
+        dsSection.appendChild(dsTitle);
+        const dsFields = document.createElement('div');
+        dsFields.className = 'fontinfo-name-group-fields';
+
+        for (const [dsFieldKey, dsLabel, dsHelperText] of [
+            [
+                'min',
+                'Minimum',
+                'Designspace coordinate at the userspace minimum.'
+            ],
+            [
+                'max',
+                'Maximum',
+                'Designspace coordinate at the userspace maximum.'
+            ],
+            [
+                'default',
+                'Default',
+                'Designspace coordinate at the userspace default.'
+            ]
+        ] as ['min' | 'max' | 'default', string, string][]) {
+            const userspaceValue = selectedAxis[dsFieldKey] as
+                | number
+                | undefined;
+            const currentDsValue = this.getAxisDesignspaceValue(
+                selectedAxis,
+                userspaceValue
+            );
+            dsFields.appendChild(
+                this.createSimpleFieldEditor({
+                    label: dsLabel,
+                    value:
+                        currentDsValue === undefined
+                            ? ''
+                            : String(currentDsValue),
+                    inputType: 'number',
+                    dataField: `axes.${this.selectedAxisIndex}.map.${dsFieldKey}`,
+                    helperText: dsHelperText,
+                    onCommit: (rawValue) => {
+                        const trimmed = rawValue.trim();
+                        if (trimmed === '') {
+                            this.commitAxisDesignspaceMapValue(
+                                this.selectedAxisIndex,
+                                dsFieldKey,
+                                undefined
+                            );
+                            return '';
+                        }
+
+                        const parsedValue = parseNumericInput(rawValue);
+                        if (parsedValue === null || parsedValue === undefined) {
+                            return currentDsValue === undefined
+                                ? ''
+                                : String(currentDsValue);
+                        }
+
+                        this.commitAxisDesignspaceMapValue(
+                            this.selectedAxisIndex,
+                            dsFieldKey,
+                            parsedValue
+                        );
+                        return String(parsedValue);
+                    }
+                })
+            );
+        }
+
+        dsSection.appendChild(dsFields);
+        detail.appendChild(dsSection);
+
+        // Options section
+        const optionsSection = document.createElement('section');
+        optionsSection.className = 'fontinfo-name-group';
+        const optionsTitle = document.createElement('h3');
+        optionsTitle.className = 'sidebar-section-title';
+        optionsTitle.textContent = 'Options';
+        optionsSection.appendChild(optionsTitle);
+        const optionsFields = document.createElement('div');
+        optionsFields.className = 'fontinfo-name-group-fields';
+
+        optionsFields.appendChild(
+            this.createCheckboxFieldEditor({
+                label: 'Hidden',
+                checked: Boolean(selectedAxis.hidden),
+                dataField: `axes.${this.selectedAxisIndex}.hidden`,
+                helperText:
+                    "If enabled, this axis is hidden in the font's user interface.",
+                onCommit: (checked) =>
+                    this.commitAxisHiddenValue(this.selectedAxisIndex, checked)
+            })
+        );
+
+        optionsSection.appendChild(optionsFields);
+        detail.appendChild(optionsSection);
+
+        layout.appendChild(sidebar);
+        layout.appendChild(detail);
+        this.axesFieldsContainer.appendChild(layout);
+    }
+
     private renderCustomOTValuesContent() {
         if (!this.customOTValuesFieldsContainer) {
             return;
@@ -4274,6 +4704,66 @@ class FontInfoManager {
                               newValue: options.newValue
                           }
                 ]);
+            } finally {
+                bridge.endTransaction();
+            }
+        } else {
+            options.applyLocal();
+            const currentFont = window.fontManager?.currentFont;
+            currentFont?.syncJsonFromModel?.();
+            currentFont?.markDirty?.(options.markDirtyKey);
+        }
+
+        options.refresh?.();
+    }
+
+    private commitMultipleFontPathChanges(options: {
+        label: string;
+        changes: Array<{
+            op?: 'set' | 'remove';
+            path: (string | number)[];
+            oldValue: unknown;
+            newValue: unknown;
+        }>;
+        applyLocal: () => void;
+        markDirtyKey: string;
+        refresh?: () => void;
+    }) {
+        const bridge = window.patchSyncEngine as
+            | {
+                  beginTransaction: (label: string) => void;
+                  endTransaction: () => void;
+                  applySyntheticChangeSet: (
+                      label: string,
+                      operations: Array<{
+                          op: 'set' | 'remove';
+                          path: (string | number)[];
+                          oldValue: unknown;
+                          newValue: unknown;
+                      }>
+                  ) => void;
+                  runWithoutRecording?: <T>(fn: () => T) => T;
+              }
+            | undefined;
+
+        if (bridge) {
+            bridge.beginTransaction(options.label);
+            try {
+                if (bridge.runWithoutRecording) {
+                    bridge.runWithoutRecording(() => options.applyLocal());
+                } else {
+                    options.applyLocal();
+                }
+
+                bridge.applySyntheticChangeSet(
+                    options.label,
+                    options.changes.map((c) => ({
+                        op: c.op ?? 'set',
+                        path: c.path,
+                        oldValue: c.oldValue,
+                        newValue: c.newValue
+                    }))
+                );
             } finally {
                 bridge.endTransaction();
             }
@@ -5298,6 +5788,631 @@ class FontInfoManager {
         const targetIndex = this.instanceDropTargetIndex ?? fallbackTargetIndex;
         const placement = this.instanceDropTargetPlacement ?? 'before';
         return placement === 'after' ? targetIndex + 1 : targetIndex;
+    }
+
+    // ── Axes list operations ──────────────────────────────────────────────────
+
+    private createDefaultAxisRecord(): Babelfont.Axis {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const existingTags = new Set((font?.axes ?? []).map((a) => a.tag));
+        const candidates = [
+            'wght',
+            'wdth',
+            'ital',
+            'slnt',
+            'opsz',
+            'GRAD',
+            'XOPQ',
+            'YOPQ'
+        ];
+        const tag =
+            candidates.find((t) => !existingTags.has(t)) ??
+            `AX${String((font?.axes?.length ?? 0) + 1).padStart(2, '0')}`;
+        const nextIndex = (font?.axes?.length ?? 0) + 1;
+
+        return {
+            name: { dflt: `Axis ${nextIndex}` },
+            tag,
+            min: 0,
+            default: 0,
+            max: 1000
+        };
+    }
+
+    private applyLocalAxesList(nextAxes: Babelfont.Axis[]) {
+        const font = window.currentFontModel as any;
+        if (!font) {
+            return;
+        }
+
+        font.axes = nextAxes;
+    }
+
+    private commitAxesListChange(label: string, nextAxes: Babelfont.Axis[]) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) {
+            return;
+        }
+
+        const previousAxes = rawArray(font.axes).map(cloneAxisRecord);
+        const clonedNextAxes = rawArray(nextAxes).map(cloneAxisRecord);
+
+        this.commitFontPathChange({
+            label,
+            path: ['axes'],
+            oldValue: previousAxes.length > 0 ? previousAxes : undefined,
+            newValue: clonedNextAxes,
+            applyLocal: () => this.applyLocalAxesList(clonedNextAxes),
+            markDirtyKey: 'font-info-axes-list',
+            refresh: () => this.forceRefreshVisibleAxesContent()
+        });
+    }
+
+    private addAxisRecord() {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) {
+            return;
+        }
+
+        const newAxis = this.createDefaultAxisRecord();
+        const nextAxes = [...rawArray(font.axes).map(cloneAxisRecord), newAxis];
+        this.selectedAxisIndex = nextAxes.length - 1;
+
+        const previousAxes = rawArray(font.axes).map(cloneAxisRecord);
+        const clonedNextAxes = rawArray(nextAxes).map(cloneAxisRecord);
+        const tag = newAxis.tag;
+        const designspaceDefault = newAxis.default ?? 0;
+
+        const changes: Array<{
+            path: (string | number)[];
+            oldValue: unknown;
+            newValue: unknown;
+        }> = [
+            {
+                path: ['axes'],
+                oldValue: previousAxes.length > 0 ? previousAxes : undefined,
+                newValue: clonedNextAxes
+            }
+        ];
+
+        (font.masters ?? []).forEach((master, index) => {
+            const prevLoc = {
+                ...((master.location as Record<string, number> | undefined) ??
+                    {})
+            };
+            changes.push({
+                path: ['masters', index, 'location'],
+                oldValue: Object.keys(prevLoc).length > 0 ? prevLoc : undefined,
+                newValue: { ...prevLoc, [tag]: designspaceDefault }
+            });
+        });
+
+        (font.instances ?? []).forEach((instance, index) => {
+            const prevLoc = {
+                ...((instance.location as Record<string, number> | undefined) ??
+                    {})
+            };
+            changes.push({
+                path: ['instances', index, 'location'],
+                oldValue: Object.keys(prevLoc).length > 0 ? prevLoc : undefined,
+                newValue: { ...prevLoc, [tag]: designspaceDefault }
+            });
+        });
+
+        this.commitMultipleFontPathChanges({
+            label: 'Add axis',
+            changes,
+            applyLocal: () => {
+                this.applyLocalAxesList(clonedNextAxes);
+                (window.currentFontModel as any)?.masters?.forEach(
+                    (master: any) => {
+                        master.location = {
+                            ...(master.location ?? {}),
+                            [tag]: designspaceDefault
+                        };
+                    }
+                );
+                (window.currentFontModel as any)?.instances?.forEach(
+                    (instance: any) => {
+                        instance.location = {
+                            ...(instance.location ?? {}),
+                            [tag]: designspaceDefault
+                        };
+                    }
+                );
+            },
+            markDirtyKey: 'font-info-axes-list',
+            refresh: () => this.forceRefreshVisibleAxesContent()
+        });
+    }
+
+    private removeSelectedAxisRecord() {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const axes = font?.axes ?? [];
+        if (axes.length === 0) {
+            return;
+        }
+
+        const removedAxis = axes[this.selectedAxisIndex];
+        const tag = removedAxis?.tag;
+
+        const nextAxes = rawArray(axes)
+            .map(cloneAxisRecord)
+            .filter((_, index) => index !== this.selectedAxisIndex);
+        this.selectedAxisIndex = Math.max(
+            0,
+            Math.min(this.selectedAxisIndex - 1, nextAxes.length - 1)
+        );
+
+        const previousAxes = rawArray(axes).map(cloneAxisRecord);
+        const clonedNextAxes = rawArray(nextAxes).map(cloneAxisRecord);
+
+        const changes: Array<{
+            path: (string | number)[];
+            oldValue: unknown;
+            newValue: unknown;
+        }> = [
+            {
+                path: ['axes'],
+                oldValue: previousAxes.length > 0 ? previousAxes : undefined,
+                newValue: clonedNextAxes
+            }
+        ];
+
+        if (tag) {
+            (font?.masters ?? []).forEach((master, index) => {
+                const loc = master.location as
+                    | Record<string, number>
+                    | undefined;
+                if (loc && tag in loc) {
+                    const restLoc = { ...loc };
+                    delete (restLoc as Record<string, unknown>)[tag];
+                    changes.push({
+                        path: ['masters', index, 'location'],
+                        oldValue: loc,
+                        newValue:
+                            Object.keys(restLoc).length > 0
+                                ? restLoc
+                                : undefined
+                    });
+                }
+            });
+
+            (font?.instances ?? []).forEach((instance, index) => {
+                const loc = instance.location as
+                    | Record<string, number>
+                    | undefined;
+                if (loc && tag in loc) {
+                    const restLoc = { ...loc };
+                    delete (restLoc as Record<string, unknown>)[tag];
+                    changes.push({
+                        path: ['instances', index, 'location'],
+                        oldValue: loc,
+                        newValue:
+                            Object.keys(restLoc).length > 0
+                                ? restLoc
+                                : undefined
+                    });
+                }
+            });
+        }
+
+        this.commitMultipleFontPathChanges({
+            label: 'Remove axis',
+            changes,
+            applyLocal: () => {
+                this.applyLocalAxesList(clonedNextAxes);
+                if (tag) {
+                    (window.currentFontModel as any)?.masters?.forEach(
+                        (master: any) => {
+                            if (master.location) {
+                                delete master.location[tag];
+                            }
+                        }
+                    );
+                    (window.currentFontModel as any)?.instances?.forEach(
+                        (instance: any) => {
+                            if (instance.location) {
+                                delete instance.location[tag];
+                            }
+                        }
+                    );
+                }
+            },
+            markDirtyKey: 'font-info-axes-list',
+            refresh: () => this.forceRefreshVisibleAxesContent()
+        });
+    }
+
+    private reorderAxesList(fromIndex: number, insertionIndex: number) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const axes = rawArray(font?.axes).map(cloneAxisRecord);
+        if (
+            fromIndex < 0 ||
+            fromIndex >= axes.length ||
+            insertionIndex < 0 ||
+            insertionIndex > axes.length
+        ) {
+            return;
+        }
+
+        const [movedAxis] = axes.splice(fromIndex, 1);
+        if (!movedAxis) {
+            return;
+        }
+
+        const adjustedTargetIndex =
+            fromIndex < insertionIndex ? insertionIndex - 1 : insertionIndex;
+        if (adjustedTargetIndex === fromIndex) {
+            return;
+        }
+
+        axes.splice(adjustedTargetIndex, 0, movedAxis);
+        this.selectedAxisIndex = adjustedTargetIndex;
+        this.commitAxesListChange('Reorder axes', axes);
+    }
+
+    private onAxisDragStart(event: DragEvent, index: number) {
+        this.draggedAxisIndex = index;
+        this.axisDragCommitted = false;
+        this.clearAxisDropIndicator();
+        (event.currentTarget as HTMLElement | null)?.classList.add('dragging');
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            try {
+                event.dataTransfer.setData('text/plain', String(index));
+            } catch {
+                // Some test environments expose partial dataTransfer shims.
+            }
+        }
+    }
+
+    private onAxisDragOver(event: DragEvent, targetIndex: number) {
+        event.preventDefault();
+        if (event.dataTransfer) {
+            event.dataTransfer.dropEffect = 'move';
+        }
+        if (this.draggedAxisIndex === null) {
+            return;
+        }
+
+        const target = event.currentTarget as HTMLElement | null;
+        if (!target) {
+            return;
+        }
+
+        const rect = target.getBoundingClientRect();
+        const placement: RecordDropPlacement =
+            event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+        this.setAxisDropIndicator(targetIndex, placement);
+    }
+
+    private onAxisDrop(event: DragEvent, targetIndex: number) {
+        event.preventDefault();
+        const insertionIndex = this.getAxisDropInsertionIndex(targetIndex);
+        this.clearAxisDropIndicator();
+
+        if (this.draggedAxisIndex === null || insertionIndex === null) {
+            return;
+        }
+
+        const originalIndex = this.draggedAxisIndex;
+        this.axisDragCommitted = true;
+        this.draggedAxisIndex = null;
+        this.reorderAxesList(originalIndex, insertionIndex);
+    }
+
+    private onAxisDragEnd() {
+        const originalIndex = this.draggedAxisIndex;
+        const insertionIndex =
+            originalIndex !== null && this.axisDropTargetIndex !== null
+                ? this.getAxisDropInsertionIndex(this.axisDropTargetIndex)
+                : null;
+        const shouldCommitFallback =
+            !this.axisDragCommitted &&
+            originalIndex !== null &&
+            insertionIndex !== null;
+
+        this.clearAxisDropIndicator();
+        this.draggedAxisIndex = null;
+        this.axisDragCommitted = false;
+        this.axesFieldsContainer
+            ?.querySelectorAll('.fontinfo-record-item')
+            .forEach((item) => item.classList.remove('dragging'));
+
+        if (shouldCommitFallback) {
+            this.reorderAxesList(originalIndex, insertionIndex);
+        } else {
+            requestAnimationFrame(() => this.forceRefreshVisibleAxesContent());
+        }
+    }
+
+    private setAxisDropIndicator(
+        targetIndex: number,
+        placement: RecordDropPlacement
+    ) {
+        if (
+            this.axisDropTargetIndex === targetIndex &&
+            this.axisDropTargetPlacement === placement
+        ) {
+            return;
+        }
+
+        this.clearAxisDropIndicator();
+        const target = this.getAxisListItems()[targetIndex];
+        if (!target) {
+            return;
+        }
+
+        target.classList.add(
+            placement === 'before'
+                ? 'feature-drop-target-before'
+                : 'feature-drop-target-after'
+        );
+        this.axisDropTargetIndex = targetIndex;
+        this.axisDropTargetPlacement = placement;
+    }
+
+    private clearAxisDropIndicator() {
+        if (this.axisDropTargetIndex !== null) {
+            const previousTarget =
+                this.getAxisListItems()[this.axisDropTargetIndex];
+            previousTarget?.classList.remove(
+                'feature-drop-target-before',
+                'feature-drop-target-after'
+            );
+        }
+
+        this.axisDropTargetIndex = null;
+        this.axisDropTargetPlacement = null;
+    }
+
+    private getAxisDropInsertionIndex(
+        fallbackTargetIndex: number
+    ): number | null {
+        if (this.draggedAxisIndex === null) {
+            return null;
+        }
+
+        const targetIndex = this.axisDropTargetIndex ?? fallbackTargetIndex;
+        const placement = this.axisDropTargetPlacement ?? 'before';
+        return placement === 'after' ? targetIndex + 1 : targetIndex;
+    }
+
+    // ── Axes individual field commits ────────────────────────────────────────
+
+    private commitAxisNameFieldValue(
+        axisIndex: number,
+        nextValue: Babelfont.I18NDictionary
+    ) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const axis = font?.axes?.[axisIndex];
+        if (!axis) {
+            return;
+        }
+
+        const previousValue = normalizeLocalizedStringValue(axis.name);
+        const normalizedNextValue = normalizeLocalizedStringValue(nextValue);
+        if (areLocalizedStringValuesEqual(previousValue, normalizedNextValue)) {
+            if (
+                this.pendingAxesModelSyncRefresh &&
+                this.currentTab === 'axes'
+            ) {
+                requestAnimationFrame(() => this.refreshVisibleAxesContent());
+            }
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit axis name',
+            path: ['axes', axisIndex, 'name'],
+            oldValue: previousValue,
+            newValue: normalizedNextValue,
+            applyLocal: () => {
+                const liveAxis = (
+                    window.currentFontModel as unknown as
+                        | Babelfont.Font
+                        | undefined
+                )?.axes?.[axisIndex] as any;
+                if (liveAxis) {
+                    liveAxis.name = normalizedNextValue;
+                }
+            },
+            markDirtyKey: 'font-info-axis-name',
+            refresh: () => this.refreshAxisSidebarItemSummary(axisIndex)
+        });
+    }
+
+    private commitAxisTagFieldValue(axisIndex: number, nextValue: string) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const axis = font?.axes?.[axisIndex];
+        if (!axis) {
+            return;
+        }
+
+        const previousValue = axis.tag;
+        if (previousValue === nextValue) {
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit axis tag',
+            path: ['axes', axisIndex, 'tag'],
+            oldValue: previousValue,
+            newValue: nextValue,
+            applyLocal: () => {
+                const liveAxis = (
+                    window.currentFontModel as unknown as
+                        | Babelfont.Font
+                        | undefined
+                )?.axes?.[axisIndex] as any;
+                if (liveAxis) {
+                    liveAxis.tag = nextValue;
+                }
+            },
+            markDirtyKey: 'font-info-axis-tag',
+            refresh: () => this.refreshAxisSidebarItemSummary(axisIndex)
+        });
+    }
+
+    private commitAxisRangeValue(
+        axisIndex: number,
+        field: 'min' | 'max' | 'default',
+        nextValue: number
+    ) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const axis = font?.axes?.[axisIndex];
+        if (!axis) {
+            return;
+        }
+
+        const previousValue = axis[field];
+        if (previousValue === nextValue) {
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: `Edit axis ${field}`,
+            path: ['axes', axisIndex, field],
+            oldValue: previousValue,
+            newValue: nextValue,
+            applyLocal: () => {
+                const liveAxis = (
+                    window.currentFontModel as unknown as
+                        | Babelfont.Font
+                        | undefined
+                )?.axes?.[axisIndex] as any;
+                if (liveAxis) {
+                    liveAxis[field] = nextValue;
+                }
+            },
+            markDirtyKey: `font-info-axis-${field}`
+        });
+    }
+
+    private commitAxisHiddenValue(axisIndex: number, nextValue: boolean) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const axis = font?.axes?.[axisIndex];
+        if (!axis) {
+            return;
+        }
+
+        const previousValue = Boolean(axis.hidden);
+        if (previousValue === nextValue) {
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit axis hidden',
+            path: ['axes', axisIndex, 'hidden'],
+            oldValue: previousValue,
+            newValue: nextValue,
+            applyLocal: () => {
+                const liveAxis = (
+                    window.currentFontModel as unknown as
+                        | Babelfont.Font
+                        | undefined
+                )?.axes?.[axisIndex] as any;
+                if (liveAxis) {
+                    liveAxis.hidden = nextValue;
+                }
+            },
+            markDirtyKey: 'font-info-axis-hidden'
+        });
+    }
+
+    private getAxisDesignspaceValue(
+        axis: Babelfont.Axis,
+        userspaceValue: number | undefined
+    ): number | undefined {
+        if (
+            userspaceValue === undefined ||
+            !axis.map ||
+            axis.map.length === 0
+        ) {
+            return undefined;
+        }
+
+        const entry = axis.map.find(([u]) => u === userspaceValue);
+        return entry?.[1] as number | undefined;
+    }
+
+    private commitAxisDesignspaceMapValue(
+        axisIndex: number,
+        field: 'min' | 'max' | 'default',
+        nextDesignspaceValue: number | undefined
+    ) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const axis = font?.axes?.[axisIndex];
+        if (!axis) {
+            return;
+        }
+
+        const userspaceValue = axis[field] as number | undefined;
+        if (userspaceValue === undefined) {
+            return;
+        }
+
+        const currentMap = (axis.map ?? []) as [number, number][];
+        const previousDesignspaceValue = currentMap.find(
+            ([u]) => u === userspaceValue
+        )?.[1];
+
+        if (previousDesignspaceValue === nextDesignspaceValue) {
+            return;
+        }
+
+        const previousMap = axis.map ?? null;
+        let newMap: [number, number][] | null;
+
+        if (nextDesignspaceValue === undefined) {
+            const filtered = currentMap.filter(([u]) => u !== userspaceValue);
+            newMap = filtered.length > 0 ? filtered : null;
+        } else {
+            const filtered = currentMap.filter(([u]) => u !== userspaceValue);
+            newMap = [
+                ...filtered,
+                [userspaceValue, nextDesignspaceValue] as [number, number]
+            ].sort((a, b) => a[0] - b[0]);
+        }
+
+        this.commitFontPathChange({
+            label: `Edit axis ${field} designspace`,
+            path: ['axes', axisIndex, 'map'],
+            oldValue: previousMap,
+            newValue: newMap,
+            applyLocal: () => {
+                const liveAxis = (
+                    window.currentFontModel as unknown as
+                        | Babelfont.Font
+                        | undefined
+                )?.axes?.[axisIndex] as any;
+                if (liveAxis) {
+                    liveAxis.map = newMap;
+                }
+            },
+            markDirtyKey: 'font-info-axis-map'
+        });
     }
 
     private applyLocalRootFontFieldValue(

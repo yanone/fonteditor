@@ -1,6 +1,6 @@
 # Unreleased
 
-- **Font Info: Names** Implemented editing of font names, general info, custom OT values.
+- **Font Info: Names** Implemented editing of font names, general info, custom OT values, masters, instances, axes
 - **Text-Mode Kerning Workflow**: Added user documentation for text-mode kerning, including pair selection, inline editing, kerning-group chips, and keyboard nudging. The current kerning UI now limits each glyph to one kerning group per side, and disables the add-group button once that side already has a group.
 - **AI Assistan Streaming** Instead of waiting for the entire chat assistant response to finish before displaying it, the replies are now streamed akin to other AI chat excperiences, which is a much more pleasant experience.
 
