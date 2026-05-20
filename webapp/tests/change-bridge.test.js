@@ -362,7 +362,10 @@ const GENERIC_ACCESSOR_TEST_EXCLUSIONS = new Set([
     'rightMetricsKey',
     'selected', // UI/editor selection state (Node, Anchor, Component, Guide)
     'linked', // UI/editor layer linkage state
-    'selection' // UI/editor selection snapshot on Layer
+    'selection', // UI/editor selection snapshot on Layer
+    'axes', // Font structural collection — managed via applySyntheticChangeSet, not recordChange
+    'masters', // Font structural collection — managed via applySyntheticChangeSet, not recordChange
+    'instances' // Font structural collection — managed via applySyntheticChangeSet, not recordChange
 ]);
 const GENERIC_MUTABLE_GETTER_EXCLUSIONS = new Set([
     'anchors',
