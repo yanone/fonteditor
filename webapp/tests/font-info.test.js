@@ -1014,4 +1014,304 @@ describe('FontInfo feature code compilation scheduling', () => {
         );
         expect(vendorField.value).toBe('WXYZ');
     });
+
+    test('masters and instances panes hide internal ids, omit repeated panels, and commit precise nested paths', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: {
+                features: []
+            },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    metrics: { ascender: 800 },
+                    custom_ot_values: {
+                        os2_vendor_id: 'ABCD'
+                    }
+                }
+            ],
+            instances: [
+                {
+                    id: 'I1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    custom_names: {
+                        family_name: { dflt: 'Static Family' }
+                    },
+                    linked_style: 'Bold'
+                }
+            ]
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+
+        fontInfoManager.switchTab('masters');
+
+        const masterSidebarText = document.querySelector(
+            '.fontinfo-record-item-secondary'
+        );
+        expect(masterSidebarText.textContent).toBe('Weight 400');
+        expect(
+            document.querySelector('[data-font-field="masters.0.id"]')
+        ).toBeNull();
+        expect(
+            document.querySelector(
+                '[data-font-field="masters.0.custom_ot_values.os2_vendor_id"]'
+            )
+        ).toBeNull();
+
+        const masterMetricInput = document.querySelector(
+            '[data-font-field="masters.0.metrics.ascender"] .localized-string-input'
+        );
+        masterMetricInput.focus();
+        masterMetricInput.value = '825';
+        masterMetricInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Edit master metric',
+            [
+                {
+                    op: 'set',
+                    path: ['masters', 0, 'metrics', 'ascender'],
+                    oldValue: 800,
+                    newValue: 825
+                }
+            ]
+        );
+
+        fontInfoManager.switchTab('instances');
+
+        expect(
+            document.querySelector('[data-font-field="instances.0.id"]')
+        ).toBeNull();
+        expect(
+            document.querySelector(
+                '[data-font-field="instances.0.custom_names.family_name"]'
+            )
+        ).toBeNull();
+
+        const linkedStyleInput = document.querySelector(
+            '[data-font-field="instances.0.linked_style"] .localized-string-input'
+        );
+        linkedStyleInput.focus();
+        linkedStyleInput.value = 'Black';
+        linkedStyleInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Edit instance field',
+            [
+                {
+                    op: 'set',
+                    path: ['instances', 0, 'linked_style'],
+                    oldValue: 'Bold',
+                    newValue: 'Black'
+                }
+            ]
+        );
+    });
+
+    test('fontModelSync rebuilds masters and instances panels when active', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: {
+                features: []
+            },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    metrics: { ascender: 800 }
+                }
+            ],
+            instances: [
+                {
+                    id: 'I1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    custom_names: {},
+                    linked_style: 'Bold'
+                }
+            ]
+        };
+
+        const fontInfoManager = loadFontInfoManager();
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+
+        fontInfoManager.switchTab('masters');
+
+        let masterMetricInput = document.querySelector(
+            '[data-font-field="masters.0.metrics.ascender"] .localized-string-input'
+        );
+        expect(masterMetricInput.value).toBe('800');
+
+        window.currentFontModel.masters[0].metrics.ascender = 825;
+        window.dispatchEvent(new CustomEvent('fontModelSync'));
+        jest.runOnlyPendingTimers();
+
+        masterMetricInput = document.querySelector(
+            '[data-font-field="masters.0.metrics.ascender"] .localized-string-input'
+        );
+        expect(masterMetricInput.value).toBe('825');
+
+        fontInfoManager.switchTab('instances');
+
+        let linkedStyleInput = document.querySelector(
+            '[data-font-field="instances.0.linked_style"] .localized-string-input'
+        );
+        expect(linkedStyleInput.value).toBe('Bold');
+
+        window.currentFontModel.instances[0].linked_style = 'Black';
+        window.dispatchEvent(new CustomEvent('fontModelSync'));
+        jest.runOnlyPendingTimers();
+
+        linkedStyleInput = document.querySelector(
+            '[data-font-field="instances.0.linked_style"] .localized-string-input'
+        );
+        expect(linkedStyleInput.value).toBe('Black');
+    });
+
+    test('masters and instances sidebars do not reuse features view classes', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: {
+                features: []
+            },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    metrics: { ascender: 800 }
+                }
+            ],
+            instances: [
+                {
+                    id: 'I1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    custom_names: {},
+                    linked_style: 'Bold'
+                }
+            ]
+        };
+
+        const fontInfoManager = loadFontInfoManager();
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+
+        fontInfoManager.switchTab('masters');
+        const masterSidebar = document.querySelector(
+            '#fontinfo-masters-content .fontinfo-records-sidebar'
+        );
+        expect(masterSidebar.classList.contains('features-sidebar')).toBe(
+            false
+        );
+
+        fontInfoManager.switchTab('instances');
+        const instanceSidebar = document.querySelector(
+            '#fontinfo-instances-content .fontinfo-records-sidebar'
+        );
+        expect(instanceSidebar.classList.contains('features-sidebar')).toBe(
+            false
+        );
+    });
 });

@@ -35,11 +35,19 @@ const console = new Logger('FontInfo');
 const FONTINFO_TAB_STORAGE_KEY = 'fontinfo-selected-tab';
 const FEATURE_CODE_COMPILE_DEBOUNCE_MS = 5000;
 
-type FontInfoTab = 'general' | 'names' | 'custom_ot_values' | 'features';
+type FontInfoTab =
+    | 'general'
+    | 'names'
+    | 'masters'
+    | 'instances'
+    | 'custom_ot_values'
+    | 'features';
 type FeatureItemType = 'prefix' | 'class' | 'feature';
 type FontNameFieldKey = keyof Babelfont.Names;
 type FontRootFieldKey = 'upm' | 'version' | 'note' | 'date';
 type CustomOTFieldKey = keyof Babelfont.CustomOTValues;
+type MasterFieldKey = 'id';
+type InstanceFieldKey = 'id' | 'variable' | 'linked_style';
 
 interface FontInfoSectionConfig {
     id: FontInfoTab;
@@ -81,6 +89,16 @@ const FONTINFO_SECTIONS: FontInfoSectionConfig[] = [
     {
         id: 'names',
         label: 'Names',
+        usesSearch: false
+    },
+    {
+        id: 'masters',
+        label: 'Masters',
+        usesSearch: false
+    },
+    {
+        id: 'instances',
+        label: 'Instances',
         usesSearch: false
     },
     {
@@ -374,6 +392,20 @@ function parseIntegerInput(rawValue: string): number | undefined | null {
     return nextValue;
 }
 
+function parseNumericInput(rawValue: string): number | undefined | null {
+    const trimmedValue = rawValue.trim();
+    if (trimmedValue.length === 0) {
+        return undefined;
+    }
+
+    const nextValue = Number(trimmedValue);
+    if (!Number.isFinite(nextValue)) {
+        return null;
+    }
+
+    return nextValue;
+}
+
 function parseDateTimeLocalInput(rawValue: string): Date | null {
     if (!rawValue) {
         return null;
@@ -418,6 +450,78 @@ function formatNumberListValue(value?: number[] | null): string {
     }
 
     return value.join(', ');
+}
+
+function getLocalizedDictionarySummary(
+    value: Babelfont.I18NDictionary | undefined,
+    fallbackLabel: string
+): string {
+    const normalizedValue = normalizeLocalizedStringValue(value);
+
+    return (
+        normalizedValue.dflt ??
+        normalizedValue.en ??
+        Object.values(normalizedValue)[0] ??
+        fallbackLabel
+    );
+}
+
+function cloneNumericRecord(
+    value?: Record<string, number>
+): Record<string, number> | undefined {
+    return value ? { ...value } : undefined;
+}
+
+function areNumericRecordsEqual(
+    left?: Record<string, number>,
+    right?: Record<string, number>
+): boolean {
+    const leftKeys = Object.keys(left ?? {});
+    const rightKeys = Object.keys(right ?? {});
+
+    if (leftKeys.length !== rightKeys.length) {
+        return false;
+    }
+
+    return leftKeys.every((key) => left?.[key] === right?.[key]);
+}
+
+function getLocationKeys(
+    axes: Babelfont.Axis[] | undefined,
+    location?: Record<string, number>
+): string[] {
+    const axisTags = (axes ?? []).map((axis) => axis.tag);
+    const extraTags = Object.keys(location ?? {}).filter(
+        (tag) => !axisTags.includes(tag)
+    );
+
+    return [...axisTags, ...extraTags];
+}
+
+function formatLocationSummary(
+    axes: Babelfont.Axis[] | undefined,
+    location?: Record<string, number>
+): string {
+    const keys = getLocationKeys(axes, location);
+    if (keys.length === 0) {
+        return 'Default location';
+    }
+
+    const summary = keys
+        .filter((key) => location?.[key] !== undefined)
+        .map((key) => {
+            const axis = axes?.find((item) => item.tag === key);
+            const label = axis
+                ? getLocalizedDictionarySummary(axis.name, axis.tag)
+                : key;
+
+            return axis
+                ? `${label} ${location?.[key]}`
+                : `${key}=${location?.[key]}`;
+        })
+        .join(', ');
+
+    return summary || 'Default location';
 }
 
 function cloneVersionValue(
@@ -502,10 +606,14 @@ class FontInfoManager {
     private currentTab: FontInfoTab = 'names';
     private generalTab: HTMLElement | null = null;
     private namesTab: HTMLElement | null = null;
+    private mastersTab: HTMLElement | null = null;
+    private instancesTab: HTMLElement | null = null;
     private customOTValuesTab: HTMLElement | null = null;
     private featuresTab: HTMLElement | null = null;
     private generalFieldsContainer: HTMLElement | null = null;
     private namesFieldsContainer: HTMLElement | null = null;
+    private mastersFieldsContainer: HTMLElement | null = null;
+    private instancesFieldsContainer: HTMLElement | null = null;
     private customOTValuesFieldsContainer: HTMLElement | null = null;
     private namesFieldEditors: Map<
         FontNameFieldKey,
@@ -517,8 +625,14 @@ class FontInfoManager {
     private pendingGeneralModelSyncRefresh = false;
     private namesDataLoaded = false;
     private pendingNamesModelSyncRefresh = false;
+    private mastersDataLoaded = false;
+    private pendingMastersModelSyncRefresh = false;
+    private instancesDataLoaded = false;
+    private pendingInstancesModelSyncRefresh = false;
     private customOTValuesDataLoaded = false;
     private pendingCustomOTValuesModelSyncRefresh = false;
+    private selectedMasterIndex = 0;
+    private selectedInstanceIndex = 0;
     private featuresEditor: any = null;
     private featuresEditorInitialized = false;
     private suppressFeatureEditorChange = false;
@@ -738,6 +852,8 @@ class FontInfoManager {
         if (
             saved === 'general' ||
             saved === 'names' ||
+            saved === 'masters' ||
+            saved === 'instances' ||
             saved === 'custom_ot_values' ||
             saved === 'features'
         ) {
@@ -2131,6 +2247,28 @@ class FontInfoManager {
         this.namesFieldsContainer.className = 'fontinfo-names-fields';
         this.namesTab.appendChild(this.namesFieldsContainer);
 
+        this.mastersTab = document.createElement('div');
+        this.mastersTab.id = 'fontinfo-masters-content';
+        this.mastersTab.style.display = 'none';
+        this.mastersTab.style.height = '100%';
+        this.mastersTab.style.overflow = 'auto';
+
+        this.mastersFieldsContainer = document.createElement('div');
+        this.mastersFieldsContainer.id = 'fontinfo-masters-fields';
+        this.mastersFieldsContainer.className = 'fontinfo-names-fields';
+        this.mastersTab.appendChild(this.mastersFieldsContainer);
+
+        this.instancesTab = document.createElement('div');
+        this.instancesTab.id = 'fontinfo-instances-content';
+        this.instancesTab.style.display = 'none';
+        this.instancesTab.style.height = '100%';
+        this.instancesTab.style.overflow = 'auto';
+
+        this.instancesFieldsContainer = document.createElement('div');
+        this.instancesFieldsContainer.id = 'fontinfo-instances-fields';
+        this.instancesFieldsContainer.className = 'fontinfo-names-fields';
+        this.instancesTab.appendChild(this.instancesFieldsContainer);
+
         this.generalFieldsContainer = document.createElement('div');
         this.generalFieldsContainer.id = 'fontinfo-general-fields';
         this.generalFieldsContainer.className = 'fontinfo-names-fields';
@@ -2178,6 +2316,8 @@ class FontInfoManager {
 
         viewContent.appendChild(this.generalTab);
         viewContent.appendChild(this.namesTab);
+        viewContent.appendChild(this.mastersTab);
+        viewContent.appendChild(this.instancesTab);
         viewContent.appendChild(this.customOTValuesTab);
         viewContent.appendChild(this.featuresTab);
 
@@ -2283,6 +2423,14 @@ class FontInfoManager {
         if (this.namesTab) {
             this.namesTab.style.display = tab === 'names' ? 'block' : 'none';
         }
+        if (this.mastersTab) {
+            this.mastersTab.style.display =
+                tab === 'masters' ? 'block' : 'none';
+        }
+        if (this.instancesTab) {
+            this.instancesTab.style.display =
+                tab === 'instances' ? 'block' : 'none';
+        }
         if (this.customOTValuesTab) {
             this.customOTValuesTab.style.display =
                 tab === 'custom_ot_values' ? 'block' : 'none';
@@ -2324,6 +2472,22 @@ class FontInfoManager {
                 }
 
                 if (
+                    tab === 'masters' &&
+                    (!this.mastersDataLoaded ||
+                        this.pendingMastersModelSyncRefresh)
+                ) {
+                    this.refreshVisibleMastersContent();
+                }
+
+                if (
+                    tab === 'instances' &&
+                    (!this.instancesDataLoaded ||
+                        this.pendingInstancesModelSyncRefresh)
+                ) {
+                    this.refreshVisibleInstancesContent();
+                }
+
+                if (
                     tab === 'custom_ot_values' &&
                     (!this.customOTValuesDataLoaded ||
                         this.pendingCustomOTValuesModelSyncRefresh)
@@ -2355,6 +2519,10 @@ class FontInfoManager {
         this.pendingGeneralModelSyncRefresh = false;
         this.namesDataLoaded = false;
         this.pendingNamesModelSyncRefresh = false;
+        this.mastersDataLoaded = false;
+        this.pendingMastersModelSyncRefresh = false;
+        this.instancesDataLoaded = false;
+        this.pendingInstancesModelSyncRefresh = false;
         this.customOTValuesDataLoaded = false;
         this.pendingCustomOTValuesModelSyncRefresh = false;
         this.fontDataLoaded = false;
@@ -2372,6 +2540,12 @@ class FontInfoManager {
         }
         if (this.currentTab === 'names') {
             requestAnimationFrame(() => this.refreshVisibleNamesContent());
+        }
+        if (this.currentTab === 'masters') {
+            requestAnimationFrame(() => this.refreshVisibleMastersContent());
+        }
+        if (this.currentTab === 'instances') {
+            requestAnimationFrame(() => this.refreshVisibleInstancesContent());
         }
         if (this.currentTab === 'custom_ot_values') {
             requestAnimationFrame(() =>
@@ -2401,6 +2575,10 @@ class FontInfoManager {
         this.pendingGeneralModelSyncRefresh = true;
         this.namesDataLoaded = false;
         this.pendingNamesModelSyncRefresh = true;
+        this.mastersDataLoaded = false;
+        this.pendingMastersModelSyncRefresh = true;
+        this.instancesDataLoaded = false;
+        this.pendingInstancesModelSyncRefresh = true;
         this.customOTValuesDataLoaded = false;
         this.pendingCustomOTValuesModelSyncRefresh = true;
         this.fontDataLoaded = false;
@@ -2419,6 +2597,22 @@ class FontInfoManager {
                 return;
             }
             requestAnimationFrame(() => this.refreshVisibleNamesContent());
+            return;
+        }
+
+        if (this.currentTab === 'masters') {
+            if (this.isMastersEditing()) {
+                return;
+            }
+            requestAnimationFrame(() => this.refreshVisibleMastersContent());
+            return;
+        }
+
+        if (this.currentTab === 'instances') {
+            if (this.isInstancesEditing()) {
+                return;
+            }
+            requestAnimationFrame(() => this.refreshVisibleInstancesContent());
             return;
         }
 
@@ -2453,6 +2647,14 @@ class FontInfoManager {
         );
     }
 
+    private isMastersEditing(): boolean {
+        return this.mastersTab?.contains(document.activeElement) ?? false;
+    }
+
+    private isInstancesEditing(): boolean {
+        return this.instancesTab?.contains(document.activeElement) ?? false;
+    }
+
     private isCustomOTValuesEditing(): boolean {
         return (
             this.customOTValuesTab?.contains(document.activeElement) ?? false
@@ -2485,6 +2687,34 @@ class FontInfoManager {
         this.renderNamesContent();
         this.namesDataLoaded = true;
         this.pendingNamesModelSyncRefresh = false;
+    }
+
+    private refreshVisibleMastersContent() {
+        if (this.currentTab !== 'masters' || !window.currentFontModel) {
+            return;
+        }
+
+        if (this.isMastersEditing()) {
+            return;
+        }
+
+        this.renderMastersContent();
+        this.mastersDataLoaded = true;
+        this.pendingMastersModelSyncRefresh = false;
+    }
+
+    private refreshVisibleInstancesContent() {
+        if (this.currentTab !== 'instances' || !window.currentFontModel) {
+            return;
+        }
+
+        if (this.isInstancesEditing()) {
+            return;
+        }
+
+        this.renderInstancesContent();
+        this.instancesDataLoaded = true;
+        this.pendingInstancesModelSyncRefresh = false;
     }
 
     private refreshVisibleCustomOTValuesContent() {
@@ -2862,21 +3092,171 @@ class FontInfoManager {
         });
     }
 
-    private renderCustomOTValuesContent() {
-        if (!this.customOTValuesFieldsContainer) {
-            return;
+    private createCheckboxFieldEditor(options: {
+        label: string;
+        checked: boolean;
+        helperText?: string;
+        dataField?: string;
+        onCommit: (checked: boolean) => void;
+    }): HTMLElement {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'localized-string-editor';
+        if (options.dataField) {
+            wrapper.setAttribute('data-font-field', options.dataField);
         }
 
-        const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
-        if (!font) {
-            return;
+        const label = document.createElement('label');
+        label.className = 'localized-string-label';
+        label.textContent = options.label;
+        wrapper.appendChild(label);
+
+        const checkboxLabel = document.createElement('label');
+        checkboxLabel.className = 'feature-auto-checkbox';
+
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = options.checked;
+        input.addEventListener('change', () => options.onCommit(input.checked));
+
+        const text = document.createElement('span');
+        text.textContent = options.checked ? 'Enabled' : 'Disabled';
+
+        input.addEventListener('change', () => {
+            text.textContent = input.checked ? 'Enabled' : 'Disabled';
+        });
+
+        checkboxLabel.appendChild(input);
+        checkboxLabel.appendChild(text);
+        wrapper.appendChild(checkboxLabel);
+
+        if (options.helperText) {
+            const helper = document.createElement('div');
+            helper.className = 'localized-string-helper';
+            helper.textContent = options.helperText;
+            wrapper.appendChild(helper);
         }
 
-        const customOTValues = (font.custom_ot_values ??
-            {}) as Partial<Babelfont.CustomOTValues>;
-        this.customOTValuesFieldsContainer.innerHTML = '';
+        return wrapper;
+    }
+
+    private createRecordListButton(options: {
+        primary: string;
+        secondary: string;
+        selected: boolean;
+        onSelect: () => void;
+    }): HTMLButtonElement {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `sidebar-item fontinfo-record-item${options.selected ? ' selected' : ''}`;
+        button.addEventListener('click', options.onSelect);
+
+        const content = document.createElement('div');
+        content.className = 'fontinfo-record-item-content';
+
+        const primary = document.createElement('div');
+        primary.className = 'fontinfo-record-item-primary';
+        primary.textContent = options.primary;
+
+        const secondary = document.createElement('div');
+        secondary.className = 'fontinfo-record-item-secondary';
+        secondary.textContent = options.secondary;
+
+        content.appendChild(primary);
+        content.appendChild(secondary);
+        button.appendChild(content);
+
+        return button;
+    }
+
+    private appendNameGroups(options: {
+        container: HTMLElement;
+        names: Babelfont.Names;
+        dataFieldPrefix: string;
+        sectionTitle?: string;
+        sectionHelperText?: string;
+        onCommit: (
+            key: FontNameFieldKey,
+            nextValue: Babelfont.I18NDictionary
+        ) => void;
+    }) {
+        if (options.sectionTitle) {
+            const introSection = document.createElement('section');
+            introSection.className = 'fontinfo-name-group';
+
+            const titleEl = document.createElement('h3');
+            titleEl.className = 'sidebar-section-title';
+            titleEl.textContent = options.sectionTitle;
+            introSection.appendChild(titleEl);
+
+            if (options.sectionHelperText) {
+                const helper = document.createElement('div');
+                helper.className = 'localized-string-helper';
+                helper.textContent = options.sectionHelperText;
+                introSection.appendChild(helper);
+            }
+
+            options.container.appendChild(introSection);
+        }
+
+        FONT_NAME_GROUPS.forEach((group) => {
+            const groupEl = document.createElement('section');
+            groupEl.className = 'fontinfo-name-group';
+
+            const titleEl = document.createElement('h3');
+            titleEl.className = 'sidebar-section-title';
+            titleEl.textContent = group.title;
+            groupEl.appendChild(titleEl);
+
+            const fieldsEl = document.createElement('div');
+            fieldsEl.className = 'fontinfo-name-group-fields';
+
+            group.fields.forEach((field) => {
+                const editor = createLocalizedStringEditor({
+                    label: field.label,
+                    value: options.names[field.key],
+                    multiline: field.multiline,
+                    onCommit: (nextValue) =>
+                        options.onCommit(field.key, nextValue)
+                });
+
+                editor.element.setAttribute(
+                    'data-font-field',
+                    `${options.dataFieldPrefix}.${field.key}`
+                );
+                fieldsEl.appendChild(editor.element);
+            });
+
+            groupEl.appendChild(fieldsEl);
+            options.container.appendChild(groupEl);
+        });
+    }
+
+    private appendCustomOTGroups(options: {
+        container: HTMLElement;
+        customOTValues: Partial<Babelfont.CustomOTValues>;
+        dataFieldPrefix: string;
+        sectionTitle?: string;
+        sectionHelperText?: string;
+        onCommit: (key: CustomOTFieldKey, nextValue: unknown) => void;
+    }) {
+        if (options.sectionTitle) {
+            const introSection = document.createElement('section');
+            introSection.className = 'fontinfo-name-group';
+
+            const titleEl = document.createElement('h3');
+            titleEl.className = 'sidebar-section-title';
+            titleEl.textContent = options.sectionTitle;
+            introSection.appendChild(titleEl);
+
+            if (options.sectionHelperText) {
+                const helper = document.createElement('div');
+                helper.className = 'localized-string-helper';
+                helper.textContent = options.sectionHelperText;
+                introSection.appendChild(helper);
+            }
+
+            options.container.appendChild(introSection);
+        }
 
         CUSTOM_OT_GROUPS.forEach((group) => {
             const groupEl = document.createElement('section');
@@ -2891,7 +3271,7 @@ class FontInfoManager {
             fieldsEl.className = 'fontinfo-name-group-fields';
 
             group.fields.forEach((field) => {
-                const currentValue = customOTValues[field.key];
+                const currentValue = options.customOTValues[field.key];
                 const formattedValue =
                     field.kind === 'number-list'
                         ? formatNumberListValue(
@@ -2906,7 +3286,7 @@ class FontInfoManager {
                         label: field.label,
                         value: formattedValue,
                         placeholder: field.placeholder,
-                        dataField: `custom_ot_values.${field.key}`,
+                        dataField: `${options.dataFieldPrefix}.${field.key}`,
                         helperText: field.helperText,
                         onCommit: (rawValue) => {
                             let nextValue: unknown;
@@ -2938,7 +3318,7 @@ class FontInfoManager {
                                         : undefined;
                             }
 
-                            this.commitCustomOTValue(field.key, nextValue);
+                            options.onCommit(field.key, nextValue);
 
                             if (field.kind === 'number-list') {
                                 return formatNumberListValue(
@@ -2955,7 +3335,420 @@ class FontInfoManager {
             });
 
             groupEl.appendChild(fieldsEl);
-            this.customOTValuesFieldsContainer?.appendChild(groupEl);
+            options.container.appendChild(groupEl);
+        });
+    }
+
+    private appendLocationSection(options: {
+        container: HTMLElement;
+        title: string;
+        dataFieldPrefix: string;
+        location?: Record<string, number>;
+        onCommit: (axisTag: string, nextValue: number | undefined) => void;
+    }) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const section = document.createElement('section');
+        section.className = 'fontinfo-name-group';
+
+        const titleEl = document.createElement('h3');
+        titleEl.className = 'sidebar-section-title';
+        titleEl.textContent = options.title;
+        section.appendChild(titleEl);
+
+        const fieldsEl = document.createElement('div');
+        fieldsEl.className = 'fontinfo-name-group-fields';
+
+        const locationKeys = getLocationKeys(font?.axes, options.location);
+        locationKeys.forEach((axisTag) => {
+            const axis = font?.axes?.find((item) => item.tag === axisTag);
+            const currentValue = options.location?.[axisTag];
+            const label = axis
+                ? `${getLocalizedDictionarySummary(axis.name, axis.tag)} (${axis.tag})`
+                : axisTag;
+
+            fieldsEl.appendChild(
+                this.createSimpleFieldEditor({
+                    label,
+                    value:
+                        currentValue === undefined ? '' : String(currentValue),
+                    inputType: 'number',
+                    placeholder:
+                        axis?.default !== undefined
+                            ? `Default ${String(axis.default)}`
+                            : 'Leave blank for default',
+                    dataField: `${options.dataFieldPrefix}.${axisTag}`,
+                    helperText: axis
+                        ? 'Designspace location value for this axis.'
+                        : 'Location value for an axis not currently listed in font.axes.',
+                    onCommit: (rawValue) => {
+                        const parsedValue = parseNumericInput(rawValue);
+                        if (parsedValue === null) {
+                            return currentValue === undefined
+                                ? ''
+                                : String(currentValue);
+                        }
+
+                        options.onCommit(axisTag, parsedValue);
+                        return parsedValue === undefined
+                            ? ''
+                            : String(parsedValue);
+                    }
+                })
+            );
+        });
+
+        if (locationKeys.length === 0) {
+            const helper = document.createElement('div');
+            helper.className = 'localized-string-helper';
+            helper.textContent =
+                'No axes defined, so there are no location coordinates to edit.';
+            section.appendChild(helper);
+        } else {
+            section.appendChild(fieldsEl);
+        }
+
+        options.container.appendChild(section);
+    }
+
+    private renderMastersContent() {
+        if (!this.mastersFieldsContainer) {
+            return;
+        }
+
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const masters = font?.masters ?? [];
+
+        this.mastersFieldsContainer.innerHTML = '';
+
+        if (masters.length === 0) {
+            const helper = document.createElement('div');
+            helper.className = 'localized-string-helper';
+            helper.textContent = 'No masters defined.';
+            this.mastersFieldsContainer.appendChild(helper);
+            return;
+        }
+
+        this.selectedMasterIndex = Math.min(
+            this.selectedMasterIndex,
+            masters.length - 1
+        );
+        const selectedMaster = masters[this.selectedMasterIndex];
+        if (!selectedMaster) {
+            return;
+        }
+
+        const layout = document.createElement('div');
+        layout.className = 'fontinfo-records-layout';
+
+        const sidebar = document.createElement('aside');
+        sidebar.className =
+            'view-sidebar view-sidebar-left fontinfo-records-sidebar';
+        const list = document.createElement('div');
+        list.className = 'sidebar-list fontinfo-records-list';
+
+        masters.forEach((master, index) => {
+            list.appendChild(
+                this.createRecordListButton({
+                    primary: getLocalizedDictionarySummary(
+                        master.name,
+                        `Master ${index + 1}`
+                    ),
+                    secondary: formatLocationSummary(
+                        font?.axes,
+                        master.location as Record<string, number> | undefined
+                    ),
+                    selected: index === this.selectedMasterIndex,
+                    onSelect: () => {
+                        this.selectedMasterIndex = index;
+                        this.renderMastersContent();
+                    }
+                })
+            );
+        });
+        sidebar.appendChild(list);
+
+        const detail = document.createElement('div');
+        detail.className = 'fontinfo-records-detail';
+
+        const identitySection = document.createElement('section');
+        identitySection.className = 'fontinfo-name-group';
+        const identityTitle = document.createElement('h3');
+        identityTitle.className = 'sidebar-section-title';
+        identityTitle.textContent = 'Identity';
+        identitySection.appendChild(identityTitle);
+        const identityFields = document.createElement('div');
+        identityFields.className = 'fontinfo-name-group-fields';
+
+        const nameEditor = createLocalizedStringEditor({
+            label: 'Name',
+            value: selectedMaster.name,
+            onCommit: (nextValue) =>
+                this.commitMasterNameFieldValue(
+                    this.selectedMasterIndex,
+                    nextValue
+                )
+        });
+        nameEditor.element.setAttribute(
+            'data-font-field',
+            `masters.${this.selectedMasterIndex}.name`
+        );
+        identityFields.appendChild(nameEditor.element);
+        identitySection.appendChild(identityFields);
+        detail.appendChild(identitySection);
+
+        this.appendLocationSection({
+            container: detail,
+            title: 'Location',
+            dataFieldPrefix: `masters.${this.selectedMasterIndex}.location`,
+            location: cloneNumericRecord(
+                selectedMaster.location as Record<string, number> | undefined
+            ),
+            onCommit: (axisTag, nextValue) =>
+                this.commitMasterLocationValue(
+                    this.selectedMasterIndex,
+                    axisTag,
+                    nextValue
+                )
+        });
+
+        const metricsSection = document.createElement('section');
+        metricsSection.className = 'fontinfo-name-group';
+        const metricsTitle = document.createElement('h3');
+        metricsTitle.className = 'sidebar-section-title';
+        metricsTitle.textContent = 'Metrics';
+        metricsSection.appendChild(metricsTitle);
+        const metricsFields = document.createElement('div');
+        metricsFields.className = 'fontinfo-name-group-fields';
+
+        Object.entries(selectedMaster.metrics ?? {})
+            .sort(([left], [right]) => left.localeCompare(right))
+            .forEach(([metricKey, currentValue]) => {
+                metricsFields.appendChild(
+                    this.createSimpleFieldEditor({
+                        label: metricKey,
+                        value: String(currentValue),
+                        inputType: 'number',
+                        dataField: `masters.${this.selectedMasterIndex}.metrics.${metricKey}`,
+                        helperText: 'Master-specific numeric metric value.',
+                        onCommit: (rawValue) => {
+                            const parsedValue = parseNumericInput(rawValue);
+                            if (
+                                parsedValue === null ||
+                                parsedValue === undefined
+                            ) {
+                                return String(currentValue);
+                            }
+
+                            this.commitMasterMetricValue(
+                                this.selectedMasterIndex,
+                                metricKey,
+                                parsedValue
+                            );
+                            return String(parsedValue);
+                        }
+                    })
+                );
+            });
+
+        if (metricsFields.childElementCount === 0) {
+            const helper = document.createElement('div');
+            helper.className = 'localized-string-helper';
+            helper.textContent = 'No master metrics are defined.';
+            metricsSection.appendChild(helper);
+        } else {
+            metricsSection.appendChild(metricsFields);
+        }
+        detail.appendChild(metricsSection);
+
+        layout.appendChild(sidebar);
+        layout.appendChild(detail);
+        this.mastersFieldsContainer.appendChild(layout);
+    }
+
+    private renderInstancesContent() {
+        if (!this.instancesFieldsContainer) {
+            return;
+        }
+
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const instances = font?.instances ?? [];
+
+        this.instancesFieldsContainer.innerHTML = '';
+
+        if (instances.length === 0) {
+            const helper = document.createElement('div');
+            helper.className = 'localized-string-helper';
+            helper.textContent = 'No instances defined.';
+            this.instancesFieldsContainer.appendChild(helper);
+            return;
+        }
+
+        this.selectedInstanceIndex = Math.min(
+            this.selectedInstanceIndex,
+            instances.length - 1
+        );
+        const selectedInstance = instances[this.selectedInstanceIndex];
+        if (!selectedInstance) {
+            return;
+        }
+
+        const layout = document.createElement('div');
+        layout.className = 'fontinfo-records-layout';
+
+        const sidebar = document.createElement('aside');
+        sidebar.className =
+            'view-sidebar view-sidebar-left fontinfo-records-sidebar';
+        const list = document.createElement('div');
+        list.className = 'sidebar-list fontinfo-records-list';
+
+        instances.forEach((instance, index) => {
+            list.appendChild(
+                this.createRecordListButton({
+                    primary: getLocalizedDictionarySummary(
+                        instance.name,
+                        `Instance ${index + 1}`
+                    ),
+                    secondary: formatLocationSummary(
+                        font?.axes,
+                        instance.location as Record<string, number> | undefined
+                    ),
+                    selected: index === this.selectedInstanceIndex,
+                    onSelect: () => {
+                        this.selectedInstanceIndex = index;
+                        this.renderInstancesContent();
+                    }
+                })
+            );
+        });
+        sidebar.appendChild(list);
+
+        const detail = document.createElement('div');
+        detail.className = 'fontinfo-records-detail';
+
+        const identitySection = document.createElement('section');
+        identitySection.className = 'fontinfo-name-group';
+        const identityTitle = document.createElement('h3');
+        identityTitle.className = 'sidebar-section-title';
+        identityTitle.textContent = 'Identity';
+        identitySection.appendChild(identityTitle);
+        const identityFields = document.createElement('div');
+        identityFields.className = 'fontinfo-name-group-fields';
+
+        const nameEditor = createLocalizedStringEditor({
+            label: 'Name',
+            value: selectedInstance.name,
+            onCommit: (nextValue) =>
+                this.commitInstanceNameFieldValue(
+                    this.selectedInstanceIndex,
+                    nextValue
+                )
+        });
+        nameEditor.element.setAttribute(
+            'data-font-field',
+            `instances.${this.selectedInstanceIndex}.name`
+        );
+        identityFields.appendChild(nameEditor.element);
+        identitySection.appendChild(identityFields);
+        detail.appendChild(identitySection);
+
+        const exportSection = document.createElement('section');
+        exportSection.className = 'fontinfo-name-group';
+        const exportTitle = document.createElement('h3');
+        exportTitle.className = 'sidebar-section-title';
+        exportTitle.textContent = 'Export';
+        exportSection.appendChild(exportTitle);
+        const exportFields = document.createElement('div');
+        exportFields.className = 'fontinfo-name-group-fields';
+
+        exportFields.appendChild(
+            this.createCheckboxFieldEditor({
+                label: 'Variable Instance',
+                checked: Boolean(selectedInstance.variable),
+                dataField: `instances.${this.selectedInstanceIndex}.variable`,
+                helperText:
+                    'If enabled, this instance represents a variable-font export rather than a static instance.',
+                onCommit: (checked) =>
+                    this.commitInstanceFieldValue(
+                        this.selectedInstanceIndex,
+                        'variable',
+                        checked
+                    )
+            })
+        );
+
+        exportFields.appendChild(
+            this.createSimpleFieldEditor({
+                label: 'Linked Style',
+                value: selectedInstance.linked_style ?? '',
+                dataField: `instances.${this.selectedInstanceIndex}.linked_style`,
+                helperText:
+                    'Optional style-linking target, e.g. Bold or Italic.',
+                onCommit: (rawValue) => {
+                    const nextValue =
+                        rawValue.trim().length > 0
+                            ? rawValue.trim()
+                            : undefined;
+                    this.commitInstanceFieldValue(
+                        this.selectedInstanceIndex,
+                        'linked_style',
+                        nextValue
+                    );
+                    return nextValue ?? '';
+                }
+            })
+        );
+
+        exportSection.appendChild(exportFields);
+        detail.appendChild(exportSection);
+
+        this.appendLocationSection({
+            container: detail,
+            title: 'Location',
+            dataFieldPrefix: `instances.${this.selectedInstanceIndex}.location`,
+            location: cloneNumericRecord(
+                selectedInstance.location as Record<string, number> | undefined
+            ),
+            onCommit: (axisTag, nextValue) =>
+                this.commitInstanceLocationValue(
+                    this.selectedInstanceIndex,
+                    axisTag,
+                    nextValue
+                )
+        });
+
+        layout.appendChild(sidebar);
+        layout.appendChild(detail);
+        this.instancesFieldsContainer.appendChild(layout);
+    }
+
+    private renderCustomOTValuesContent() {
+        if (!this.customOTValuesFieldsContainer) {
+            return;
+        }
+
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) {
+            return;
+        }
+
+        const customOTValues = (font.custom_ot_values ??
+            {}) as Partial<Babelfont.CustomOTValues>;
+        this.customOTValuesFieldsContainer.innerHTML = '';
+
+        this.appendCustomOTGroups({
+            container: this.customOTValuesFieldsContainer,
+            customOTValues,
+            dataFieldPrefix: 'custom_ot_values',
+            onCommit: (key, nextValue) =>
+                this.commitCustomOTValue(key, nextValue)
         });
     }
 
@@ -3065,6 +3858,568 @@ class FontInfoManager {
         if (this.pendingNamesModelSyncRefresh && this.currentTab === 'names') {
             requestAnimationFrame(() => this.refreshVisibleNamesContent());
         }
+    }
+
+    private commitFontPathChange(options: {
+        label: string;
+        path: (string | number)[];
+        oldValue: unknown;
+        newValue: unknown;
+        applyLocal: () => void;
+        remove?: boolean;
+        markDirtyKey: string;
+        refresh?: () => void;
+    }) {
+        const bridge = window.patchSyncEngine as
+            | {
+                  beginTransaction: (label: string) => void;
+                  endTransaction: () => void;
+                  applySyntheticChangeSet: (
+                      label: string,
+                      operations: Array<{
+                          op: 'set' | 'remove';
+                          path: (string | number)[];
+                          oldValue: unknown;
+                          newValue: unknown;
+                      }>
+                  ) => void;
+                  runWithoutRecording?: <T>(fn: () => T) => T;
+              }
+            | undefined;
+
+        if (bridge) {
+            bridge.beginTransaction(options.label);
+            try {
+                if (bridge.runWithoutRecording) {
+                    bridge.runWithoutRecording(() => options.applyLocal());
+                } else {
+                    options.applyLocal();
+                }
+
+                bridge.applySyntheticChangeSet(options.label, [
+                    options.remove
+                        ? {
+                              op: 'remove',
+                              path: options.path,
+                              oldValue: options.oldValue,
+                              newValue: undefined
+                          }
+                        : {
+                              op: 'set',
+                              path: options.path,
+                              oldValue: options.oldValue,
+                              newValue: options.newValue
+                          }
+                ]);
+            } finally {
+                bridge.endTransaction();
+            }
+        } else {
+            options.applyLocal();
+            const currentFont = window.fontManager?.currentFont;
+            currentFont?.syncJsonFromModel?.();
+            currentFont?.markDirty?.(options.markDirtyKey);
+        }
+
+        options.refresh?.();
+    }
+
+    private applyLocalMasterNameFieldValue(
+        masterIndex: number,
+        nextValue: Babelfont.I18NDictionary
+    ) {
+        const font = window.currentFontModel as any;
+        const master = font?.masters?.[masterIndex];
+        if (!master) {
+            return;
+        }
+
+        const normalizedNextValue = normalizeLocalizedStringValue(nextValue);
+        master.name = normalizedNextValue;
+    }
+
+    private commitMasterNameFieldValue(
+        masterIndex: number,
+        nextValue: Babelfont.I18NDictionary
+    ) {
+        const font = window.currentFontModel as any;
+        const master = font?.masters?.[masterIndex];
+        if (!master) {
+            return;
+        }
+
+        const previousValue = normalizeLocalizedStringValue(master.name);
+        const normalizedNextValue = normalizeLocalizedStringValue(nextValue);
+        if (areLocalizedStringValuesEqual(previousValue, normalizedNextValue)) {
+            if (
+                this.pendingMastersModelSyncRefresh &&
+                this.currentTab === 'masters'
+            ) {
+                requestAnimationFrame(() =>
+                    this.refreshVisibleMastersContent()
+                );
+            }
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit master name',
+            path: ['masters', masterIndex, 'name'],
+            oldValue: { ...previousValue },
+            newValue: { ...normalizedNextValue },
+            applyLocal: () =>
+                this.applyLocalMasterNameFieldValue(
+                    masterIndex,
+                    normalizedNextValue
+                ),
+            markDirtyKey: 'font-info-master-name',
+            refresh:
+                this.pendingMastersModelSyncRefresh &&
+                this.currentTab === 'masters'
+                    ? () =>
+                          requestAnimationFrame(() =>
+                              this.refreshVisibleMastersContent()
+                          )
+                    : undefined
+        });
+    }
+
+    private applyLocalMasterFieldValue(
+        masterIndex: number,
+        key: MasterFieldKey,
+        nextValue: string
+    ) {
+        const font = window.currentFontModel as any;
+        const master = font?.masters?.[masterIndex];
+        if (!master) {
+            return;
+        }
+
+        master[key] = nextValue;
+    }
+
+    private commitMasterFieldValue(
+        masterIndex: number,
+        key: MasterFieldKey,
+        nextValue: string
+    ) {
+        const font = window.currentFontModel as any;
+        const master = font?.masters?.[masterIndex];
+        if (!master) {
+            return;
+        }
+
+        const previousValue = master[key];
+        if (previousValue === nextValue) {
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit master field',
+            path: ['masters', masterIndex, key],
+            oldValue: previousValue,
+            newValue: nextValue,
+            applyLocal: () =>
+                this.applyLocalMasterFieldValue(masterIndex, key, nextValue),
+            markDirtyKey: 'font-info-master-field'
+        });
+    }
+
+    private applyLocalMasterLocationValue(
+        masterIndex: number,
+        axisTag: string,
+        nextValue: number | undefined
+    ) {
+        const font = window.currentFontModel as any;
+        const master = font?.masters?.[masterIndex];
+        if (!master) {
+            return;
+        }
+
+        if (nextValue === undefined) {
+            if (master.location) {
+                delete master.location[axisTag];
+                if (Object.keys(master.location).length === 0) {
+                    delete master.location;
+                }
+            }
+            return;
+        }
+
+        if (!master.location) {
+            master.location = {};
+        }
+
+        master.location[axisTag] = nextValue;
+    }
+
+    private commitMasterLocationValue(
+        masterIndex: number,
+        axisTag: string,
+        nextValue: number | undefined
+    ) {
+        const font = window.currentFontModel as any;
+        const master = font?.masters?.[masterIndex];
+        if (!master) {
+            return;
+        }
+
+        const previousValue = master.location?.[axisTag];
+        if (previousValue === nextValue) {
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit master location',
+            path: ['masters', masterIndex, 'location', axisTag],
+            oldValue: previousValue,
+            newValue: nextValue,
+            remove: nextValue === undefined,
+            applyLocal: () =>
+                this.applyLocalMasterLocationValue(
+                    masterIndex,
+                    axisTag,
+                    nextValue
+                ),
+            markDirtyKey: 'font-info-master-location'
+        });
+    }
+
+    private applyLocalMasterMetricValue(
+        masterIndex: number,
+        metricKey: string,
+        nextValue: number
+    ) {
+        const font = window.currentFontModel as any;
+        const master = font?.masters?.[masterIndex];
+        if (!master) {
+            return;
+        }
+
+        if (!master.metrics) {
+            master.metrics = {};
+        }
+        master.metrics[metricKey] = nextValue;
+    }
+
+    private commitMasterMetricValue(
+        masterIndex: number,
+        metricKey: string,
+        nextValue: number
+    ) {
+        const font = window.currentFontModel as any;
+        const master = font?.masters?.[masterIndex];
+        if (!master) {
+            return;
+        }
+
+        const previousValue = master.metrics?.[metricKey];
+        if (previousValue === nextValue) {
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit master metric',
+            path: ['masters', masterIndex, 'metrics', metricKey],
+            oldValue: previousValue,
+            newValue: nextValue,
+            applyLocal: () =>
+                this.applyLocalMasterMetricValue(
+                    masterIndex,
+                    metricKey,
+                    nextValue
+                ),
+            markDirtyKey: 'font-info-master-metric'
+        });
+    }
+
+    private applyLocalMasterCustomOTValue(
+        masterIndex: number,
+        key: CustomOTFieldKey,
+        nextValue: unknown
+    ) {
+        const font = window.currentFontModel as any;
+        const master = font?.masters?.[masterIndex];
+        if (!master) {
+            return;
+        }
+
+        if (nextValue === undefined) {
+            if (master.custom_ot_values) {
+                delete master.custom_ot_values[key];
+                if (Object.keys(master.custom_ot_values).length === 0) {
+                    delete master.custom_ot_values;
+                }
+            }
+            return;
+        }
+
+        if (!master.custom_ot_values) {
+            master.custom_ot_values = {};
+        }
+        master.custom_ot_values[key] = nextValue;
+    }
+
+    private commitMasterCustomOTValue(
+        masterIndex: number,
+        key: CustomOTFieldKey,
+        nextValue: unknown
+    ) {
+        const font = window.currentFontModel as any;
+        const master = font?.masters?.[masterIndex];
+        if (!master) {
+            return;
+        }
+
+        const previousValue = master.custom_ot_values?.[key];
+        if (areCustomOTFieldValuesEqual(previousValue, nextValue)) {
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit master custom OpenType value',
+            path: ['masters', masterIndex, 'custom_ot_values', key],
+            oldValue: cloneCustomOTFieldValue(previousValue),
+            newValue: cloneCustomOTFieldValue(nextValue),
+            remove: nextValue === undefined,
+            applyLocal: () =>
+                this.applyLocalMasterCustomOTValue(masterIndex, key, nextValue),
+            markDirtyKey: 'font-info-master-custom-ot'
+        });
+    }
+
+    private applyLocalInstanceNameFieldValue(
+        instanceIndex: number,
+        nextValue: Babelfont.I18NDictionary
+    ) {
+        const font = window.currentFontModel as any;
+        const instance = font?.instances?.[instanceIndex];
+        if (!instance) {
+            return;
+        }
+
+        instance.name = normalizeLocalizedStringValue(nextValue);
+    }
+
+    private commitInstanceNameFieldValue(
+        instanceIndex: number,
+        nextValue: Babelfont.I18NDictionary
+    ) {
+        const font = window.currentFontModel as any;
+        const instance = font?.instances?.[instanceIndex];
+        if (!instance) {
+            return;
+        }
+
+        const previousValue = normalizeLocalizedStringValue(instance.name);
+        const normalizedNextValue = normalizeLocalizedStringValue(nextValue);
+        if (areLocalizedStringValuesEqual(previousValue, normalizedNextValue)) {
+            if (
+                this.pendingInstancesModelSyncRefresh &&
+                this.currentTab === 'instances'
+            ) {
+                requestAnimationFrame(() =>
+                    this.refreshVisibleInstancesContent()
+                );
+            }
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit instance name',
+            path: ['instances', instanceIndex, 'name'],
+            oldValue: { ...previousValue },
+            newValue: { ...normalizedNextValue },
+            applyLocal: () =>
+                this.applyLocalInstanceNameFieldValue(
+                    instanceIndex,
+                    normalizedNextValue
+                ),
+            markDirtyKey: 'font-info-instance-name',
+            refresh:
+                this.pendingInstancesModelSyncRefresh &&
+                this.currentTab === 'instances'
+                    ? () =>
+                          requestAnimationFrame(() =>
+                              this.refreshVisibleInstancesContent()
+                          )
+                    : undefined
+        });
+    }
+
+    private applyLocalInstanceFieldValue(
+        instanceIndex: number,
+        key: InstanceFieldKey,
+        nextValue: string | boolean | undefined
+    ) {
+        const font = window.currentFontModel as any;
+        const instance = font?.instances?.[instanceIndex];
+        if (!instance) {
+            return;
+        }
+
+        if (nextValue === undefined && key === 'linked_style') {
+            delete instance.linked_style;
+            return;
+        }
+
+        instance[key] = nextValue;
+    }
+
+    private commitInstanceFieldValue(
+        instanceIndex: number,
+        key: InstanceFieldKey,
+        nextValue: string | boolean | undefined
+    ) {
+        const font = window.currentFontModel as any;
+        const instance = font?.instances?.[instanceIndex];
+        if (!instance) {
+            return;
+        }
+
+        const previousValue = instance[key];
+        if (previousValue === nextValue) {
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit instance field',
+            path: ['instances', instanceIndex, key],
+            oldValue: previousValue,
+            newValue: nextValue,
+            remove: nextValue === undefined && key === 'linked_style',
+            applyLocal: () =>
+                this.applyLocalInstanceFieldValue(
+                    instanceIndex,
+                    key,
+                    nextValue
+                ),
+            markDirtyKey: 'font-info-instance-field'
+        });
+    }
+
+    private applyLocalInstanceLocationValue(
+        instanceIndex: number,
+        axisTag: string,
+        nextValue: number | undefined
+    ) {
+        const font = window.currentFontModel as any;
+        const instance = font?.instances?.[instanceIndex];
+        if (!instance) {
+            return;
+        }
+
+        if (nextValue === undefined) {
+            if (instance.location) {
+                delete instance.location[axisTag];
+                if (Object.keys(instance.location).length === 0) {
+                    delete instance.location;
+                }
+            }
+            return;
+        }
+
+        if (!instance.location) {
+            instance.location = {};
+        }
+        instance.location[axisTag] = nextValue;
+    }
+
+    private commitInstanceLocationValue(
+        instanceIndex: number,
+        axisTag: string,
+        nextValue: number | undefined
+    ) {
+        const font = window.currentFontModel as any;
+        const instance = font?.instances?.[instanceIndex];
+        if (!instance) {
+            return;
+        }
+
+        const previousValue = instance.location?.[axisTag];
+        if (previousValue === nextValue) {
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit instance location',
+            path: ['instances', instanceIndex, 'location', axisTag],
+            oldValue: previousValue,
+            newValue: nextValue,
+            remove: nextValue === undefined,
+            applyLocal: () =>
+                this.applyLocalInstanceLocationValue(
+                    instanceIndex,
+                    axisTag,
+                    nextValue
+                ),
+            markDirtyKey: 'font-info-instance-location'
+        });
+    }
+
+    private applyLocalInstanceCustomNameFieldValue(
+        instanceIndex: number,
+        key: FontNameFieldKey,
+        nextValue: Babelfont.I18NDictionary
+    ) {
+        const font = window.currentFontModel as any;
+        const instance = font?.instances?.[instanceIndex];
+        if (!instance) {
+            return;
+        }
+
+        if (!instance.custom_names) {
+            instance.custom_names = {};
+        }
+
+        const normalizedNextValue = normalizeLocalizedStringValue(nextValue);
+        if (Object.keys(normalizedNextValue).length === 0) {
+            delete instance.custom_names[key];
+            return;
+        }
+
+        instance.custom_names[key] = normalizedNextValue;
+    }
+
+    private commitInstanceCustomNameFieldValue(
+        instanceIndex: number,
+        key: FontNameFieldKey,
+        nextValue: Babelfont.I18NDictionary
+    ) {
+        const font = window.currentFontModel as any;
+        const instance = font?.instances?.[instanceIndex];
+        if (!instance) {
+            return;
+        }
+
+        const previousValue = normalizeLocalizedStringValue(
+            instance.custom_names?.[key]
+        );
+        const normalizedNextValue = normalizeLocalizedStringValue(nextValue);
+        if (areLocalizedStringValuesEqual(previousValue, normalizedNextValue)) {
+            return;
+        }
+
+        this.commitFontPathChange({
+            label: 'Edit instance custom name',
+            path: ['instances', instanceIndex, 'custom_names', key],
+            oldValue:
+                Object.keys(previousValue).length > 0
+                    ? { ...previousValue }
+                    : undefined,
+            newValue:
+                Object.keys(normalizedNextValue).length > 0
+                    ? { ...normalizedNextValue }
+                    : undefined,
+            remove: Object.keys(normalizedNextValue).length === 0,
+            applyLocal: () =>
+                this.applyLocalInstanceCustomNameFieldValue(
+                    instanceIndex,
+                    key,
+                    normalizedNextValue
+                ),
+            markDirtyKey: 'font-info-instance-custom-name'
+        });
     }
 
     private applyLocalRootFontFieldValue(
