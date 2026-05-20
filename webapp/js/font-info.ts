@@ -35,9 +35,11 @@ const console = new Logger('FontInfo');
 const FONTINFO_TAB_STORAGE_KEY = 'fontinfo-selected-tab';
 const FEATURE_CODE_COMPILE_DEBOUNCE_MS = 5000;
 
-type FontInfoTab = 'names' | 'features';
+type FontInfoTab = 'general' | 'names' | 'custom_ot_values' | 'features';
 type FeatureItemType = 'prefix' | 'class' | 'feature';
 type FontNameFieldKey = keyof Babelfont.Names;
+type FontRootFieldKey = 'upm' | 'version' | 'note' | 'date';
+type CustomOTFieldKey = keyof Babelfont.CustomOTValues;
 
 interface FontInfoSectionConfig {
     id: FontInfoTab;
@@ -56,10 +58,34 @@ interface FontNameGroupConfig {
     fields: FontNameFieldConfig[];
 }
 
+interface CustomOTFieldConfig {
+    key: CustomOTFieldKey;
+    label: string;
+    kind: 'integer' | 'string' | 'number-list';
+    helperText?: string;
+    exactLength?: number;
+    placeholder?: string;
+}
+
+interface CustomOTGroupConfig {
+    title: string;
+    fields: CustomOTFieldConfig[];
+}
+
 const FONTINFO_SECTIONS: FontInfoSectionConfig[] = [
+    {
+        id: 'general',
+        label: 'General',
+        usesSearch: false
+    },
     {
         id: 'names',
         label: 'Names',
+        usesSearch: false
+    },
+    {
+        id: 'custom_ot_values',
+        label: 'Custom OT Values',
         usesSearch: false
     },
     {
@@ -127,6 +153,302 @@ const FONT_NAME_GROUPS: FontNameGroupConfig[] = [
     }
 ];
 
+const CUSTOM_OT_GROUPS: CustomOTGroupConfig[] = [
+    {
+        title: 'Head',
+        fields: [
+            {
+                key: 'head_flags',
+                label: 'Head Flags',
+                kind: 'integer',
+                placeholder: 'Bit field, e.g. 3 or 2048',
+                helperText:
+                    'Bit field for head.flags. Common low bits are 0 = baseline at y=0, 1 = LSB at x=0, 3 = integer PPEM math, 11 = lossless, 13 = ClearType optimized.'
+            },
+            {
+                key: 'head_lowest_rec_ppem',
+                label: 'Lowest Recommended PPEM',
+                kind: 'integer',
+                placeholder: 'Usually a small integer such as 8 or 9',
+                helperText:
+                    'Sets head.lowestRecPPEM, the smallest recommended rendering size in pixels per em.'
+            }
+        ]
+    },
+    {
+        title: 'OS/2',
+        fields: [
+            {
+                key: 'os2_us_weight_class',
+                label: 'Weight Class',
+                kind: 'integer',
+                placeholder: '1-1000, e.g. 400 or 700',
+                helperText:
+                    'OS/2 usWeightClass. Standard values are usually 100 Thin, 400 Regular, 700 Bold, 900 Black.'
+            },
+            {
+                key: 'os2_us_width_class',
+                label: 'Width Class',
+                kind: 'integer',
+                placeholder: '1-9, where 5 is normal width',
+                helperText:
+                    'OS/2 usWidthClass. Typical values are 3 Condensed, 5 Normal, 7 Expanded.'
+            },
+            {
+                key: 'os2_fs_type',
+                label: 'fsType',
+                kind: 'integer',
+                placeholder: 'Embedding rights bit field',
+                helperText:
+                    'OS/2 fsType bit field. 0 means installable embedding; 2 restricted license; 4 preview/print; 8 no embedding; 256 no subsetting; 512 bitmap only.'
+            },
+            {
+                key: 'os2_family_class',
+                label: 'Family Class',
+                kind: 'integer',
+                placeholder: 'Packed class/subclass integer',
+                helperText:
+                    'OS/2 family class and subclass packed into one integer. Leave blank unless you intentionally classify the design.'
+            },
+            {
+                key: 'os2_panose',
+                label: 'Panose',
+                kind: 'number-list',
+                exactLength: 10,
+                placeholder: '2, 11, 6, 4, 2, 2, 2, 2, 2, 4',
+                helperText:
+                    'Panose classification as 10 comma-separated integers in order. Must contain exactly 10 values.'
+            },
+            {
+                key: 'os2_unicode_range1',
+                label: 'Unicode Range 1',
+                kind: 'integer',
+                placeholder: 'Bits 0-31',
+                helperText:
+                    'OS/2 ulUnicodeRange1. Bit field for Unicode blocks 0-31 as defined by the OpenType spec.'
+            },
+            {
+                key: 'os2_unicode_range2',
+                label: 'Unicode Range 2',
+                kind: 'integer',
+                placeholder: 'Bits 32-63',
+                helperText:
+                    'OS/2 ulUnicodeRange2. Bit field for Unicode blocks 32-63.'
+            },
+            {
+                key: 'os2_unicode_range3',
+                label: 'Unicode Range 3',
+                kind: 'integer',
+                placeholder: 'Bits 64-95',
+                helperText:
+                    'OS/2 ulUnicodeRange3. Bit field for Unicode blocks 64-95.'
+            },
+            {
+                key: 'os2_unicode_range4',
+                label: 'Unicode Range 4',
+                kind: 'integer',
+                placeholder: 'Bits 96-127',
+                helperText:
+                    'OS/2 ulUnicodeRange4. Bit field for Unicode blocks 96-127.'
+            },
+            {
+                key: 'os2_vendor_id',
+                label: 'Vendor ID',
+                kind: 'string',
+                placeholder: 'Four-character vendor code, e.g. ABCD',
+                helperText:
+                    'OS/2 achVendID. Usually a four-character vendor identifier. Leave blank to remove the override.'
+            },
+            {
+                key: 'os2_fs_selection',
+                label: 'fsSelection',
+                kind: 'integer',
+                placeholder: 'Style bit field',
+                helperText:
+                    'OS/2 fsSelection bit field. Common bits include 0 Italic, 5 Bold, 6 Regular, 7 Use Typo Metrics, 8 WWS, 9 Oblique.'
+            },
+            {
+                key: 'os2_code_page_range1',
+                label: 'Code Page Range 1',
+                kind: 'integer',
+                placeholder: 'Bits 0-31',
+                helperText:
+                    'OS/2 ulCodePageRange1 bit field for code pages 0-31.'
+            },
+            {
+                key: 'os2_code_page_range2',
+                label: 'Code Page Range 2',
+                kind: 'integer',
+                placeholder: 'Bits 32-63',
+                helperText:
+                    'OS/2 ulCodePageRange2 bit field for code pages 32-63.'
+            }
+        ]
+    },
+    {
+        title: 'CFF',
+        fields: [
+            {
+                key: 'cff_blue_values',
+                label: 'BlueValues',
+                kind: 'number-list',
+                placeholder: '-15, 0, 500, 515, 700, 715',
+                helperText:
+                    'CFF BlueValues. Comma-separated overshoot alignment zones, usually in bottom/top pairs.'
+            },
+            {
+                key: 'cff_other_blues',
+                label: 'OtherBlues',
+                kind: 'number-list',
+                placeholder: '-250, -235',
+                helperText:
+                    'CFF OtherBlues. Additional bottom alignment zones as comma-separated numbers.'
+            },
+            {
+                key: 'cff_family_blues',
+                label: 'FamilyBlues',
+                kind: 'number-list',
+                placeholder: '0, 15, 500, 515',
+                helperText:
+                    'CFF FamilyBlues. Family-wide blue zones used to keep related fonts aligned.'
+            },
+            {
+                key: 'cff_family_other_blues',
+                label: 'FamilyOtherBlues',
+                kind: 'number-list',
+                placeholder: '-250, -235',
+                helperText:
+                    'CFF FamilyOtherBlues. Family-wide bottom zones as comma-separated numbers.'
+            },
+            {
+                key: 'cff_stem_snap_h',
+                label: 'StemSnapH',
+                kind: 'number-list',
+                placeholder: '80, 120',
+                helperText:
+                    'CFF StemSnapH. Preferred horizontal stem widths as comma-separated numbers.'
+            },
+            {
+                key: 'cff_stem_snap_v',
+                label: 'StemSnapV',
+                kind: 'number-list',
+                placeholder: '80, 120',
+                helperText:
+                    'CFF StemSnapV. Preferred vertical stem widths as comma-separated numbers.'
+            }
+        ]
+    }
+];
+
+function formatDateTimeLocal(date?: Date | string): string {
+    const normalizedDate =
+        date instanceof Date
+            ? date
+            : typeof date === 'string'
+              ? new Date(date)
+              : null;
+
+    if (!normalizedDate || Number.isNaN(normalizedDate.getTime())) {
+        return '';
+    }
+
+    const pad = (value: number): string => value.toString().padStart(2, '0');
+
+    return [
+        `${normalizedDate.getFullYear()}-${pad(normalizedDate.getMonth() + 1)}-${pad(normalizedDate.getDate())}`,
+        `${pad(normalizedDate.getHours())}:${pad(normalizedDate.getMinutes())}:${pad(normalizedDate.getSeconds())}`
+    ].join('T');
+}
+
+function parseIntegerInput(rawValue: string): number | undefined | null {
+    const trimmedValue = rawValue.trim();
+    if (trimmedValue.length === 0) {
+        return undefined;
+    }
+
+    const nextValue = Number(trimmedValue);
+    if (!Number.isInteger(nextValue)) {
+        return null;
+    }
+
+    return nextValue;
+}
+
+function parseDateTimeLocalInput(rawValue: string): Date | null {
+    if (!rawValue) {
+        return null;
+    }
+
+    const nextValue = new Date(rawValue);
+    if (Number.isNaN(nextValue.getTime())) {
+        return null;
+    }
+
+    return nextValue;
+}
+
+function parseNumberListInput(
+    rawValue: string,
+    exactLength?: number
+): number[] | undefined | null {
+    const trimmedValue = rawValue.trim();
+    if (trimmedValue.length === 0) {
+        return undefined;
+    }
+
+    const nextValue = trimmedValue
+        .split(/[\s,]+/)
+        .filter((token) => token.length > 0)
+        .map((token) => Number(token));
+
+    if (nextValue.some((value) => !Number.isFinite(value))) {
+        return null;
+    }
+
+    if (exactLength !== undefined && nextValue.length !== exactLength) {
+        return null;
+    }
+
+    return nextValue;
+}
+
+function formatNumberListValue(value?: number[] | null): string {
+    if (!Array.isArray(value) || value.length === 0) {
+        return '';
+    }
+
+    return value.join(', ');
+}
+
+function cloneVersionValue(
+    value?: [number, number]
+): [number, number] | undefined {
+    if (!Array.isArray(value) || value.length !== 2) {
+        return undefined;
+    }
+
+    return [value[0], value[1]];
+}
+
+function cloneCustomOTFieldValue(value: unknown): unknown {
+    return Array.isArray(value) ? [...value] : value;
+}
+
+function areCustomOTFieldValuesEqual(left: unknown, right: unknown): boolean {
+    if (Array.isArray(left) || Array.isArray(right)) {
+        if (!Array.isArray(left) || !Array.isArray(right)) {
+            return false;
+        }
+        if (left.length !== right.length) {
+            return false;
+        }
+
+        return left.every((item, index) => item === right[index]);
+    }
+
+    return left === right;
+}
+
 interface SelectedItem {
     type: FeatureItemType;
     key: string | number; // string for prefix/class, number (index) for feature
@@ -178,17 +500,25 @@ interface ResolvedFeatureSpanTarget {
 
 class FontInfoManager {
     private currentTab: FontInfoTab = 'names';
+    private generalTab: HTMLElement | null = null;
     private namesTab: HTMLElement | null = null;
+    private customOTValuesTab: HTMLElement | null = null;
     private featuresTab: HTMLElement | null = null;
+    private generalFieldsContainer: HTMLElement | null = null;
     private namesFieldsContainer: HTMLElement | null = null;
+    private customOTValuesFieldsContainer: HTMLElement | null = null;
     private namesFieldEditors: Map<
         FontNameFieldKey,
         LocalizedStringEditorHandle
     > = new Map();
     private sectionMenuInstance: TippyInstance | null = null;
     private sectionButton: HTMLButtonElement | null = null;
+    private generalDataLoaded = false;
+    private pendingGeneralModelSyncRefresh = false;
     private namesDataLoaded = false;
     private pendingNamesModelSyncRefresh = false;
+    private customOTValuesDataLoaded = false;
+    private pendingCustomOTValuesModelSyncRefresh = false;
     private featuresEditor: any = null;
     private featuresEditorInitialized = false;
     private suppressFeatureEditorChange = false;
@@ -405,7 +735,12 @@ class FontInfoManager {
 
     private getSavedTab(): FontInfoTab {
         const saved = localStorage.getItem(FONTINFO_TAB_STORAGE_KEY);
-        if (saved === 'names' || saved === 'features') {
+        if (
+            saved === 'general' ||
+            saved === 'names' ||
+            saved === 'custom_ot_values' ||
+            saved === 'features'
+        ) {
             return saved;
         }
         return 'names'; // Default to names tab
@@ -1773,6 +2108,12 @@ class FontInfoManager {
     }
 
     private createContentContainers(viewContent: HTMLElement) {
+        this.generalTab = document.createElement('div');
+        this.generalTab.id = 'fontinfo-general-content';
+        this.generalTab.style.display = 'none';
+        this.generalTab.style.height = '100%';
+        this.generalTab.style.overflow = 'auto';
+
         // Store existing content as Names tab
         this.namesTab = document.createElement('div');
         this.namesTab.id = 'fontinfo-names-content';
@@ -1789,6 +2130,23 @@ class FontInfoManager {
         this.namesFieldsContainer.id = 'fontinfo-names-fields';
         this.namesFieldsContainer.className = 'fontinfo-names-fields';
         this.namesTab.appendChild(this.namesFieldsContainer);
+
+        this.generalFieldsContainer = document.createElement('div');
+        this.generalFieldsContainer.id = 'fontinfo-general-fields';
+        this.generalFieldsContainer.className = 'fontinfo-names-fields';
+        this.generalTab.appendChild(this.generalFieldsContainer);
+
+        this.customOTValuesTab = document.createElement('div');
+        this.customOTValuesTab.id = 'fontinfo-custom-ot-values-content';
+        this.customOTValuesTab.style.display = 'none';
+        this.customOTValuesTab.style.height = '100%';
+        this.customOTValuesTab.style.overflow = 'auto';
+
+        this.customOTValuesFieldsContainer = document.createElement('div');
+        this.customOTValuesFieldsContainer.id =
+            'fontinfo-custom-ot-values-fields';
+        this.customOTValuesFieldsContainer.className = 'fontinfo-names-fields';
+        this.customOTValuesTab.appendChild(this.customOTValuesFieldsContainer);
 
         // Create Features tab
         this.featuresTab = document.createElement('div');
@@ -1818,7 +2176,9 @@ class FontInfoManager {
             </div>
         `;
 
+        viewContent.appendChild(this.generalTab);
         viewContent.appendChild(this.namesTab);
+        viewContent.appendChild(this.customOTValuesTab);
         viewContent.appendChild(this.featuresTab);
 
         // Set up automatic checkbox handler
@@ -1916,8 +2276,16 @@ class FontInfoManager {
         this.refreshSectionPicker();
 
         // Show/hide content
+        if (this.generalTab) {
+            this.generalTab.style.display =
+                tab === 'general' ? 'block' : 'none';
+        }
         if (this.namesTab) {
             this.namesTab.style.display = tab === 'names' ? 'block' : 'none';
+        }
+        if (this.customOTValuesTab) {
+            this.customOTValuesTab.style.display =
+                tab === 'custom_ot_values' ? 'block' : 'none';
         }
         if (this.featuresTab) {
             this.featuresTab.style.display =
@@ -1939,11 +2307,29 @@ class FontInfoManager {
                 this.refreshVisibleFeatureContent();
             }
         } else {
-            if (
-                window.currentFontModel &&
-                (!this.namesDataLoaded || this.pendingNamesModelSyncRefresh)
-            ) {
-                this.refreshVisibleNamesContent();
+            if (window.currentFontModel) {
+                if (
+                    tab === 'general' &&
+                    (!this.generalDataLoaded ||
+                        this.pendingGeneralModelSyncRefresh)
+                ) {
+                    this.refreshVisibleGeneralContent();
+                }
+
+                if (
+                    tab === 'names' &&
+                    (!this.namesDataLoaded || this.pendingNamesModelSyncRefresh)
+                ) {
+                    this.refreshVisibleNamesContent();
+                }
+
+                if (
+                    tab === 'custom_ot_values' &&
+                    (!this.customOTValuesDataLoaded ||
+                        this.pendingCustomOTValuesModelSyncRefresh)
+                ) {
+                    this.refreshVisibleCustomOTValuesContent();
+                }
             }
 
             // Clear search terms and reset visibility
@@ -1965,8 +2351,12 @@ class FontInfoManager {
             `[FontInfo] Font loaded event, current tab: ${this.currentTab}`
         );
         // Reset font data loaded flag for new font
+        this.generalDataLoaded = false;
+        this.pendingGeneralModelSyncRefresh = false;
         this.namesDataLoaded = false;
         this.pendingNamesModelSyncRefresh = false;
+        this.customOTValuesDataLoaded = false;
+        this.pendingCustomOTValuesModelSyncRefresh = false;
         this.fontDataLoaded = false;
         this.pendingModelSyncRefresh = false;
         this.featureCodeDirty = false;
@@ -1977,8 +2367,16 @@ class FontInfoManager {
         this.prefixListItems.clear();
         this.classListItems.clear();
         this.featureListItems.clear();
+        if (this.currentTab === 'general') {
+            requestAnimationFrame(() => this.refreshVisibleGeneralContent());
+        }
         if (this.currentTab === 'names') {
             requestAnimationFrame(() => this.refreshVisibleNamesContent());
+        }
+        if (this.currentTab === 'custom_ot_values') {
+            requestAnimationFrame(() =>
+                this.refreshVisibleCustomOTValuesContent()
+            );
         }
         // Load features data if we're on the features tab
         if (this.currentTab === 'features') {
@@ -1999,16 +2397,38 @@ class FontInfoManager {
     }
 
     private onFontModelSynced() {
+        this.generalDataLoaded = false;
+        this.pendingGeneralModelSyncRefresh = true;
         this.namesDataLoaded = false;
         this.pendingNamesModelSyncRefresh = true;
+        this.customOTValuesDataLoaded = false;
+        this.pendingCustomOTValuesModelSyncRefresh = true;
         this.fontDataLoaded = false;
         this.pendingModelSyncRefresh = true;
+
+        if (this.currentTab === 'general') {
+            if (this.isGeneralEditing()) {
+                return;
+            }
+            requestAnimationFrame(() => this.refreshVisibleGeneralContent());
+            return;
+        }
 
         if (this.currentTab === 'names') {
             if (this.isNamesEditing()) {
                 return;
             }
             requestAnimationFrame(() => this.refreshVisibleNamesContent());
+            return;
+        }
+
+        if (this.currentTab === 'custom_ot_values') {
+            if (this.isCustomOTValuesEditing()) {
+                return;
+            }
+            requestAnimationFrame(() =>
+                this.refreshVisibleCustomOTValuesContent()
+            );
             return;
         }
 
@@ -2023,10 +2443,34 @@ class FontInfoManager {
         requestAnimationFrame(() => this.refreshVisibleFeatureContent());
     }
 
+    private isGeneralEditing(): boolean {
+        return this.generalTab?.contains(document.activeElement) ?? false;
+    }
+
     private isNamesEditing(): boolean {
         return Array.from(this.namesFieldEditors.values()).some((editor) =>
             editor.isEditing()
         );
+    }
+
+    private isCustomOTValuesEditing(): boolean {
+        return (
+            this.customOTValuesTab?.contains(document.activeElement) ?? false
+        );
+    }
+
+    private refreshVisibleGeneralContent() {
+        if (this.currentTab !== 'general' || !window.currentFontModel) {
+            return;
+        }
+
+        if (this.isGeneralEditing()) {
+            return;
+        }
+
+        this.renderGeneralContent();
+        this.generalDataLoaded = true;
+        this.pendingGeneralModelSyncRefresh = false;
     }
 
     private refreshVisibleNamesContent() {
@@ -2041,6 +2485,339 @@ class FontInfoManager {
         this.renderNamesContent();
         this.namesDataLoaded = true;
         this.pendingNamesModelSyncRefresh = false;
+    }
+
+    private refreshVisibleCustomOTValuesContent() {
+        if (
+            this.currentTab !== 'custom_ot_values' ||
+            !window.currentFontModel
+        ) {
+            return;
+        }
+
+        if (this.isCustomOTValuesEditing()) {
+            return;
+        }
+
+        this.renderCustomOTValuesContent();
+        this.customOTValuesDataLoaded = true;
+        this.pendingCustomOTValuesModelSyncRefresh = false;
+    }
+
+    private createSimpleFieldEditor(options: {
+        label: string;
+        value: string;
+        multiline?: boolean;
+        inputType?: 'text' | 'number' | 'datetime-local';
+        placeholder?: string;
+        helperText?: string;
+        onCommit: (rawValue: string) => string;
+        step?: string;
+        min?: string;
+        dataField?: string;
+    }): HTMLElement {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'localized-string-editor';
+        if (options.dataField) {
+            wrapper.setAttribute('data-font-field', options.dataField);
+        }
+
+        const label = document.createElement('label');
+        label.className = 'localized-string-label';
+        label.textContent = options.label;
+        wrapper.appendChild(label);
+
+        const input = options.multiline
+            ? document.createElement('textarea')
+            : document.createElement('input');
+        input.className = options.multiline
+            ? 'localized-string-input localized-string-textarea'
+            : 'localized-string-input';
+
+        if (!options.multiline && input instanceof HTMLInputElement) {
+            input.type = options.inputType ?? 'text';
+            if (options.step) {
+                input.step = options.step;
+            }
+            if (options.min) {
+                input.min = options.min;
+            }
+        }
+
+        if (options.placeholder) {
+            input.placeholder = options.placeholder;
+        }
+
+        input.value = options.value;
+        wrapper.appendChild(input);
+
+        if (options.helperText) {
+            const helper = document.createElement('div');
+            helper.className = 'localized-string-helper';
+            helper.textContent = options.helperText;
+            wrapper.appendChild(helper);
+        }
+
+        let lastCommittedValue = options.value;
+        const commit = (): void => {
+            const normalizedValue = options.onCommit(input.value);
+            lastCommittedValue = normalizedValue;
+            input.value = normalizedValue;
+        };
+
+        input.addEventListener('blur', commit);
+        input.addEventListener('keydown', (event) => {
+            const keyboardEvent = event as KeyboardEvent;
+            if (keyboardEvent.key === 'Escape') {
+                keyboardEvent.preventDefault();
+                input.value = lastCommittedValue;
+                input.blur();
+                return;
+            }
+
+            if (
+                !(input instanceof HTMLInputElement) ||
+                keyboardEvent.key !== 'Enter' ||
+                keyboardEvent.isComposing
+            ) {
+                return;
+            }
+
+            keyboardEvent.preventDefault();
+            commit();
+            input.blur();
+        });
+
+        return wrapper;
+    }
+
+    private createCreatedFieldEditor(date?: Date | string): HTMLElement {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'localized-string-editor';
+        wrapper.setAttribute('data-font-field', 'date');
+
+        const label = document.createElement('label');
+        label.className = 'localized-string-label';
+        label.textContent = 'Created';
+        wrapper.appendChild(label);
+
+        const input = document.createElement('input');
+        input.type = 'datetime-local';
+        input.className = 'localized-string-input';
+
+        let lastCommittedValue = formatDateTimeLocal(date);
+        input.value = lastCommittedValue;
+        wrapper.appendChild(input);
+
+        const actions = document.createElement('div');
+        actions.className = 'fontinfo-field-actions';
+
+        const nowButton = document.createElement('button');
+        nowButton.type = 'button';
+        nowButton.className = 'localized-string-locales-button';
+        nowButton.textContent = 'Now';
+        nowButton.addEventListener('click', () => {
+            const nextDate = new Date();
+            const formattedValue = formatDateTimeLocal(nextDate);
+            this.commitRootFontFieldValue('date', nextDate);
+            lastCommittedValue = formattedValue;
+            input.value = formattedValue;
+        });
+        actions.appendChild(nowButton);
+        wrapper.appendChild(actions);
+
+        const helper = document.createElement('div');
+        helper.className = 'localized-string-helper';
+        helper.textContent =
+            'Stored as an ISO date when serialized. Use Now to stamp the current local date and time.';
+        wrapper.appendChild(helper);
+
+        const commit = (): void => {
+            const nextValue = parseDateTimeLocalInput(input.value);
+            if (!nextValue) {
+                input.value = lastCommittedValue;
+                return;
+            }
+
+            this.commitRootFontFieldValue('date', nextValue);
+            lastCommittedValue = formatDateTimeLocal(nextValue);
+            input.value = lastCommittedValue;
+        };
+
+        input.addEventListener('blur', commit);
+        input.addEventListener('keydown', (event) => {
+            const keyboardEvent = event as KeyboardEvent;
+            if (keyboardEvent.key === 'Escape') {
+                keyboardEvent.preventDefault();
+                input.value = lastCommittedValue;
+                input.blur();
+                return;
+            }
+
+            if (keyboardEvent.key !== 'Enter' || keyboardEvent.isComposing) {
+                return;
+            }
+
+            keyboardEvent.preventDefault();
+            commit();
+            input.blur();
+        });
+
+        return wrapper;
+    }
+
+    private createVersionFieldEditor(version?: [number, number]): HTMLElement {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'localized-string-editor';
+        wrapper.setAttribute('data-font-field', 'version');
+
+        const label = document.createElement('label');
+        label.className = 'localized-string-label';
+        label.textContent = 'Version';
+        wrapper.appendChild(label);
+
+        const fields = document.createElement('div');
+        fields.className = 'fontinfo-version-fields';
+
+        const majorInput = document.createElement('input');
+        majorInput.type = 'number';
+        majorInput.step = '1';
+        majorInput.min = '0';
+        majorInput.placeholder = 'Major';
+        majorInput.className = 'localized-string-input';
+
+        const minorInput = document.createElement('input');
+        minorInput.type = 'number';
+        minorInput.step = '1';
+        minorInput.min = '0';
+        minorInput.placeholder = 'Minor';
+        minorInput.className = 'localized-string-input';
+
+        const setInputsFromVersion = (
+            nextVersion: [number, number] | undefined
+        ): void => {
+            majorInput.value = nextVersion ? String(nextVersion[0]) : '';
+            minorInput.value = nextVersion ? String(nextVersion[1]) : '';
+        };
+
+        let lastCommittedVersion = cloneVersionValue(version);
+        setInputsFromVersion(lastCommittedVersion);
+
+        const commit = (): void => {
+            const nextMajor = parseIntegerInput(majorInput.value);
+            const nextMinor = parseIntegerInput(minorInput.value);
+            if (
+                typeof nextMajor !== 'number' ||
+                typeof nextMinor !== 'number'
+            ) {
+                setInputsFromVersion(lastCommittedVersion);
+                return;
+            }
+
+            const nextVersion: [number, number] = [nextMajor, nextMinor];
+            this.commitRootFontFieldValue('version', nextVersion);
+            lastCommittedVersion = nextVersion;
+            setInputsFromVersion(nextVersion);
+        };
+
+        [majorInput, minorInput].forEach((input) => {
+            input.addEventListener('blur', commit);
+            input.addEventListener('keydown', (event: KeyboardEvent) => {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setInputsFromVersion(lastCommittedVersion);
+                    input.blur();
+                    return;
+                }
+
+                if (event.key !== 'Enter' || event.isComposing) {
+                    return;
+                }
+
+                event.preventDefault();
+                commit();
+                input.blur();
+            });
+        });
+
+        fields.appendChild(majorInput);
+        fields.appendChild(minorInput);
+        wrapper.appendChild(fields);
+
+        const helper = document.createElement('div');
+        helper.className = 'localized-string-helper';
+        helper.textContent = 'Stored as a [major, minor] tuple.';
+        wrapper.appendChild(helper);
+
+        return wrapper;
+    }
+
+    private renderGeneralContent() {
+        if (!this.generalFieldsContainer) {
+            return;
+        }
+
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) {
+            return;
+        }
+
+        this.generalFieldsContainer.innerHTML = '';
+
+        const section = document.createElement('section');
+        section.className = 'fontinfo-name-group';
+
+        const title = document.createElement('h3');
+        title.className = 'sidebar-section-title';
+        title.textContent = 'Font';
+        section.appendChild(title);
+
+        const fields = document.createElement('div');
+        fields.className = 'fontinfo-name-group-fields';
+
+        fields.appendChild(
+            this.createSimpleFieldEditor({
+                label: 'UPM',
+                value: String(font.upm ?? ''),
+                inputType: 'number',
+                step: '1',
+                min: '1',
+                dataField: 'upm',
+                onCommit: (rawValue) => {
+                    const nextValue = parseIntegerInput(rawValue);
+                    if (typeof nextValue !== 'number') {
+                        return String(window.currentFontModel?.upm ?? font.upm);
+                    }
+                    this.commitRootFontFieldValue('upm', nextValue);
+                    return String(nextValue);
+                }
+            })
+        );
+
+        fields.appendChild(this.createVersionFieldEditor(font.version));
+
+        fields.appendChild(this.createCreatedFieldEditor(font.date));
+
+        fields.appendChild(
+            this.createSimpleFieldEditor({
+                label: 'Note',
+                value: font.note ?? '',
+                multiline: true,
+                dataField: 'note',
+                helperText: 'Leave blank to remove the note.',
+                onCommit: (rawValue) => {
+                    const nextValue =
+                        rawValue.trim().length > 0 ? rawValue : undefined;
+                    this.commitRootFontFieldValue('note', nextValue);
+                    return nextValue ?? '';
+                }
+            })
+        );
+
+        section.appendChild(fields);
+        this.generalFieldsContainer.appendChild(section);
     }
 
     private renderNamesContent() {
@@ -2082,6 +2859,103 @@ class FontInfoManager {
 
             groupEl.appendChild(fieldsEl);
             this.namesFieldsContainer?.appendChild(groupEl);
+        });
+    }
+
+    private renderCustomOTValuesContent() {
+        if (!this.customOTValuesFieldsContainer) {
+            return;
+        }
+
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) {
+            return;
+        }
+
+        const customOTValues = (font.custom_ot_values ??
+            {}) as Partial<Babelfont.CustomOTValues>;
+        this.customOTValuesFieldsContainer.innerHTML = '';
+
+        CUSTOM_OT_GROUPS.forEach((group) => {
+            const groupEl = document.createElement('section');
+            groupEl.className = 'fontinfo-name-group';
+
+            const titleEl = document.createElement('h3');
+            titleEl.className = 'sidebar-section-title';
+            titleEl.textContent = group.title;
+            groupEl.appendChild(titleEl);
+
+            const fieldsEl = document.createElement('div');
+            fieldsEl.className = 'fontinfo-name-group-fields';
+
+            group.fields.forEach((field) => {
+                const currentValue = customOTValues[field.key];
+                const formattedValue =
+                    field.kind === 'number-list'
+                        ? formatNumberListValue(
+                              currentValue as number[] | undefined
+                          )
+                        : currentValue === undefined || currentValue === null
+                          ? ''
+                          : String(currentValue);
+
+                fieldsEl.appendChild(
+                    this.createSimpleFieldEditor({
+                        label: field.label,
+                        value: formattedValue,
+                        placeholder: field.placeholder,
+                        dataField: `custom_ot_values.${field.key}`,
+                        helperText: field.helperText,
+                        onCommit: (rawValue) => {
+                            let nextValue: unknown;
+
+                            if (field.kind === 'integer') {
+                                const parsedValue = parseIntegerInput(rawValue);
+                                if (parsedValue === null) {
+                                    return currentValue === undefined ||
+                                        currentValue === null
+                                        ? ''
+                                        : String(currentValue);
+                                }
+                                nextValue = parsedValue;
+                            } else if (field.kind === 'number-list') {
+                                const parsedValue = parseNumberListInput(
+                                    rawValue,
+                                    field.exactLength
+                                );
+                                if (parsedValue === null) {
+                                    return formatNumberListValue(
+                                        currentValue as number[] | undefined
+                                    );
+                                }
+                                nextValue = parsedValue;
+                            } else {
+                                nextValue =
+                                    rawValue.trim().length > 0
+                                        ? rawValue
+                                        : undefined;
+                            }
+
+                            this.commitCustomOTValue(field.key, nextValue);
+
+                            if (field.kind === 'number-list') {
+                                return formatNumberListValue(
+                                    nextValue as number[] | undefined
+                                );
+                            }
+
+                            return nextValue === undefined || nextValue === null
+                                ? ''
+                                : String(nextValue);
+                        }
+                    })
+                );
+            });
+
+            groupEl.appendChild(fieldsEl);
+            this.customOTValuesFieldsContainer?.appendChild(groupEl);
         });
     }
 
@@ -2190,6 +3064,256 @@ class FontInfoManager {
 
         if (this.pendingNamesModelSyncRefresh && this.currentTab === 'names') {
             requestAnimationFrame(() => this.refreshVisibleNamesContent());
+        }
+    }
+
+    private applyLocalRootFontFieldValue(
+        key: FontRootFieldKey,
+        nextValue: Babelfont.Font[FontRootFieldKey] | undefined
+    ) {
+        const font = window.currentFontModel;
+        if (!font) {
+            return;
+        }
+
+        if (nextValue === undefined && key === 'note') {
+            delete font.note;
+            return;
+        }
+
+        if (nextValue !== undefined) {
+            (font[key] as Babelfont.Font[FontRootFieldKey]) = nextValue;
+        }
+    }
+
+    private commitRootFontFieldValue(
+        key: FontRootFieldKey,
+        nextValue: Babelfont.Font[FontRootFieldKey] | undefined
+    ) {
+        const font = window.currentFontModel;
+        if (!font) {
+            return;
+        }
+
+        const previousValue = font[key];
+        const isEqual =
+            key === 'version'
+                ? Array.isArray(previousValue) &&
+                  Array.isArray(nextValue) &&
+                  previousValue[0] === nextValue[0] &&
+                  previousValue[1] === nextValue[1]
+                : key === 'date'
+                  ? previousValue instanceof Date &&
+                    nextValue instanceof Date &&
+                    previousValue.getTime() === nextValue.getTime()
+                  : previousValue === nextValue;
+
+        if (isEqual) {
+            if (
+                this.pendingGeneralModelSyncRefresh &&
+                this.currentTab === 'general'
+            ) {
+                requestAnimationFrame(() =>
+                    this.refreshVisibleGeneralContent()
+                );
+            }
+            return;
+        }
+
+        const bridge = window.patchSyncEngine as
+            | {
+                  beginTransaction: (label: string) => void;
+                  endTransaction: () => void;
+                  applySyntheticChangeSet: (
+                      label: string,
+                      operations: Array<{
+                          op: 'set' | 'remove';
+                          path: (string | number)[];
+                          oldValue: unknown;
+                          newValue: unknown;
+                      }>
+                  ) => void;
+                  runWithoutRecording?: <T>(fn: () => T) => T;
+              }
+            | undefined;
+
+        const label = 'Edit font property';
+        const normalizedOldValue =
+            key === 'version'
+                ? cloneVersionValue(previousValue as [number, number])
+                : previousValue instanceof Date
+                  ? new Date(previousValue)
+                  : previousValue;
+        const normalizedNextValue =
+            key === 'version'
+                ? cloneVersionValue(nextValue as [number, number])
+                : nextValue instanceof Date
+                  ? new Date(nextValue)
+                  : nextValue;
+
+        if (bridge) {
+            bridge.beginTransaction(label);
+            try {
+                if (bridge.runWithoutRecording) {
+                    bridge.runWithoutRecording(() =>
+                        this.applyLocalRootFontFieldValue(key, nextValue)
+                    );
+                } else {
+                    this.applyLocalRootFontFieldValue(key, nextValue);
+                }
+
+                bridge.applySyntheticChangeSet(label, [
+                    nextValue === undefined
+                        ? {
+                              op: 'remove',
+                              path: [key],
+                              oldValue: normalizedOldValue,
+                              newValue: undefined
+                          }
+                        : {
+                              op: 'set',
+                              path: [key],
+                              oldValue: normalizedOldValue,
+                              newValue: normalizedNextValue
+                          }
+                ]);
+            } finally {
+                bridge.endTransaction();
+            }
+        } else {
+            this.applyLocalRootFontFieldValue(key, nextValue);
+            const currentFont = window.fontManager?.currentFont;
+            currentFont?.syncJsonFromModel?.();
+            currentFont?.markDirty?.('font-info-root');
+        }
+
+        if (
+            this.pendingGeneralModelSyncRefresh &&
+            this.currentTab === 'general'
+        ) {
+            requestAnimationFrame(() => this.refreshVisibleGeneralContent());
+        }
+    }
+
+    private applyLocalCustomOTValue(key: CustomOTFieldKey, nextValue: unknown) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) {
+            return;
+        }
+
+        if (nextValue === undefined) {
+            const customOTValues = font.custom_ot_values as
+                | Partial<Babelfont.CustomOTValues>
+                | undefined;
+            if (customOTValues) {
+                delete customOTValues[key];
+                if (Object.keys(customOTValues).length === 0) {
+                    delete font.custom_ot_values;
+                }
+            }
+            return;
+        }
+
+        if (!font.custom_ot_values) {
+            font.custom_ot_values = {} as Babelfont.CustomOTValues;
+        }
+
+        const customOTValues =
+            font.custom_ot_values as Partial<Babelfont.CustomOTValues>;
+        customOTValues[key] = nextValue as never;
+    }
+
+    private commitCustomOTValue(key: CustomOTFieldKey, nextValue: unknown) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        if (!font) {
+            return;
+        }
+
+        const previousValue = (
+            font.custom_ot_values as
+                | Partial<Babelfont.CustomOTValues>
+                | undefined
+        )?.[key];
+        if (areCustomOTFieldValuesEqual(previousValue, nextValue)) {
+            if (
+                this.pendingCustomOTValuesModelSyncRefresh &&
+                this.currentTab === 'custom_ot_values'
+            ) {
+                requestAnimationFrame(() =>
+                    this.refreshVisibleCustomOTValuesContent()
+                );
+            }
+            return;
+        }
+
+        const bridge = window.patchSyncEngine as
+            | {
+                  beginTransaction: (label: string) => void;
+                  endTransaction: () => void;
+                  applySyntheticChangeSet: (
+                      label: string,
+                      operations: Array<{
+                          op: 'set' | 'remove';
+                          path: (string | number)[];
+                          oldValue: unknown;
+                          newValue: unknown;
+                      }>
+                  ) => void;
+                  runWithoutRecording?: <T>(fn: () => T) => T;
+              }
+            | undefined;
+
+        const label = 'Edit custom OpenType value';
+        const normalizedOldValue = cloneCustomOTFieldValue(previousValue);
+        const normalizedNextValue = cloneCustomOTFieldValue(nextValue);
+
+        if (bridge) {
+            bridge.beginTransaction(label);
+            try {
+                if (bridge.runWithoutRecording) {
+                    bridge.runWithoutRecording(() =>
+                        this.applyLocalCustomOTValue(key, nextValue)
+                    );
+                } else {
+                    this.applyLocalCustomOTValue(key, nextValue);
+                }
+
+                bridge.applySyntheticChangeSet(label, [
+                    nextValue === undefined
+                        ? {
+                              op: 'remove',
+                              path: ['custom_ot_values', key],
+                              oldValue: normalizedOldValue,
+                              newValue: undefined
+                          }
+                        : {
+                              op: 'set',
+                              path: ['custom_ot_values', key],
+                              oldValue: normalizedOldValue,
+                              newValue: normalizedNextValue
+                          }
+                ]);
+            } finally {
+                bridge.endTransaction();
+            }
+        } else {
+            this.applyLocalCustomOTValue(key, nextValue);
+            const currentFont = window.fontManager?.currentFont;
+            currentFont?.syncJsonFromModel?.();
+            currentFont?.markDirty?.('font-info-custom-ot');
+        }
+
+        if (
+            this.pendingCustomOTValuesModelSyncRefresh &&
+            this.currentTab === 'custom_ot_values'
+        ) {
+            requestAnimationFrame(() =>
+                this.refreshVisibleCustomOTValuesContent()
+            );
         }
     }
 

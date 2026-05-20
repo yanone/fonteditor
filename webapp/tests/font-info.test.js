@@ -168,6 +168,7 @@ describe('FontInfo feature code compilation scheduling', () => {
     beforeEach(() => {
         jest.useFakeTimers();
         document.body.innerHTML = '';
+        localStorage.clear();
         delete window.fontInfoManager;
         global.ResizeObserver =
             global.ResizeObserver ||
@@ -401,6 +402,24 @@ describe('FontInfo feature code compilation scheduling', () => {
             document.getElementById('fontinfo-search-control').style.display
         ).toBe('none');
 
+        fontInfoManager.switchTab('general');
+
+        expect(
+            document.querySelector('.fontinfo-section-button-label').textContent
+        ).toBe('General');
+        expect(
+            document.getElementById('fontinfo-search-control').style.display
+        ).toBe('none');
+
+        fontInfoManager.switchTab('custom_ot_values');
+
+        expect(
+            document.querySelector('.fontinfo-section-button-label').textContent
+        ).toBe('Custom OT Values');
+        expect(
+            document.getElementById('fontinfo-search-control').style.display
+        ).toBe('none');
+
         fontInfoManager.switchTab('features');
 
         expect(
@@ -601,6 +620,217 @@ describe('FontInfo feature code compilation scheduling', () => {
         });
     });
 
+    test('bridge-backed root field commits use a precise root path', () => {
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+        const markDirty = jest.fn();
+        const syncJsonFromModel = jest.fn();
+
+        window.currentFontModel = {
+            upm: 1000,
+            version: [1, 0],
+            date: new Date('2024-01-01T00:00:00Z'),
+            note: 'Old note',
+            names: {},
+            features: {
+                features: []
+            }
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+        window.fontManager = {
+            currentFont: {
+                markDirty,
+                syncJsonFromModel
+            }
+        };
+
+        fontInfoManager.commitRootFontFieldValue('upm', 2048);
+
+        expect(beginTransaction).toHaveBeenCalledWith('Edit font property');
+        expect(runWithoutRecording).toHaveBeenCalledTimes(1);
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Edit font property',
+            [
+                {
+                    op: 'set',
+                    path: ['upm'],
+                    oldValue: 1000,
+                    newValue: 2048
+                }
+            ]
+        );
+        expect(endTransaction).toHaveBeenCalledTimes(1);
+        expect(window.currentFontModel.upm).toBe(2048);
+        expect(markDirty).not.toHaveBeenCalled();
+        expect(syncJsonFromModel).not.toHaveBeenCalled();
+    });
+
+    test('created now button stamps the current date through the root patch path', () => {
+        jest.setSystemTime(new Date('2026-05-20T12:34:56Z'));
+
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            upm: 1000,
+            version: [1, 0],
+            date: new Date('2024-01-01T00:00:00Z'),
+            names: {},
+            features: {
+                features: []
+            }
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('general');
+
+        const nowButton = Array.from(
+            document.querySelectorAll('[data-font-field="date"] button')
+        ).find((button) => button.textContent === 'Now');
+
+        nowButton.click();
+
+        expect(beginTransaction).toHaveBeenCalledWith('Edit font property');
+        const operations = applySyntheticChangeSet.mock.calls[0][1];
+        expect(operations[0].path).toEqual(['date']);
+        expect(operations[0].newValue).toBeInstanceOf(Date);
+        expect(operations[0].newValue.getTime()).toBeGreaterThanOrEqual(
+            new Date('2026-05-20T12:34:56Z').getTime()
+        );
+        expect(operations[0].newValue.getTime()).toBeLessThan(
+            new Date('2026-05-20T12:34:57Z').getTime()
+        );
+    });
+
+    test('bridge-backed custom OT commits use a precise nested path', () => {
+        const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
+
+        window.currentFontModel = {
+            upm: 1000,
+            version: [1, 0],
+            date: new Date('2024-01-01T00:00:00Z'),
+            names: {},
+            features: {
+                features: []
+            },
+            custom_ot_values: {
+                os2_vendor_id: 'ABCD'
+            }
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet,
+            runWithoutRecording
+        };
+
+        fontInfoManager.commitCustomOTValue('os2_vendor_id', 'WXYZ');
+
+        expect(beginTransaction).toHaveBeenCalledWith(
+            'Edit custom OpenType value'
+        );
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Edit custom OpenType value',
+            [
+                {
+                    op: 'set',
+                    path: ['custom_ot_values', 'os2_vendor_id'],
+                    oldValue: 'ABCD',
+                    newValue: 'WXYZ'
+                }
+            ]
+        );
+        expect(endTransaction).toHaveBeenCalledTimes(1);
+        expect(window.currentFontModel.custom_ot_values.os2_vendor_id).toBe(
+            'WXYZ'
+        );
+    });
+
+    test('custom OT panel omits the empty-state line and shows richer hints', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        window.currentFontModel = {
+            upm: 1000,
+            version: [1, 0],
+            date: new Date('2024-01-01T00:00:00Z'),
+            names: {},
+            features: {
+                features: []
+            }
+        };
+
+        const fontInfoManager = loadFontInfoManager();
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('custom_ot_values');
+
+        expect(document.body.textContent).not.toContain(
+            'No custom OpenType overrides are set yet.'
+        );
+
+        const vendorField = document.querySelector(
+            '[data-font-field="custom_ot_values.os2_vendor_id"] .localized-string-input'
+        );
+        const vendorHelper = document.querySelector(
+            '[data-font-field="custom_ot_values.os2_vendor_id"] .localized-string-helper'
+        );
+
+        expect(vendorField.placeholder).toBe(
+            'Four-character vendor code, e.g. ABCD'
+        );
+        expect(vendorHelper.textContent).toContain('four-character vendor');
+    });
+
     test('names UI shows language names with OpenType tags', () => {
         document.body.innerHTML = `
                 <div id="view-fontinfo" class="view view-fontinfo focused">
@@ -717,5 +947,71 @@ describe('FontInfo feature code compilation scheduling', () => {
             '[data-name-field="family_name"] .localized-string-input'
         );
         expect(familyInput.value).toBe('Third Family');
+    });
+
+    test('fontModelSync rebuilds general and custom OT panels when active', () => {
+        document.body.innerHTML = `
+                <div id="view-fontinfo" class="view view-fontinfo focused">
+                    <div class="view-title-bar">
+                        <div class="view-title-right">
+                            <div id="fontinfo-search-control" style="display: none;">
+                                <input id="fontinfo-search-input" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <div id="browser-compat"></div>
+                    </div>
+                </div>
+            `;
+
+        window.currentFontModel = {
+            upm: 1000,
+            version: [1, 0],
+            date: new Date('2024-01-01T00:00:00Z'),
+            note: 'First note',
+            names: {},
+            features: {
+                features: []
+            },
+            custom_ot_values: {
+                os2_vendor_id: 'ABCD'
+            }
+        };
+
+        const fontInfoManager = loadFontInfoManager();
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('general');
+
+        let noteField = document.querySelector(
+            '[data-font-field="note"] .localized-string-input'
+        );
+        expect(noteField.value).toBe('First note');
+
+        window.currentFontModel.note = 'Second note';
+        window.dispatchEvent(new CustomEvent('fontModelSync'));
+        jest.runOnlyPendingTimers();
+
+        noteField = document.querySelector(
+            '[data-font-field="note"] .localized-string-input'
+        );
+        expect(noteField.value).toBe('Second note');
+
+        fontInfoManager.switchTab('custom_ot_values');
+
+        let vendorField = document.querySelector(
+            '[data-font-field="custom_ot_values.os2_vendor_id"] .localized-string-input'
+        );
+        expect(vendorField.value).toBe('ABCD');
+
+        window.currentFontModel.custom_ot_values.os2_vendor_id = 'WXYZ';
+        window.dispatchEvent(new CustomEvent('fontModelSync'));
+        jest.runOnlyPendingTimers();
+
+        vendorField = document.querySelector(
+            '[data-font-field="custom_ot_values.os2_vendor_id"] .localized-string-input'
+        );
+        expect(vendorField.value).toBe('WXYZ');
     });
 });

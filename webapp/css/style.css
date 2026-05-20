@@ -150,6 +150,12 @@ body {
         color 0.3s ease;
 }
 
+input::placeholder,
+textarea::placeholder {
+    color: var(--text-faint);
+    opacity: 1;
+}
+
 /* Loading cursor override for all elements */
 body.loading,
 body.loading * {
@@ -2389,11 +2395,23 @@ kbd + kbd {
     gap: 12px;
 }
 
+.fontinfo-version-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
 .localized-string-editor {
     display: flex;
     flex-direction: column;
     gap: 6px;
     min-width: 0;
+}
+
+.fontinfo-field-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .localized-string-editor-header {
@@ -6519,23 +6537,31 @@ kbd + kbd {
 }
 
 /* Font Info Names content - ensure it scrolls properly */
-#fontinfo-names-content {
+#fontinfo-general-content,
+#fontinfo-names-content,
+#fontinfo-custom-ot-values-content {
     margin-right: 20px;
     margin-left: 15px;
     margin-top: 0px;
     margin-bottom: 0px;
 }
 
-#fontinfo-names-content::-webkit-scrollbar {
+#fontinfo-general-content::-webkit-scrollbar,
+#fontinfo-names-content::-webkit-scrollbar,
+#fontinfo-custom-ot-values-content::-webkit-scrollbar {
     width: 0;
     display: none;
 }
 
-#fontinfo-names-content::-webkit-scrollbar-track {
+#fontinfo-general-content::-webkit-scrollbar-track,
+#fontinfo-names-content::-webkit-scrollbar-track,
+#fontinfo-custom-ot-values-content::-webkit-scrollbar-track {
     background: transparent;
 }
 
-#fontinfo-names-content::-webkit-scrollbar-thumb {
+#fontinfo-general-content::-webkit-scrollbar-thumb,
+#fontinfo-names-content::-webkit-scrollbar-thumb,
+#fontinfo-custom-ot-values-content::-webkit-scrollbar-thumb {
     background: transparent;
 }
 
