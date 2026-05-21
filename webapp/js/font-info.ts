@@ -2843,7 +2843,7 @@ class FontInfoManager {
             return;
         }
 
-        this.renderGeneralContent();
+        this.preserveFontInfoScrollPosition(() => this.renderGeneralContent());
         this.generalDataLoaded = true;
         this.pendingGeneralModelSyncRefresh = false;
     }
@@ -2857,7 +2857,7 @@ class FontInfoManager {
             return;
         }
 
-        this.renderNamesContent();
+        this.preserveFontInfoScrollPosition(() => this.renderNamesContent());
         this.namesDataLoaded = true;
         this.pendingNamesModelSyncRefresh = false;
     }
@@ -2871,7 +2871,7 @@ class FontInfoManager {
             return;
         }
 
-        this.renderMastersContent();
+        this.preserveFontInfoScrollPosition(() => this.renderMastersContent());
         this.mastersDataLoaded = true;
         this.pendingMastersModelSyncRefresh = false;
     }
@@ -2881,7 +2881,7 @@ class FontInfoManager {
             return;
         }
 
-        this.renderMastersContent();
+        this.preserveFontInfoScrollPosition(() => this.renderMastersContent());
         this.mastersDataLoaded = true;
         this.pendingMastersModelSyncRefresh = false;
     }
@@ -2895,7 +2895,7 @@ class FontInfoManager {
             return;
         }
 
-        this.renderInstancesContent();
+        this.preserveFontInfoScrollPosition(() => this.renderInstancesContent());
         this.instancesDataLoaded = true;
         this.pendingInstancesModelSyncRefresh = false;
     }
@@ -2905,13 +2905,94 @@ class FontInfoManager {
             return;
         }
 
-        this.renderInstancesContent();
+        this.preserveFontInfoScrollPosition(() => this.renderInstancesContent());
         this.instancesDataLoaded = true;
         this.pendingInstancesModelSyncRefresh = false;
     }
 
     private isAxesEditing(): boolean {
         return this.isEditableControlWithin(this.axesTab);
+    }
+
+    private getCurrentTabScrollRoot(): HTMLElement | null {
+        switch (this.currentTab) {
+            case 'general':
+                return this.generalTab;
+            case 'names':
+                return this.namesTab;
+            case 'masters':
+                return this.mastersTab;
+            case 'instances':
+                return this.instancesTab;
+            case 'axes':
+                return this.axesTab;
+            case 'custom_ot_values':
+                return this.customOTValuesTab;
+            default:
+                return null;
+        }
+    }
+
+    private preserveFontInfoScrollPosition(render: () => void) {
+        const scrollRoot = this.getCurrentTabScrollRoot();
+        const detailBefore = scrollRoot?.querySelector<HTMLElement>(
+            '.fontinfo-records-detail'
+        );
+        const listBefore = scrollRoot?.querySelector<HTMLElement>(
+            '.fontinfo-records-list'
+        );
+        const rootScrollTop = scrollRoot?.scrollTop ?? null;
+        const rootScrollLeft = scrollRoot?.scrollLeft ?? null;
+        const detailScrollTop = detailBefore?.scrollTop ?? null;
+        const detailScrollLeft = detailBefore?.scrollLeft ?? null;
+        const listScrollTop = listBefore?.scrollTop ?? null;
+        const listScrollLeft = listBefore?.scrollLeft ?? null;
+
+        render();
+
+        if (!scrollRoot) {
+            return;
+        }
+
+        const restore = () => {
+            if (rootScrollTop !== null) {
+                scrollRoot.scrollTop = rootScrollTop;
+            }
+            if (rootScrollLeft !== null) {
+                scrollRoot.scrollLeft = rootScrollLeft;
+            }
+
+            const detailAfter = scrollRoot.querySelector<HTMLElement>(
+                '.fontinfo-records-detail'
+            );
+            if (detailAfter) {
+                if (detailScrollTop !== null) {
+                    detailAfter.scrollTop = detailScrollTop;
+                }
+                if (detailScrollLeft !== null) {
+                    detailAfter.scrollLeft = detailScrollLeft;
+                }
+            }
+
+            const listAfter = scrollRoot.querySelector<HTMLElement>(
+                '.fontinfo-records-list'
+            );
+            if (listAfter) {
+                if (listScrollTop !== null) {
+                    listAfter.scrollTop = listScrollTop;
+                }
+                if (listScrollLeft !== null) {
+                    listAfter.scrollLeft = listScrollLeft;
+                }
+            }
+        };
+
+        restore();
+        requestAnimationFrame(restore);
+        requestAnimationFrame(() => requestAnimationFrame(restore));
+        setTimeout(restore, 0);
+        setTimeout(restore, 50);
+        setTimeout(restore, 150);
     }
 
     private refreshVisibleAxesContent() {
@@ -2923,7 +3004,7 @@ class FontInfoManager {
             return;
         }
 
-        this.renderAxesContent();
+        this.preserveFontInfoScrollPosition(() => this.renderAxesContent());
         this.axesDataLoaded = true;
         this.pendingAxesModelSyncRefresh = false;
     }
@@ -2933,7 +3014,7 @@ class FontInfoManager {
             return;
         }
 
-        this.renderAxesContent();
+        this.preserveFontInfoScrollPosition(() => this.renderAxesContent());
         this.axesDataLoaded = true;
         this.pendingAxesModelSyncRefresh = false;
     }
@@ -3144,7 +3225,9 @@ class FontInfoManager {
             return;
         }
 
-        this.renderCustomOTValuesContent();
+        this.preserveFontInfoScrollPosition(() =>
+            this.renderCustomOTValuesContent()
+        );
         this.customOTValuesDataLoaded = true;
         this.pendingCustomOTValuesModelSyncRefresh = false;
     }

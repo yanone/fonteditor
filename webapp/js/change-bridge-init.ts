@@ -2063,11 +2063,75 @@ export function runBridgeUndoRedo(
 ): Promise<void> {
     return enqueueBridgeSync(async () => {
         const activeElement = document.activeElement;
+
+        const fontInfoRoot = document.querySelector(
+            '#view-fontinfo.focused'
+        ) as HTMLElement | null;
+        const fontInfoDetailBefore = fontInfoRoot?.querySelector<HTMLElement>(
+            '.fontinfo-records-detail'
+        );
+        const fontInfoListBefore = fontInfoRoot?.querySelector<HTMLElement>(
+            '.fontinfo-records-list'
+        );
+        const fontInfoRootScrollTop = fontInfoRoot?.scrollTop ?? null;
+        const fontInfoRootScrollLeft = fontInfoRoot?.scrollLeft ?? null;
+        const fontInfoDetailScrollTop = fontInfoDetailBefore?.scrollTop ?? null;
+        const fontInfoDetailScrollLeft =
+            fontInfoDetailBefore?.scrollLeft ?? null;
+        const fontInfoListScrollTop = fontInfoListBefore?.scrollTop ?? null;
+        const fontInfoListScrollLeft = fontInfoListBefore?.scrollLeft ?? null;
+        const restoreFontInfoScroll = () => {
+            if (!fontInfoRoot) {
+                return;
+            }
+
+            const applyRestore = () => {
+                if (fontInfoRootScrollTop !== null) {
+                    fontInfoRoot.scrollTop = fontInfoRootScrollTop;
+                }
+                if (fontInfoRootScrollLeft !== null) {
+                    fontInfoRoot.scrollLeft = fontInfoRootScrollLeft;
+                }
+
+                const detailAfter = fontInfoRoot.querySelector<HTMLElement>(
+                    '.fontinfo-records-detail'
+                );
+                if (detailAfter) {
+                    if (fontInfoDetailScrollTop !== null) {
+                        detailAfter.scrollTop = fontInfoDetailScrollTop;
+                    }
+                    if (fontInfoDetailScrollLeft !== null) {
+                        detailAfter.scrollLeft = fontInfoDetailScrollLeft;
+                    }
+                }
+
+                const listAfter = fontInfoRoot.querySelector<HTMLElement>(
+                    '.fontinfo-records-list'
+                );
+                if (listAfter) {
+                    if (fontInfoListScrollTop !== null) {
+                        listAfter.scrollTop = fontInfoListScrollTop;
+                    }
+                    if (fontInfoListScrollLeft !== null) {
+                        listAfter.scrollLeft = fontInfoListScrollLeft;
+                    }
+                }
+            };
+
+            applyRestore();
+            requestAnimationFrame(applyRestore);
+            requestAnimationFrame(() => requestAnimationFrame(applyRestore));
+            setTimeout(applyRestore, 0);
+            setTimeout(applyRestore, 50);
+            setTimeout(applyRestore, 150);
+        };
+
         if (
             activeElement instanceof HTMLElement &&
             activeElement.classList.contains('fontinfo-axis-map-input')
         ) {
             activeElement.blur();
+            restoreFontInfoScroll();
         }
 
         const bridge = window.patchSyncEngine;
@@ -2087,8 +2151,11 @@ export function runBridgeUndoRedo(
                 : bridge.undo(targetGlyph, layerId, historyTargetKey);
 
         if (!appliedChange) {
+            restoreFontInfoScroll();
             return;
         }
+
+        restoreFontInfoScroll();
 
         const appliedImmediateSidebearingSync =
             applyImmediateUndoSidebearingSync(

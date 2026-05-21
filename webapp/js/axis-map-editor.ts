@@ -437,7 +437,7 @@ export class AxisMapEditor {
     private focus() {
         this.element
             .querySelector<HTMLElement>('.fontinfo-axis-map-editor')
-            ?.focus();
+            ?.focus({ preventScroll: true });
     }
 
     private handleKeyDown(event: KeyboardEvent) {
