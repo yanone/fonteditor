@@ -1445,6 +1445,10 @@
         return false;
     }
 
+    function isAxisMapInputElement(element: HTMLElement | null) {
+        return !!element?.classList?.contains('fontinfo-axis-map-input');
+    }
+
     /**
      * Handle keyboard shortcuts
      */
@@ -1608,8 +1612,13 @@
 
         // Cmd+Z — Undo, Cmd+Shift+Z — Redo
         if (cmdKey && key === 'z' && !event.altKey) {
-            // Allow native undo/redo in text input elements
-            if (isInTextInput) return;
+            if (isInTextInput && !isAxisMapInputElement(activeElement)) {
+                return;
+            }
+
+            if (activeElement && isAxisMapInputElement(activeElement)) {
+                activeElement.blur();
+            }
 
             event.preventDefault();
             event.stopPropagation();

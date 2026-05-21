@@ -5,6 +5,23 @@ export type UndoRedoContext = {
     historyTargetKey: string | null;
 };
 
+function isFontInfoViewFocused(): boolean {
+    return (
+        document
+            .querySelector('#view-fontinfo')
+            ?.classList.contains('focused') ?? false
+    );
+}
+
+function isFontInfoFeaturesTabVisible(): boolean {
+    const featuresTab = document.getElementById('fontinfo-features-content');
+    if (!featuresTab) {
+        return false;
+    }
+
+    return featuresTab.style.display !== 'none';
+}
+
 export function getUndoRedoContext(): UndoRedoContext {
     const oe = window.glyphCanvas?.outlineEditor;
     const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
@@ -15,6 +32,26 @@ export function getUndoRedoContext(): UndoRedoContext {
         parsedStack[parsedStack.length - 1]?.glyphName ?? currentGlyphName;
     const fallbackUndoLayerId = oe?.selectedLayerId ?? null;
     const historyContext = window.getHistoryUndoContext?.();
+    const fontInfoFocused = isFontInfoViewFocused();
+    const featuresTabVisible = isFontInfoFeaturesTabVisible();
+
+    if (fontInfoFocused && historyContext?.scope === 'feature') {
+        return {
+            rootGlyphName,
+            undoGlyphName: undefined,
+            undoLayerId: null,
+            historyTargetKey: historyContext.historyTargetKey
+        };
+    }
+
+    if (fontInfoFocused && !featuresTabVisible) {
+        return {
+            rootGlyphName,
+            undoGlyphName: undefined,
+            undoLayerId: null,
+            historyTargetKey: null
+        };
+    }
 
     if (oe?.active && fallbackUndoGlyphName && fallbackUndoLayerId) {
         return {

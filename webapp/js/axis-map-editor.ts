@@ -913,6 +913,10 @@ export class AxisMapEditor {
                 return;
             }
 
+            if (event.metaKey || event.ctrlKey || event.altKey) {
+                return;
+            }
+
             event.stopPropagation();
         });
 

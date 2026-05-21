@@ -2062,6 +2062,14 @@ export function runBridgeUndoRedo(
     historyTargetKey?: string | null
 ): Promise<void> {
     return enqueueBridgeSync(async () => {
+        const activeElement = document.activeElement;
+        if (
+            activeElement instanceof HTMLElement &&
+            activeElement.classList.contains('fontinfo-axis-map-input')
+        ) {
+            activeElement.blur();
+        }
+
         const bridge = window.patchSyncEngine;
         if (!bridge) {
             return;
