@@ -2895,7 +2895,9 @@ class FontInfoManager {
             return;
         }
 
-        this.preserveFontInfoScrollPosition(() => this.renderInstancesContent());
+        this.preserveFontInfoScrollPosition(() =>
+            this.renderInstancesContent()
+        );
         this.instancesDataLoaded = true;
         this.pendingInstancesModelSyncRefresh = false;
     }
@@ -2905,7 +2907,9 @@ class FontInfoManager {
             return;
         }
 
-        this.preserveFontInfoScrollPosition(() => this.renderInstancesContent());
+        this.preserveFontInfoScrollPosition(() =>
+            this.renderInstancesContent()
+        );
         this.instancesDataLoaded = true;
         this.pendingInstancesModelSyncRefresh = false;
     }
