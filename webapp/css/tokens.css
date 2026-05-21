@@ -11,7 +11,7 @@
 :root {
     --border-tertiary: rgba(255, 255, 255, 0.3);
     --border-secondary: #555555;
-    --border-primary: #404040;
+    --border-primary: #181818;
     --border-active: #666666;
     --modal-bg: #2a2a2a;
     --modal-overlay: rgba(0, 0, 0, 0.5);
@@ -62,12 +62,12 @@
     --glyphfilter-context-focused-text: #ffffff;
     --background-tertiary: #252525;
     --background-loading: #313131;
-    --background-primary: #181818;
+    --background-primary: #404040;
     --background-secondary: #2a2a2a;
     --background-active: #333333;
     --background-custom-name-highlight: rgba(255, 255, 255, 0.1);
     --background-hover: #333333;
-    --background-editor-sidebar: #141414;
+    --background-editor-sidebar: #353535;
     --glyph-tile-selected-active: #4a4a4a;
     --glyph-tile-selected-inactive: #3B3B3B;
     --view-editor: #00aeef;
