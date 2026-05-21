@@ -5529,6 +5529,188 @@ class FontInfoManager {
         return Object.fromEntries(locationEntries);
     }
 
+    private getDefaultNewMasterLocation(): Record<string, number> | undefined {
+        const font =
+            window.currentFontModel as unknown as BabelfontModelFont | null;
+        const axisDefaults = this.getDefaultAxisLocation() ?? {};
+        const lastMaster = rawArray(font?.masters)[
+            rawArray(font?.masters).length - 1
+        ];
+        const lastLocation = lastMaster?.location;
+        const normalizedLastLocation = lastLocation
+            ? Object.fromEntries(
+                  Object.entries(lastLocation).filter(
+                      ([, value]) => typeof value === 'number'
+                  ) as Array<[string, number]>
+              )
+            : undefined;
+
+        if (
+            !normalizedLastLocation ||
+            Object.keys(normalizedLastLocation).length === 0
+        ) {
+            return Object.keys(axisDefaults).length > 0
+                ? axisDefaults
+                : undefined;
+        }
+
+        return {
+            ...axisDefaults,
+            ...normalizedLastLocation
+        };
+    }
+
+    private async promptForNewMasterLocation(): Promise<Record<
+        string,
+        number
+    > | null> {
+        const font =
+            window.currentFontModel as unknown as BabelfontModelFont | null;
+        const axes = rawArray(font?.axes).filter(
+            (axis) => typeof axis?.tag === 'string'
+        );
+        if (axes.length === 0) {
+            return {};
+        }
+
+        const defaultLocation = this.getDefaultNewMasterLocation() ?? {};
+
+        return await new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className =
+                'matplotlib-modal fontinfo-master-location-modal active';
+            modal.innerHTML = `
+                <div class="matplotlib-modal-content fontinfo-master-location-modal-content">
+                    <div class="matplotlib-modal-header">
+                        <h3>New Master Location</h3>
+                        <button type="button" class="matplotlib-modal-close" aria-label="Close">×</button>
+                    </div>
+                    <div class="matplotlib-modal-body fontinfo-master-location-modal-body">
+                        <div class="fontinfo-master-location-description">
+                            Adjust the designspace location for the new master before creating it.
+                        </div>
+                        <div class="fontinfo-master-location-rows"></div>
+                        <div class="fontinfo-master-location-actions">
+                            <button type="button" class="localized-string-modal-button localized-string-modal-button-secondary fontinfo-master-location-cancel">Cancel</button>
+                            <button type="button" class="localized-string-modal-button localized-string-modal-button-primary fontinfo-master-location-create">Create</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const rows = modal.querySelector(
+                '.fontinfo-master-location-rows'
+            ) as HTMLElement;
+            const closeButton = modal.querySelector(
+                '.matplotlib-modal-close'
+            ) as HTMLButtonElement;
+            const cancelButton = modal.querySelector(
+                '.fontinfo-master-location-cancel'
+            ) as HTMLButtonElement;
+            const createButton = modal.querySelector(
+                '.fontinfo-master-location-create'
+            ) as HTMLButtonElement;
+            const inputs = new Map<string, HTMLInputElement>();
+
+            const closeModal = (value: Record<string, number> | null): void => {
+                document.removeEventListener('keydown', onKeyDown, true);
+                modal.remove();
+                resolve(value);
+            };
+
+            const commit = (): void => {
+                const nextLocation: Record<string, number> = {};
+
+                for (const axis of axes) {
+                    const input = inputs.get(axis.tag as string);
+                    if (!input) {
+                        continue;
+                    }
+
+                    const trimmedValue = input.value.trim();
+                    if (!trimmedValue.length) {
+                        continue;
+                    }
+
+                    const parsedValue = Number(trimmedValue);
+                    if (!Number.isFinite(parsedValue)) {
+                        input.focus();
+                        input.select();
+                        return;
+                    }
+
+                    nextLocation[axis.tag as string] = parsedValue;
+                }
+
+                closeModal(nextLocation);
+            };
+
+            const onKeyDown = (event: KeyboardEvent): void => {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeModal(null);
+                    return;
+                }
+
+                if (event.key === 'Enter') {
+                    const target = event.target;
+                    if (target instanceof HTMLInputElement) {
+                        event.preventDefault();
+                        commit();
+                    }
+                }
+            };
+
+            for (const axis of axes) {
+                const row = document.createElement('div');
+                row.className = 'fontinfo-master-location-row';
+
+                const label = document.createElement('label');
+                label.className = 'fontinfo-master-location-label';
+                label.textContent =
+                    (typeof axis.name === 'string'
+                        ? axis.name
+                        : axis.name?.dflt) ||
+                    axis.tag ||
+                    'Axis';
+                label.htmlFor = `fontinfo-master-location-${axis.tag}`;
+
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.step = 'any';
+                input.id = `fontinfo-master-location-${axis.tag}`;
+                input.dataset.masterLocationAxis = axis.tag as string;
+                input.className =
+                    'localized-string-input localized-string-modal-input fontinfo-master-location-input';
+                const defaultValue = defaultLocation[axis.tag as string];
+                input.value =
+                    typeof defaultValue === 'number'
+                        ? String(defaultValue)
+                        : '';
+
+                row.appendChild(label);
+                row.appendChild(input);
+                rows.appendChild(row);
+                inputs.set(axis.tag as string, input);
+            }
+
+            closeButton.addEventListener('click', () => closeModal(null));
+            cancelButton.addEventListener('click', () => closeModal(null));
+            createButton.addEventListener('click', commit);
+            modal.addEventListener('click', (event: MouseEvent) => {
+                if (event.target === modal) {
+                    closeModal(null);
+                }
+            });
+            document.addEventListener('keydown', onKeyDown, true);
+            document.body.appendChild(modal);
+            requestAnimationFrame(() => {
+                inputs.values().next().value?.focus();
+            });
+        });
+    }
+
     private createDefaultInstanceRecord(): Babelfont.Instance {
         const font = window.currentFontModel as unknown as
             | Babelfont.Font
@@ -5605,12 +5787,21 @@ class FontInfoManager {
             return;
         }
 
+        const requestedLocation = await this.promptForNewMasterLocation();
+        if (requestedLocation === null) {
+            return;
+        }
+
         beginLoadingCursor();
         try {
             const metricTemplateMasterId = rawArray(font.masters)[
                 this.selectedMasterIndex
             ]?.id;
             const createdMaster = await font.addMaster(undefined, {
+                location:
+                    Object.keys(requestedLocation).length > 0
+                        ? requestedLocation
+                        : undefined,
                 metricTemplateMasterId
             });
             const selectedMasterIndex = createdMaster

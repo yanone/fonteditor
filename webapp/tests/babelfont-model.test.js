@@ -178,7 +178,11 @@ describe('Babelfont interpolation Rust cache', () => {
         ).resolves.toBe(true);
         expect(apply_yjs_update).toHaveBeenCalledWith(
             expect.any(Uint8Array),
-            JSON.stringify(['testGlyph'])
+            JSON.stringify({
+                changedGlyphs: [],
+                nonGlyphChangeHints: [],
+                layerTargets: []
+            })
         );
 
         await expect(seedInterpolationRustCacheFromState(null)).resolves.toBe(
@@ -241,7 +245,7 @@ describe('Babelfont Object Model', () => {
         store_font.mockClear();
     });
 
-    test('Font.addMaster sends per-glyph last-layer interpolation locations to Rust', async () => {
+    test('Font.addMaster sends the new master location to Rust for all glyphs', async () => {
         const addMasterFont = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -347,11 +351,11 @@ describe('Babelfont Object Model', () => {
             expect.arrayContaining([
                 {
                     glyphName: 'A',
-                    designLocation: [['wght', 400]]
+                    designLocation: [['wght', 900]]
                 },
                 {
                     glyphName: 'B',
-                    designLocation: [['wght', 650]]
+                    designLocation: [['wght', 900]]
                 }
             ])
         );
@@ -502,6 +506,65 @@ describe('Babelfont Object Model', () => {
         });
 
         expect(createdMaster?.metrics).toEqual({ ascender: 810 });
+    });
+
+    test('Font.addMaster uses the requested location for default creation', async () => {
+        const explicitLocationFont = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            cross_axis_mappings: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    guides: [],
+                    metrics: { ascender: 810 },
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: 'master-1',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            }
+                        }
+                    ]
+                }
+            ],
+            note: '',
+            date: new Date('2020-01-01T00:00:00.000Z'),
+            names: {},
+            features: {
+                classes: {},
+                prefixes: {},
+                features: []
+            }
+        });
+
+        const createdMaster = await explicitLocationFont.addMaster(undefined, {
+            location: { wght: 650 }
+        });
+
+        expect(createdMaster?.location).toEqual({ wght: 650 });
     });
 
     test('Font.addMaster materializes interpolated content without the bridge', async () => {

@@ -2655,6 +2655,50 @@ kbd + kbd {
     filter: brightness(1.05);
 }
 
+.fontinfo-master-location-modal .matplotlib-modal-body {
+    align-items: stretch;
+    justify-content: flex-start;
+}
+
+.fontinfo-master-location-modal-content {
+    width: min(420px, calc(100vw - 40px));
+}
+
+.fontinfo-master-location-modal-body,
+.fontinfo-master-location-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.fontinfo-master-location-description {
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.fontinfo-master-location-row,
+.fontinfo-master-location-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.fontinfo-master-location-actions {
+    justify-content: flex-end;
+}
+
+.fontinfo-master-location-label {
+    width: 120px;
+    flex: 0 0 120px;
+    color: var(--text-secondary);
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+}
+
+.fontinfo-master-location-input {
+    flex: 1 1 auto;
+}
+
 /* Tippy.js Theme - Dark */
 .tippy-box[data-theme='dark'] {
     background-color: var(--background-secondary);

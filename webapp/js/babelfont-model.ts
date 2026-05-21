@@ -322,6 +322,7 @@ type AddMasterInterpolationLocation = {
 };
 
 type AddMasterOptions = {
+    location?: DesignspaceLocation;
     metricTemplateMasterId?: string;
 };
 
@@ -11378,26 +11379,26 @@ export class Font extends ModelBase {
             : undefined;
     }
 
-    private getAddMasterInterpolationLocations(): AddMasterInterpolationLocation[] {
+    private getAddMasterInterpolationLocations(
+        targetLocation: DesignspaceLocation | undefined
+    ): AddMasterInterpolationLocation[] {
         const axes = this.axes || [];
         const locations: AddMasterInterpolationLocation[] = [];
 
-        for (const glyph of this.glyphs) {
-            const sourceLayer = glyph.layers?.[glyph.layers.length - 1];
-            const designLocation =
-                this.getEffectiveDesignspaceLocationForLayer(sourceLayer);
-            if (!designLocation) {
-                continue;
-            }
+        if (!targetLocation || Object.keys(targetLocation).length === 0) {
+            return locations;
+        }
 
-            const userspaceLocation = designspaceToUserspace(
-                designLocation,
-                axes as unknown as Babelfont.Axis[]
-            );
-            const roundTrippedDesignLocation = userspaceToDesignspace(
-                userspaceLocation,
-                axes as unknown as Babelfont.Axis[]
-            );
+        const userspaceLocation = designspaceToUserspace(
+            targetLocation,
+            axes as unknown as Babelfont.Axis[]
+        );
+        const roundTrippedDesignLocation = userspaceToDesignspace(
+            userspaceLocation,
+            axes as unknown as Babelfont.Axis[]
+        );
+
+        for (const glyph of this.glyphs) {
             locations.push({
                 glyphName: glyph.name,
                 designLocation: this.clonePlainValue(roundTrippedDesignLocation)
@@ -11482,7 +11483,9 @@ export class Font extends ModelBase {
         return {
             id: this.createModelRecordId('master'),
             name: { dflt: `Master ${nextIndex}` },
-            location: this.getNextMasterLocation(),
+            location: options?.location
+                ? this.clonePlainValue(options.location)
+                : this.getNextMasterLocation(),
             metrics,
             kerning: {} as any
         };
@@ -11564,7 +11567,9 @@ export class Font extends ModelBase {
             const batchResult =
                 await buildRustAddMasterWithInterpolatedLayersBatch(
                     clonedMaster,
-                    this.getAddMasterInterpolationLocations()
+                    this.getAddMasterInterpolationLocations(
+                        clonedMaster.location
+                    )
                 );
             if (batchResult.update.length) {
                 bridge.applyLocalGeneratedYjsUpdate(

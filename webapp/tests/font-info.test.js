@@ -447,6 +447,9 @@ describe('FontInfo feature code compilation scheduling', () => {
 
     test('bridge-backed names commits use a precise names path', () => {
         const fontInfoManager = loadFontInfoManager();
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const runWithoutRecording = jest.fn((fn) => fn());
         const applySyntheticChangeSet = jest.fn();
         const applyLocalGeneratedYjsUpdate = jest.fn((_update, operations) => {
             const mastersOperation = operations.find(
@@ -1466,16 +1469,25 @@ describe('FontInfo feature code compilation scheduling', () => {
         addMasterButton.focus();
         addMasterButton.click();
 
+        const modal = document.querySelector('.fontinfo-master-location-modal');
+        expect(modal).toBeTruthy();
+        const createButton = modal.querySelector(
+            '.fontinfo-master-location-create'
+        );
+        createButton.click();
+        await Promise.resolve();
+        await Promise.resolve();
+        jest.runOnlyPendingTimers();
         await Promise.resolve();
 
-        expect(addMaster).toHaveBeenCalledWith(undefined, {
-            metricTemplateMasterId: 'M2'
-        });
-        expect(
-            document.querySelectorAll(
-                '#fontinfo-masters-content .fontinfo-record-item'
-            )
-        ).toHaveLength(3);
+        expect(addMaster).toHaveBeenCalledWith(
+            undefined,
+            expect.objectContaining({
+                metricTemplateMasterId: 'M2',
+                location: { wght: 700 }
+            })
+        );
+        expect(window.currentFontModel.masters).toHaveLength(3);
 
         const removeMasterButton = document.querySelector(
             '[data-fontinfo-list-action="masters-remove"]'
@@ -1487,11 +1499,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         await Promise.resolve();
 
         expect(removeMastersByIds).toHaveBeenCalledWith(['master-3']);
-        expect(
-            document.querySelectorAll(
-                '#fontinfo-masters-content .fontinfo-record-item'
-            )
-        ).toHaveLength(2);
+        expect(window.currentFontModel.masters).toHaveLength(2);
 
         const masterItems = document.querySelectorAll(
             '#fontinfo-masters-content .fontinfo-record-item'
@@ -2856,6 +2864,183 @@ describe('FontInfo feature code compilation scheduling', () => {
 
         expect(addMaster).toHaveBeenCalledTimes(1);
         expect(window.currentFontModel.masters).toHaveLength(2);
+    });
+
+    test('adding a master prompts for location and passes it to the object model', async () => {
+        document.body.innerHTML = `
+            <div id="view-fontinfo" class="view view-fontinfo focused">
+                <div class="view-title-bar">
+                    <div class="view-title-right">
+                        <div id="fontinfo-search-control" style="display: none;">
+                            <input id="fontinfo-search-input" />
+                        </div>
+                    </div>
+                </div>
+                <div class="view-content">
+                    <div id="browser-compat"></div>
+                </div>
+            </div>
+        `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const addMaster = jest.fn(async function (_master, options) {
+            const createdMaster = {
+                id: 'M3',
+                name: { dflt: 'Master 3' },
+                location: options?.location ?? {},
+                metrics: { ascender: 800 },
+                kerning: {}
+            };
+            this.masters = [...this.masters, createdMaster];
+            return createdMaster;
+        });
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                },
+                {
+                    name: { dflt: 'Width' },
+                    tag: 'wdth',
+                    min: 50,
+                    default: 100,
+                    max: 200
+                }
+            ],
+            names: {},
+            features: { features: [] },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400, wdth: 100 },
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                },
+                {
+                    id: 'M2',
+                    name: { dflt: 'Bold' },
+                    location: { wght: 700, wdth: 120 },
+                    metrics: { ascender: 820 },
+                    kerning: {}
+                }
+            ],
+            glyphs: [],
+            addMaster
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('masters');
+
+        const addMasterButton = document.querySelector(
+            '[data-fontinfo-list-action="masters-add"]'
+        );
+        addMasterButton.click();
+
+        expect(addMaster).not.toHaveBeenCalled();
+
+        const modal = document.querySelector('.fontinfo-master-location-modal');
+        expect(modal).toBeTruthy();
+
+        const wghtInput = modal.querySelector(
+            '[data-master-location-axis="wght"]'
+        );
+        const wdthInput = modal.querySelector(
+            '[data-master-location-axis="wdth"]'
+        );
+        expect(wghtInput.value).toBe('700');
+        expect(wdthInput.value).toBe('120');
+
+        wghtInput.value = '650';
+        wdthInput.value = '110';
+
+        const createButton = modal.querySelector(
+            '.fontinfo-master-location-create'
+        );
+        createButton.click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(addMaster).toHaveBeenCalledWith(
+            undefined,
+            expect.objectContaining({
+                location: { wght: 650, wdth: 110 }
+            })
+        );
+    });
+
+    test('canceling the master location modal aborts master creation', async () => {
+        document.body.innerHTML = `
+            <div id="view-fontinfo" class="view view-fontinfo focused">
+                <div class="view-title-bar">
+                    <div class="view-title-right">
+                        <div id="fontinfo-search-control" style="display: none;">
+                            <input id="fontinfo-search-input" />
+                        </div>
+                    </div>
+                </div>
+                <div class="view-content">
+                    <div id="browser-compat"></div>
+                </div>
+            </div>
+        `;
+
+        const fontInfoManager = loadFontInfoManager();
+        const addMaster = jest.fn();
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            names: {},
+            features: { features: [] },
+            masters: [
+                {
+                    id: 'M1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    metrics: { ascender: 800 },
+                    kerning: {}
+                }
+            ],
+            glyphs: [],
+            addMaster
+        };
+
+        fontInfoManager.init();
+        jest.runOnlyPendingTimers();
+        fontInfoManager.switchTab('masters');
+
+        const addMasterButton = document.querySelector(
+            '[data-fontinfo-list-action="masters-add"]'
+        );
+        addMasterButton.click();
+
+        const modal = document.querySelector('.fontinfo-master-location-modal');
+        expect(modal).toBeTruthy();
+
+        const cancelButton = modal.querySelector(
+            '.fontinfo-master-location-cancel'
+        );
+        cancelButton.click();
+        await Promise.resolve();
+
+        expect(addMaster).not.toHaveBeenCalled();
+        expect(
+            document.querySelector('.fontinfo-master-location-modal')
+        ).toBeNull();
     });
 
     test('removing a master delegates deletion to the object model', async () => {
