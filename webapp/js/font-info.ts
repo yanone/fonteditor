@@ -33,6 +33,7 @@ import {
     normalizeLocalizedStringValue,
     type LocalizedStringEditorHandle
 } from './localized-string-editor';
+import { designspaceToUserspace } from './locations';
 import { AxisMapEditor } from './axis-map-editor';
 // Import FEA mode for Ace Editor (registers the mode automatically)
 import './mode-fea';
@@ -511,30 +512,77 @@ function getLocationKeys(
     return [...axisTags, ...extraTags];
 }
 
-function formatLocationSummary(
+function getDisplayLocationPair(
     axes: Babelfont.Axis[] | undefined,
     location?: Record<string, number>
-): string {
-    const keys = getLocationKeys(axes, location);
-    if (keys.length === 0) {
-        return 'Default location';
+): {
+    userspace: Record<string, number>;
+    designspace: Record<string, number>;
+} {
+    const designspace = { ...(location ?? {}) };
+    const convertedUserspace = axes?.length
+        ? (designspaceToUserspace(
+              designspace as Record<string, any>,
+              axes
+          ) as unknown as Record<string, number>)
+        : designspace;
+    const userspace: Record<string, number> = { ...convertedUserspace };
+
+    for (const [tag, value] of Object.entries(designspace)) {
+        if (userspace[tag] === undefined) {
+            userspace[tag] = value;
+        }
     }
 
-    const summary = keys
-        .filter((key) => location?.[key] !== undefined)
-        .map((key) => {
-            const axis = axes?.find((item) => item.tag === key);
-            const label = axis
-                ? getLocalizedDictionarySummary(axis.name, axis.tag)
-                : key;
+    return {
+        userspace,
+        designspace
+    };
+}
 
-            return axis
-                ? `${label} ${location?.[key]}`
-                : `${key}=${location?.[key]}`;
+function formatSingleLocationSummary(
+    axes: Babelfont.Axis[] | undefined,
+    userspace: Record<string, number> | undefined,
+    designspace: Record<string, number> | undefined
+): string {
+    const keys = getLocationKeys(axes, userspace).filter(
+        (key, index, allKeys) => allKeys.indexOf(key) === index
+    );
+    const extraDesignspaceKeys = getLocationKeys(axes, designspace).filter(
+        (key) => !keys.includes(key)
+    );
+    const allKeys = [...keys, ...extraDesignspaceKeys];
+    if (allKeys.length === 0) {
+        return 'default';
+    }
+
+    const summary = allKeys
+        .filter(
+            (key) =>
+                userspace?.[key] !== undefined ||
+                designspace?.[key] !== undefined
+        )
+        .map((key) => {
+            const userspaceValue = userspace?.[key];
+            const designspaceValue = designspace?.[key];
+            return `${key}:${userspaceValue ?? designspaceValue}/${designspaceValue ?? userspaceValue}`;
         })
         .join(', ');
 
-    return summary || 'Default location';
+    return summary || 'default';
+}
+
+function formatLocationSummary(
+    axes: Babelfont.Axis[] | undefined,
+    location?: Record<string, number>
+): string[] {
+    const { userspace, designspace } = getDisplayLocationPair(axes, location);
+
+    return [formatSingleLocationSummary(axes, userspace, designspace)];
+}
+
+function asSummaryLines(summary: string | string[]): string[] {
+    return Array.isArray(summary) ? summary : [summary];
 }
 
 /** Extract a plain-data deep clone from an array that may contain model-wrapper objects.
@@ -3103,7 +3151,7 @@ class FontInfoManager {
 
     private getMasterListSummary(masterIndex: number): {
         primary: string;
-        secondary: string;
+        secondary: string[];
     } {
         const font = window.currentFontModel as unknown as
             | Babelfont.Font
@@ -3124,7 +3172,7 @@ class FontInfoManager {
 
     private getInstanceListSummary(instanceIndex: number): {
         primary: string;
-        secondary: string;
+        secondary: string[];
     } {
         const font = window.currentFontModel as unknown as
             | Babelfont.Font
@@ -3169,7 +3217,7 @@ class FontInfoManager {
 
     private updateRecordListItemSummary(
         item: Element | undefined,
-        summary: { primary: string; secondary: string }
+        summary: { primary: string; secondary: string | string[] }
     ) {
         const primary = item?.querySelector('.fontinfo-record-item-primary');
         const secondary = item?.querySelector(
@@ -3180,7 +3228,14 @@ class FontInfoManager {
             primary.textContent = summary.primary;
         }
         if (secondary) {
-            secondary.textContent = summary.secondary;
+            secondary.replaceChildren(
+                ...asSummaryLines(summary.secondary).map((line) => {
+                    const lineEl = document.createElement('div');
+                    lineEl.className = 'fontinfo-record-item-secondary-line';
+                    lineEl.textContent = line;
+                    return lineEl;
+                })
+            );
         }
     }
 
@@ -3639,7 +3694,7 @@ class FontInfoManager {
 
     private createRecordListButton(options: {
         primary: string;
-        secondary: string;
+        secondary: string | string[];
         selected: boolean;
         onClick: (event: MouseEvent) => void;
         draggable?: boolean;
@@ -3671,12 +3726,21 @@ class FontInfoManager {
             'editor-layer-item-content fontinfo-record-item-content';
 
         const primary = document.createElement('div');
-        primary.className = 'fontinfo-record-item-primary';
+        primary.className = 'fontinfo-record-item-primary master-item-name';
         primary.textContent = options.primary;
 
         const secondary = document.createElement('div');
-        secondary.className = 'fontinfo-record-item-secondary';
-        secondary.textContent = options.secondary;
+        secondary.className =
+            'fontinfo-record-item-secondary master-item-location';
+        secondary.replaceChildren(
+            ...asSummaryLines(options.secondary).map((line) => {
+                const lineEl = document.createElement('div');
+                lineEl.className =
+                    'fontinfo-record-item-secondary-line master-item-location-line';
+                lineEl.textContent = line;
+                return lineEl;
+            })
+        );
 
         content.appendChild(primary);
         content.appendChild(secondary);

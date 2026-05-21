@@ -2,7 +2,12 @@ import { get_font_axes } from '../../wasm-dist/babelfont_fontc_web';
 import Babelfont from '../babelfont';
 import { ensureWasmInitialized } from '../wasm-init';
 import { Logger } from '../logger';
-import type { UserspaceCoordinate, UserspaceLocation } from '../locations';
+import {
+    designspaceToUserspace,
+    userspaceToDesignspace,
+    type UserspaceCoordinate,
+    type UserspaceLocation
+} from '../locations';
 
 const console = new Logger('Variations');
 
@@ -151,13 +156,85 @@ export class AxesManager {
         return axesSection;
     }
 
+    private getFontAxes(): any[] {
+        return ((window as any).currentFontModel?.axes || []) as any[];
+    }
+
+    private formatAxisCoordinate(value: number): string {
+        return Math.round(value).toString();
+    }
+
+    private sanitizeIntegerInput(value: string): string {
+        const trimmed = value.trimStart();
+        if (!trimmed) {
+            return '';
+        }
+
+        let result = '';
+        let hasDigits = false;
+
+        for (let index = 0; index < trimmed.length; index += 1) {
+            const char = trimmed[index];
+            if (char === '-' && result.length === 0 && !hasDigits) {
+                result = '-';
+                continue;
+            }
+
+            if (/\d/.test(char)) {
+                result += char;
+                hasDigits = true;
+                continue;
+            }
+
+            if (hasDigits) {
+                break;
+            }
+        }
+
+        return result;
+    }
+
+    private getDesignspaceValueForAxis(
+        axisTag: string,
+        userspaceValue: number
+    ): number {
+        const axes = this.getFontAxes();
+        if (!axes.length) {
+            return userspaceValue;
+        }
+
+        const designspaceLocation = userspaceToDesignspace(
+            { [axisTag]: userspaceValue },
+            axes
+        ) as Record<string, number>;
+
+        return designspaceLocation[axisTag] ?? userspaceValue;
+    }
+
+    private getUserspaceValueForAxis(
+        axisTag: string,
+        designspaceValue: number
+    ): number {
+        const axes = this.getFontAxes();
+        if (!axes.length) {
+            return designspaceValue;
+        }
+
+        const userspaceLocation = designspaceToUserspace(
+            { [axisTag]: designspaceValue },
+            axes
+        ) as Record<string, number>;
+
+        return userspaceLocation[axisTag] ?? designspaceValue;
+    }
+
     updateAxisSliders() {
         // Update axis slider positions to match current variationSettings
         if (!this.axesSection) return;
 
         // Update all sliders
         const sliders = this.axesSection.querySelectorAll(
-            'input[data-axis-tag]'
+            '.editor-axis-slider[data-axis-tag]'
         );
         sliders.forEach((slider) => {
             const input = slider as HTMLInputElement;
@@ -181,8 +258,24 @@ export class AxesManager {
         valueLabels.forEach((label: any) => {
             const axisTag: string | null = label.getAttribute('data-axis-tag');
             if (axisTag && this.variationSettings[axisTag] !== undefined) {
-                (label as HTMLInputElement).value =
-                    this.variationSettings[axisTag].toFixed(0);
+                (label as HTMLInputElement).value = this.formatAxisCoordinate(
+                    Number(this.variationSettings[axisTag])
+                );
+            }
+        });
+
+        const designspaceValueLabels = this.axesSection.querySelectorAll(
+            'input[data-axis-tag].editor-axis-value-designspace'
+        );
+        designspaceValueLabels.forEach((label: any) => {
+            const axisTag: string | null = label.getAttribute('data-axis-tag');
+            if (axisTag && this.variationSettings[axisTag] !== undefined) {
+                (label as HTMLInputElement).value = this.formatAxisCoordinate(
+                    this.getDesignspaceValueForAxis(
+                        axisTag,
+                        Number(this.variationSettings[axisTag])
+                    )
+                );
             }
         });
     }
@@ -241,6 +334,26 @@ export class AxesManager {
         title.textContent = 'Variable Axes';
         tempContainer.appendChild(title);
 
+        const valueColumnsHeader = document.createElement('div');
+        valueColumnsHeader.className = 'editor-axis-columns-header';
+        valueColumnsHeader.title =
+            'US = userspace coordinate used by the editor. DS = designspace coordinate mapped through the axis map.';
+
+        const valueColumnsSpacer = document.createElement('span');
+        valueColumnsSpacer.className = 'editor-axis-columns-spacer';
+        valueColumnsHeader.appendChild(valueColumnsSpacer);
+
+        const userspaceHeader = document.createElement('span');
+        userspaceHeader.className = 'editor-axis-column-label';
+        userspaceHeader.textContent = 'US';
+        valueColumnsHeader.appendChild(userspaceHeader);
+
+        const designspaceHeader = document.createElement('span');
+        designspaceHeader.className = 'editor-axis-column-label';
+        designspaceHeader.textContent = 'DS';
+        valueColumnsHeader.appendChild(designspaceHeader);
+        tempContainer.appendChild(valueColumnsHeader);
+
         // Create slider for each axis
         axes.forEach((axis: VariationAxis) => {
             const axisContainer = document.createElement('div');
@@ -259,6 +372,13 @@ export class AxesManager {
             valueLabel.className = 'editor-axis-value';
             valueLabel.setAttribute('data-axis-tag', axis.tag);
             valueLabel.setAttribute('inputmode', 'numeric');
+
+            const designspaceValueLabel = document.createElement('input');
+            designspaceValueLabel.type = 'text';
+            designspaceValueLabel.className =
+                'editor-axis-value editor-axis-value-designspace';
+            designspaceValueLabel.setAttribute('data-axis-tag', axis.tag);
+            designspaceValueLabel.setAttribute('inputmode', 'numeric');
 
             // Play/pause button — get persistent state, create if missing
             const playButton = document.createElement('button');
@@ -302,10 +422,18 @@ export class AxesManager {
                     : Number(axis.default);
 
             slider.value = initialValue.toString();
-            valueLabel.value = initialValue.toFixed(0);
 
             // Initialize variation setting
             this.variationSettings[axis.tag] = initialValue;
+
+            const syncAxisValueFields = (userspaceValue: number) => {
+                valueLabel.value = this.formatAxisCoordinate(userspaceValue);
+                designspaceValueLabel.value = this.formatAxisCoordinate(
+                    this.getDesignspaceValueForAxis(axis.tag, userspaceValue)
+                );
+            };
+
+            syncAxisValueFields(initialValue);
 
             // Function to update slider fill
             const updateSliderFill = () => {
@@ -343,7 +471,7 @@ export class AxesManager {
 
                 // Update slider and value label in current DOM
                 slider.value = value.toString();
-                valueLabel.value = value.toFixed(0);
+                syncAxisValueFields(value);
                 updateSliderFill();
 
                 // Immediate update — no nested eased animation per tick
@@ -416,9 +544,14 @@ export class AxesManager {
                 }
             });
 
-            labelRow.appendChild(axisLabel);
             labelRow.appendChild(playButton);
-            labelRow.appendChild(valueLabel);
+            labelRow.appendChild(axisLabel);
+
+            const valueFields = document.createElement('div');
+            valueFields.className = 'editor-axis-value-fields';
+            valueFields.appendChild(valueLabel);
+            valueFields.appendChild(designspaceValueLabel);
+            labelRow.appendChild(valueFields);
 
             // Slider
             axisContainer.appendChild(labelRow);
@@ -427,15 +560,18 @@ export class AxesManager {
 
             // Handle value input changes
             valueLabel.addEventListener('input', (e) => {
-                // @ts-ignore
-                let inputValue = e.target.value.replace(/[^0-9.-]/g, '');
-                // @ts-ignore
-                e.target.value = inputValue;
+                const target = e.target as HTMLInputElement;
+                target.value = this.sanitizeIntegerInput(target.value);
+            });
+
+            designspaceValueLabel.addEventListener('input', (e) => {
+                const target = e.target as HTMLInputElement;
+                target.value = this.sanitizeIntegerInput(target.value);
             });
 
             valueLabel.addEventListener('change', async (e) => {
-                // @ts-ignore
-                let value = parseFloat(e.target.value);
+                const target = e.target as HTMLInputElement;
+                let value = parseInt(target.value, 10);
 
                 // Clamp value to axis bounds
                 if (isNaN(value)) {
@@ -447,8 +583,7 @@ export class AxesManager {
                     );
                 }
 
-                // @ts-ignore
-                e.target.value = value.toFixed(0);
+                syncAxisValueFields(value);
 
                 // Update the slider position to match
                 slider.value = value.toString();
@@ -470,7 +605,41 @@ export class AxesManager {
                 // Note: Layer selection will be handled when animation completes
             });
 
+            designspaceValueLabel.addEventListener('change', async (e) => {
+                const target = e.target as HTMLInputElement;
+                const rawValue = parseInt(target.value, 10);
+                const currentUserspaceValue =
+                    this.variationSettings[axis.tag] !== undefined
+                        ? Number(this.variationSettings[axis.tag])
+                        : initialValue;
+                let userspaceValue = Number.isNaN(rawValue)
+                    ? currentUserspaceValue
+                    : this.getUserspaceValueForAxis(axis.tag, rawValue);
+                userspaceValue = Math.round(userspaceValue);
+
+                userspaceValue = Math.max(
+                    Number(axis.min),
+                    Math.min(Number(axis.max), userspaceValue)
+                );
+
+                syncAxisValueFields(userspaceValue);
+                slider.value = userspaceValue.toString();
+                updateSliderFill();
+
+                this.isTextFieldChange = true;
+                await this.call('sliderMouseDown');
+                this.call('onSliderChange', axis.tag, userspaceValue);
+                this.setVariation(axis.tag, userspaceValue);
+            });
+
             valueLabel.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    // @ts-ignore
+                    e.target.blur();
+                }
+            });
+
+            designspaceValueLabel.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     // @ts-ignore
                     e.target.blur();
@@ -524,7 +693,7 @@ export class AxesManager {
             slider.addEventListener('input', (e) => {
                 // @ts-ignore
                 const value = parseFloat(e.target.value);
-                valueLabel.value = value.toFixed(0);
+                syncAxisValueFields(value);
 
                 // Update slider fill
                 updateSliderFill();

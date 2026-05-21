@@ -2721,21 +2721,63 @@ class GlyphCanvas {
         const mastersList = document.createElement('div');
         mastersList.className = 'editor-layers-list';
 
+        const getLocationTags = (
+            ...locations: Array<Record<string, number> | undefined | null>
+        ): string[] => {
+            const extraTags = locations
+                .flatMap((location) => Object.keys(location || {}))
+                .filter((tag) => !axesOrder.includes(tag));
+
+            return [...axesOrder, ...extraTags];
+        };
+
+        const formatCompactLocationSummary = (
+            userspaceLocation: Record<string, number> | undefined | null,
+            designspaceLocation: Record<string, number> | undefined | null
+        ): string[] => {
+            const tags = getLocationTags(
+                userspaceLocation,
+                designspaceLocation
+            );
+            const summary = tags
+                .filter(
+                    (tag: string) =>
+                        userspaceLocation?.[tag] !== undefined ||
+                        designspaceLocation?.[tag] !== undefined
+                )
+                .map((tag: string) => {
+                    const userspaceValue = userspaceLocation?.[tag];
+                    const designspaceValue = designspaceLocation?.[tag];
+
+                    return `${tag}:${Math.round(Number(userspaceValue ?? designspaceValue))}/${Math.round(Number(designspaceValue ?? userspaceValue))}`;
+                })
+                .join(', ');
+
+            return summary ? [summary] : ['default'];
+        };
+
         const formatAxisValues = (
             location: DesignspaceLocation | undefined
-        ): string => {
-            if (!location || !fontModel.axes) return '';
-            const userspaceLocation = designspaceToUserspace(
-                location,
-                fontModel.axes as any
+        ): string[] => {
+            const designspaceLocation = location
+                ? ({ ...location } as Record<string, number>)
+                : {};
+            const userspaceLocation: Record<string, number> = location
+                ? ({
+                      ...designspaceToUserspace(location, fontModel.axes as any)
+                  } as Record<string, number>)
+                : {};
+
+            for (const [tag, value] of Object.entries(designspaceLocation)) {
+                if (userspaceLocation[tag] === undefined) {
+                    userspaceLocation[tag] = value;
+                }
+            }
+
+            return formatCompactLocationSummary(
+                userspaceLocation,
+                designspaceLocation
             );
-            return axesOrder
-                .filter((tag: string) => tag in userspaceLocation)
-                .map(
-                    (tag: string) =>
-                        `${tag}:${Math.round(Number(userspaceLocation[tag]))}`
-                )
-                .join(', ');
         };
 
         const getLayerMasterId = (layer: Layer): string | undefined => {
@@ -2904,7 +2946,7 @@ class GlyphCanvas {
             master: any,
             layer: Layer | undefined,
             displayName: string,
-            axisValues: string,
+            axisValues: string[],
             italicizeName: boolean = false,
             target?: LayerListContextTarget
         ): HTMLDivElement => {
@@ -2938,10 +2980,17 @@ class GlyphCanvas {
             nameSpan.textContent = displayName;
             itemContent.appendChild(nameSpan);
 
-            if (axisValues) {
+            if (axisValues.length > 0) {
                 const axisSpan = document.createElement('div');
                 axisSpan.className = 'master-item-location';
-                axisSpan.textContent = axisValues;
+                axisSpan.replaceChildren(
+                    ...axisValues.map((line) => {
+                        const lineEl = document.createElement('div');
+                        lineEl.className = 'master-item-location-line';
+                        lineEl.textContent = line;
+                        return lineEl;
+                    })
+                );
                 itemContent.appendChild(axisSpan);
             }
 

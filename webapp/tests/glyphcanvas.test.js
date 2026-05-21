@@ -10728,6 +10728,36 @@ describe('OutlineEditor exact selected layers', () => {
         ).toBe(false);
     });
 
+    test('renders both userspace and designspace location lines in the layers list', async () => {
+        const targetContainer = document.createElement('div');
+        canvas.outlineEditor.active = true;
+
+        await canvas.displayMastersList(targetContainer);
+
+        const masterLayerLocation = targetContainer.querySelector(
+            '.editor-layer-item[data-layer-id="master-layer"] .master-item-location'
+        );
+        const braceLayerLocation = targetContainer.querySelector(
+            '.editor-layer-item[data-layer-id="brace-layer"] .master-item-location'
+        );
+
+        expect(masterLayerLocation?.textContent).toBe('wght:0/0');
+        expect(braceLayerLocation?.textContent).toBe('wght:50/50');
+    });
+
+    test('renders both userspace and designspace location lines in the masters list', async () => {
+        const targetContainer = document.createElement('div');
+        canvas.outlineEditor.active = false;
+
+        await canvas.displayMastersList(targetContainer);
+
+        const masterLocation = targetContainer.querySelector(
+            '.editor-layer-item[data-master-id="master-1"] .master-item-location'
+        );
+
+        expect(masterLocation?.textContent).toBe('wght:0/0');
+    });
+
     test('disables the create-layer button at an exact layer location', async () => {
         const targetContainer = document.createElement('div');
         canvas.outlineEditor.active = true;
@@ -14162,6 +14192,102 @@ describe('GlyphCanvas animation setup', () => {
         expect(canvas.zoomAnimation.active).toBe(true);
         // currentFrame starts incrementing immediately
         expect(canvas.zoomAnimation.currentFrame).toBeGreaterThanOrEqual(0);
+    });
+});
+
+describe('AxesManager coordinate fields', () => {
+    let canvas;
+    let getVariationAxesSpy;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        document.body.appendChild(canvas.axesManager.createAxesSection());
+
+        window.currentFontModel = {
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 0,
+                    default: 0,
+                    max: 100,
+                    map: [
+                        [0, 100],
+                        [100, 900]
+                    ]
+                }
+            ]
+        };
+
+        getVariationAxesSpy = jest
+            .spyOn(canvas.axesManager, 'getVariationAxes')
+            .mockResolvedValue([
+                {
+                    tag: 'wght',
+                    name: 'Weight',
+                    min: 0,
+                    max: 100,
+                    default: 0
+                }
+            ]);
+    });
+
+    afterEach(() => {
+        getVariationAxesSpy.mockRestore();
+        delete window.currentFontModel;
+        canvas.destroy();
+    });
+
+    test('keeps userspace and designspace axis inputs synchronized', async () => {
+        await canvas.axesManager.updateAxesUI();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+
+        const userspaceInput = document.querySelector(
+            '.editor-axis-value[data-axis-tag="wght"]'
+        );
+        const designspaceInput = document.querySelector(
+            '.editor-axis-value-designspace[data-axis-tag="wght"]'
+        );
+        const slider = document.querySelector(
+            '.editor-axis-slider[data-axis-tag="wght"]'
+        );
+
+        expect(userspaceInput.value).toBe('0');
+        expect(designspaceInput.value).toBe('100');
+
+        expect(canvas.axesManager.getUserspaceValueForAxis('wght', 500)).toBe(
+            50
+        );
+
+        canvas.axesManager.setAxisValue('wght', 50);
+        expect(userspaceInput.value).toBe('50');
+        expect(designspaceInput.value).toBe('500');
+        expect(slider.value).toBe('50');
+
+        canvas.axesManager.setAxisValue('wght', 75);
+
+        expect(userspaceInput.value).toBe('75');
+        expect(designspaceInput.value).toBe('700');
+        expect(slider.value).toBe('75');
+
+        canvas.axesManager.setAxisValue('wght', 75.6);
+
+        expect(userspaceInput.value).toBe('76');
+        expect(designspaceInput.value).toBe('705');
+        expect(slider.value).toBe('75.6');
+
+        userspaceInput.value = '50.7';
+        userspaceInput.dispatchEvent(
+            new window.Event('input', { bubbles: true })
+        );
+        expect(userspaceInput.value).toBe('50');
+
+        designspaceInput.value = '700.9';
+        designspaceInput.dispatchEvent(
+            new window.Event('input', { bubbles: true })
+        );
+        expect(designspaceInput.value).toBe('700');
     });
 });
 

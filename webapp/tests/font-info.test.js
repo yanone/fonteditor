@@ -1114,7 +1114,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         const masterSidebarText = document.querySelector(
             '.fontinfo-record-item-secondary'
         );
-        expect(masterSidebarText.textContent).toBe('Weight 400');
+        expect(masterSidebarText.textContent).toBe('wght:400/400');
         expect(
             document.querySelector('[data-font-field="masters.0.id"]')
         ).toBeNull();
@@ -2264,7 +2264,7 @@ describe('FontInfo feature code compilation scheduling', () => {
             document.querySelector(
                 '#fontinfo-masters-content .fontinfo-record-item-secondary'
             ).textContent
-        ).toBe('Weight 650');
+        ).toBe('wght:650/650');
 
         fontInfoManager.switchTab('instances');
 
@@ -2301,7 +2301,7 @@ describe('FontInfo feature code compilation scheduling', () => {
             document.querySelector(
                 '#fontinfo-instances-content .fontinfo-record-item-secondary'
             ).textContent
-        ).toBe('Weight 720');
+        ).toBe('wght:720/720');
     });
 
     test('axes list controls add, remove, and reorder through the patch funnel', () => {
