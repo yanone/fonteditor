@@ -149,6 +149,20 @@ type UndoTarget = {
     layerId: string | null;
 };
 
+type UndoHistoryStacks = {
+    active: string[];
+    undone: string[];
+};
+
+const FONT_UNDO_HISTORY_KEY = '__font-undo-history__';
+
+function removeHistoryItemFromStack(stack: string[], itemId: string): void {
+    const index = stack.lastIndexOf(itemId);
+    if (index >= 0) {
+        stack.splice(index, 1);
+    }
+}
+
 function cloneChangeLogEntryForHistoryAction(
     entry: ChangeLogEntry,
     historyAction: 'undo' | 'redo',
@@ -361,6 +375,8 @@ export class PatchSyncEngine {
     >();
     /** "Font-level" undo manager for axes/masters/instances/font properties */
     private _fontUndoManager: Y.UndoManager | null = null;
+    /** Local history-item stacks aligned with each undo-manager scope */
+    private _undoHistoryStacks = new Map<string, UndoHistoryStacks>();
     /** Change log of all recorded changes */
     private _changeLog: ChangeLogEntry[] = [];
     /** Unique window identifier */
@@ -837,6 +853,7 @@ export class PatchSyncEngine {
         this._undoManagers.clear();
         this._fontUndoManager?.destroy();
         this._fontUndoManager = null;
+        this._undoHistoryStacks.clear();
         this.yDoc.destroy();
         this._fontJson = null;
         this._changeLog = [];
@@ -1505,10 +1522,19 @@ export class PatchSyncEngine {
         const localUpdateBaseline = Y.encodeStateVector(this.yDoc);
         this._suppressRecording = true;
         try {
-            const targetHistoryItemId = targetItem?.id ?? null;
+            const targetHistoryItemId =
+                targetItem?.id ??
+                this._peekUndoHistoryItemId(
+                    scope,
+                    target.glyphName,
+                    target.layerId,
+                    'undo'
+                );
+            const semanticHistoryItem =
+                targetItem ?? this._findHistoryItemById(targetHistoryItemId);
             const timestamp = Date.now();
             const metadataEntries = getSemanticEntriesForHistoryItem(
-                targetItem,
+                semanticHistoryItem,
                 'undo',
                 targetHistoryItemId,
                 timestamp,
@@ -1571,11 +1597,18 @@ export class PatchSyncEngine {
             ) {
                 this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
             }
+            this._advanceUndoHistoryItem(
+                scope,
+                target.glyphName,
+                target.layerId,
+                'undo',
+                targetHistoryItemId
+            );
             return {
                 scope,
                 glyphName: target.glyphName,
                 layerId: target.layerId,
-                historyItem: targetItem
+                historyItem: semanticHistoryItem
             };
         } finally {
             this._suppressRecording = false;
@@ -1625,10 +1658,19 @@ export class PatchSyncEngine {
         const localUpdateBaseline = Y.encodeStateVector(this.yDoc);
         this._suppressRecording = true;
         try {
-            const targetHistoryItemId = targetItem?.id ?? null;
+            const targetHistoryItemId =
+                targetItem?.id ??
+                this._peekUndoHistoryItemId(
+                    scope,
+                    target.glyphName,
+                    target.layerId,
+                    'redo'
+                );
+            const semanticHistoryItem =
+                targetItem ?? this._findHistoryItemById(targetHistoryItemId);
             const timestamp = Date.now();
             const metadataEntries = getSemanticEntriesForHistoryItem(
-                targetItem,
+                semanticHistoryItem,
                 'redo',
                 targetHistoryItemId,
                 timestamp,
@@ -1690,11 +1732,18 @@ export class PatchSyncEngine {
             ) {
                 this._emitCanonicalLocalUpdateSince(localUpdateBaseline);
             }
+            this._advanceUndoHistoryItem(
+                scope,
+                target.glyphName,
+                target.layerId,
+                'redo',
+                targetHistoryItemId
+            );
             return {
                 scope,
                 glyphName: target.glyphName,
                 layerId: target.layerId,
-                historyItem: targetItem
+                historyItem: semanticHistoryItem
             };
         } finally {
             this._suppressRecording = false;
@@ -2655,6 +2704,7 @@ export class PatchSyncEngine {
         this._undoManagers.clear();
         this._fontUndoManager?.destroy();
         this._fontUndoManager = null;
+        this._undoHistoryStacks.clear();
         this._notifyChangeLogListeners();
         this._notifyCollaborationLogListeners();
     }
@@ -3104,6 +3154,13 @@ export class PatchSyncEngine {
             this._emitCanonicalLocalUpdateSince(localUpdateFallbackBaseline);
         }
 
+        this._recordUndoHistoryItem(
+            scopeInfo.scope,
+            scopeInfo.glyphName,
+            scopeInfo.layerId,
+            nextHistoryItemId
+        );
+
         this._finishBatchUndoManagers(scopeInfo);
         this._onDirty?.();
 
@@ -3408,6 +3465,108 @@ export class PatchSyncEngine {
             return GLYPH_EDIT_ORIGIN;
         }
         return FONT_EDIT_ORIGIN;
+    }
+
+    private _getUndoHistoryScopeKey(
+        scope: UndoScope,
+        glyphName: string | null,
+        layerId: string | null
+    ): string {
+        if (scope === 'layer' && glyphName && layerId) {
+            return getLayerManagerKey(glyphName, layerId);
+        }
+        if (scope === 'glyph' && glyphName) {
+            return glyphName;
+        }
+        return FONT_UNDO_HISTORY_KEY;
+    }
+
+    private _getUndoHistoryStacksForScope(
+        scope: UndoScope,
+        glyphName: string | null,
+        layerId: string | null
+    ): UndoHistoryStacks {
+        const key = this._getUndoHistoryScopeKey(scope, glyphName, layerId);
+        const existing = this._undoHistoryStacks.get(key);
+        if (existing) {
+            return existing;
+        }
+
+        const created: UndoHistoryStacks = { active: [], undone: [] };
+        this._undoHistoryStacks.set(key, created);
+        return created;
+    }
+
+    private _recordUndoHistoryItem(
+        scope: UndoScope,
+        glyphName: string | null,
+        layerId: string | null,
+        historyItemId: string
+    ): void {
+        const stacks = this._getUndoHistoryStacksForScope(
+            scope,
+            glyphName,
+            layerId
+        );
+        removeHistoryItemFromStack(stacks.active, historyItemId);
+        removeHistoryItemFromStack(stacks.undone, historyItemId);
+        stacks.active.push(historyItemId);
+        stacks.undone.length = 0;
+    }
+
+    private _peekUndoHistoryItemId(
+        scope: UndoScope,
+        glyphName: string | null,
+        layerId: string | null,
+        historyAction: 'undo' | 'redo'
+    ): string | null {
+        const stacks = this._getUndoHistoryStacksForScope(
+            scope,
+            glyphName,
+            layerId
+        );
+        const sourceStack =
+            historyAction === 'undo' ? stacks.active : stacks.undone;
+        return sourceStack.length ? sourceStack[sourceStack.length - 1] : null;
+    }
+
+    private _advanceUndoHistoryItem(
+        scope: UndoScope,
+        glyphName: string | null,
+        layerId: string | null,
+        historyAction: 'undo' | 'redo',
+        historyItemId: string | null
+    ): void {
+        if (!historyItemId) {
+            return;
+        }
+
+        const stacks = this._getUndoHistoryStacksForScope(
+            scope,
+            glyphName,
+            layerId
+        );
+        const sourceStack =
+            historyAction === 'undo' ? stacks.active : stacks.undone;
+        const targetStack =
+            historyAction === 'undo' ? stacks.undone : stacks.active;
+        removeHistoryItemFromStack(sourceStack, historyItemId);
+        removeHistoryItemFromStack(targetStack, historyItemId);
+        targetStack.push(historyItemId);
+    }
+
+    private _findHistoryItemById(
+        historyItemId: string | null
+    ): HistoryStackItem | null {
+        if (!historyItemId) {
+            return null;
+        }
+
+        return (
+            buildHistoryStackItems(this._changeLog, {
+                includeUndone: true
+            }).find((item) => item.id === historyItemId) ?? null
+        );
     }
 
     private _deriveBulkUndoScope(

@@ -4535,6 +4535,73 @@ describe('syncGlyphFromJson', () => {
         }
     );
 
+    test('undo falls back to scoped manager history metadata when history item resolution misses the last step', () => {
+        const { bridge } = createTestBridge('test-undo-history-fallback');
+        const workerUpdates = [];
+
+        bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+            workerUpdates.push({ update, changeLogEntries });
+        });
+
+        bridge.applySyntheticChangeSet('Arrow key', [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1'],
+                oldValue: {
+                    id: 'layer-1',
+                    width: 600,
+                    shapes: [],
+                    anchors: [],
+                    guides: []
+                },
+                newValue: {
+                    id: 'layer-1',
+                    width: 640,
+                    shapes: [
+                        {
+                            closed: false,
+                            nodes: [
+                                { x: 0, y: 0, nodetype: 'Line' },
+                                { x: 10, y: 10, nodetype: 'Line' }
+                            ]
+                        }
+                    ],
+                    anchors: [],
+                    guides: []
+                },
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        ]);
+
+        const forwardEntry = workerUpdates.at(-1).changeLogEntries[0];
+        workerUpdates.length = 0;
+
+        bridge._resolveUndoHistoryItem = jest.fn(() => null);
+
+        const result = bridge.undo('A', 'layer-1');
+
+        expect(result).toEqual(
+            expect.objectContaining({
+                scope: 'layer',
+                glyphName: 'A',
+                layerId: 'layer-1',
+                historyItem: expect.objectContaining({
+                    id: forwardEntry.historyItemId
+                })
+            })
+        );
+        expect(workerUpdates).toHaveLength(1);
+        expect(workerUpdates[0].changeLogEntries).toEqual([
+            expect.objectContaining({
+                historyAction: 'undo',
+                targetHistoryItemId: forwardEntry.historyItemId,
+                transactionLabel: forwardEntry.transactionLabel,
+                path: forwardEntry.path,
+                workerReplayTargets: forwardEntry.workerReplayTargets
+            })
+        ]);
+    });
+
     test('redo after undo preserves flat original semantic metadata', () => {
         const { bridge } = createTestBridge('test-redo-flat-metadata');
         const workerUpdates = [];
