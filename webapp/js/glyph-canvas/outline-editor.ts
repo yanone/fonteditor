@@ -15296,28 +15296,31 @@ export class OutlineEditor {
         // recomputeMetricsKeys pass doesn't re-derive the width back to the
         // keyed value (BUG: typing `60` over an existing `=50` left the key
         // intact and snapped back).
-        const layer = this.getSelectionScopeLayerModel(
-            this.getCurrentLayerId()
-        );
-        if (layer && typeof layer.clearEffectiveSidebearingKey === 'function') {
-            layer.clearEffectiveSidebearingKey(side);
-        }
-
-        if (
-            !this.applySidebearingDelta(side, targetValue - currentSidebearing)
-        ) {
-            return false;
-        }
-
-        // Wrap keyboard edit in a transaction so model changes from
-        // saveLayerData and metrics-key cascade recomputation are
-        // committed as a single Yjs transaction with one broadcast.
         const bridge = window.patchSyncEngine;
         const hasTransaction = typeof bridge?.beginTransaction === 'function';
         if (hasTransaction) {
             bridge.beginTransaction('Set sidebearing');
         }
         try {
+            const layer = this.getSelectionScopeLayerModel(
+                this.getCurrentLayerId()
+            );
+            if (
+                layer &&
+                typeof layer.clearEffectiveSidebearingKey === 'function'
+            ) {
+                layer.clearEffectiveSidebearingKey(side);
+            }
+
+            if (
+                !this.applySidebearingDelta(
+                    side,
+                    targetValue - currentSidebearing
+                )
+            ) {
+                return false;
+            }
+
             this.saveLayerData('keyboard-outline');
             const sidebearingChangedLayerTargets =
                 this.collectMatchingLayerWorkerReplayTargets(

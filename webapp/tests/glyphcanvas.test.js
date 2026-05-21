@@ -2650,15 +2650,27 @@ describe('GlyphCanvas property panel metrics edits', () => {
             { glyphName: 'n', layerId: 'master-layer' }
         ];
         const originalChangeBridge = window.changeBridge;
+        const callOrder = [];
         const saveLayerDataSpy = jest
             .spyOn(canvas.outlineEditor, 'saveLayerData')
-            .mockImplementation(() => {});
+            .mockImplementation(() => {
+                callOrder.push('save');
+            });
         const getCurrentDirectSidebearingSpy = jest
             .spyOn(canvas.outlineEditor, 'getCurrentDirectSidebearing')
             .mockReturnValue(10);
+        const clearEffectiveSidebearingKeySpy = jest.fn(() => {
+            callOrder.push('clear-key');
+        });
+        const getSelectionScopeLayerModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getSelectionScopeLayerModel')
+            .mockReturnValue({
+                clearEffectiveSidebearingKey: clearEffectiveSidebearingKeySpy
+            });
         const applySidebearingDeltaSpy = jest
             .spyOn(canvas.outlineEditor, 'applySidebearingDelta')
             .mockImplementation(() => {
+                callOrder.push('apply-delta');
                 canvas.outlineEditor._sidebearingAffectedGlyphNames = new Set([
                     'l',
                     'n'
@@ -2682,7 +2694,15 @@ describe('GlyphCanvas property panel metrics edits', () => {
             .mockReturnValue(targets);
 
         window.changeBridge = {
-            syncLayersFromJson: jest.fn(),
+            beginTransaction: jest.fn(() => {
+                callOrder.push('begin');
+            }),
+            endTransaction: jest.fn(() => {
+                callOrder.push('end');
+            }),
+            syncLayersFromJson: jest.fn(() => {
+                callOrder.push('sync-layers');
+            }),
             syncGlyphFromJson: jest.fn()
         };
 
@@ -2698,6 +2718,20 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 'left',
                 targets
             );
+            expect(clearEffectiveSidebearingKeySpy).toHaveBeenCalledWith(
+                'left'
+            );
+            expect(window.changeBridge.beginTransaction).toHaveBeenCalledWith(
+                'Set sidebearing'
+            );
+            expect(callOrder).toEqual([
+                'begin',
+                'clear-key',
+                'apply-delta',
+                'save',
+                'sync-layers',
+                'end'
+            ]);
             expect(
                 window.changeBridge.syncGlyphFromJson
             ).not.toHaveBeenCalled();
@@ -2707,6 +2741,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             glyphModelSpy.mockRestore();
             syncDependentsSpy.mockRestore();
             applySidebearingDeltaSpy.mockRestore();
+            getSelectionScopeLayerModelSpy.mockRestore();
             getCurrentDirectSidebearingSpy.mockRestore();
             saveLayerDataSpy.mockRestore();
         }

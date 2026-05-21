@@ -1528,6 +1528,7 @@ self.onmessage = async (event) => {
                 id,
                 update,
                 changedGlyphs,
+                layerTargets,
                 nonGlyphChangeHints,
                 invalidateLayoutClosure
             } = data;
@@ -1535,16 +1536,17 @@ self.onmessage = async (event) => {
                 if (!initialized) {
                     await initializeWasm();
                 }
-                const updateMetadataJson = JSON.stringify(
-                    {
-                        changedGlyphs: Array.isArray(changedGlyphs)
-                            ? changedGlyphs
-                            : [],
-                        nonGlyphChangeHints: Array.isArray(nonGlyphChangeHints)
-                            ? nonGlyphChangeHints
-                            : []
-                    }
-                );
+                const updateMetadataJson = JSON.stringify({
+                    changedGlyphs: Array.isArray(changedGlyphs)
+                        ? changedGlyphs
+                        : [],
+                    nonGlyphChangeHints: Array.isArray(nonGlyphChangeHints)
+                        ? nonGlyphChangeHints
+                        : [],
+                    layerTargets: Array.isArray(layerTargets)
+                        ? layerTargets
+                        : []
+                });
                 const resultJson = apply_yjs_update(
                     update instanceof Uint8Array
                         ? update

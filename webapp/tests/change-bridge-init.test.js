@@ -1178,6 +1178,12 @@ describe('bridge Yjs worker callback', () => {
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({ success: true });
+        const hasWorkerCacheDocumentSpy = jest
+            .spyOn(fullFontCompilation, 'hasWorkerCacheDocument')
+            .mockReturnValue(true);
+        const fullWorkerUpdateSpy = jest
+            .spyOn(fullFontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
 
         fontCompilation.isInitialized = true;
         window.windowRole = {
@@ -1191,6 +1197,7 @@ describe('bridge Yjs worker callback', () => {
 
         const bridge = initializeBridgeHarness();
         workerSeedSpy.mockClear();
+        fullWorkerUpdateSpy.mockClear();
 
         // Outline edit — layer-scoped node change
         bridge._yjsWorkerCallback(new Uint8Array([7, 7]), [
@@ -1212,6 +1219,15 @@ describe('bridge Yjs worker callback', () => {
             expect.objectContaining({
                 invalidateLayoutClosure: false,
                 layerTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            })
+        );
+        expect(hasWorkerCacheDocumentSpy).toHaveBeenCalled();
+        expect(fullWorkerUpdateSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: ['A'],
+                layerTargets: [{ glyphName: 'A', layerId: 'layer-1' }],
+                invalidateLayoutClosure: false
             })
         );
     });

@@ -80,9 +80,9 @@ type ExplicitLayerCacheInput = LayerCacheUpdate;
  * Counters that record traffic across the JS ↔ Rust/worker boundary.
  *
  * These are the numbers the Counterpunch compilation policy locks down:
- * during interactive editing every commit MUST flow through the batched
- * Yjs update path (`submitLayerUpdatesToWorkerCache` → `applyYjsUpdate`
- * worker message). Full-font
+ * during interactive editing every commit MUST flow through the authoritative
+ * Yjs update path (`forwardWorkerYjsUpdate` → `applyYjsUpdate` worker
+ * message). Full-font
  * crossings (`storeFontJson`) MUST stay at zero outside of font open,
  * external reload, and explicit force-full sync. Tests assert the
  * deltas of these counters per edit/cascade/undo/remote operation.
@@ -1850,7 +1850,7 @@ class FontManager {
                     | {
                           skip_features?: boolean;
                           skip_kerning?: boolean;
-                                                    skip_outlines?: boolean;
+                          skip_outlines?: boolean;
                           produce_varc_table?: boolean;
                       }
                     | undefined;
@@ -3355,7 +3355,8 @@ class FontManager {
         update: Uint8Array,
         changedGlyphs: string[],
         invalidateLayoutClosure: boolean,
-        nonGlyphChangeHints: string[] = []
+        nonGlyphChangeHints: string[] = [],
+        layerTargets: WorkerReplayTarget[] = []
     ): Promise<boolean> {
         const runSend = async (): Promise<boolean> => {
             if (!fontCompilation?.isInitialized) {
@@ -3367,11 +3368,16 @@ class FontManager {
             }
 
             try {
+                const normalizedLayerTargets =
+                    normalizeWorkerReplayTargets(layerTargets);
                 const response = await fontCompilation.sendMessage({
                     type: 'applyYjsUpdate',
                     update,
                     changedGlyphs,
                     nonGlyphChangeHints,
+                    ...(normalizedLayerTargets.length
+                        ? { layerTargets: normalizedLayerTargets }
+                        : undefined),
                     invalidateLayoutClosure
                 });
 
@@ -3464,9 +3470,12 @@ class FontManager {
             const modelGlyph = currentFont.fontModel?.glyphs?.find(
                 (entry: any) => entry?.name === glyphName
             );
-            const modelLayer = modelGlyph?.layers?.find(
-                (entry: any) => entry?.id === layerId
-            );
+            const rawModelGlyph = modelGlyph as any;
+            const modelLayer =
+                rawModelGlyph?.data?.layers?.find(
+                    (entry: any) => entry?.id === layerId
+                ) ??
+                modelGlyph?.layers?.find((entry: any) => entry?.id === layerId);
 
             if (!modelLayer) {
                 removedFingerprintKeys.push(fingerprintKey);
@@ -3518,12 +3527,13 @@ class FontManager {
             options?.layerTargets || []
         );
 
-        if (!normalizedChangedGlyphs.length) {
+        if (!normalizedChangedGlyphs.length && !normalizedLayerTargets.length) {
             return this.sendWorkerYjsUpdate(
                 update,
                 [],
                 options?.invalidateLayoutClosure !== false,
-                normalizedNonGlyphChangeHints
+                normalizedNonGlyphChangeHints,
+                normalizedLayerTargets
             );
         }
 
@@ -3548,13 +3558,22 @@ class FontManager {
             update,
             normalizedChangedGlyphs,
             options?.invalidateLayoutClosure !== false,
-            normalizedNonGlyphChangeHints
+            normalizedNonGlyphChangeHints,
+            normalizedLayerTargets
         );
 
         if (!sent) {
             return this.recoverWorkerCacheFromAuthoritativeState(
                 'forwarded Yjs update failed'
             );
+        }
+
+        if (
+            normalizedLayerTargets.length > 0 &&
+            this.pendingBabelfontJsonSyncAfterDrag
+        ) {
+            this.syncBabelfontJsonFromCurrentModel();
+            this.pendingBabelfontJsonSyncAfterDrag = false;
         }
 
         for (const fingerprintKey of removedFingerprintKeys) {
@@ -3578,10 +3597,12 @@ class FontManager {
             }
         }
 
-        if (fingerprintUpdates.length > 0) {
+        const transmittedLayerCount =
+            normalizedLayerTargets.length || fingerprintUpdates.length;
+        if (transmittedLayerCount > 0) {
             this._boundaryCrossingStats.submitBatchCalls++;
             this._boundaryCrossingStats.layersTransmitted +=
-                fingerprintUpdates.length;
+                transmittedLayerCount;
             for (const layerUpdate of fingerprintUpdates) {
                 const normalizedLayer = this.normalizeLayerForRust(
                     layerUpdate.layerData
@@ -3595,6 +3616,11 @@ class FontManager {
                 );
                 this._boundaryCrossingStats.transmittedGlyphs.add(
                     layerUpdate.glyphName
+                );
+            }
+            for (const target of normalizedLayerTargets) {
+                this._boundaryCrossingStats.transmittedGlyphs.add(
+                    target.glyphName
                 );
             }
         }
@@ -3765,7 +3791,12 @@ class FontManager {
             const sent = await this.sendWorkerYjsUpdate(
                 workerUpdate.update,
                 workerUpdate.changedGlyphs,
-                options?.invalidateLayoutClosure ?? false
+                options?.invalidateLayoutClosure ?? false,
+                [],
+                normalizedUpdates.map(({ glyphName, layerId }) => ({
+                    glyphName,
+                    layerId
+                }))
             );
             if (!sent) {
                 return await this.recoverWorkerCacheFromAuthoritativeState(
@@ -4150,36 +4181,6 @@ class FontManager {
 
         this.currentFont!.markDirty(changeSource);
         await this.updateDirtyIndicator();
-
-        let keyboardCacheUpdatePromise: Promise<boolean> | null = null;
-        if (changeSource.startsWith('keyboard')) {
-            const refreshPromise = this.submitLayerUpdatesToWorkerCache([
-                {
-                    glyphName,
-                    layerId,
-                    layerData: layerDataCopy
-                }
-            ]);
-            this.workerCacheUpdatePromise = refreshPromise.then(
-                () => undefined
-            );
-            keyboardCacheUpdatePromise = refreshPromise;
-        }
-
-        if (keyboardCacheUpdatePromise) {
-            try {
-                await keyboardCacheUpdatePromise;
-            } catch (error) {
-                console.error(
-                    '[FontManager] Error updating worker cache from keyboard edit:',
-                    error
-                );
-            } finally {
-                if (this.workerCacheUpdatePromise) {
-                    this.workerCacheUpdatePromise = null;
-                }
-            }
-        }
 
         // Update worker's font cache incrementally so glyph overview renders
         // correctly without any full-document resend.

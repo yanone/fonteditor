@@ -375,7 +375,7 @@ describe('FontManager saveLayerData', () => {
         );
     });
 
-    test('keyboard saves defer worker cache priming until after the first await', async () => {
+    test('keyboard saves do not send a duplicate worker cache update before the authoritative Yjs packet', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
         );
@@ -405,12 +405,13 @@ describe('FontManager saveLayerData', () => {
         resolveDirtyIndicator?.();
         await savePromise;
 
-        expect(sendMessageSpy).toHaveBeenCalledWith(
-            expect.objectContaining({
-                type: 'applyYjsUpdate',
-                changedGlyphs: ['a']
-            })
-        );
+        expect(sendMessageSpy).not.toHaveBeenCalled();
+        expect(fontManager.getBoundaryCrossingStats()).toEqual({
+            submitBatchCalls: 0,
+            layersTransmitted: 0,
+            glyphsTransmitted: 0,
+            fullFontCrossings: 0
+        });
     });
 
     test('preserves existing shapes and anchors when outline save payload omits them', async () => {
@@ -552,13 +553,7 @@ describe('FontManager saveLayerData', () => {
         expect(
             window.autoCompileManager.checkAndSchedule
         ).not.toHaveBeenCalled();
-        expect(sendMessageSpy).toHaveBeenCalledWith(
-            expect.objectContaining({
-                type: 'applyYjsUpdate',
-                update: expect.any(Uint8Array),
-                changedGlyphs: ['a']
-            })
-        );
+        expect(sendMessageSpy).not.toHaveBeenCalled();
     });
 
     test('keeps live auto-compile for interactive keyboard anchor saves', async () => {
@@ -582,13 +577,7 @@ describe('FontManager saveLayerData', () => {
         expect(
             window.autoCompileManager.checkAndSchedule
         ).not.toHaveBeenCalled();
-        expect(sendMessageSpy).toHaveBeenCalledWith(
-            expect.objectContaining({
-                type: 'applyYjsUpdate',
-                update: expect.any(Uint8Array),
-                changedGlyphs: ['a']
-            })
-        );
+        expect(sendMessageSpy).not.toHaveBeenCalled();
     });
 
     test('keeps immediate auto-compile for generic keyboard saves', async () => {
@@ -610,13 +599,7 @@ describe('FontManager saveLayerData', () => {
         expect(
             window.autoCompileManager.checkAndSchedule
         ).not.toHaveBeenCalled();
-        expect(sendMessageSpy).toHaveBeenCalledWith(
-            expect.objectContaining({
-                type: 'applyYjsUpdate',
-                update: expect.any(Uint8Array),
-                changedGlyphs: ['a']
-            })
-        );
+        expect(sendMessageSpy).not.toHaveBeenCalled();
     });
 
     test('keeps immediate editing auto-compile for guide drag saves', async () => {
@@ -1733,6 +1716,7 @@ describe('FontManager boundary-crossing budget', () => {
         );
         expect(messageTypes).toEqual(['applyYjsUpdate']);
         expect(sendMessageSpy.mock.calls[0][0]).toMatchObject({
+            layerTargets: targets,
             invalidateLayoutClosure: false
         });
     });
@@ -2072,8 +2056,12 @@ describe('FontManager boundary-crossing budget', () => {
             fontManager,
             'applyWorkerYjsUpdateToMirror'
         );
+        const syncJsonSpy = jest
+            .spyOn(fontManager, 'syncBabelfontJsonFromCurrentModel')
+            .mockReturnValue(false);
         const glyph = fontManager.currentFont.fontModel.findGlyph('a');
         const layerId = glyph.layers[0].id;
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
 
         expect(rawUpdate).toBeInstanceOf(Uint8Array);
 
@@ -2086,11 +2074,14 @@ describe('FontManager boundary-crossing budget', () => {
 
         expect(buildWorkerYjsLayerUpdateSpy).not.toHaveBeenCalled();
         expect(applyMirrorSpy).toHaveBeenCalledWith(rawUpdate);
+        expect(syncJsonSpy).toHaveBeenCalled();
+        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
         expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'applyYjsUpdate',
                 update: rawUpdate,
                 changedGlyphs: ['a'],
+                layerTargets: [{ glyphName: 'a', layerId }],
                 invalidateLayoutClosure: false
             })
         );
@@ -2103,6 +2094,91 @@ describe('FontManager boundary-crossing budget', () => {
 
         buildWorkerYjsLayerUpdateSpy.mockRestore();
         applyMirrorSpy.mockRestore();
+        syncJsonSpy.mockRestore();
+    });
+
+    test('forwardWorkerYjsUpdate counts sparse layer deletion targets as one worker packet', async () => {
+        const glyphName = 'a';
+        const modelGlyph =
+            fontManager.currentFont.fontModel.findGlyph(glyphName);
+        const removedLayerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+        const removedLayer = modelGlyph.data.layers.find(
+            (entry) => entry.id === removedLayerId
+        );
+        expect(removedLayer).toBeTruthy();
+        const sourceGlyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === glyphName
+        );
+        const doc = new Y.Doc();
+        const fontMap = doc.getMap('font');
+
+        doc.transact(() => {
+            jsonToYDoc(
+                cloneJson(fontManager.currentFont.babelfontData),
+                fontMap
+            );
+        });
+        const previousStateVector = Y.encodeStateVector(doc);
+        doc.transact(() => {
+            deleteYPath(fontMap, [
+                'glyphs',
+                glyphName,
+                'layers',
+                removedLayerId
+            ]);
+        });
+        const rawUpdate = Y.encodeStateAsUpdate(doc, previousStateVector);
+
+        const removedLayerIndex = modelGlyph.data.layers.findIndex(
+            (entry) => entry.id === removedLayerId
+        );
+        expect(removedLayerIndex).toBeGreaterThanOrEqual(0);
+        modelGlyph.removeLayer(removedLayerIndex);
+        if (sourceGlyph.layers.some((entry) => entry.id === removedLayerId)) {
+            sourceGlyph.layers = sourceGlyph.layers.filter(
+                (entry) => entry.id !== removedLayerId
+            );
+        }
+        expect(
+            modelGlyph.data.layers.some((entry) => entry.id === removedLayerId)
+        ).toBe(false);
+        expect(
+            fontManager.currentFont.fontModel.glyphs
+                .find((entry) => entry.name === glyphName)
+                .data.layers.some((entry) => entry.id === removedLayerId)
+        ).toBe(false);
+        fontManager.workerLayerFingerprintCache.set(
+            `${glyphName}::${removedLayerId}`,
+            'stale-fingerprint'
+        );
+        fontManager.resetBoundaryCrossingStats();
+
+        await expect(
+            fontManager.forwardWorkerYjsUpdate(rawUpdate, [], {
+                invalidateLayoutClosure: false,
+                layerTargets: [{ glyphName, layerId: removedLayerId }]
+            })
+        ).resolves.toBe(true);
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: [],
+                layerTargets: [{ glyphName, layerId: removedLayerId }],
+                invalidateLayoutClosure: false
+            })
+        );
+        expect(
+            fontManager.workerLayerFingerprintCache.has(
+                `${glyphName}::${removedLayerId}`
+            )
+        ).toBe(false);
+        expect(fontManager.getBoundaryCrossingStats()).toEqual({
+            submitBatchCalls: 1,
+            layersTransmitted: 1,
+            glyphsTransmitted: 1,
+            fullFontCrossings: 0
+        });
     });
 
     test('forwardWorkerYjsUpdate keeps the raw Yjs path alive for glyph removals', async () => {

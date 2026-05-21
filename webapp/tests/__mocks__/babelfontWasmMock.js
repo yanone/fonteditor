@@ -132,10 +132,13 @@ initBabelfontWasm.apply_yjs_update = jest.fn((update, changedGlyphsJson) => {
     const changedGlyphs = Array.isArray(parsedMetadata)
         ? parsedMetadata
         : parsedMetadata.changedGlyphs || [];
+    const layerTargets = Array.isArray(parsedMetadata)
+        ? []
+        : parsedMetadata.layerTargets || [];
     if (!storedYDoc) {
         return JSON.stringify({
             changedGlyphs,
-            changedLayerIds: [],
+            changedLayerIds: layerTargets.map((target) => target.layerId),
             skipped: 'ydoc_not_initialized'
         });
     }
@@ -145,7 +148,7 @@ initBabelfontWasm.apply_yjs_update = jest.fn((update, changedGlyphsJson) => {
 
     return JSON.stringify({
         changedGlyphs,
-        changedLayerIds: []
+        changedLayerIds: layerTargets.map((target) => target.layerId)
     });
 });
 initBabelfontWasm.init_ydoc_from_state = jest.fn((stateUpdate) => {

@@ -2388,6 +2388,7 @@ function initializeBridge(detail: {
                     update,
                     changedGlyphs,
                     nonGlyphChangeHints,
+                    ...(layerTargets.length ? { layerTargets } : undefined),
                     invalidateLayoutClosure
                 })
                 .catch((error) => {
