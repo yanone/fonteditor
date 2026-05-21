@@ -50,6 +50,58 @@ describe('getUndoRedoContext', () => {
         });
     });
 
+    test('preserves font scope over active outline editor layer context', () => {
+        window.glyphCanvas = {
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [
+                    { glyphName: 'a' },
+                    { glyphName: 'a.alt' }
+                ])
+            }
+        };
+        window.getHistoryUndoContext = jest.fn(() => ({
+            scope: 'font',
+            glyphName: null,
+            layerId: null,
+            historyTargetKey: null
+        }));
+
+        expect(getUndoRedoContext()).toEqual({
+            rootGlyphName: 'a',
+            undoGlyphName: undefined,
+            undoLayerId: null,
+            historyTargetKey: null
+        });
+    });
+
+    test('preserves feature scope over active outline editor layer context', () => {
+        window.glyphCanvas = {
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [
+                    { glyphName: 'a' },
+                    { glyphName: 'a.alt' }
+                ])
+            }
+        };
+        window.getHistoryUndoContext = jest.fn(() => ({
+            scope: 'feature',
+            glyphName: null,
+            layerId: null,
+            historyTargetKey: 'feature:kern'
+        }));
+
+        expect(getUndoRedoContext()).toEqual({
+            rootGlyphName: 'a',
+            undoGlyphName: undefined,
+            undoLayerId: null,
+            historyTargetKey: 'feature:kern'
+        });
+    });
+
     test('prefers font scope when Font Info view is focused on a non-feature tab', () => {
         fontInfoView.classList.add('focused');
         window.glyphCanvas = {

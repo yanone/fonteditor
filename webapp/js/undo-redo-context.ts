@@ -53,6 +53,24 @@ export function getUndoRedoContext(): UndoRedoContext {
         };
     }
 
+    if (historyContext?.scope === 'font') {
+        return {
+            rootGlyphName,
+            undoGlyphName: undefined,
+            undoLayerId: null,
+            historyTargetKey: null
+        };
+    }
+
+    if (historyContext?.scope === 'feature') {
+        return {
+            rootGlyphName,
+            undoGlyphName: undefined,
+            undoLayerId: null,
+            historyTargetKey: historyContext.historyTargetKey
+        };
+    }
+
     if (oe?.active && fallbackUndoGlyphName && fallbackUndoLayerId) {
         return {
             rootGlyphName,
@@ -68,24 +86,6 @@ export function getUndoRedoContext(): UndoRedoContext {
             undoGlyphName: fallbackUndoGlyphName,
             undoLayerId: fallbackUndoLayerId,
             historyTargetKey: null
-        };
-    }
-
-    if (historyContext.scope === 'font') {
-        return {
-            rootGlyphName,
-            undoGlyphName: undefined,
-            undoLayerId: null,
-            historyTargetKey: null
-        };
-    }
-
-    if (historyContext.scope === 'feature') {
-        return {
-            rootGlyphName,
-            undoGlyphName: undefined,
-            undoLayerId: null,
-            historyTargetKey: historyContext.historyTargetKey
         };
     }
 
