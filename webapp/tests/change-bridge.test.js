@@ -4335,6 +4335,94 @@ describe('syncGlyphFromJson', () => {
         );
     });
 
+    test('applyLocalGeneratedYjsUpdate patches local JSON and emits one local committed packet', () => {
+        const { bridge, fontJson } = createTestBridge('test-local-generated');
+        const localUpdates = [];
+        const workerUpdates = [];
+        const committedChanges = [];
+        const layerId = fontJson.glyphs[0].layers[0].id;
+        const oldLayer = JSON.parse(
+            JSON.stringify(fontJson.glyphs[0].layers[0])
+        );
+        const newLayer = {
+            ...oldLayer,
+            width: 777
+        };
+
+        bridge.onLocalUpdate(
+            (update, _collaborationMessage, changeLogEntries) => {
+                localUpdates.push({ update, changeLogEntries });
+            }
+        );
+        bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+            workerUpdates.push({ update, changeLogEntries });
+        });
+        bridge.onCommittedChange((entries, context) => {
+            committedChanges.push({ entries, context });
+        });
+
+        const clonedDoc = new Y.Doc({ gc: false });
+        Y.applyUpdate(clonedDoc, bridge.encodeBridgeState());
+        const clonedFontMap = clonedDoc.getMap('font');
+        const baseline = Y.encodeStateVector(clonedDoc);
+        clonedDoc.transact(() => {
+            setYPath(
+                clonedFontMap,
+                ['glyphs', 'A', 'layers', layerId],
+                newLayer
+            );
+        });
+        const update = Y.encodeStateAsUpdate(clonedDoc, baseline);
+
+        bridge.applyLocalGeneratedYjsUpdate(
+            update,
+            [
+                {
+                    op: 'set',
+                    path: ['glyphs', 'A', 'layers', layerId],
+                    oldValue: oldLayer,
+                    newValue: newLayer,
+                    applyMode: 'layer-snapshot',
+                    workerReplayTargets: [{ glyphName: 'A', layerId }]
+                }
+            ],
+            'Rust batch'
+        );
+
+        expect(fontJson.glyphs[0].layers[0].width).toBe(777);
+        expect(localUpdates).toHaveLength(1);
+        expect(workerUpdates).toHaveLength(1);
+        expect(committedChanges).toHaveLength(1);
+        expect(localUpdates[0].update).toBeInstanceOf(Uint8Array);
+        expect(workerUpdates[0].update).toEqual(localUpdates[0].update);
+        expect(committedChanges[0].context).toEqual({
+            origin: 'local',
+            update: localUpdates[0].update
+        });
+        expect(committedChanges[0].entries).toEqual(
+            workerUpdates[0].changeLogEntries
+        );
+        expect(committedChanges[0].entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    transactionLabel: 'Rust batch',
+                    path: joinPathWithGlyphSeparator([
+                        'glyphs',
+                        'A',
+                        'layers',
+                        layerId
+                    ]),
+                    workerReplayTargets: [
+                        {
+                            glyphName: 'A',
+                            layerId
+                        }
+                    ]
+                })
+            ])
+        );
+    });
+
     test.each([
         {
             label: 'anchor movement',

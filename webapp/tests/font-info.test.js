@@ -35,6 +35,17 @@ jest.mock('tippy.js', () =>
     })
 );
 
+beforeAll(() => {
+    if (!Element.prototype.animate) {
+        Element.prototype.animate = jest.fn(() => ({
+            pause: jest.fn(),
+            play: jest.fn(),
+            cancel: jest.fn(),
+            finished: Promise.resolve()
+        }));
+    }
+});
+
 describe('FontInfo feature code compilation scheduling', () => {
     let originalReadyState;
     let originalAce;
@@ -67,9 +78,11 @@ describe('FontInfo feature code compilation scheduling', () => {
         };
 
         let fontInfoManager;
+        let babelfontModel;
         jest.isolateModules(() => {
             ({ fontInfoManager } = require('../js/font-info'));
             ({ fontCompilation } = require('../js/font-compilation'));
+            babelfontModel = require('../js/babelfont-model');
         });
 
         Object.defineProperty(document, 'readyState', {
@@ -77,6 +90,8 @@ describe('FontInfo feature code compilation scheduling', () => {
             value: originalReadyState
         });
         window.ace = originalAce;
+
+        fontInfoManager.__babelfontModel = babelfontModel;
 
         return fontInfoManager;
     }
@@ -432,10 +447,17 @@ describe('FontInfo feature code compilation scheduling', () => {
 
     test('bridge-backed names commits use a precise names path', () => {
         const fontInfoManager = loadFontInfoManager();
-        const beginTransaction = jest.fn();
-        const endTransaction = jest.fn();
         const applySyntheticChangeSet = jest.fn();
-        const runWithoutRecording = jest.fn((fn) => fn());
+        const applyLocalGeneratedYjsUpdate = jest.fn((_update, operations) => {
+            const mastersOperation = operations.find(
+                (operation) =>
+                    Array.isArray(operation.path) &&
+                    operation.path[0] === 'masters'
+            );
+            if (mastersOperation) {
+                window.currentFontModel.masters = mastersOperation.newValue;
+            }
+        });
         const markDirty = jest.fn();
         const syncJsonFromModel = jest.fn();
 
@@ -1343,7 +1365,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         expect(instanceItem.classList.contains('editor-layer-item')).toBe(true);
     });
 
-    test('masters list controls add, remove, and reorder through the patch funnel', () => {
+    test('masters list controls add, remove, and reorder through the patch funnel', async () => {
         document.body.innerHTML = `
                 <div id="view-fontinfo" class="view view-fontinfo focused">
                     <div class="view-title-bar">
@@ -1362,8 +1384,26 @@ describe('FontInfo feature code compilation scheduling', () => {
         const fontInfoManager = loadFontInfoManager();
         const beginTransaction = jest.fn();
         const endTransaction = jest.fn();
-        const applySyntheticChangeSet = jest.fn();
-        const runWithoutRecording = jest.fn((fn) => fn());
+        const applySyntheticChangeSet = jest.fn((_label, operations) => {
+            const mastersOperation = operations.find(
+                (operation) =>
+                    Array.isArray(operation.path) &&
+                    operation.path[0] === 'masters'
+            );
+            if (mastersOperation) {
+                window.currentFontModel.masters = mastersOperation.newValue;
+            }
+        });
+        const applyLocalGeneratedYjsUpdate = jest.fn((_update, operations) => {
+            const mastersOperation = operations.find(
+                (operation) =>
+                    Array.isArray(operation.path) &&
+                    operation.path[0] === 'masters'
+            );
+            if (mastersOperation) {
+                window.currentFontModel.masters = mastersOperation.newValue;
+            }
+        });
 
         window.currentFontModel = {
             axes: [
@@ -1400,8 +1440,69 @@ describe('FontInfo feature code compilation scheduling', () => {
             beginTransaction,
             endTransaction,
             applySyntheticChangeSet,
-            runWithoutRecording
+            applyLocalGeneratedYjsUpdate
         };
+        const rustAddMasterSpy = jest
+            .spyOn(
+                fontInfoManager.__babelfontModel,
+                'buildRustAddMasterWithInterpolatedLayersBatch'
+            )
+            .mockResolvedValue({
+                update: new Uint8Array([1, 2, 3]),
+                metadata: {
+                    changedGlyphs: ['A'],
+                    layerTargets: [{ glyphName: 'A', layerId: 'master-3' }],
+                    layerOperations: [
+                        {
+                            glyphName: 'A',
+                            layerId: 'master-3',
+                            oldValue: undefined,
+                            newValue: { id: 'master-3', width: 500 }
+                        }
+                    ],
+                    mastersOperation: {
+                        oldValue: [
+                            {
+                                id: 'M1',
+                                name: { dflt: 'Regular' },
+                                location: { wght: 400 },
+                                metrics: { ascender: 800 },
+                                kerning: {}
+                            },
+                            {
+                                id: 'M2',
+                                name: { dflt: 'Bold' },
+                                location: { wght: 700 },
+                                metrics: { ascender: 820 },
+                                kerning: {}
+                            }
+                        ],
+                        newValue: [
+                            {
+                                id: 'M1',
+                                name: { dflt: 'Regular' },
+                                location: { wght: 400 },
+                                metrics: { ascender: 800 },
+                                kerning: {}
+                            },
+                            {
+                                id: 'M2',
+                                name: { dflt: 'Bold' },
+                                location: { wght: 700 },
+                                metrics: { ascender: 820 },
+                                kerning: {}
+                            },
+                            {
+                                id: 'master-3',
+                                name: { dflt: 'Master 3' },
+                                location: { wght: 400 },
+                                metrics: { ascender: 820 },
+                                kerning: {}
+                            }
+                        ]
+                    }
+                }
+            });
 
         fontInfoManager.init();
         jest.runOnlyPendingTimers();
@@ -1413,18 +1514,27 @@ describe('FontInfo feature code compilation scheduling', () => {
         addMasterButton.focus();
         addMasterButton.click();
 
-        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Add master', [
-            {
-                op: 'set',
-                path: ['masters'],
-                oldValue: expect.any(Array),
-                newValue: expect.arrayContaining([
-                    expect.objectContaining({
-                        name: { dflt: 'Master 3' }
-                    })
-                ])
-            }
-        ]);
+        await Promise.resolve();
+
+        expect(rustAddMasterSpy).toHaveBeenCalledTimes(1);
+        expect(applyLocalGeneratedYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            expect.arrayContaining([
+                expect.objectContaining({
+                    path: ['masters'],
+                    newValue: expect.arrayContaining([
+                        expect.objectContaining({
+                            name: { dflt: 'Master 3' }
+                        })
+                    ])
+                }),
+                expect.objectContaining({
+                    path: ['glyphs', 'A', 'layers', 'master-3'],
+                    applyMode: 'layer-snapshot'
+                })
+            ]),
+            'Add master'
+        );
         expect(
             document.querySelectorAll(
                 '#fontinfo-masters-content .fontinfo-record-item'
@@ -1454,6 +1564,8 @@ describe('FontInfo feature code compilation scheduling', () => {
                 '#fontinfo-masters-content .fontinfo-record-item'
             )
         ).toHaveLength(2);
+
+        rustAddMasterSpy.mockRestore();
 
         const masterItems = document.querySelectorAll(
             '#fontinfo-masters-content .fontinfo-record-item'

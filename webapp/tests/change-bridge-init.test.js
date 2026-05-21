@@ -177,6 +177,66 @@ describe('handleRemoteChangeRefresh', () => {
         expect(refreshOrder).toEqual(['sync', 'compile']);
     });
 
+    test('skips duplicate local replay-target cache refresh for forwarded add-master batch packets', async () => {
+        const refreshOrder = [];
+        const awaitWorkerSync = jest.fn(async () => {
+            refreshOrder.push('sync');
+        });
+        const requestCompile = jest.fn(async () => {
+            refreshOrder.push('compile');
+        });
+        const queueCacheRefresh = jest.fn(async () => {
+            refreshOrder.push('queue');
+        });
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            lastChangeSource: null,
+            lastEditType: null
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Add master',
+                        path: 'masters'
+                    },
+                    {
+                        transactionLabel: 'Add master',
+                        path: 'glyphs.A.layers.master-3',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'A',
+                                layerId: 'master-3'
+                            }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            delete window.fontManager;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
+        );
+        expect(refreshOrder).toEqual(['sync', 'compile']);
+    });
+
     test('skips bootstrap-style local compile wake-up before the first editing font exists', async () => {
         const awaitWorkerSync = jest.fn(async () => {});
         const requestRecompileWithoutDataChange = jest.fn();
@@ -519,6 +579,68 @@ describe('handleRemoteChangeRefresh', () => {
                 {
                     transactionLabel: 'Reinterpolate layer batch sync',
                     path: 'glyphs.A',
+                    workerReplayTargets: replayTargets
+                }
+            ],
+            {
+                requestCompile,
+                queueCacheRefresh
+            }
+        );
+
+        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
+            allowSelectedLayerFallback: false,
+            workerReplayTargets: replayTargets
+        });
+        expect(requestCompile).toHaveBeenCalledWith(
+            'remote-outline',
+            'outline'
+        );
+    });
+
+    test('classifies forwarded single-layer reinterpolation packets as remote outline edits', async () => {
+        const replayTargets = [{ glyphName: 'A', layerId: 'brace-layer' }];
+        const queueCacheRefresh = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+
+        await handleRemoteChangeRefresh(
+            [
+                {
+                    transactionLabel: 'Reinterpolate layer sync',
+                    path: 'glyphs.A.layers.brace-layer',
+                    workerReplayTargets: replayTargets
+                }
+            ],
+            {
+                requestCompile,
+                queueCacheRefresh
+            }
+        );
+
+        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
+            allowSelectedLayerFallback: false,
+            workerReplayTargets: replayTargets
+        });
+        expect(requestCompile).toHaveBeenCalledWith(
+            'remote-outline',
+            'outline'
+        );
+    });
+
+    test('classifies forwarded add-master batch packets as remote outline edits', async () => {
+        const replayTargets = [{ glyphName: 'A', layerId: 'master-3' }];
+        const queueCacheRefresh = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+
+        await handleRemoteChangeRefresh(
+            [
+                {
+                    transactionLabel: 'Add master',
+                    path: 'masters'
+                },
+                {
+                    transactionLabel: 'Add master',
+                    path: 'glyphs.A.layers.master-3',
                     workerReplayTargets: replayTargets
                 }
             ],

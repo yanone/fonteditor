@@ -11801,7 +11801,8 @@ describe('OutlineEditor exact selected layers', () => {
         }
     });
 
-    test('reinterpolateAllLayersForMaster keeps interpolation batched and syncs full glyph snapshots once', async () => {
+    test('reinterpolateLayerById uses the Rust-authored Yjs batch path when the bridge supports it', async () => {
+        const babelfontModel = require('../js/babelfont-model');
         const font = makeComponentFont();
         const currentFont = {
             fontModel: font,
@@ -11813,16 +11814,137 @@ describe('OutlineEditor exact selected layers', () => {
             .mockResolvedValue();
         const originalFontModel = window.currentFontModel;
         const originalPatchSyncEngine = window.patchSyncEngine;
-        const syncGlyphsFromJsonSpy = jest.fn();
-        const syncLayersFromJsonSpy = jest.fn();
+        const rustBatchSpy = jest
+            .spyOn(babelfontModel, 'buildRustReinterpolateLayerBatch')
+            .mockResolvedValue({
+                update: new Uint8Array([9, 8, 7]),
+                metadata: {
+                    changedGlyphs: ['A'],
+                    layerTargets: [
+                        {
+                            glyphName: 'A',
+                            layerId: 'brace-layer'
+                        }
+                    ],
+                    layerOperations: [
+                        {
+                            glyphName: 'A',
+                            layerId: 'brace-layer',
+                            oldValue: { id: 'brace-layer', width: 700 },
+                            newValue: { id: 'brace-layer', width: 888.5 }
+                        }
+                    ],
+                    mastersOperation: null
+                }
+            });
+        const applyLocalGeneratedYjsUpdateSpy = jest.fn(
+            (_update, operations) => {
+                const layerOperation = operations.find(
+                    (operation) =>
+                        Array.isArray(operation.path) &&
+                        operation.path[0] === 'glyphs' &&
+                        operation.path[1] === 'A' &&
+                        operation.path[2] === 'layers' &&
+                        operation.path[3] === 'brace-layer'
+                );
+                if (!layerOperation) {
+                    return;
+                }
+
+                const layer = font.findGlyph('A').findLayerById('brace-layer');
+                layer.width = layerOperation.newValue.width;
+            }
+        );
 
         window.currentFontModel = font;
         window.patchSyncEngine = {
-            syncGlyphsFromJson: syncGlyphsFromJsonSpy,
-            syncLayersFromJson: syncLayersFromJsonSpy,
-            recordAdd: jest.fn(),
-            recordRemove: jest.fn(),
+            applyLocalGeneratedYjsUpdate: applyLocalGeneratedYjsUpdateSpy,
             recordChange: jest.fn()
+        };
+        currentFontSpy.mockReturnValue(currentFont);
+
+        try {
+            const recreatedLayer =
+                await canvas.outlineEditor.reinterpolateLayerById(
+                    'brace-layer',
+                    {
+                        glyphName: 'A',
+                        selectNewLayer: false
+                    }
+                );
+
+            expect(rustBatchSpy).toHaveBeenCalledWith('A', 'brace-layer');
+            expect(applyLocalGeneratedYjsUpdateSpy).toHaveBeenCalledWith(
+                expect.any(Uint8Array),
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        path: ['glyphs', 'A', 'layers', 'brace-layer'],
+                        applyMode: 'layer-snapshot'
+                    })
+                ]),
+                'Reinterpolate layer sync'
+            );
+            expect(recreatedLayer.id).toBe('brace-layer');
+            expect(recreatedLayer.width).toBe(889);
+            expect(currentFont.markDirty).toHaveBeenCalledWith(
+                'layer-reinterpolate'
+            );
+        } finally {
+            window.currentFontModel = originalFontModel;
+            window.patchSyncEngine = originalPatchSyncEngine;
+            rustBatchSpy.mockRestore();
+            dirtySpy.mockRestore();
+        }
+    });
+
+    test('reinterpolateAllLayersForMaster applies one Rust-authored Yjs batch through the bridge', async () => {
+        const babelfontModel = require('../js/babelfont-model');
+        const font = makeComponentFont();
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+        const dirtySpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const originalFontModel = window.currentFontModel;
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const applyLocalGeneratedYjsUpdateSpy = jest.fn();
+        const rustBatchSpy = jest
+            .spyOn(babelfontModel, 'buildRustReinterpolateMasterLayersBatch')
+            .mockResolvedValue({
+                update: new Uint8Array([1, 2, 3]),
+                metadata: {
+                    changedGlyphs: ['componentGlyph', 'A'],
+                    layerTargets: [
+                        {
+                            glyphName: 'componentGlyph',
+                            layerId: 'component-layer'
+                        },
+                        { glyphName: 'A', layerId: 'master-layer' }
+                    ],
+                    layerOperations: [
+                        {
+                            glyphName: 'componentGlyph',
+                            layerId: 'component-layer',
+                            oldValue: { id: 'component-layer', width: 300 },
+                            newValue: { id: 'component-layer', width: 333.5 }
+                        },
+                        {
+                            glyphName: 'A',
+                            layerId: 'master-layer',
+                            oldValue: { id: 'master-layer', width: 500 },
+                            newValue: { id: 'master-layer', width: 999.75 }
+                        }
+                    ],
+                    mastersOperation: null
+                }
+            });
+
+        window.currentFontModel = font;
+        window.patchSyncEngine = {
+            applyLocalGeneratedYjsUpdate: applyLocalGeneratedYjsUpdateSpy
         };
 
         currentFontSpy.mockReturnValue(currentFont);
@@ -11832,35 +11954,42 @@ describe('OutlineEditor exact selected layers', () => {
                 'master-1'
             );
 
-            expect(interpolateSpy).toHaveBeenCalledWith(
-                'componentGlyph',
-                { wght: 0 },
-                true
-            );
-            expect(interpolateSpy).toHaveBeenCalledWith('A', { wght: 0 }, true);
-            expect(syncGlyphsFromJsonSpy).toHaveBeenCalledTimes(1);
-            expect(syncGlyphsFromJsonSpy).toHaveBeenCalledWith(
-                ['componentGlyph', 'A'],
-                'Reinterpolate layer batch sync',
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                [
-                    { glyphName: 'componentGlyph', layerId: 'component-layer' },
-                    { glyphName: 'A', layerId: 'master-layer' }
-                ]
-            );
-            expect(syncLayersFromJsonSpy).not.toHaveBeenCalled();
-            expect(
-                font.findGlyph('A').findLayerById('master-layer').width
-            ).toBe(999.75);
-            expect(currentFont.markDirty).toHaveBeenCalledWith(
-                'master-reinterpolate-batch'
+            expect(rustBatchSpy).toHaveBeenCalledWith('master-1');
+            expect(applyLocalGeneratedYjsUpdateSpy).toHaveBeenCalledWith(
+                expect.any(Uint8Array),
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        path: [
+                            'glyphs',
+                            'componentGlyph',
+                            'layers',
+                            'component-layer'
+                        ],
+                        applyMode: 'layer-snapshot',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'componentGlyph',
+                                layerId: 'component-layer'
+                            }
+                        ]
+                    }),
+                    expect.objectContaining({
+                        path: ['glyphs', 'A', 'layers', 'master-layer'],
+                        applyMode: 'layer-snapshot',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'A',
+                                layerId: 'master-layer'
+                            }
+                        ]
+                    })
+                ]),
+                'Reinterpolate layer batch sync'
             );
         } finally {
             window.currentFontModel = originalFontModel;
             window.patchSyncEngine = originalPatchSyncEngine;
+            rustBatchSpy.mockRestore();
             dirtySpy.mockRestore();
         }
     });

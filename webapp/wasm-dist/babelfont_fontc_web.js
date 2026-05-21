@@ -1,6 +1,20 @@
 /* @ts-self-types="./babelfont_fontc_web.d.ts" */
 
 /**
+ * @param {string} master_json
+ * @returns {any}
+ */
+export function add_master_with_interpolated_layers_yjs(master_json) {
+    const ptr0 = passStringToWasm0(master_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.add_master_with_interpolated_layers_yjs(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
  * update the CANONICAL_JSON_CACHE.
  *
@@ -615,6 +629,37 @@ export function prime_layout_closure_cache(font_revision, glyph_names_json) {
 }
 
 /**
+ * @param {string} glyph_name
+ * @param {string} layer_id
+ * @returns {any}
+ */
+export function reinterpolate_layer_yjs(glyph_name, layer_id) {
+    const ptr0 = passStringToWasm0(glyph_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(layer_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.reinterpolate_layer_yjs(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} master_id
+ * @returns {any}
+ */
+export function reinterpolate_master_layers_yjs(master_id) {
+    const ptr0 = passStringToWasm0(master_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.reinterpolate_master_layers_yjs(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {Uint8Array} font_bytes
  * @param {string} profile
  * @returns {string}
@@ -806,6 +851,14 @@ function __wbg_get_imports() {
             const ret = new Error();
             return ret;
         },
+        __wbg_new_6feff3e11e4d0799: function() {
+            const ret = new Object();
+            return ret;
+        },
+        __wbg_new_from_slice_a5be53238f31f9f7: function(arg0, arg1) {
+            const ret = new Uint8Array(getArrayU8FromWasm0(arg0, arg1));
+            return ret;
+        },
         __wbg_new_with_length_3217a89bbca17214: function(arg0) {
             const ret = new Uint8Array(arg0 >>> 0);
             return ret;
@@ -826,6 +879,10 @@ function __wbg_get_imports() {
         }, arguments); },
         __wbg_require_b4edbdcf3e2a1ef0: function() { return handleError(function () {
             const ret = module.require;
+            return ret;
+        }, arguments); },
+        __wbg_set_409333732b484ee7: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = Reflect.set(arg0, arg1, arg2);
             return ret;
         }, arguments); },
         __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {

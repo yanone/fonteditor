@@ -1577,10 +1577,6 @@ kbd + kbd {
 }
 
 /* Plugin tags use the general tag-button style */
-.editor-plugins-dropdown-item .plugin-tag {
-    /* Inherits from .tag-button via class in HTML */
-}
-
 .editor-plugins-dropdown-item .plugin-name {
     margin-left: 8px;
     /* Inherits from .tag-description */
@@ -1626,6 +1622,7 @@ kbd + kbd {
     background: var(--border-primary);
     border-radius: 2px;
     outline: none;
+    appearance: none;
     -webkit-appearance: none;
 }
 
@@ -5288,10 +5285,6 @@ kbd + kbd {
     min-width: 0;
 }
 
-.editor-section-title:first-child {
-    /* margin-top: 0px; */
-}
-
 /* Masters/Layers list container (unified widget for both modes) */
 .editor-layers-list {
     display: flex;
@@ -5671,10 +5664,6 @@ kbd + kbd {
     border-left: none;
     border-right: none;
     transition: background-color 0.15s ease;
-}
-
-.sidebar-item:first-child {
-    /* border-top: 1px solid var(--border-primary); */
 }
 
 /* Dark theme - sidebar item hover */
@@ -6455,10 +6444,6 @@ kbd + kbd {
     border-left: none;
     border-right: none;
     transition: background-color 0.15s ease;
-}
-
-.feature-list-item:first-child {
-    /* border-top: 1px solid var(--border-primary); */
 }
 
 /* Dark theme colors - matches consolidated sidebar-item pattern */

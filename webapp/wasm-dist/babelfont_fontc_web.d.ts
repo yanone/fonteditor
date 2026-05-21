@@ -1,6 +1,8 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export function add_master_with_interpolated_layers_yjs(master_json: string): any;
+
 /**
  * Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
  * update the CANONICAL_JSON_CACHE.
@@ -274,6 +276,10 @@ export function open_font_file(filename: string, contents: string): string;
  */
 export function prime_layout_closure_cache(font_revision: string, glyph_names_json: string): number;
 
+export function reinterpolate_layer_yjs(glyph_name: string, layer_id: string): any;
+
+export function reinterpolate_master_layers_yjs(master_id: string): any;
+
 export function run_fontspector(font_bytes: Uint8Array, profile: string): string;
 
 /**
@@ -326,13 +332,16 @@ export interface InitOutput {
     readonly seed_ydoc: (a: number, b: number) => [number, number];
     readonly store_font: (a: number, b: number) => [number, number];
     readonly version: () => [number, number];
-    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
     readonly get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
     readonly get_glyph_order: (a: number, b: number) => [number, number, number, number];
     readonly get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
+    readonly add_master_with_interpolated_layers_yjs: (a: number, b: number) => [number, number, number];
+    readonly reinterpolate_layer_yjs: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly reinterpolate_master_layers_yjs: (a: number, b: number) => [number, number, number];
+    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

@@ -7,8 +7,15 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js';
 import { Logger } from './logger';
 import { fontCompilation } from './font-compilation';
 import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
-import type { TransactionHistoryTarget } from './patch-sync-engine';
+import type {
+    PatchSyncEngine,
+    TransactionHistoryTarget
+} from './patch-sync-engine';
 import type { Babelfont } from './babelfont';
+import {
+    buildInterpolationRustBatchOperations,
+    buildRustAddMasterWithInterpolatedLayersBatch
+} from './babelfont-model';
 import {
     getFeatureDescription,
     getFeatureExecutionOrder,
@@ -4043,23 +4050,17 @@ class FontInfoManager {
                                             item.getAttribute('data-action') ===
                                             'reinterpolate'
                                         ) {
-                                            const bridge =
-                                                window.patchSyncEngine;
                                             beginLoadingCursor();
-                                            bridge?.beginTransaction(
-                                                'Reinterpolate layers for master'
-                                            );
                                             this.reinterpolateLayersForMaster(
                                                 masterId
                                             )
                                                 .catch((err) => {
-                                                    console.warn(
+                                                    console.error(
                                                         'Reinterpolate all layers error:',
                                                         err
                                                     );
                                                 })
                                                 .finally(() => {
-                                                    bridge?.endTransaction();
                                                     endLoadingCursor();
                                                 });
                                         }
@@ -5663,7 +5664,6 @@ class FontInfoManager {
      * all interpolation requests concurrently (O(1) worker latency instead of
      * O(N)) and applies all results in a single synchronous pass.
      *
-     * Callers are responsible for wrapping this in a bridge transaction.
      */
     private async reinterpolateLayersForMaster(
         masterId: string
@@ -5693,83 +5693,28 @@ class FontInfoManager {
         const previousMasters = rawArray(font.masters).map(cloneMasterRecord);
         const clonedNextMasters = rawArray(nextMasters).map(cloneMasterRecord);
 
-        const bridge = window.patchSyncEngine as
-            | {
-                  beginTransaction: (label: string) => void;
-                  endTransaction: () => void;
-                  applySyntheticChangeSet: (
-                      label: string,
-                      operations: Array<{
-                          op: 'set' | 'remove';
-                          path: (string | number)[];
-                          oldValue: unknown;
-                          newValue: unknown;
-                      }>
-                  ) => void;
-                  runWithoutRecording?: <T>(fn: () => T) => T;
-              }
-            | undefined;
+        const bridge = window.patchSyncEngine as PatchSyncEngine | undefined;
 
-        if (bridge) {
+        if (bridge?.applyLocalGeneratedYjsUpdate) {
             beginLoadingCursor();
-            bridge.beginTransaction('Add master');
             try {
-                // Phase 1: Apply local state (unrecorded) + synthetic changeset for masters.
-                if (bridge.runWithoutRecording) {
-                    bridge.runWithoutRecording(() =>
-                        this.applyLocalMastersList(clonedNextMasters)
+                const batchResult =
+                    await buildRustAddMasterWithInterpolatedLayersBatch(
+                        newMaster
                     );
-                } else {
-                    this.applyLocalMastersList(clonedNextMasters);
-                }
-                bridge.applySyntheticChangeSet('Add master', [
-                    {
-                        op: 'set',
-                        path: ['masters'],
-                        oldValue:
-                            previousMasters.length > 0
-                                ? previousMasters
-                                : undefined,
-                        newValue: clonedNextMasters
-                    }
-                ]);
-                // Phase 2: Add an empty layer to every glyph without recording —
-                // the final interpolated content will be recorded via syncGlyphFromJson
-                // inside reinterpolateLayerById, keeping the Yjs doc clean.
-                const fontModel = window.currentFontModel as any;
-                if (bridge.runWithoutRecording) {
-                    bridge.runWithoutRecording(() => {
-                        for (const glyph of fontModel?.glyphs ?? []) {
-                            const defaultWidth =
-                                (glyph as any).layers?.[0]?.width ?? 500;
-                            (glyph as any).addLayer(defaultWidth, {
-                                type: 'DefaultForMaster',
-                                master: masterId
-                            });
-                        }
-                    });
-                } else {
-                    for (const glyph of fontModel?.glyphs ?? []) {
-                        const defaultWidth =
-                            (glyph as any).layers?.[0]?.width ?? 500;
-                        (glyph as any).addLayer(defaultWidth, {
-                            type: 'DefaultForMaster',
-                            master: masterId
-                        });
-                    }
-                }
-                // Re-render the master list immediately so the UI is responsive
-                // while the async interpolation completes in the background (still
-                // inside the same Yjs transaction — endTransaction is in finally).
+                bridge.applyLocalGeneratedYjsUpdate(
+                    batchResult.update,
+                    buildInterpolationRustBatchOperations(batchResult.metadata),
+                    'Add master'
+                );
                 this.forceRefreshVisibleMastersContent();
-                // Phase 3: Reinterpolate all new layers inside the same transaction.
-                // Nested beginTransaction/endTransaction pairs are safe — the bridge
-                // uses a depth counter and won't commit until depth reaches 0.
-                await this.reinterpolateLayersForMaster(masterId);
             } catch (err) {
-                console.warn('addMasterRecord: reinterpolation error:', err);
+                console.error(
+                    'addMasterRecord: Rust batch add-master failed:',
+                    err
+                );
+                throw err;
             } finally {
-                bridge.endTransaction();
                 endLoadingCursor();
             }
         } else {

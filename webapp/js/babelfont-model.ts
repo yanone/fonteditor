@@ -25,7 +25,10 @@ import { designspaceToUserspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
-import type { PatchSyncEngine } from './patch-sync-engine';
+import type {
+    PatchSyncEngine,
+    TransactionBufferedOperation
+} from './patch-sync-engine';
 import {
     getSidebearingTransactionLabel,
     type SidebearingSide
@@ -33,9 +36,12 @@ import {
 import { ensureWasmInitialized } from './wasm-init';
 import { translateLayerContentsX } from './x-translation-utils';
 import {
+    add_master_with_interpolated_layers_yjs,
     apply_yjs_update,
     init_ydoc_from_state,
-    interpolate_glyph
+    interpolate_glyph,
+    reinterpolate_layer_yjs,
+    reinterpolate_master_layers_yjs
 } from '../wasm-dist/babelfont_fontc_web';
 
 const console = new Logger('BabelfontModel');
@@ -276,6 +282,37 @@ export function withSuppressedMetricsKeyRecompute<T>(fn: () => T): T {
 
 const interpolationFontVersions = new WeakMap<Font, number>();
 let interpolationRustDocReady = false;
+
+export type InterpolationRustLayerTarget = {
+    glyphName: string;
+    layerId: string;
+};
+
+export type InterpolationRustBatchMetadata = {
+    changedGlyphs: string[];
+    layerTargets: InterpolationRustLayerTarget[];
+    layerOperations: Array<{
+        glyphName: string;
+        layerId: string;
+        oldValue?: unknown;
+        newValue: unknown;
+    }>;
+    mastersOperation?: {
+        oldValue?: unknown;
+        newValue: unknown;
+    } | null;
+};
+
+export type InterpolationRustUpdateMetadata = {
+    changedGlyphs: string[];
+    nonGlyphChangeHints?: string[];
+    layerTargets?: InterpolationRustLayerTarget[];
+};
+
+export type InterpolationRustBatchResult = {
+    update: Uint8Array;
+    metadata: InterpolationRustBatchMetadata;
+};
 
 function getInterpolationFontVersion(font: Font): number {
     return interpolationFontVersions.get(font) || 0;
@@ -2585,6 +2622,152 @@ export function ensureFontStoredForInterpolation(font: Font): boolean {
     return interpolationRustDocReady;
 }
 
+async function ensureInterpolationRustCacheReadyForBatch(): Promise<boolean> {
+    if (interpolationRustDocReady) {
+        return true;
+    }
+
+    const bridge = window.patchSyncEngine as
+        | (PatchSyncEngine & {
+              encodeBridgeState?: () => Uint8Array;
+          })
+        | undefined;
+    const state = bridge?.encodeBridgeState?.();
+    if (!state?.length) {
+        return false;
+    }
+
+    return seedInterpolationRustCacheFromState(state);
+}
+
+function parseInterpolationRustBatchResult(
+    rawResult: unknown
+): InterpolationRustBatchResult {
+    const result = (rawResult || {}) as {
+        update?: Uint8Array | ArrayBufferLike;
+        metadataJson?: string;
+    };
+    const metadata = JSON.parse(
+        typeof result.metadataJson === 'string' ? result.metadataJson : '{}'
+    ) as InterpolationRustBatchMetadata;
+    const update =
+        result.update instanceof Uint8Array
+            ? result.update
+            : new Uint8Array(result.update ?? new ArrayBuffer(0));
+
+    return {
+        update,
+        metadata: {
+            changedGlyphs: Array.isArray(metadata.changedGlyphs)
+                ? metadata.changedGlyphs.filter(
+                      (glyphName): glyphName is string =>
+                          typeof glyphName === 'string' && glyphName.length > 0
+                  )
+                : [],
+            layerTargets: Array.isArray(metadata.layerTargets)
+                ? metadata.layerTargets.filter(
+                      (target): target is InterpolationRustLayerTarget =>
+                          !!target &&
+                          typeof target.glyphName === 'string' &&
+                          target.glyphName.length > 0 &&
+                          typeof target.layerId === 'string' &&
+                          target.layerId.length > 0
+                  )
+                : [],
+            layerOperations: Array.isArray(metadata.layerOperations)
+                ? metadata.layerOperations.filter(
+                      (
+                          operation
+                      ): operation is InterpolationRustBatchMetadata['layerOperations'][number] =>
+                          !!operation &&
+                          typeof operation.glyphName === 'string' &&
+                          operation.glyphName.length > 0 &&
+                          typeof operation.layerId === 'string' &&
+                          operation.layerId.length > 0
+                  )
+                : [],
+            mastersOperation:
+                metadata.mastersOperation &&
+                typeof metadata.mastersOperation === 'object'
+                    ? metadata.mastersOperation
+                    : null
+        }
+    };
+}
+
+export function buildInterpolationRustBatchOperations(
+    metadata: InterpolationRustBatchMetadata
+): TransactionBufferedOperation[] {
+    const operations: TransactionBufferedOperation[] = [];
+
+    if (metadata.mastersOperation) {
+        operations.push({
+            op: 'set',
+            path: ['masters'],
+            oldValue: metadata.mastersOperation.oldValue,
+            newValue: metadata.mastersOperation.newValue
+        });
+    }
+
+    operations.push(
+        ...metadata.layerOperations.map((operation) => ({
+            op: 'set' as const,
+            path: ['glyphs', operation.glyphName, 'layers', operation.layerId],
+            oldValue: operation.oldValue,
+            newValue: operation.newValue,
+            applyMode: 'layer-snapshot' as const,
+            workerReplayTargets: [
+                {
+                    glyphName: operation.glyphName,
+                    layerId: operation.layerId
+                }
+            ]
+        }))
+    );
+
+    return operations;
+}
+
+export async function buildRustReinterpolateMasterLayersBatch(
+    masterId: string
+): Promise<InterpolationRustBatchResult> {
+    await ensureWasmInitialized();
+    if (!(await ensureInterpolationRustCacheReadyForBatch())) {
+        throw new Error('Interpolation Rust cache is not seeded');
+    }
+
+    return parseInterpolationRustBatchResult(
+        reinterpolate_master_layers_yjs(masterId)
+    );
+}
+
+export async function buildRustReinterpolateLayerBatch(
+    glyphName: string,
+    layerId: string
+): Promise<InterpolationRustBatchResult> {
+    await ensureWasmInitialized();
+    if (!(await ensureInterpolationRustCacheReadyForBatch())) {
+        throw new Error('Interpolation Rust cache is not seeded');
+    }
+
+    return parseInterpolationRustBatchResult(
+        reinterpolate_layer_yjs(glyphName, layerId)
+    );
+}
+
+export async function buildRustAddMasterWithInterpolatedLayersBatch(
+    master: Babelfont.Master
+): Promise<InterpolationRustBatchResult> {
+    await ensureWasmInitialized();
+    if (!(await ensureInterpolationRustCacheReadyForBatch())) {
+        throw new Error('Interpolation Rust cache is not seeded');
+    }
+
+    return parseInterpolationRustBatchResult(
+        add_master_with_interpolated_layers_yjs(JSON.stringify(master))
+    );
+}
+
 export async function seedInterpolationRustCacheFromState(
     state: Uint8Array | ArrayBufferLike | null | undefined
 ): Promise<boolean> {
@@ -2616,7 +2799,7 @@ export async function seedInterpolationRustCacheFromState(
 
 export async function applyInterpolationRustYjsUpdate(
     update: Uint8Array | ArrayBufferLike | null | undefined,
-    changedGlyphs: string[]
+    metadata: InterpolationRustUpdateMetadata
 ): Promise<boolean> {
     // YJS_ONLY: Incremental binary Yjs update to the main-thread
     // Rust interpolation cache. No JSON — the update is a binary Yjs diff.
@@ -2632,7 +2815,17 @@ export async function applyInterpolationRustYjsUpdate(
         await ensureWasmInitialized();
         const resultJson = apply_yjs_update(
             update instanceof Uint8Array ? update : new Uint8Array(update),
-            JSON.stringify(Array.isArray(changedGlyphs) ? changedGlyphs : [])
+            JSON.stringify({
+                changedGlyphs: Array.isArray(metadata.changedGlyphs)
+                    ? metadata.changedGlyphs
+                    : [],
+                nonGlyphChangeHints: Array.isArray(metadata.nonGlyphChangeHints)
+                    ? metadata.nonGlyphChangeHints
+                    : [],
+                layerTargets: Array.isArray(metadata.layerTargets)
+                    ? metadata.layerTargets
+                    : []
+            })
         );
         const parsed = JSON.parse(resultJson || '{}') as { skipped?: string };
         if (parsed?.skipped === 'ydoc_not_initialized') {

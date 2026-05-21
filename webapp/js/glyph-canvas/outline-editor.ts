@@ -9,9 +9,13 @@ import { normalizeWorkerReplayTargets } from '../change-log';
 import {
     Layer,
     DecomposedAffineTransform,
+    buildInterpolationRustBatchOperations,
+    buildRustReinterpolateLayerBatch,
+    buildRustReinterpolateMasterLayersBatch,
     withSuppressedModelRecording,
     withSuppressedMetricsKeyRecompute
 } from '../babelfont-model';
+import type { PatchSyncEngine } from '../patch-sync-engine';
 import {
     getHighestVisibleVerticalMetricValue,
     getLowestVisibleVerticalMetricValue,
@@ -7475,10 +7479,6 @@ export class OutlineEditor {
         }
 
         const masterId = layer.master?.master;
-        const userspaceLocation = this.getUserspaceLocationForLayer(
-            layerId,
-            glyphName
-        );
         const designLocation = layer.location
             ? this.cloneLayerData(layer.location)
             : null;
@@ -7486,15 +7486,74 @@ export class OutlineEditor {
         const shouldSelectNewLayer =
             options?.selectNewLayer ?? this.selectedLayerId === layerId;
 
-        if (!masterId || !userspaceLocation) {
+        if (!masterId) {
             return null;
         }
 
         const changeSource = options?.changeSource || 'layer-reinterpolate';
+        const bridge = window.patchSyncEngine;
+
+        if (bridge?.applyLocalGeneratedYjsUpdate) {
+            this.prepareStructuralOutlineCompile('keyboard-outline');
+            const batchResult = await buildRustReinterpolateLayerBatch(
+                glyphName,
+                layerId
+            );
+            if (batchResult.update.length) {
+                bridge.applyLocalGeneratedYjsUpdate(
+                    batchResult.update,
+                    buildInterpolationRustBatchOperations(batchResult.metadata),
+                    'Reinterpolate layer sync'
+                );
+            }
+
+            await this.refreshAfterStructuralLayerEdit(
+                glyphName,
+                changeSource,
+                {
+                    scheduleCompile: false,
+                    dispatchGlyphChanged: false
+                }
+            );
+
+            const recreatedLayer = glyph.findLayerById?.(layerId) || null;
+            if (!recreatedLayer) {
+                return null;
+            }
+
+            if (shouldSelectNewLayer) {
+                if (this.selectedLayerId === recreatedLayer.id) {
+                    await this.refreshSelectedLayerWithoutAnimation(
+                        recreatedLayer,
+                        glyphName
+                    );
+                } else {
+                    await this.selectLayer(recreatedLayer);
+                }
+            } else if (this.selectedLayerId === layerId) {
+                this.selectedLayerId = null;
+                this.layerData = null;
+                this.renderVerticalMetrics = null;
+                this.clearAllSelections();
+                this.updateLayerSelection();
+                this.glyphCanvas.updatePropertyPanel();
+                this.glyphCanvas.render();
+            }
+
+            return recreatedLayer;
+        }
+
+        const userspaceLocation = this.getUserspaceLocationForLayer(
+            layerId,
+            glyphName
+        );
+        if (!userspaceLocation) {
+            return null;
+        }
+
         const originalLayerPayload = this.copyLayerDataForStoredLayer(
             layer.toJSON()
         );
-        const bridge = window.patchSyncEngine;
 
         bridge?.beginTransaction('Reinterpolate layer');
 
@@ -7626,137 +7685,53 @@ export class OutlineEditor {
      * single synchronous pass with one `prepareCommittedStructuralOutlineChange`
      * call at the end.  This is O(1) worker latency instead of O(N).
      *
-     * Callers MUST wrap this in a bridge transaction.
      */
     async reinterpolateAllLayersForMaster(masterId: string): Promise<void> {
-        const font = window.currentFontModel as any;
-        if (!font) return;
-
-        type Target = {
-            glyph: any;
-            glyphName: string;
-            layerId: string;
-            userspaceLocation: UserspaceLocation;
-            isMasterBound: boolean;
-            designLocation: DesignspaceLocation | null;
-        };
-
-        // 1. Collect all glyph layers for this master (synchronous scan).
-        const targets: Target[] = [];
-        for (const glyph of font.glyphs ?? []) {
-            const glyphName: string = glyph.name;
-            if (!glyphName) continue;
-            const layers: any[] = glyph.layers ?? [];
-            const layer = layers.find(
-                (l: any) => l.master?.master === masterId
+        const bridge = window.patchSyncEngine as PatchSyncEngine | undefined;
+        if (!bridge?.applyLocalGeneratedYjsUpdate) {
+            const fontModel = fontManager.currentFont?.fontModel;
+            const targets = (fontModel?.glyphs ?? []).flatMap((glyph: any) =>
+                (glyph.layers ?? [])
+                    .filter((layer: any) => layer?.master?.master === masterId)
+                    .map((layer: any) => ({
+                        glyphName: glyph.name,
+                        layerId: layer.id || layer?.master?.master
+                    }))
             );
-            if (!layer?.id) continue;
-            const userspaceLocation = this.getUserspaceLocationForLayer(
-                layer.id,
-                glyphName
-            );
-            if (!userspaceLocation) continue;
-            targets.push({
-                glyph,
-                glyphName,
-                layerId: layer.id,
-                userspaceLocation,
-                isMasterBound: layer.master?.type === 'DefaultForMaster',
-                designLocation: layer.location
-                    ? this.cloneLayerData(layer.location)
-                    : null
-            });
+            for (const target of targets) {
+                if (!target.glyphName || !target.layerId) {
+                    continue;
+                }
+                await this.reinterpolateLayerById(target.layerId, {
+                    glyphName: target.glyphName,
+                    changeSource: 'master-reinterpolate-batch',
+                    selectNewLayer: false
+                });
+            }
+            return;
         }
 
-        if (targets.length === 0) return;
+        this.prepareStructuralOutlineCompile('keyboard-outline');
+        const batchResult =
+            await buildRustReinterpolateMasterLayersBatch(masterId);
+        if (!batchResult.update.length) {
+            return;
+        }
 
-        // 2. Fire all interpolation requests concurrently.
-        const interpolationResults = await Promise.allSettled(
-            targets.map((t) =>
-                fontInterpolation.interpolateGlyph(
-                    t.glyphName,
-                    t.userspaceLocation,
-                    true
-                )
-            )
+        bridge.applyLocalGeneratedYjsUpdate(
+            batchResult.update,
+            buildInterpolationRustBatchOperations(batchResult.metadata),
+            'Reinterpolate layer batch sync'
         );
 
-        // 3. Apply all results synchronously (no per-glyph UI refreshes).
-        // Both the remove and the re-add are fully suppressed so that no Yjs
-        // ops are emitted mid-batch. Afterward, syncGlyphsFromJson writes the
-        // complete affected glyph snapshots in one bridge call. This preserves
-        // the working full-glyph replacement behavior for newly created and
-        // existing interpolated layers while still keeping interpolation and
-        // UI refresh batched.
-        const changeSource = 'master-reinterpolate-batch';
-        const bridge = window.patchSyncEngine;
-        const syncedGlyphs: string[] = [];
-        const layerSyncTargets: Array<{ glyphName: string; layerId: string }> =
-            [];
-
-        for (let i = 0; i < targets.length; i++) {
-            const result = interpolationResults[i];
-            if (result.status === 'rejected') {
-                console.warn(
-                    `reinterpolateAllLayersForMaster: skipped ${targets[i].glyphName}:`,
-                    (result as PromiseRejectedResult).reason
-                );
-                continue;
+        await this.refreshAfterStructuralLayerEdit(
+            'batch',
+            'master-reinterpolate-batch',
+            {
+                scheduleCompile: false,
+                dispatchGlyphChanged: false
             }
-
-            const { glyph, glyphName, layerId, isMasterBound, designLocation } =
-                targets[i];
-            try {
-                const normalizedLayer = LayerDataNormalizer.normalize(
-                    result.value,
-                    true
-                );
-                const layerPayload =
-                    this.copyLayerDataForStoredLayer(normalizedLayer);
-                withSuppressedModelRecording(() => {
-                    glyph.removeLayerById?.(layerId);
-                    this.materializeStoredInterpolatedLayer(
-                        glyph,
-                        { masterId, designLocation, isMasterBound, layerId },
-                        layerPayload
-                    );
-                });
-                syncedGlyphs.push(glyphName);
-                layerSyncTargets.push({ glyphName, layerId });
-            } catch (err) {
-                console.warn(
-                    `reinterpolateAllLayersForMaster: failed to apply ${glyphName}:`,
-                    err
-                );
-            }
-        }
-
-        if (syncedGlyphs.length === 0) return;
-
-        // 4. One structural commit + batched full-glyph sync.
-        // The historical working path used full glyph snapshots here. Calling
-        // syncGlyphsFromJson once keeps that state-replacement behavior while
-        // avoiding a per-glyph bridge loop.
-        if (bridge) {
-            this.prepareCommittedStructuralOutlineChange(changeSource, {
-                triggerCompile: false
-            });
-            bridge.syncGlyphsFromJson(
-                syncedGlyphs,
-                'Reinterpolate layer batch sync',
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                layerSyncTargets
-            );
-        }
-
-        // 5. One final UI refresh (covers all glyphs in a single pass).
-        await this.refreshAfterStructuralLayerEdit('batch', changeSource, {
-            scheduleCompile: false,
-            dispatchGlyphChanged: false
-        });
+        );
     }
 
     /**

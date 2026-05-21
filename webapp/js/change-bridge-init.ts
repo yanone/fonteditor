@@ -710,7 +710,11 @@ type CommittedCompileEditType =
     | 'kerning-groups'
     | null;
 
-type NonGlyphChangeHint = 'feature-code' | 'kerning-value' | 'kerning-groups';
+type NonGlyphChangeHint =
+    | 'feature-code'
+    | 'kerning-value'
+    | 'kerning-groups'
+    | 'masters';
 
 function pathTouchesMasterKerning(path: string): boolean {
     return /(^|\.)masters\.[^.]+\.kerning(\.|$)/.test(path);
@@ -754,6 +758,9 @@ function collectNonGlyphChangeHints(
         const path = entry.path ?? '';
         if (path.startsWith('features.')) {
             hints.add('feature-code');
+        }
+        if (path === 'masters' || path.startsWith('masters.')) {
+            hints.add('masters');
         }
 
         const kerningEditType = inferKerningEditTypeFromMetadata(
@@ -821,7 +828,12 @@ function inferCommittedEditTypeFromEntries(
                 changeSource: 'feature-code'
             };
         }
-        if (label === 'Reinterpolate layer batch sync' && hasReplayTargets) {
+        if (
+            hasReplayTargets &&
+            (label === 'Reinterpolate layer batch sync' ||
+                label === 'Reinterpolate layer sync' ||
+                label === 'Add master')
+        ) {
             return {
                 editType: 'outline',
                 changeSource: changeSourceFor('outline')
@@ -1975,10 +1987,15 @@ export async function handleCommittedChangeRefresh(
                     entry.transactionLabel === 'Reinterpolate layer batch sync'
                 );
             });
+        const allEntriesAreForwardedAddMasterPackets =
+            entries.length > 0 &&
+            collectReplayTargetsFromEntries(entries).length > 0 &&
+            entries.every((entry) => entry.transactionLabel === 'Add master');
 
         if (
             !allEntriesAreGuiCompleteLayerPackets &&
             !allEntriesAreForwardedMasterReinterpolationPackets &&
+            !allEntriesAreForwardedAddMasterPackets &&
             collectReplayTargetsFromEntries(entries).length > 0
         ) {
             const queueCacheRefresh =
@@ -2369,7 +2386,11 @@ function initializeBridge(detail: {
         const invalidateLayoutClosure =
             shouldInvalidateLayoutClosureForCommittedEntries(changeLogEntries);
 
-        void applyInterpolationRustYjsUpdate(update, changedGlyphs);
+        void applyInterpolationRustYjsUpdate(update, {
+            changedGlyphs,
+            nonGlyphChangeHints,
+            layerTargets
+        });
 
         void window.fontManager?.forwardWorkerYjsUpdate?.(
             update,
