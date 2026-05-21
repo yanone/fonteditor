@@ -2392,6 +2392,7 @@ kbd + kbd {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    margin-bottom: 12px;
 }
 
 .fontinfo-name-group-fields {
@@ -5858,9 +5859,9 @@ kbd + kbd {
     margin-bottom: 0px;
 }
 
-.sidebar-section-title:first-child {
+/* .sidebar-section-title:first-child {
     margin-top: 0;
-}
+} */
 
 /* Sidebar list container (extends to edges) */
 .sidebar-list {

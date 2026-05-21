@@ -9,10 +9,12 @@
 }
 
 .feature-auto-checkbox {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
     cursor: pointer;
+    align-self: flex-start;
+    width: fit-content;
     font-family: var(--font-families-sans);
     font-size: 11px;
     color: var(--text-secondary);

@@ -104,43 +104,11 @@
         rowVisitOrder[rowKey].push(viewId);
     }
 
-    function getPreviousVisitedViewId(viewId: string): string | null {
-        const view = document.getElementById(viewId) as HTMLElement | null;
-        if (!view) {
-            return null;
-        }
-
-        const rowKey = getRowKeyForView(view);
-        if (!rowKey) {
-            return null;
-        }
-
-        const previousVisits = rowVisitOrder[rowKey].filter(
-            (id) => id !== viewId
-        );
-        return previousVisits.length > 0
-            ? previousVisits[previousVisits.length - 1]
-            : null;
-    }
-
     function getViewMinimumWidth(view: HTMLElement): number {
         if (view.closest('.top-row')) {
             return 24;
         }
         return 100;
-    }
-
-    function getActivationMinimumWidth(rowKey: ViewRowKey): number {
-        const settings = getViewSettings();
-        const configuredMinimums = settings?.activation?.minimumWidths;
-
-        if (!configuredMinimums) {
-            return 0;
-        }
-
-        return rowKey === 'top'
-            ? configuredMinimums.topRow
-            : configuredMinimums.bottomRow;
     }
 
     function applyRowViewWidths(
@@ -188,69 +156,6 @@
             (rowView) => rowView.id === 'view-editor'
         );
         return editorView?.id || expandedViews[0]?.id || null;
-    }
-
-    function ensureActivationMinimumWidth(viewId: string): boolean {
-        const activeView = document.getElementById(
-            viewId
-        ) as HTMLElement | null;
-        if (!activeView) {
-            return false;
-        }
-
-        const rowKey = getRowKeyForView(activeView);
-        if (!rowKey) {
-            return false;
-        }
-
-        const donorViewId = getPreviousVisitedViewId(viewId);
-        if (!donorViewId) {
-            return false;
-        }
-
-        const donorView = document.getElementById(
-            donorViewId
-        ) as HTMLElement | null;
-        if (!donorView) {
-            return false;
-        }
-
-        const rowViews = getRowViews(rowKey);
-        if (!rowViews.some((rowView) => rowView.id === donorViewId)) {
-            return false;
-        }
-
-        const activeWidth = activeView.offsetWidth;
-        const targetWidth = getActivationMinimumWidth(rowKey);
-        if (activeWidth >= targetWidth) {
-            return false;
-        }
-
-        const donorWidth = donorView.offsetWidth;
-        const donorMinimumWidth = getViewMinimumWidth(donorView);
-        const transferableWidth = Math.max(0, donorWidth - donorMinimumWidth);
-        const widthDelta = Math.min(
-            targetWidth - activeWidth,
-            transferableWidth
-        );
-
-        if (widthDelta <= 0) {
-            return false;
-        }
-
-        const widthsByViewId = rowViews.reduce<Record<string, number>>(
-            (widths, rowView) => {
-                widths[rowView.id] = rowView.offsetWidth;
-                return widths;
-            },
-            {}
-        );
-
-        widthsByViewId[viewId] = activeWidth + widthDelta;
-        widthsByViewId[donorViewId] = donorWidth - widthDelta;
-
-        applyRowViewWidths(rowViews, widthsByViewId);
-        return true;
     }
 
     function expandCollapsedTopRowEditorToPeerWidth(viewId: string): boolean {
@@ -358,10 +263,6 @@
         if (isTopRow && viewId === 'view-editor') {
             expanded =
                 expandCollapsedTopRowEditorToPeerWidth(viewId) || expanded;
-        }
-
-        if ((isTopRow || isBottomRow) && !expanded) {
-            expanded = ensureActivationMinimumWidth(viewId) || expanded;
         }
 
         if (viewId === 'view-editor') {

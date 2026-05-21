@@ -4741,52 +4741,6 @@ class FontInfoManager {
         identitySection.appendChild(identityFields);
         detail.appendChild(identitySection);
 
-        // Range section
-        const rangeSection = document.createElement('section');
-        rangeSection.className = 'fontinfo-name-group';
-        const rangeTitle = document.createElement('h3');
-        rangeTitle.className = 'sidebar-section-title';
-        rangeTitle.textContent = 'Range';
-        rangeSection.appendChild(rangeTitle);
-        const rangeFields = document.createElement('div');
-        rangeFields.className = 'fontinfo-name-group-fields';
-
-        for (const [fieldKey, label, helperText] of [
-            ['min', 'Minimum', 'Minimum user-space value for this axis.'],
-            ['max', 'Maximum', 'Maximum user-space value for this axis.'],
-            ['default', 'Default', 'Default user-space value for this axis.']
-        ] as ['min' | 'max' | 'default', string, string][]) {
-            const currentValue = selectedAxis[fieldKey] as number | undefined;
-            rangeFields.appendChild(
-                this.createSimpleFieldEditor({
-                    label,
-                    value:
-                        currentValue === undefined ? '' : String(currentValue),
-                    inputType: 'number',
-                    dataField: `axes.${this.selectedAxisIndex}.${fieldKey}`,
-                    helperText,
-                    onCommit: (rawValue) => {
-                        const parsedValue = parseNumericInput(rawValue);
-                        if (parsedValue === null || parsedValue === undefined) {
-                            return currentValue === undefined
-                                ? ''
-                                : String(currentValue);
-                        }
-
-                        this.commitAxisRangeValue(
-                            this.selectedAxisIndex,
-                            fieldKey,
-                            parsedValue
-                        );
-                        return String(parsedValue);
-                    }
-                })
-            );
-        }
-
-        rangeSection.appendChild(rangeFields);
-        detail.appendChild(rangeSection);
-
         // Designspace section
         const dsSection = document.createElement('section');
         dsSection.className = 'fontinfo-name-group';
@@ -4794,6 +4748,10 @@ class FontInfoManager {
         dsTitle.className = 'sidebar-section-title';
         dsTitle.textContent = 'Designspace';
         dsSection.appendChild(dsTitle);
+        const dsDescription = document.createElement('div');
+        dsDescription.className = 'localized-string-helper';
+        dsDescription.textContent = 'Designspace coordinates are required.';
+        dsSection.appendChild(dsDescription);
         const dsFields = document.createElement('div');
         dsFields.className = 'fontinfo-name-group-fields';
 
@@ -4862,6 +4820,57 @@ class FontInfoManager {
 
         dsSection.appendChild(dsFields);
         detail.appendChild(dsSection);
+
+        // Userspace section
+        const rangeSection = document.createElement('section');
+        rangeSection.className = 'fontinfo-name-group';
+        const rangeTitle = document.createElement('h3');
+        rangeTitle.className = 'sidebar-section-title';
+        rangeTitle.textContent = 'Userspace';
+        rangeSection.appendChild(rangeTitle);
+        const rangeDescription = document.createElement('div');
+        rangeDescription.className = 'localized-string-helper';
+        rangeDescription.textContent =
+            'Userspace coordinates are not required. If left empty, designspace coordinates will be used instead.';
+        rangeSection.appendChild(rangeDescription);
+        const rangeFields = document.createElement('div');
+        rangeFields.className = 'fontinfo-name-group-fields';
+
+        for (const [fieldKey, label, helperText] of [
+            ['min', 'Minimum', 'Minimum user-space value for this axis.'],
+            ['max', 'Maximum', 'Maximum user-space value for this axis.'],
+            ['default', 'Default', 'Default user-space value for this axis.']
+        ] as ['min' | 'max' | 'default', string, string][]) {
+            const currentValue = selectedAxis[fieldKey] as number | undefined;
+            rangeFields.appendChild(
+                this.createSimpleFieldEditor({
+                    label,
+                    value:
+                        currentValue === undefined ? '' : String(currentValue),
+                    inputType: 'number',
+                    dataField: `axes.${this.selectedAxisIndex}.${fieldKey}`,
+                    helperText,
+                    onCommit: (rawValue) => {
+                        const parsedValue = parseNumericInput(rawValue);
+                        if (parsedValue === null || parsedValue === undefined) {
+                            return currentValue === undefined
+                                ? ''
+                                : String(currentValue);
+                        }
+
+                        this.commitAxisRangeValue(
+                            this.selectedAxisIndex,
+                            fieldKey,
+                            parsedValue
+                        );
+                        return String(parsedValue);
+                    }
+                })
+            );
+        }
+
+        rangeSection.appendChild(rangeFields);
+        detail.appendChild(rangeSection);
 
         // Options section
         const optionsSection = document.createElement('section');
