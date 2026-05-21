@@ -1387,6 +1387,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         const fontInfoManager = loadFontInfoManager();
         const beginTransaction = jest.fn();
         const endTransaction = jest.fn();
+        const updatePropertiesUI = jest.fn().mockResolvedValue(undefined);
         const applySyntheticChangeSet = jest.fn((_label, operations) => {
             const mastersOperation = operations.find(
                 (operation) =>
@@ -1452,6 +1453,10 @@ describe('FontInfo feature code compilation scheduling', () => {
             beginTransaction,
             endTransaction,
             applySyntheticChangeSet
+        };
+        window.glyphCanvas = {
+            ...window.glyphCanvas,
+            updatePropertiesUI
         };
 
         fontInfoManager.init();
@@ -1549,6 +1554,9 @@ describe('FontInfo feature code compilation scheduling', () => {
                 }
             ]
         );
+        expect(updatePropertiesUI).toHaveBeenCalledWith({
+            skipAutoSelectMatchingLayer: true
+        });
         expect(
             document.querySelector(
                 '#fontinfo-masters-content .fontinfo-record-item-primary'

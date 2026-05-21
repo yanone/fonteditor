@@ -5756,7 +5756,20 @@ class FontInfoManager {
             newValue: clonedNextMasters,
             applyLocal: () => this.applyLocalMastersList(clonedNextMasters),
             markDirtyKey: 'font-info-masters-list',
-            refresh: () => this.forceRefreshVisibleMastersContent()
+            refresh: () => {
+                this.forceRefreshVisibleMastersContent();
+                void (
+                    window.glyphCanvas as
+                        | {
+                              updatePropertiesUI?: (options?: {
+                                  skipAutoSelectMatchingLayer?: boolean;
+                              }) => Promise<void>;
+                          }
+                        | undefined
+                )?.updatePropertiesUI?.({
+                    skipAutoSelectMatchingLayer: true
+                });
+            }
         });
     }
 
