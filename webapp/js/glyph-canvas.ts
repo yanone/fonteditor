@@ -172,6 +172,33 @@ type TextModeKerningOverlay = {
     value: number;
 };
 
+type TextModeKerningPair = {
+    firstKey: string;
+    secondKey: string;
+    pairKey: string;
+};
+
+type TextModeKerningOverlayCacheEntry = {
+    adjacencyKey: string;
+    firstKeys: string[];
+    secondKeys: string[];
+    secondCluster: TextRunClusterInfo;
+    isRTL: boolean;
+    resolvedFirstKey: string | null;
+    resolvedSecondKey: string | null;
+    value: number | null;
+    overlay: TextModeKerningOverlay | null;
+};
+
+type TextModeKerningOverlayCache = {
+    layoutVersion: number;
+    masterId: string;
+    overlays: TextModeKerningOverlay[];
+    entries: TextModeKerningOverlayCacheEntry[];
+    entriesByAdjacencyKey: Map<string, TextModeKerningOverlayCacheEntry>;
+    candidatePairToAdjacencyKeys: Map<string, Set<string>>;
+};
+
 type KerningRow = Map<string, number> | Record<string, number>;
 type KerningContainer =
     | Map<string, KerningRow | number>
@@ -185,6 +212,61 @@ function isKerningRow(
 
 function getFlatKerningPairKey(firstKey: string, secondKey: string): string {
     return `${firstKey}:${secondKey}`;
+}
+
+function getTextModeKerningPairKey(
+    firstKey: string,
+    secondKey: string
+): string {
+    return `${firstKey}\u0000${secondKey}`;
+}
+
+function getTextModeKerningAdjacencyKey(
+    firstCluster: TextRunClusterInfo,
+    secondCluster: TextRunClusterInfo
+): string {
+    return [
+        firstCluster.start,
+        firstCluster.end,
+        secondCluster.start,
+        secondCluster.end,
+        firstCluster.isRTL ? 'rtl' : 'ltr'
+    ].join('\u0000');
+}
+
+function buildOrderedTextModeKerningPairs(
+    firstKeys: string[],
+    secondKeys: string[]
+): TextModeKerningPair[] {
+    const glyphFirstKeys = firstKeys.filter((key) => !key.startsWith('@'));
+    const groupFirstKeys = firstKeys.filter((key) => key.startsWith('@'));
+    const glyphSecondKeys = secondKeys.filter((key) => !key.startsWith('@'));
+    const groupSecondKeys = secondKeys.filter((key) => key.startsWith('@'));
+    const orderedPairs: TextModeKerningPair[] = [];
+    const seenPairKeys = new Set<string>();
+
+    const appendPairs = (
+        currentFirstKeys: string[],
+        currentSecondKeys: string[]
+    ) => {
+        for (const firstKey of currentFirstKeys) {
+            for (const secondKey of currentSecondKeys) {
+                const pairKey = getTextModeKerningPairKey(firstKey, secondKey);
+                if (seenPairKeys.has(pairKey)) {
+                    continue;
+                }
+                seenPairKeys.add(pairKey);
+                orderedPairs.push({ firstKey, secondKey, pairKey });
+            }
+        }
+    };
+
+    appendPairs(glyphFirstKeys, glyphSecondKeys);
+    appendPairs(glyphFirstKeys, groupSecondKeys);
+    appendPairs(groupFirstKeys, glyphSecondKeys);
+    appendPairs(groupFirstKeys, groupSecondKeys);
+
+    return orderedPairs;
 }
 
 function getFlatKerningPairValue(
@@ -487,6 +569,7 @@ class GlyphCanvas {
     textModeKerningSelectionScopeKey: string | null = null;
     textModeKerningDraftPairKey: string | null = null;
     textModeKerningDraftValue: string | null = null;
+    textModeKerningOverlayCache: TextModeKerningOverlayCache | null = null;
 
     zoomAnimation: {
         active: boolean;
@@ -567,10 +650,18 @@ class GlyphCanvas {
     };
 
     private handleFontModelSync = (): void => {
+        this.invalidateTextModeKerningOverlayCache();
+
         if (
             this.textModeKerningDraftPairKey === null &&
             this.textModeKerningDraftValue === null
         ) {
+            if (this.outlineEditor.active || !this.propertyPanel) {
+                return;
+            }
+
+            this.updatePropertyPanel();
+            this.render();
             return;
         }
 
@@ -4738,7 +4829,7 @@ class GlyphCanvas {
 
         const pairKey =
             nextFirstKey && nextSecondKey
-                ? `${nextFirstKey}\u0000${nextSecondKey}`
+                ? getTextModeKerningPairKey(nextFirstKey, nextSecondKey)
                 : null;
         if (pairKey !== this.textModeKerningDraftPairKey) {
             this.textModeKerningDraftPairKey = null;
@@ -4781,38 +4872,19 @@ class GlyphCanvas {
             return fallbackSelection;
         }
 
-        const glyphFirstKeys = firstKeys.filter((key) => !key.startsWith('@'));
-        const groupFirstKeys = firstKeys.filter((key) => key.startsWith('@'));
-        const glyphSecondKeys = secondKeys.filter(
-            (key) => !key.startsWith('@')
+        const preferredPairs = buildOrderedTextModeKerningPairs(
+            firstKeys,
+            secondKeys
         );
-        const groupSecondKeys = secondKeys.filter((key) => key.startsWith('@'));
-        const preferredPairs: Array<[string, string]> = [];
 
-        const appendPairs = (
-            currentFirstKeys: string[],
-            currentSecondKeys: string[]
-        ) => {
-            for (const firstKey of currentFirstKeys) {
-                for (const secondKey of currentSecondKeys) {
-                    preferredPairs.push([firstKey, secondKey]);
-                }
-            }
-        };
-
-        appendPairs(glyphFirstKeys, glyphSecondKeys);
-        appendPairs(glyphFirstKeys, groupSecondKeys);
-        appendPairs(groupFirstKeys, glyphSecondKeys);
-        appendPairs(groupFirstKeys, groupSecondKeys);
-
-        for (const [firstKey, secondKey] of preferredPairs) {
+        for (const { firstKey, secondKey } of preferredPairs) {
             const value = getKerningPairValue(kerning, firstKey, secondKey);
             if (value !== null && value !== 0) {
                 return { firstKey, secondKey };
             }
         }
 
-        for (const [firstKey, secondKey] of preferredPairs) {
+        for (const { firstKey, secondKey } of preferredPairs) {
             const value = getKerningPairValue(kerning, firstKey, secondKey);
             if (value !== null) {
                 return { firstKey, secondKey };
@@ -5149,28 +5221,74 @@ class GlyphCanvas {
         };
     }
 
-    getTextModeKerningOverlayStates(): TextModeKerningOverlay[] {
-        if (!this.textRunEditor || !fontManager.currentFont?.fontModel) {
-            return [];
-        }
+    private invalidateTextModeKerningOverlayCache(): void {
+        this.textModeKerningOverlayCache = null;
+    }
 
-        const master = this.getSelectedTextModeKerningMaster();
-        if (!master) {
-            return [];
-        }
+    private rebuildTextModeKerningOverlayCacheOverlays(
+        cache: TextModeKerningOverlayCache
+    ): void {
+        cache.overlays = cache.entries
+            .map((entry) => entry.overlay)
+            .filter((overlay): overlay is TextModeKerningOverlay => !!overlay);
+    }
 
+    private recomputeTextModeKerningOverlayCacheEntry(
+        entry: TextModeKerningOverlayCacheEntry,
+        master: Master
+    ): void {
         const kerning = master.kerning as KerningContainer | undefined;
         const metrics =
             (master.metrics as Record<string, number> | null) || null;
-        if (!kerning || !metrics) {
-            return [];
+        const preferredSelection = this.getPreferredTextModeKerningSelection(
+            master,
+            entry.firstKeys,
+            entry.secondKeys
+        );
+
+        entry.resolvedFirstKey = preferredSelection.firstKey;
+        entry.resolvedSecondKey = preferredSelection.secondKey;
+        entry.value =
+            kerning &&
+            preferredSelection.firstKey &&
+            preferredSelection.secondKey
+                ? getKerningPairValue(
+                      kerning,
+                      preferredSelection.firstKey,
+                      preferredSelection.secondKey
+                  )
+                : null;
+        entry.overlay =
+            entry.value === null || entry.value === 0
+                ? null
+                : this.buildTextModeKerningOverlay(
+                      entry.secondCluster,
+                      entry.isRTL,
+                      metrics,
+                      entry.value
+                  );
+    }
+
+    private buildTextModeKerningOverlayCache(): TextModeKerningOverlayCache | null {
+        if (!this.textRunEditor || !fontManager.currentFont?.fontModel) {
+            return null;
+        }
+
+        const master = this.getSelectedTextModeKerningMaster();
+        if (!master?.id || !master.kerning || !master.metrics) {
+            return null;
         }
 
         const fontModel = fontManager.currentFont.fontModel;
         const sortedClusters = [
             ...((this.textRunEditor.clusterMap as TextRunClusterInfo[]) || [])
         ].sort((left, right) => left.start - right.start);
-        const overlays: TextModeKerningOverlay[] = [];
+        const entries: TextModeKerningOverlayCacheEntry[] = [];
+        const entriesByAdjacencyKey = new Map<
+            string,
+            TextModeKerningOverlayCacheEntry
+        >();
+        const candidatePairToAdjacencyKeys = new Map<string, Set<string>>();
 
         for (let index = 0; index < sortedClusters.length - 1; index++) {
             const firstCluster = sortedClusters[index];
@@ -5206,37 +5324,111 @@ class GlyphCanvas {
                 secondGlyphName,
                 ...secondGroupNames.map((name) => `@${name}`)
             ];
-            const preferredSelection =
-                this.getPreferredTextModeKerningSelection(
-                    master,
-                    firstKeys,
-                    secondKeys
-                );
-            if (!preferredSelection.firstKey || !preferredSelection.secondKey) {
-                continue;
-            }
-
-            const value = getKerningPairValue(
-                kerning,
-                preferredSelection.firstKey,
-                preferredSelection.secondKey
+            const adjacencyKey = getTextModeKerningAdjacencyKey(
+                firstCluster,
+                secondCluster
             );
-            if (value === null || value === 0) {
-                continue;
-            }
-
-            const overlay = this.buildTextModeKerningOverlay(
+            const entry: TextModeKerningOverlayCacheEntry = {
+                adjacencyKey,
+                firstKeys,
+                secondKeys,
                 secondCluster,
-                firstCluster.isRTL,
-                metrics,
-                value
-            );
-            if (overlay) {
-                overlays.push(overlay);
+                isRTL: firstCluster.isRTL,
+                resolvedFirstKey: null,
+                resolvedSecondKey: null,
+                value: null,
+                overlay: null
+            };
+
+            this.recomputeTextModeKerningOverlayCacheEntry(entry, master);
+            entries.push(entry);
+            entriesByAdjacencyKey.set(adjacencyKey, entry);
+
+            for (const pair of buildOrderedTextModeKerningPairs(
+                firstKeys,
+                secondKeys
+            )) {
+                let adjacencyKeys = candidatePairToAdjacencyKeys.get(
+                    pair.pairKey
+                );
+                if (!adjacencyKeys) {
+                    adjacencyKeys = new Set<string>();
+                    candidatePairToAdjacencyKeys.set(
+                        pair.pairKey,
+                        adjacencyKeys
+                    );
+                }
+                adjacencyKeys.add(adjacencyKey);
             }
         }
 
-        return overlays;
+        const cache: TextModeKerningOverlayCache = {
+            layoutVersion: this.textRunEditor.layoutVersion,
+            masterId: master.id,
+            overlays: [],
+            entries,
+            entriesByAdjacencyKey,
+            candidatePairToAdjacencyKeys
+        };
+        this.rebuildTextModeKerningOverlayCacheOverlays(cache);
+        return cache;
+    }
+
+    private getTextModeKerningOverlayCache(): TextModeKerningOverlayCache | null {
+        if (!this.textRunEditor) {
+            return null;
+        }
+
+        const master = this.getSelectedTextModeKerningMaster();
+        if (!master?.id) {
+            this.textModeKerningOverlayCache = null;
+            return null;
+        }
+
+        const cache = this.textModeKerningOverlayCache;
+        if (
+            cache &&
+            cache.layoutVersion === this.textRunEditor.layoutVersion &&
+            cache.masterId === master.id
+        ) {
+            return cache;
+        }
+
+        this.textModeKerningOverlayCache =
+            this.buildTextModeKerningOverlayCache();
+        return this.textModeKerningOverlayCache;
+    }
+
+    private patchTextModeKerningOverlayCachePair(
+        master: Master,
+        firstKey: string,
+        secondKey: string
+    ): void {
+        const cache = this.getTextModeKerningOverlayCache();
+        if (!cache || cache.masterId !== master.id) {
+            return;
+        }
+
+        const pairKey = getTextModeKerningPairKey(firstKey, secondKey);
+        const adjacencyKeys = cache.candidatePairToAdjacencyKeys.get(pairKey);
+        if (!adjacencyKeys || adjacencyKeys.size === 0) {
+            return;
+        }
+
+        for (const adjacencyKey of adjacencyKeys) {
+            const entry = cache.entriesByAdjacencyKey.get(adjacencyKey);
+            if (!entry) {
+                continue;
+            }
+
+            this.recomputeTextModeKerningOverlayCacheEntry(entry, master);
+        }
+
+        this.rebuildTextModeKerningOverlayCacheOverlays(cache);
+    }
+
+    getTextModeKerningOverlayStates(): TextModeKerningOverlay[] {
+        return this.getTextModeKerningOverlayCache()?.overlays || [];
     }
 
     private setTextModeKerningSelection(side: KerningSide, key: string): void {
@@ -5357,6 +5549,7 @@ class GlyphCanvas {
         }
 
         this.scheduleTextModeKerningCompile('kerning-group-membership');
+        this.invalidateTextModeKerningOverlayCache();
         this.updatePropertyPanel();
         this.render();
     }
@@ -5533,7 +5726,10 @@ class GlyphCanvas {
         const currentValue = context.hasSelectedValue
             ? context.selectedValue
             : null;
-        const nextPairKey = `${context.selectedFirstKey}\u0000${context.selectedSecondKey}`;
+        const nextPairKey = getTextModeKerningPairKey(
+            context.selectedFirstKey,
+            context.selectedSecondKey
+        );
         if (currentValue === nextValue) {
             this.textModeKerningDraftPairKey = nextPairKey;
             this.textModeKerningDraftValue = trimmedValue;
@@ -5551,6 +5747,11 @@ class GlyphCanvas {
                 context.selectedFirstKey,
                 context.selectedSecondKey,
                 nextValue
+            );
+            this.patchTextModeKerningOverlayCachePair(
+                context.master,
+                context.selectedFirstKey,
+                context.selectedSecondKey
             );
         } finally {
             window.patchSyncEngine?.endTransaction();

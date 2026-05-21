@@ -81,6 +81,7 @@ export class TextRunEditor {
     cursorBlinkInterval: any;
     cursorX: number;
     clusterMap: any[];
+    layoutVersion: number;
     embeddingLevels: any;
     callbacks: Record<string, Function[]>;
     selectionStart: number | null;
@@ -123,6 +124,7 @@ export class TextRunEditor {
         this.displayTextBuffer = this.textBuffer;
         this.displayIndexToRawStart = [];
         this.displayIndexToRawEnd = [];
+        this.layoutVersion = 0;
 
         // Bidirectional text support
         this.bidi = bidiFactory();
@@ -1228,6 +1230,7 @@ export class TextRunEditor {
         // Build a map from logical character positions to visual glyphs
         // Group glyphs by cluster to handle multi-glyph clusters correctly
         this.clusterMap = [];
+        this.layoutVersion++;
 
         if (!this.shapedGlyphs || this.shapedGlyphs.length === 0) {
             return;
