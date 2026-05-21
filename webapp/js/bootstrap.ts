@@ -302,37 +302,11 @@ const handleURLFontOpen = () => {
 
     if (fontPath) {
         timelineMark('app.urlFontOpen.fontPathDetected');
-        const loadingContent = document.querySelector(
-            '.loading-content'
-        ) as HTMLElement;
         const statusElement = document.getElementById('loading-status');
-        const loadingOverlay = document.getElementById('loading-overlay');
-
-        // Hide logo, icon, and status label
-        if (loadingContent) {
-            loadingContent.style.display = 'none';
-        }
         if (statusElement) {
-            statusElement.style.display = 'none';
-        }
-
-        // Create and show simple loading message
-        const filename = fontPath.split('/').pop() || fontPath;
-        const fontLoadingLabel = document.createElement('div');
-        fontLoadingLabel.textContent = `Opening ${filename}`;
-        fontLoadingLabel.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-family: 'Inter', sans-serif;
-            font-size: 24px;
-            color: var(--text-primary);
-            text-align: center;
-            z-index: 999999;
-        `;
-        if (loadingOverlay) {
-            loadingOverlay.appendChild(fontLoadingLabel);
+            statusElement.style.display = '';
+            const filename = fontPath.split('/').pop() || fontPath;
+            statusElement.textContent = `Opening ${filename}`;
         }
     }
 

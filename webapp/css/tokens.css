@@ -61,7 +61,7 @@
     --glyphfilter-context-text: rgba(255, 255, 255, 0.8);
     --glyphfilter-context-focused-text: #ffffff;
     --background-tertiary: #252525;
-    --background-loading: #000000;
+    --background-loading: #313131;
     --background-primary: #181818;
     --background-secondary: #2a2a2a;
     --background-active: #333333;
@@ -141,7 +141,7 @@
     --glyphfilter-context-text: #4a0e4a;
     --glyphfilter-context-focused-text: #ffffff;
     --background-tertiary: #f0f0f0;
-    --background-loading: #ffffff;
+    --background-loading: #cecece;
     --background-primary: #ffffff;
     --background-secondary: rgb(234, 234, 234);
     --background-active: #d8d8d8;
