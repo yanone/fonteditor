@@ -21,13 +21,14 @@ import {
     decomposedAffineToAffine
 } from './glyph-path-geometry';
 import { LayerDataNormalizer } from './layer-data-normalizer';
-import { designspaceToUserspace } from './locations';
+import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
 import type {
     PatchSyncEngine,
-    TransactionBufferedOperation
+    TransactionBufferedOperation,
+    TransactionHistoryTarget
 } from './patch-sync-engine';
 import {
     getSidebearingTransactionLabel,
@@ -41,7 +42,8 @@ import {
     init_ydoc_from_state,
     interpolate_glyph,
     reinterpolate_layer_yjs,
-    reinterpolate_master_layers_yjs
+    reinterpolate_master_layers_yjs,
+    store_font
 } from '../wasm-dist/babelfont_fontc_web';
 
 const console = new Logger('BabelfontModel');
@@ -312,6 +314,23 @@ export type InterpolationRustUpdateMetadata = {
 export type InterpolationRustBatchResult = {
     update: Uint8Array;
     metadata: InterpolationRustBatchMetadata;
+};
+
+type AddMasterInterpolationLocation = {
+    glyphName: string;
+    designLocation: DesignspaceLocation;
+};
+
+type AddMasterOptions = {
+    metricTemplateMasterId?: string;
+};
+
+type AddMasterRustBatchPayload = {
+    master: Babelfont.Master;
+    interpolationLocations?: Array<{
+        glyphName: string;
+        designLocation: Array<[string, number]>;
+    }>;
 };
 
 function getInterpolationFontVersion(font: Font): number {
@@ -2756,15 +2775,34 @@ export async function buildRustReinterpolateLayerBatch(
 }
 
 export async function buildRustAddMasterWithInterpolatedLayersBatch(
-    master: Babelfont.Master
+    master: Babelfont.Master,
+    interpolationLocations?: AddMasterInterpolationLocation[]
 ): Promise<InterpolationRustBatchResult> {
     await ensureWasmInitialized();
     if (!(await ensureInterpolationRustCacheReadyForBatch())) {
         throw new Error('Interpolation Rust cache is not seeded');
     }
 
+    const payload: AddMasterRustBatchPayload = {
+        master,
+        ...(interpolationLocations?.length
+            ? {
+                  interpolationLocations: interpolationLocations.map(
+                      (location) => ({
+                          glyphName: location.glyphName,
+                          designLocation: Object.entries(
+                              JSON.parse(
+                                  JSON.stringify(location.designLocation)
+                              ) as Record<string, number>
+                          )
+                      })
+                  )
+              }
+            : {})
+    };
+
     return parseInterpolationRustBatchResult(
-        add_master_with_interpolated_layers_yjs(JSON.stringify(master))
+        add_master_with_interpolated_layers_yjs(JSON.stringify(payload))
     );
 }
 
@@ -9999,6 +10037,53 @@ export class Master extends ArrayElementBase {
         recordAndMarkDirty(this, 'format_specific', old, value);
     }
 
+    async reinterpolateLayers(): Promise<void> {
+        const outlineEditor = (window as Unsafe).glyphCanvas?.outlineEditor;
+        if (
+            outlineEditor &&
+            typeof outlineEditor.reinterpolateAllLayersForMaster === 'function'
+        ) {
+            await outlineEditor.reinterpolateAllLayersForMaster(this.id);
+            return;
+        }
+
+        const bridge = getPatchSyncEngine() as
+            | (PatchSyncEngine & {
+                  applyLocalGeneratedYjsUpdate?: (
+                      update: Uint8Array,
+                      operations: TransactionBufferedOperation[],
+                      label: string | null,
+                      historyTarget?: TransactionHistoryTarget | null
+                  ) => unknown;
+              })
+            | null;
+        if (!bridge?.applyLocalGeneratedYjsUpdate) {
+            return;
+        }
+
+        const batchResult = await buildRustReinterpolateMasterLayersBatch(
+            this.id
+        );
+        if (!batchResult.update.length) {
+            return;
+        }
+
+        bridge.applyLocalGeneratedYjsUpdate(
+            batchResult.update,
+            buildInterpolationRustBatchOperations(batchResult.metadata),
+            'Reinterpolate layer batch sync'
+        );
+    }
+
+    async delete(): Promise<boolean> {
+        const font = this.parent();
+        if (!(font instanceof Font)) {
+            return false;
+        }
+
+        return font.removeMastersByIds([this.id]);
+    }
+
     toString(): string {
         const displayName =
             typeof this.name === 'string'
@@ -11250,6 +11335,411 @@ export class Font extends ModelBase {
         if (!masters) return undefined;
         const index = this._data.masters.findIndex((m: Unsafe) => m.id === id);
         return index >= 0 ? masters[index] : undefined;
+    }
+
+    private createModelRecordId(prefix: string): string {
+        if (
+            typeof crypto !== 'undefined' &&
+            typeof crypto.randomUUID === 'function'
+        ) {
+            return crypto.randomUUID();
+        }
+
+        return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    }
+
+    private clonePlainValue<T>(value: T): T {
+        if (value === undefined) {
+            return value;
+        }
+
+        return JSON.parse(JSON.stringify(value)) as T;
+    }
+
+    private getEffectiveDesignspaceLocationForLayer(
+        layer: Layer | null | undefined
+    ): DesignspaceLocation | undefined {
+        if (!layer) {
+            return undefined;
+        }
+
+        if (layer.location && Object.keys(layer.location).length > 0) {
+            return this.clonePlainValue(layer.location);
+        }
+
+        const masterId = layer.master?.master;
+        if (!masterId) {
+            return undefined;
+        }
+
+        const master = this.findMaster(masterId);
+        return master?.location
+            ? this.clonePlainValue(master.location)
+            : undefined;
+    }
+
+    private getAddMasterInterpolationLocations(): AddMasterInterpolationLocation[] {
+        const axes = this.axes || [];
+        const locations: AddMasterInterpolationLocation[] = [];
+
+        for (const glyph of this.glyphs) {
+            const sourceLayer = glyph.layers?.[glyph.layers.length - 1];
+            const designLocation =
+                this.getEffectiveDesignspaceLocationForLayer(sourceLayer);
+            if (!designLocation) {
+                continue;
+            }
+
+            const userspaceLocation = designspaceToUserspace(
+                designLocation,
+                axes as unknown as Babelfont.Axis[]
+            );
+            const roundTrippedDesignLocation = userspaceToDesignspace(
+                userspaceLocation,
+                axes as unknown as Babelfont.Axis[]
+            );
+            locations.push({
+                glyphName: glyph.name,
+                designLocation: this.clonePlainValue(roundTrippedDesignLocation)
+            });
+        }
+
+        return locations;
+    }
+
+    private getNextMasterLocation(): Record<string, number> | undefined {
+        const axes = this.axes || [];
+        if (axes.length === 0) {
+            return undefined;
+        }
+
+        const existingByAxis: Record<string, Set<number>> = {};
+        for (const master of this.masters || []) {
+            const location = master.location || {};
+            for (const axis of axes) {
+                const tag = axis.tag;
+                if (tag === undefined) {
+                    continue;
+                }
+
+                if (!existingByAxis[tag]) {
+                    existingByAxis[tag] = new Set<number>();
+                }
+
+                const axisDefault = axis.default as number | undefined;
+                const value =
+                    typeof location[tag] === 'number'
+                        ? (location[tag] as number)
+                        : (axisDefault ?? 0);
+                existingByAxis[tag].add(value);
+            }
+        }
+
+        const entries: [string, number][] = [];
+        for (const axis of axes) {
+            const tag = axis.tag;
+            if (tag === undefined) {
+                continue;
+            }
+
+            const taken = existingByAxis[tag] ?? new Set<number>();
+            const axisMax = axis.max as number | undefined;
+            const axisMin = axis.min as number | undefined;
+            const axisDefault = axis.default as number | undefined;
+
+            let chosen = axisDefault ?? 0;
+            if (axisMax !== undefined && !taken.has(axisMax)) {
+                chosen = axisMax;
+            } else if (axisMin !== undefined && !taken.has(axisMin)) {
+                chosen = axisMin;
+            }
+
+            entries.push([tag, chosen]);
+        }
+
+        return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+    }
+
+    private buildDefaultMasterRecord(
+        options?: AddMasterOptions
+    ): Babelfont.Master {
+        const nextIndex = (this.masters?.length ?? 0) + 1;
+        const templateMaster = options?.metricTemplateMasterId
+            ? this.findMaster(options.metricTemplateMasterId)
+            : undefined;
+        const metricTemplate =
+            templateMaster?.metrics ||
+            this.masters?.[this.masters.length - 1]?.metrics ||
+            this.masters?.[0]?.metrics ||
+            {};
+        const metrics = Object.fromEntries(
+            Object.entries(metricTemplate).map(([key, value]) => [
+                key,
+                typeof value === 'number' ? value : 0
+            ])
+        );
+
+        return {
+            id: this.createModelRecordId('master'),
+            name: { dflt: `Master ${nextIndex}` },
+            location: this.getNextMasterLocation(),
+            metrics,
+            kerning: {} as any
+        };
+    }
+
+    private getInterpolatedLayerDataForLocation(
+        designLocation: DesignspaceLocation | undefined
+    ): Map<string, Babelfont.Layer> {
+        const interpolatedLayers = new Map<string, Babelfont.Layer>();
+        if (!designLocation) {
+            return interpolatedLayers;
+        }
+
+        try {
+            store_font(JSON.stringify(this.toJSON()));
+            const userspaceLocation = designspaceToUserspace(
+                designLocation,
+                (this.axes || []) as unknown as Babelfont.Axis[]
+            );
+
+            for (const glyph of this.glyphs) {
+                try {
+                    const interpolatedLayer = LayerDataNormalizer.normalize(
+                        JSON.parse(
+                            interpolate_glyph(
+                                glyph.name,
+                                JSON.stringify(userspaceLocation),
+                                false
+                            )
+                        ),
+                        true
+                    );
+                    if (!interpolatedLayer) {
+                        continue;
+                    }
+
+                    interpolatedLayers.set(
+                        glyph.name,
+                        this.clonePlainValue(interpolatedLayer)
+                    );
+                } catch {
+                    continue;
+                }
+            }
+        } catch {
+            return interpolatedLayers;
+        }
+
+        return interpolatedLayers;
+    }
+
+    private setLocalMastersList(nextMasters: Babelfont.Master[]): void {
+        this._data.masters = nextMasters;
+        this._masterWrappers = null;
+    }
+
+    async addMaster(
+        master?: Babelfont.Master,
+        options?: AddMasterOptions
+    ): Promise<Master | null> {
+        const clonedMaster = this.clonePlainValue(
+            master ?? this.buildDefaultMasterRecord(options)
+        );
+        const bridge = getPatchSyncEngine() as
+            | (PatchSyncEngine & {
+                  applyLocalGeneratedYjsUpdate?: (
+                      update: Uint8Array,
+                      operations: TransactionBufferedOperation[],
+                      label: string | null,
+                      historyTarget?: TransactionHistoryTarget | null
+                  ) => unknown;
+              })
+            | null;
+
+        if (
+            getCurrentWindowFontModel() === this &&
+            bridge?.applyLocalGeneratedYjsUpdate
+        ) {
+            const batchResult =
+                await buildRustAddMasterWithInterpolatedLayersBatch(
+                    clonedMaster,
+                    this.getAddMasterInterpolationLocations()
+                );
+            if (batchResult.update.length) {
+                bridge.applyLocalGeneratedYjsUpdate(
+                    batchResult.update,
+                    buildInterpolationRustBatchOperations(batchResult.metadata),
+                    'Add master'
+                );
+            }
+            return this.findMaster(clonedMaster.id || '') || null;
+        }
+
+        const nextMasters = [
+            ...this._data.masters.map((existing: Babelfont.Master) =>
+                this.clonePlainValue(existing)
+            ),
+            clonedMaster
+        ];
+        const interpolatedLayerData = this.getInterpolatedLayerDataForLocation(
+            clonedMaster.location
+        );
+        this.setLocalMastersList(nextMasters);
+
+        const masterId = clonedMaster.id;
+        if (masterId) {
+            for (const glyph of this.glyphs) {
+                const sourceLayer = glyph.layers?.[glyph.layers.length - 1];
+                const sourceWidth = sourceLayer?.width ?? 500;
+                const newLayer = glyph.addLayer(
+                    sourceWidth,
+                    {
+                        type: 'DefaultForMaster',
+                        master: masterId
+                    },
+                    masterId
+                );
+                const interpolatedLayer = interpolatedLayerData.get(glyph.name);
+                if (!interpolatedLayer) {
+                    continue;
+                }
+
+                const newLayerData = newLayer.toJSON() as Babelfont.Layer;
+                Object.assign(newLayerData, interpolatedLayer, {
+                    id: masterId,
+                    master: {
+                        type: 'DefaultForMaster',
+                        master: masterId
+                    }
+                });
+                delete (newLayerData as Partial<Babelfont.Layer>).location;
+            }
+        }
+
+        const currentFont = (window as Unsafe).fontManager?.currentFont;
+        currentFont?.syncJsonFromModel?.();
+        currentFont?.markDirty?.('font-info-masters-list');
+
+        if (masterId) {
+            await this.findMaster(masterId)?.reinterpolateLayers();
+        }
+
+        return this.findMaster(clonedMaster.id || '') || null;
+    }
+
+    async removeMastersByIds(masterIds: string[]): Promise<boolean> {
+        const normalizedMasterIds = Array.from(
+            new Set(
+                masterIds.filter(
+                    (masterId): masterId is string =>
+                        typeof masterId === 'string' && masterId.length > 0
+                )
+            )
+        );
+        if (!normalizedMasterIds.length) {
+            return false;
+        }
+
+        const previousMasters = this._data.masters.map(
+            (master: Babelfont.Master) => this.clonePlainValue(master)
+        );
+        const nextMasters = previousMasters.filter(
+            (master: Babelfont.Master) =>
+                !normalizedMasterIds.includes(master.id || '')
+        );
+        if (nextMasters.length === previousMasters.length) {
+            return false;
+        }
+
+        const removeMasterBoundLayers = () => {
+            for (const glyph of this.glyphs) {
+                const rawLayers = ((glyph as Unsafe).data?.layers ||
+                    []) as Array<Babelfont.Layer & { id?: string }>;
+                const layerIdsToRemove = rawLayers
+                    .filter((layer) => {
+                        const layerMaster = layer.master as
+                            | { master?: string }
+                            | undefined;
+                        return (
+                            typeof layer.id === 'string' &&
+                            typeof layerMaster?.master === 'string' &&
+                            normalizedMasterIds.includes(layerMaster.master)
+                        );
+                    })
+                    .map((layer) => layer.id as string)
+                    .filter((layerId, index, values) => {
+                        return values.indexOf(layerId) === index;
+                    });
+
+                for (const layerId of layerIdsToRemove) {
+                    glyph.removeLayerById(layerId);
+                }
+            }
+        };
+
+        const bridge = getPatchSyncEngine() as
+            | (PatchSyncEngine & {
+                  applySyntheticChangeSet?: (
+                      label: string,
+                      operations: Array<{
+                          op: 'set' | 'remove';
+                          path: (string | number)[];
+                          oldValue: unknown;
+                          newValue: unknown;
+                      }>
+                  ) => void;
+                  runWithoutRecording?: <T>(fn: () => T) => T;
+              })
+            | null;
+
+        if (
+            getCurrentWindowFontModel() === this &&
+            bridge?.beginTransaction &&
+            bridge?.endTransaction &&
+            bridge?.applySyntheticChangeSet
+        ) {
+            bridge.beginTransaction('Remove master');
+            try {
+                const applyLocalMasters = () => {
+                    this.setLocalMastersList(
+                        nextMasters.map((master: Babelfont.Master) =>
+                            this.clonePlainValue(master)
+                        )
+                    );
+                };
+                if (bridge.runWithoutRecording) {
+                    bridge.runWithoutRecording(applyLocalMasters);
+                } else {
+                    applyLocalMasters();
+                }
+
+                bridge.applySyntheticChangeSet('Remove master', [
+                    {
+                        op: 'set',
+                        path: ['masters'],
+                        oldValue:
+                            previousMasters.length > 0
+                                ? previousMasters
+                                : undefined,
+                        newValue:
+                            nextMasters.length > 0 ? nextMasters : undefined
+                    }
+                ]);
+                removeMasterBoundLayers();
+            } finally {
+                bridge.endTransaction();
+            }
+            return true;
+        }
+
+        this.setLocalMastersList(nextMasters);
+        removeMasterBoundLayers();
+
+        const currentFont = (window as Unsafe).fontManager?.currentFont;
+        currentFont?.syncJsonFromModel?.();
+        currentFont?.markDirty?.('font-info-masters-list');
+        return true;
     }
 
     /**

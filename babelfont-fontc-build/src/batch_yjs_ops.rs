@@ -2,8 +2,9 @@ use crate::interpolation::interpolate_glyph_layer;
 use crate::{get_or_rebuild_font_cache, ydoc_get_top_level_json_with_txn, Y_DOC};
 use babelfont::{Layer, LayerType, Master};
 use js_sys::{Object, Reflect, Uint8Array};
+use serde::Deserialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use wasm_bindgen::prelude::*;
 use yrs::updates::decoder::Decode;
 use yrs::{Any, Array, ArrayPrelim, Doc, Map, MapPrelim, ReadTxn, StateVector, Transact};
@@ -41,6 +42,21 @@ struct ReinterpolationTarget {
     glyph_name: String,
     layer_id: String,
     layer: Layer,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddMasterInterpolationLocation {
+    glyph_name: String,
+    design_location: fontdrasil::coords::DesignLocation,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddMasterBatchPayload {
+    master: Master,
+    #[serde(default)]
+    interpolation_locations: Vec<AddMasterInterpolationLocation>,
 }
 
 fn warn_batch(message: &str) {
@@ -360,6 +376,24 @@ fn build_reinterpolated_layer(
         .map_err(|error| JsValue::from_str(&format!("Layer serialization failed: {}", error)))
 }
 
+fn parse_add_master_batch_payload(
+    payload_json: &str,
+) -> Result<(Master, HashMap<String, fontdrasil::coords::DesignLocation>), String> {
+    if let Ok(payload) = serde_json::from_str::<AddMasterBatchPayload>(payload_json) {
+        let locations = payload
+            .interpolation_locations
+            .into_iter()
+            .map(|location| (location.glyph_name, location.design_location))
+            .collect();
+        return Ok((payload.master, locations));
+    }
+
+    let master: Master = serde_json::from_str(payload_json).map_err(|error| {
+        format!("Master parse failed for Rust batch add-master: {}", error)
+    })?;
+    Ok((master, HashMap::new()))
+}
+
 fn encode_result(update: Vec<u8>, metadata: &BatchMetadata) -> Result<JsValue, JsValue> {
     let metadata_json = serde_json::json!({
         "changedGlyphs": metadata.changed_glyphs,
@@ -562,9 +596,9 @@ pub fn reinterpolate_layer_yjs(glyph_name: &str, layer_id: &str) -> Result<JsVal
 
 #[wasm_bindgen]
 pub fn add_master_with_interpolated_layers_yjs(master_json: &str) -> Result<JsValue, JsValue> {
-    let new_master: Master = serde_json::from_str(master_json).map_err(|error| {
-        JsValue::from_str(&format!("Master parse failed for Rust batch add-master: {}", error))
-    })?;
+    let (new_master, interpolation_locations) =
+        parse_add_master_batch_payload(master_json)
+            .map_err(|error| JsValue::from_str(&error))?;
     let font = get_or_rebuild_font_cache()?;
     let (clone_doc, base_state_vector) = clone_current_ydoc()?;
 
@@ -607,6 +641,10 @@ pub fn add_master_with_interpolated_layers_yjs(master_json: &str) -> Result<JsVa
                 location: Some(new_master.location.clone()),
                 ..Layer::new(0.0)
             };
+            let forced_location = interpolation_locations
+                .get(&glyph_name)
+                .cloned()
+                .unwrap_or_else(|| new_master.location.clone());
 
             let new_value = build_reinterpolated_layer(
                 &font,
@@ -614,7 +652,7 @@ pub fn add_master_with_interpolated_layers_yjs(master_json: &str) -> Result<JsVa
                 &prototype_layer,
                 &layer_id,
                 LayerType::DefaultForMaster(new_master.id.clone()),
-                Some(new_master.location.clone()),
+                Some(forced_location),
                 None,
             )?;
 
@@ -763,6 +801,37 @@ mod tests {
         .unwrap();
 
         assert_eq!(serde_json::to_value(target).unwrap(), json!([["wght", 900.0]]));
+    }
+
+    #[test]
+    fn add_master_batch_payload_parses_per_glyph_locations() {
+        let payload = json!({
+            "master": {
+                "name": { "dflt": "New Master" },
+                "id": "M3",
+                "location": { "wght": 700 },
+                "guides": [],
+                "metrics": {},
+                "kerning": {},
+                "custom_ot_values": {},
+                "format_specific": {}
+            },
+            "interpolationLocations": [
+                {
+                    "glyphName": "A",
+                    "designLocation": [["wght", 400.0]]
+                }
+            ]
+        });
+
+        let (master, locations) =
+            parse_add_master_batch_payload(&payload.to_string()).unwrap();
+
+        assert_eq!(master.id, "M3");
+        assert_eq!(
+            serde_json::to_value(locations.get("A").unwrap()).unwrap(),
+            json!([["wght", 400.0]])
+        );
     }
 
     #[test]

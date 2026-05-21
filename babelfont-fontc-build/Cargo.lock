@@ -203,6 +203,7 @@ dependencies = [
  "json-patch",
  "kurbo 0.13.0",
  "read-fonts 0.37.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde",
  "serde_json",
  "skrifa 0.28.1",
  "smol_str",

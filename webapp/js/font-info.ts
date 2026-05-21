@@ -12,10 +12,7 @@ import type {
     TransactionHistoryTarget
 } from './patch-sync-engine';
 import type { Babelfont } from './babelfont';
-import {
-    buildInterpolationRustBatchOperations,
-    buildRustAddMasterWithInterpolatedLayersBatch
-} from './babelfont-model';
+import type { Font as BabelfontModelFont } from './babelfont-model';
 import {
     getFeatureDescription,
     getFeatureExecutionOrder,
@@ -5532,83 +5529,6 @@ class FontInfoManager {
         return Object.fromEntries(locationEntries);
     }
 
-    /**
-     * Returns a design-space location for a new master that differs from all
-     * existing masters. For each axis we try, in order:
-     *   1. The axis maximum (if no existing master already sits there)
-     *   2. The axis minimum (if not already taken)
-     *   3. The axis default (fallback)
-     */
-    private computeNewMasterLocation(): Record<string, number> | undefined {
-        const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
-        const axes = font?.axes ?? [];
-        if (axes.length === 0) {
-            return undefined;
-        }
-
-        // Collect existing master locations per axis.
-        const existingByAxis: Record<string, Set<number>> = {};
-        for (const master of font?.masters ?? []) {
-            const loc = master.location ?? {};
-            for (const axis of axes) {
-                const tag = axis.tag;
-                if (tag === undefined) continue;
-                if (!existingByAxis[tag]) existingByAxis[tag] = new Set();
-                const val =
-                    typeof loc[tag] === 'number'
-                        ? (loc[tag] as number)
-                        : ((axis.default as number | undefined) ?? 0);
-                existingByAxis[tag].add(val);
-            }
-        }
-
-        const entries: [string, number][] = [];
-        for (const axis of axes) {
-            const tag = axis.tag;
-            if (tag === undefined) continue;
-            const taken = existingByAxis[tag] ?? new Set<number>();
-            const axisMax = axis.max as number | undefined;
-            const axisMin = axis.min as number | undefined;
-            const axisDefault = axis.default as number | undefined;
-
-            let chosen: number = axisDefault ?? 0;
-            if (axisMax !== undefined && !taken.has(axisMax)) {
-                chosen = axisMax;
-            } else if (axisMin !== undefined && !taken.has(axisMin)) {
-                chosen = axisMin;
-            }
-            entries.push([tag, chosen]);
-        }
-
-        return entries.length > 0 ? Object.fromEntries(entries) : undefined;
-    }
-
-    private createDefaultMasterRecord(): Babelfont.Master {
-        const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
-        const nextIndex = (font?.masters?.length ?? 0) + 1;
-        const selectedMaster = font?.masters?.[this.selectedMasterIndex];
-        const metricTemplate =
-            selectedMaster?.metrics ?? font?.masters?.[0]?.metrics;
-        const metrics = Object.fromEntries(
-            Object.entries(metricTemplate ?? {}).map(([key, value]) => [
-                key,
-                typeof value === 'number' ? value : 0
-            ])
-        );
-
-        return {
-            id: this.createFontInfoRecordId('master'),
-            name: { dflt: `Master ${nextIndex}` },
-            location: this.computeNewMasterLocation(),
-            metrics,
-            kerning: {} as any
-        };
-    }
-
     private createDefaultInstanceRecord(): Babelfont.Instance {
         const font = window.currentFontModel as unknown as
             | Babelfont.Font
@@ -5668,82 +5588,53 @@ class FontInfoManager {
     private async reinterpolateLayersForMaster(
         masterId: string
     ): Promise<void> {
-        const outlineEditor = (window.glyphCanvas as any)?.outlineEditor;
-        if (!outlineEditor) return;
-        await outlineEditor.reinterpolateAllLayersForMaster(masterId);
-    }
-
-    private async addMasterRecord() {
-        const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
-        if (!font) {
+        const font =
+            window.currentFontModel as unknown as BabelfontModelFont | null;
+        const modelMaster = font?.findMaster(masterId);
+        if (!modelMaster) {
             return;
         }
 
-        const newMaster = this.createDefaultMasterRecord();
-        const masterId = newMaster.id!;
-        const nextMasters = [
-            ...rawArray(font.masters).map(cloneMasterRecord),
-            newMaster
-        ];
-        this.selectedMasterIndex = nextMasters.length - 1;
-        this.selectedMasterIndices = new Set([this.selectedMasterIndex]);
+        await modelMaster.reinterpolateLayers();
+    }
 
-        const previousMasters = rawArray(font.masters).map(cloneMasterRecord);
-        const clonedNextMasters = rawArray(nextMasters).map(cloneMasterRecord);
+    private async addMasterRecord() {
+        const font =
+            window.currentFontModel as unknown as BabelfontModelFont | null;
+        if (!font || typeof font.addMaster !== 'function') {
+            return;
+        }
 
-        const bridge = window.patchSyncEngine as PatchSyncEngine | undefined;
-
-        if (bridge?.applyLocalGeneratedYjsUpdate) {
-            beginLoadingCursor();
-            try {
-                const batchResult =
-                    await buildRustAddMasterWithInterpolatedLayersBatch(
-                        newMaster
-                    );
-                bridge.applyLocalGeneratedYjsUpdate(
-                    batchResult.update,
-                    buildInterpolationRustBatchOperations(batchResult.metadata),
-                    'Add master'
-                );
-                this.forceRefreshVisibleMastersContent();
-            } catch (err) {
-                console.error(
-                    'addMasterRecord: Rust batch add-master failed:',
-                    err
-                );
-                throw err;
-            } finally {
-                endLoadingCursor();
-            }
-        } else {
-            this.applyLocalMastersList(clonedNextMasters);
-            const fontModel = window.currentFontModel as any;
-            for (const glyph of fontModel?.glyphs ?? []) {
-                (glyph as any).addLayer(
-                    (glyph as any).layers?.[0]?.width ?? 500,
-                    { type: 'DefaultForMaster', master: masterId }
-                );
-            }
-            this.forceRefreshVisibleMastersContent();
-            // Best-effort interpolation for the no-bridge path.
-            await this.reinterpolateLayersForMaster(masterId).catch((err) => {
-                console.warn(
-                    'addMasterRecord (no-bridge): reinterpolation error:',
-                    err
-                );
+        beginLoadingCursor();
+        try {
+            const metricTemplateMasterId = rawArray(font.masters)[
+                this.selectedMasterIndex
+            ]?.id;
+            const createdMaster = await font.addMaster(undefined, {
+                metricTemplateMasterId
             });
-            const currentFont = window.fontManager?.currentFont;
-            currentFont?.syncJsonFromModel?.();
-            currentFont?.markDirty?.('font-info-masters-list');
+            const selectedMasterIndex = createdMaster
+                ? rawArray(font.masters).findIndex(
+                      (master) => master.id === createdMaster.id
+                  )
+                : rawArray(font.masters).length - 1;
+            this.selectedMasterIndex = Math.max(0, selectedMasterIndex);
+            this.selectedMasterIndices = new Set([this.selectedMasterIndex]);
+            this.forceRefreshVisibleMastersContent();
+        } catch (err) {
+            console.error(
+                'addMasterRecord: object-model addMaster failed:',
+                err
+            );
+            throw err;
+        } finally {
+            endLoadingCursor();
         }
     }
 
     private removeSelectedMasterRecord() {
-        const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+        const font =
+            window.currentFontModel as unknown as BabelfontModelFont | null;
         const masters = font?.masters ?? [];
         if (masters.length === 0) {
             return;
@@ -5773,7 +5664,7 @@ class FontInfoManager {
                 ? `Delete master "${masterNames}"? This will also remove its layers from all glyphs.`
                 : `Delete ${count} masters (${masterNames})? This will also remove their layers from all glyphs.`;
 
-        this.showDeleteConfirmDialog(message, (confirmed) => {
+        this.showDeleteConfirmDialog(message, async (confirmed) => {
             if (!confirmed) {
                 return;
             }
@@ -5781,10 +5672,10 @@ class FontInfoManager {
             const masterIds = [...indicesToRemove]
                 .map((i) => (masters[i] as any)?.id as string | undefined)
                 .filter((id): id is string => typeof id === 'string');
-
-            const nextMasters = rawArray(masters)
-                .map(cloneMasterRecord)
-                .filter((_, i) => !indicesToRemove.has(i));
+            const nextMasterCount = Math.max(
+                0,
+                masters.length - indicesToRemove.size
+            );
 
             // Choose new primary selection: first remaining index
             const firstRemaining = [...Array(masters.length).keys()].find(
@@ -5793,111 +5684,17 @@ class FontInfoManager {
             this.selectedMasterIndex =
                 firstRemaining !== undefined
                     ? firstRemaining
-                    : Math.max(0, nextMasters.length - 1);
+                    : Math.max(0, nextMasterCount - 1);
             this.selectedMasterIndices =
-                nextMasters.length > 0
+                nextMasterCount > 0
                     ? new Set([this.selectedMasterIndex])
                     : new Set();
 
-            const previousMasters = rawArray(masters).map(cloneMasterRecord);
-            const clonedNextMasters =
-                rawArray(nextMasters).map(cloneMasterRecord);
-
-            const bridge = window.patchSyncEngine as
-                | {
-                      beginTransaction: (label: string) => void;
-                      endTransaction: () => void;
-                      applySyntheticChangeSet: (
-                          label: string,
-                          operations: Array<{
-                              op: 'set' | 'remove';
-                              path: (string | number)[];
-                              oldValue: unknown;
-                              newValue: unknown;
-                          }>
-                      ) => void;
-                      runWithoutRecording?: <T>(fn: () => T) => T;
-                  }
-                | undefined;
-
-            if (bridge) {
-                bridge.beginTransaction('Remove master');
-                try {
-                    if (bridge.runWithoutRecording) {
-                        bridge.runWithoutRecording(() =>
-                            this.applyLocalMastersList(clonedNextMasters)
-                        );
-                    } else {
-                        this.applyLocalMastersList(clonedNextMasters);
-                    }
-                    bridge.applySyntheticChangeSet('Remove master', [
-                        {
-                            op: 'set',
-                            path: ['masters'],
-                            oldValue:
-                                previousMasters.length > 0
-                                    ? previousMasters
-                                    : undefined,
-                            newValue:
-                                clonedNextMasters.length > 0
-                                    ? clonedNextMasters
-                                    : undefined
-                        }
-                    ]);
-                    // Remove layers from all glyphs for each removed master.
-                    // Collect IDs before iterating to avoid wrapper-index instability.
-                    const fontModel = window.currentFontModel as any;
-                    for (const glyph of fontModel?.glyphs ?? []) {
-                        const rawLayers: any[] =
-                            (glyph as any).data?.layers ?? [];
-                        const layerIdsToRemove: string[] = [];
-                        for (const layer of rawLayers) {
-                            const lm = layer.master;
-                            if (
-                                lm &&
-                                typeof lm === 'object' &&
-                                'master' in lm &&
-                                masterIds.includes(lm.master as string)
-                            ) {
-                                if (typeof layer.id === 'string') {
-                                    layerIdsToRemove.push(layer.id);
-                                }
-                            }
-                        }
-                        for (const layerId of layerIdsToRemove) {
-                            (glyph as any).removeLayerById(layerId);
-                        }
-                    }
-                } finally {
-                    bridge.endTransaction();
-                }
-            } else {
-                this.applyLocalMastersList(clonedNextMasters);
-                const fontModel = window.currentFontModel as any;
-                for (const glyph of fontModel?.glyphs ?? []) {
-                    const rawLayers: any[] = (glyph as any).data?.layers ?? [];
-                    const layerIdsToRemove: string[] = [];
-                    for (const layer of rawLayers) {
-                        const lm = layer.master;
-                        if (
-                            lm &&
-                            typeof lm === 'object' &&
-                            'master' in lm &&
-                            masterIds.includes(lm.master as string)
-                        ) {
-                            if (typeof layer.id === 'string') {
-                                layerIdsToRemove.push(layer.id);
-                            }
-                        }
-                    }
-                    for (const layerId of layerIdsToRemove) {
-                        (glyph as any).removeLayerById(layerId);
-                    }
-                }
-                const currentFont = window.fontManager?.currentFont;
-                currentFont?.syncJsonFromModel?.();
-                currentFont?.markDirty?.('font-info-masters-list');
+            if (typeof font?.removeMastersByIds !== 'function') {
+                return;
             }
+
+            await font.removeMastersByIds(masterIds);
 
             this.forceRefreshVisibleMastersContent();
         });

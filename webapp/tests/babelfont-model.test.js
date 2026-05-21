@@ -14,7 +14,9 @@ const {
     open_font_file,
     store_font,
     init_ydoc_from_state,
-    apply_yjs_update
+    apply_yjs_update,
+    add_master_with_interpolated_layers_yjs,
+    interpolate_glyph
 } = require('../wasm-dist/babelfont_fontc_web');
 
 // Helper function to load and convert .glyphs files using WASM
@@ -234,7 +236,399 @@ describe('Babelfont Object Model', () => {
         await seedInterpolationFromFontData(intermediateLayerData);
         init_ydoc_from_state.mockClear();
         apply_yjs_update.mockClear();
+        add_master_with_interpolated_layers_yjs.mockClear();
+        interpolate_glyph.mockClear();
         store_font.mockClear();
+    });
+
+    test('Font.addMaster sends per-glyph last-layer interpolation locations to Rust', async () => {
+        const addMasterFont = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            cross_axis_mappings: [],
+            instances: [],
+            masters: [
+                {
+                    name: { dflt: 'Regular' },
+                    id: 'master-1',
+                    location: { wght: 400 },
+                    guides: [],
+                    metrics: {},
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: 'master-1',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            }
+                        }
+                    ]
+                },
+                {
+                    name: 'B',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 520,
+                            id: 'master-1',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            }
+                        },
+                        {
+                            width: 540,
+                            id: 'brace-1',
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            location: { wght: 650 }
+                        }
+                    ]
+                }
+            ],
+            note: '',
+            date: new Date('2020-01-01T00:00:00.000Z'),
+            names: {},
+            features: {
+                classes: {},
+                prefixes: {},
+                features: []
+            }
+        });
+        const previousFontModel = window.currentFontModel;
+        const previousBridge = window.patchSyncEngine;
+        const applyLocalGeneratedYjsUpdate = jest.fn();
+
+        window.currentFontModel = addMasterFont;
+        window.patchSyncEngine = {
+            applyLocalGeneratedYjsUpdate
+        };
+
+        await seedInterpolationFromFontData(addMasterFont.toJSON());
+
+        await addMasterFont.addMaster({
+            id: 'master-2',
+            name: { dflt: 'Bold' },
+            location: { wght: 900 },
+            guides: [],
+            metrics: {},
+            kerning: {}
+        });
+
+        expect(add_master_with_interpolated_layers_yjs).toHaveBeenCalledTimes(
+            1
+        );
+        const payload = JSON.parse(
+            add_master_with_interpolated_layers_yjs.mock.calls[0][0]
+        );
+        expect(payload.master.id).toBe('master-2');
+        expect(payload.interpolationLocations).toEqual(
+            expect.arrayContaining([
+                {
+                    glyphName: 'A',
+                    designLocation: [['wght', 400]]
+                },
+                {
+                    glyphName: 'B',
+                    designLocation: [['wght', 650]]
+                }
+            ])
+        );
+        expect(applyLocalGeneratedYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            expect.any(Array),
+            'Add master'
+        );
+
+        window.currentFontModel = previousFontModel;
+        window.patchSyncEngine = previousBridge;
+    });
+
+    test('Font.addMaster creates a default master when no explicit record is provided', async () => {
+        const defaultMasterFont = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            cross_axis_mappings: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    guides: [],
+                    metrics: { ascender: 820 },
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: 'master-1',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            }
+                        }
+                    ]
+                }
+            ],
+            note: '',
+            date: new Date('2020-01-01T00:00:00.000Z'),
+            names: {},
+            features: {
+                classes: {},
+                prefixes: {},
+                features: []
+            }
+        });
+
+        const createdMaster = await defaultMasterFont.addMaster();
+
+        expect(createdMaster).toBeDefined();
+        expect(createdMaster?.name).toEqual({ dflt: 'Master 2' });
+        expect(createdMaster?.location).toEqual({ wght: 900 });
+        expect(createdMaster?.metrics).toEqual({ ascender: 820 });
+        expect(typeof createdMaster?.id).toBe('string');
+        expect(
+            defaultMasterFont.findGlyph('A').findLayerById(createdMaster.id)
+        ).toBeDefined();
+    });
+
+    test('Font.addMaster uses the requested template master metrics for default creation', async () => {
+        const templatedMasterFont = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 100,
+                    default: 400,
+                    max: 900
+                }
+            ],
+            cross_axis_mappings: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 400 },
+                    guides: [],
+                    metrics: { ascender: 810 },
+                    kerning: {}
+                },
+                {
+                    id: 'master-2',
+                    name: { dflt: 'Bold' },
+                    location: { wght: 700 },
+                    guides: [],
+                    metrics: { ascender: 920 },
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: 'master-1',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            }
+                        },
+                        {
+                            width: 600,
+                            id: 'master-2',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-2'
+                            }
+                        }
+                    ]
+                }
+            ],
+            note: '',
+            date: new Date('2020-01-01T00:00:00.000Z'),
+            names: {},
+            features: {
+                classes: {},
+                prefixes: {},
+                features: []
+            }
+        });
+
+        const createdMaster = await templatedMasterFont.addMaster(undefined, {
+            metricTemplateMasterId: 'master-1'
+        });
+
+        expect(createdMaster?.metrics).toEqual({ ascender: 810 });
+    });
+
+    test('Font.addMaster materializes interpolated content without the bridge', async () => {
+        const fallbackFont = Font.fromData(intermediateLayerData);
+        const targetGlyphName = fallbackFont.glyphs[0]?.name;
+        const targetAxis = fallbackFont.axes[0];
+        expect(targetGlyphName).toBeDefined();
+        expect(targetAxis?.tag).toBeDefined();
+
+        const createdMaster = await fallbackFont.addMaster({
+            id: 'master-3',
+            name: { dflt: 'Semibold' },
+            location: {
+                [targetAxis.tag]:
+                    targetAxis.max ?? targetAxis.default ?? targetAxis.min ?? 0
+            },
+            guides: [],
+            metrics: {},
+            kerning: {}
+        });
+
+        const createdLayer = fallbackFont
+            .findGlyph(targetGlyphName)
+            .findLayerById(createdMaster.id)
+            .toJSON();
+
+        expect(interpolate_glyph).toHaveBeenCalled();
+        expect(createdLayer.shapes?.length).toBeGreaterThan(0);
+    });
+
+    test('Master.reinterpolateLayers delegates to outline editor when available', async () => {
+        const previousGlyphCanvas = window.glyphCanvas;
+        const reinterpolateAllLayersForMaster = jest
+            .fn()
+            .mockResolvedValue(undefined);
+        const masterId = font.masters[0].id;
+        window.glyphCanvas = {
+            outlineEditor: {
+                reinterpolateAllLayersForMaster
+            }
+        };
+
+        await font.findMaster(masterId)?.reinterpolateLayers();
+
+        expect(reinterpolateAllLayersForMaster).toHaveBeenCalledWith(masterId);
+
+        window.glyphCanvas = previousGlyphCanvas;
+    });
+
+    test('Font.removeMastersByIds removes matching master-bound layers', async () => {
+        const removableFont = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            cross_axis_mappings: [],
+            instances: [],
+            masters: [
+                {
+                    name: { dflt: 'Regular' },
+                    id: 'master-1',
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: {}
+                },
+                {
+                    name: { dflt: 'Bold' },
+                    id: 'master-2',
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: 'master-1',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            }
+                        },
+                        {
+                            width: 600,
+                            id: 'master-2',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-2'
+                            }
+                        },
+                        {
+                            width: 610,
+                            id: 'brace-keep',
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            location: {}
+                        }
+                    ]
+                }
+            ],
+            note: '',
+            date: new Date('2020-01-01T00:00:00.000Z'),
+            names: {},
+            features: {
+                classes: {},
+                prefixes: {},
+                features: []
+            }
+        });
+
+        await removableFont.removeMastersByIds(['master-2']);
+
+        expect(removableFont.findMaster('master-2')).toBeUndefined();
+        expect(
+            removableFont.findGlyph('A').findLayerById('master-2')
+        ).toBeUndefined();
+        expect(
+            removableFont.findGlyph('A').findLayerById('master-1')
+        ).toBeDefined();
     });
 
     describe('parent() method', () => {

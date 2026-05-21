@@ -1394,15 +1394,22 @@ describe('FontInfo feature code compilation scheduling', () => {
                 window.currentFontModel.masters = mastersOperation.newValue;
             }
         });
-        const applyLocalGeneratedYjsUpdate = jest.fn((_update, operations) => {
-            const mastersOperation = operations.find(
-                (operation) =>
-                    Array.isArray(operation.path) &&
-                    operation.path[0] === 'masters'
+        const addMaster = jest.fn(async function () {
+            const createdMaster = {
+                id: 'master-3',
+                name: { dflt: 'Master 3' },
+                location: { wght: 400 },
+                metrics: { ascender: 820 },
+                kerning: {}
+            };
+            this.masters = [...this.masters, createdMaster];
+            return createdMaster;
+        });
+        const removeMastersByIds = jest.fn(async function (masterIds) {
+            this.masters = this.masters.filter(
+                (master) => !masterIds.includes(master.id)
             );
-            if (mastersOperation) {
-                window.currentFontModel.masters = mastersOperation.newValue;
-            }
+            return true;
         });
 
         window.currentFontModel = {
@@ -1434,79 +1441,24 @@ describe('FontInfo feature code compilation scheduling', () => {
                     metrics: { ascender: 820 },
                     kerning: {}
                 }
-            ]
+            ],
+            addMaster,
+            removeMastersByIds
         };
         window.patchSyncEngine = {
             beginTransaction,
             endTransaction,
-            applySyntheticChangeSet,
-            applyLocalGeneratedYjsUpdate
+            applySyntheticChangeSet
         };
-        const rustAddMasterSpy = jest
-            .spyOn(
-                fontInfoManager.__babelfontModel,
-                'buildRustAddMasterWithInterpolatedLayersBatch'
-            )
-            .mockResolvedValue({
-                update: new Uint8Array([1, 2, 3]),
-                metadata: {
-                    changedGlyphs: ['A'],
-                    layerTargets: [{ glyphName: 'A', layerId: 'master-3' }],
-                    layerOperations: [
-                        {
-                            glyphName: 'A',
-                            layerId: 'master-3',
-                            oldValue: undefined,
-                            newValue: { id: 'master-3', width: 500 }
-                        }
-                    ],
-                    mastersOperation: {
-                        oldValue: [
-                            {
-                                id: 'M1',
-                                name: { dflt: 'Regular' },
-                                location: { wght: 400 },
-                                metrics: { ascender: 800 },
-                                kerning: {}
-                            },
-                            {
-                                id: 'M2',
-                                name: { dflt: 'Bold' },
-                                location: { wght: 700 },
-                                metrics: { ascender: 820 },
-                                kerning: {}
-                            }
-                        ],
-                        newValue: [
-                            {
-                                id: 'M1',
-                                name: { dflt: 'Regular' },
-                                location: { wght: 400 },
-                                metrics: { ascender: 800 },
-                                kerning: {}
-                            },
-                            {
-                                id: 'M2',
-                                name: { dflt: 'Bold' },
-                                location: { wght: 700 },
-                                metrics: { ascender: 820 },
-                                kerning: {}
-                            },
-                            {
-                                id: 'master-3',
-                                name: { dflt: 'Master 3' },
-                                location: { wght: 400 },
-                                metrics: { ascender: 820 },
-                                kerning: {}
-                            }
-                        ]
-                    }
-                }
-            });
 
         fontInfoManager.init();
         jest.runOnlyPendingTimers();
         fontInfoManager.switchTab('masters');
+
+        const selectedMasterItems = document.querySelectorAll(
+            '#fontinfo-masters-content .fontinfo-record-item'
+        );
+        selectedMasterItems[1].click();
 
         const addMasterButton = document.querySelector(
             '[data-fontinfo-list-action="masters-add"]'
@@ -1516,25 +1468,9 @@ describe('FontInfo feature code compilation scheduling', () => {
 
         await Promise.resolve();
 
-        expect(rustAddMasterSpy).toHaveBeenCalledTimes(1);
-        expect(applyLocalGeneratedYjsUpdate).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            expect.arrayContaining([
-                expect.objectContaining({
-                    path: ['masters'],
-                    newValue: expect.arrayContaining([
-                        expect.objectContaining({
-                            name: { dflt: 'Master 3' }
-                        })
-                    ])
-                }),
-                expect.objectContaining({
-                    path: ['glyphs', 'A', 'layers', 'master-3'],
-                    applyMode: 'layer-snapshot'
-                })
-            ]),
-            'Add master'
-        );
+        expect(addMaster).toHaveBeenCalledWith(undefined, {
+            metricTemplateMasterId: 'M2'
+        });
         expect(
             document.querySelectorAll(
                 '#fontinfo-masters-content .fontinfo-record-item'
@@ -1548,24 +1484,14 @@ describe('FontInfo feature code compilation scheduling', () => {
         fontInfoManager.setDeleteConfirmationHandler(true);
         removeMasterButton.click();
 
-        expect(applySyntheticChangeSet).toHaveBeenCalledWith('Remove master', [
-            {
-                op: 'set',
-                path: ['masters'],
-                oldValue: expect.any(Array),
-                newValue: expect.arrayContaining([
-                    expect.objectContaining({ id: 'M1' }),
-                    expect.objectContaining({ id: 'M2' })
-                ])
-            }
-        ]);
+        await Promise.resolve();
+
+        expect(removeMastersByIds).toHaveBeenCalledWith(['master-3']);
         expect(
             document.querySelectorAll(
                 '#fontinfo-masters-content .fontinfo-record-item'
             )
         ).toHaveLength(2);
-
-        rustAddMasterSpy.mockRestore();
 
         const masterItems = document.querySelectorAll(
             '#fontinfo-masters-content .fontinfo-record-item'
@@ -2872,7 +2798,7 @@ describe('FontInfo feature code compilation scheduling', () => {
 
     // ── Layer sync + multi-select tests ─────────────────────────────────────
 
-    test('adding a master adds a layer to every glyph', () => {
+    test('adding a master delegates creation to the object model', async () => {
         document.body.innerHTML = `
             <div id="view-fontinfo" class="view view-fontinfo focused">
                 <div class="view-title-bar">
@@ -2889,12 +2815,17 @@ describe('FontInfo feature code compilation scheduling', () => {
         `;
 
         const fontInfoManager = loadFontInfoManager();
-        const beginTransaction = jest.fn();
-        const endTransaction = jest.fn();
-        const applySyntheticChangeSet = jest.fn();
-        const runWithoutRecording = jest.fn((fn) => fn());
-
-        const addLayer = jest.fn();
+        const addMaster = jest.fn(async function () {
+            const createdMaster = {
+                id: 'M2',
+                name: { dflt: 'Master 2' },
+                location: {},
+                metrics: { ascender: 800 },
+                kerning: {}
+            };
+            this.masters = [...this.masters, createdMaster];
+            return createdMaster;
+        });
         window.currentFontModel = {
             axes: [],
             names: {},
@@ -2908,18 +2839,8 @@ describe('FontInfo feature code compilation scheduling', () => {
                     kerning: {}
                 }
             ],
-            glyphs: [
-                {
-                    addLayer,
-                    layers: [{ width: 600 }]
-                }
-            ]
-        };
-        window.patchSyncEngine = {
-            beginTransaction,
-            endTransaction,
-            applySyntheticChangeSet,
-            runWithoutRecording
+            glyphs: [],
+            addMaster
         };
 
         fontInfoManager.init();
@@ -2931,16 +2852,13 @@ describe('FontInfo feature code compilation scheduling', () => {
         );
         addMasterButton.click();
 
-        // addLayer must have been called once for the single glyph
-        expect(addLayer).toHaveBeenCalledTimes(1);
-        // It should be called with a width and a master linkage for DefaultForMaster
-        const [width, masterObj] = addLayer.mock.calls[0];
-        expect(typeof width).toBe('number');
-        expect(masterObj).toMatchObject({ type: 'DefaultForMaster' });
-        expect(typeof masterObj.master).toBe('string');
+        await Promise.resolve();
+
+        expect(addMaster).toHaveBeenCalledTimes(1);
+        expect(window.currentFontModel.masters).toHaveLength(2);
     });
 
-    test('removing a master removes linked layers from all glyphs', () => {
+    test('removing a master delegates deletion to the object model', async () => {
         document.body.innerHTML = `
             <div id="view-fontinfo" class="view view-fontinfo focused">
                 <div class="view-title-bar">
@@ -2957,12 +2875,12 @@ describe('FontInfo feature code compilation scheduling', () => {
         `;
 
         const fontInfoManager = loadFontInfoManager();
-        const beginTransaction = jest.fn();
-        const endTransaction = jest.fn();
-        const applySyntheticChangeSet = jest.fn();
-        const runWithoutRecording = jest.fn((fn) => fn());
-
-        const removeLayerById = jest.fn();
+        const removeMastersByIds = jest.fn(async function (masterIds) {
+            this.masters = this.masters.filter(
+                (master) => !masterIds.includes(master.id)
+            );
+            return true;
+        });
         window.currentFontModel = {
             axes: [],
             names: {},
@@ -2983,35 +2901,8 @@ describe('FontInfo feature code compilation scheduling', () => {
                     kerning: {}
                 }
             ],
-            glyphs: [
-                {
-                    removeLayerById,
-                    data: {
-                        layers: [
-                            {
-                                id: 'L1',
-                                master: {
-                                    type: 'DefaultForMaster',
-                                    master: 'M1'
-                                }
-                            },
-                            {
-                                id: 'L2',
-                                master: {
-                                    type: 'DefaultForMaster',
-                                    master: 'M2'
-                                }
-                            }
-                        ]
-                    }
-                }
-            ]
-        };
-        window.patchSyncEngine = {
-            beginTransaction,
-            endTransaction,
-            applySyntheticChangeSet,
-            runWithoutRecording
+            glyphs: [],
+            removeMastersByIds
         };
 
         fontInfoManager.init();
@@ -3029,8 +2920,10 @@ describe('FontInfo feature code compilation scheduling', () => {
             .querySelector('[data-fontinfo-list-action="masters-remove"]')
             .click();
 
-        expect(removeLayerById).toHaveBeenCalledWith('L2');
-        expect(removeLayerById).not.toHaveBeenCalledWith('L1');
+        await Promise.resolve();
+
+        expect(removeMastersByIds).toHaveBeenCalledWith(['M2']);
+        expect(window.currentFontModel.masters).toHaveLength(1);
     });
 
     test('confirmation cancel aborts master deletion', () => {
@@ -3101,7 +2994,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         ).toHaveLength(1);
     });
 
-    test('multi-select: Ctrl+click adds to master selection, delete removes both', () => {
+    test('multi-select: Ctrl+click adds to master selection, delete removes both', async () => {
         document.body.innerHTML = `
             <div id="view-fontinfo" class="view view-fontinfo focused">
                 <div class="view-title-bar">
@@ -3122,6 +3015,12 @@ describe('FontInfo feature code compilation scheduling', () => {
         const endTransaction = jest.fn();
         const applySyntheticChangeSet = jest.fn();
         const runWithoutRecording = jest.fn((fn) => fn());
+        const removeMastersByIds = jest.fn(async function (masterIds) {
+            this.masters = this.masters.filter(
+                (master) => !masterIds.includes(master.id)
+            );
+            return true;
+        });
 
         window.currentFontModel = {
             axes: [],
@@ -3150,7 +3049,8 @@ describe('FontInfo feature code compilation scheduling', () => {
                     kerning: {}
                 }
             ],
-            glyphs: []
+            glyphs: [],
+            removeMastersByIds
         };
         window.patchSyncEngine = {
             beginTransaction,
@@ -3187,17 +3087,10 @@ describe('FontInfo feature code compilation scheduling', () => {
             .querySelector('[data-fontinfo-list-action="masters-remove"]')
             .click();
 
+        await Promise.resolve();
+
         // Only M2 (index 1) should remain
-        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
-            'Remove master',
-            expect.arrayContaining([
-                expect.objectContaining({
-                    newValue: expect.arrayContaining([
-                        expect.objectContaining({ id: 'M2' })
-                    ])
-                })
-            ])
-        );
+        expect(removeMastersByIds).toHaveBeenCalledWith(['M1', 'M3']);
         expect(masterItems()).toHaveLength(1);
     });
 
