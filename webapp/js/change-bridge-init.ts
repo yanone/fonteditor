@@ -791,6 +791,14 @@ function inferCommittedEditTypeFromEntries(
     for (const entry of entries) {
         const label = entry.transactionLabel ?? '';
         const path = entry.path ?? '';
+        const isLayerSnapshotWithShapes = (value: unknown): boolean => {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                return false;
+            }
+
+            const snapshot = value as Record<string, unknown>;
+            return Array.isArray(snapshot.shapes);
+        };
         const hasReplayTargets =
             normalizeWorkerReplayTargets(entry.workerReplayTargets).length > 0;
         if (origin === 'local' && path.startsWith('features.')) {
@@ -817,6 +825,17 @@ function inferCommittedEditTypeFromEntries(
             return {
                 editType: 'anchor',
                 changeSource: changeSourceFor('anchor')
+            };
+        }
+        if (
+            isLayerSnapshotWithShapes(entry.replayOldValue) ||
+            isLayerSnapshotWithShapes(entry.replayNewValue) ||
+            isLayerSnapshotWithShapes(entry.oldValue) ||
+            isLayerSnapshotWithShapes(entry.newValue)
+        ) {
+            return {
+                editType: 'outline',
+                changeSource: changeSourceFor('outline')
             };
         }
         if (

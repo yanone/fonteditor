@@ -2366,7 +2366,7 @@ describe('requestUndoRedoEditingFontCompile', () => {
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
     });
 
-    test('undo outline replay reuses forward outline metadata instead of generic undo source', async () => {
+    test('undo outline replay reuses forward layer-snapshot metadata instead of generic undo source', async () => {
         const refreshGlyphAdvancesLive = jest.fn();
         const fetchLayerData = jest.fn();
         const syncCurrentOutlineLayerDataFromModel = jest.fn();
@@ -2422,15 +2422,38 @@ describe('requestUndoRedoEditingFontCompile', () => {
                     entries: [
                         {
                             transactionLabel: 'Arrow key',
-                            path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
+                            path: 'glyphs.a:layers.layer-1:',
+                            oldValue: 'node 0.17: (258, 472)',
+                            newValue: '(258, 462)',
+                            replayOldValue: {
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 10, y: 20, nodetype: 'Line' }
+                                        ],
+                                        closed: false
+                                    }
+                                ],
+                                anchors: []
+                            },
+                            replayNewValue: {
+                                id: 'layer-1',
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 10, y: 10, nodetype: 'Line' }
+                                        ],
+                                        closed: false
+                                    }
+                                ],
+                                anchors: []
+                            },
                             workerReplayTargets: [
                                 { glyphName: 'a', layerId: 'layer-1' }
                             ]
                         }
                     ],
-                    touchedPaths: [
-                        'glyphs.a.layers.layer-1.shapes.0.nodes.0.x'
-                    ],
+                    touchedPaths: ['glyphs.a:layers.layer-1:'],
                     transactionLabel: 'Arrow key',
                     workerReplayTargets: [
                         { glyphName: 'a', layerId: 'layer-1' }
