@@ -33,6 +33,7 @@ import {
     normalizeLocalizedStringValue,
     type LocalizedStringEditorHandle
 } from './localized-string-editor';
+import { AxisMapEditor } from './axis-map-editor';
 // Import FEA mode for Ace Editor (registers the mode automatically)
 import './mode-fea';
 const console = new Logger('FontInfo');
@@ -4736,6 +4737,13 @@ class FontInfoManager {
         optionsSection.appendChild(optionsFields);
         detail.appendChild(optionsSection);
 
+        const mapEditor = new AxisMapEditor({
+            axis: selectedAxis,
+            onCommit: (nextMap) =>
+                this.commitAxisMapValue(this.selectedAxisIndex, nextMap)
+        });
+        detail.appendChild(mapEditor.element);
+
         layout.appendChild(sidebar);
         layout.appendChild(detail);
         this.axesFieldsContainer.appendChild(layout);
@@ -6973,22 +6981,51 @@ class FontInfoManager {
             return;
         }
 
-        const previousMap = axis.map ?? null;
-        let newMap: [number, number][] | null;
-
+        let nextMap: [number, number][];
         if (nextDesignspaceValue === undefined) {
-            const filtered = currentMap.filter(([u]) => u !== userspaceValue);
-            newMap = filtered.length > 0 ? filtered : null;
+            nextMap = currentMap.filter(([u]) => u !== userspaceValue);
         } else {
-            const filtered = currentMap.filter(([u]) => u !== userspaceValue);
-            newMap = [
-                ...filtered,
+            nextMap = [
+                ...currentMap.filter(([u]) => u !== userspaceValue),
                 [userspaceValue, nextDesignspaceValue] as [number, number]
             ].sort((a, b) => a[0] - b[0]);
         }
 
+        this.commitAxisMapValue(
+            axisIndex,
+            nextMap,
+            `Edit axis ${field} designspace`
+        );
+    }
+
+    private commitAxisMapValue(
+        axisIndex: number,
+        nextMap: [number, number][],
+        label: string = 'Edit axis mapping'
+    ) {
+        const font = window.currentFontModel as unknown as
+            | Babelfont.Font
+            | undefined;
+        const axis = font?.axes?.[axisIndex];
+        if (!axis) {
+            return;
+        }
+
+        const previousMap = axis.map ?? null;
+        const sortedMap = [...nextMap]
+            .map(
+                ([userspace, designspace]) =>
+                    [Number(userspace), Number(designspace)] as [number, number]
+            )
+            .sort((a, b) => a[0] - b[0]);
+        const newMap = sortedMap.length > 0 ? sortedMap : null;
+
+        if (JSON.stringify(previousMap) === JSON.stringify(newMap)) {
+            return;
+        }
+
         this.commitFontPathChange({
-            label: `Edit axis ${field} designspace`,
+            label,
             path: ['axes', axisIndex, 'map'],
             oldValue: previousMap,
             newValue: newMap,

@@ -2400,6 +2400,150 @@ kbd + kbd {
     gap: 12px;
 }
 
+.fontinfo-axis-map-group {
+    gap: 12px;
+}
+
+.fontinfo-axis-map-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.fontinfo-axis-map-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.fontinfo-axis-map-editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1.8fr) minmax(180px, 1fr);
+    gap: 14px;
+    min-width: 0;
+    outline: none;
+}
+
+.fontinfo-axis-map-chart-panel,
+.fontinfo-axis-map-list-panel {
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--background-primary);
+}
+
+.fontinfo-axis-map-chart-panel {
+    padding: 10px;
+}
+
+.fontinfo-axis-map-chart {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.fontinfo-axis-map-frame {
+    fill: var(--background-primary);
+    stroke: var(--border-primary);
+    stroke-width: 1;
+}
+
+.fontinfo-axis-map-axis-label,
+.fontinfo-axis-map-tick-label {
+    fill: var(--text-secondary);
+    font-family: var(--font-families-sans);
+    font-size: 11px;
+}
+
+.fontinfo-axis-map-tick {
+    stroke: var(--text-secondary);
+    stroke-width: 1;
+}
+
+.fontinfo-axis-map-line {
+    fill: none;
+    stroke: var(--accent-blue);
+    stroke-width: 2;
+}
+
+.fontinfo-axis-map-guide {
+    stroke: var(--accent-blue);
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+    opacity: 0.5;
+}
+
+.fontinfo-axis-map-point {
+    fill: var(--background-primary);
+    stroke: var(--accent-blue);
+    stroke-width: 2;
+    cursor: grab;
+}
+
+.fontinfo-axis-map-point.selected {
+    fill: var(--accent-blue);
+}
+
+.fontinfo-axis-map-list-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.fontinfo-axis-map-list-title {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.fontinfo-axis-map-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    min-height: 0;
+}
+
+.fontinfo-axis-map-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    color: var(--text-primary);
+    padding: 8px 10px;
+    text-align: left;
+}
+
+.fontinfo-axis-map-row.selected {
+    border-color: var(--accent-blue);
+    box-shadow: inset 0 0 0 1px var(--accent-blue);
+}
+
+.fontinfo-axis-map-row-userspace,
+.fontinfo-axis-map-row-designspace {
+    font-variant-numeric: tabular-nums;
+}
+
+.fontinfo-axis-map-input {
+    min-width: 0;
+    text-align: center;
+}
+
+@media (max-width: 900px) {
+    .fontinfo-axis-map-editor {
+        grid-template-columns: 1fr;
+    }
+}
+
 .fontinfo-records-layout {
     display: grid;
     grid-template-columns: var(--top-row-sidebar-width, 150px) minmax(0, 1fr);
