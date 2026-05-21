@@ -189,15 +189,19 @@ authoritative Yjs update. Missing replay targets or worker-sync timing issues
 must be fixed inside the incremental path; they must not trigger any full-state
 repair resend.
 
-When the undone/redone history item touches anchors, undo/redo must set
-`lastEditType = 'anchor'` (and `lastChangeSource = 'keyboard-anchor'`) before
-requesting the editing-font compile so the compile loop uses the faster
-`anchor-only` mode instead of `full`. When the undone/redone history item
-touches sidebearings, undo/redo must set `lastEditType = 'outline'` (and
-`lastChangeSource = 'keyboard-outline'`) so the compile loop uses the faster
-`outline-only` mode instead of `full`. The trailing debounced full compile still
-resets `lastEditType` to `null` for correctness, but the immediate editing-font
-compile benefits from the same fast path as the original edit.
+When the undone/redone history item replays an interactive edit, undo/redo must
+derive `lastEditType` and `lastChangeSource` from the same semantic change
+metadata rules as the original forward entries. In practice that means anchor
+replays set `('anchor', 'keyboard-anchor')`, outline replays including point,
+component, and sidebearing edits set `('outline', 'keyboard-outline')`,
+kerning-value replays set `('kerning-value', 'keyboard-kerning-value')`, and
+kerning-group replays set `('kerning-groups', 'keyboard-kerning-groups')`
+before requesting the editing-font compile. Undo/redo must not collapse these
+cases into a generic replay-only source such as `keyboard-undo-redo`, because
+that severs the exact semantic parity with forward editing that the policy
+requires. The trailing debounced full compile still resets `lastEditType` to
+`null` for correctness, but the immediate editing-font compile must benefit
+from the same fast path as the original edit.
 
 Anchor-edit history entries (both mouse-drag and keyboard) must carry
 `workerReplayTargets` that include all downstream auto-composite glyph/layer
@@ -214,6 +218,8 @@ have forced a full-document Rust resync is a regression and must be removed.
 1. It marks the font dirty immediately.
 2. It records the local change metadata (`lastChangeSource` / `lastEditType`) and, for `outline` and `anchor` edits, arms `scheduleFullCompileDebounce()` so the editor returns to a full compile after the interaction.
 3. It MUST NOT dispatch the committed overview refresh or wake the committed editing compile directly. Those now run only after `PatchSyncEngine` emits the authoritative committed Yjs packet and the shared committed-change funnel consumes it.
+
+When the shared local committed-change funnel can infer an interactive fast-path edit from the authoritative committed entries, it MUST prefer that inferred interactive source over any stale trailing full-compile marker already left on `FontManager`. A prior `debounced-post-interaction-full-compile` source must never downgrade the next committed keyboard or mouse fast-path compile to `full`.
 
 #### Synchronous local commit sequence
 

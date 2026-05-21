@@ -344,7 +344,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
         expect(originalWindow.fontManager.lastChangeSource).toBe(
-            'keyboard-undo-redo'
+            'keyboard-outline'
         );
         expect(originalWindow.fontManager.lastEditType).toBe('outline');
         expect(fetchLayerData).toHaveBeenCalledWith(true, 'a');

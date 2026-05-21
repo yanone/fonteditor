@@ -785,37 +785,8 @@ function inferCommittedEditTypeFromEntries(
     editType: CommittedCompileEditType;
     changeSource: string;
 } {
-    const changeSourceFor = (editType: CommittedCompileEditType): string => {
-        if (origin === 'remote') {
-            if (editType === 'anchor') {
-                return 'remote-anchor';
-            }
-            if (editType === 'outline') {
-                return 'remote-outline';
-            }
-            if (editType === 'kerning-value') {
-                return 'remote-kerning-value';
-            }
-            if (editType === 'kerning-groups') {
-                return 'remote-kerning-groups';
-            }
-            return 'remote-change';
-        }
-
-        if (editType === 'anchor') {
-            return 'keyboard-anchor';
-        }
-        if (editType === 'outline') {
-            return 'keyboard-outline';
-        }
-        if (editType === 'kerning-value') {
-            return 'keyboard-kerning-value';
-        }
-        if (editType === 'kerning-groups') {
-            return 'keyboard-kerning-groups';
-        }
-        return 'change-bridge-local';
-    };
+    const changeSourceFor = (editType: CommittedCompileEditType): string =>
+        getCommittedChangeSource(origin, editType);
 
     for (const entry of entries) {
         const label = entry.transactionLabel ?? '';
@@ -872,6 +843,57 @@ function inferCommittedEditTypeFromEntries(
         }
     }
     return { editType: null, changeSource: changeSourceFor(null) };
+}
+
+function getCommittedChangeSource(
+    origin: CommittedChangeOrigin,
+    editType: CommittedCompileEditType
+): string {
+    if (origin === 'remote') {
+        if (editType === 'anchor') {
+            return 'remote-anchor';
+        }
+        if (editType === 'outline') {
+            return 'remote-outline';
+        }
+        if (editType === 'kerning-value') {
+            return 'remote-kerning-value';
+        }
+        if (editType === 'kerning-groups') {
+            return 'remote-kerning-groups';
+        }
+        return 'remote-change';
+    }
+
+    if (editType === 'anchor') {
+        return 'keyboard-anchor';
+    }
+    if (editType === 'outline') {
+        return 'keyboard-outline';
+    }
+    if (editType === 'kerning-value') {
+        return 'keyboard-kerning-value';
+    }
+    if (editType === 'kerning-groups') {
+        return 'keyboard-kerning-groups';
+    }
+    return 'change-bridge-local';
+}
+
+function inferLocalCompileContextFromHistoryItem(
+    historyItem: HistoryStackItem | null
+): {
+    editType: CommittedCompileEditType;
+    changeSource: string;
+} {
+    const entries = historyItem?.entries ?? [];
+    const semanticEntries = entries.flatMap(
+        (entry) => entry.semanticChangeLogEntries ?? []
+    );
+    return inferCommittedEditTypeFromEntries(
+        semanticEntries.length > 0 ? semanticEntries : entries,
+        'local'
+    );
 }
 
 /**
@@ -1569,11 +1591,12 @@ export async function requestUndoRedoEditingFontCompile(
         return;
     }
 
-    fm.lastChangeSource = editType ? 'keyboard-undo-redo' : 'undo-redo';
-    // Preserve the edit-type hint from the undone history item so the
-    // compile loop uses the matching fast-path mode (e.g. anchor-only)
-    // instead of always falling back to a full compile. The trailing
-    // debounced full compile restores correctness afterwards.
+    fm.lastChangeSource = editType
+        ? getCommittedChangeSource('local', editType)
+        : 'undo-redo';
+    // Preserve the exact semantic edit-type hint from the undone history item
+    // so undo/redo re-enters the same fast path as the forward edit instead of
+    // degrading to a generic replay source.
     fm.lastEditType = editType ?? null;
 
     const targetRevision = fm.currentFont.compileRequestVersion + 1;
@@ -1706,17 +1729,28 @@ function resolveLocalCommittedCompileContext(
     const inferred = inferCommittedEditTypeFromEntries(entries, 'local');
     const existingChangeSource = fm?.lastChangeSource;
     const existingEditType = fm?.lastEditType;
+    const isLocalInteractiveSource =
+        typeof existingChangeSource === 'string' &&
+        (existingChangeSource.startsWith('keyboard-') ||
+            existingChangeSource.startsWith('mouse-drag-'));
     const canReuseExistingSource =
         typeof existingChangeSource === 'string' &&
         existingChangeSource.length > 0 &&
         !existingChangeSource.startsWith('remote-') &&
         existingChangeSource !== 'undo-redo';
+    const shouldPreferInferredContext =
+        inferred.editType !== null &&
+        (!isLocalInteractiveSource || existingEditType !== inferred.editType);
 
     return {
-        changeSource: canReuseExistingSource
-            ? existingChangeSource
-            : inferred.changeSource,
-        editType: existingEditType ?? inferred.editType
+        changeSource: shouldPreferInferredContext
+            ? inferred.changeSource
+            : canReuseExistingSource
+              ? existingChangeSource
+              : inferred.changeSource,
+        editType: shouldPreferInferredContext
+            ? inferred.editType
+            : (existingEditType ?? inferred.editType)
     };
 }
 
@@ -2218,11 +2252,9 @@ export function runBridgeUndoRedo(
         // (init_ydoc_from_state) populates all caches from binary Yjs state.
         const historyItem =
             appliedChange.historyItem as HistoryStackItem | null;
-        const undoEditType = historyItemTouchesAnchors(historyItem)
-            ? 'anchor'
-            : inferSidebearingSideFromHistoryItem(historyItem) !== null
-              ? 'outline'
-              : inferHistoryItemKerningEditType(historyItem);
+        const undoCompileContext =
+            inferLocalCompileContextFromHistoryItem(historyItem);
+        const undoEditType = undoCompileContext.editType;
         const rustCacheRefreshPromise = syncRustCacheAndRefreshCanvas(
             refreshRootGlyphName,
             glyphName,

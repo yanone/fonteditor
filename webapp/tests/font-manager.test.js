@@ -1074,6 +1074,25 @@ describe('FontManager editing subset inclusion', () => {
         ).toThrow(/invalid width/);
     });
 
+    test('validateBabelfontJsonForRust accepts object-shaped master kerning', () => {
+        const fontData = cloneJson(fontManager.currentFont.babelfontData);
+        fontData.masters[0].kerning = {
+            'A:V': -80,
+            'A:@RightGroup': -60
+        };
+
+        const validatedJson = fontManager['validateBabelfontJsonForRust'](
+            JSON.stringify(fontData),
+            true
+        );
+        const validatedData = JSON.parse(validatedJson);
+
+        expect(validatedData.masters[0].kerning).toEqual({
+            'A:V': -80,
+            'A:@RightGroup': -60
+        });
+    });
+
     test('compileEditingFont adds the active edited glyph to the subset', async () => {
         fontManager.lastChangeSource = 'keyboard-outline';
         fontManager.lastEditType = 'outline';
@@ -1227,14 +1246,14 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('anchor undo-redo compiles keep kerning enabled in anchor-only mode', async () => {
-        fontManager.lastChangeSource = 'keyboard-undo-redo';
+        fontManager.lastChangeSource = 'keyboard-anchor';
         fontManager.lastEditType = 'anchor';
 
         await fontManager.compileEditingFont('a', [], ['a']);
 
         expect(compileEditingSpy).toHaveBeenCalledTimes(1);
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
-            compileSource: 'keyboard-undo-redo',
+            compileSource: 'keyboard-anchor',
             optionOverrides: {
                 produce_varc_table: false
             }
@@ -2611,7 +2630,7 @@ describe('FontCompilation worker cache readiness', () => {
             '12',
             ['o', 'odieresis'],
             {
-                compileSource: 'keyboard-undo-redo',
+                compileSource: 'keyboard-outline',
                 selectedFeatures: ['kern']
             }
         );
@@ -2621,7 +2640,7 @@ describe('FontCompilation worker cache readiness', () => {
                 type: 'compileEditingCached',
                 subsetGlyphs: ['o', 'odieresis'],
                 layoutClosureKey: 'o\u001fodieresis\u001ekern',
-                _compileSource: 'keyboard-undo-redo'
+                _compileSource: 'keyboard-outline'
             })
         );
     });

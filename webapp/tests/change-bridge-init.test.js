@@ -119,6 +119,53 @@ describe('handleRemoteChangeRefresh', () => {
         });
     });
 
+    test('prefers inferred keyboard-anchor context over a stale trailing full-compile source', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const queueCacheRefresh = jest.fn(async () => {});
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            lastChangeSource: 'debounced-post-interaction-full-compile',
+            lastEditType: null
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Move anchor',
+                        path: 'glyphs.a.layers.master-regular.anchors.0.x',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'a',
+                                layerId: 'master-regular'
+                            }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            delete window.fontManager;
+        }
+
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-anchor',
+            'anchor'
+        );
+    });
+
     test('skips duplicate local cache refresh for forwarded master reinterpolation glyph snapshots', async () => {
         const refreshOrder = [];
         const awaitWorkerSync = jest.fn(async () => {
@@ -2280,7 +2327,7 @@ describe('requestUndoRedoEditingFontCompile', () => {
             'anchor'
         );
 
-        expect(window.fontManager.lastChangeSource).toBe('keyboard-undo-redo');
+        expect(window.fontManager.lastChangeSource).toBe('keyboard-anchor');
         expect(window.fontManager.lastEditType).toBe('anchor');
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
@@ -2311,9 +2358,99 @@ describe('requestUndoRedoEditingFontCompile', () => {
             'kerning-value'
         );
 
-        expect(window.fontManager.lastChangeSource).toBe('keyboard-undo-redo');
+        expect(window.fontManager.lastChangeSource).toBe(
+            'keyboard-kerning-value'
+        );
         expect(window.fontManager.lastEditType).toBe('kerning-value');
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
+    });
+
+    test('undo outline replay reuses forward outline metadata instead of generic undo source', async () => {
+        const refreshGlyphAdvancesLive = jest.fn();
+        const fetchLayerData = jest.fn();
+        const syncCurrentOutlineLayerDataFromModel = jest.fn();
+        const render = jest.fn();
+
+        const makeFontModel = () => ({
+            findGlyph: jest.fn(() => ({
+                findLayerById: jest.fn(() => ({ width: 520 }))
+            }))
+        });
+
+        originalWindow.fontManager = {
+            lastChangeSource: null,
+            lastEditType: null,
+            currentFont: {
+                fontModel: makeFontModel(),
+                compileRequestVersion: 0,
+                requestRecompileWithoutDataChange: jest.fn(function () {
+                    this.compileRequestVersion += 1;
+                })
+            },
+            awaitWorkerDocumentSync: jest.fn(async () => {}),
+            workerCacheUpdatePromise: Promise.resolve(),
+            awaitWorkerCacheUpdate: jest.fn(async () => {}),
+            refreshWorkerCacheForReplayTargets: jest.fn(async () => true)
+        };
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn(),
+            forceTrigger: jest.fn().mockResolvedValue(undefined)
+        };
+        originalWindow.glyphCanvas = {
+            viewportManager: { panX: 100, scale: 2 },
+            textRunEditor: { refreshGlyphAdvancesLive },
+            requestRepaintAfterCompile: jest.fn(),
+            syncCurrentOutlineLayerDataFromModel,
+            updatePropertyPanel: jest.fn(),
+            render,
+            outlineEditor: {
+                active: true,
+                currentGlyphName: 'a',
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: () => [{ glyphName: 'a' }],
+                fetchLayerData,
+                performHitDetection: jest.fn()
+            },
+            getCurrentGlyphName: () => 'a'
+        };
+        originalWindow.patchSyncEngine = {
+            undo: jest.fn(() => ({
+                glyphName: 'a',
+                layerId: 'layer-1',
+                historyItem: {
+                    entries: [
+                        {
+                            transactionLabel: 'Arrow key',
+                            path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
+                            workerReplayTargets: [
+                                { glyphName: 'a', layerId: 'layer-1' }
+                            ]
+                        }
+                    ],
+                    touchedPaths: [
+                        'glyphs.a.layers.layer-1.shapes.0.nodes.0.x'
+                    ],
+                    transactionLabel: 'Arrow key',
+                    workerReplayTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' }
+                    ]
+                }
+            })),
+            redo: jest.fn()
+        };
+
+        await changeBridgeInit.runBridgeUndoRedo(
+            'undo',
+            'a',
+            'a',
+            'layer-1',
+            null
+        );
+
+        expect(originalWindow.fontManager.lastChangeSource).toBe(
+            'keyboard-outline'
+        );
+        expect(originalWindow.fontManager.lastEditType).toBe('outline');
     });
 });

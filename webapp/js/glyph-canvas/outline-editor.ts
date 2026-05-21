@@ -4477,11 +4477,15 @@ export class OutlineEditor {
         }
 
         this._lastLiveAnchorRefreshTime = now;
+        this.setInteractiveAnchorCompileContext();
+        this.queueLiveVisibleAnchorDependentRefresh();
+    }
+
+    private setInteractiveAnchorCompileContext(): void {
         fontManager.lastChangeSource = this.draggingSomething
             ? 'mouse-drag-anchor'
             : 'keyboard-anchor';
         fontManager.lastEditType = 'anchor';
-        this.queueLiveVisibleAnchorDependentRefresh();
     }
 
     private resetLiveSidebearingRefreshState(): void {
@@ -15002,6 +15006,7 @@ export class OutlineEditor {
         // workerReplayTargets are collected for the undo fast path.
         this._anchorAffectedGlyphNames =
             this.rebuildAutomaticCompositesForCurrentEditedGlyph();
+        this.setInteractiveAnchorCompileContext();
 
         // Wrap keyboard edit in a transaction so model changes from
         // saveLayerData and auto-composite cascade are committed as

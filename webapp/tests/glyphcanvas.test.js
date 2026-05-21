@@ -8901,6 +8901,7 @@ describe('GlyphCanvas command path drawing visuals', () => {
 
 describe('GlyphCanvas anchor movement', () => {
     let canvas;
+    let currentFontSpy;
 
     beforeEach(() => {
         document.body.innerHTML = '<div id="test-container"></div>';
@@ -8918,6 +8919,7 @@ describe('GlyphCanvas anchor movement', () => {
     });
 
     afterEach(() => {
+        currentFontSpy?.mockRestore();
         canvas.destroy();
     });
 
@@ -8941,6 +8943,68 @@ describe('GlyphCanvas anchor movement', () => {
         canvas.outlineEditor.moveSelectedAnchors(10, 20);
         expect(canvas.outlineEditor.layerData.anchors[0].x).toBe(100);
         expect(canvas.outlineEditor.layerData.anchors[0].y).toBe(100);
+    });
+
+    test('keyboard anchor nudges mark the anchor fast path and commit replay targets for downstream layers', () => {
+        const affectedGlyphNames = new Set(['a', 'adieresis']);
+        const replayTargets = [{ glyphName: 'a', layerId: 'layer-1' }];
+        const syncJsonFromModel = jest.fn();
+        const originalLastChangeSource = fontManager.lastChangeSource;
+        const originalLastEditType = fontManager.lastEditType;
+        const rebuildSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'rebuildAutomaticCompositesForCurrentEditedGlyph'
+            )
+            .mockReturnValue(affectedGlyphNames);
+        const getCurrentGlyphModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentGlyphModel')
+            .mockReturnValue({ name: 'a' });
+        const getCurrentLayerIdSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentLayerId')
+            .mockReturnValue('layer-1');
+        const collectTargetsSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'collectMatchingLayerWorkerReplayTargets'
+            )
+            .mockReturnValue(replayTargets);
+        const syncCurrentGlyphToYDocSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ syncJsonFromModel });
+
+        try {
+            fontManager.lastChangeSource = null;
+            fontManager.lastEditType = null;
+
+            canvas.outlineEditor.moveSelectedAnchors(10, 20);
+
+            expect(fontManager.lastChangeSource).toBe('keyboard-anchor');
+            expect(fontManager.lastEditType).toBe('anchor');
+            expect(canvas.outlineEditor.saveLayerData).toHaveBeenCalledWith(
+                'keyboard-anchor'
+            );
+            expect(syncJsonFromModel).toHaveBeenCalledTimes(1);
+            expect(syncCurrentGlyphToYDocSpy).toHaveBeenCalledWith(
+                'Move anchor',
+                undefined,
+                undefined,
+                null,
+                replayTargets
+            );
+        } finally {
+            fontManager.lastChangeSource = originalLastChangeSource;
+            fontManager.lastEditType = originalLastEditType;
+            syncCurrentGlyphToYDocSpy.mockRestore();
+            collectTargetsSpy.mockRestore();
+            getCurrentLayerIdSpy.mockRestore();
+            getCurrentGlyphModelSpy.mockRestore();
+            rebuildSpy.mockRestore();
+        }
     });
 });
 

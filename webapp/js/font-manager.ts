@@ -2439,8 +2439,7 @@ class FontManager {
                 'instances',
                 'axes',
                 'map',
-                'codepoints',
-                'kerning'
+                'codepoints'
             ]);
 
             /** Convert a plain object with numeric keys like {"0":..., "1":...} back to an array */
