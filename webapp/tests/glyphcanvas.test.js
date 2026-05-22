@@ -1965,6 +1965,133 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
     });
 
+    test('commitPropertyPanelValue leaves sidebearing-key compile wakeup to the bridge funnel', async () => {
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const requestRecompileWithoutDataChange = jest.fn();
+        const layer = {
+            width: 500,
+            isAutomaticAlignedLayer: jest.fn(() => false),
+            applySidebearingInput: jest.fn(() => {
+                fontManager.currentFont.changeVersion = 2;
+                layer.width = 640;
+                return {
+                    affectedGlyphNames: ['a'],
+                    error: null,
+                    updateScope: 'layer'
+                };
+            })
+        };
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    changeVersion: 1,
+                    requestRecompileWithoutDataChange
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockResolvedValue();
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+        window.patchSyncEngine = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn()
+        };
+
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+
+        try {
+            await canvas.commitPropertyPanelValue('left', '==50');
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+        }
+
+        expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
+        expect(fontManager.lastEditType).toBe('outline');
+        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
+            1
+        );
+        expect(
+            window.fontManager.refreshGlyphsAfterModelBatch
+        ).not.toHaveBeenCalled();
+        expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).not.toHaveBeenCalled();
+        expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
+    });
+
+    test('commitPropertyPanelValue does not schedule compile for invalid sidebearing-key input', async () => {
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const requestRecompileWithoutDataChange = jest.fn();
+        const layer = {
+            width: 500,
+            isAutomaticAlignedLayer: jest.fn(() => false),
+            applySidebearingInput: jest.fn(() => ({
+                affectedGlyphNames: ['a'],
+                error: 'Invalid metrics-key calculation',
+                updateScope: 'layer'
+            }))
+        };
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    changeVersion: 1,
+                    requestRecompileWithoutDataChange
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        fontManager.lastChangeSource = 'previous-source';
+        fontManager.lastEditType = null;
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockResolvedValue();
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+        window.patchSyncEngine = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn()
+        };
+
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+
+        try {
+            await canvas.commitPropertyPanelValue('left', '=missing+10');
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+        }
+
+        expect(fontManager.lastChangeSource).toBe('previous-source');
+        expect(fontManager.lastEditType).toBeNull();
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
+        expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).not.toHaveBeenCalled();
+        expect(
+            window.fontManager.refreshGlyphsAfterModelBatch
+        ).not.toHaveBeenCalled();
+    });
+
     test('text-mode kerning commits do not directly wake auto-compile when PatchSyncEngine is present', async () => {
         const markDirty = jest.fn();
         const requestRecompileWithoutDataChange = jest.fn();
@@ -2375,7 +2502,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         ).toHaveBeenCalledTimes(1);
     });
 
-    test('requestEditingFontRecompileAfterSidebearingKeyRefresh routes keyed commits through keyboard-sidebearing outline mode', () => {
+    test('armSidebearingKeyCompileContext routes keyed commits through keyboard-sidebearing outline mode', () => {
         const requestRecompileWithoutDataChange = jest.fn();
 
         fontManager.openedFonts = new Map([
@@ -2389,15 +2516,15 @@ describe('GlyphCanvas property panel metrics edits', () => {
         fontManager.currentFontId = 'test-font';
         fontManager.scheduleFullCompileDebounce = jest.fn();
 
-        canvas.requestEditingFontRecompileAfterSidebearingKeyRefresh();
+        canvas.armSidebearingKeyCompileContext();
 
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
         expect(fontManager.lastEditType).toBe('outline');
-        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
         expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
             1
         );
-        expect(window.autoCompileManager.checkAndSchedule).toHaveBeenCalled();
+        expect(window.autoCompileManager.checkAndSchedule).not.toHaveBeenCalled();
     });
 
     test('commitPropertyPanelValue pans the viewport for left sidebearing edits', async () => {

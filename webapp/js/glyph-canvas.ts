@@ -4510,19 +4510,13 @@ class GlyphCanvas {
         return this.outlineEditor.canOfferStrokeAwareScaling();
     }
 
-    private requestEditingFontRecompileAfterSidebearingKeyRefresh(): void {
-        if (
-            !fontManager.currentFont ||
-            typeof fontManager.currentFont.requestRecompileWithoutDataChange !==
-                'function'
-        ) {
-            return;
-        }
-
+    private setSidebearingKeyCompileContext(): void {
         fontManager.lastChangeSource = 'keyboard-sidebearing';
         fontManager.lastEditType = 'outline';
-        fontManager.currentFont.requestRecompileWithoutDataChange();
-        window.autoCompileManager?.checkAndSchedule?.();
+    }
+
+    private armSidebearingKeyCompileContext(): void {
+        this.setSidebearingKeyCompileContext();
         fontManager.scheduleFullCompileDebounce?.();
     }
 
@@ -4563,6 +4557,7 @@ class GlyphCanvas {
         const previousEditType = fontManager.lastEditType;
         const previousChangeVersion = fontManager.currentFont?.changeVersion;
 
+        this.setSidebearingKeyCompileContext();
         const resolution = layer.applySidebearingInput(side, value);
         const glyphName =
             (typeof layer.parent === 'function'
@@ -4585,12 +4580,8 @@ class GlyphCanvas {
         }
         this.outlineEditor.performHitDetection(null);
 
-        fontManager.lastChangeSource = usesIncrementalLayerRefresh
-            ? 'keyboard'
-            : 'metrics-key';
-        fontManager.lastEditType = usesIncrementalLayerRefresh
-            ? 'outline'
-            : null;
+        fontManager.lastChangeSource = 'keyboard-sidebearing';
+        fontManager.lastEditType = 'outline';
         const affectedGlyphNames = Array.from(
             new Set(
                 resolution.affectedGlyphNames?.length
@@ -4613,10 +4604,14 @@ class GlyphCanvas {
         if (!modelChanged && !shouldRecompileAfterRefresh) {
             fontManager.lastChangeSource = previousChangeSource;
             fontManager.lastEditType = previousEditType;
+        } else if (!resolution.error) {
+            fontManager.scheduleFullCompileDebounce?.();
         }
 
         try {
-            if (affectedGlyphNames.length > 0) {
+            const bridgeOwnsCommittedRefresh = !!window.patchSyncEngine;
+
+            if (!bridgeOwnsCommittedRefresh && affectedGlyphNames.length > 0) {
                 await window.fontManager?.refreshGlyphsAfterModelBatch?.(
                     affectedGlyphNames,
                     usesIncrementalLayerRefresh
@@ -4625,8 +4620,9 @@ class GlyphCanvas {
                 );
             }
 
-            if (shouldRecompileAfterRefresh) {
-                this.requestEditingFontRecompileAfterSidebearingKeyRefresh();
+            if (!bridgeOwnsCommittedRefresh && shouldRecompileAfterRefresh) {
+                fontManager.currentFont?.requestRecompileWithoutDataChange?.();
+                window.autoCompileManager?.checkAndSchedule?.();
             }
 
             if (shouldFetchLayerData) {

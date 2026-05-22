@@ -755,17 +755,19 @@ function collectNonGlyphChangeHints(
 
     for (const entry of entries) {
         const path = entry.path ?? '';
-        if (path.startsWith('features.')) {
-            hints.add('feature-code');
-        }
-        if (path === 'masters' || path.startsWith('masters.')) {
-            hints.add('masters');
-        }
-
         const kerningEditType = inferKerningEditTypeFromMetadata(
             entry.transactionLabel ?? '',
             path
         );
+        if (path.startsWith('features.')) {
+            hints.add('feature-code');
+        }
+        if (
+            !kerningEditType &&
+            (path === 'masters' || path.startsWith('masters.'))
+        ) {
+            hints.add('masters');
+        }
         if (kerningEditType === 'kerning-value') {
             hints.add('kerning-value');
         }
@@ -775,6 +777,33 @@ function collectNonGlyphChangeHints(
     }
 
     return [...hints];
+}
+
+function isSidebearingKeyMetadataPath(path: string): boolean {
+    return (
+        path.endsWith('.format_specific.metric_left') ||
+        path.endsWith('.format_specific.metric_right') ||
+        path.endsWith(
+            '.format_specific.com.schriftgestalt.Glyphs.metricLeft'
+        ) ||
+        path.endsWith('.format_specific.com.schriftgestalt.Glyphs.metricRight')
+    );
+}
+
+function isSidebearingKeyCommittedEntry(entry: ChangeLogEntry): boolean {
+    const label = (entry.transactionLabel ?? '').toLowerCase();
+    if (!label.includes('sidebearing')) {
+        return false;
+    }
+
+    const path = entry.path ?? '';
+    return (
+        entry.visualAnchorSide === 'left' ||
+        entry.visualAnchorSide === 'right' ||
+        path.includes('.layers.') ||
+        path.includes(':layers.') ||
+        isSidebearingKeyMetadataPath(path)
+    );
 }
 
 function inferCommittedEditTypeFromEntries(
@@ -1512,7 +1541,8 @@ function isUndoRedoCommittedPacket(entries: ChangeLogEntry[]): boolean {
 
 function getFallbackUndoRedoCommittedEntries(
     historyItem: HistoryStackItem | null,
-    action: 'undo' | 'redo'
+    action: 'undo' | 'redo',
+    context?: LocalUndoRedoVisualContext
 ): ChangeLogEntry[] {
     const sourceEntries = historyItem?.entries?.length
         ? historyItem.entries[0].semanticChangeLogEntries?.length
@@ -1520,12 +1550,45 @@ function getFallbackUndoRedoCommittedEntries(
             : historyItem.entries
         : [];
 
+    const fallbackTargets = collectReplayTargetsFromEntries(sourceEntries);
+    if (!fallbackTargets.length && historyItem?.workerReplayTargets?.length) {
+        fallbackTargets.push(
+            ...normalizeWorkerReplayTargets(historyItem.workerReplayTargets)
+        );
+    }
+    const fallbackTouchedPath = historyItem?.touchedPaths?.[0];
+    const fallbackLayerTarget =
+        fallbackTargets[0] ??
+        (context?.editedGlyphName && context?.layerId
+            ? {
+                  glyphName: context.editedGlyphName,
+                  layerId: context.layerId
+              }
+            : null);
+    const fallbackLayerPath =
+        fallbackTouchedPath ??
+        (fallbackLayerTarget
+            ? `glyphs.${fallbackLayerTarget.glyphName}.layers.${fallbackLayerTarget.layerId}`
+            : undefined);
+
     return sourceEntries.map(
-        (entry) =>
-            ({
+        (entry) => {
+            const entryTargets = normalizeWorkerReplayTargets(
+                entry.workerReplayTargets
+            );
+            return {
                 ...entry,
+                transactionLabel:
+                    entry.transactionLabel ??
+                    historyItem?.transactionLabel ??
+                    null,
+                path: entry.path ?? fallbackLayerPath,
+                workerReplayTargets: entryTargets.length
+                    ? entryTargets
+                    : fallbackTargets,
                 historyAction: action
-            }) as ChangeLogEntry
+            } as ChangeLogEntry;
+        }
     );
 }
 
@@ -1956,6 +2019,7 @@ export async function handleCommittedChangeRefresh(
         //
         // Detect GUI-complete layer packets: all entries carry explicit
         // workerReplayTargets and their paths are layer-scoped visual edits.
+        const replayTargets = collectReplayTargetsFromEntries(entries);
         const allEntriesAreGuiCompleteLayerPackets =
             entries.length > 0 &&
             entries.every((entry) => {
@@ -1969,6 +2033,10 @@ export async function handleCommittedChangeRefresh(
                 // Must be a layer-scoped visual path
                 return path.includes('.layers.') || path.includes(':layers.');
             });
+        const allEntriesAreForwardedSidebearingKeyPackets =
+            entries.length > 0 &&
+            replayTargets.length > 0 &&
+            entries.every(isSidebearingKeyCommittedEntry);
         const allEntriesAreForwardedMasterReinterpolationPackets =
             entries.length > 0 &&
             entries.every((entry) => {
@@ -1982,14 +2050,15 @@ export async function handleCommittedChangeRefresh(
             });
         const allEntriesAreForwardedAddMasterPackets =
             entries.length > 0 &&
-            collectReplayTargetsFromEntries(entries).length > 0 &&
+            replayTargets.length > 0 &&
             entries.every((entry) => entry.transactionLabel === 'Add master');
 
         if (
             !allEntriesAreGuiCompleteLayerPackets &&
+            !allEntriesAreForwardedSidebearingKeyPackets &&
             !allEntriesAreForwardedMasterReinterpolationPackets &&
             !allEntriesAreForwardedAddMasterPackets &&
-            collectReplayTargetsFromEntries(entries).length > 0
+            replayTargets.length > 0
         ) {
             const queueCacheRefresh =
                 dependencies?.queueCacheRefresh ??
@@ -1997,7 +2066,7 @@ export async function handleCommittedChangeRefresh(
 
             await queueCacheRefresh(undefined, undefined, {
                 allowSelectedLayerFallback: false,
-                workerReplayTargets: collectReplayTargetsFromEntries(entries)
+                workerReplayTargets: replayTargets
             });
         }
 
@@ -2185,15 +2254,14 @@ export function runBridgeUndoRedo(
             appliedChange.historyItem as HistoryStackItem | null;
         const fallbackEntries = getFallbackUndoRedoCommittedEntries(
             historyItem,
-            action
+            action,
+            localUndoRedoContext
         );
         if (!fallbackEntries.length) {
             return;
         }
 
         await handleCommittedChangeRefresh(fallbackEntries, 'local', {
-            localCompileContext:
-                inferLocalCompileContextFromHistoryItem(historyItem),
             localUndoRedoContext
         });
     });

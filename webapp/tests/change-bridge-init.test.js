@@ -758,6 +758,61 @@ describe('handleRemoteChangeRefresh', () => {
         );
     });
 
+    test('local sidebearing-key commit with glyph metrics metadata skips duplicate cache refresh', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const queueCacheRefresh = jest.fn(async () => {});
+        const glyphChangedHandler = jest.fn();
+        const replayTargets = [
+            { glyphName: 'A', layerId: 'layer-1' },
+            { glyphName: 'B', layerId: 'layer-2' }
+        ];
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            lastChangeSource: 'keyboard-sidebearing',
+            lastEditType: 'outline'
+        };
+        window.addEventListener('glyphChanged', glyphChangedHandler);
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Set sidebearing',
+                        path: 'glyphs.A.format_specific.metric_right'
+                    },
+                    {
+                        transactionLabel: 'Set sidebearing',
+                        path: 'glyphs.A.layers.layer-1.width',
+                        visualAnchorSide: 'right',
+                        workerReplayTargets: replayTargets
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
+            delete window.fontManager;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-sidebearing',
+            'outline'
+        );
+    });
+
     test('local commit without layer-scoped paths still runs cache refresh', async () => {
         const awaitWorkerSync = jest.fn(async () => {});
         const requestCompile = jest.fn(async () => {});
@@ -2331,6 +2386,128 @@ describe('committed undo/redo compile requests', () => {
         expect(window.fontManager.lastEditType).toBe('kerning-value');
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
+    });
+
+    test('undo sidebearing packets preserve the outline fast path', async () => {
+        const checkAndSchedule = jest.fn();
+        const requestRecompileWithoutDataChange = jest.fn(function () {
+            this.compileRequestVersion += 1;
+        });
+
+        window.autoCompileManager = {
+            checkAndSchedule
+        };
+        window.fontManager = {
+            lastChangeSource: null,
+            lastEditType: null,
+            currentFont: {
+                compileRequestVersion: 4,
+                requestRecompileWithoutDataChange
+            }
+        };
+
+        await changeBridgeInit.handleCommittedChangeRefresh(
+            [
+                {
+                    historyAction: 'undo',
+                    transactionLabel: 'Set sidebearing',
+                    path: 'glyphs.a.layers.layer-1',
+                    visualAnchorSide: 'left',
+                    workerReplayTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' }
+                    ]
+                }
+            ],
+            'local',
+            {
+                awaitWorkerSync: jest.fn(async () => {}),
+                queueCacheRefresh: jest.fn(async () => {})
+            }
+        );
+
+        expect(window.fontManager.lastChangeSource).toBe('keyboard-outline');
+        expect(window.fontManager.lastEditType).toBe('outline');
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(checkAndSchedule).toHaveBeenCalledTimes(1);
+    });
+
+    test('undo sidebearing fallback reuses history metadata for outline fast path', async () => {
+        originalWindow.fontManager = {
+            lastChangeSource: null,
+            lastEditType: null,
+            currentFont: {
+                fontModel: {
+                    findGlyph: jest.fn(() => ({
+                        findLayerById: jest.fn(() => ({ width: 500 }))
+                    }))
+                },
+                compileRequestVersion: 0,
+                requestRecompileWithoutDataChange: jest.fn(function () {
+                    this.compileRequestVersion += 1;
+                })
+            },
+            awaitWorkerDocumentSync: jest.fn(async () => {}),
+            workerCacheUpdatePromise: Promise.resolve(),
+            awaitWorkerCacheUpdate: jest.fn(async () => {}),
+            refreshWorkerCacheForReplayTargets: jest.fn(async () => true)
+        };
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn(),
+            forceTrigger: jest.fn().mockResolvedValue(undefined)
+        };
+        originalWindow.glyphCanvas = {
+            viewportManager: { panX: 100, scale: 2 },
+            textRunEditor: { refreshGlyphAdvancesLive: jest.fn() },
+            requestRepaintAfterCompile: jest.fn(),
+            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            updatePropertyPanel: jest.fn(),
+            render: jest.fn(),
+            outlineEditor: {
+                active: true,
+                currentGlyphName: 'a',
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: () => [{ glyphName: 'a' }],
+                fetchLayerData: jest.fn(),
+                performHitDetection: jest.fn()
+            },
+            getCurrentGlyphName: () => 'a'
+        };
+        originalWindow.patchSyncEngine = {
+            undo: jest.fn(() => ({
+                glyphName: 'a',
+                layerId: 'layer-1',
+                historyItem: {
+                    entries: [
+                        {
+                            oldValue: 480,
+                            newValue: 500
+                        }
+                    ],
+                    touchedPaths: ['glyphs.a.layers.layer-1.width'],
+                    transactionLabel: 'Set sidebearing',
+                    workerReplayTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' }
+                    ]
+                }
+            })),
+            redo: jest.fn()
+        };
+
+        await changeBridgeInit.runBridgeUndoRedo(
+            'undo',
+            'a',
+            'a',
+            'layer-1',
+            null
+        );
+
+        expect(originalWindow.fontManager.lastChangeSource).toBe(
+            'keyboard-outline'
+        );
+        expect(originalWindow.fontManager.lastEditType).toBe('outline');
+        expect(
+            originalWindow.fontManager.currentFont.requestRecompileWithoutDataChange
+        ).toHaveBeenCalledTimes(1);
     });
 
     test('undo outline replay reuses forward layer-snapshot metadata instead of generic undo source', async () => {
