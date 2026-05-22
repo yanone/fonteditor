@@ -1683,19 +1683,23 @@ function resolveLocalCommittedCompileContext(
         typeof existingChangeSource === 'string' &&
         (existingChangeSource.startsWith('keyboard-') ||
             existingChangeSource.startsWith('mouse-drag-'));
-    const canReuseExistingSource =
+    const isReusableExplicitSource =
         typeof existingChangeSource === 'string' &&
         existingChangeSource.length > 0 &&
         !existingChangeSource.startsWith('remote-') &&
-        existingChangeSource !== 'undo-redo';
+        existingChangeSource !== 'undo-redo' &&
+        existingChangeSource !== 'change-bridge-local' &&
+        existingChangeSource !== 'debounced-post-interaction-full-compile';
     const shouldPreferInferredContext =
         inferred.editType !== null &&
-        (!isLocalInteractiveSource || existingEditType !== inferred.editType);
+        (!isReusableExplicitSource ||
+            (isLocalInteractiveSource &&
+                existingEditType !== inferred.editType));
 
     return {
         changeSource: shouldPreferInferredContext
             ? inferred.changeSource
-            : canReuseExistingSource
+            : isReusableExplicitSource
               ? existingChangeSource
               : inferred.changeSource,
         editType: shouldPreferInferredContext
