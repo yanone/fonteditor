@@ -8483,8 +8483,7 @@ class FontInfoManager {
         }
 
         if (fontManager && currentFont) {
-            fontManager.lastChangeSource = 'feature-code';
-            fontManager.lastEditType = null;
+            fontManager.setEditingCompileContext('feature-code', null);
         }
 
         if (bridge && path) {

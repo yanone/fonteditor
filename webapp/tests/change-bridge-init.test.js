@@ -2313,6 +2313,14 @@ describe('committed undo/redo compile requests', () => {
         window.fontManager = {
             lastChangeSource: null,
             lastEditType: null,
+            setEditingCompileContext(changeSource, editType) {
+                this.lastChangeSource = changeSource;
+                this.lastEditType = editType;
+            },
+            clearEditingCompileContext() {
+                this.lastChangeSource = null;
+                this.lastEditType = null;
+            },
             currentFont: {
                 compileRequestVersion: 10,
                 requestRecompileWithoutDataChange
@@ -2357,6 +2365,14 @@ describe('committed undo/redo compile requests', () => {
         window.fontManager = {
             lastChangeSource: null,
             lastEditType: null,
+            setEditingCompileContext(changeSource, editType) {
+                this.lastChangeSource = changeSource;
+                this.lastEditType = editType;
+            },
+            clearEditingCompileContext() {
+                this.lastChangeSource = null;
+                this.lastEditType = null;
+            },
             currentFont: {
                 compileRequestVersion: 2,
                 requestRecompileWithoutDataChange
@@ -2400,6 +2416,14 @@ describe('committed undo/redo compile requests', () => {
         window.fontManager = {
             lastChangeSource: null,
             lastEditType: null,
+            setEditingCompileContext(changeSource, editType) {
+                this.lastChangeSource = changeSource;
+                this.lastEditType = editType;
+            },
+            clearEditingCompileContext() {
+                this.lastChangeSource = null;
+                this.lastEditType = null;
+            },
             currentFont: {
                 compileRequestVersion: 4,
                 requestRecompileWithoutDataChange
@@ -2435,6 +2459,14 @@ describe('committed undo/redo compile requests', () => {
         originalWindow.fontManager = {
             lastChangeSource: null,
             lastEditType: null,
+            setEditingCompileContext(changeSource, editType) {
+                this.lastChangeSource = changeSource;
+                this.lastEditType = editType;
+            },
+            clearEditingCompileContext() {
+                this.lastChangeSource = null;
+                this.lastEditType = null;
+            },
             currentFont: {
                 fontModel: {
                     findGlyph: jest.fn(() => ({
@@ -2506,7 +2538,8 @@ describe('committed undo/redo compile requests', () => {
         );
         expect(originalWindow.fontManager.lastEditType).toBe('outline');
         expect(
-            originalWindow.fontManager.currentFont.requestRecompileWithoutDataChange
+            originalWindow.fontManager.currentFont
+                .requestRecompileWithoutDataChange
         ).toHaveBeenCalledTimes(1);
     });
 
@@ -2525,6 +2558,14 @@ describe('committed undo/redo compile requests', () => {
         originalWindow.fontManager = {
             lastChangeSource: null,
             lastEditType: null,
+            setEditingCompileContext(changeSource, editType) {
+                this.lastChangeSource = changeSource;
+                this.lastEditType = editType;
+            },
+            clearEditingCompileContext() {
+                this.lastChangeSource = null;
+                this.lastEditType = null;
+            },
             currentFont: {
                 fontModel: makeFontModel(),
                 compileRequestVersion: 0,

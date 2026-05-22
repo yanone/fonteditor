@@ -4184,8 +4184,7 @@ class GlyphCanvas {
         affectedGlyphNames: string[],
         layerId: string | null
     ): Promise<void> {
-        fontManager.lastChangeSource = 'keyboard';
-        fontManager.lastEditType = 'outline';
+        fontManager.setEditingCompileContext('keyboard', 'outline');
         fontManager.scheduleFullCompileDebounce();
 
         try {
@@ -4511,8 +4510,7 @@ class GlyphCanvas {
     }
 
     private setSidebearingKeyCompileContext(): void {
-        fontManager.lastChangeSource = 'keyboard-sidebearing';
-        fontManager.lastEditType = 'outline';
+        fontManager.setEditingCompileContext('keyboard-sidebearing', 'outline');
     }
 
     private armSidebearingKeyCompileContext(): void {
@@ -4580,8 +4578,7 @@ class GlyphCanvas {
         }
         this.outlineEditor.performHitDetection(null);
 
-        fontManager.lastChangeSource = 'keyboard-sidebearing';
-        fontManager.lastEditType = 'outline';
+        fontManager.setEditingCompileContext('keyboard-sidebearing', 'outline');
         const affectedGlyphNames = Array.from(
             new Set(
                 resolution.affectedGlyphNames?.length
@@ -4602,8 +4599,10 @@ class GlyphCanvas {
             usesIncrementalLayerRefresh || layer.isAutomaticAlignedLayer();
 
         if (!modelChanged && !shouldRecompileAfterRefresh) {
-            fontManager.lastChangeSource = previousChangeSource;
-            fontManager.lastEditType = previousEditType;
+            fontManager.setEditingCompileContext(
+                previousChangeSource,
+                previousEditType
+            );
         } else if (!resolution.error) {
             fontManager.scheduleFullCompileDebounce?.();
         }
@@ -5442,12 +5441,10 @@ class GlyphCanvas {
 
     private scheduleTextModeKerningCompile(reason: string): void {
         const isGroupEdit = reason === 'kerning-group-membership';
-        fontManager.lastChangeSource = isGroupEdit
-            ? 'keyboard-kerning-groups'
-            : 'keyboard-kerning-value';
-        fontManager.lastEditType = isGroupEdit
-            ? 'kerning-groups'
-            : 'kerning-value';
+        fontManager.setEditingCompileContext(
+            isGroupEdit ? 'keyboard-kerning-groups' : 'keyboard-kerning-value',
+            isGroupEdit ? 'kerning-groups' : 'kerning-value'
+        );
         fontManager.currentFont?.markDirty(reason);
         fontManager.scheduleFullCompileDebounce?.();
         // Kerning edits already flow through PatchSyncEngine and the shared
@@ -7081,7 +7078,7 @@ class GlyphCanvas {
 
                 // Mark as text-input so the pipeline skips full JSON transfer
                 // and skips features/kerning for faster compilation
-                fontManager.lastChangeSource = 'text-input';
+                fontManager.setEditingCompileContext('text-input', null);
 
                 fontManager
                     .compileEditingFont(
@@ -7119,8 +7116,7 @@ class GlyphCanvas {
                 fontManager.isReady() &&
                 fontManager.lastCompilationMode !== 'full'
             ) {
-                fontManager.lastChangeSource = null;
-                fontManager.lastEditType = null;
+                fontManager.clearEditingCompileContext();
                 fontManager.currentFont?.markDirty('text-input-full-compile');
                 window.autoCompileManager.checkAndSchedule();
             }

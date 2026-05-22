@@ -1316,9 +1316,36 @@ describe('FontManager editing subset inclusion', () => {
         ).toBeUndefined();
     });
 
+    test.each([
+        ['keyboard-outline', 'outline', 'outline-only'],
+        ['keyboard', 'outline', 'outline-only'],
+        ['keyboard-sidebearing', 'outline', 'outline-only'],
+        ['keyboard-anchor', 'anchor', 'anchor-only'],
+        ['mouse-drag-outline', 'outline', 'outline-only'],
+        ['mouse-drag-anchor', 'anchor', 'anchor-only'],
+        ['debounced-post-interaction-full-compile', null, 'full']
+    ])(
+        'compileEditingFont clears processed compile context for %s',
+        async (changeSource, editType, expectedMode) => {
+            fontManager.setEditingCompileContext(changeSource, editType);
+            window.glyphCanvas.outlineEditor.draggingSomething = false;
+
+            await fontManager.compileEditingFont('a', [], ['a']);
+
+            expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+            expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+                compileSource: changeSource
+            });
+            expect(fontManager.lastCompilationMode).toBe(expectedMode);
+            expect(fontManager.lastChangeSource).toBeNull();
+            expect(fontManager.lastEditType).toBeNull();
+        }
+    );
+
     test('stale editing compile results do not clear a newer error state', async () => {
         const priorEditingFont = new Uint8Array([9, 9, 9]);
         fontManager.editingFont = priorEditingFont;
+        fontManager.setEditingCompileContext('keyboard-outline', 'outline');
 
         let resolveCompile;
         compileEditingSpy.mockImplementation(
@@ -1338,6 +1365,7 @@ describe('FontManager editing subset inclusion', () => {
             );
 
             fontManager.currentFont.compileRequestVersion = 2;
+            fontManager.setEditingCompileContext('keyboard-anchor', 'anchor');
 
             resolveCompile({
                 result: new Uint8Array([1, 2, 3]),
@@ -1356,8 +1384,118 @@ describe('FontManager editing subset inclusion', () => {
                     ([event]) => event?.type === 'editingFontCompiled'
                 )
             ).toBe(false);
+            expect(fontManager.lastChangeSource).toBe('keyboard-anchor');
+            expect(fontManager.lastEditType).toBe('anchor');
         } finally {
             dispatchEventSpy.mockRestore();
+        }
+    });
+
+    test('failed editing compile clears the matching compile context', async () => {
+        const error = new Error('compile failed');
+        compileEditingSpy.mockRejectedValueOnce(error);
+        fontManager.setEditingCompileContext('keyboard-anchor', 'anchor');
+        const showErrorSpy = jest
+            .spyOn(sidebarErrorDisplay, 'showError')
+            .mockImplementation(() => {});
+        const consoleErrorSpy = jest
+            .spyOn(console, 'error')
+            .mockImplementation(() => {});
+
+        try {
+            await expect(
+                fontManager.compileEditingFont('a', [], ['a'])
+            ).rejects.toThrow('compile failed');
+
+            expect(fontManager.lastChangeSource).toBeNull();
+            expect(fontManager.lastEditType).toBeNull();
+        } finally {
+            showErrorSpy.mockRestore();
+            consoleErrorSpy.mockRestore();
+        }
+    });
+
+    test('failed stale editing compile does not clear newer context', async () => {
+        let rejectCompile;
+        compileEditingSpy.mockImplementation(
+            () =>
+                new Promise((resolve, reject) => {
+                    rejectCompile = reject;
+                })
+        );
+        fontManager.setEditingCompileContext('keyboard-outline', 'outline');
+        const showErrorSpy = jest
+            .spyOn(sidebarErrorDisplay, 'showError')
+            .mockImplementation(() => {});
+        const consoleErrorSpy = jest
+            .spyOn(console, 'error')
+            .mockImplementation(() => {});
+
+        try {
+            const compilePromise = fontManager.compileEditingFont(
+                'a',
+                [],
+                ['a']
+            );
+
+            fontManager.currentFont.compileRequestVersion = 2;
+            fontManager.setEditingCompileContext('keyboard-anchor', 'anchor');
+            rejectCompile(new Error('stale compile failed'));
+
+            await expect(compilePromise).rejects.toThrow(
+                'stale compile failed'
+            );
+            expect(fontManager.lastChangeSource).toBe('keyboard-anchor');
+            expect(fontManager.lastEditType).toBe('anchor');
+        } finally {
+            showErrorSpy.mockRestore();
+            consoleErrorSpy.mockRestore();
+        }
+    });
+
+    test('skipped editing compile without subset glyphs clears matching context', async () => {
+        fontManager.setEditingCompileContext('keyboard-outline', 'outline');
+        fontManager.updateEditingSubsetSnapshot([]);
+        window.glyphCanvas.textRunEditor.textBuffer = '';
+        window.glyphCanvas.textRunEditor.glyphNameBuffer = [];
+        const deriveSubsetSpy = jest
+            .spyOn(fontManager, 'deriveSubsetGlyphsFromText')
+            .mockReturnValue([]);
+
+        try {
+            const returnedFont = await fontManager.compileEditingFont(
+                '',
+                [],
+                undefined
+            );
+
+            expect(returnedFont).toBe(fontManager.editingFont);
+            expect(compileEditingSpy).not.toHaveBeenCalled();
+            expect(fontManager.lastChangeSource).toBeNull();
+            expect(fontManager.lastEditType).toBeNull();
+        } finally {
+            deriveSubsetSpy.mockRestore();
+        }
+    });
+
+    test('pre-compile model sync failure clears matching context', async () => {
+        fontManager.setEditingCompileContext('feature-code', null);
+        const syncSpy = jest
+            .spyOn(fontManager, 'syncBabelfontJsonFromCurrentModel')
+            .mockReturnValue(false);
+
+        try {
+            await expect(
+                fontManager.compileEditingFont('a', [], ['a'])
+            ).rejects.toThrow(
+                'Failed to sync font model before editing compile'
+            );
+
+            expect(compileEditingSpy).not.toHaveBeenCalled();
+            expect(fontManager.lastChangeSource).toBeNull();
+            expect(fontManager.lastEditType).toBeNull();
+        } finally {
+            syncSpy.mockRestore();
         }
     });
 

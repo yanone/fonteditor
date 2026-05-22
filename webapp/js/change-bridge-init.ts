@@ -1459,8 +1459,7 @@ async function requestCommittedEditingFontCompile(
         return;
     }
 
-    fm.lastChangeSource = changeSource;
-    fm.lastEditType = editType ?? null;
+    fm.setEditingCompileContext?.(changeSource, editType ?? null);
 
     const targetRevision = fm.currentFont.compileRequestVersion + 1;
     const canForceTrigger =
@@ -1571,25 +1570,21 @@ function getFallbackUndoRedoCommittedEntries(
             ? `glyphs.${fallbackLayerTarget.glyphName}.layers.${fallbackLayerTarget.layerId}`
             : undefined);
 
-    return sourceEntries.map(
-        (entry) => {
-            const entryTargets = normalizeWorkerReplayTargets(
-                entry.workerReplayTargets
-            );
-            return {
-                ...entry,
-                transactionLabel:
-                    entry.transactionLabel ??
-                    historyItem?.transactionLabel ??
-                    null,
-                path: entry.path ?? fallbackLayerPath,
-                workerReplayTargets: entryTargets.length
-                    ? entryTargets
-                    : fallbackTargets,
-                historyAction: action
-            } as ChangeLogEntry;
-        }
-    );
+    return sourceEntries.map((entry) => {
+        const entryTargets = normalizeWorkerReplayTargets(
+            entry.workerReplayTargets
+        );
+        return {
+            ...entry,
+            transactionLabel:
+                entry.transactionLabel ?? historyItem?.transactionLabel ?? null,
+            path: entry.path ?? fallbackLayerPath,
+            workerReplayTargets: entryTargets.length
+                ? entryTargets
+                : fallbackTargets,
+            historyAction: action
+        } as ChangeLogEntry;
+    });
 }
 
 function buildHistoryItemFromCommittedEntries(
@@ -2353,8 +2348,7 @@ function initializeBridge(detail: {
         if (!fm?.currentFont) return;
 
         // Reset compilation state so next compile is a clean full build
-        fm.lastChangeSource = null;
-        fm.lastEditType = null;
+        fm.clearEditingCompileContext?.();
         // Mark babelfontJson as stale; it will be rebuilt lazily (see comment above).
         fm.pendingBabelfontJsonSyncAfterDrag = true;
 

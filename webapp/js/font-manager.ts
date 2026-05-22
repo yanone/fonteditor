@@ -615,8 +615,7 @@ class FontManager {
         this.selectedFeatures = [];
         this.isCompiling = false;
         this.glyphOrderCache = null; // Cache for glyph order to avoid re-parsing
-        this.lastChangeSource = null;
-        this.lastEditType = null;
+        this.clearEditingCompileContext();
         this.lastCompilationMode = 'full';
         this.fullCompileDebounceTimer = null;
         this.closureCache = null;
@@ -644,6 +643,37 @@ class FontManager {
         this.fontRoleBadgeElement =
             this.fontDisplay?.querySelector('.font-window-role-badge') || null;
         this.dirtyIndicator = document.getElementById('file-dirty-indicator');
+    }
+
+    setEditingCompileContext(
+        changeSource: string | null,
+        editType: typeof this.lastEditType
+    ): void {
+        this.lastChangeSource = changeSource;
+        this.lastEditType = editType;
+    }
+
+    clearEditingCompileContext(): void {
+        this.setEditingCompileContext(null, null);
+    }
+
+    private clearEditingCompileContextIfCurrentRequest(
+        changeSource: string | null,
+        editType: typeof this.lastEditType,
+        revisionKey: string
+    ): void {
+        if (!this.currentFont) {
+            return;
+        }
+        if (String(this.currentFont.compileRequestVersion) !== revisionKey) {
+            return;
+        }
+        if (
+            this.lastChangeSource === changeSource &&
+            this.lastEditType === editType
+        ) {
+            this.clearEditingCompileContext();
+        }
     }
 
     private normalizeWorkerBatchUpdate(value: unknown): Uint8Array {
@@ -945,8 +975,7 @@ class FontManager {
         this.closureCache = null;
         this.editingSubsetSnapshotGlyphs = [];
         this.editingSubsetSnapshotKey = '';
-        this.lastChangeSource = null;
-        this.lastEditType = null;
+        this.clearEditingCompileContext();
         this.lastCompilationMode = 'full';
         this.pendingDebugEditingFontSaveAfterDrag = false;
         this.pendingBabelfontJsonSyncAfterDrag = false;
@@ -1274,7 +1303,7 @@ class FontManager {
             this.closureCache = null;
             this.editingSubsetSnapshotGlyphs = [];
             this.editingSubsetSnapshotKey = '';
-            this.lastChangeSource = 'external-reload';
+            this.setEditingCompileContext('external-reload', null);
 
             const subsetGlyphs =
                 window.glyphCanvas?.textRunEditor?.glyphNameBuffer;
@@ -1813,6 +1842,13 @@ class FontManager {
         this.currentText = text;
         this.selectedFeatures = features;
 
+        let responseRevisionKey = String(
+            this.currentFont.compileRequestVersion
+        );
+        let requestedRevisionKey = responseRevisionKey;
+        let incrementalChangeSource = this.lastChangeSource;
+        let editTypeAtRequest: typeof this.lastEditType = this.lastEditType;
+
         const compileSource = this.lastChangeSource || 'unknown';
         const isIncrementalEditingCompile =
             compileSource.startsWith('mouse-drag') ||
@@ -1861,10 +1897,19 @@ class FontManager {
             !isIncrementalEditingCompile ||
             (wasJsonStale && !canUseIncrementalDirtyLayerPatch)
         ) {
-            if (!this.syncBabelfontJsonFromCurrentModel()) {
-                throw new Error(
-                    'Failed to sync font model before editing compile'
+            try {
+                if (!this.syncBabelfontJsonFromCurrentModel()) {
+                    throw new Error(
+                        'Failed to sync font model before editing compile'
+                    );
+                }
+            } catch (error) {
+                this.clearEditingCompileContextIfCurrentRequest(
+                    incrementalChangeSource,
+                    editTypeAtRequest,
+                    requestedRevisionKey
                 );
+                throw error;
             }
             this.pendingBabelfontJsonSyncAfterDrag = false;
         }
@@ -1908,6 +1953,11 @@ class FontManager {
                             console.log(
                                 '[FontManager] Skipping editing font compile without subset glyphs'
                             );
+                            this.clearEditingCompileContextIfCurrentRequest(
+                                incrementalChangeSource,
+                                editTypeAtRequest,
+                                requestedRevisionKey
+                            );
                             return this.editingFont;
                         }
                     }
@@ -1932,6 +1982,11 @@ class FontManager {
                     console.log(
                         '[FontManager] Skipping extra editing compile during font.openSession'
                     );
+                    this.clearEditingCompileContextIfCurrentRequest(
+                        incrementalChangeSource,
+                        editTypeAtRequest,
+                        requestedRevisionKey
+                    );
                     return this.editingFont;
                 }
                 startupOpenSessionEditingCompileCount += 1;
@@ -1952,11 +2007,7 @@ class FontManager {
                 `🔨 Compiling editing font, subset_glyphs: ${glyphsToInclude ? glyphsToInclude.length + ' glyphs' : 'none (full font)'}`
             );
             let result;
-            let responseRevisionKey = String(
-                this.currentFont.compileRequestVersion
-            );
             let isStaleCompileResult = false;
-            let incrementalChangeSource = this.lastChangeSource;
             let dragActiveAtRequest = false;
             let compilationMode:
                 | 'full'
@@ -1980,11 +2031,11 @@ class FontManager {
                     : baseSubsetGlyphs;
                 timelineSpanEnd(normalizeSubsetSpanId);
 
-                const requestedRevisionKey = String(
+                requestedRevisionKey = String(
                     this.currentFont.compileRequestVersion
                 );
                 incrementalChangeSource = this.lastChangeSource;
-                const editTypeAtRequest = this.lastEditType;
+                editTypeAtRequest = this.lastEditType;
                 dragActiveAtRequest =
                     isMouseDragSource ||
                     !!window.glyphCanvas?.outlineEditor?.draggingSomething;
@@ -2169,9 +2220,19 @@ class FontManager {
             timelineMark(
                 'font.compileEditing.dispatchEvent.editingFontCompiled.done'
             );
+            this.clearEditingCompileContextIfCurrentRequest(
+                incrementalChangeSource,
+                editTypeAtRequest,
+                responseRevisionKey
+            );
 
             return this.editingFont;
         } catch (error) {
+            this.clearEditingCompileContextIfCurrentRequest(
+                incrementalChangeSource,
+                editTypeAtRequest,
+                requestedRevisionKey
+            );
             if (
                 consumedStartupCompileSlot &&
                 startupOpenSessionEditingCompileCount > 0
@@ -2497,9 +2558,10 @@ class FontManager {
                 // (with kern/features). Do this regardless of needsRecompile — if a compile
                 // is still in progress, the auto-compile loop's data-changed retry will pick
                 // up lastEditType = null and produce a full compile instead of outline-only.
-                this.lastChangeSource =
-                    'debounced-post-interaction-full-compile';
-                this.lastEditType = null;
+                this.setEditingCompileContext(
+                    'debounced-post-interaction-full-compile',
+                    null
+                );
                 this.currentFont.requestRecompileWithoutDataChange();
                 window.autoCompileManager.checkAndSchedule();
             }
@@ -2524,7 +2586,7 @@ class FontManager {
         console.log(
             '[FontManager] Forcing full compile before axis/layer change'
         );
-        this.lastEditType = null;
+        this.setEditingCompileContext(this.lastChangeSource, null);
         this.currentFont?.requestRecompileWithoutDataChange();
         window.autoCompileManager.checkAndSchedule();
         // Wait for the compile to finish
@@ -4349,20 +4411,14 @@ class FontManager {
             this.pendingBabelfontJsonSyncAfterDrag = false;
         }
 
-        // Mark font as dirty and track the change source
-        this.lastChangeSource = changeSource;
+        const editType = changeSource.endsWith('-anchor')
+            ? 'anchor'
+            : changeSource.endsWith('-outline')
+              ? 'outline'
+              : null;
+        this.setEditingCompileContext(changeSource, editType);
 
-        // Derive edit type from enriched changeSource
-        if (changeSource.endsWith('-anchor')) {
-            this.lastEditType = 'anchor';
-        } else if (changeSource.endsWith('-outline')) {
-            this.lastEditType = 'outline';
-        } else {
-            this.lastEditType = null;
-        }
-
-        const deferInteractiveCompile =
-            isInteractiveEdit && this.lastEditType !== null;
+        const deferInteractiveCompile = isInteractiveEdit && editType !== null;
 
         // Schedule debounced full compile after interactive editing stops
         if (deferInteractiveCompile) {

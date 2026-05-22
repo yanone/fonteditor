@@ -431,6 +431,8 @@ Linked-window/cloud replay must rebuild change-log entries from the named forwar
 
 For local commits, the same funnel must wait for the already-forwarded worker Yjs update to land and for any chained local replay-target cache batch to settle before requesting the editing compile or invalidating overview tiles. That preserves the sender's fast path while keeping the compile trigger and committed overview refresh tied to the authoritative committed packet rather than to `saveLayerData()`.
 
+**High-priority compile context cleanup:** `lastChangeSource` and `lastEditType` are transient compile-request context only. They may be armed by edit producers or the committed-change funnel before requesting an editing compile, but the captured request context must be cleared after that compile request is processed unless a newer request has already replaced it. Mouse and keyboard edits of outlines, anchors, components, and sidebearings, plus their undo/redo replays, must all leave the same clean post-compile state. No edit type may leave a stale source/type pair that changes the compile mode of a later edit.
+
 Property-panel sidebearing key edits follow the same rule as outline, anchor, component, and sidebearing-handle edits. The sender may set `lastChangeSource` / `lastEditType` to arm the correct interactive context and trailing full compile before committing the model transaction, but it must not call `refreshGlyphsAfterModelBatch`, `requestRecompileWithoutDataChange`, or `autoCompileManager.checkAndSchedule` as a second committed reaction when `PatchSyncEngine` is active. The sparse committed Yjs update and the shared funnel own the immediate editing-font compile wake-up.
 
 The receiver must refresh the worker cache before requesting its remote editing-font compile. Requesting a compile before the cache refresh completes can compile against stale Rust cache data and then immediately request a second compile. The linked-window remote path therefore schedules one editing compile after `syncRustCacheAndRefreshCanvas` has applied the replay targets or completed its fallback refresh.
@@ -458,6 +460,7 @@ The following are required and should be covered by tests or explicit review whe
 11. Linked windows never schedule or execute full-font compilation or Fontspector; only the main window does.
 12. Linked windows recompile their own editing font on remote changes, using the same fast-path compilation mode (anchor-only / outline-only) as the originating edit when the change log entries carry the edit-type metadata.
 13. OpenType feature source edits auto-compile on blur and after 5 seconds of typing idle, while cancelling the pending idle timer when an immediate commit already ran.
+14. Every processed editing compile clears its captured `lastChangeSource` / `lastEditType` context unless a newer compile request has replaced it. The cleanup requirement applies uniformly to mouse, keyboard, undo, and redo for outline, anchor, component, and sidebearing edits.
 
 ## Change Control
 

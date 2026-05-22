@@ -4029,8 +4029,7 @@ export class OutlineEditor {
                 return;
             }
 
-            fontManager.lastChangeSource = liveChangeSource;
-            fontManager.lastEditType = 'outline';
+            fontManager.setEditingCompileContext(liveChangeSource, 'outline');
 
             const explicitLayerInput = this.getCurrentExplicitLayerCacheInput();
 
@@ -4485,10 +4484,10 @@ export class OutlineEditor {
     }
 
     private setInteractiveAnchorCompileContext(): void {
-        fontManager.lastChangeSource = this.draggingSomething
-            ? 'mouse-drag-anchor'
-            : 'keyboard-anchor';
-        fontManager.lastEditType = 'anchor';
+        fontManager.setEditingCompileContext(
+            this.draggingSomething ? 'mouse-drag-anchor' : 'keyboard-anchor',
+            'anchor'
+        );
     }
 
     private resetLiveSidebearingRefreshState(): void {
@@ -4559,10 +4558,10 @@ export class OutlineEditor {
         }
 
         this._lastLiveSidebearingRefreshTime = now;
-        fontManager.lastChangeSource = this.draggingSomething
-            ? 'mouse-drag-outline'
-            : 'keyboard-outline';
-        fontManager.lastEditType = 'outline';
+        fontManager.setEditingCompileContext(
+            this.draggingSomething ? 'mouse-drag-outline' : 'keyboard-outline',
+            'outline'
+        );
         this.queueLiveVisibleSidebearingDependentRefresh();
     }
 
@@ -14718,8 +14717,7 @@ export class OutlineEditor {
     private prepareStructuralOutlineCompile(
         changeSource: string = 'keyboard-outline'
     ): void {
-        fontManager.lastChangeSource = changeSource;
-        fontManager.lastEditType = 'outline';
+        fontManager.setEditingCompileContext(changeSource, 'outline');
         fontManager.forceFullEditingCacheRefresh = true;
         fontManager.scheduleFullCompileDebounce();
     }

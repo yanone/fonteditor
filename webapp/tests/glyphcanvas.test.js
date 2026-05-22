@@ -2524,7 +2524,9 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
             1
         );
-        expect(window.autoCompileManager.checkAndSchedule).not.toHaveBeenCalled();
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).not.toHaveBeenCalled();
     });
 
     test('commitPropertyPanelValue pans the viewport for left sidebearing edits', async () => {
