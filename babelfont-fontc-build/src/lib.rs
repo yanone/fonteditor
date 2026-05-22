@@ -28,9 +28,7 @@ mod interpolation;
 // Rust-authored Yjs batch operations for master add / reinterpolation
 mod batch_yjs_ops;
 
-pub use batch_yjs_ops::{
-    add_master_with_interpolated_layers_yjs, reinterpolate_master_layers_yjs,
-};
+pub use batch_yjs_ops::{add_master_with_interpolated_layers_yjs, reinterpolate_master_layers_yjs};
 
 // Glyph outlines module
 mod glyph_outlines;
@@ -255,10 +253,15 @@ fn replace_layer_in_glyph_json(
 
     match new_layer_json {
         Some(layer_json) => {
-            if let Some(index) = layer_position {
-                layers[index] = layer_json;
+            let next_layer_json = if let Some(index) = layer_position {
+                merge_sparse_layer_json(&layers[index], layer_json)
             } else {
-                layers.push(layer_json);
+                layer_json
+            };
+            if let Some(index) = layer_position {
+                layers[index] = next_layer_json;
+            } else {
+                layers.push(next_layer_json);
             }
             true
         }
@@ -270,6 +273,105 @@ fn replace_layer_in_glyph_json(
             false
         }
     }
+}
+
+fn merge_sparse_layer_json(
+    existing_layer_json: &serde_json::Value,
+    incoming_layer_json: serde_json::Value,
+) -> serde_json::Value {
+    match (existing_layer_json, incoming_layer_json) {
+        (serde_json::Value::Object(existing), serde_json::Value::Object(mut incoming)) => {
+            for (key, value) in existing {
+                if !incoming.contains_key(key) {
+                    incoming.insert(key.clone(), value.clone());
+                }
+            }
+            serde_json::Value::Object(incoming)
+        }
+        (_, incoming) => incoming,
+    }
+}
+
+fn layer_field_from_json<T>(
+    glyph_name: &str,
+    layer_id: &str,
+    field_name: &str,
+    value: &serde_json::Value,
+) -> Result<T, JsValue>
+where
+    T: serde::de::DeserializeOwned,
+{
+    serde_json::from_value(value.clone()).map_err(|e| {
+        JsValue::from_str(&format!(
+            "Layer field deserialization error for {}::{} {}: {}",
+            glyph_name, layer_id, field_name, e
+        ))
+    })
+}
+
+fn apply_sparse_layer_json_to_cached_layer(
+    layer: &mut babelfont::Layer,
+    glyph_name: &str,
+    layer_id: &str,
+    layer_json: &serde_json::Value,
+) -> Result<(), JsValue> {
+    let Some(fields) = layer_json.as_object() else {
+        *layer = serde_json::from_value(layer_json.clone()).map_err(|e| {
+            JsValue::from_str(&format!(
+                "Layer deserialization error for {}::{}: {}",
+                glyph_name, layer_id, e
+            ))
+        })?;
+        return Ok(());
+    };
+
+    if let Some(value) = fields.get("width") {
+        layer.width = layer_field_from_json(glyph_name, layer_id, "width", value)?;
+    }
+    if let Some(value) = fields.get("name") {
+        layer.name = layer_field_from_json(glyph_name, layer_id, "name", value)?;
+    }
+    if let Some(value) = fields.get("id") {
+        layer.id = layer_field_from_json(glyph_name, layer_id, "id", value)?;
+    }
+    if let Some(value) = fields.get("master") {
+        layer.master = layer_field_from_json(glyph_name, layer_id, "master", value)?;
+    }
+    if let Some(value) = fields.get("guides") {
+        layer.guides = layer_field_from_json(glyph_name, layer_id, "guides", value)?;
+    }
+    if let Some(value) = fields.get("shapes") {
+        layer.shapes = layer_field_from_json(glyph_name, layer_id, "shapes", value)?;
+    }
+    if let Some(value) = fields.get("anchors") {
+        layer.anchors = layer_field_from_json(glyph_name, layer_id, "anchors", value)?;
+    }
+    if let Some(value) = fields.get("color") {
+        layer.color = layer_field_from_json(glyph_name, layer_id, "color", value)?;
+    }
+    if let Some(value) = fields.get("layer_index") {
+        layer.layer_index = layer_field_from_json(glyph_name, layer_id, "layer_index", value)?;
+    }
+    if let Some(value) = fields.get("is_background") {
+        layer.is_background = layer_field_from_json(glyph_name, layer_id, "is_background", value)?;
+    }
+    if let Some(value) = fields.get("background_layer_id") {
+        layer.background_layer_id =
+            layer_field_from_json(glyph_name, layer_id, "background_layer_id", value)?;
+    }
+    if let Some(value) = fields.get("location") {
+        layer.location = layer_field_from_json(glyph_name, layer_id, "location", value)?;
+    }
+    if let Some(value) = fields.get("smart_component_location") {
+        layer.smart_component_location =
+            layer_field_from_json(glyph_name, layer_id, "smart_component_location", value)?;
+    }
+    if let Some(value) = fields.get("format_specific") {
+        layer.format_specific =
+            layer_field_from_json(glyph_name, layer_id, "format_specific", value)?;
+    }
+
+    Ok(())
 }
 
 fn replace_glyph_in_font_cache(
@@ -331,16 +433,21 @@ fn replace_layer_in_font_cache(
 
     match new_layer_json {
         Some(layer_json) => {
-            let layer: babelfont::Layer =
-                serde_json::from_value(layer_json.clone()).map_err(|e| {
-                    JsValue::from_str(&format!(
-                        "Layer deserialization error for {}::{}: {}",
-                        glyph_name, layer_id, e
-                    ))
-                })?;
             if let Some(index) = layer_index {
-                glyph.layers[index] = layer;
+                apply_sparse_layer_json_to_cached_layer(
+                    &mut glyph.layers[index],
+                    glyph_name,
+                    layer_id,
+                    layer_json,
+                )?;
             } else {
+                let layer: babelfont::Layer =
+                    serde_json::from_value(layer_json.clone()).map_err(|e| {
+                        JsValue::from_str(&format!(
+                            "Layer deserialization error for {}::{}: {}",
+                            glyph_name, layer_id, e
+                        ))
+                    })?;
                 glyph.layers.push(layer);
             }
             Ok(true)
@@ -1731,9 +1838,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
             .iter()
             .map(|target| target.glyph_name.clone())
             .collect();
-        let refresh_masters = non_glyph_change_hints
-            .iter()
-            .any(|hint| hint == "masters");
+        let refresh_masters = non_glyph_change_hints.iter().any(|hint| hint == "masters");
         let masters_json = if refresh_masters {
             ydoc_get_top_level_json_with_txn("masters", &txn)
         } else {
@@ -2649,6 +2754,127 @@ mod tests {
     }
 
     #[test]
+    fn replace_layer_json_entry_preserves_missing_fields_for_sparse_layer_patch() {
+        let mut font_json = json!({
+            "glyphs": [
+                {
+                    "name": "alef",
+                    "layers": [
+                        {
+                            "id": "regular",
+                            "width": 400,
+                            "anchors": [
+                                { "name": "bottom", "x": 200, "y": 0 }
+                            ],
+                            "shapes": [
+                                { "nodes": [], "closed": false }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        });
+        let glyph_index = build_glyph_index(&font_json);
+
+        assert!(replace_layer_json_entry(
+            &mut font_json,
+            &glyph_index,
+            "alef",
+            "regular",
+            Some(json!({
+                "id": "regular",
+                "width": 410,
+                "shapes": []
+            })),
+        ));
+
+        let layer = &font_json["glyphs"][0]["layers"][0];
+        assert_eq!(layer["width"], json!(410));
+        assert_eq!(layer["shapes"], json!([]));
+        assert_eq!(layer["anchors"][0]["name"], json!("bottom"));
+    }
+
+    #[test]
+    fn replace_layer_json_entry_allows_explicit_empty_anchor_array() {
+        let mut font_json = json!({
+            "glyphs": [
+                {
+                    "name": "alef",
+                    "layers": [
+                        {
+                            "id": "regular",
+                            "width": 400,
+                            "anchors": [
+                                { "name": "bottom", "x": 200, "y": 0 }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        });
+        let glyph_index = build_glyph_index(&font_json);
+
+        assert!(replace_layer_json_entry(
+            &mut font_json,
+            &glyph_index,
+            "alef",
+            "regular",
+            Some(json!({ "id": "regular", "anchors": [] })),
+        ));
+
+        assert_eq!(font_json["glyphs"][0]["layers"][0]["anchors"], json!([]));
+    }
+
+    #[test]
+    fn replace_layer_in_font_cache_preserves_missing_anchors_for_sparse_layer_patch() {
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        font_json["glyphs"][0]["layers"][0]["anchors"] = json!([
+            { "name": "bottom", "x": 200, "y": 0 }
+        ]);
+        let mut font: babelfont::Font = serde_json::from_value(font_json).unwrap();
+
+        replace_layer_in_font_cache(
+            &mut font,
+            "A",
+            "layer-1",
+            Some(&json!({
+                "id": "layer-1",
+                "master": {
+                    "type": "DefaultForMaster",
+                    "master": "master-regular"
+                },
+                "width": 410,
+                "shapes": []
+            })),
+        )
+        .unwrap();
+
+        let layer = &font.glyphs[0].layers[0];
+        assert_eq!(layer.width, 410.0);
+        assert_eq!(layer.anchors.len(), 1);
+        assert_eq!(layer.anchors[0].name, "bottom");
+    }
+
+    #[test]
+    fn replace_layer_in_font_cache_allows_explicit_empty_anchor_array() {
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        font_json["glyphs"][0]["layers"][0]["anchors"] = json!([
+            { "name": "bottom", "x": 200, "y": 0 }
+        ]);
+        let mut font: babelfont::Font = serde_json::from_value(font_json).unwrap();
+
+        replace_layer_in_font_cache(
+            &mut font,
+            "A",
+            "layer-1",
+            Some(&json!({ "id": "layer-1", "anchors": [] })),
+        )
+        .unwrap();
+
+        assert!(font.glyphs[0].layers[0].anchors.is_empty());
+    }
+
+    #[test]
     fn parse_apply_yjs_update_metadata_extracts_layer_targets() {
         let (changed_glyphs, hints, layer_targets) = parse_apply_yjs_update_metadata(
             r#"{
@@ -2727,15 +2953,9 @@ mod tests {
 
         let subset_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
         let subset_font: babelfont::Font = serde_json::from_value(subset_json.clone()).unwrap();
-        *SUBSET_JSON_CACHE.lock().unwrap() = Some((
-            "A".to_string(),
-            1,
-            subset_json.clone(),
-        ));
-        *SUBSET_GLYPH_INDEX_CACHE.lock().unwrap() = Some((
-            "A".to_string(),
-            build_glyph_index(&subset_json),
-        ));
+        *SUBSET_JSON_CACHE.lock().unwrap() = Some(("A".to_string(), 1, subset_json.clone()));
+        *SUBSET_GLYPH_INDEX_CACHE.lock().unwrap() =
+            Some(("A".to_string(), build_glyph_index(&subset_json)));
         *SUBSET_FONT_CACHE.lock().unwrap() = Some(("A".to_string(), 1, subset_font));
         SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(1, Ordering::Relaxed);
 
@@ -2779,7 +2999,13 @@ mod tests {
             json!("Renamed Regular")
         );
         assert_eq!(
-            SUBSET_FONT_CACHE.lock().unwrap().as_ref().unwrap().2.masters[0]
+            SUBSET_FONT_CACHE
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .2
+                .masters[0]
                 .name
                 .get_default()
                 .map(|value| value.as_str()),

@@ -4602,6 +4602,110 @@ describe('syncGlyphFromJson', () => {
         ]);
     });
 
+    test('undo ignores native-only stale tail steps after authoritative history is exhausted', () => {
+        const { bridge } = createTestBridge('test-stale-native-undo-tail');
+        const workerUpdates = [];
+
+        bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+            workerUpdates.push({ update, changeLogEntries });
+        });
+
+        bridge.applySyntheticChangeSet('Arrow key', [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1'],
+                oldValue: {
+                    id: 'layer-1',
+                    width: 600,
+                    shapes: [],
+                    anchors: [],
+                    guides: []
+                },
+                newValue: {
+                    id: 'layer-1',
+                    width: 610,
+                    shapes: [
+                        {
+                            closed: false,
+                            nodes: [
+                                { x: 0, y: 0, nodetype: 'Line' },
+                                { x: 5, y: 5, nodetype: 'Line' }
+                            ]
+                        }
+                    ],
+                    anchors: [],
+                    guides: []
+                },
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        ]);
+
+        workerUpdates.length = 0;
+        const layerUndoManager = bridge.getLayerUndoManager('A', 'layer-1');
+        expect(layerUndoManager).not.toBeNull();
+        layerUndoManager.undoStack.push({});
+        bridge._resolveUndoHistoryItem = jest.fn(() => null);
+        bridge._peekUndoHistoryItemId = jest.fn(() => null);
+
+        expect(bridge.canUndo('A', 'layer-1')).toBe(false);
+        expect(bridge.undo('A', 'layer-1')).toBeNull();
+        expect(workerUpdates).toHaveLength(0);
+        expect(bridge.getChangeLog()).toHaveLength(1);
+    });
+
+    test('redo ignores native-only stale tail steps after authoritative history is exhausted', () => {
+        const { bridge } = createTestBridge('test-stale-native-redo-tail');
+        const workerUpdates = [];
+
+        bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+            workerUpdates.push({ update, changeLogEntries });
+        });
+
+        bridge.applySyntheticChangeSet('Arrow key', [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1'],
+                oldValue: {
+                    id: 'layer-1',
+                    width: 600,
+                    shapes: [],
+                    anchors: [],
+                    guides: []
+                },
+                newValue: {
+                    id: 'layer-1',
+                    width: 610,
+                    shapes: [
+                        {
+                            closed: false,
+                            nodes: [
+                                { x: 0, y: 0, nodetype: 'Line' },
+                                { x: 5, y: 5, nodetype: 'Line' }
+                            ]
+                        }
+                    ],
+                    anchors: [],
+                    guides: []
+                },
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        ]);
+
+        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
+        workerUpdates.length = 0;
+
+        const layerUndoManager = bridge.getLayerUndoManager('A', 'layer-1');
+        expect(layerUndoManager).not.toBeNull();
+        layerUndoManager.redoStack.push({});
+        bridge._resolveUndoHistoryItem = jest.fn(() => null);
+        bridge._peekUndoHistoryItemId = jest.fn(() => null);
+
+        expect(bridge.canRedo('A', 'layer-1')).toBe(false);
+        expect(bridge.redo('A', 'layer-1')).toBeNull();
+        expect(workerUpdates).toHaveLength(0);
+        expect(bridge.getChangeLog()).toHaveLength(2);
+    });
+
     test('redo after undo preserves flat original semantic metadata', () => {
         const { bridge } = createTestBridge('test-redo-flat-metadata');
         const workerUpdates = [];

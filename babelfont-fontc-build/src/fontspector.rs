@@ -35,9 +35,9 @@ fn register_profiles<'a>() -> Result<Registry<'a>, JsValue> {
     Universal
         .register(&mut registry)
         .map_err(|e| JsValue::from_str(&format!("Could not register universal profile: {e}")))?;
-    GoogleFonts.register(&mut registry).map_err(|e| {
-        JsValue::from_str(&format!("Could not register googlefonts profile: {e}"))
-    })?;
+    GoogleFonts
+        .register(&mut registry)
+        .map_err(|e| JsValue::from_str(&format!("Could not register googlefonts profile: {e}")))?;
     Iso15008
         .register(&mut registry)
         .map_err(|e| JsValue::from_str(&format!("Could not register iso15008 profile: {e}")))?;
@@ -72,14 +72,8 @@ fn run_profile(
         ..Default::default()
     };
 
-    let checkorder: Vec<(String, &TestableType, &Check, Context)> = profile.check_order(
-        &[],
-        &[],
-        registry,
-        context,
-        &HashMap::new(),
-        &all_testables,
-    );
+    let checkorder: Vec<(String, &TestableType, &Check, Context)> =
+        profile.check_order(&[], &[], registry, context, &HashMap::new(), &all_testables);
 
     let results = checkorder
         .iter()
