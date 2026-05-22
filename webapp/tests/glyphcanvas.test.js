@@ -4338,6 +4338,29 @@ describe('GlyphCanvas point movement', () => {
         expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].y).toBe(100);
     });
 
+    test('keyboard point nudges commit a sparse layer sync packet', () => {
+        const syncCurrentGlyphToYDocSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+
+        try {
+            canvas.outlineEditor.moveSelectedPoints(10, 20);
+
+            expect(canvas.outlineEditor.saveLayerData).toHaveBeenCalledWith(
+                'keyboard-outline'
+            );
+            expect(syncCurrentGlyphToYDocSpy).toHaveBeenCalledWith(
+                'Move points',
+                undefined,
+                undefined,
+                null,
+                undefined
+            );
+        } finally {
+            syncCurrentGlyphToYDocSpy.mockRestore();
+        }
+    });
+
     test('preserves layer metadata while recomputing constant metrics keys', () => {
         const font = Font.fromData({
             upm: 1000,
@@ -9062,6 +9085,29 @@ describe('GlyphCanvas component movement', () => {
         canvas.outlineEditor.moveSelectedComponents(10, 20);
         expect(canvas.outlineEditor.layerData.shapes[0].transform[4]).toBe(100);
         expect(canvas.outlineEditor.layerData.shapes[0].transform[5]).toBe(100);
+    });
+
+    test('keyboard component nudges commit a sparse layer sync packet', () => {
+        const syncCurrentGlyphToYDocSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+
+        try {
+            canvas.outlineEditor.moveSelectedComponents(10, 20);
+
+            expect(canvas.outlineEditor.saveLayerData).toHaveBeenCalledWith(
+                'keyboard-outline'
+            );
+            expect(syncCurrentGlyphToYDocSpy).toHaveBeenCalledWith(
+                'Move component',
+                undefined,
+                undefined,
+                null,
+                undefined
+            );
+        } finally {
+            syncCurrentGlyphToYDocSpy.mockRestore();
+        }
     });
 });
 

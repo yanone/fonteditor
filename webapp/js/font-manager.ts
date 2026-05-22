@@ -3516,6 +3516,37 @@ class FontManager {
             nonGlyphChangeHints?: string[];
         }
     ): Promise<boolean> {
+        const previousWorkerCacheUpdatePromise = this.workerCacheUpdatePromise;
+        const forwardedUpdatePromise = this.forwardWorkerYjsUpdateInternal(
+            update,
+            changedGlyphs,
+            options
+        );
+        const cacheUpdatePromise = previousWorkerCacheUpdatePromise
+            ? Promise.allSettled([
+                  previousWorkerCacheUpdatePromise,
+                  forwardedUpdatePromise
+              ]).then(() => undefined)
+            : forwardedUpdatePromise.then(() => undefined);
+        this.workerCacheUpdatePromise = cacheUpdatePromise;
+        void cacheUpdatePromise.finally(() => {
+            if (this.workerCacheUpdatePromise === cacheUpdatePromise) {
+                this.workerCacheUpdatePromise = null;
+            }
+        });
+
+        return await forwardedUpdatePromise;
+    }
+
+    private async forwardWorkerYjsUpdateInternal(
+        update: Uint8Array,
+        changedGlyphs: string[],
+        options?: {
+            invalidateLayoutClosure?: boolean;
+            layerTargets?: WorkerReplayTarget[];
+            nonGlyphChangeHints?: string[];
+        }
+    ): Promise<boolean> {
         const normalizedChangedGlyphs = Array.from(
             new Set(changedGlyphs.filter((glyphName) => !!glyphName))
         );

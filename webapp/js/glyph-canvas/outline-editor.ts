@@ -14974,10 +14974,11 @@ export class OutlineEditor {
             preserveHandlePositions
         );
 
-        this.applyMetricsKeysToCurrentEditedLayer();
+        const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer();
 
         // Save to object model (non-blocking)
         this.saveLayerData('keyboard-outline');
+        this.syncKeyboardOutlineLayerEdit('Move points', metricsUpdate);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
     }
@@ -15082,12 +15083,34 @@ export class OutlineEditor {
             }
         }
 
-        this.applyMetricsKeysToCurrentEditedLayer();
+        const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer();
 
         // Save to object model (non-blocking)
         this.saveLayerData('keyboard-outline');
+        this.syncKeyboardOutlineLayerEdit('Move component', metricsUpdate);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+    }
+
+    private syncKeyboardOutlineLayerEdit(
+        label: string,
+        metricsUpdate?: { affectedGlyphNames: Set<string> } | null
+    ): void {
+        const affectedGlyphNames = metricsUpdate?.affectedGlyphNames;
+        const workerReplayTargets = affectedGlyphNames?.size
+            ? this.collectMatchingLayerWorkerReplayTargets(
+                  affectedGlyphNames,
+                  this.getCurrentLayerId()
+              )
+            : undefined;
+
+        this._syncCurrentGlyphToYDoc(
+            label,
+            undefined,
+            undefined,
+            null,
+            workerReplayTargets
+        );
     }
 
     private getCurrentDirectSidebearing(side: 'left' | 'right'): number | null {

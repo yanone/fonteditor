@@ -2025,6 +2025,81 @@ describe('FontManager boundary-crossing budget', () => {
         );
     });
 
+    test('forwardWorkerYjsUpdate exposes a pending cache update before the worker send runs', async () => {
+        let resolveSend;
+        sendMessageSpy.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveSend = resolve;
+                })
+        );
+
+        const updatePromise = fontManager.forwardWorkerYjsUpdate(
+            new Uint8Array([1, 2, 3]),
+            []
+        );
+
+        expect(fontManager.workerCacheUpdatePromise).toBeTruthy();
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(resolveSend).toEqual(expect.any(Function));
+        resolveSend({ success: true });
+        await expect(updatePromise).resolves.toBe(true);
+        await fontManager.awaitWorkerCacheUpdate();
+        expect(fontManager.workerCacheUpdatePromise).toBeNull();
+    });
+
+    test('forwardWorkerYjsUpdate keeps the cache update promise alive until earlier queued sends settle', async () => {
+        let resolveFirstSend;
+        let resolveSecondSend;
+        sendMessageSpy
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveFirstSend = resolve;
+                    })
+            )
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveSecondSend = resolve;
+                    })
+            );
+
+        const firstUpdatePromise = fontManager.forwardWorkerYjsUpdate(
+            new Uint8Array([1, 2, 3]),
+            []
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(resolveFirstSend).toEqual(expect.any(Function));
+
+        const secondUpdatePromise = fontManager.forwardWorkerYjsUpdate(
+            new Uint8Array([4, 5, 6]),
+            []
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // The second send is serialized behind the first one.
+        expect(resolveSecondSend).toBeUndefined();
+
+        resolveFirstSend({ success: true });
+        await expect(firstUpdatePromise).resolves.toBe(true);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(resolveSecondSend).toEqual(expect.any(Function));
+
+        // The later queue handle must remain visible until the queued tail settles.
+        expect(fontManager.workerCacheUpdatePromise).toBeTruthy();
+
+        resolveSecondSend({ success: true });
+        await expect(secondUpdatePromise).resolves.toBe(true);
+        await fontManager.awaitWorkerCacheUpdate();
+        expect(fontManager.workerCacheUpdatePromise).toBeNull();
+    });
+
     test('forwardWorkerYjsUpdate forwards non-glyph kerning hints with font-wide updates', async () => {
         await expect(
             fontManager.forwardWorkerYjsUpdate(new Uint8Array([1, 2, 3]), [], {
