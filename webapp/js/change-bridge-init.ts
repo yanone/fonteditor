@@ -42,6 +42,8 @@ import type { TransactionBufferedOperation } from './patch-sync-engine';
 const console = new Logger('ChangeBridgeInit');
 let bridgeSyncQueue: Promise<void> = Promise.resolve();
 let committedChangeRefreshQueue: Promise<void> = Promise.resolve();
+let committedChangeRefreshGeneration = 0;
+let pendingLocalUndoRedoContext: LocalUndoRedoVisualContext | null = null;
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -53,6 +55,7 @@ function enqueueBridgeSync(task: () => Promise<void>): Promise<void> {
 function enqueueCommittedChangeRefresh(
     task: () => Promise<void>
 ): Promise<void> {
+    committedChangeRefreshGeneration += 1;
     committedChangeRefreshQueue = committedChangeRefreshQueue.then(task, task);
     return committedChangeRefreshQueue;
 }
@@ -1286,124 +1289,6 @@ function syncImmediateUndoOutlineLayerFromModel(
     gc.render?.();
 }
 
-function recomputeMetricsKeysAfterUndoRedo(
-    bridge: PatchSyncEngine,
-    historyItem: HistoryStackItem | null,
-    glyphNames: Array<string | null | undefined>,
-    layerId?: string | null
-): Set<string> {
-    const fontModel = window.fontManager?.currentFont?.fontModel;
-    if (!fontModel || typeof fontModel.recomputeMetricsKeys !== 'function') {
-        return new Set();
-    }
-
-    const seedGlyphNames = new Set<string>();
-    const addGlyphName = (glyphName?: string | null) => {
-        if (glyphName && glyphName !== 'undefined') {
-            seedGlyphNames.add(glyphName);
-        }
-    };
-
-    for (const glyphName of glyphNames) {
-        addGlyphName(glyphName);
-    }
-    for (const glyphName of deriveGlyphNamesFromPaths(
-        historyItem?.touchedPaths ?? []
-    )) {
-        addGlyphName(glyphName);
-    }
-
-    if (seedGlyphNames.size === 0) {
-        return new Set();
-    }
-
-    const rebuildAutomaticComposites = () =>
-        typeof fontModel.rebuildAutomaticCompositesForGlyphs === 'function'
-            ? fontModel.rebuildAutomaticCompositesForGlyphs(seedGlyphNames, {
-                  ...(layerId
-                      ? {
-                            preferredLayerId: layerId,
-                            preferredSourceGlyphName:
-                                glyphNames.find(
-                                    (glyphName): glyphName is string =>
-                                        !!glyphName && glyphName !== 'undefined'
-                                ) ?? null
-                        }
-                      : undefined)
-              })
-            : new Set<string>();
-
-    const recompute = () => {
-        const affectedGlyphNames = new Set<string>();
-        for (const glyphName of rebuildAutomaticComposites()) {
-            affectedGlyphNames.add(glyphName);
-        }
-        for (const glyphName of fontModel.recomputeMetricsKeys(
-            seedGlyphNames
-        )) {
-            affectedGlyphNames.add(glyphName);
-        }
-        return affectedGlyphNames;
-    };
-    if (typeof bridge.runWithoutRecording === 'function') {
-        return bridge.runWithoutRecording(recompute);
-    }
-
-    return recompute();
-}
-
-function collectUndoRedoWorkerReplayTargets(
-    historyItem: HistoryStackItem | null,
-    glyphNames: Iterable<string | null | undefined>,
-    layerId?: string | null
-): WorkerReplayTarget[] {
-    const replayTargets = normalizeWorkerReplayTargets(
-        historyItem?.workerReplayTargets
-    );
-    if (!layerId) {
-        return replayTargets;
-    }
-
-    const fontModel = window.fontManager?.currentFont?.fontModel;
-    if (!fontModel) {
-        return replayTargets;
-    }
-
-    const targetGlyphNames = new Set<string>();
-    for (const glyphName of glyphNames) {
-        if (glyphName && glyphName !== 'undefined') {
-            targetGlyphNames.add(glyphName);
-        }
-    }
-    for (const glyphName of deriveGlyphNamesFromPaths(
-        historyItem?.touchedPaths ?? []
-    )) {
-        targetGlyphNames.add(glyphName);
-    }
-
-    const sourceGlyphName = Array.from(targetGlyphNames).find((glyphName) => {
-        const glyph = fontModel.findGlyph?.(glyphName);
-        return !!glyph?.findLayerById?.(layerId);
-    });
-    const sourceLayer = sourceGlyphName
-        ? fontModel.findGlyph(sourceGlyphName)?.findLayerById(layerId)
-        : null;
-
-    const derivedTargets = [...replayTargets];
-    for (const glyphName of targetGlyphNames) {
-        const glyph = fontModel.findGlyph?.(glyphName);
-        const matchedLayer =
-            glyph?.findLayerById?.(layerId) ??
-            sourceLayer?.getMatchingLayerOnGlyph?.(glyphName);
-        const matchedLayerId = matchedLayer?.id;
-        if (glyphName && matchedLayerId) {
-            derivedTargets.push({ glyphName, layerId: matchedLayerId });
-        }
-    }
-
-    return normalizeWorkerReplayTargets(derivedTargets);
-}
-
 /**
  * Derive cascading recomposition targets from the directly edited layers.
  *
@@ -1477,85 +1362,6 @@ export function collectCascadeRecomposeTargets(
     return normalizeWorkerReplayTargets(recomposeTargets);
 }
 
-function collectUndoRedoOverviewGlyphNames(
-    historyItem: HistoryStackItem | null,
-    glyphNames: Array<string | null | undefined>
-): string[] {
-    const refreshGlyphNames = new Set<string>();
-    const addGlyphName = (glyphName?: string | null) => {
-        if (glyphName && glyphName !== 'undefined') {
-            refreshGlyphNames.add(glyphName);
-        }
-    };
-
-    for (const glyphName of glyphNames) {
-        addGlyphName(glyphName);
-    }
-
-    for (const glyphName of deriveGlyphNamesFromPaths(
-        historyItem?.touchedPaths ?? []
-    )) {
-        addGlyphName(glyphName);
-    }
-
-    const fontModel =
-        window.fontManager?.currentFont?.fontModel ?? window.currentFontModel;
-    if (fontModel?.collectComponentDependentGlyphs) {
-        for (const dependentGlyphName of fontModel.collectComponentDependentGlyphs(
-            refreshGlyphNames
-        )) {
-            addGlyphName(dependentGlyphName);
-        }
-    } else if (typeof fontModel?.findGlyphsUsingComponent === 'function') {
-        for (const glyphName of [...refreshGlyphNames]) {
-            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
-                glyphName
-            ) || []) {
-                addGlyphName(dependentGlyphName);
-            }
-        }
-    }
-
-    return [...refreshGlyphNames];
-}
-
-async function refreshGlyphOverviewAfterUndoRedo(
-    historyItem: HistoryStackItem | null,
-    layerId: string | null,
-    glyphNames: Array<string | null | undefined>
-): Promise<void> {
-    const refreshGlyphNames = collectUndoRedoOverviewGlyphNames(
-        historyItem,
-        glyphNames
-    );
-
-    if (refreshGlyphNames.length) {
-        window.dispatchEvent(
-            new CustomEvent('glyphChanged', {
-                detail:
-                    refreshGlyphNames.length === 1
-                        ? {
-                              glyphName: refreshGlyphNames[0],
-                              layerId: layerId ?? undefined
-                          }
-                        : {
-                              glyphName: refreshGlyphNames[0],
-                              glyphNames: refreshGlyphNames,
-                              layerId: layerId ?? undefined
-                          }
-            })
-        );
-        return;
-    }
-
-    const glyphOverview = window.glyphOverviewInstance;
-    if (typeof glyphOverview?.renderGlyphOutlines === 'function') {
-        await glyphOverview.renderGlyphOutlines(
-            glyphOverview.currentLocation ?? {}
-        );
-    }
-}
-
 export function waitForEditingFontCompileRevision(
     targetRevision: number,
     timeoutMs: number = 4000
@@ -1601,52 +1407,12 @@ export function waitForEditingFontCompileRevision(
     });
 }
 
-export async function requestUndoRedoEditingFontCompile(
-    waitForCompletion: boolean = false,
-    editType?: CommittedCompileEditType
-): Promise<void> {
-    const fm = window.fontManager;
-    if (!fm?.currentFont) {
-        return;
-    }
-
-    fm.lastChangeSource = editType
-        ? getCommittedChangeSource('local', editType)
-        : 'undo-redo';
-    // Preserve the exact semantic edit-type hint from the undone history item
-    // so undo/redo re-enters the same fast path as the forward edit instead of
-    // degrading to a generic replay source.
-    fm.lastEditType = editType ?? null;
-
-    const targetRevision = fm.currentFont.compileRequestVersion + 1;
-    const canForceTrigger =
-        typeof window.autoCompileManager?.forceTrigger === 'function';
-    const waitPromise =
-        waitForCompletion && canForceTrigger
-            ? waitForEditingFontCompileRevision(targetRevision)
-            : null;
-
-    fm.currentFont.requestRecompileWithoutDataChange();
-    window.autoCompileManager?.checkAndSchedule?.();
-
-    if (!waitPromise || !canForceTrigger) {
-        return;
-    }
-
-    try {
-        await window.autoCompileManager.forceTrigger();
-    } catch {
-        // Fall through to the revision wait; the compile loop may still complete.
-    }
-
-    await waitPromise;
-}
-
 async function requestCommittedEditingFontCompile(
     changeSource: string,
     editType?: CommittedCompileEditType,
     options?: {
         forceTrigger?: boolean;
+        waitForCompletion?: boolean;
     }
 ): Promise<void> {
     const fm = window.fontManager;
@@ -1671,6 +1437,14 @@ async function requestCommittedEditingFontCompile(
     fm.lastChangeSource = changeSource;
     fm.lastEditType = editType ?? null;
 
+    const targetRevision = fm.currentFont.compileRequestVersion + 1;
+    const canForceTrigger =
+        typeof window.autoCompileManager?.forceTrigger === 'function';
+    const waitPromise =
+        options?.waitForCompletion && canForceTrigger
+            ? waitForEditingFontCompileRevision(targetRevision)
+            : null;
+
     fm.currentFont.requestRecompileWithoutDataChange();
     window.autoCompileManager?.checkAndSchedule?.();
 
@@ -1679,10 +1453,15 @@ async function requestCommittedEditingFontCompile(
         typeof window.autoCompileManager?.forceTrigger === 'function'
     ) {
         try {
-            window.autoCompileManager.forceTrigger();
+            await window.autoCompileManager.forceTrigger();
         } catch {
-            // Compile errors are reported through the normal error path.
+            // Fall through to the revision wait; compile errors are reported
+            // through the normal error path.
         }
+    }
+
+    if (waitPromise) {
+        await waitPromise;
     }
 }
 
@@ -1719,6 +1498,158 @@ type LocalCommittedCompileContext = {
     changeSource: string;
     editType: CommittedCompileEditType;
 };
+
+type LocalUndoRedoVisualContext = {
+    rootGlyphName?: string;
+    requestedGlyphName?: string;
+    editedGlyphName?: string | null;
+    layerId?: string | null;
+    previousWidth?: number | null;
+};
+
+function isUndoRedoCommittedPacket(entries: ChangeLogEntry[]): boolean {
+    return entries.some(
+        (entry) =>
+            entry.historyAction === 'undo' || entry.historyAction === 'redo'
+    );
+}
+
+function getFallbackUndoRedoCommittedEntries(
+    historyItem: HistoryStackItem | null,
+    action: 'undo' | 'redo'
+): ChangeLogEntry[] {
+    const sourceEntries = historyItem?.entries?.length
+        ? historyItem.entries[0].semanticChangeLogEntries?.length
+            ? historyItem.entries[0].semanticChangeLogEntries
+            : historyItem.entries
+        : [];
+
+    return sourceEntries.map(
+        (entry) =>
+            ({
+                ...entry,
+                historyAction: action
+            }) as ChangeLogEntry
+    );
+}
+
+function buildHistoryItemFromCommittedEntries(
+    entries: ChangeLogEntry[]
+): HistoryStackItem {
+    return {
+        entries,
+        transactionLabel: entries[0]?.transactionLabel ?? null,
+        touchedPaths: entries
+            .map((entry) => entry.path)
+            .filter((path): path is string => !!path),
+        workerReplayTargets: collectReplayTargetsFromEntries(entries)
+    } as HistoryStackItem;
+}
+
+function inferPreviousWidthFromUndoRedoEntries(
+    entries: ChangeLogEntry[],
+    action: 'undo' | 'redo'
+): number | null {
+    for (const entry of entries) {
+        const previousValue =
+            action === 'undo'
+                ? (entry.replayNewValue ?? entry.newValue)
+                : (entry.replayOldValue ?? entry.oldValue);
+        if (
+            previousValue &&
+            typeof previousValue === 'object' &&
+            !Array.isArray(previousValue)
+        ) {
+            const width = Number(
+                (previousValue as Record<string, unknown>).width
+            );
+            if (Number.isFinite(width)) {
+                return width;
+            }
+        }
+    }
+
+    return null;
+}
+
+function applyLocalUndoRedoVisualSync(
+    entries: ChangeLogEntry[],
+    context?: LocalUndoRedoVisualContext
+): void {
+    if (!isUndoRedoCommittedPacket(entries)) {
+        return;
+    }
+
+    const historyItem = buildHistoryItemFromCommittedEntries(entries);
+    const action =
+        entries.find(
+            (entry) =>
+                entry.historyAction === 'undo' || entry.historyAction === 'redo'
+        )?.historyAction === 'redo'
+            ? 'redo'
+            : 'undo';
+    const side = inferSidebearingSideFromHistoryItem(historyItem);
+    const entryPaths = entries
+        .map((entry) => entry.path)
+        .filter((path): path is string => !!path);
+    const editedGlyphName =
+        getActiveEditedGlyphName() ??
+        context?.editedGlyphName ??
+        context?.requestedGlyphName ??
+        deriveGlyphNamesFromPaths(entryPaths)[0] ??
+        null;
+    const layerId =
+        context?.layerId ??
+        entries
+            .map((entry) =>
+                entry.path ? deriveLayerId(getPathSegments(entry.path)) : null
+            )
+            .find((candidate): candidate is string => !!candidate) ??
+        null;
+    const previousWidth =
+        context?.previousWidth ??
+        inferPreviousWidthFromUndoRedoEntries(entries, action);
+
+    const appliedSidebearingSync =
+        !!side &&
+        previousWidth !== null &&
+        applyImmediateUndoSidebearingSync(
+            editedGlyphName,
+            layerId,
+            historyItem,
+            previousWidth,
+            context?.editedGlyphName,
+            context?.layerId
+        );
+
+    if (!(appliedSidebearingSync && isDirectSidebearingUndoRedo(historyItem))) {
+        syncImmediateUndoOutlineLayerFromModel(editedGlyphName, layerId);
+    }
+
+    const liveAdvanceGlyphNames = new Set<string>();
+    for (const glyphName of deriveGlyphNamesFromPaths(entryPaths)) {
+        liveAdvanceGlyphNames.add(glyphName);
+    }
+    for (const target of collectReplayTargetsFromEntries(entries)) {
+        liveAdvanceGlyphNames.add(target.glyphName);
+    }
+    for (const glyphName of [
+        context?.rootGlyphName,
+        context?.requestedGlyphName,
+        context?.editedGlyphName,
+        editedGlyphName,
+        getActiveEditedGlyphName()
+    ]) {
+        if (glyphName) {
+            liveAdvanceGlyphNames.add(glyphName);
+        }
+    }
+
+    refreshLiveTextRunAdvances(liveAdvanceGlyphNames, layerId ?? undefined, {
+        compensatePanX: true,
+        workerReplayTargets: collectReplayTargetsFromEntries(entries)
+    });
+}
 
 function inferHistoryItemKerningEditType(
     historyItem: HistoryStackItem | null
@@ -1965,17 +1896,21 @@ export async function handleCommittedChangeRefresh(
         ) => Promise<void>;
         awaitWorkerSync?: () => Promise<void>;
         localCompileContext?: LocalCommittedCompileContext;
+        localUndoRedoContext?: LocalUndoRedoVisualContext;
     }
 ): Promise<void> {
     if (origin === 'remote' && entries.length === 0) {
         return;
     }
 
+    const isUndoRedoPacket = isUndoRedoCommittedPacket(entries);
+
     const requestCompile =
         dependencies?.requestCompile ??
         ((changeSource, editType) =>
             requestCommittedEditingFontCompile(changeSource, editType, {
-                forceTrigger: origin === 'remote'
+                forceTrigger: origin === 'remote' || isUndoRedoPacket,
+                waitForCompletion: origin === 'local' && isUndoRedoPacket
             }));
     const localCompileContext =
         origin === 'local'
@@ -2003,6 +1938,11 @@ export async function handleCommittedChangeRefresh(
         );
         await requestCompile(changeSource, editType);
     } else {
+        applyLocalUndoRedoVisualSync(
+            entries,
+            dependencies?.localUndoRedoContext
+        );
+
         const awaitWorkerSync =
             dependencies?.awaitWorkerSync ??
             (() => fontCompilation.awaitWorkerDocumentSync());
@@ -2064,6 +2004,16 @@ export async function handleCommittedChangeRefresh(
         const { editType, changeSource } =
             localCompileContext ?? resolveLocalCommittedCompileContext(entries);
         await requestCompile(changeSource, editType);
+
+        if (
+            isUndoRedoPacket &&
+            (editType === 'anchor' ||
+                editType === 'outline' ||
+                editType === 'kerning-value' ||
+                editType === 'kerning-groups')
+        ) {
+            window.fontManager?.scheduleFullCompileDebounce?.();
+        }
     }
 
     await refreshGlyphOverviewFromCommittedEntries(entries);
@@ -2197,6 +2147,15 @@ export function runBridgeUndoRedo(
         const targetGlyph = glyphName;
         const editedGlyphName = getActiveEditedGlyphName() ?? targetGlyph;
         const previousWidth = getLayerWidth(editedGlyphName, layerId ?? null);
+        const localUndoRedoContext: LocalUndoRedoVisualContext = {
+            rootGlyphName: refreshRootGlyphName,
+            requestedGlyphName: glyphName,
+            editedGlyphName,
+            layerId: layerId ?? null,
+            previousWidth
+        };
+        const committedGenerationBefore = committedChangeRefreshGeneration;
+        pendingLocalUndoRedoContext = localUndoRedoContext;
 
         const appliedChange =
             action === 'redo'
@@ -2204,121 +2163,39 @@ export function runBridgeUndoRedo(
                 : bridge.undo(targetGlyph, layerId, historyTargetKey);
 
         if (!appliedChange) {
+            if (pendingLocalUndoRedoContext === localUndoRedoContext) {
+                pendingLocalUndoRedoContext = null;
+            }
             restoreFontInfoScroll();
             return;
         }
 
         restoreFontInfoScroll();
 
-        const appliedImmediateSidebearingSync =
-            applyImmediateUndoSidebearingSync(
-                appliedChange.glyphName,
-                appliedChange.layerId,
-                appliedChange.historyItem as HistoryStackItem | null,
-                previousWidth,
-                editedGlyphName ?? null,
-                layerId ?? null
-            );
-
-        const recomputedGlyphNames = recomputeMetricsKeysAfterUndoRedo(
-            bridge,
-            appliedChange.historyItem as HistoryStackItem | null,
-            [appliedChange.glyphName, glyphName, editedGlyphName],
-            appliedChange.layerId ?? layerId ?? null
-        );
-        const workerReplayTargets = collectUndoRedoWorkerReplayTargets(
-            appliedChange.historyItem as HistoryStackItem | null,
-            [
-                ...recomputedGlyphNames,
-                appliedChange.glyphName,
-                glyphName,
-                editedGlyphName,
-                refreshRootGlyphName,
-                getActiveEditedGlyphName()
-            ],
-            appliedChange.layerId ?? layerId ?? null
-        );
-        const isDirectSidebearingHistory = isDirectSidebearingUndoRedo(
-            appliedChange.historyItem as HistoryStackItem | null
-        );
-
-        if (!(appliedImmediateSidebearingSync && isDirectSidebearingHistory)) {
-            syncImmediateUndoOutlineLayerFromModel(
-                appliedChange.glyphName,
-                appliedChange.layerId ?? layerId ?? null
-            );
+        if (committedChangeRefreshGeneration !== committedGenerationBefore) {
+            await committedChangeRefreshQueue;
+            return;
         }
 
-        refreshLiveTextRunAdvances(
-            new Set(
-                [
-                    ...recomputedGlyphNames,
-                    appliedChange.glyphName,
-                    glyphName,
-                    editedGlyphName,
-                    getActiveEditedGlyphName()
-                ].filter((name): name is string => !!name)
-            ),
-            appliedChange.layerId ?? layerId ?? undefined,
-            { compensatePanX: true }
-        );
+        if (pendingLocalUndoRedoContext === localUndoRedoContext) {
+            pendingLocalUndoRedoContext = null;
+        }
 
-        // For layer-scoped undo/redo, the incremental layer-update batch path
-        // is sufficient (reads directly from the model, no babelfontJson needed).
-        // For glyph/font scope, the selected-layer fallback in
-        // syncRustCacheAndRefreshCanvas handles the cache refresh.
-        // forceFullRustSync is no longer used — the worker's seedYdoc handler
-        // (init_ydoc_from_state) populates all caches from binary Yjs state.
         const historyItem =
             appliedChange.historyItem as HistoryStackItem | null;
-        const undoCompileContext =
-            inferLocalCompileContextFromHistoryItem(historyItem);
-        const undoEditType = undoCompileContext.editType;
-        const rustCacheRefreshPromise = syncRustCacheAndRefreshCanvas(
-            refreshRootGlyphName,
-            glyphName,
-            {
-                workerReplayTargets:
-                    workerReplayTargets.length > 0 ? workerReplayTargets : [],
-                skipDeferredCanvasRepaint:
-                    appliedImmediateSidebearingSync &&
-                    isDirectSidebearingHistory,
-                allowSelectedLayerFallback: workerReplayTargets.length === 0
-            }
+        const fallbackEntries = getFallbackUndoRedoCommittedEntries(
+            historyItem,
+            action
         );
-
-        // Undo/redo must follow the same compile handshake regardless of
-        // whether replay targets are available: request an immediate editing
-        // compile so the loop is awake while the worker refresh is in flight,
-        // then request again after the refresh settles so the rebuilt editing
-        // font sees the restored Rust cache state.
-        await requestUndoRedoEditingFontCompile(false, undoEditType);
-        await rustCacheRefreshPromise;
-        await requestUndoRedoEditingFontCompile(true, undoEditType);
-
-        // Anchor-only and outline-only compiles still use the interactive
-        // fast path; schedule a trailing debounced full compile so the editor
-        // returns to a fully correct font (same pattern as the forward edit path).
-        if (
-            undoEditType === 'anchor' ||
-            undoEditType === 'outline' ||
-            undoEditType === 'kerning-value' ||
-            undoEditType === 'kerning-groups'
-        ) {
-            window.fontManager?.scheduleFullCompileDebounce?.();
+        if (!fallbackEntries.length) {
+            return;
         }
 
-        await refreshGlyphOverviewAfterUndoRedo(
-            appliedChange.historyItem,
-            appliedChange.layerId ?? layerId ?? null,
-            [
-                appliedChange.glyphName,
-                glyphName,
-                editedGlyphName,
-                refreshRootGlyphName,
-                getActiveEditedGlyphName()
-            ]
-        );
+        await handleCommittedChangeRefresh(fallbackEntries, 'local', {
+            localCompileContext:
+                inferLocalCompileContextFromHistoryItem(historyItem),
+            localUndoRedoContext
+        });
     });
 }
 
@@ -2441,9 +2318,19 @@ function initializeBridge(detail: {
             context.origin === 'local'
                 ? resolveLocalCommittedCompileContext(entries)
                 : undefined;
+        const localUndoRedoContext =
+            context.origin === 'local' &&
+            pendingLocalUndoRedoContext &&
+            isUndoRedoCommittedPacket(entries)
+                ? pendingLocalUndoRedoContext
+                : undefined;
+        if (localUndoRedoContext) {
+            pendingLocalUndoRedoContext = null;
+        }
         void enqueueCommittedChangeRefresh(() =>
             handleCommittedChangeRefresh(entries, context.origin, {
-                ...(localCompileContext ? { localCompileContext } : {})
+                ...(localCompileContext ? { localCompileContext } : {}),
+                ...(localUndoRedoContext ? { localUndoRedoContext } : {})
             })
         );
     });

@@ -2287,7 +2287,7 @@ describe('syncRustCacheAndRefreshCanvas', () => {
     });
 });
 
-describe('requestUndoRedoEditingFontCompile', () => {
+describe('committed undo/redo compile requests', () => {
     let changeBridgeInit;
     let originalWindow;
 
@@ -2302,9 +2302,15 @@ describe('requestUndoRedoEditingFontCompile', () => {
         jest.clearAllMocks();
     });
 
-    test('undo/redo compile requests tag the compile source and preserve the edit type', async () => {
+    test('undo/redo packets tag the compile source and preserve the edit type', async () => {
         const checkAndSchedule = jest.fn();
-        const forceTrigger = jest.fn().mockResolvedValue(undefined);
+        const forceTrigger = jest.fn(async () => {
+            window.dispatchEvent(
+                new CustomEvent('editingFontCompiled', {
+                    detail: { fontRevisionKey: '11' }
+                })
+            );
+        });
         const requestRecompileWithoutDataChange = jest.fn(function () {
             this.compileRequestVersion += 1;
         });
@@ -2322,9 +2328,22 @@ describe('requestUndoRedoEditingFontCompile', () => {
             }
         };
 
-        await changeBridgeInit.requestUndoRedoEditingFontCompile(
-            true,
-            'anchor'
+        await changeBridgeInit.handleCommittedChangeRefresh(
+            [
+                {
+                    historyAction: 'undo',
+                    transactionLabel: 'Move anchor',
+                    path: 'glyphs.a.layers.layer-1.anchors.0.x',
+                    workerReplayTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' }
+                    ]
+                }
+            ],
+            'local',
+            {
+                awaitWorkerSync: jest.fn(async () => {}),
+                queueCacheRefresh: jest.fn(async () => {})
+            }
         );
 
         expect(window.fontManager.lastChangeSource).toBe('keyboard-anchor');
@@ -2335,7 +2354,7 @@ describe('requestUndoRedoEditingFontCompile', () => {
         expect(window.fontManager.currentFont.compileRequestVersion).toBe(11);
     });
 
-    test('undo/redo compile requests preserve kerning edit types', async () => {
+    test('undo/redo packets preserve kerning edit types', async () => {
         const checkAndSchedule = jest.fn();
         const requestRecompileWithoutDataChange = jest.fn(function () {
             this.compileRequestVersion += 1;
@@ -2353,9 +2372,21 @@ describe('requestUndoRedoEditingFontCompile', () => {
             }
         };
 
-        await changeBridgeInit.requestUndoRedoEditingFontCompile(
-            false,
-            'kerning-value'
+        await changeBridgeInit.handleCommittedChangeRefresh(
+            [
+                {
+                    historyAction: 'redo',
+                    transactionLabel: 'Set kerning value',
+                    path: 'masters.master-1.kerning.A.V',
+                    oldValue: -50,
+                    newValue: -80
+                }
+            ],
+            'local',
+            {
+                awaitWorkerSync: jest.fn(async () => {}),
+                queueCacheRefresh: jest.fn(async () => {})
+            }
         );
 
         expect(window.fontManager.lastChangeSource).toBe(

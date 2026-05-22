@@ -175,19 +175,20 @@ fullState...`, `with a peer: yjs-update broadcast omits fullState...`,
 
 ### Undo/redo
 
-Undo/redo must request an editing-font compile immediately so the auto-compile
-loop wakes up, and must request it again after `syncRustCacheAndRefreshCanvas()`
-completes. The second request is required because undo/redo first patches the
-model/Yjs state and only then refreshes the Rust worker cache. Without the
-post-refresh request, the first compile can run against stale worker cache data
-and leave the editing font one undo step behind.
+Undo/redo must emit the same canonical local Yjs packet as forward edits and
+then wait for the shared committed-change funnel to finish. The funnel owns the
+worker-sync wait, any replay-target cache refresh that is still necessary,
+editing-font compile wakeup, optional force-trigger wait, overview invalidation,
+and trailing full-compile debounce. `runBridgeUndoRedo()` may capture transient
+local visual context such as the pre-undo width for canvas anchoring, but it must
+not run a separate Rust-cache refresh, compile request, or overview refresh.
 
 Undo/redo must rely on the already-forwarded incremental Yjs worker update. If
-the recorded history entries also carry explicit layer replay targets, they may
-be used only as narrow metadata to avoid unnecessary work around the already-
-authoritative Yjs update. Missing replay targets or worker-sync timing issues
-must be fixed inside the incremental path; they must not trigger any full-state
-repair resend.
+the recorded history entries also carry explicit layer replay targets, those are
+narrow metadata for the committed funnel to avoid unnecessary work around the
+already-authoritative Yjs update. Missing replay targets or worker-sync timing
+issues must be fixed inside the incremental path; they must not trigger any
+full-state repair resend.
 
 When the undone/redone history item replays an interactive edit, undo/redo must
 derive `lastEditType` and `lastChangeSource` from the same semantic change
