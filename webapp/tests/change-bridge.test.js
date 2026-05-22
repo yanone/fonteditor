@@ -3502,9 +3502,6 @@ describe('WindowSync', () => {
     test('full state response initializes linked worker cache from authoritative state even before the worker is ready', async () => {
         const originalFontCompilation = window.fontCompilation;
         const originalFontManager = window.fontManager;
-        const seedInterpolationRustCacheFromStateSpy = jest
-            .spyOn(babelfontModel, 'seedInterpolationRustCacheFromState')
-            .mockResolvedValue(true);
 
         const initialize = jest.fn().mockImplementation(async () => {
             window.fontCompilation.isInitialized = true;
@@ -3580,16 +3577,12 @@ describe('WindowSync', () => {
                 state: expect.any(Uint8Array)
             })
         );
-        expect(seedInterpolationRustCacheFromStateSpy).toHaveBeenCalledWith(
-            expect.any(Uint8Array)
-        );
         expect(setWorkerCacheDocumentReady).not.toHaveBeenCalled();
 
         sync1.destroy();
         sync2.destroy();
         bridge1.destroy();
         bridge2.destroy();
-        seedInterpolationRustCacheFromStateSpy.mockRestore();
         window.fontCompilation = originalFontCompilation;
         window.fontManager = originalFontManager;
     });

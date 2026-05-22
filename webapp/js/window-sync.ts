@@ -8,7 +8,6 @@
 
 import type { PatchSyncEngine } from './patch-sync-engine';
 import type { ChangeLogEntry } from './change-log';
-import { seedInterpolationRustCacheFromState } from './babelfont-model';
 import { Logger } from './logger';
 import type { CollaborationLogItem } from './patch-sync-engine';
 import type { CollaborationMessageEnvelope } from './collaboration-message';
@@ -415,7 +414,6 @@ export class WindowSync {
                         fontManager.replaceWorkerYjsMirrorFromState?.(
                             seedState
                         );
-                        await seedInterpolationRustCacheFromState(seedState);
                         // YJS_ONLY (N3): Binary Yjs seed for the worker
                         // Y.Doc — the CRDT baseline, not a JSON crossing.
                         // seedYdoc (init_ydoc_from_state) populates all Rust

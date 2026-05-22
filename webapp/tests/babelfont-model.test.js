@@ -1,22 +1,11 @@
 const fs = require('fs');
 const path = require('path');
-const Y = require('yjs');
 const { Bezier } = require('bezier-js');
-const {
-    Font,
-    Layer,
-    ensureFontStoredForInterpolation,
-    seedInterpolationRustCacheFromState,
-    applyInterpolationRustYjsUpdate
-} = require('../js/babelfont-model');
-const { jsonToYDoc } = require('../js/change-bridge-ydoc');
+const { Font, Layer } = require('../js/babelfont-model');
+const fontManager = require('../js/font-manager').default;
 const {
     open_font_file,
-    store_font,
-    init_ydoc_from_state,
-    apply_yjs_update,
-    add_master_with_interpolated_layers_yjs,
-    interpolate_glyph
+    store_font
 } = require('../wasm-dist/babelfont_fontc_web');
 
 // Helper function to load and convert .glyphs files using WASM
@@ -108,94 +97,6 @@ function expectNodesToMatch(actualNodes, expectedNodes) {
     }
 }
 
-function encodeYjsStateFromFontData(fontData) {
-    const doc = new Y.Doc();
-    const fontMap = doc.getMap('font');
-    doc.transact(() => {
-        jsonToYDoc(JSON.parse(JSON.stringify(fontData)), fontMap);
-    });
-    return Y.encodeStateAsUpdate(doc);
-}
-
-async function seedInterpolationFromFontData(fontData) {
-    return seedInterpolationRustCacheFromState(
-        encodeYjsStateFromFontData(fontData)
-    );
-}
-
-function encodeIncrementalYjsUpdateFromFontData(fontData, mutateDoc) {
-    const doc = new Y.Doc();
-    const fontMap = doc.getMap('font');
-    doc.transact(() => {
-        jsonToYDoc(JSON.parse(JSON.stringify(fontData)), fontMap);
-    });
-    const previousStateVector = Y.encodeStateVector(doc);
-    doc.transact(() => {
-        mutateDoc(fontMap, doc);
-    });
-    return Y.encodeStateAsUpdate(doc, previousStateVector);
-}
-
-describe('Babelfont interpolation Rust cache', () => {
-    beforeEach(async () => {
-        await seedInterpolationRustCacheFromState(null);
-        init_ydoc_from_state.mockClear();
-        apply_yjs_update.mockClear();
-    });
-
-    test('reload-style reseeding gates interpolation updates until the state arrives', async () => {
-        const font = makeFontWithSinglePath([
-            { x: 0, y: 0, nodetype: 'l' },
-            { x: 100, y: 0, nodetype: 'l' }
-        ]);
-
-        expect(ensureFontStoredForInterpolation(font)).toBe(false);
-        await expect(
-            applyInterpolationRustYjsUpdate(new Uint8Array([1, 2, 3]), [])
-        ).resolves.toBe(false);
-        expect(apply_yjs_update).not.toHaveBeenCalled();
-
-        await expect(
-            seedInterpolationRustCacheFromState(
-                encodeYjsStateFromFontData(font.toJSON())
-            )
-        ).resolves.toBe(true);
-        expect(init_ydoc_from_state).toHaveBeenCalledWith(
-            expect.any(Uint8Array)
-        );
-        expect(ensureFontStoredForInterpolation(font)).toBe(true);
-
-        await expect(
-            applyInterpolationRustYjsUpdate(
-                encodeIncrementalYjsUpdateFromFontData(
-                    font.toJSON(),
-                    (fontMap) => {
-                        fontMap.set('note', 'updated');
-                    }
-                ),
-                ['testGlyph']
-            )
-        ).resolves.toBe(true);
-        expect(apply_yjs_update).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            JSON.stringify({
-                changedGlyphs: [],
-                nonGlyphChangeHints: [],
-                layerTargets: []
-            })
-        );
-
-        await expect(seedInterpolationRustCacheFromState(null)).resolves.toBe(
-            false
-        );
-        expect(ensureFontStoredForInterpolation(font)).toBe(false);
-        await expect(
-            applyInterpolationRustYjsUpdate(new Uint8Array([9]), ['testGlyph'])
-        ).resolves.toBe(false);
-        expect(apply_yjs_update).toHaveBeenCalledTimes(1);
-    });
-});
-
 describe('Babelfont Object Model', () => {
     let fontData;
     let font;
@@ -236,12 +137,6 @@ describe('Babelfont Object Model', () => {
         font = Font.fromData(fontData);
         metricsKeysFont = Font.fromData(metricsKeysData);
         intermediateLayerFont = Font.fromData(intermediateLayerData);
-        await seedInterpolationRustCacheFromState(null);
-        await seedInterpolationFromFontData(intermediateLayerData);
-        init_ydoc_from_state.mockClear();
-        apply_yjs_update.mockClear();
-        add_master_with_interpolated_layers_yjs.mockClear();
-        interpolate_glyph.mockClear();
         store_font.mockClear();
     });
 
@@ -322,51 +217,66 @@ describe('Babelfont Object Model', () => {
         });
         const previousFontModel = window.currentFontModel;
         const previousBridge = window.patchSyncEngine;
+        const previousFontManager = window.fontManager;
         const applyLocalGeneratedYjsUpdate = jest.fn();
+        const workerBatchSpy = jest
+            .spyOn(
+                fontManager,
+                'buildWorkerAddMasterWithInterpolatedLayersBatch'
+            )
+            .mockResolvedValue({
+                update: new Uint8Array([1, 2, 3]),
+                metadata: {
+                    changedGlyphs: ['A', 'B'],
+                    layerTargets: [],
+                    layerOperations: [],
+                    mastersOperation: null
+                }
+            });
 
         window.currentFontModel = addMasterFont;
+        window.fontManager = fontManager;
         window.patchSyncEngine = {
             applyLocalGeneratedYjsUpdate
         };
 
-        await seedInterpolationFromFontData(addMasterFont.toJSON());
+        try {
+            await addMasterFont.addMaster({
+                id: 'master-2',
+                name: { dflt: 'Bold' },
+                location: { wght: 900 },
+                guides: [],
+                metrics: {},
+                kerning: {}
+            });
 
-        await addMasterFont.addMaster({
-            id: 'master-2',
-            name: { dflt: 'Bold' },
-            location: { wght: 900 },
-            guides: [],
-            metrics: {},
-            kerning: {}
-        });
-
-        expect(add_master_with_interpolated_layers_yjs).toHaveBeenCalledTimes(
-            1
-        );
-        const payload = JSON.parse(
-            add_master_with_interpolated_layers_yjs.mock.calls[0][0]
-        );
-        expect(payload.master.id).toBe('master-2');
-        expect(payload.interpolationLocations).toEqual(
-            expect.arrayContaining([
-                {
-                    glyphName: 'A',
-                    designLocation: [['wght', 900]]
-                },
-                {
-                    glyphName: 'B',
-                    designLocation: [['wght', 900]]
-                }
-            ])
-        );
-        expect(applyLocalGeneratedYjsUpdate).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            expect.any(Array),
-            'Add master'
-        );
-
-        window.currentFontModel = previousFontModel;
-        window.patchSyncEngine = previousBridge;
+            expect(workerBatchSpy).toHaveBeenCalledTimes(1);
+            const [masterPayload, interpolationLocations] =
+                workerBatchSpy.mock.calls[0];
+            expect(masterPayload.id).toBe('master-2');
+            expect(interpolationLocations).toEqual(
+                expect.arrayContaining([
+                    {
+                        glyphName: 'A',
+                        designLocation: { wght: 900 }
+                    },
+                    {
+                        glyphName: 'B',
+                        designLocation: { wght: 900 }
+                    }
+                ])
+            );
+            expect(applyLocalGeneratedYjsUpdate).toHaveBeenCalledWith(
+                expect.any(Uint8Array),
+                expect.any(Array),
+                'Add master'
+            );
+        } finally {
+            window.currentFontModel = previousFontModel;
+            window.patchSyncEngine = previousBridge;
+            window.fontManager = previousFontManager;
+            workerBatchSpy.mockRestore();
+        }
     });
 
     test('Font.addMaster creates a default master when no explicit record is provided', async () => {
@@ -567,7 +477,7 @@ describe('Babelfont Object Model', () => {
         expect(createdMaster?.location).toEqual({ wght: 650 });
     });
 
-    test('Font.addMaster materializes interpolated content without the bridge', async () => {
+    test('Font.addMaster adds local fallback layers without main-thread Rust interpolation when no bridge is available', async () => {
         const fallbackFont = Font.fromData(intermediateLayerData);
         const targetGlyphName = fallbackFont.glyphs[0]?.name;
         const targetAxis = fallbackFont.axes[0];
@@ -591,8 +501,37 @@ describe('Babelfont Object Model', () => {
             .findLayerById(createdMaster.id)
             .toJSON();
 
-        expect(interpolate_glyph).toHaveBeenCalled();
-        expect(createdLayer.shapes?.length).toBeGreaterThan(0);
+        expect(createdLayer.id).toBe(createdMaster.id);
+        expect(createdLayer.master?.master).toBe(createdMaster.id);
+    });
+
+    test('Font.addMaster local fallback does not require window', async () => {
+        const fallbackFont = Font.fromData(intermediateLayerData);
+        const targetAxis = fallbackFont.axes[0];
+        const previousWindow = global.window;
+
+        global.window = undefined;
+        try {
+            const createdMaster = await fallbackFont.addMaster({
+                id: 'master-3',
+                name: { dflt: 'Semibold' },
+                location: {
+                    [targetAxis.tag]:
+                        targetAxis.max ??
+                        targetAxis.default ??
+                        targetAxis.min ??
+                        0
+                },
+                guides: [],
+                metrics: {},
+                kerning: {}
+            });
+
+            expect(createdMaster?.id).toBe('master-3');
+            expect(fallbackFont.findMaster('master-3')).toBeDefined();
+        } finally {
+            global.window = previousWindow;
+        }
     });
 
     test('Master.reinterpolateLayers delegates to outline editor when available', async () => {

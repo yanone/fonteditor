@@ -68,6 +68,36 @@ export type FontQCSummary = {
     infos: number;
 };
 
+export type RustBatchLayerTarget = {
+    glyphName: string;
+    layerId: string;
+};
+
+export type RustBatchMetadata = {
+    changedGlyphs: string[];
+    layerTargets: RustBatchLayerTarget[];
+    layerOperations: Array<{
+        glyphName: string;
+        layerId: string;
+        oldValue?: unknown;
+        newValue: unknown;
+    }>;
+    mastersOperation?: {
+        oldValue?: unknown;
+        newValue: unknown;
+    } | null;
+};
+
+export type RustBatchResult = {
+    update: Uint8Array;
+    metadata: RustBatchMetadata;
+};
+
+export type AddMasterInterpolationLocation = {
+    glyphName: string;
+    designLocation: DesignspaceLocation;
+};
+
 type LayerCacheUpdate = {
     glyphName: string;
     layerId: string;
@@ -614,6 +644,136 @@ class FontManager {
         this.fontRoleBadgeElement =
             this.fontDisplay?.querySelector('.font-window-role-badge') || null;
         this.dirtyIndicator = document.getElementById('file-dirty-indicator');
+    }
+
+    private normalizeWorkerBatchUpdate(value: unknown): Uint8Array {
+        if (value instanceof Uint8Array) {
+            return value;
+        }
+        if (value instanceof ArrayBuffer) {
+            return new Uint8Array(value);
+        }
+        if (Array.isArray(value)) {
+            return new Uint8Array(value);
+        }
+        return new Uint8Array();
+    }
+
+    private parseWorkerBatchMetadata(value: unknown): RustBatchMetadata {
+        const rawMetadata =
+            typeof value === 'string' && value.length > 0
+                ? (JSON.parse(value) as Record<string, unknown>)
+                : {};
+        const changedGlyphs = Array.isArray(rawMetadata.changedGlyphs)
+            ? rawMetadata.changedGlyphs.filter(
+                  (glyphName): glyphName is string =>
+                      typeof glyphName === 'string' && glyphName.length > 0
+              )
+            : [];
+        const layerTargets = Array.isArray(rawMetadata.layerTargets)
+            ? rawMetadata.layerTargets.flatMap((target) => {
+                  if (!target || typeof target !== 'object') {
+                      return [];
+                  }
+                  const glyphName = (target as Record<string, unknown>)
+                      .glyphName;
+                  const layerId = (target as Record<string, unknown>).layerId;
+                  return typeof glyphName === 'string' &&
+                      typeof layerId === 'string'
+                      ? [{ glyphName, layerId }]
+                      : [];
+              })
+            : [];
+        const layerOperations = Array.isArray(rawMetadata.layerOperations)
+            ? rawMetadata.layerOperations.flatMap((operation) => {
+                  if (!operation || typeof operation !== 'object') {
+                      return [];
+                  }
+                  const record = operation as Record<string, unknown>;
+                  const glyphName = record.glyphName;
+                  const layerId = record.layerId;
+                  if (
+                      typeof glyphName !== 'string' ||
+                      typeof layerId !== 'string'
+                  ) {
+                      return [];
+                  }
+                  return [
+                      {
+                          glyphName,
+                          layerId,
+                          oldValue: record.oldValue,
+                          newValue: record.newValue
+                      }
+                  ];
+              })
+            : [];
+        const mastersOperation =
+            rawMetadata.mastersOperation &&
+            typeof rawMetadata.mastersOperation === 'object'
+                ? (rawMetadata.mastersOperation as {
+                      oldValue?: unknown;
+                      newValue: unknown;
+                  })
+                : null;
+
+        return {
+            changedGlyphs,
+            layerTargets,
+            layerOperations,
+            mastersOperation
+        };
+    }
+
+    private async requestRustBatchFromWorker(
+        message: Record<string, unknown>
+    ): Promise<RustBatchResult> {
+        const initialized = await fontCompilation.initialize();
+        if (!initialized) {
+            throw new Error('Font compilation worker is not initialized');
+        }
+
+        await fontCompilation.awaitWorkerDocumentSync();
+        const response = (await fontCompilation.sendMessage(message)) as {
+            update?: unknown;
+            metadataJson?: unknown;
+        };
+
+        return {
+            update: this.normalizeWorkerBatchUpdate(response.update),
+            metadata: this.parseWorkerBatchMetadata(response.metadataJson)
+        };
+    }
+
+    async buildWorkerReinterpolateLayerBatch(
+        glyphName: string,
+        layerId: string
+    ): Promise<RustBatchResult> {
+        return this.requestRustBatchFromWorker({
+            type: 'reinterpolateLayerYjs',
+            glyphName,
+            layerId
+        });
+    }
+
+    async buildWorkerReinterpolateMasterLayersBatch(
+        masterId: string
+    ): Promise<RustBatchResult> {
+        return this.requestRustBatchFromWorker({
+            type: 'reinterpolateMasterLayersYjs',
+            masterId
+        });
+    }
+
+    async buildWorkerAddMasterWithInterpolatedLayersBatch(
+        master: Babelfont.Master,
+        interpolationLocations?: AddMasterInterpolationLocation[]
+    ): Promise<RustBatchResult> {
+        return this.requestRustBatchFromWorker({
+            type: 'addMasterWithInterpolatedLayersYjs',
+            master,
+            interpolationLocations: interpolationLocations ?? []
+        });
     }
 
     private ensureWindowRoleBadge(): HTMLElement | null {

@@ -15,6 +15,7 @@
     },
     "devDependencies": {
         "chrome-devtools-mcp": "^0.21.0",
-        "gitnexus": "^1.6.3"
+        "gitnexus": "^1.6.3",
+        "webpack-cli": "^7.0.2"
     }
 }

@@ -15,11 +15,7 @@ import {
     type CommittedChangeOrigin
 } from './patch-sync-engine';
 import { fromYType } from './change-bridge-ydoc';
-import {
-    applyInterpolationRustYjsUpdate,
-    Font,
-    seedInterpolationRustCacheFromState
-} from './babelfont-model';
+import { Font } from './babelfont-model';
 import { WindowSync } from './window-sync';
 import { fontCompilation, fullFontCompilation } from './font-compilation';
 import { Logger } from './logger';
@@ -2403,12 +2399,6 @@ function initializeBridge(detail: {
         const invalidateLayoutClosure =
             shouldInvalidateLayoutClosureForCommittedEntries(changeLogEntries);
 
-        void applyInterpolationRustYjsUpdate(update, {
-            changedGlyphs,
-            nonGlyphChangeHints,
-            layerTargets
-        });
-
         void window.fontManager?.forwardWorkerYjsUpdate?.(
             update,
             changedGlyphs,
@@ -2460,7 +2450,6 @@ function initializeBridge(detail: {
             fontCompilation.setWorkerCacheDocumentReady(false);
         } else {
             fontManager?.replaceWorkerYjsMirrorFromState?.(state);
-            void seedInterpolationRustCacheFromState(state);
             void fontCompilation
                 .sendMessage({
                     type: 'seedYdoc',

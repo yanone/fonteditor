@@ -1,7 +1,15 @@
 let startupInteractionLockCount = 0;
 let startupInteractionLockOverlay: HTMLDivElement | null = null;
+const canUseStartupInteractionLockDom =
+    typeof document !== 'undefined' && typeof window !== 'undefined';
 
 function getOrCreateStartupInteractionLockOverlay(): HTMLDivElement {
+    if (!canUseStartupInteractionLockDom) {
+        throw new Error(
+            'Startup interaction lock overlay requires browser DOM access.'
+        );
+    }
+
     if (startupInteractionLockOverlay) {
         return startupInteractionLockOverlay;
     }
@@ -63,6 +71,10 @@ function preventKeyboardWhileLocked(event: KeyboardEvent): void {
 }
 
 function applyStartupInteractionLock(): void {
+    if (!canUseStartupInteractionLockDom) {
+        return;
+    }
+
     const body = document.body;
     if (!body) {
         return;
@@ -80,11 +92,19 @@ function applyStartupInteractionLock(): void {
 }
 
 function clearStartupInteractionLock(): void {
+    if (!canUseStartupInteractionLockDom) {
+        return;
+    }
+
     startupInteractionLockOverlay?.style.setProperty('display', 'none');
     document.body?.classList.remove('startup-interaction-locked');
 }
 
 export function beginStartupInteractionLock(): void {
+    if (!canUseStartupInteractionLockDom) {
+        return;
+    }
+
     startupInteractionLockCount += 1;
 
     if (startupInteractionLockCount === 1) {
@@ -93,6 +113,10 @@ export function beginStartupInteractionLock(): void {
 }
 
 export function endStartupInteractionLock(): void {
+    if (!canUseStartupInteractionLockDom) {
+        return;
+    }
+
     if (startupInteractionLockCount > 0) {
         startupInteractionLockCount -= 1;
     }
@@ -102,12 +126,14 @@ export function endStartupInteractionLock(): void {
     }
 }
 
-document.addEventListener('keydown', preventKeyboardWhileLocked, true);
-document.addEventListener('keypress', preventKeyboardWhileLocked, true);
-document.addEventListener('beforeinput', preventWhileLocked, true);
-document.addEventListener('input', preventWhileLocked, true);
-document.addEventListener('compositionstart', preventWhileLocked, true);
-document.addEventListener('compositionupdate', preventWhileLocked, true);
-document.addEventListener('compositionend', preventWhileLocked, true);
-document.addEventListener('paste', preventWhileLocked, true);
-document.addEventListener('drop', preventWhileLocked, true);
+if (canUseStartupInteractionLockDom) {
+    document.addEventListener('keydown', preventKeyboardWhileLocked, true);
+    document.addEventListener('keypress', preventKeyboardWhileLocked, true);
+    document.addEventListener('beforeinput', preventWhileLocked, true);
+    document.addEventListener('input', preventWhileLocked, true);
+    document.addEventListener('compositionstart', preventWhileLocked, true);
+    document.addEventListener('compositionupdate', preventWhileLocked, true);
+    document.addEventListener('compositionend', preventWhileLocked, true);
+    document.addEventListener('paste', preventWhileLocked, true);
+    document.addEventListener('drop', preventWhileLocked, true);
+}

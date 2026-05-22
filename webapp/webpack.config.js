@@ -122,7 +122,10 @@ module.exports = {
         hot: false,
         liveReload: false,
         client: {
-            overlay: process.env.PLAYWRIGHT_TEST !== 'true',
+            // The webpack runtime overlay touches `window`, which breaks
+            // worker-executed bundles like glyph-filter-worker and any shared
+            // entry loaded outside the browser main thread.
+            overlay: false,
             webSocketURL: {
                 hostname: 'localhost',
                 pathname: '/ws',

@@ -11942,7 +11942,6 @@ describe('OutlineEditor exact selected layers', () => {
     });
 
     test('reinterpolateLayerById uses the Rust-authored Yjs batch path when the bridge supports it', async () => {
-        const babelfontModel = require('../js/babelfont-model');
         const font = makeComponentFont();
         const currentFont = {
             fontModel: font,
@@ -11955,7 +11954,7 @@ describe('OutlineEditor exact selected layers', () => {
         const originalFontModel = window.currentFontModel;
         const originalPatchSyncEngine = window.patchSyncEngine;
         const rustBatchSpy = jest
-            .spyOn(babelfontModel, 'buildRustReinterpolateLayerBatch')
+            .spyOn(fontManager, 'buildWorkerReinterpolateLayerBatch')
             .mockResolvedValue({
                 update: new Uint8Array([9, 8, 7]),
                 metadata: {
@@ -12038,7 +12037,6 @@ describe('OutlineEditor exact selected layers', () => {
     });
 
     test('reinterpolateAllLayersForMaster applies one Rust-authored Yjs batch through the bridge', async () => {
-        const babelfontModel = require('../js/babelfont-model');
         const font = makeComponentFont();
         const currentFont = {
             fontModel: font,
@@ -12052,7 +12050,7 @@ describe('OutlineEditor exact selected layers', () => {
         const originalPatchSyncEngine = window.patchSyncEngine;
         const applyLocalGeneratedYjsUpdateSpy = jest.fn();
         const rustBatchSpy = jest
-            .spyOn(babelfontModel, 'buildRustReinterpolateMasterLayersBatch')
+            .spyOn(fontManager, 'buildWorkerReinterpolateMasterLayersBatch')
             .mockResolvedValue({
                 update: new Uint8Array([1, 2, 3]),
                 metadata: {

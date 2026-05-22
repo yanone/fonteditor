@@ -5,7 +5,6 @@ const {
     syncRustCacheAndRefreshCanvas,
     buildCascadingRecompositionOperations
 } = require('../js/change-bridge-init');
-const babelfontModel = require('../js/babelfont-model');
 const {
     fontCompilation,
     fullFontCompilation
@@ -1035,9 +1034,6 @@ describe('bridge Yjs worker callback', () => {
 
     test('forwards feature-code Yjs updates to Rust with empty glyph metadata', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
-        const interpolationUpdateSpy = jest
-            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
-            .mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({ success: true });
@@ -1072,10 +1068,6 @@ describe('bridge Yjs worker callback', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            []
-        );
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             [],
@@ -1097,9 +1089,6 @@ describe('bridge Yjs worker callback', () => {
 
     test('forwards font-wide metadata Yjs updates to Rust before recompilation', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
-        const interpolationUpdateSpy = jest
-            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
-            .mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({ success: true });
@@ -1125,10 +1114,6 @@ describe('bridge Yjs worker callback', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            []
-        );
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             [],
@@ -1140,9 +1125,6 @@ describe('bridge Yjs worker callback', () => {
 
     test('forwards kerning-pair Yjs updates with non-glyph kerning hints', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
-        const interpolationUpdateSpy = jest
-            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
-            .mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({ success: true });
@@ -1176,10 +1158,6 @@ describe('bridge Yjs worker callback', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            []
-        );
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             [],
@@ -1201,9 +1179,6 @@ describe('bridge Yjs worker callback', () => {
 
     test('forwards kern-group Yjs updates with non-glyph kerning hints', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
-        const interpolationUpdateSpy = jest
-            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
-            .mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({ success: true });
@@ -1231,10 +1206,6 @@ describe('bridge Yjs worker callback', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            []
-        );
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             [],
@@ -1247,9 +1218,6 @@ describe('bridge Yjs worker callback', () => {
 
     test('forwards layer-scoped Yjs updates with derived layer targets', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
-        const interpolationUpdateSpy = jest
-            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
-            .mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({ success: true });
@@ -1279,10 +1247,6 @@ describe('bridge Yjs worker callback', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            ['alef']
-        );
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             ['alef'],
@@ -1298,9 +1262,6 @@ describe('bridge Yjs worker callback', () => {
 
     test('forwards glyph-removal Yjs updates without layer targets', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
-        const interpolationUpdateSpy = jest
-            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
-            .mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({ success: true });
@@ -1326,10 +1287,6 @@ describe('bridge Yjs worker callback', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            ['alef']
-        );
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             ['alef'],
@@ -1341,9 +1298,6 @@ describe('bridge Yjs worker callback', () => {
 
     test('outline edit forwards with invalidateLayoutClosure false and non-empty changedGlyphs', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
-        const interpolationUpdateSpy = jest
-            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
-            .mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({ success: true });
@@ -1378,10 +1332,6 @@ describe('bridge Yjs worker callback', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            ['A']
-        );
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             ['A'],
@@ -1403,9 +1353,6 @@ describe('bridge Yjs worker callback', () => {
 
     test('anchor edit forwards with invalidateLayoutClosure false and non-empty changedGlyphs', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
-        const interpolationUpdateSpy = jest
-            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
-            .mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({ success: true });
@@ -1433,10 +1380,6 @@ describe('bridge Yjs worker callback', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            ['A']
-        );
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             ['A'],
@@ -1449,9 +1392,6 @@ describe('bridge Yjs worker callback', () => {
 
     test('sidebearing edit forwards with invalidateLayoutClosure false and non-empty changedGlyphs', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
-        const interpolationUpdateSpy = jest
-            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
-            .mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({ success: true });
@@ -1480,10 +1420,6 @@ describe('bridge Yjs worker callback', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
-            expect.any(Uint8Array),
-            ['A']
-        );
         expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
             expect.any(Uint8Array),
             ['A'],

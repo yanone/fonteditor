@@ -4,11 +4,7 @@ const Y = require('yjs');
 
 const fontManager = require('../js/font-manager').default;
 const { fontCompilation } = require('../js/font-compilation');
-const {
-    Font,
-    seedInterpolationRustCacheFromState,
-    withSuppressedModelRecording
-} = require('../js/babelfont-model');
+const { Font, withSuppressedModelRecording } = require('../js/babelfont-model');
 const {
     deleteYPath,
     jsonToYDoc,
@@ -1547,9 +1543,6 @@ describe('FontManager loadFont', () => {
         );
 
         const currentFont = fontManager.currentFont;
-        await seedInterpolationRustCacheFromState(
-            fontManager.buildWorkerSeedYjsState()
-        );
         withSuppressedModelRecording(() => {
             currentFont.fontModel.recomputeMetricsKeys();
         });

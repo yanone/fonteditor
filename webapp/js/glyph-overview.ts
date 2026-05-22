@@ -2870,10 +2870,17 @@ class GlyphOverview {
             }
             // Clean Python traceback to remove Pyodide internal frames and adjust line numbers
             if (error.constructor.name === 'PythonError') {
-                errorText = window.cleanPythonTraceback(errorText, {
-                    lineOffset,
-                    skipExecFrames: true
-                });
+                const tracebackCleaner =
+                    typeof window !== 'undefined' &&
+                    typeof window.cleanPythonTraceback === 'function'
+                        ? window.cleanPythonTraceback
+                        : null;
+                if (tracebackCleaner) {
+                    errorText = tracebackCleaner(errorText, {
+                        lineOffset,
+                        skipExecFrames: true
+                    });
+                }
             }
         } else if (typeof error === 'string') {
             errorText = error;

@@ -10,11 +10,14 @@ import {
     Layer,
     DecomposedAffineTransform,
     buildInterpolationRustBatchOperations,
-    buildRustReinterpolateLayerBatch,
-    buildRustReinterpolateMasterLayersBatch,
     withSuppressedModelRecording,
     withSuppressedMetricsKeyRecompute
 } from '../babelfont-model';
+import { beginLoadingCursor, endLoadingCursor } from '../loading-cursor';
+import {
+    beginStartupInteractionLock,
+    endStartupInteractionLock
+} from '../startup-interaction-lock';
 import type { PatchSyncEngine } from '../patch-sync-engine';
 import {
     getHighestVisibleVerticalMetricValue,
@@ -7499,10 +7502,11 @@ export class OutlineEditor {
 
         if (bridge?.applyLocalGeneratedYjsUpdate) {
             this.prepareStructuralOutlineCompile('keyboard-outline');
-            const batchResult = await buildRustReinterpolateLayerBatch(
-                glyphName,
-                layerId
-            );
+            const batchResult =
+                await fontManager.buildWorkerReinterpolateLayerBatch(
+                    glyphName,
+                    layerId
+                );
             if (batchResult.update.length) {
                 bridge.applyLocalGeneratedYjsUpdate(
                     batchResult.update,
@@ -7716,26 +7720,35 @@ export class OutlineEditor {
         }
 
         this.prepareStructuralOutlineCompile('keyboard-outline');
-        const batchResult =
-            await buildRustReinterpolateMasterLayersBatch(masterId);
-        if (!batchResult.update.length) {
-            return;
-        }
-
-        bridge.applyLocalGeneratedYjsUpdate(
-            batchResult.update,
-            buildInterpolationRustBatchOperations(batchResult.metadata),
-            'Reinterpolate layer batch sync'
-        );
-
-        await this.refreshAfterStructuralLayerEdit(
-            'batch',
-            'master-reinterpolate-batch',
-            {
-                scheduleCompile: false,
-                dispatchGlyphChanged: false
+        beginLoadingCursor();
+        beginStartupInteractionLock();
+        try {
+            const batchResult =
+                await fontManager.buildWorkerReinterpolateMasterLayersBatch(
+                    masterId
+                );
+            if (!batchResult.update.length) {
+                return;
             }
-        );
+
+            bridge.applyLocalGeneratedYjsUpdate(
+                batchResult.update,
+                buildInterpolationRustBatchOperations(batchResult.metadata),
+                'Reinterpolate layer batch sync'
+            );
+
+            await this.refreshAfterStructuralLayerEdit(
+                'batch',
+                'master-reinterpolate-batch',
+                {
+                    scheduleCompile: false,
+                    dispatchGlyphChanged: false
+                }
+            );
+        } finally {
+            endStartupInteractionLock();
+            endLoadingCursor();
+        }
     }
 
     /**

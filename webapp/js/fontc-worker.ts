@@ -10,8 +10,11 @@ import init, {
     store_font,
     init_ydoc_from_state,
     apply_yjs_update,
+    add_master_with_interpolated_layers_yjs,
     prime_layout_closure_cache,
     interpolate_glyph,
+    reinterpolate_layer_yjs,
+    reinterpolate_master_layers_yjs,
     clear_font_cache,
     open_font_file,
     get_glyphs_outlines,
@@ -1655,6 +1658,148 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(interpolateSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'reinterpolateLayerYjs') {
+            const reinterpolateSpanId = timelineSpanStart(
+                'font.worker.reinterpolateLayerYjs'
+            );
+            const { id, glyphName, layerId } = data;
+
+            try {
+                timelineMark('font.worker.reinterpolateLayerYjs.started');
+                const result = reinterpolate_layer_yjs(glyphName, layerId) as {
+                    update?: Uint8Array;
+                    metadataJson?: string;
+                };
+                self.postMessage({
+                    id,
+                    type: 'reinterpolateLayerYjs',
+                    success: true,
+                    update: result.update ?? new Uint8Array(),
+                    metadataJson: result.metadataJson ?? '{}'
+                });
+                timelineMark('font.worker.reinterpolateLayerYjs.success');
+            } catch (e: any) {
+                timelineMark('font.worker.reinterpolateLayerYjs.failed');
+                console.error('[Fontc Worker] reinterpolateLayerYjs error:', e);
+                self.postMessage({
+                    id,
+                    type: 'reinterpolateLayerYjs',
+                    success: false,
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(reinterpolateSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'reinterpolateMasterLayersYjs') {
+            const reinterpolateSpanId = timelineSpanStart(
+                'font.worker.reinterpolateMasterLayersYjs'
+            );
+            const { id, masterId } = data;
+
+            try {
+                timelineMark(
+                    'font.worker.reinterpolateMasterLayersYjs.started'
+                );
+                const result = reinterpolate_master_layers_yjs(masterId) as {
+                    update?: Uint8Array;
+                    metadataJson?: string;
+                };
+                self.postMessage({
+                    id,
+                    type: 'reinterpolateMasterLayersYjs',
+                    success: true,
+                    update: result.update ?? new Uint8Array(),
+                    metadataJson: result.metadataJson ?? '{}'
+                });
+                timelineMark(
+                    'font.worker.reinterpolateMasterLayersYjs.success'
+                );
+            } catch (e: any) {
+                timelineMark('font.worker.reinterpolateMasterLayersYjs.failed');
+                console.error(
+                    '[Fontc Worker] reinterpolateMasterLayersYjs error:',
+                    e
+                );
+                self.postMessage({
+                    id,
+                    type: 'reinterpolateMasterLayersYjs',
+                    success: false,
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(reinterpolateSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'addMasterWithInterpolatedLayersYjs') {
+            const addMasterSpanId = timelineSpanStart(
+                'font.worker.addMasterWithInterpolatedLayersYjs'
+            );
+            const { id, master, interpolationLocations } = data;
+
+            try {
+                timelineMark(
+                    'font.worker.addMasterWithInterpolatedLayersYjs.started'
+                );
+                const payload = JSON.stringify({
+                    master,
+                    ...(Array.isArray(interpolationLocations) &&
+                    interpolationLocations.length
+                        ? {
+                              interpolationLocations:
+                                  interpolationLocations.map((location) => ({
+                                      glyphName: location.glyphName,
+                                      designLocation: Object.entries(
+                                          JSON.parse(
+                                              JSON.stringify(
+                                                  location.designLocation ?? {}
+                                              )
+                                          ) as Record<string, number>
+                                      )
+                                  }))
+                          }
+                        : {})
+                });
+                const result = add_master_with_interpolated_layers_yjs(
+                    payload
+                ) as {
+                    update?: Uint8Array;
+                    metadataJson?: string;
+                };
+                self.postMessage({
+                    id,
+                    type: 'addMasterWithInterpolatedLayersYjs',
+                    success: true,
+                    update: result.update ?? new Uint8Array(),
+                    metadataJson: result.metadataJson ?? '{}'
+                });
+                timelineMark(
+                    'font.worker.addMasterWithInterpolatedLayersYjs.success'
+                );
+            } catch (e: any) {
+                timelineMark(
+                    'font.worker.addMasterWithInterpolatedLayersYjs.failed'
+                );
+                console.error(
+                    '[Fontc Worker] addMasterWithInterpolatedLayersYjs error:',
+                    e
+                );
+                self.postMessage({
+                    id,
+                    type: 'addMasterWithInterpolatedLayersYjs',
+                    success: false,
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(addMasterSpanId);
             }
             return;
         }

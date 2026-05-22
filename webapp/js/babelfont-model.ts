@@ -25,26 +25,21 @@ import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
+import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import type {
     PatchSyncEngine,
     TransactionBufferedOperation,
     TransactionHistoryTarget
 } from './patch-sync-engine';
 import {
+    beginStartupInteractionLock,
+    endStartupInteractionLock
+} from './startup-interaction-lock';
+import {
     getSidebearingTransactionLabel,
     type SidebearingSide
 } from './sidebearing-utils';
-import { ensureWasmInitialized } from './wasm-init';
 import { translateLayerContentsX } from './x-translation-utils';
-import {
-    add_master_with_interpolated_layers_yjs,
-    apply_yjs_update,
-    init_ydoc_from_state,
-    interpolate_glyph,
-    reinterpolate_layer_yjs,
-    reinterpolate_master_layers_yjs,
-    store_font
-} from '../wasm-dist/babelfont_fontc_web';
 
 const console = new Logger('BabelfontModel');
 
@@ -282,9 +277,6 @@ export function withSuppressedMetricsKeyRecompute<T>(fn: () => T): T {
     }
 }
 
-const interpolationFontVersions = new WeakMap<Font, number>();
-let interpolationRustDocReady = false;
-
 export type InterpolationRustLayerTarget = {
     glyphName: string;
     layerId: string;
@@ -305,17 +297,6 @@ export type InterpolationRustBatchMetadata = {
     } | null;
 };
 
-export type InterpolationRustUpdateMetadata = {
-    changedGlyphs: string[];
-    nonGlyphChangeHints?: string[];
-    layerTargets?: InterpolationRustLayerTarget[];
-};
-
-export type InterpolationRustBatchResult = {
-    update: Uint8Array;
-    metadata: InterpolationRustBatchMetadata;
-};
-
 type AddMasterInterpolationLocation = {
     glyphName: string;
     designLocation: DesignspaceLocation;
@@ -325,26 +306,6 @@ type AddMasterOptions = {
     location?: DesignspaceLocation;
     metricTemplateMasterId?: string;
 };
-
-type AddMasterRustBatchPayload = {
-    master: Babelfont.Master;
-    interpolationLocations?: Array<{
-        glyphName: string;
-        designLocation: Array<[string, number]>;
-    }>;
-};
-
-function getInterpolationFontVersion(font: Font): number {
-    return interpolationFontVersions.get(font) || 0;
-}
-
-function markInterpolationFontDirty(font: Font | null | undefined): void {
-    if (!font) {
-        return;
-    }
-
-    interpolationFontVersions.set(font, getInterpolationFontVersion(font) + 1);
-}
 
 function getCurrentWindowFontModel(): Font | null {
     if (typeof window === 'undefined') {
@@ -2637,84 +2598,6 @@ function locationsMatch(
     return true;
 }
 
-export function ensureFontStoredForInterpolation(font: Font): boolean {
-    void font;
-    return interpolationRustDocReady;
-}
-
-async function ensureInterpolationRustCacheReadyForBatch(): Promise<boolean> {
-    if (interpolationRustDocReady) {
-        return true;
-    }
-
-    const bridge = window.patchSyncEngine as
-        | (PatchSyncEngine & {
-              encodeBridgeState?: () => Uint8Array;
-          })
-        | undefined;
-    const state = bridge?.encodeBridgeState?.();
-    if (!state?.length) {
-        return false;
-    }
-
-    return seedInterpolationRustCacheFromState(state);
-}
-
-function parseInterpolationRustBatchResult(
-    rawResult: unknown
-): InterpolationRustBatchResult {
-    const result = (rawResult || {}) as {
-        update?: Uint8Array | ArrayBufferLike;
-        metadataJson?: string;
-    };
-    const metadata = JSON.parse(
-        typeof result.metadataJson === 'string' ? result.metadataJson : '{}'
-    ) as InterpolationRustBatchMetadata;
-    const update =
-        result.update instanceof Uint8Array
-            ? result.update
-            : new Uint8Array(result.update ?? new ArrayBuffer(0));
-
-    return {
-        update,
-        metadata: {
-            changedGlyphs: Array.isArray(metadata.changedGlyphs)
-                ? metadata.changedGlyphs.filter(
-                      (glyphName): glyphName is string =>
-                          typeof glyphName === 'string' && glyphName.length > 0
-                  )
-                : [],
-            layerTargets: Array.isArray(metadata.layerTargets)
-                ? metadata.layerTargets.filter(
-                      (target): target is InterpolationRustLayerTarget =>
-                          !!target &&
-                          typeof target.glyphName === 'string' &&
-                          target.glyphName.length > 0 &&
-                          typeof target.layerId === 'string' &&
-                          target.layerId.length > 0
-                  )
-                : [],
-            layerOperations: Array.isArray(metadata.layerOperations)
-                ? metadata.layerOperations.filter(
-                      (
-                          operation
-                      ): operation is InterpolationRustBatchMetadata['layerOperations'][number] =>
-                          !!operation &&
-                          typeof operation.glyphName === 'string' &&
-                          operation.glyphName.length > 0 &&
-                          typeof operation.layerId === 'string' &&
-                          operation.layerId.length > 0
-                  )
-                : [],
-            mastersOperation:
-                metadata.mastersOperation &&
-                typeof metadata.mastersOperation === 'object'
-                    ? metadata.mastersOperation
-                    : null
-        }
-    };
-}
-
 export function buildInterpolationRustBatchOperations(
     metadata: InterpolationRustBatchMetadata
 ): TransactionBufferedOperation[] {
@@ -2746,141 +2629,6 @@ export function buildInterpolationRustBatchOperations(
     );
 
     return operations;
-}
-
-export async function buildRustReinterpolateMasterLayersBatch(
-    masterId: string
-): Promise<InterpolationRustBatchResult> {
-    await ensureWasmInitialized();
-    if (!(await ensureInterpolationRustCacheReadyForBatch())) {
-        throw new Error('Interpolation Rust cache is not seeded');
-    }
-
-    return parseInterpolationRustBatchResult(
-        reinterpolate_master_layers_yjs(masterId)
-    );
-}
-
-export async function buildRustReinterpolateLayerBatch(
-    glyphName: string,
-    layerId: string
-): Promise<InterpolationRustBatchResult> {
-    await ensureWasmInitialized();
-    if (!(await ensureInterpolationRustCacheReadyForBatch())) {
-        throw new Error('Interpolation Rust cache is not seeded');
-    }
-
-    return parseInterpolationRustBatchResult(
-        reinterpolate_layer_yjs(glyphName, layerId)
-    );
-}
-
-export async function buildRustAddMasterWithInterpolatedLayersBatch(
-    master: Babelfont.Master,
-    interpolationLocations?: AddMasterInterpolationLocation[]
-): Promise<InterpolationRustBatchResult> {
-    await ensureWasmInitialized();
-    if (!(await ensureInterpolationRustCacheReadyForBatch())) {
-        throw new Error('Interpolation Rust cache is not seeded');
-    }
-
-    const payload: AddMasterRustBatchPayload = {
-        master,
-        ...(interpolationLocations?.length
-            ? {
-                  interpolationLocations: interpolationLocations.map(
-                      (location) => ({
-                          glyphName: location.glyphName,
-                          designLocation: Object.entries(
-                              JSON.parse(
-                                  JSON.stringify(location.designLocation)
-                              ) as Record<string, number>
-                          )
-                      })
-                  )
-              }
-            : {})
-    };
-
-    return parseInterpolationRustBatchResult(
-        add_master_with_interpolated_layers_yjs(JSON.stringify(payload))
-    );
-}
-
-export async function seedInterpolationRustCacheFromState(
-    state: Uint8Array | ArrayBufferLike | null | undefined
-): Promise<boolean> {
-    // YJS_ONLY: Binary Yjs state sent to Rust's init_ydoc_from_state.
-    // This is the main-thread interpolation cache (separate from the worker).
-    // init_ydoc_from_state internally does a full Y.Doc→JSON walk (FULLJSON_INTERNAL_RUST).
-    if (!state) {
-        interpolationRustDocReady = false;
-        return false;
-    }
-
-    try {
-        await ensureWasmInitialized();
-        init_ydoc_from_state(
-            state instanceof Uint8Array ? state : new Uint8Array(state)
-        );
-        interpolationRustDocReady = true;
-        return true;
-    } catch (error) {
-        interpolationRustDocReady = false;
-        console.warn(
-            '[BabelfontModel]',
-            'Failed to seed main-thread interpolation Rust cache:',
-            error
-        );
-        return false;
-    }
-}
-
-export async function applyInterpolationRustYjsUpdate(
-    update: Uint8Array | ArrayBufferLike | null | undefined,
-    metadata: InterpolationRustUpdateMetadata
-): Promise<boolean> {
-    // YJS_ONLY: Incremental binary Yjs update to the main-thread
-    // Rust interpolation cache. No JSON — the update is a binary Yjs diff.
-    if (!update) {
-        return false;
-    }
-
-    if (!interpolationRustDocReady) {
-        return false;
-    }
-
-    try {
-        await ensureWasmInitialized();
-        const resultJson = apply_yjs_update(
-            update instanceof Uint8Array ? update : new Uint8Array(update),
-            JSON.stringify({
-                changedGlyphs: Array.isArray(metadata.changedGlyphs)
-                    ? metadata.changedGlyphs
-                    : [],
-                nonGlyphChangeHints: Array.isArray(metadata.nonGlyphChangeHints)
-                    ? metadata.nonGlyphChangeHints
-                    : [],
-                layerTargets: Array.isArray(metadata.layerTargets)
-                    ? metadata.layerTargets
-                    : []
-            })
-        );
-        const parsed = JSON.parse(resultJson || '{}') as { skipped?: string };
-        if (parsed?.skipped === 'ydoc_not_initialized') {
-            interpolationRustDocReady = false;
-            return false;
-        }
-        return true;
-    } catch (error) {
-        interpolationRustDocReady = false;
-        console.warn(
-            '[BabelfontModel]',
-            'Failed to apply incremental Yjs update to main-thread interpolation Rust cache:',
-            error
-        );
-        return false;
-    }
 }
 
 /**
@@ -2948,8 +2696,6 @@ function recordAndMarkDirty(
         return;
     }
 
-    markInterpolationFontDirty(findFontForModelObject(modelObj));
-
     const bridge = getPatchSyncEngine();
     if (bridge) {
         const path = modelObj.getPath();
@@ -2972,8 +2718,6 @@ function recordPathChangeAndMarkDirty(
     if (suppressModelRecordingDepth > 0) {
         return;
     }
-
-    markInterpolationFontDirty(getCurrentWindowFontModel());
 
     const bridge = getPatchSyncEngine();
     if (bridge && path.length > 0) {
@@ -3030,8 +2774,6 @@ function recordAddAndMarkDirty(
         return;
     }
 
-    markInterpolationFontDirty(getCurrentWindowFontModel());
-
     const bridge = getPatchSyncEngine();
     if (bridge) {
         bridge.recordAdd(path, cloneForHistory(value));
@@ -3047,8 +2789,6 @@ function recordRemoveAndMarkDirty(
     if (suppressModelRecordingDepth > 0) {
         return;
     }
-
-    markInterpolationFontDirty(getCurrentWindowFontModel());
 
     const bridge = getPatchSyncEngine();
     if (bridge) {
@@ -3214,7 +2954,6 @@ function setFormatSpecificKey(
                 oldValue
             );
         }
-        markInterpolationFontDirty(findFontForModelObject(modelObj));
         markFontDirty();
         return;
     }
@@ -3746,7 +3485,6 @@ function getPreciseLiveMutableValue<T>(
                 if (bridge) {
                     bridge.recordRemove(propPath, oldValue);
                 }
-                markInterpolationFontDirty(getCurrentWindowFontModel());
                 markFontDirty();
                 return success;
             }
@@ -3988,7 +3726,6 @@ abstract class ArrayElementBase<
      */
     protected set data(value: TData) {
         this._parent[this._index] = value;
-        markInterpolationFontDirty(findFontForModelObject(this));
         markFontDirty();
     }
 
@@ -6938,32 +6675,7 @@ export class Layer extends ArrayElementBase {
             return undefined;
         }
 
-        if (!ensureFontStoredForInterpolation(font)) {
-            return undefined;
-        }
-
-        try {
-            const userspaceLocation = designspaceToUserspace(
-                designspaceLocation,
-                (font.axes || []) as unknown as Babelfont.Axis[]
-            );
-            const interpolatedLayer = LayerDataNormalizer.normalize(
-                JSON.parse(
-                    interpolate_glyph(
-                        glyphName,
-                        JSON.stringify(userspaceLocation),
-                        false
-                    )
-                ),
-                true
-            );
-            if (!interpolatedLayer) {
-                return undefined;
-            }
-            return new Layer([interpolatedLayer] as Unsafe, 0, targetGlyph);
-        } catch {
-            return undefined;
-        }
+        return undefined;
     }
 
     private getMetricsReferenceLayerOnGlyph(
@@ -10039,7 +9751,10 @@ export class Master extends ArrayElementBase {
     }
 
     async reinterpolateLayers(): Promise<void> {
-        const outlineEditor = (window as Unsafe).glyphCanvas?.outlineEditor;
+        const outlineEditor =
+            typeof window !== 'undefined'
+                ? (window as Unsafe).glyphCanvas?.outlineEditor
+                : null;
         if (
             outlineEditor &&
             typeof outlineEditor.reinterpolateAllLayersForMaster === 'function'
@@ -10062,18 +9777,26 @@ export class Master extends ArrayElementBase {
             return;
         }
 
-        const batchResult = await buildRustReinterpolateMasterLayersBatch(
-            this.id
-        );
-        if (!batchResult.update.length) {
-            return;
-        }
+        beginLoadingCursor();
+        beginStartupInteractionLock();
+        try {
+            const batchResult =
+                await window.fontManager.buildWorkerReinterpolateMasterLayersBatch(
+                    this.id
+                );
+            if (!batchResult.update.length) {
+                return;
+            }
 
-        bridge.applyLocalGeneratedYjsUpdate(
-            batchResult.update,
-            buildInterpolationRustBatchOperations(batchResult.metadata),
-            'Reinterpolate layer batch sync'
-        );
+            bridge.applyLocalGeneratedYjsUpdate(
+                batchResult.update,
+                buildInterpolationRustBatchOperations(batchResult.metadata),
+                'Reinterpolate layer batch sync'
+            );
+        } finally {
+            endStartupInteractionLock();
+            endLoadingCursor();
+        }
     }
 
     async delete(): Promise<boolean> {
@@ -11494,46 +11217,8 @@ export class Font extends ModelBase {
     private getInterpolatedLayerDataForLocation(
         designLocation: DesignspaceLocation | undefined
     ): Map<string, Babelfont.Layer> {
+        void designLocation;
         const interpolatedLayers = new Map<string, Babelfont.Layer>();
-        if (!designLocation) {
-            return interpolatedLayers;
-        }
-
-        try {
-            store_font(JSON.stringify(this.toJSON()));
-            const userspaceLocation = designspaceToUserspace(
-                designLocation,
-                (this.axes || []) as unknown as Babelfont.Axis[]
-            );
-
-            for (const glyph of this.glyphs) {
-                try {
-                    const interpolatedLayer = LayerDataNormalizer.normalize(
-                        JSON.parse(
-                            interpolate_glyph(
-                                glyph.name,
-                                JSON.stringify(userspaceLocation),
-                                false
-                            )
-                        ),
-                        true
-                    );
-                    if (!interpolatedLayer) {
-                        continue;
-                    }
-
-                    interpolatedLayers.set(
-                        glyph.name,
-                        this.clonePlainValue(interpolatedLayer)
-                    );
-                } catch {
-                    continue;
-                }
-            }
-        } catch {
-            return interpolatedLayers;
-        }
-
         return interpolatedLayers;
     }
 
@@ -11564,19 +11249,28 @@ export class Font extends ModelBase {
             getCurrentWindowFontModel() === this &&
             bridge?.applyLocalGeneratedYjsUpdate
         ) {
-            const batchResult =
-                await buildRustAddMasterWithInterpolatedLayersBatch(
-                    clonedMaster,
-                    this.getAddMasterInterpolationLocations(
-                        clonedMaster.location
-                    )
-                );
-            if (batchResult.update.length) {
-                bridge.applyLocalGeneratedYjsUpdate(
-                    batchResult.update,
-                    buildInterpolationRustBatchOperations(batchResult.metadata),
-                    'Add master'
-                );
+            beginLoadingCursor();
+            beginStartupInteractionLock();
+            try {
+                const batchResult =
+                    await window.fontManager.buildWorkerAddMasterWithInterpolatedLayersBatch(
+                        clonedMaster,
+                        this.getAddMasterInterpolationLocations(
+                            clonedMaster.location
+                        )
+                    );
+                if (batchResult.update.length) {
+                    bridge.applyLocalGeneratedYjsUpdate(
+                        batchResult.update,
+                        buildInterpolationRustBatchOperations(
+                            batchResult.metadata
+                        ),
+                        'Add master'
+                    );
+                }
+            } finally {
+                endStartupInteractionLock();
+                endLoadingCursor();
             }
             return this.findMaster(clonedMaster.id || '') || null;
         }
@@ -11622,7 +11316,10 @@ export class Font extends ModelBase {
             }
         }
 
-        const currentFont = (window as Unsafe).fontManager?.currentFont;
+        const currentFont =
+            typeof window !== 'undefined'
+                ? (window as Unsafe).fontManager?.currentFont
+                : null;
         currentFont?.syncJsonFromModel?.();
         currentFont?.markDirty?.('font-info-masters-list');
 

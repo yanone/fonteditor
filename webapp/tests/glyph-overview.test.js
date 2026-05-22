@@ -131,6 +131,29 @@ describe('GlyphOverview glyphChanged refresh scheduling', () => {
         expect(overview.renderTile).toHaveBeenCalledTimes(2);
     });
 
+    test('showFilterError tolerates missing window for Python errors', () => {
+        class PythonError extends Error {}
+
+        const previousWindow = global.window;
+        global.window = undefined;
+
+        try {
+            expect(() => {
+                overview.showFilterError(
+                    'Broken Filter',
+                    new PythonError('Traceback line')
+                );
+            }).not.toThrow();
+
+            expect(overview.errorOverlay).toBeTruthy();
+            expect(overview.errorOverlay.textContent).toContain(
+                'Traceback line'
+            );
+        } finally {
+            global.window = previousWindow;
+        }
+    });
+
     test('refreshes immediately when glyphChanged requests forceImmediateRefresh', async () => {
         window.fontCompilation.sendMessage.mockClear();
         overview.renderTile.mockClear();

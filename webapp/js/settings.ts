@@ -230,9 +230,22 @@ const PRODUCTION_OVERRIDES = {
     }
 };
 
+type SettingsGlobalScope = typeof globalThis & {
+    APP_SETTINGS?: typeof APP_SETTINGS;
+    isDevelopment?: () => boolean;
+    isProduction?: () => boolean;
+};
+
+const settingsGlobalScope = globalThis as SettingsGlobalScope;
+
 // Use the global isDevelopment function from index.html (defined before this script loads)
 // Export wrapper for convenience in modules
-export const isProduction = () => !window.isDevelopment();
+export const isProduction = () => {
+    const isDevelopmentHook = settingsGlobalScope.isDevelopment;
+    return typeof isDevelopmentHook === 'function'
+        ? !isDevelopmentHook()
+        : false;
+};
 
 // Apply production overrides if in production mode
 if (isProduction()) {
@@ -257,7 +270,7 @@ if (isProduction()) {
 }
 
 // Expose globally for runtime access
-(window as any).APP_SETTINGS = APP_SETTINGS;
-(window as any).isProduction = isProduction;
+settingsGlobalScope.APP_SETTINGS = APP_SETTINGS;
+settingsGlobalScope.isProduction = isProduction;
 
 export default APP_SETTINGS;

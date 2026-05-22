@@ -7,8 +7,14 @@ let lastPointerY: number | null = null;
 
 const SPINNER_OFFSET_PX = 18;
 const POINTER_STORAGE_KEY = 'loadingCursor.lastPointer';
+const canUseLoadingCursorDom =
+    typeof window !== 'undefined' && typeof document !== 'undefined';
 
 function restoreStoredPointerPosition(): void {
+    if (!canUseLoadingCursorDom || typeof sessionStorage === 'undefined') {
+        return;
+    }
+
     try {
         const raw = sessionStorage.getItem(POINTER_STORAGE_KEY);
         if (!raw) {
@@ -26,6 +32,10 @@ function restoreStoredPointerPosition(): void {
 }
 
 function persistPointerPosition(): void {
+    if (!canUseLoadingCursorDom || typeof sessionStorage === 'undefined') {
+        return;
+    }
+
     if (lastPointerX === null || lastPointerY === null) {
         return;
     }
@@ -41,6 +51,10 @@ function persistPointerPosition(): void {
 }
 
 function getSpinnerPosition(): { x: number; y: number } {
+    if (!canUseLoadingCursorDom) {
+        return { x: 0, y: 0 };
+    }
+
     const fallbackX = Math.round(window.innerWidth / 2);
     const fallbackY = Math.round(window.innerHeight / 2);
     const x = lastPointerX ?? fallbackX;
@@ -63,6 +77,10 @@ function updateSpinnerPosition(): void {
 }
 
 function initializePointerTracking(): void {
+    if (!canUseLoadingCursorDom) {
+        return;
+    }
+
     if (pointerTrackingInitialized) {
         return;
     }
@@ -79,6 +97,10 @@ function initializePointerTracking(): void {
 }
 
 function getOrCreateLoadingCursorSpinner(): HTMLDivElement {
+    if (!canUseLoadingCursorDom) {
+        throw new Error('Loading cursor spinner requires browser DOM access.');
+    }
+
     if (loadingCursorSpinner) {
         return loadingCursorSpinner;
     }
@@ -110,6 +132,10 @@ function showCursorSpinner(body: HTMLElement): void {
     updateSpinnerPosition();
     spinner.style.display = 'block';
 
+    if (typeof spinner.animate !== 'function') {
+        return;
+    }
+
     if (!spinnerAnimation) {
         spinnerAnimation = spinner.animate(
             [
@@ -138,6 +164,10 @@ function hideCursorSpinner(): void {
 }
 
 function applyLoadingCursor(): void {
+    if (!canUseLoadingCursorDom) {
+        return;
+    }
+
     const body = document.body;
 
     if (!body) {
@@ -148,10 +178,18 @@ function applyLoadingCursor(): void {
 }
 
 function clearLoadingCursor(): void {
+    if (!canUseLoadingCursorDom) {
+        return;
+    }
+
     hideCursorSpinner();
 }
 
 export function beginLoadingCursor(): void {
+    if (!canUseLoadingCursorDom) {
+        return;
+    }
+
     loadingCursorCount += 1;
 
     if (loadingCursorCount === 1) {
@@ -160,6 +198,10 @@ export function beginLoadingCursor(): void {
 }
 
 export function endLoadingCursor(): void {
+    if (!canUseLoadingCursorDom) {
+        return;
+    }
+
     if (loadingCursorCount > 0) {
         loadingCursorCount -= 1;
     }
@@ -169,4 +211,6 @@ export function endLoadingCursor(): void {
     }
 }
 
-initializePointerTracking();
+if (canUseLoadingCursorDom) {
+    initializePointerTracking();
+}
