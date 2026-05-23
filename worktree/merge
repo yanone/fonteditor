@@ -30,20 +30,15 @@ fi
 echo "━━━ Merging '$BRANCH' into main ━━━"
 echo ""
 
-# --- Check worktree state ---
+# --- Check worktree state and auto-commit if dirty ---
+COMMIT_MSG="feature/$NAME"
 if [ -d "$WORKTREE_PATH" ]; then
     echo "Worktree found at $WORKTREE_PATH"
     if git -C "$WORKTREE_PATH" status --porcelain | grep -q .; then
-        echo "Warning: Worktree has uncommitted changes."
-        echo "Options:"
-        echo "  abort  — Cancel (commit/stash manually first)"
-        echo "  force  — Remove worktree anyway (discards uncommitted changes)"
-        echo ""
-        read -p "Action [abort/force]: " ACTION
-        if [ "$ACTION" != "force" ]; then
-            echo "Aborted."
-            exit 1
-        fi
+        echo "Worktree has uncommitted changes — auto-committing..."
+        git -C "$WORKTREE_PATH" add -A
+        git -C "$WORKTREE_PATH" commit -m "$COMMIT_MSG"
+        echo "  Committed as: $COMMIT_MSG"
     fi
 fi
 
@@ -53,7 +48,7 @@ git fetch origin main 2>/dev/null || true
 
 # --- Merge ---
 git checkout main
-git merge "$BRANCH" --no-ff -m "Merge feature/$NAME into main"
+git merge "$BRANCH" --no-ff -m "$COMMIT_MSG"
 
 echo ""
 echo "✓ Merge complete."
@@ -62,15 +57,11 @@ echo "✓ Merge complete."
 echo ""
 echo "Removing worktree..."
 if [ -d "$WORKTREE_PATH" ]; then
-    if git -C "$WORKTREE_PATH" status --porcelain | grep -q .; then
-        # Force removal if uncommitted changes
-        git worktree remove "$WORKTREE_PATH" --force 2>/dev/null || \
-            rm -rf "$WORKTREE_PATH"
+    git worktree remove "$WORKTREE_PATH" 2>/dev/null || {
+        git worktree remove "$WORKTREE_PATH" --force 2>/dev/null || rm -rf "$WORKTREE_PATH"
         echo "  Worktree removed (forced): $WORKTREE_PATH"
-    else
-        git worktree remove "$WORKTREE_PATH"
-        echo "  Worktree removed: $WORKTREE_PATH"
-    fi
+    }
+    echo "  Worktree removed: $WORKTREE_PATH"
 else
     echo "  Worktree not found at $WORKTREE_PATH (already removed)."
 fi
