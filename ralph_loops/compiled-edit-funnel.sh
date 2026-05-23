@@ -1,60 +1,77 @@
-ralph "Act as Ralph Wiggum on a mission to protect the CompiledEditFunnel.
+ralph "Act as Ralph Wiggum on a mission to protect the editing compile funnels.
 
-The CompiledEditFunnel is the single post-commit reaction owner for ALL editing
-font compiles. Every committed Yjs packet, local or remote, MUST enter this
-funnel. There is no other path to trigger an editing compile from committed data.
+Counterpunch now has two related compile funnels:
+
+- `webapp/js/compiled-edit-funnel.ts` owns every COMMITTED editing-font compile
+   wake-up after a Yjs packet lands locally or remotely.
+- `webapp/js/live-drag-edit-funnel.ts` owns PRE-COMMIT live mouse-drag refreshes
+   and drag-time compile wake-ups while the pointer is still down.
+
+Keep those roles distinct. Committed packets MUST enter the committed funnel.
+Active drags may use the live drag funnel before commit, but must drain it
+before mouse-up finalization so drag-time state cannot poison later keyboard,
+undo/redo, or remote compiles.
 
 Follow this exact process every loop:
 
-1. VERIFY THE FUNNEL IS THE ONLY COMPILE TRIGGER
+1. VERIFY COMPILE TRIGGERS ONLY LIVE IN THE RIGHT FUNNEL
 
    Search the entire codebase for direct calls to:
    - window.autoCompileManager.checkAndSchedule()
    - window.autoCompileManager?.checkAndSchedule?.()
    - fontManager.requestRecompileWithoutDataChange()
 
-   For every hit outside webapp/js/compiled-edit-funnel.ts and
-   webapp/js/auto-compile-manager.ts, determine:
+    For every hit outside:
+    - webapp/js/compiled-edit-funnel.ts
+    - webapp/js/live-drag-edit-funnel.ts
+    - webapp/js/auto-compile-manager.ts
+
+    determine which side of the boundary it belongs to:
 
    a) If it's during an ACTIVE MOUSE DRAG (no Yjs commit yet):
-      - Drag live refresh MUST keep its direct autoCompileManager call.
-      - It MUST NOT call setEditingCompileContext.
-      - It MUST NOT call scheduleFullCompileDebounce.
+         - It belongs in the live drag funnel.
+         - The drag path may request a live compile directly.
+         - It MUST NOT request the committed funnel in parallel.
+         - It MUST drain before mouse-up commit finalization.
 
    b) If it's after a COMMITTED EDIT (keyboard, mouse-up, property panel,
       undo/redo):
       - REMOVE the direct autoCompileManager call.
       - The edit MUST go through: mutate model -> Yjs commit ->
         handleCommittedChangeRefresh -> CompiledEditFunnel.processCommittedEdit()
-      - The funnel will infer the edit type from Yjs metadata and set the
-        compile context.
+         - The committed funnel will infer the edit type from Yjs metadata.
 
    c) If it's scheduleFullCompileDebounce:
-      - REMOVE it. The funnel's armDeferredFullCompile() handles this.
+         - REMOVE it unless the call is clearly legacy/backward-compat.
+         - Prefer the committed funnel's armDeferredFullCompile().
       - The funnel timer fires processCommittedEdit('deferred-full', null).
 
    d) If it's markDirty calling fullCompileManager.checkAndSchedule:
       - REMOVE it. The full-compile manager's 200ms monitor detects
         changeVersion increments naturally.
 
-2. VERIFY COMPILE CONTEXT HYGIENE
+2. VERIFY BOTH FUNNELS HAVE CLEAN BOUNDARIES
 
    Search for calls to:
    - fontManager.setEditingCompileContext(...)
-   - this.setInteractiveAnchorCompileContext()
-   - this.setSidebearingKeyCompileContext()
+    - fontManager.clearEditingCompileContext(...)
+    - liveDragEditFunnel.queue(...)
+    - drainLiveDragRefreshBeforeCommit()
 
-   The ONLY code that may set compile context is:
-   - CompiledEditFunnel.processCommittedEdit() line with:
-     fm.setEditingCompileContext(changeSource, editType as ...)
+    Allowed owners are:
+    - `CompiledEditFunnel.processCommittedEdit()` for committed requests.
+    - `LiveDragEditFunnel.requestLiveCompile()` for active drag requests only.
 
-   All other call sites must be removed. The funnel owns the context.
-   Drag live refresh paths must NOT set it (they don't need it — the
-   drag compiles use whatever mode is active; the final mouse-up compile
-   through the funnel will get the right mode from Yjs metadata).
+    Requirements:
+    - Live drag compile context must be request-scoped and cleared immediately
+       after the drag request is queued.
+    - Mouse-up commit paths must not leave queued or running drag refresh work
+       behind after finalization.
+    - Keyboard, undo/redo, property-panel, remote, and drag-end committed paths
+       must derive their compile mode from committed metadata, not stale drag globals.
 
    In all cases, try to simplify code and code paths, not add new workarounds or exceptions.
-   The funnel is designed to be the single source of truth for compile context.
+    The funnels are designed to separate live drag work from committed work.
 
 
 3. VERIFY NON-COMPILING EDIT TYPES
@@ -71,7 +88,18 @@ Follow this exact process every loop:
 
    Guide edits still sync to Yjs for undo/history, but the funnel skips them.
 
-4. RUN THE CANONICAL FUNNEL TESTS
+4. CHECK THE LIVE DRAG FUNNEL TOO
+
+   Read `webapp/js/live-drag-edit-funnel.ts` and the drag-end path in
+   `webapp/js/glyph-canvas/outline-editor.ts`.
+
+   Confirm:
+   a) Live drag requests only run while the drag is active.
+   b) Mouse-up drains the live drag funnel before the final committed save/Yjs sync.
+   c) A late drag refresh cannot bump compile state after the committed edit has taken over.
+   d) Non-compiling drag helpers like guide or contrast-axis do not accidentally arm a committed compile.
+
+5. RUN THE CANONICAL FUNNEL TESTS
 
    cd webapp && npx jest tests/canonical/compiled-edit-funnel.test.js
 
@@ -90,14 +118,25 @@ Follow this exact process every loop:
    k) NO guard blocks the funnel — it always processes even when
       lastFullCompiledDataVersion >= changeVersion
 
-5. RUN THE FULL TEST SUITE
+6. RUN RELATED LIVE-EDIT TESTS
+
+   Also run focused tests around:
+   - webapp/tests/canonical/live-drag-edit-funnel.test.js
+   - webapp/tests/font-manager.test.js
+
+   Pay special attention to regressions where:
+   - a mouse drag leaves stale compile context behind
+   - a mouse drag leaves stale canonical JSON that breaks later keyboard compiles
+   - a queued drag refresh survives mouseup and supersedes a later keyboard compile
+
+7. RUN THE FULL TEST SUITE
 
    cd webapp && npx jest --no-coverage
 
    Only pre-existing failures are acceptable. If NEW tests fail, the change
    introduced a regression and must be reverted or fixed.
 
-6. VERIFY THE POLICY DOC IS IN SYNC
+8. VERIFY THE POLICY DOC IS IN SYNC
 
    Read developer-docs/COMPILATION_EDIT_POLICY.md and check:
 
@@ -111,7 +150,7 @@ Follow this exact process every loop:
    Read and understand the Document Collaboration section in APP.md 
    to ensure the funnel architecture aligns with the overall collaboration model.
 
-7. WARN ABOUT THESE SPECIFIC REGRESSION PATTERNS
+9. WARN ABOUT THESE SPECIFIC REGRESSION PATTERNS
 
    If you see ANY of these, flag them immediately:
 
@@ -122,16 +161,23 @@ Follow this exact process every loop:
    b) scheduleFullCompileDebounce being called from anywhere outside
       backward-compat callers. The funnel owns the deferred timer.
 
-   c) Any code setting lastChangeSource/lastEditType outside the funnel.
-      The funnel is the sole owner.
+   c) Any code setting committed compile context from stale drag state after mouseup.
+      Request-scoped drag state must not poison later committed compiles.
 
-   d) Any guide edit path calling saveLayerData during drag.
+   d) Any drag path that does not drain `LiveDragEditFunnel` before final commit.
+      Late drag refreshes must not survive into keyboard/undo/redo time.
+
+   e) Any guide edit path calling saveLayerData during drag.
       Guide edits mutate the model directly in _updateDraggedGuide and sync
       to Yjs on mouseup. No saveLayerData needed during drag.
 
-   e) Any full-font JSON resend, storeFontJson, initYdoc, or seedYdoc
+   f) Any full-font JSON resend, storeFontJson, initYdoc, or seedYdoc
       appearing in an interactive edit path. Steady-state editing is
       incremental-Yjs-only (Core Rule 11).
+
+   g) Any non-drag interactive compile reusing stale canonical JSON after a prior drag.
+      Active mouse drags may stay on their live incremental path, but the next
+      committed keyboard/undo/redo compile must not build on a stale pre-drag base.
 
 Output <promise>DONE</promise> when complete." \
   --max-iterations 10

@@ -83,9 +83,7 @@ describe('CompiledEditFunnel', () => {
         test('sets compile context for anchor edits', async () => {
             await process('keyboard-anchor', 'anchor');
 
-            expect(window.fontManager.lastChangeSource).toBe(
-                'keyboard-anchor'
-            );
+            expect(window.fontManager.lastChangeSource).toBe('keyboard-anchor');
             expect(window.fontManager.lastEditType).toBe('anchor');
             expect(
                 window.fontManager.currentFont.requestRecompileWithoutDataChange
@@ -175,6 +173,46 @@ describe('CompiledEditFunnel', () => {
                 window.fontManager.currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(1);
         });
+
+        test('waitForCompletion waits for the requested compiled revision', async () => {
+            window.fontManager.currentFont.requestRecompileWithoutDataChange.mockImplementation(
+                () => {
+                    window.fontManager.currentFont.compileRequestVersion += 1;
+                }
+            );
+            window.autoCompileManager.forceTrigger.mockImplementation(
+                async () => {
+                    window.dispatchEvent(
+                        new CustomEvent('editingFontCompiled', {
+                            detail: { fontRevisionKey: '10' }
+                        })
+                    );
+                }
+            );
+
+            const processPromise = process('keyboard-outline', 'outline', {
+                forceTrigger: true,
+                waitForCompletion: true
+            });
+            let settled = false;
+            processPromise.then(() => {
+                settled = true;
+            });
+
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(settled).toBe(false);
+
+            window.dispatchEvent(
+                new CustomEvent('editingFontCompiled', {
+                    detail: { fontRevisionKey: '11' }
+                })
+            );
+
+            await processPromise;
+            expect(settled).toBe(true);
+        });
     });
 
     describe('deferred full compile', () => {
@@ -206,16 +244,15 @@ describe('CompiledEditFunnel', () => {
         test('re-arms when drag is active', async () => {
             await process('keyboard-outline', 'outline');
             const callCountBefore =
-                window.fontManager.currentFont
-                    .requestRecompileWithoutDataChange.mock.calls.length;
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
+                    .mock.calls.length;
 
             // Drag becomes active before timer fires
             window.glyphCanvas.outlineEditor.draggingSomething = true;
             jest.advanceTimersByTime(500);
             // Drag still active — should re-arm, not fire
             expect(
-                window.fontManager.currentFont
-                    .requestRecompileWithoutDataChange
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(callCountBefore);
 
             // Drag ends
@@ -224,8 +261,7 @@ describe('CompiledEditFunnel', () => {
 
             // Should fire now
             expect(
-                window.fontManager.currentFont
-                    .requestRecompileWithoutDataChange
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(callCountBefore + 1);
         });
 
@@ -234,23 +270,22 @@ describe('CompiledEditFunnel', () => {
 
             await process('keyboard-outline', 'outline');
             const callCountBefore =
-                window.fontManager.currentFont
-                    .requestRecompileWithoutDataChange.mock.calls.length;
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
+                    .mock.calls.length;
 
             jest.advanceTimersByTime(500);
 
             // Timer fires but skips because lastCompilationMode is 'full'
             expect(
-                window.fontManager.currentFont
-                    .requestRecompileWithoutDataChange
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(callCountBefore);
         });
 
         test('timer is cancelled and re-armed on subsequent edits', async () => {
             await process('keyboard-outline', 'outline');
             const callCountBefore =
-                window.fontManager.currentFont
-                    .requestRecompileWithoutDataChange.mock.calls.length;
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
+                    .mock.calls.length;
 
             // Second edit re-arms the timer
             jest.advanceTimersByTime(400);
@@ -259,15 +294,13 @@ describe('CompiledEditFunnel', () => {
             // Timer shouldn't fire at 500ms from first edit (re-armed)
             jest.advanceTimersByTime(100);
             expect(
-                window.fontManager.currentFont
-                    .requestRecompileWithoutDataChange
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(callCountBefore + 1); // +1 for second edit
 
             // Should fire 500ms from second edit
             jest.advanceTimersByTime(400);
             expect(
-                window.fontManager.currentFont
-                    .requestRecompileWithoutDataChange
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(callCountBefore + 2); // +1 for deferred
         });
     });

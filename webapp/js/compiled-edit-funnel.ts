@@ -22,12 +22,45 @@ const console = new Logger('CompiledEditFunnel');
 const DEFERRED_FULL_MS = 500;
 
 /** Edit types that should NOT trigger font recompilation. */
-const NON_COMPILING_EDIT_TYPES = new Set<string>([
-    'guide',
-    'contrast-axis'
-]);
+const NON_COMPILING_EDIT_TYPES = new Set<string>(['guide', 'contrast-axis']);
 
 let deferredTimer: number | null = null;
+
+function setCompileContext(
+    fm: typeof window.fontManager,
+    changeSource: string,
+    editType: 'anchor' | 'outline' | 'kerning-value' | 'kerning-groups' | null
+): void {
+    if (typeof fm.setEditingCompileContext === 'function') {
+        fm.setEditingCompileContext(changeSource, editType);
+        return;
+    }
+
+    fm.lastChangeSource = changeSource;
+    fm.lastEditType = editType;
+}
+
+function waitForEditingFontRevision(targetRevision: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+        const finish = () => {
+            window.removeEventListener('editingFontCompiled', handler);
+            resolve();
+        };
+
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent).detail;
+            const fontRevision = Number(detail?.fontRevisionKey);
+            if (!Number.isFinite(fontRevision)) {
+                return;
+            }
+            if (fontRevision >= targetRevision) {
+                finish();
+            }
+        };
+
+        window.addEventListener('editingFontCompiled', handler);
+    });
+}
 
 /**
  * Process a committed edit through the funnel.
@@ -66,9 +99,15 @@ export async function processCommittedEdit(
 
     // Set transient compile context for this request.
     // Cast is safe: non-compiling edit_types already filtered above.
-    fm.setEditingCompileContext(
+    setCompileContext(
+        fm,
         changeSource,
-        editType as 'anchor' | 'outline' | 'kerning-value' | 'kerning-groups' | null
+        editType as
+            | 'anchor'
+            | 'outline'
+            | 'kerning-value'
+            | 'kerning-groups'
+            | null
     );
 
     // Request the editing compile.
@@ -77,6 +116,11 @@ export async function processCommittedEdit(
 
     const canForceTrigger =
         typeof window.autoCompileManager?.forceTrigger === 'function';
+    const targetRevision = fm.currentFont.compileRequestVersion;
+    const completionPromise =
+        options?.waitForCompletion && canForceTrigger
+            ? waitForEditingFontRevision(targetRevision)
+            : null;
 
     // Force-trigger for remote, undo, redo.
     if (options?.forceTrigger && canForceTrigger) {
@@ -87,31 +131,8 @@ export async function processCommittedEdit(
         }
     }
 
-    // Wait for completion when undo/redo needs it.
-    // Only effective when forceTrigger is available — without it, the compile
-    // is fire-and-forget and there's no reliable completion signal.
-    if (options?.waitForCompletion && canForceTrigger) {
-        const targetRevision = fm.currentFont.compileRequestVersion;
-        await new Promise<void>((resolve) => {
-            const handler = () => {
-                if (
-                    fm.currentFont &&
-                    fm.currentFont.compileRequestVersion >= targetRevision
-                ) {
-                    window.removeEventListener('editingFontCompiled', handler);
-                    resolve();
-                }
-            };
-            window.addEventListener('editingFontCompiled', handler);
-            // Already at or past the target — resolve immediately.
-            if (
-                fm.currentFont &&
-                fm.currentFont.compileRequestVersion >= targetRevision
-            ) {
-                window.removeEventListener('editingFontCompiled', handler);
-                resolve();
-            }
-        });
+    if (completionPromise) {
+        await completionPromise;
     }
 
     // Arm the deferred full-compile timer for fast-path edit types.

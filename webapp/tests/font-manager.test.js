@@ -156,7 +156,7 @@ describe('FontManager saveLayerData', () => {
         });
     });
 
-    test('keeps live editing auto-compile for interactive outline drag saves', async () => {
+    test('interactive outline drag saves wait for the committed Yjs compile funnel', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
         );
@@ -179,9 +179,15 @@ describe('FontManager saveLayerData', () => {
         expect(
             window.autoCompileManager.checkAndSchedule
         ).not.toHaveBeenCalled();
+        expect(fontManager.currentFont.markDirty).toHaveBeenCalledWith(
+            'mouse-drag-outline',
+            { requestEditingCompile: false }
+        );
+        expect(fontManager.lastChangeSource).toBeNull();
+        expect(fontManager.lastEditType).toBeNull();
     });
 
-    test('keeps live editing auto-compile for interactive anchor drag saves', async () => {
+    test('interactive anchor drag saves wait for the committed Yjs compile funnel', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
         );
@@ -204,6 +210,12 @@ describe('FontManager saveLayerData', () => {
         expect(
             window.autoCompileManager.checkAndSchedule
         ).not.toHaveBeenCalled();
+        expect(fontManager.currentFont.markDirty).toHaveBeenCalledWith(
+            'mouse-drag-anchor',
+            { requestEditingCompile: false }
+        );
+        expect(fontManager.lastChangeSource).toBeNull();
+        expect(fontManager.lastEditType).toBeNull();
     });
 
     test('normalizeLayerForRust canonicalizes malformed component transforms', () => {
@@ -546,7 +558,7 @@ describe('FontManager saveLayerData', () => {
             cloneJson(layer),
             'keyboard-outline'
         );
-expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
+        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
             0
         );
         expect(
@@ -1144,6 +1156,36 @@ describe('FontManager editing subset inclusion', () => {
         });
     });
 
+    test('compileEditingFont uses request-scoped context after live drag globals are cleared', async () => {
+        fontManager.currentFont.compileRequestVersion = 2;
+        compileEditingSpy.mockResolvedValueOnce({
+            result: new Uint8Array([1, 2, 3]),
+            filename: 'editing.ttf',
+            time_taken: 1,
+            fontRevisionKey: '2'
+        });
+
+        fontManager.setEditingCompileContext('mouse-drag-outline', 'outline');
+        fontManager.recordEditingCompileRequestContext(2);
+        fontManager.clearEditingCompileContext();
+        window.glyphCanvas.outlineEditor.draggingSomething = false;
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'mouse-drag-outline',
+            dragActive: true,
+            optionOverrides: {
+                skip_features: true,
+                skip_kerning: true,
+                produce_varc_table: false
+            }
+        });
+        expect(fontManager.lastChangeSource).toBeNull();
+        expect(fontManager.lastEditType).toBeNull();
+    });
+
     test('mouse-drag outline compiles do not force a full JSON sync when incremental layer patching is available', async () => {
         fontManager.lastChangeSource = 'mouse-drag-outline';
         fontManager.lastEditType = 'outline';
@@ -1159,6 +1201,50 @@ describe('FontManager editing subset inclusion', () => {
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
             compileSource: 'mouse-drag-outline',
             usePatchedWorkerCache: true
+        });
+    });
+
+    test('keyboard outline compile after a drag resyncs stale canonical JSON before compiling', async () => {
+        fontManager.lastChangeSource = 'keyboard-outline';
+        fontManager.lastEditType = 'outline';
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(fontManager.currentFont.syncJsonFromModel).toHaveBeenCalledTimes(
+            1
+        );
+        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'keyboard-outline',
+            optionOverrides: {
+                skip_features: true,
+                skip_kerning: true,
+                produce_varc_table: false
+            }
+        });
+    });
+
+    test('remote outline compile after a drag resyncs stale canonical JSON before compiling', async () => {
+        fontManager.lastChangeSource = 'remote-outline';
+        fontManager.lastEditType = 'outline';
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(fontManager.currentFont.syncJsonFromModel).toHaveBeenCalledTimes(
+            1
+        );
+        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'remote-outline',
+            optionOverrides: {
+                skip_features: true,
+                skip_kerning: true,
+                produce_varc_table: false
+            }
         });
     });
 

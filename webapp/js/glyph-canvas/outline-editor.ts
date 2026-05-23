@@ -35,6 +35,7 @@ import {
     getSidebearingTransactionLabel,
     type SidebearingSide
 } from '../sidebearing-utils';
+import { LiveDragEditFunnel } from '../live-drag-edit-funnel';
 import { translateLayerContentsX } from '../x-translation-utils';
 import { refreshGlyphOverviewFromGlyphNames } from '../change-bridge-init';
 import { Bezier } from 'bezier-js';
@@ -2946,17 +2947,12 @@ export class OutlineEditor {
     private _componentDragDeltaX: number = 0;
     private _sidebearingAffectedGlyphNames: Set<string> = new Set();
     private _anchorAffectedGlyphNames: Set<string> = new Set();
-    private _liveAnchorRefreshPromise: Promise<void> | null = null;
-    private _liveAnchorRefreshQueued: boolean = false;
+    private liveDragEditFunnel = new LiveDragEditFunnel();
     private _cachedAnchorDragScopeSourceGlyphName: string | null = null;
     private _cachedAnchorDragScopeVisibleKey: string = '';
     private _cachedAnchorDragScopeGlyphNames: Set<string> | null = null;
-    private _liveOutlineRefreshPromise: Promise<void> | null = null;
-    private _liveOutlineRefreshQueued: boolean = false;
     private _liveOutlineRefreshGlyphNames: Set<string> = new Set();
     private _liveOutlineRefreshChangeSource: string | null = null;
-    private _liveSidebearingRefreshPromise: Promise<void> | null = null;
-    private _liveSidebearingRefreshQueued: boolean = false;
     private _pointDragPreserveHandlePositions: boolean = false;
     private _offCurveAltDragConstraint: {
         contourIndex: number;
@@ -3962,8 +3958,7 @@ export class OutlineEditor {
     }
 
     private resetLiveOutlineRefreshState(): void {
-        this._liveOutlineRefreshQueued = false;
-        this._liveOutlineRefreshPromise = null;
+        this.liveDragEditFunnel.clearQueued();
         this._liveOutlineRefreshGlyphNames = new Set();
         this._liveOutlineRefreshChangeSource = null;
     }
@@ -4008,51 +4003,51 @@ export class OutlineEditor {
         }
         this._liveOutlineRefreshChangeSource = changeSource;
 
-        if (this._liveOutlineRefreshPromise) {
-            this._liveOutlineRefreshQueued = true;
-            return;
-        }
+        this.liveDragEditFunnel.queue({
+            kind: 'outline',
+            compile: {
+                changeSource,
+                editType: 'outline'
+            },
+            isActive: () =>
+                this.draggingSomething &&
+                !this.isDraggingGuide &&
+                !this.isDraggingContrastAxis,
+            run: async () => {
+                const currentFont = fontManager.currentFont;
+                const currentLayerId = this.getCurrentLayerId();
+                const glyphNames = Array.from(
+                    this._liveOutlineRefreshGlyphNames
+                );
 
-        const runRefresh = async () => {
-            this._liveOutlineRefreshQueued = false;
+                this._liveOutlineRefreshGlyphNames = new Set();
+                this._liveOutlineRefreshChangeSource = null;
 
-            const currentFont = fontManager.currentFont;
-            const currentLayerId = this.getCurrentLayerId();
-            const glyphNames = Array.from(this._liveOutlineRefreshGlyphNames);
-            const liveChangeSource =
-                this._liveOutlineRefreshChangeSource || changeSource;
-
-            this._liveOutlineRefreshGlyphNames = new Set();
-            this._liveOutlineRefreshChangeSource = null;
-
-            if (!currentFont || glyphNames.length === 0) {
-                return;
-            }
-
-            const explicitLayerInput = this.getCurrentExplicitLayerCacheInput();
-
-            await fontManager.refreshGlyphsAfterModelBatch(
-                glyphNames,
-                currentLayerId,
-                {
-                    dispatchGlyphChanged: false,
-                    skipFingerprintBaseline: true,
-                    ...(explicitLayerInput
-                        ? { explicitLayerData: [explicitLayerInput] }
-                        : undefined)
+                if (!currentFont || glyphNames.length === 0) {
+                    return false;
                 }
-            );
 
-            currentFont.requestRecompileWithoutDataChange();
-            window.autoCompileManager?.checkAndSchedule?.();
-        };
+                const explicitLayerInput =
+                    this.getCurrentExplicitLayerCacheInput();
 
-        this._liveOutlineRefreshPromise = runRefresh().finally(() => {
-            this._liveOutlineRefreshPromise = null;
-            if (this._liveOutlineRefreshQueued) {
-                this.queueLiveVisibleOutlineDependentRefresh(
-                    changeSource,
-                    new Set()
+                await fontManager.refreshGlyphsAfterModelBatch(
+                    glyphNames,
+                    currentLayerId,
+                    {
+                        dispatchGlyphChanged: false,
+                        skipFingerprintBaseline: true,
+                        ...(explicitLayerInput
+                            ? { explicitLayerData: [explicitLayerInput] }
+                            : undefined)
+                    }
+                );
+
+                return true;
+            },
+            onError: (error) => {
+                console.error(
+                    '[OutlineEditor] Error refreshing live outline-dependent glyphs:',
+                    error
                 );
             }
         });
@@ -4089,8 +4084,8 @@ export class OutlineEditor {
         const currentLayerId = this.getCurrentLayerId();
 
         if (options?.liveVisibleOnly) {
-            // Fire-and-forget: batch source + downstream layer updates
-            // into a single worker cache sync + compilation run.
+            // Batch source + downstream layer updates into a single worker
+            // cache sync. The live drag funnel owns the compile wake-up.
             // Always include the source glyph even when there are no downstream
             // dependents — the source glyph itself needs to be recompiled so
             // the live text run reflects the current drag state.
@@ -4101,8 +4096,10 @@ export class OutlineEditor {
             if (allGlyphNames.length === 0) {
                 return;
             }
-            return fontManager
-                .refreshGlyphsAfterModelBatch(allGlyphNames, currentLayerId, {
+            await fontManager.refreshGlyphsAfterModelBatch(
+                allGlyphNames,
+                currentLayerId,
+                {
                     dispatchGlyphChanged: false,
                     skipFingerprintBaseline: true,
                     ...(options.explicitLayerInput
@@ -4110,20 +4107,9 @@ export class OutlineEditor {
                               explicitLayerData: [options.explicitLayerInput]
                           }
                         : undefined)
-                })
-                .then(() => {
-                    if (!this.isDraggingSidebearing) {
-                        return;
-                    }
-                    currentFont.requestRecompileWithoutDataChange?.();
-                    window.autoCompileManager?.checkAndSchedule?.();
-                })
-                .catch((error) => {
-                    console.error(
-                        '[OutlineEditor] Error refreshing live sidebearing-dependent glyphs:',
-                        error
-                    );
-                });
+                }
+            );
+            return;
         }
 
         // Non-drag path: incremental worker cache update + a single
@@ -4327,9 +4313,6 @@ export class OutlineEditor {
                     }
                 );
             }
-
-            currentFont.requestRecompileWithoutDataChange();
-            window.autoCompileManager?.checkAndSchedule?.();
             return;
         }
 
@@ -4358,8 +4341,7 @@ export class OutlineEditor {
     }
 
     private resetLiveAnchorRefreshState(): void {
-        this._liveAnchorRefreshQueued = false;
-        this._liveAnchorRefreshPromise = null;
+        this.liveDragEditFunnel.clearQueued();
         this._cachedAnchorDragScopeSourceGlyphName = null;
         this._cachedAnchorDragScopeVisibleKey = '';
         this._cachedAnchorDragScopeGlyphNames = null;
@@ -4394,50 +4376,45 @@ export class OutlineEditor {
     }
 
     private queueLiveVisibleAnchorDependentRefresh(): void {
-        if (this._liveAnchorRefreshPromise) {
-            this._liveAnchorRefreshQueued = true;
-            return;
-        }
+        this.liveDragEditFunnel.queue({
+            kind: 'anchor',
+            compile: {
+                changeSource: 'mouse-drag-anchor',
+                editType: 'anchor'
+            },
+            isActive: () =>
+                this.draggingSomething &&
+                (this.isDraggingAnchor || this.isResizingSelection),
+            run: async () => {
+                const currentFont = fontManager.currentFont;
+                const fontModel = currentFont?.fontModel;
+                const sourceGlyphName = this.getCurrentGlyphModel()?.name;
+                if (!fontModel || !sourceGlyphName) {
+                    return false;
+                }
 
-        const runRefresh = async () => {
-            // Collapse all queued refreshes into a single pass over
-            // the latest model state. Only the final position matters.
-            this._liveAnchorRefreshQueued = false;
+                const allowedGlyphNames =
+                    this.getCachedAnchorDragScopeGlyphNames(
+                        sourceGlyphName,
+                        fontModel
+                    );
+                this._anchorAffectedGlyphNames =
+                    this.rebuildAutomaticCompositesForCurrentEditedGlyph({
+                        allowedGlyphNames
+                    });
 
-            const currentFont = fontManager.currentFont;
-            const fontModel = currentFont?.fontModel;
-            const sourceGlyphName = this.getCurrentGlyphModel()?.name;
-            if (!fontModel || !sourceGlyphName) {
-                return;
-            }
-
-            const allowedGlyphNames = this.getCachedAnchorDragScopeGlyphNames(
-                sourceGlyphName,
-                fontModel
-            );
-            this._anchorAffectedGlyphNames =
-                this.rebuildAutomaticCompositesForCurrentEditedGlyph({
-                    allowedGlyphNames
-                });
-
-            try {
                 await this.syncDependentGlyphsAfterAnchorEdit(
                     sourceGlyphName,
                     this._anchorAffectedGlyphNames,
                     { liveVisibleOnly: true }
                 );
-            } catch (error) {
+                return true;
+            },
+            onError: (error) => {
                 console.error(
                     '[OutlineEditor] Error refreshing live anchor-dependent glyphs:',
                     error
                 );
-            }
-        };
-
-        this._liveAnchorRefreshPromise = runRefresh().finally(() => {
-            this._liveAnchorRefreshPromise = null;
-            if (this._liveAnchorRefreshQueued) {
-                this.queueLiveVisibleAnchorDependentRefresh();
             }
         });
     }
@@ -4479,66 +4456,44 @@ export class OutlineEditor {
         }
 
         this._lastLiveAnchorRefreshTime = now;
-        this.setInteractiveAnchorCompileContext();
         this.queueLiveVisibleAnchorDependentRefresh();
     }
 
-    private setInteractiveAnchorCompileContext(): void {
-        fontManager.setEditingCompileContext(
-            this.draggingSomething ? 'mouse-drag-anchor' : 'keyboard-anchor',
-            'anchor'
-        );
-    }
-
     private resetLiveSidebearingRefreshState(): void {
-        this._liveSidebearingRefreshQueued = false;
-        this._liveSidebearingRefreshPromise = null;
+        this.liveDragEditFunnel.clearQueued();
     }
 
-    private async drainLiveSidebearingRefreshBeforeCommit(): Promise<void> {
-        while (this._liveSidebearingRefreshPromise) {
-            const pendingRefresh = this._liveSidebearingRefreshPromise;
-            this._liveSidebearingRefreshQueued = false;
-            try {
-                await pendingRefresh;
-            } catch {
-                // The refresh path logs its own failures; the final committed
-                // Yjs packet below remains authoritative.
-            }
-            if (this._liveSidebearingRefreshPromise === pendingRefresh) {
-                this._liveSidebearingRefreshPromise = null;
-            }
-        }
+    private async drainLiveDragRefreshBeforeCommit(): Promise<void> {
+        await this.liveDragEditFunnel.drainAndClearQueued();
     }
 
     private queueLiveVisibleSidebearingDependentRefresh(): void {
-        if (this._liveSidebearingRefreshPromise) {
-            this._liveSidebearingRefreshQueued = true;
-            return;
-        }
-
-        const runRefresh = async () => {
-            this._liveSidebearingRefreshQueued = false;
-
-            const currentFont = fontManager.currentFont;
-            const fontModel = currentFont?.fontModel;
-            const sourceGlyphName = this.getCurrentGlyphModel()?.name;
-            if (!fontModel || !sourceGlyphName) {
-                return;
-            }
-
-            const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(
-                false,
-                {
-                    useVisibleDragScope: true,
-                    rebuildAutomaticComposites: true
+        this.liveDragEditFunnel.queue({
+            kind: 'sidebearing',
+            compile: {
+                changeSource: 'mouse-drag-outline',
+                editType: 'outline'
+            },
+            isActive: () => this.isDraggingSidebearing,
+            run: async () => {
+                const currentFont = fontManager.currentFont;
+                const fontModel = currentFont?.fontModel;
+                const sourceGlyphName = this.getCurrentGlyphModel()?.name;
+                if (!fontModel || !sourceGlyphName) {
+                    return false;
                 }
-            );
-            const affectedGlyphNames =
-                metricsUpdate?.affectedGlyphNames ||
-                new Set<string>([sourceGlyphName]);
 
-            try {
+                const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(
+                    false,
+                    {
+                        useVisibleDragScope: true,
+                        rebuildAutomaticComposites: true
+                    }
+                );
+                const affectedGlyphNames =
+                    metricsUpdate?.affectedGlyphNames ||
+                    new Set<string>([sourceGlyphName]);
+
                 const explicitLayerInput =
                     this.getCurrentExplicitLayerCacheInput();
                 await this.syncDependentGlyphsAfterSidebearingEdit(
@@ -4549,18 +4504,13 @@ export class OutlineEditor {
                         explicitLayerInput: explicitLayerInput ?? undefined
                     }
                 );
-            } catch (error) {
+                return true;
+            },
+            onError: (error) => {
                 console.error(
                     '[OutlineEditor] Error refreshing live sidebearing-dependent glyphs:',
                     error
                 );
-            }
-        };
-
-        this._liveSidebearingRefreshPromise = runRefresh().finally(() => {
-            this._liveSidebearingRefreshPromise = null;
-            if (this._liveSidebearingRefreshQueued) {
-                this.queueLiveVisibleSidebearingDependentRefresh();
             }
         });
     }
@@ -4574,11 +4524,17 @@ export class OutlineEditor {
         }
 
         this._lastLiveSidebearingRefreshTime = now;
-        fontManager.setEditingCompileContext(
-            this.draggingSomething ? 'mouse-drag-outline' : 'keyboard-outline',
-            'outline'
-        );
         this.queueLiveVisibleSidebearingDependentRefresh();
+    }
+
+    private queueNonCompilingLiveDragEdit(
+        kind: 'guide' | 'contrast-axis'
+    ): void {
+        this.liveDragEditFunnel.queue({
+            kind,
+            isActive: () => this.draggingSomething,
+            run: () => true
+        });
     }
 
     private getBoundingBoxCenterScreenPosition(): {
@@ -11260,7 +11216,10 @@ export class OutlineEditor {
         // Yjs sync on mouse-up still enables undo/history; the committed-change
         // funnel detects the 'guide' edit type and skips compilation.
         if (this.isDraggingGuide) {
+            this.queueNonCompilingLiveDragEdit('guide');
             // Model already updated via _updateDraggedGuide — no saveLayerData needed.
+        } else if (this.isDraggingContrastAxis) {
+            this.queueNonCompilingLiveDragEdit('contrast-axis');
         } else if (this.isSlidingSmoothPointAlongCurve) {
             // Sliding a smooth point is applied directly to the model so linked
             // layers stay in sync. Persist once on mouse up.
@@ -11700,9 +11659,7 @@ export class OutlineEditor {
         // Update worker font cache after dragging ends
         if (wasDragging) {
             try {
-                if (dragType === 'sidebearing') {
-                    await this.drainLiveSidebearingRefreshBeforeCommit();
-                }
+                await this.drainLiveDragRefreshBeforeCommit();
 
                 // Flush the final saveLayerData that throttling may have skipped
                 if (this._hasMoved && dragType !== 'guide') {
@@ -15043,7 +15000,6 @@ export class OutlineEditor {
         // workerReplayTargets are collected for the undo fast path.
         this._anchorAffectedGlyphNames =
             this.rebuildAutomaticCompositesForCurrentEditedGlyph();
-        this.setInteractiveAnchorCompileContext();
 
         // Wrap keyboard edit in a transaction so model changes from
         // saveLayerData and auto-composite cascade are committed as
@@ -17269,8 +17225,7 @@ export class OutlineEditor {
                     }
                     // Replace the stored layer with a fresh JSON snapshot from
                     // the font model so the bridge delta includes cascade changes.
-                    storedGlyph.layers[storedLayerIndex] =
-                        modelLayer.toJSON();
+                    storedGlyph.layers[storedLayerIndex] = modelLayer.toJSON();
                 }
             }
 

@@ -219,6 +219,11 @@ type CapturedGlyphCanvasState = {
     } | null;
 };
 
+type EditingCompileContext = {
+    changeSource: string | null;
+    editType: 'outline' | 'anchor' | 'kerning-value' | 'kerning-groups' | null;
+};
+
 class OpenedFont {
     babelfontJson: string;
     babelfontData: any;
@@ -408,13 +413,22 @@ class OpenedFont {
      * - hasUnsavedChanges: save indicator and unload warnings
      * This allows tracking whether data changed during compilation
      */
-    markDirty(changeSource?: string): void {
-        this.needsRecompile = true;
+    markDirty(
+        changeSource?: string,
+        options?: { requestEditingCompile?: boolean }
+    ): void {
+        const requestEditingCompile = options?.requestEditingCompile !== false;
+        this.needsRecompile = requestEditingCompile;
         if (!this.isCloudBacked()) {
             this.hasUnsavedChanges = true;
         }
         this.changeVersion++;
         this.compileRequestVersion++;
+        if (requestEditingCompile) {
+            (window as any).fontManager?.recordEditingCompileRequestContext?.(
+                this.compileRequestVersion
+            );
+        }
         // Wake the full-font Q:C/ monitor so Fontspector catches up without
         // waiting for the 200 ms polling interval. The editing-font compile
         // is NOT triggered here — it runs through the Yjs committed-change
@@ -430,6 +444,9 @@ class OpenedFont {
     requestRecompileWithoutDataChange(): void {
         this.needsRecompile = true;
         this.compileRequestVersion++;
+        (window as any).fontManager?.recordEditingCompileRequestContext?.(
+            this.compileRequestVersion
+        );
     }
 
     isCloudBacked(): boolean {
@@ -579,6 +596,10 @@ class FontManager {
     workerCacheUpdatePromise: Promise<void> | null;
     forceFullEditingCacheRefresh: boolean;
     workerLayerFingerprintCache: Map<string, string>;
+    private editingCompileContextsByRevision: Map<
+        string,
+        EditingCompileContext
+    >;
     private workerCacheYDoc: Y.Doc | null;
     private workerYjsSendQueue: Promise<unknown>;
 
@@ -640,6 +661,7 @@ class FontManager {
         this.workerCacheUpdatePromise = null;
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache = new Map();
+        this.editingCompileContextsByRevision = new Map();
         this.workerCacheYDoc = null;
         this.workerYjsSendQueue = Promise.resolve();
 
@@ -670,11 +692,50 @@ class FontManager {
         this.setEditingCompileContext(null, null);
     }
 
+    recordEditingCompileRequestContext(compileRequestVersion: number): void {
+        const revisionKey = String(compileRequestVersion);
+        this.editingCompileContextsByRevision.set(revisionKey, {
+            changeSource: this.lastChangeSource,
+            editType: this.lastEditType
+        });
+        this.pruneEditingCompileRequestContexts(compileRequestVersion);
+    }
+
+    private getEditingCompileContextForRequest(
+        revisionKey: string
+    ): EditingCompileContext {
+        return (
+            this.editingCompileContextsByRevision.get(revisionKey) ?? {
+                changeSource: this.lastChangeSource,
+                editType: this.lastEditType
+            }
+        );
+    }
+
+    private clearEditingCompileRequestContext(revisionKey: string): void {
+        this.editingCompileContextsByRevision.delete(revisionKey);
+    }
+
+    private pruneEditingCompileRequestContexts(
+        currentCompileRequestVersion: number
+    ): void {
+        for (const revisionKey of this.editingCompileContextsByRevision.keys()) {
+            const revision = Number(revisionKey);
+            if (
+                Number.isFinite(revision) &&
+                revision < currentCompileRequestVersion - 20
+            ) {
+                this.editingCompileContextsByRevision.delete(revisionKey);
+            }
+        }
+    }
+
     private clearEditingCompileContextIfCurrentRequest(
         changeSource: string | null,
         editType: typeof this.lastEditType,
         revisionKey: string
     ): void {
+        this.clearEditingCompileRequestContext(revisionKey);
         if (!this.currentFont) {
             return;
         }
@@ -1860,17 +1921,20 @@ class FontManager {
             this.currentFont.compileRequestVersion
         );
         let requestedRevisionKey = responseRevisionKey;
-        let incrementalChangeSource = this.lastChangeSource;
-        let editTypeAtRequest: typeof this.lastEditType = this.lastEditType;
+        let compileContextAtRequest =
+            this.getEditingCompileContextForRequest(requestedRevisionKey);
+        let incrementalChangeSource = compileContextAtRequest.changeSource;
+        let editTypeAtRequest: typeof this.lastEditType =
+            compileContextAtRequest.editType;
 
-        const compileSource = this.lastChangeSource || 'unknown';
-        const isIncrementalEditingCompile =
+        let compileSource = incrementalChangeSource || 'unknown';
+        let isIncrementalEditingCompile =
             compileSource.startsWith('mouse-drag') ||
             compileSource.startsWith('keyboard') ||
             compileSource.startsWith('remote-');
-        const isMouseDragSource = compileSource.startsWith('mouse-drag');
-        const isKeyboardSource = compileSource.startsWith('keyboard');
-        const isRemoteSource = compileSource.startsWith('remote-');
+        let isMouseDragSource = compileSource.startsWith('mouse-drag');
+        let isKeyboardSource = compileSource.startsWith('keyboard');
+        let isRemoteSource = compileSource.startsWith('remote-');
         const forceFullWorkerCompileAtStart = this.forceFullEditingCacheRefresh;
         const shouldPrepareIncrementalLayerUpdate =
             (isMouseDragSource || isKeyboardSource) &&
@@ -1907,9 +1971,14 @@ class FontManager {
         // Always sync when the JSON is stale (e.g. after undo/redo/remote sync),
         // even during incremental editing compiles, so the Rust compiler never
         // receives stale format artifacts from the model.
+        const canKeepStaleJsonDuringActiveMouseDrag =
+            wasJsonStale &&
+            canUseIncrementalDirtyLayerPatch &&
+            isMouseDragSource;
+
         if (
             !isIncrementalEditingCompile ||
-            (wasJsonStale && !canUseIncrementalDirtyLayerPatch)
+            (wasJsonStale && !canKeepStaleJsonDuringActiveMouseDrag)
         ) {
             try {
                 if (!this.syncBabelfontJsonFromCurrentModel()) {
@@ -2048,8 +2117,20 @@ class FontManager {
                 requestedRevisionKey = String(
                     this.currentFont.compileRequestVersion
                 );
-                incrementalChangeSource = this.lastChangeSource;
-                editTypeAtRequest = this.lastEditType;
+                compileContextAtRequest =
+                    this.getEditingCompileContextForRequest(
+                        requestedRevisionKey
+                    );
+                incrementalChangeSource = compileContextAtRequest.changeSource;
+                editTypeAtRequest = compileContextAtRequest.editType;
+                compileSource = incrementalChangeSource || 'unknown';
+                isIncrementalEditingCompile =
+                    compileSource.startsWith('mouse-drag') ||
+                    compileSource.startsWith('keyboard') ||
+                    compileSource.startsWith('remote-');
+                isMouseDragSource = compileSource.startsWith('mouse-drag');
+                isKeyboardSource = compileSource.startsWith('keyboard');
+                isRemoteSource = compileSource.startsWith('remote-');
                 dragActiveAtRequest =
                     isMouseDragSource ||
                     !!window.glyphCanvas?.outlineEditor?.draggingSomething;
@@ -2172,6 +2253,7 @@ class FontManager {
                 console.log(
                     `[FontManager] Ignoring stale editing compile result (response v${responseRevisionKey}, current v${this.currentFont.compileRequestVersion})`
                 );
+                this.clearEditingCompileRequestContext(responseRevisionKey);
                 return this.editingFont;
             }
 
@@ -2245,6 +2327,7 @@ class FontManager {
                 // after the debounce full compile already cleared it.
                 this.lastFullCompiledDataVersion =
                     this.currentFont.changeVersion;
+                this.clearEditingCompileRequestContext(responseRevisionKey);
                 this.clearEditingCompileContext();
             } else {
                 this.clearEditingCompileContextIfCurrentRequest(
@@ -2419,7 +2502,13 @@ class FontManager {
         const startCompileRequestVersion =
             this.currentFont.compileRequestVersion;
 
-        const changeSource = this.lastChangeSource || 'unknown';
+        const startCompileContext = this.getEditingCompileContextForRequest(
+            String(startCompileRequestVersion)
+        );
+        const changeSource =
+            startCompileContext.changeSource ||
+            this.lastChangeSource ||
+            'unknown';
         const isOutlineIncrementalChange =
             changeSource.startsWith('mouse-drag') ||
             changeSource.startsWith('keyboard');
@@ -4439,14 +4528,24 @@ class FontManager {
             this.pendingBabelfontJsonSyncAfterDrag = false;
         }
 
-        const editType = changeSource.endsWith('-anchor')
-            ? 'anchor'
-            : changeSource.endsWith('-outline')
-              ? 'outline'
-              : null;
-        this.setEditingCompileContext(changeSource, editType);
+        if (isInteractiveEdit) {
+            this.clearEditingCompileContext();
+        } else {
+            const editType = changeSource.endsWith('-anchor')
+                ? 'anchor'
+                : changeSource.endsWith('-outline')
+                  ? 'outline'
+                  : null;
+            this.setEditingCompileContext(changeSource, editType);
+        }
 
-        this.currentFont!.markDirty(changeSource);
+        if (isInteractiveEdit) {
+            this.currentFont!.markDirty(changeSource, {
+                requestEditingCompile: false
+            });
+        } else {
+            this.currentFont!.markDirty(changeSource);
+        }
         await this.updateDirtyIndicator();
 
         // Update worker's font cache incrementally so glyph overview renders
