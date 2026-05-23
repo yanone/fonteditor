@@ -19,9 +19,28 @@
         "1. **Integration-level race**: The unit tests all pass, meaning unit-level logic is correct. The failure is likely a race or ordering issue between the Yjs worker callback, the committed funnel, and t",
         "4. **Test reliability**: The test uses `waitForTimeout` with fixed timeouts (50-600ms) between operations. Under heavy system load, these may not be sufficient for compile settle. Check if the failure"
       ]
+    },
+    {
+      "iteration": 2,
+      "startedAt": "2026-05-23T23:08:18.541Z",
+      "endedAt": "2026-05-23T23:14:05.207Z",
+      "durationMs": 335782,
+      "agent": "opencode",
+      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "toolsUsed": {},
+      "filesModified": [],
+      "exitCode": 0,
+      "completionDetected": false,
+      "errors": [
+        "The task is to make `keyboard-after-drag-handoff.spec.ts` pass. This Playwright test exercises a specific user scenario on glyph \"a\": keyboard-nudge a node down 50u, drag a sidebearing handle left 50u",
+        "OK so the compile path should be correct. Let me think about what else could cause the test to fail.",
+        "The strategy doc identified the root cause as `bridge.onDirty` → `markDirty` creating an ambient compile. The fix was `markDirty(undefined, { requestEditingCompile: false })`. But the Playwright test ",
+        "### Step 1: Run the test to observe the actual failure",
+        "[ ] Run the test to see the actual failure"
+      ]
     }
   ],
-  "totalDurationMs": 191551,
+  "totalDurationMs": 527333,
   "struggleIndicators": {
     "repeatedErrors": {
       "**Task understanding:** Run the Playwright test `keyboard-after-drag-handoff.spec.ts`, diagnose why ": 1,
@@ -29,9 +48,14 @@
       "1. **Run the Playwright test** to observe the actual failure mode (which assertion fails, what the s": 1,
       "1. **Run Playwright test** in non-headless mode or with trace capture to see the exact failure:": 1,
       "1. **Integration-level race**: The unit tests all pass, meaning unit-level logic is correct. The fai": 1,
-      "4. **Test reliability**: The test uses `waitForTimeout` with fixed timeouts (50-600ms) between opera": 1
+      "4. **Test reliability**: The test uses `waitForTimeout` with fixed timeouts (50-600ms) between opera": 1,
+      "The task is to make `keyboard-after-drag-handoff.spec.ts` pass. This Playwright test exercises a spe": 1,
+      "OK so the compile path should be correct. Let me think about what else could cause the test to fail.": 1,
+      "The strategy doc identified the root cause as `bridge.onDirty` → `markDirty` creating an ambient com": 1,
+      "### Step 1: Run the test to observe the actual failure": 1,
+      "[ ] Run the test to see the actual failure": 1
     },
-    "noProgressIterations": 1,
+    "noProgressIterations": 2,
     "shortIterations": 0
   }
 }
