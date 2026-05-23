@@ -95,6 +95,8 @@ echo "Config written: $CONFIG_DIR/worktree-config.json"
 # --- Install npm dependencies ---
 echo "Installing npm dependencies..."
 npm --prefix "$WORKTREE_PATH/webapp" install
+# Also install root deps (gitnexus, etc.) so MCP tools work in the worktree
+npm --prefix "$WORKTREE_PATH" install --ignore-scripts 2>/dev/null || true
 
 echo ""
 echo "✓ Worktree ready!"
