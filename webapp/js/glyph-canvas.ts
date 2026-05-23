@@ -4599,12 +4599,11 @@ class GlyphCanvas {
             usesIncrementalLayerRefresh || layer.isAutomaticAlignedLayer();
 
         if (!modelChanged && !shouldRecompileAfterRefresh) {
+            // No actual font data change — restore previous compile context.
             fontManager.setEditingCompileContext(
                 previousChangeSource,
                 previousEditType
             );
-        } else if (!resolution.error) {
-            fontManager.scheduleFullCompileDebounce?.();
         }
 
         try {

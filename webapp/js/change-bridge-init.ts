@@ -19,6 +19,7 @@ import { Font } from './babelfont-model';
 import { WindowSync } from './window-sync';
 import { fontCompilation, fullFontCompilation } from './font-compilation';
 import { Logger } from './logger';
+import { processCommittedEdit } from './compiled-edit-funnel';
 import {
     deriveGlyphNamesFromPaths,
     deriveGlyphName,
@@ -705,6 +706,7 @@ export function buildCascadingRecompositionOperations(
 type CommittedCompileEditType =
     | 'anchor'
     | 'outline'
+    | 'guide'
     | 'kerning-value'
     | 'kerning-groups'
     | null;
@@ -856,6 +858,15 @@ function inferCommittedEditTypeFromEntries(
             };
         }
         if (
+            label.toLowerCase().includes('guide') ||
+            /(^|\.)guides(\.|$)/.test(path)
+        ) {
+            return {
+                editType: 'guide',
+                changeSource: changeSourceFor('guide')
+            };
+        }
+        if (
             isLayerSnapshotWithShapes(entry.replayOldValue) ||
             isLayerSnapshotWithShapes(entry.replayNewValue) ||
             isLayerSnapshotWithShapes(entry.oldValue) ||
@@ -903,6 +914,9 @@ function getCommittedChangeSource(
         if (editType === 'outline') {
             return 'remote-outline';
         }
+        if (editType === 'guide') {
+            return 'remote-guide';
+        }
         if (editType === 'kerning-value') {
             return 'remote-kerning-value';
         }
@@ -917,6 +931,9 @@ function getCommittedChangeSource(
     }
     if (editType === 'outline') {
         return 'keyboard-outline';
+    }
+    if (editType === 'guide') {
+        return 'keyboard-guide';
     }
     if (editType === 'kerning-value') {
         return 'keyboard-kerning-value';
@@ -1432,6 +1449,19 @@ export function waitForEditingFontCompileRevision(
     });
 }
 
+/**
+ * Route a committed edit through the single post-commit funnel.
+ *
+ * Delegates to CompiledEditFunnel.processCommittedEdit() which owns:
+ *   - compile context management
+ *   - editing compile wakeup
+ *   - deferred full-compile timer (replaces scheduleFullCompileDebounce)
+ *
+ * The guard that previously blocked incremental compiles when
+ * lastFullDataVersion >= changeVersion is removed.  The funnel always
+ * processes — redundant compiles are prevented by recompileEditingFont's
+ * own check (no-op when compileRequestVersion hasn't changed).
+ */
 async function requestCommittedEditingFontCompile(
     changeSource: string,
     editType?: CommittedCompileEditType,
@@ -1440,78 +1470,7 @@ async function requestCommittedEditingFontCompile(
         waitForCompletion?: boolean;
     }
 ): Promise<void> {
-    const fm = window.fontManager;
-    if (!fm?.currentFont) {
-        return;
-    }
-
-    // Bridge/bootstrap can emit a local committed-change wake-up before the
-    // first startup editing compile settles. That request carries no source
-    // data changes (changeVersion stays at 0), so bumping compileRequestVersion
-    // only makes the in-flight startup compile look stale and leaves the app
-    // without an initial editing font. The startup compile already owns the
-    // first ready font; once it lands, normal committed-change requests resume.
-    if (
-        changeSource === 'change-bridge-local' &&
-        fm.currentFont.changeVersion === 0 &&
-        !fm.editingFont
-    ) {
-        return;
-    }
-
-    // Incremental-compile guard: if a full compile has already covered the
-    // current font-data version (changeVersion), an incremental (outline /
-    // anchor / kerning) compile arriving from the committed-change funnel now
-    // would be redundant.  This happens when scheduleFullCompileDebounce fires
-    // its 500 ms full compile *before* handleCommittedChangeRefresh finishes
-    // awaiting the Rust worker.  Without this guard the late-arriving funnel
-    // call would re-arm lastChangeSource with a stale value, downgrade
-    // lastCompilationMode from 'full' to 'outline-only', and poison the
-    // next edit's compile context (APP.md Document Collaboration rule).
-    // forceTrigger bypasses the guard so that remote peers and undo/redo
-    // always produce a fresh compile regardless of the local compile history.
-    const isIncrementalEditType =
-        editType === 'outline' ||
-        editType === 'anchor' ||
-        editType === 'kerning-value' ||
-        editType === 'kerning-groups';
-    const lastFullDataVersion = fm.lastFullCompiledDataVersion ?? -1;
-    if (
-        !options?.forceTrigger &&
-        isIncrementalEditType &&
-        lastFullDataVersion >= fm.currentFont.changeVersion
-    ) {
-        return;
-    }
-
-    fm.setEditingCompileContext?.(changeSource, editType ?? null);
-
-    const targetRevision = fm.currentFont.compileRequestVersion + 1;
-    const canForceTrigger =
-        typeof window.autoCompileManager?.forceTrigger === 'function';
-    const waitPromise =
-        options?.waitForCompletion && canForceTrigger
-            ? waitForEditingFontCompileRevision(targetRevision)
-            : null;
-
-    fm.currentFont.requestRecompileWithoutDataChange();
-    window.autoCompileManager?.checkAndSchedule?.();
-
-    if (
-        options?.forceTrigger &&
-        typeof window.autoCompileManager?.forceTrigger === 'function'
-    ) {
-        try {
-            await window.autoCompileManager.forceTrigger();
-        } catch {
-            // Fall through to the revision wait; compile errors are reported
-            // through the normal error path.
-        }
-    }
-
-    if (waitPromise) {
-        await waitPromise;
-    }
+    return processCommittedEdit(changeSource, editType ?? null, options);
 }
 
 async function awaitLocalCommittedWorkerCacheSettled(

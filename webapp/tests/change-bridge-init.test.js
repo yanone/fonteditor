@@ -333,7 +333,15 @@ describe('handleRemoteChangeRefresh', () => {
             },
             editingFont: new Uint8Array([1, 2, 3]),
             lastChangeSource: null,
-            lastEditType: null
+            lastEditType: null,
+            setEditingCompileContext(changeSource, editType) {
+                this.lastChangeSource = changeSource;
+                this.lastEditType = editType;
+            },
+            clearEditingCompileContext() {
+                this.lastChangeSource = null;
+                this.lastEditType = null;
+            }
         };
         window.autoCompileManager = {
             checkAndSchedule

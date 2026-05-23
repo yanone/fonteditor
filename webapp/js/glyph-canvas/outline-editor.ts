@@ -4029,8 +4029,6 @@ export class OutlineEditor {
                 return;
             }
 
-            fontManager.setEditingCompileContext(liveChangeSource, 'outline');
-
             const explicitLayerInput = this.getCurrentExplicitLayerCacheInput();
 
             await fontManager.refreshGlyphsAfterModelBatch(
@@ -11256,10 +11254,13 @@ export class OutlineEditor {
         // Anchor drag recomposition and sidebearing drag live refresh already
         // keep the model in sync and trigger compilation; saveLayerData would
         // be redundant.
+        // Guides and contrast-axis edits are editing-time helpers.
+        // The model is already mutated directly in _updateDraggedGuide;
+        // no saveLayerData or compilation is needed during drag.
+        // Yjs sync on mouse-up still enables undo/history; the committed-change
+        // funnel detects the 'guide' edit type and skips compilation.
         if (this.isDraggingGuide) {
-            if (this.selectedGuideHandle?.scope === 'layer') {
-                this.saveLayerData('mouse-drag-guide');
-            }
+            // Model already updated via _updateDraggedGuide — no saveLayerData needed.
         } else if (this.isSlidingSmoothPointAlongCurve) {
             // Sliding a smooth point is applied directly to the model so linked
             // layers stay in sync. Persist once on mouse up.
@@ -17228,6 +17229,51 @@ export class OutlineEditor {
             allTargets.length &&
             typeof window.patchSyncEngine.syncLayersFromJson === 'function'
         ) {
+            // SaveLayerData repointed the bridge snapshot (babelfontData) with
+            // only the directly edited layer.  Cascade-affected downstream layers
+            // were updated in the font model but NOT in babelfontData.  Merge
+            // those downstream layers into babelfontData now so the bridge's
+            // syncLayersFromJson delta computation sees current data for ALL
+            // targets and generates correct Yjs patches for every affected layer.
+            // Without this merge, syncLayersFromJson compares stale
+            // babelfontData against Yjs, sees no diff for downstream layers,
+            // and silently drops the cascade — breaking undo, collaboration,
+            // and subsequent worker-cache-right compiles.
+            const fontModel = fontManager.currentFont?.fontModel;
+            if (fontModel) {
+                for (const target of allTargets) {
+                    if (
+                        target.glyphName === editedGlyphName &&
+                        target.layerId === activeLayerId
+                    ) {
+                        continue; // Already saved by saveLayerData
+                    }
+                    const modelGlyph = fontModel.findGlyph(target.glyphName);
+                    const modelLayer = modelGlyph?.findLayerById?.(
+                        target.layerId
+                    );
+                    if (!modelLayer) continue;
+                    const storedGlyph =
+                        fontManager.currentFont?.babelfontData?.glyphs?.find(
+                            (g: any) => g.name === target.glyphName
+                        );
+                    if (!storedGlyph) continue;
+                    const storedLayerIndex = storedGlyph.layers?.findIndex(
+                        (l: any) => l.id === target.layerId
+                    );
+                    if (
+                        storedLayerIndex === undefined ||
+                        storedLayerIndex < 0
+                    ) {
+                        continue;
+                    }
+                    // Replace the stored layer with a fresh JSON snapshot from
+                    // the font model so the bridge delta includes cascade changes.
+                    storedGlyph.layers[storedLayerIndex] =
+                        modelLayer.toJSON();
+                }
+            }
+
             window.patchSyncEngine.syncLayersFromJson(
                 allTargets,
                 label,

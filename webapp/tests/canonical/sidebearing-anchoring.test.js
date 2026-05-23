@@ -195,7 +195,15 @@ describe('Sidebearing undo visual anchoring', () => {
             currentFont,
             awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
             lastChangeSource: null,
-            lastEditType: null
+            lastEditType: null,
+            setEditingCompileContext(changeSource, editType) {
+                this.lastChangeSource = changeSource;
+                this.lastEditType = editType;
+            },
+            clearEditingCompileContext() {
+                this.lastChangeSource = null;
+                this.lastEditType = null;
+            }
         };
         originalWindow.patchSyncEngine = originalWindow.changeBridge = {
             undo: jest.fn(() => {
@@ -354,7 +362,15 @@ describe('Sidebearing undo visual anchoring', () => {
             currentFont,
             awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
             lastChangeSource: null,
-            lastEditType: null
+            lastEditType: null,
+            setEditingCompileContext(changeSource, editType) {
+                this.lastChangeSource = changeSource;
+                this.lastEditType = editType;
+            },
+            clearEditingCompileContext() {
+                this.lastChangeSource = null;
+                this.lastEditType = null;
+            }
         };
         originalWindow.patchSyncEngine = originalWindow.changeBridge = {
             undo: jest.fn(() => {

@@ -171,8 +171,10 @@ describe('FontManager saveLayerData', () => {
             'mouse-drag-outline'
         );
 
+        // scheduleFullCompileDebounce is now handled by CompiledEditFunnel,
+        // not by saveLayerData itself.
         expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
-            1
+            0
         );
         expect(
             window.autoCompileManager.checkAndSchedule
@@ -194,8 +196,10 @@ describe('FontManager saveLayerData', () => {
             'mouse-drag-anchor'
         );
 
+        // scheduleFullCompileDebounce is now handled by CompiledEditFunnel,
+        // not by saveLayerData itself.
         expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
-            1
+            0
         );
         expect(
             window.autoCompileManager.checkAndSchedule
@@ -542,9 +546,8 @@ describe('FontManager saveLayerData', () => {
             cloneJson(layer),
             'keyboard-outline'
         );
-
-        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
-            1
+expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
+            0
         );
         expect(
             window.autoCompileManager.checkAndSchedule
@@ -568,7 +571,7 @@ describe('FontManager saveLayerData', () => {
         );
 
         expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
-            1
+            0
         );
         expect(
             window.autoCompileManager.checkAndSchedule

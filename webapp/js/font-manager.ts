@@ -415,6 +415,10 @@ class OpenedFont {
         }
         this.changeVersion++;
         this.compileRequestVersion++;
+        // Wake the full-font Q:C/ monitor so Fontspector catches up without
+        // waiting for the 200 ms polling interval. The editing-font compile
+        // is NOT triggered here — it runs through the Yjs committed-change
+        // funnel (CompiledEditFunnel.processCommittedEdit) instead.
         window.fullCompileManager?.checkAndSchedule?.();
     }
 
@@ -4441,13 +4445,6 @@ class FontManager {
               ? 'outline'
               : null;
         this.setEditingCompileContext(changeSource, editType);
-
-        const deferInteractiveCompile = isInteractiveEdit && editType !== null;
-
-        // Schedule debounced full compile after interactive editing stops
-        if (deferInteractiveCompile) {
-            this.scheduleFullCompileDebounce();
-        }
 
         this.currentFont!.markDirty(changeSource);
         await this.updateDirtyIndicator();
