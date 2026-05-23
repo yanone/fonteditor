@@ -584,8 +584,124 @@
                 id="horizontal-divider"
             ></div>
 
-            <!-- Bottom row with five views -->
+            <!-- Bottom row with six views -->
             <div class="bottom-row">
+                <div class="view view-agent" id="view-agent">
+                    <div class="view-title-bar">
+                        <div class="view-title-left">
+                            <div class="view-title-heading">
+                                <span class="view-title-name">Agent</span>
+                                <span class="view-title-shortcut"
+                                    ><span class="material-symbols-outlined"
+                                        >keyboard_command_key</span
+                                    ><span class="material-symbols-outlined"
+                                        >arrow_upward</span
+                                    >G</span
+                                >
+                            </div>
+                            <div class="view-title-actions"></div>
+                        </div>
+                        <div class="view-title-right">
+                            <button
+                                id="agent-new-chat-btn"
+                                class="view-title-button"
+                                title="Start a new agent chat"
+                            >
+                                <span class="material-symbols-outlined"
+                                    >add</span
+                                >
+                            </button>
+                        </div>
+                    </div>
+                    <div class="view-content">
+                        <!-- Login prompt for unauthenticated users -->
+                        <div id="agent-login-container" style="display: none">
+                            <div class="ai-login-content">
+                                <span
+                                    class="material-symbols-outlined ai-login-icon"
+                                    >lock</span
+                                >
+                                <h2>Sign In Required</h2>
+                                <p>
+                                    You need to sign in with an active
+                                    subscription to use the Agent.
+                                </p>
+                                <button
+                                    id="agent-login-btn"
+                                    class="ai-login-button"
+                                >
+                                    <span class="material-symbols-outlined"
+                                        >login</span
+                                    >
+                                    Sign In
+                                </button>
+                                <p class="ai-login-note">
+                                    You'll be redirected to sign in and then
+                                    brought back here.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Subscription required message -->
+                        <div
+                            id="agent-subscription-container"
+                            style="display: none"
+                        >
+                            <div class="ai-login-content">
+                                <span
+                                    class="material-symbols-outlined ai-login-icon"
+                                    >workspace_premium</span
+                                >
+                                <h2>Advanced Subscription Required</h2>
+                                <p>
+                                    The Agent is available with an Advanced
+                                    subscription.
+                                </p>
+                                <button
+                                    id="agent-account-btn"
+                                    class="ai-login-button"
+                                >
+                                    <span class="material-symbols-outlined"
+                                        >manage_accounts</span
+                                    >
+                                    Manage Account
+                                </button>
+                                <p class="ai-login-note">
+                                    Upgrade to Advanced to access the Agent.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Chat interface for authenticated users -->
+                        <div id="agent-chat-container" style="display: none">
+                            <div id="agent-messages"></div>
+                            <div id="agent-input-container">
+                                <div id="agent-prompt-wrapper">
+                                    <textarea
+                                        id="agent-prompt"
+                                        placeholder="Ask the Agent about the app..."
+                                        data-1p-ignore
+                                    ></textarea>
+                                </div>
+                                <div class="agent-input-controls">
+                                    <button
+                                        id="agent-send-btn"
+                                        class="agent-send-button"
+                                    >
+                                        <span class="material-symbols-outlined"
+                                            >robot_2</span
+                                        >
+                                        Ask Agent
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div
+                    class="divider vertical-divider"
+                    id="vertical-divider-3"
+                ></div>
                 <div class="view view-assistant" id="view-assistant">
                     <div class="view-title-bar">
                         <div class="view-title-left">
@@ -844,7 +960,7 @@
                 </div>
                 <div
                     class="divider vertical-divider"
-                    id="vertical-divider-3"
+                    id="vertical-divider-4"
                 ></div>
                 <div class="view view-scripts" id="view-scripts">
                     <div class="view-title-bar">
@@ -921,7 +1037,7 @@
                 </div>
                 <div
                     class="divider vertical-divider"
-                    id="vertical-divider-4"
+                    id="vertical-divider-5"
                 ></div>
                 <div class="view view-console" id="view-console">
                     <div class="view-title-bar">
@@ -960,7 +1076,7 @@
                 </div>
                 <div
                     class="divider vertical-divider"
-                    id="vertical-divider-5"
+                    id="vertical-divider-6"
                 ></div>
                 <div class="view view-history" id="view-history">
                     <div class="view-title-bar">

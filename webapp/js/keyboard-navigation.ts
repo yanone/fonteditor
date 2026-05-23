@@ -1283,6 +1283,23 @@
                 }, delay);
             }
 
+            // If activating agent, focus prompt
+            if (viewId === 'view-agent') {
+                const settings = getViewSettings();
+                const delay = settings?.animation?.enabled
+                    ? settings.animation.duration + 50
+                    : 100;
+
+                setTimeout(() => {
+                    if (viaKeyboard || wasExpanded) {
+                        const prompt = document.getElementById('agent-prompt');
+                        if (prompt) {
+                            prompt.focus();
+                        }
+                    }
+                }, delay);
+            }
+
             // If activating editor, focus the canvas
             if (viewId === 'view-editor') {
                 setTimeout(() => {

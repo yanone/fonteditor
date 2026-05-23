@@ -1,6 +1,7 @@
 import TabLifecycleManager from './tab-lifecycle';
 import ThemeSwitcher from './theme-switcher';
 import AIAssistant from './ai-assistant';
+import AIAgent from './ai-agent';
 import CacheManager from './cache-manager';
 import type { FontCompilation } from './font-compilation';
 import FontManager from './font-manager';
@@ -122,6 +123,7 @@ declare global {
 
         // From ai-assistant.js
         aiAssistant: AIAssistant;
+        aiAgent: AIAssistant;
 
         // From file-browser.ts
         showFontFileDialog:

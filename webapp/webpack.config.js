@@ -101,6 +101,17 @@ module.exports = {
                     from: 'worktree-config.json',
                     to: 'worktree-config.json',
                     noErrorOnMissing: true
+                },
+                // Handbook documentation for the Agent's tool execution
+                {
+                    from: path.resolve(__dirname, '../documentation'),
+                    to: 'handbook'
+                },
+                // API.md for the Agent's python_api_docs tool
+                {
+                    from: path.resolve(__dirname, '../API.md'),
+                    to: 'API.md',
+                    noErrorOnMissing: true
                 }
             ]
         })
