@@ -4638,6 +4638,49 @@ kbd + kbd {
     max-width: 100%;
 }
 
+/* Agent stream indicator (spinner + stop button) */
+#agent-stream-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.agent-stream-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border-primary);
+    border-top: 2px solid var(--view-agent);
+    border-radius: 50%;
+    animation: agent-spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+.agent-stop-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--border-primary);
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 0;
+    transition: all 0.15s ease;
+}
+
+.agent-stop-button:hover {
+    color: var(--view-assistant);
+    border-color: var(--view-assistant);
+    background-color: rgba(239, 65, 54, 0.1);
+}
+
+.agent-stop-button .material-symbols-outlined {
+    font-size: 16px;
+}
+
 /* ======================== END AGENT VIEW ======================== */
 
 /* Diff Review Modal */

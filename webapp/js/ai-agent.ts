@@ -25,6 +25,7 @@ class AIAgent {
     isAuthenticated: boolean;
     subscription: any;
     isStreaming: boolean;
+    abortController: AbortController | null;
     messages: Array<{ role: string; content: string }>;
     conversationMessages: Array<any>;
 
@@ -38,6 +39,7 @@ class AIAgent {
         this.isAuthenticated = false;
         this.subscription = null;
         this.isStreaming = false;
+        this.abortController = null;
         this.messages = [];
         this.conversationMessages = [];
 
@@ -118,6 +120,13 @@ class AIAgent {
 
         document.getElementById('agent-new-chat-btn')?.addEventListener('click', () => this.newChat());
 
+        document.getElementById('agent-stop-btn')?.addEventListener('click', () => {
+            if (this.abortController) {
+                this.abortController.abort();
+                this.abortController = null;
+            }
+        });
+
         this.promptInput.addEventListener('input', () => {
             this.promptInput!.style.height = 'auto';
             this.promptInput!.style.height = Math.min(this.promptInput!.scrollHeight, 120) + 'px';
@@ -184,7 +193,7 @@ class AIAgent {
 
     // ── Single streaming round ──
 
-    async streamRound(messages: any[], onChunk: (text: string) => void): Promise<any> {
+    async streamRound(messages: any[], onChunk: (text: string) => void, signal?: AbortSignal): Promise<any> {
         const sessionToken = window.authManager?.getSessionToken();
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
@@ -192,6 +201,7 @@ class AIAgent {
         const response = await fetch(`${this.getWebsiteURL()}/api/ai/agent`, {
             method: 'POST',
             headers,
+            signal,
             body: JSON.stringify({
                 messages,
                 tools: AGENT_TOOLS,
@@ -253,15 +263,20 @@ class AIAgent {
         this.promptInput.style.height = 'auto';
         this.isStreaming = true;
         if (this.sendButton) (this.sendButton as HTMLButtonElement).disabled = true;
+        this.showStreamIndicator();
 
         this.addMessage('user', prompt);
         const conversationMessages: any[] = [...this.conversationMessages, { role: 'user', content: prompt }];
         this.showInitialStatus();
 
-try {
+        const abortController = new AbortController();
+        this.abortController = abortController;
+        const signal = abortController.signal;
+        let roundTexts: string[] = [];
+
+        try {
             let messageDiv: HTMLDivElement | null = null;
             let bodyDiv: HTMLDivElement | null = null;
-            let roundTexts: string[] = []; // raw text per round (for conversationMessages)
             let currentRoundIndex = -1;
 
             while (true) {
@@ -295,7 +310,7 @@ try {
                         textContainer.textContent = roundTexts[currentRoundIndex];
                     }
                     this.scrollToBottomIfNear();
-                });
+                }, signal);
 
                 if (result.toolCalls && result.toolCalls.length > 0) {
                     conversationMessages.push({
@@ -371,6 +386,7 @@ try {
                     this.conversationMessages = conversationMessages;
                     conversationMessages.push({ role: 'assistant', content: finalText });
                     this.messages.push({ role: 'assistant', content: finalText });
+                    this.hideStreamIndicator();
                     this.isStreaming = false;
                     if (this.sendButton) (this.sendButton as HTMLButtonElement).disabled = false;
                     if (this.promptInput) this.promptInput.focus();
@@ -379,10 +395,21 @@ try {
             }
         } catch (err: any) {
             this.clearInitialStatus();
-            this.addMessage('error', err.message || 'Network error');
-            console.error('[AIAgent]', 'Request failed:', err);
+            if (err.name === 'AbortError') {
+                // User clicked stop — save whatever text was streamed so the
+                // model can pick up from "Continue"
+                const partialText = roundTexts.filter(Boolean).join(' ').trim();
+                if (partialText) {
+                    conversationMessages.push({ role: 'assistant', content: partialText });
+                    this.conversationMessages = conversationMessages;
+                }
+            } else {
+                this.addMessage('error', err.message || 'Network error');
+                console.error('[AIAgent]', 'Request failed:', err);
+            }
         }
 
+        this.hideStreamIndicator();
         this.isStreaming = false;
         if (this.sendButton) (this.sendButton as HTMLButtonElement).disabled = false;
         if (this.promptInput) this.promptInput.focus();
@@ -396,6 +423,16 @@ try {
         el.textContent = '💭 Understanding your question...';
         this.messagesContainer.appendChild(el);
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+    }
+
+    showStreamIndicator() {
+        const el = document.getElementById('agent-stream-indicator');
+        if (el) el.style.display = 'flex';
+    }
+
+    hideStreamIndicator() {
+        const el = document.getElementById('agent-stream-indicator');
+        if (el) el.style.display = 'none';
     }
 
     clearInitialStatus() {
@@ -424,6 +461,7 @@ try {
         if (this.promptInput) { this.promptInput.value = ''; this.promptInput.style.height = 'auto'; }
         if (this.sendButton) (this.sendButton as HTMLButtonElement).disabled = false;
         this.clearInitialStatus();
+        this.hideStreamIndicator();
         if (this.promptInput) this.promptInput.focus();
     }
 }
