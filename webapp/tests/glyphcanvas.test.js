@@ -665,6 +665,9 @@ describe('GlyphCanvas onMouseUp', () => {
         const saveLayerDataSpy = jest
             .spyOn(canvas.outlineEditor, 'saveLayerData')
             .mockImplementation(() => {});
+        const updatePropertyPanelSpy = jest
+            .spyOn(canvas, 'updatePropertyPanel')
+            .mockImplementation(() => {});
         const applyMetricsSpy = jest
             .spyOn(canvas.outlineEditor, 'applyMetricsKeysToCurrentEditedLayer')
             .mockReturnValue({
@@ -755,6 +758,242 @@ describe('GlyphCanvas onMouseUp', () => {
             glyphModelSpy.mockRestore();
             syncDependentsSpy.mockRestore();
             getSidebearingSpy.mockRestore();
+            syncSpy.mockRestore();
+            collectTargetsSpy.mockRestore();
+            applyMetricsSpy.mockRestore();
+            updatePropertyPanelSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
+    test('sidebearing mouseup waits for live dependent refresh before final YDoc sync', async () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        let resolveLiveRefresh;
+        const liveRefresh = new Promise((resolve) => {
+            resolveLiveRefresh = resolve;
+        });
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockImplementation(() => {});
+        const applyMetricsSpy = jest
+            .spyOn(canvas.outlineEditor, 'applyMetricsKeysToCurrentEditedLayer')
+            .mockReturnValue({
+                glyphName: 'l',
+                nextWidth: 540,
+                glyphAdvances: {},
+                advancesRefreshed: false,
+                affectedGlyphNames: new Set(['l', 'n'])
+            });
+        const collectTargetsSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'collectMatchingLayerWorkerReplayTargets'
+            )
+            .mockReturnValue([{ glyphName: 'l', layerId: 'layer-1' }]);
+        const syncSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+        const getSidebearingSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentDirectSidebearing')
+            .mockReturnValue(20);
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.selectedSidebearingHandle = {
+                side: 'right',
+                editable: true
+            };
+            canvas.outlineEditor.layerData = {
+                width: 540,
+                shapes: [],
+                anchors: []
+            };
+            canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+                { glyphName: 'l' }
+            ]);
+            canvas.getCurrentGlyphName = jest.fn(() => 'l');
+            canvas.outlineEditor.isDraggingSidebearing = true;
+            canvas.outlineEditor._dragType = 'sidebearing';
+            canvas.outlineEditor._hasMoved = true;
+            canvas.outlineEditor._preDragDesc = 'RSB: 10';
+            canvas.outlineEditor._liveSidebearingRefreshPromise = liveRefresh;
+            canvas.outlineEditor._liveSidebearingRefreshQueued = true;
+
+            const mouseUpPromise = canvas.outlineEditor.onMouseUp({
+                clientX: 10,
+                clientY: 20
+            });
+            await Promise.resolve();
+
+            expect(saveLayerDataSpy).not.toHaveBeenCalled();
+            expect(syncSpy).not.toHaveBeenCalled();
+            expect(canvas.outlineEditor._liveSidebearingRefreshQueued).toBe(
+                false
+            );
+
+            resolveLiveRefresh();
+            await mouseUpPromise;
+
+            expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
+            expect(syncSpy).toHaveBeenCalledWith(
+                'Set RSB',
+                'RSB: 10',
+                'RIGHT 20',
+                null,
+                [{ glyphName: 'l', layerId: 'layer-1' }]
+            );
+            expect(canvas.outlineEditor._liveSidebearingRefreshPromise).toBe(
+                null
+            );
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            getSidebearingSpy.mockRestore();
+            syncSpy.mockRestore();
+            collectTargetsSpy.mockRestore();
+            applyMetricsSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
+    test('sidebearing mouseup discards queued live refresh frames before final YDoc sync', async () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalCurrentFont = fontManager.currentFont;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        let resolveLiveRefresh;
+        const liveRefresh = new Promise((resolve) => {
+            resolveLiveRefresh = resolve;
+        });
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockImplementation(() => {});
+        const applyMetricsSpy = jest
+            .spyOn(canvas.outlineEditor, 'applyMetricsKeysToCurrentEditedLayer')
+            .mockReturnValue({
+                glyphName: 'l',
+                nextWidth: 540,
+                glyphAdvances: {},
+                advancesRefreshed: false,
+                affectedGlyphNames: new Set(['l', 'n'])
+            });
+        const collectTargetsSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'collectMatchingLayerWorkerReplayTargets'
+            )
+            .mockReturnValue([{ glyphName: 'l', layerId: 'layer-1' }]);
+        const syncSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+        const syncDependentsSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'syncDependentGlyphsAfterSidebearingEdit'
+            )
+            .mockImplementation(() => liveRefresh);
+        const getSidebearingSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentDirectSidebearing')
+            .mockReturnValue(20);
+        const glyphModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentGlyphModel')
+            .mockReturnValue({ name: 'l' });
+        const explicitLayerSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentExplicitLayerCacheInput')
+            .mockReturnValue(null);
+        const updatePropertyPanelSpy = jest
+            .spyOn(canvas, 'updatePropertyPanel')
+            .mockImplementation(() => {});
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                ...(originalCurrentFont || {}),
+                fontModel: originalCurrentFont?.fontModel || {}
+            });
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.selectedSidebearingHandle = {
+                side: 'right',
+                editable: true
+            };
+            canvas.outlineEditor.layerData = {
+                width: 540,
+                shapes: [],
+                anchors: []
+            };
+            canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+                { glyphName: 'l' }
+            ]);
+            canvas.getCurrentGlyphName = jest.fn(() => 'l');
+            canvas.outlineEditor.isDraggingSidebearing = true;
+            canvas.outlineEditor._dragType = 'sidebearing';
+            canvas.outlineEditor._hasMoved = true;
+            canvas.outlineEditor._preDragDesc = 'RSB: 10';
+
+            canvas.outlineEditor.queueLiveVisibleSidebearingDependentRefresh();
+            await Promise.resolve();
+            canvas.outlineEditor.queueLiveVisibleSidebearingDependentRefresh();
+
+            expect(syncDependentsSpy).toHaveBeenCalledTimes(1);
+            expect(canvas.outlineEditor._liveSidebearingRefreshQueued).toBe(
+                true
+            );
+
+            const mouseUpPromise = canvas.outlineEditor.onMouseUp({
+                clientX: 10,
+                clientY: 20
+            });
+            await Promise.resolve();
+
+            expect(saveLayerDataSpy).not.toHaveBeenCalled();
+            expect(canvas.outlineEditor._liveSidebearingRefreshQueued).toBe(
+                false
+            );
+
+            resolveLiveRefresh();
+            await mouseUpPromise;
+
+            expect(syncDependentsSpy).toHaveBeenCalledTimes(1);
+            expect(syncSpy).toHaveBeenCalled();
+            expect(canvas.outlineEditor._liveSidebearingRefreshPromise).toBe(
+                null
+            );
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            currentFontSpy.mockRestore();
+            updatePropertyPanelSpy.mockRestore();
+            explicitLayerSpy.mockRestore();
+            glyphModelSpy.mockRestore();
+            getSidebearingSpy.mockRestore();
+            syncDependentsSpy.mockRestore();
             syncSpy.mockRestore();
             collectTargetsSpy.mockRestore();
             applyMetricsSpy.mockRestore();

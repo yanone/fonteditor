@@ -4060,7 +4060,7 @@ export class OutlineEditor {
         });
     }
 
-    private syncDependentGlyphsAfterSidebearingEdit(
+    private async syncDependentGlyphsAfterSidebearingEdit(
         glyphName: string | null | undefined,
         affectedGlyphNames: Set<string>,
         options?: {
@@ -4071,7 +4071,7 @@ export class OutlineEditor {
                 layerData: Babelfont.Layer;
             };
         }
-    ): void {
+    ): Promise<void> {
         const downstreamGlyphNames = Array.from(
             new Set(
                 Array.from(affectedGlyphNames || []).filter(
@@ -4103,7 +4103,7 @@ export class OutlineEditor {
             if (allGlyphNames.length === 0) {
                 return;
             }
-            fontManager
+            return fontManager
                 .refreshGlyphsAfterModelBatch(allGlyphNames, currentLayerId, {
                     dispatchGlyphChanged: false,
                     skipFingerprintBaseline: true,
@@ -4114,6 +4114,9 @@ export class OutlineEditor {
                         : undefined)
                 })
                 .then(() => {
+                    if (!this.isDraggingSidebearing) {
+                        return;
+                    }
                     currentFont.requestRecompileWithoutDataChange?.();
                     window.autoCompileManager?.checkAndSchedule?.();
                 })
@@ -4123,7 +4126,6 @@ export class OutlineEditor {
                         error
                     );
                 });
-            return;
         }
 
         // Non-drag path: incremental worker cache update + a single
@@ -4135,7 +4137,7 @@ export class OutlineEditor {
         if (downstreamGlyphNames.length === 0) {
             return;
         }
-        fontManager
+        return fontManager
             .refreshGlyphsAfterModelBatch(
                 [...(glyphName ? [glyphName] : []), ...downstreamGlyphNames],
                 currentLayerId
@@ -4493,6 +4495,22 @@ export class OutlineEditor {
     private resetLiveSidebearingRefreshState(): void {
         this._liveSidebearingRefreshQueued = false;
         this._liveSidebearingRefreshPromise = null;
+    }
+
+    private async drainLiveSidebearingRefreshBeforeCommit(): Promise<void> {
+        while (this._liveSidebearingRefreshPromise) {
+            const pendingRefresh = this._liveSidebearingRefreshPromise;
+            this._liveSidebearingRefreshQueued = false;
+            try {
+                await pendingRefresh;
+            } catch {
+                // The refresh path logs its own failures; the final committed
+                // Yjs packet below remains authoritative.
+            }
+            if (this._liveSidebearingRefreshPromise === pendingRefresh) {
+                this._liveSidebearingRefreshPromise = null;
+            }
+        }
     }
 
     private queueLiveVisibleSidebearingDependentRefresh(): void {
@@ -8180,6 +8198,7 @@ export class OutlineEditor {
         this._lastPropertyPanelUpdateTime = 0;
         this.cancelPendingDragMetricsUpdate();
         this.resetLiveOutlineRefreshState();
+        this.resetLiveSidebearingRefreshState();
         this._pointDragDeltaX = 0;
         this._componentDragDeltaX = 0;
         this._pointDragPreserveHandlePositions = false;
@@ -11680,6 +11699,10 @@ export class OutlineEditor {
         // Update worker font cache after dragging ends
         if (wasDragging) {
             try {
+                if (dragType === 'sidebearing') {
+                    await this.drainLiveSidebearingRefreshBeforeCommit();
+                }
+
                 // Flush the final saveLayerData that throttling may have skipped
                 if (this._hasMoved && dragType !== 'guide') {
                     const dragChangeSource =
@@ -11936,6 +11959,7 @@ export class OutlineEditor {
                 this._sidebearingAffectedGlyphNames = new Set();
                 this._anchorAffectedGlyphNames = new Set();
                 this.resetLiveAnchorRefreshState();
+                this.resetLiveSidebearingRefreshState();
                 this._hasMoved = false;
                 this._preDragDesc = null;
                 this._dragType = null;
