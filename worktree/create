@@ -1,0 +1,106 @@
+#!/bin/bash
+set -e
+
+# Counterpunch worktree creator
+# Usage: worktree/create <feature-name>
+#
+# Creates a git worktree from main, sets up a unique dev port,
+# installs npm dependencies, and opens VSCode on the new worktree.
+
+NAME="$1"
+if [ -z "$NAME" ]; then
+    echo "Usage: worktree/create <feature-name>"
+    echo ""
+    echo "Creates a git worktree from 'main' for the given feature name,"
+    echo "assigns the lowest available dev port above 8000, installs npm"
+    echo "dependencies, and opens a new VSCode window on the worktree."
+    exit 1
+fi
+
+# Sanitize the name for branch + directory use
+SAFE_NAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9_-')
+BRANCH="feature/$SAFE_NAME"
+REPO_ROOT=$(git rev-parse --show-toplevel)
+WORKTREE_PATH="$REPO_ROOT/../editor-$SAFE_NAME"
+
+# --- Sanity checks ---
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    echo "Error: Not inside a git repository."
+    exit 1
+fi
+
+# Ensure main is available
+if ! git rev-parse --verify main > /dev/null 2>&1; then
+    echo "Error: No 'main' branch found."
+    exit 1
+fi
+
+if git worktree list | grep -qF "$WORKTREE_PATH"; then
+    echo "Error: Worktree already exists at $WORKTREE_PATH"
+    exit 1
+fi
+
+if [ -d "$WORKTREE_PATH" ]; then
+    echo "Error: Directory already exists at $WORKTREE_PATH"
+    exit 1
+fi
+
+# --- Create worktree from main ---
+echo "Creating worktree for '$NAME'..."
+git worktree add -b "$BRANCH" "$WORKTREE_PATH" main
+echo "Worktree created at $WORKTREE_PATH (branch: $BRANCH)"
+
+# --- Read existing worktree configs to find lowest available port ---
+USED_PORTS="8000"  # main repo always uses 8000
+
+while IFS= read -r wt_path; do
+    [ -z "$wt_path" ] && continue
+    config_file="$wt_path/webapp/worktree-config.json"
+    if [ -f "$config_file" ]; then
+        port=$(node -e "
+            try {
+                const c = JSON.parse(require('fs').readFileSync('$config_file','utf8'));
+                if (c.port) console.log(c.port);
+            } catch(e) {}
+        ")
+        if [ -n "$port" ]; then
+            USED_PORTS="$USED_PORTS"$'\n'"$port"
+        fi
+    fi
+done < <(git worktree list --porcelain | grep "^worktree " | cut -d' ' -f2-)
+
+# Find lowest available port > 8000
+PORT=8000
+while true; do
+    PORT=$((PORT + 1))
+    if ! echo "$USED_PORTS" | grep -qF -- "$PORT"; then
+        break
+    fi
+done
+
+echo "Assigned port: $PORT"
+
+# --- Write config into the new worktree ---
+CONFIG_DIR="$WORKTREE_PATH/webapp"
+mkdir -p "$CONFIG_DIR"
+node -e "
+    const fs = require('fs');
+    fs.writeFileSync(
+        '$CONFIG_DIR/worktree-config.json',
+        JSON.stringify({ port: $PORT, name: '$NAME' }, null, 2) + '\n'
+    );
+"
+echo "Config written: $CONFIG_DIR/worktree-config.json"
+
+# --- Install npm dependencies ---
+echo "Installing npm dependencies..."
+npm --prefix "$WORKTREE_PATH/webapp" install
+
+echo ""
+echo "✓ Worktree ready!"
+echo "  Path:    $WORKTREE_PATH"
+echo "  Branch:  $BRANCH"
+echo "  Port:    $PORT"
+echo ""
+echo "Start the dev server:"
+echo "  cd ../editor-$SAFE_NAME/webapp && npm run dev"

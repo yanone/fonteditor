@@ -1,0 +1,116 @@
+#!/bin/bash
+set -e
+
+# Counterpunch worktree diff
+# Usage: worktree/diff [<feature-name>]
+#
+# Shows changes of a worktree against main, including both committed
+# branch differences and any uncommitted changes in the worktree's
+# working directory. Can be run from anywhere inside the repo.
+#
+# By default shows a summary. Pass --full for the complete diff.
+
+NAME="$1"
+REPO_ROOT=$(git rev-parse --show-toplevel)
+FULL_MODE=false
+[ "$2" = "--full" ] && FULL_MODE=true
+
+# --- Resolve branch and worktree path ---
+if [ -z "$NAME" ]; then
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+    if [ -z "$CURRENT_BRANCH" ] || [ "$CURRENT_BRANCH" = "main" ]; then
+        echo "Error: On main branch. Specify a worktree name."
+        echo "Usage: worktree/diff [<feature-name>]"
+        exit 1
+    fi
+    BRANCH="$CURRENT_BRANCH"
+    echo "Diffing current branch '$BRANCH' against main..."
+    echo ""
+else
+    BRANCH="feature/$NAME"
+    echo "Diffing '$BRANCH' against main..."
+    echo ""
+fi
+
+if ! git rev-parse --verify "$BRANCH" > /dev/null 2>&1; then
+    echo "Error: Branch '$BRANCH' does not exist."
+    exit 1
+fi
+
+# Find the worktree path where this branch is checked out
+WORKTREE_PATH=""
+while IFS= read -r line; do
+    if [[ "$line" == worktree\ * ]]; then
+        CANDIDATE_PATH="${line#worktree }"
+    elif [[ "$line" == branch\ refs/heads/* ]]; then
+        CANDIDATE_BRANCH="${line#branch refs/heads/}"
+        if [ "$CANDIDATE_BRANCH" = "$BRANCH" ]; then
+            WORKTREE_PATH="$CANDIDATE_PATH"
+            break
+        fi
+    fi
+done < <(git worktree list --porcelain)
+
+# --- 1. Uncommitted changes in the worktree ---
+if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
+    HAS_UNSTAGED=false
+    HAS_STAGED=false
+    HAS_UNTRACKED=false
+
+    UNSTAGED_OUTPUT=$(git -C "$WORKTREE_PATH" diff --stat 2>/dev/null || true)
+    STAGED_OUTPUT=$(git -C "$WORKTREE_PATH" diff --cached --stat 2>/dev/null || true)
+    UNTRACKED_LIST=$(git -C "$WORKTREE_PATH" ls-files --others --exclude-standard 2>/dev/null || true)
+
+    [ -n "$UNSTAGED_OUTPUT" ] && HAS_UNSTAGED=true
+    [ -n "$STAGED_OUTPUT" ] && HAS_STAGED=true
+    [ -n "$UNTRACKED_LIST" ] && HAS_UNTRACKED=true
+
+    if [ "$HAS_STAGED" = true ] || [ "$HAS_UNSTAGED" = true ] || [ "$HAS_UNTRACKED" = true ]; then
+        echo "━━━ Uncommitted changes in worktree ━━━"
+        echo ""
+
+        if [ "$HAS_STAGED" = true ]; then
+            echo "━━━ Staged ━━━"
+            if [ "$FULL_MODE" = true ]; then
+                git -C "$WORKTREE_PATH" diff --cached || true
+            else
+                git -C "$WORKTREE_PATH" diff --cached --stat || true
+            fi
+            echo ""
+        fi
+
+        if [ "$HAS_UNSTAGED" = true ]; then
+            echo "━━━ Unstaged (tracked files) ━━━"
+            if [ "$FULL_MODE" = true ]; then
+                git -C "$WORKTREE_PATH" diff || true
+            else
+                git -C "$WORKTREE_PATH" diff --stat || true
+            fi
+            echo ""
+        fi
+
+        if [ "$HAS_UNTRACKED" = true ]; then
+            COUNT=$(echo "$UNTRACKED_LIST" | wc -l | tr -d ' ')
+            echo "━━━ Untracked files ($COUNT) ━━━"
+            echo "$UNTRACKED_LIST"
+            echo ""
+        fi
+    fi
+fi
+
+# --- 2. Committed branch diff against main ---
+COMMITTED_STAT=$(git diff main..."$BRANCH" --stat --diff-filter=AMDR 2>/dev/null)
+if [ -n "$COMMITTED_STAT" ]; then
+    echo "━━━ Committed changes (branch vs main) ━━━"
+    echo "Changed files:"
+    echo "$COMMITTED_STAT"
+    echo ""
+
+    if [ "$FULL_MODE" = true ]; then
+        git diff main..."$BRANCH"
+    else
+        echo "For full diff, run: worktree/diff ${NAME} --full"
+    fi
+else
+    echo "No committed differences from main."
+fi

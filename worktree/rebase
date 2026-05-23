@@ -1,0 +1,74 @@
+#!/bin/bash
+set -e
+
+# Counterpunch worktree rebase
+# Usage: worktree/rebase [<feature-name>]
+#
+# Rebases a worktree feature branch against the latest main.
+# If run from inside a worktree (not on main), auto-detects the branch.
+# Fetches origin/main first to pick up upstream changes.
+# Can be run from anywhere inside the repo (main checkout or any worktree).
+
+NAME="$1"
+REPO_ROOT=$(git rev-parse --show-toplevel)
+SAFE_NAME=""
+
+if [ -z "$NAME" ]; then
+    # Auto-detect: branch of the checkout we are standing in
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+    if [ -z "$CURRENT_BRANCH" ] || [ "$CURRENT_BRANCH" = "main" ]; then
+        echo "Error: On main branch. Specify a worktree name."
+        echo "Usage: worktree/rebase [<feature-name>]"
+        echo ""
+        echo "Rebases a worktree branch against the latest main."
+        echo "Without arguments, rebases the current branch (auto-detect)."
+        exit 1
+    fi
+    echo "Rebasing current branch '$CURRENT_BRANCH' against main..."
+    BRANCH="$CURRENT_BRANCH"
+else
+    SAFE_NAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9_-')
+    BRANCH="feature/$SAFE_NAME"
+    echo "Rebasing '$BRANCH' against main..."
+fi
+
+if ! git rev-parse --verify "$BRANCH" > /dev/null 2>&1; then
+    echo "Error: Branch '$BRANCH' does not exist."
+    exit 1
+fi
+
+# Fetch latest main
+echo "Fetching latest main..."
+git fetch origin main 2>/dev/null || echo "(no remote 'origin' configured, using local main)"
+
+# Check if the branch is currently checked out (worktree state)
+# If it is, we need to rebase inside that worktree instead
+WORKTREE_PATH=""
+if [ -n "$SAFE_NAME" ]; then
+    CANDIDATE="$REPO_ROOT/../editor-$SAFE_NAME"
+    if [ -d "$CANDIDATE" ]; then
+        WORKTREE_PATH="$CANDIDATE"
+    fi
+fi
+
+if [ -n "$WORKTREE_PATH" ] && git -C "$WORKTREE_PATH" rev-parse --git-dir > /dev/null 2>&1; then
+    # Branch is checked out in a worktree — rebase inside the worktree
+    echo "Branch is checked out at $WORKTREE_PATH"
+    echo "Rebasing inside worktree..."
+    git -C "$WORKTREE_PATH" rebase main
+    echo ""
+    echo "✓ Rebase complete!"
+    echo "  Branch: $BRANCH"
+    echo "  Worktree: $WORKTREE_PATH"
+    echo ""
+    echo "If conflicts arise, resolve them in the worktree, then run:"
+    echo "  git rebase --continue"
+else
+    # Branch is not checked out — rebase directly
+    git rebase main "$BRANCH"
+    echo ""
+    echo "✓ Rebase complete!"
+    echo "  Branch: $BRANCH"
+    echo ""
+    echo "The next time the worktree is used, run 'git pull --ff-only' inside it."
+fi

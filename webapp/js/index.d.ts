@@ -118,6 +118,7 @@ declare global {
         EDITOR_VERSION: string | null;
         BUILD_HASH_FULL: string | null;
         BUILD_HASH_SHORT: string | null;
+        WORKTREE_NAME: string;
 
         // From ai-assistant.js
         aiAssistant: AIAssistant;

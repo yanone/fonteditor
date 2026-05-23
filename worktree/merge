@@ -1,0 +1,89 @@
+#!/bin/bash
+set -e
+
+# Counterpunch worktree merge
+# Usage: worktree/merge <feature-name>
+#
+# Merges the feature branch of a worktree into main, removes the
+# worktree, and deletes the branch — all in one step.
+# Can be run from anywhere inside the repo (main checkout or any worktree).
+
+NAME="$1"
+if [ -z "$NAME" ]; then
+    echo "Usage: worktree/merge <feature-name>"
+    echo ""
+    echo "Merges the worktree branch 'feature/<name>' into main,"
+    echo "then removes the worktree and deletes the branch."
+    exit 1
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+BRANCH="feature/$NAME"
+SAFE_NAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9_-')
+WORKTREE_PATH="$REPO_ROOT/../editor-$SAFE_NAME"
+
+if ! git rev-parse --verify "$BRANCH" > /dev/null 2>&1; then
+    echo "Error: Branch '$BRANCH' does not exist."
+    exit 1
+fi
+
+echo "━━━ Merging '$BRANCH' into main ━━━"
+echo ""
+
+# --- Check worktree state ---
+if [ -d "$WORKTREE_PATH" ]; then
+    echo "Worktree found at $WORKTREE_PATH"
+    if git -C "$WORKTREE_PATH" status --porcelain | grep -q .; then
+        echo "Warning: Worktree has uncommitted changes."
+        echo "Options:"
+        echo "  abort  — Cancel (commit/stash manually first)"
+        echo "  force  — Remove worktree anyway (discards uncommitted changes)"
+        echo ""
+        read -p "Action [abort/force]: " ACTION
+        if [ "$ACTION" != "force" ]; then
+            echo "Aborted."
+            exit 1
+        fi
+    fi
+fi
+
+# --- Fetch latest main ---
+echo "Fetching latest main..."
+git fetch origin main 2>/dev/null || true
+
+# --- Merge ---
+git checkout main
+git merge "$BRANCH" --no-ff -m "Merge feature/$NAME into main"
+
+echo ""
+echo "✓ Merge complete."
+
+# --- Remove worktree ---
+echo ""
+echo "Removing worktree..."
+if [ -d "$WORKTREE_PATH" ]; then
+    if git -C "$WORKTREE_PATH" status --porcelain | grep -q .; then
+        # Force removal if uncommitted changes
+        git worktree remove "$WORKTREE_PATH" --force 2>/dev/null || \
+            rm -rf "$WORKTREE_PATH"
+        echo "  Worktree removed (forced): $WORKTREE_PATH"
+    else
+        git worktree remove "$WORKTREE_PATH"
+        echo "  Worktree removed: $WORKTREE_PATH"
+    fi
+else
+    echo "  Worktree not found at $WORKTREE_PATH (already removed)."
+fi
+
+# --- Delete branch ---
+echo ""
+echo "Deleting branch '$BRANCH'..."
+if git rev-parse --verify "$BRANCH" > /dev/null 2>&1; then
+    git branch -d "$BRANCH"
+    echo "  Branch deleted: $BRANCH"
+else
+    echo "  Branch already deleted."
+fi
+
+echo ""
+echo "✓ Cleanup complete!"

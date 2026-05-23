@@ -466,6 +466,20 @@ kbd + kbd {
     font-weight: 400;
 }
 
+/* Worktree badge shown in dev worktrees instead of version */
+.worktree-badge {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--accent-cyan);
+    color: var(--background-primary);
+    padding: 1px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+    letter-spacing: 0.02em;
+    vertical-align: middle;
+}
+
 .toolbar-center {
     display: flex;
     align-items: center;

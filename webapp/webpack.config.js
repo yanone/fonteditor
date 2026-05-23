@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const UnusedWebpackPlugin = require('unused-webpack-plugin');
@@ -8,6 +9,23 @@ const { execSync } = require('child_process');
 // Get version from environment variable, package.json, or default to development
 const EDITOR_VERSION =
     process.env.EDITOR_VERSION || require('./package.json').version + '-dev';
+
+// Read optional worktree config (set by worktree/create)
+const WORKTREE_CONFIG_PATH = path.join(__dirname, 'worktree-config.json');
+let worktreeConfig = null;
+try {
+    if (fs.existsSync(WORKTREE_CONFIG_PATH)) {
+        worktreeConfig = JSON.parse(
+            fs.readFileSync(WORKTREE_CONFIG_PATH, 'utf8')
+        );
+        console.log(
+            `[Worktree] Config loaded: port=${worktreeConfig.port}, name="${worktreeConfig.name}"`
+        );
+    }
+} catch (_e) {
+    // Ignore — not running in a worktree
+}
+const WORKTREE_PORT = worktreeConfig?.port || 8000;
 
 const resolveGitCommit = () => {
     if (process.env.BUILD_HASH_FULL) {
@@ -79,7 +97,12 @@ module.exports = {
                 { from: 'examples', to: 'examples' },
                 { from: 'py', to: 'py' },
                 { from: 'wheels', to: 'wheels' },
-                { from: '_headers', to: '_headers' }
+                { from: '_headers', to: '_headers' },
+                {
+                    from: 'worktree-config.json',
+                    to: 'worktree-config.json',
+                    noErrorOnMissing: true
+                }
             ]
         })
     ],
@@ -126,10 +149,10 @@ module.exports = {
             // worker-executed bundles like glyph-filter-worker and any shared
             // entry loaded outside the browser main thread.
             overlay: false,
-            webSocketURL: {
+webSocketURL: {
                 hostname: 'localhost',
                 pathname: '/ws',
-                port: 8000,
+                port: WORKTREE_PORT,
                 protocol: 'wss'
             }
         },

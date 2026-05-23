@@ -1,0 +1,92 @@
+#!/bin/bash
+set -e
+
+# Counterpunch worktree list
+# Usage: worktree/list
+#
+# Lists all existing worktrees with their branch, path, port, and
+# feature name (if a worktree-config.json exists).
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+HEADER_PRINTED=false
+WT_PATH=""
+WT_BRANCH=""
+
+flush_entry() {
+    [ -z "$WT_PATH" ] && return
+
+    # Read optional config
+    CONFIG_FILE="$WT_PATH/webapp/worktree-config.json"
+    WT_PORT=""
+    WT_NAME=""
+    if [ -f "$CONFIG_FILE" ]; then
+        parser="$(node -e "
+            const c = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
+            if (c.port) console.log('PORT=' + c.port);
+            if (c.name) console.log('NAME=' + c.name);
+        " 2>/dev/null || true)"
+        while IFS= read -r kv; do
+            case "$kv" in
+                PORT=*) WT_PORT="${kv#PORT=}" ;;
+                NAME=*) WT_NAME="${kv#NAME=}" ;;
+            esac
+        done <<< "$parser"
+    fi
+
+    # Determine display name
+    if [ -n "$WT_NAME" ]; then
+        DISPLAY_NAME="$WT_NAME"
+    elif [[ "$WT_BRANCH" == feature/* ]]; then
+        DISPLAY_NAME="${WT_BRANCH#feature/}"
+    elif [ -n "$WT_BRANCH" ]; then
+        DISPLAY_NAME="$WT_BRANCH"
+    else
+        DISPLAY_NAME="(detached)"
+    fi
+
+    # Mark the main checkout
+    MAIN_WT=""
+    if [[ "$WT_BRANCH" == main ]] && [ ! -f "$CONFIG_FILE" ]; then
+        MAIN_WT=" (main)"
+    fi
+
+    if [ "$HEADER_PRINTED" = false ]; then
+        printf "%-24s %-18s %-6s  %s%s\n" "Name" "Branch" "Port" "Path"
+        printf -- "%-24s %-18s %-6s  %s%s\n" "----" "------" "----" "----"
+        HEADER_PRINTED=true
+    fi
+
+    PORT_DISPLAY="${WT_PORT:-—}"
+    printf "%-24s %-18s %-6s  %s%s\n" \
+        "$DISPLAY_NAME" \
+        "${WT_BRANCH:-—}" \
+        "$PORT_DISPLAY" \
+        "$WT_PATH" \
+        "$MAIN_WT"
+
+    WT_PATH=""
+    WT_BRANCH=""
+}
+
+while IFS= read -r line; do
+    if [ -z "$line" ]; then
+        # Blank line separates worktree entries
+        flush_entry
+        continue
+    fi
+
+    if [[ "$line" == worktree\ * ]]; then
+        WT_PATH="${line#worktree }"
+    elif [[ "$line" == branch\ * ]]; then
+        WT_BRANCH="${line#branch refs/heads/}"
+    fi
+    # HEAD and other lines are ignored
+done < <(git worktree list --porcelain)
+
+# Flush any remaining entry (last entry may not be followed by a blank line)
+flush_entry
+
+if [ "$HEADER_PRINTED" = false ]; then
+    echo "No worktrees found."
+fi

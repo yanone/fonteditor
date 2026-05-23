@@ -16,6 +16,27 @@ timelineMark('app.bootstrap.moduleLoaded');
 window.EDITOR_VERSION = process.env.EDITOR_VERSION || null;
 window.BUILD_HASH_FULL = process.env.BUILD_HASH_FULL || null;
 window.BUILD_HASH_SHORT = process.env.BUILD_HASH_SHORT || null;
+window.WORKTREE_NAME = '';
+
+// Load worktree config at runtime (set by worktree/create for parallel worktrees)
+fetch('worktree-config.json')
+    .then((r) => r.json())
+    .then((config) => {
+        if (!config.name) return;
+        window.WORKTREE_NAME = config.name;
+        const el = document.getElementById('app-version');
+        if (el) el.textContent = config.name;
+        const title = document.title;
+        if (title.indexOf('[' + config.name + ']') === -1) {
+            document.title = title.replace(
+                'Editor',
+                'Editor [' + config.name + ']'
+            );
+        }
+    })
+    .catch(() => {
+        /* No config — not a worktree */
+    });
 
 function registerPwaLaunchFileConsumer() {
     const launchQueue = (window as any).launchQueue;

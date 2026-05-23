@@ -896,7 +896,10 @@ class FontManager {
     }
 
     private updateWindowTitle() {
-        const baseTitle = 'Counterpunch Editor';
+        const worktreeName = window.WORKTREE_NAME || '';
+        const baseTitle = worktreeName
+            ? `Counterpunch Editor [${worktreeName}]`
+            : 'Counterpunch Editor';
         const roleSuffix = window.windowRole?.getTitleSuffix() ?? '(Main)';
         const dirtyPrefix =
             window.windowRole?.isMainWindow() &&

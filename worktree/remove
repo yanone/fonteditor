@@ -1,0 +1,62 @@
+#!/bin/bash
+set -e
+
+# Counterpunch worktree remove
+# Usage: worktree/remove <feature-name>
+#
+# Removes a worktree directory and deletes its feature branch —
+# without merging. Use this to discard a feature and start over.
+
+NAME="$1"
+if [ -z "$NAME" ]; then
+    echo "Usage: worktree/remove <feature-name>"
+    echo ""
+    echo "Removes the worktree directory and deletes its feature branch."
+    echo "Uncommitted changes are lost."
+    exit 1
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+SAFE_NAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9_-')
+BRANCH="feature/$SAFE_NAME"
+WORKTREE_PATH="$REPO_ROOT/../editor-$SAFE_NAME"
+
+echo "━━━ Removing worktree '$NAME' ━━━"
+echo ""
+echo "  Branch:  $BRANCH"
+echo "  Path:    $WORKTREE_PATH"
+echo ""
+read -p "Delete this worktree and branch permanently? [y/N] " CONFIRM
+if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+    echo "Aborted."
+    exit 1
+fi
+
+# Remove worktree
+if [ -d "$WORKTREE_PATH" ]; then
+    echo ""
+    echo "Removing worktree..."
+    if git -C "$WORKTREE_PATH" status --porcelain | grep -q . 2>/dev/null; then
+        git worktree remove "$WORKTREE_PATH" --force 2>/dev/null || rm -rf "$WORKTREE_PATH"
+        echo "  Worktree removed (forced): $WORKTREE_PATH"
+    else
+        git worktree remove "$WORKTREE_PATH"
+        echo "  Worktree removed: $WORKTREE_PATH"
+    fi
+else
+    echo ""
+    echo "Worktree not found at $WORKTREE_PATH (already removed)."
+fi
+
+# Delete branch (force — remove is for discarding)
+echo ""
+echo "Deleting branch..."
+if git rev-parse --verify "$BRANCH" > /dev/null 2>&1; then
+    git branch -D "$BRANCH"
+    echo "  Branch deleted: $BRANCH"
+else
+    echo "  Branch does not exist."
+fi
+
+echo ""
+echo "✓ Worktree '$NAME' removed."
