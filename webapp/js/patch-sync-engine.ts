@@ -394,6 +394,8 @@ export class PatchSyncEngine {
     private _txLabel: string | null = null;
     /** Current transaction ID */
     private _txId: number | null = null;
+    /** Wall-clock start time for the outermost transaction. */
+    private _txStartTimeMs: number | null = null;
     /** Next transaction ID counter */
     private _nextTxId = 1;
     /** Next logical history item counter */
@@ -871,6 +873,7 @@ export class PatchSyncEngine {
         this._changeLogListeners.clear();
         this._collaborationLogListeners.clear();
         this._transactionFinalizer = null;
+        this._txStartTimeMs = null;
         this._lastBroadcastStateVector = new Uint8Array(0);
     }
 
@@ -989,6 +992,7 @@ export class PatchSyncEngine {
         if (this._txDepth === 1) {
             this._txLabel = label;
             this._txId = this._nextTxId++;
+            this._txStartTimeMs = performance.now();
             this._txHistoryItemId = this._createHistoryItemId();
             this._txHistoryTarget = historyTarget ?? null;
             // Capture a compact state-vector (< 100 bytes) rather than the
@@ -1018,6 +1022,7 @@ export class PatchSyncEngine {
             this._txBufferedOperations = [];
             this._txLabel = null;
             this._txId = null;
+            this._txStartTimeMs = null;
             this._txHistoryItemId = null;
             this._txHistoryTarget = null;
             this._txStartStateVector = null;
@@ -2716,6 +2721,7 @@ export class PatchSyncEngine {
         this._txDepth = 0;
         this._txLabel = null;
         this._txId = null;
+        this._txStartTimeMs = null;
         this._txHistoryItemId = null;
         this._txHistoryTarget = null;
         this._txBufferedOperations = [];
@@ -3115,6 +3121,10 @@ export class PatchSyncEngine {
         const nextHistoryItemId =
             historyItemId ?? this._getCurrentHistoryItemId();
         const timestamp = Date.now();
+        const transactionDurationMs =
+            transactionId !== null && this._txStartTimeMs !== null
+                ? Math.max(0, performance.now() - this._txStartTimeMs)
+                : null;
         const changeLogEntries: ChangeLogEntry[] = [];
 
         for (const operation of effectiveOperations) {
@@ -3130,6 +3140,7 @@ export class PatchSyncEngine {
                 historyAction: 'change',
                 transactionLabel: label,
                 transactionId,
+                transactionDurationMs,
                 op: operation.op,
                 undoScope: this._deriveUndoScope(
                     deriveGlyphName(operation.path),
@@ -3165,22 +3176,31 @@ export class PatchSyncEngine {
 
         this._appendChangeLogEntries(changeLogEntries);
 
-        const localUpdateLogIndexBeforeCommit = this._lastLocalUpdateLogIndex;
-        const localUpdateFallbackBaseline =
+        const localUpdateBaseline =
             this._txStartStateVector ?? this._lastBroadcastStateVector;
 
-        this.yDoc.transact(() => {
-            for (const operation of effectiveOperations) {
-                this._applyBufferedOperation(operation);
-            }
-        }, scopeInfo.origin);
+        this._suppressAutomaticLocalUpdateEmission = true;
+        try {
+            this.yDoc.transact(() => {
+                for (const operation of effectiveOperations) {
+                    this._applyBufferedOperation(operation);
+                }
+            }, scopeInfo.origin);
+        } finally {
+            this._suppressAutomaticLocalUpdateEmission = false;
+        }
 
-        if (
-            this._lastLocalUpdateLogIndex === localUpdateLogIndexBeforeCommit &&
-            !this._isApplyingRemote &&
-            !this._suppressAutomaticLocalUpdateEmission
-        ) {
-            this._emitCanonicalLocalUpdateSince(localUpdateFallbackBaseline);
+        const exactCommitUpdate = Y.encodeStateAsUpdate(
+            this.yDoc,
+            localUpdateBaseline
+        );
+        this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
+
+        if (!this._isApplyingRemote) {
+            this._lastLocalUpdateLogIndex = this._changeLog.length;
+            if (exactCommitUpdate.length > 0) {
+                this._emitLocalUpdate(exactCommitUpdate, changeLogEntries);
+            }
         }
 
         this._recordUndoHistoryItem(

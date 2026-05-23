@@ -128,7 +128,12 @@ export class LiveDragEditFunnel {
             request.compile.changeSource,
             request.compile.editType
         );
-        currentFont.requestRecompileWithoutDataChange();
+        currentFont.requestRecompileWithoutDataChange({
+            compileContext: {
+                changeSource: request.compile.changeSource,
+                editType: request.compile.editType
+            }
+        });
         window.autoCompileManager?.checkAndSchedule?.();
         this.clearMatchingCompileContext(request);
     }

@@ -219,10 +219,23 @@ type CapturedGlyphCanvasState = {
     } | null;
 };
 
-type EditingCompileContext = {
+export type EditingCompileContext = {
     changeSource: string | null;
     editType: 'outline' | 'anchor' | 'kerning-value' | 'kerning-groups' | null;
 };
+
+type EditingCompileRequestOptions = {
+    compileContext?: EditingCompileContext | null;
+};
+
+function normalizeEditingCompileContext(
+    context?: EditingCompileContext | null
+): EditingCompileContext {
+    return {
+        changeSource: context?.changeSource ?? null,
+        editType: context?.editType ?? null
+    };
+}
 
 class OpenedFont {
     babelfontJson: string;
@@ -415,7 +428,10 @@ class OpenedFont {
      */
     markDirty(
         changeSource?: string,
-        options?: { requestEditingCompile?: boolean }
+        options?: {
+            requestEditingCompile?: boolean;
+            compileContext?: EditingCompileContext | null;
+        }
     ): void {
         const requestEditingCompile = options?.requestEditingCompile !== false;
         this.needsRecompile = requestEditingCompile;
@@ -426,7 +442,8 @@ class OpenedFont {
         this.compileRequestVersion++;
         if (requestEditingCompile) {
             (window as any).fontManager?.recordEditingCompileRequestContext?.(
-                this.compileRequestVersion
+                this.compileRequestVersion,
+                options?.compileContext
             );
         }
         // Wake the full-font Q:C/ monitor so Fontspector catches up without
@@ -441,11 +458,14 @@ class OpenedFont {
      * Use this when switching compilation mode (e.g. outline-only -> full)
      * without any new source data edits.
      */
-    requestRecompileWithoutDataChange(): void {
+    requestRecompileWithoutDataChange(
+        options?: EditingCompileRequestOptions
+    ): void {
         this.needsRecompile = true;
         this.compileRequestVersion++;
         (window as any).fontManager?.recordEditingCompileRequestContext?.(
-            this.compileRequestVersion
+            this.compileRequestVersion,
+            options?.compileContext
         );
     }
 
@@ -692,11 +712,18 @@ class FontManager {
         this.setEditingCompileContext(null, null);
     }
 
-    recordEditingCompileRequestContext(compileRequestVersion: number): void {
+    recordEditingCompileRequestContext(
+        compileRequestVersion: number,
+        compileContext?: EditingCompileContext | null
+    ): void {
         const revisionKey = String(compileRequestVersion);
         this.editingCompileContextsByRevision.set(revisionKey, {
-            changeSource: this.lastChangeSource,
-            editType: this.lastEditType
+            ...(compileContext === undefined
+                ? {
+                      changeSource: this.lastChangeSource,
+                      editType: this.lastEditType
+                  }
+                : normalizeEditingCompileContext(compileContext))
         });
         this.pruneEditingCompileRequestContexts(compileRequestVersion);
     }
@@ -705,10 +732,8 @@ class FontManager {
         revisionKey: string
     ): EditingCompileContext {
         return (
-            this.editingCompileContextsByRevision.get(revisionKey) ?? {
-                changeSource: this.lastChangeSource,
-                editType: this.lastEditType
-            }
+            this.editingCompileContextsByRevision.get(revisionKey) ??
+            normalizeEditingCompileContext(null)
         );
     }
 
@@ -1934,10 +1959,13 @@ class FontManager {
         let isIncrementalEditingCompile =
             compileSource.startsWith('mouse-drag') ||
             compileSource.startsWith('keyboard') ||
-            compileSource.startsWith('remote-');
+            compileSource.startsWith('remote-') ||
+            compileSource === 'master-reinterpolate-batch';
         let isMouseDragSource = compileSource.startsWith('mouse-drag');
         let isKeyboardSource = compileSource.startsWith('keyboard');
         let isRemoteSource = compileSource.startsWith('remote-');
+        let isMasterReinterpolateBatchSource =
+            compileSource === 'master-reinterpolate-batch';
         const forceFullWorkerCompileAtStart = this.forceFullEditingCacheRefresh;
         const shouldPrepareIncrementalLayerUpdate =
             (isMouseDragSource || isKeyboardSource) &&
@@ -2130,10 +2158,13 @@ class FontManager {
                 isIncrementalEditingCompile =
                     compileSource.startsWith('mouse-drag') ||
                     compileSource.startsWith('keyboard') ||
-                    compileSource.startsWith('remote-');
+                    compileSource.startsWith('remote-') ||
+                    compileSource === 'master-reinterpolate-batch';
                 isMouseDragSource = compileSource.startsWith('mouse-drag');
                 isKeyboardSource = compileSource.startsWith('keyboard');
                 isRemoteSource = compileSource.startsWith('remote-');
+                isMasterReinterpolateBatchSource =
+                    compileSource === 'master-reinterpolate-batch';
                 dragActiveAtRequest =
                     isMouseDragSource ||
                     !!window.glyphCanvas?.outlineEditor?.draggingSomething;
@@ -2152,6 +2183,9 @@ class FontManager {
                 // linked window's editing compile is efficient.
                 const isRemoteFastPathEdit =
                     isRemoteSource && editTypeAtRequest !== null;
+                const isCommittedLayerBatchFastPathEdit =
+                    isMasterReinterpolateBatchSource &&
+                    editTypeAtRequest === 'outline';
                 const isTextInputEdit =
                     incrementalChangeSource === 'text-input';
                 compilationMode = 'full';
@@ -2164,7 +2198,9 @@ class FontManager {
                       }
                     | undefined;
                 if (
-                    (isInteractiveEdit || isRemoteFastPathEdit) &&
+                    (isInteractiveEdit ||
+                        isRemoteFastPathEdit ||
+                        isCommittedLayerBatchFastPathEdit) &&
                     editTypeAtRequest === 'outline'
                 ) {
                     compilationMode = 'outline-only';
@@ -2508,13 +2544,11 @@ class FontManager {
         const startCompileContext = this.getEditingCompileContextForRequest(
             String(startCompileRequestVersion)
         );
-        const changeSource =
-            startCompileContext.changeSource ||
-            this.lastChangeSource ||
-            'unknown';
+        const changeSource = startCompileContext.changeSource || 'unknown';
         const isOutlineIncrementalChange =
             changeSource.startsWith('mouse-drag') ||
-            changeSource.startsWith('keyboard');
+            changeSource.startsWith('keyboard') ||
+            changeSource === 'master-reinterpolate-batch';
 
         let subsetGlyphs = this.getEditingSubsetSnapshot();
 
@@ -2682,7 +2716,12 @@ class FontManager {
                     'debounced-post-interaction-full-compile',
                     null
                 );
-                this.currentFont.requestRecompileWithoutDataChange();
+                this.currentFont.requestRecompileWithoutDataChange({
+                    compileContext: {
+                        changeSource: 'debounced-post-interaction-full-compile',
+                        editType: null
+                    }
+                });
                 window.autoCompileManager.checkAndSchedule();
             }
         }, 500);
@@ -2706,8 +2745,17 @@ class FontManager {
         console.log(
             '[FontManager] Forcing full compile before axis/layer change'
         );
-        this.setEditingCompileContext(this.lastChangeSource, null);
-        this.currentFont?.requestRecompileWithoutDataChange();
+        const compileContext = {
+            changeSource: this.lastChangeSource,
+            editType: null
+        };
+        this.setEditingCompileContext(
+            compileContext.changeSource,
+            compileContext.editType
+        );
+        this.currentFont?.requestRecompileWithoutDataChange({
+            compileContext
+        });
         window.autoCompileManager.checkAndSchedule();
         // Wait for the compile to finish
         await new Promise<void>((resolve) => {

@@ -18,10 +18,11 @@ beforeEach(() => {
     window.fontManager = {
         currentFont: {
             compileRequestVersion: 0,
-            requestRecompileWithoutDataChange: jest.fn(() => {
+            requestRecompileWithoutDataChange: jest.fn((options) => {
                 window.fontManager.currentFont.compileRequestVersion += 1;
                 window.fontManager.recordEditingCompileRequestContext(
-                    window.fontManager.currentFont.compileRequestVersion
+                    window.fontManager.currentFont.compileRequestVersion,
+                    options?.compileContext
                 );
             })
         },
@@ -84,7 +85,12 @@ describe('LiveDragEditFunnel', () => {
         ]);
         expect(
             window.fontManager.currentFont.requestRecompileWithoutDataChange
-        ).toHaveBeenCalledTimes(1);
+        ).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'mouse-drag-outline',
+                editType: 'outline'
+            }
+        });
         expect(
             window.autoCompileManager.checkAndSchedule
         ).toHaveBeenCalledTimes(1);

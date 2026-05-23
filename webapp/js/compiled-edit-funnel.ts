@@ -3,11 +3,11 @@
  *
  * Every committed Yjs packet, local or remote, enters this serialized funnel.
  * The funnel:
- *   1. Sets transient compile context on FontManager from the committed metadata.
- *   2. Requests the editing compile.
+ *   1. Builds compile context from the committed packet metadata.
+ *   2. Requests the editing compile with that explicit context.
  *   3. Arms the deferred full-compile timer (replaces scheduleFullCompileDebounce).
  *
- * The compile context is cleared by compileEditingFont after the compile reads it.
+ * The compile context is stored against the exact compile request revision.
  * After each processed edit, any transient compile or edit-source state is cleaned
  * up so one edit cannot poison the next one (APP.md Document Collaboration rule).
  *
@@ -16,6 +16,7 @@
  */
 
 import { Logger } from './logger';
+import type { EditingCompileContext } from './font-manager';
 
 const console = new Logger('CompiledEditFunnel');
 
@@ -26,24 +27,29 @@ const NON_COMPILING_EDIT_TYPES = new Set<string>(['guide', 'contrast-axis']);
 
 let deferredTimer: number | null = null;
 
-function setCompileContext(
-    fm: typeof window.fontManager,
-    changeSource: string,
-    editType: 'anchor' | 'outline' | 'kerning-value' | 'kerning-groups' | null
-): void {
-    if (typeof fm.setEditingCompileContext === 'function') {
-        fm.setEditingCompileContext(changeSource, editType);
-        return;
-    }
+type CommittedCompilingEditType = EditingCompileContext['editType'];
 
-    fm.lastChangeSource = changeSource;
-    fm.lastEditType = editType;
-}
+function waitForEditingFontRevision(
+    targetRevision: number,
+    timeoutMs: number = 4000
+): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+        let settled = false;
+        let timeoutId: number | null = null;
 
-function waitForEditingFontRevision(targetRevision: number): Promise<void> {
-    return new Promise<void>((resolve) => {
-        const finish = () => {
+        const cleanup = () => {
+            if (timeoutId !== null) {
+                window.clearTimeout(timeoutId);
+            }
             window.removeEventListener('editingFontCompiled', handler);
+        };
+
+        const finish = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
             resolve();
         };
 
@@ -58,8 +64,38 @@ function waitForEditingFontRevision(targetRevision: number): Promise<void> {
             }
         };
 
+        const fail = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            reject(
+                new Error(
+                    `Timed out waiting for editing font revision ${targetRevision}`
+                )
+            );
+        };
+
+        timeoutId = window.setTimeout(fail, timeoutMs);
         window.addEventListener('editingFontCompiled', handler);
     });
+}
+
+function shouldArmDeferredFullCompile(
+    changeSource: string,
+    editType: string | null
+): boolean {
+    if (editType === null || changeSource.startsWith('remote-')) {
+        return false;
+    }
+
+    return (
+        editType === 'outline' ||
+        editType === 'anchor' ||
+        editType === 'kerning-value' ||
+        editType === 'kerning-groups'
+    );
 }
 
 /**
@@ -97,21 +133,15 @@ export async function processCommittedEdit(
         return;
     }
 
-    // Set transient compile context for this request.
-    // Cast is safe: non-compiling edit_types already filtered above.
-    setCompileContext(
-        fm,
+    // Cast is safe: non-compiling edit types already filtered above.
+    const compileContext: EditingCompileContext = {
         changeSource,
-        editType as
-            | 'anchor'
-            | 'outline'
-            | 'kerning-value'
-            | 'kerning-groups'
-            | null
-    );
+        editType: editType as CommittedCompilingEditType
+    };
 
     // Request the editing compile.
-    fm.currentFont.requestRecompileWithoutDataChange();
+    fm.currentFont.requestRecompileWithoutDataChange({ compileContext });
+    fm.clearEditingCompileContext?.();
     window.autoCompileManager?.checkAndSchedule?.();
 
     const canForceTrigger =
@@ -135,10 +165,12 @@ export async function processCommittedEdit(
         await completionPromise;
     }
 
-    // Arm the deferred full-compile timer for fast-path edit types.
-    // The timer ensures the font eventually gets a full compile (with
-    // features and kerning) after interactive fast-path compiles.
-    armDeferredFullCompile();
+    // Arm the deferred full-compile timer for local fast-path edit types.
+    // The main window owns the trailing correctness pass; linked windows only
+    // run the immediate remote editing compile.
+    if (shouldArmDeferredFullCompile(changeSource, editType)) {
+        armDeferredFullCompile();
+    }
 }
 
 /**

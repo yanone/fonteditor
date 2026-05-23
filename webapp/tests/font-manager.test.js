@@ -1050,6 +1050,14 @@ describe('FontManager editing subset inclusion', () => {
         fontCompilation.isInitialized = originalFontCompilationInitialized;
     });
 
+    function setRequestCompileContext(changeSource, editType) {
+        fontManager.setEditingCompileContext(changeSource, editType);
+        fontManager.recordEditingCompileRequestContext(
+            fontManager.currentFont.compileRequestVersion,
+            { changeSource, editType }
+        );
+    }
+
     test('validateBabelfontJsonForRust preserves DefaultForMaster layer ids instead of rewriting them', () => {
         const fontData = cloneJson(fontManager.currentFont.babelfontData);
         fontData.glyphs[0].name = 'a';
@@ -1105,8 +1113,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('compileEditingFont adds the active edited glyph to the subset', async () => {
-        fontManager.lastChangeSource = 'keyboard-outline';
-        fontManager.lastEditType = 'outline';
+        setRequestCompileContext('keyboard-outline', 'outline');
 
         await fontManager.compileEditingFont('a', [], ['a']);
 
@@ -1118,8 +1125,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('structural outline compiles keep outline-only mode but skip incremental dirty-layer patching', async () => {
-        fontManager.lastChangeSource = 'keyboard-outline';
-        fontManager.lastEditType = 'outline';
+        setRequestCompileContext('keyboard-outline', 'outline');
         fontManager.forceFullEditingCacheRefresh = true;
 
         await fontManager.compileEditingFont('a', [], ['a']);
@@ -1138,8 +1144,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('mouse-drag outline compiles keep the outline-only fast path even when dragging getter is false at compile time', async () => {
-        fontManager.lastChangeSource = 'mouse-drag-outline';
-        fontManager.lastEditType = 'outline';
+        setRequestCompileContext('mouse-drag-outline', 'outline');
         window.glyphCanvas.outlineEditor.draggingSomething = false;
 
         await fontManager.compileEditingFont('a', [], ['a']);
@@ -1187,8 +1192,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('mouse-drag outline compiles do not force a full JSON sync when incremental layer patching is available', async () => {
-        fontManager.lastChangeSource = 'mouse-drag-outline';
-        fontManager.lastEditType = 'outline';
+        setRequestCompileContext('mouse-drag-outline', 'outline');
         fontManager.pendingBabelfontJsonSyncAfterDrag = true;
 
         await fontManager.compileEditingFont('a', [], ['a']);
@@ -1205,8 +1209,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('keyboard outline compile after a drag resyncs stale canonical JSON before compiling', async () => {
-        fontManager.lastChangeSource = 'keyboard-outline';
-        fontManager.lastEditType = 'outline';
+        setRequestCompileContext('keyboard-outline', 'outline');
         fontManager.pendingBabelfontJsonSyncAfterDrag = true;
 
         await fontManager.compileEditingFont('a', [], ['a']);
@@ -1227,8 +1230,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('remote outline compile after a drag resyncs stale canonical JSON before compiling', async () => {
-        fontManager.lastChangeSource = 'remote-outline';
-        fontManager.lastEditType = 'outline';
+        setRequestCompileContext('remote-outline', 'outline');
         fontManager.pendingBabelfontJsonSyncAfterDrag = true;
 
         await fontManager.compileEditingFont('a', [], ['a']);
@@ -1249,8 +1251,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('keyboard-sidebearing compiles stay on the outline-only incremental fast path', async () => {
-        fontManager.lastChangeSource = 'keyboard-sidebearing';
-        fontManager.lastEditType = 'outline';
+        setRequestCompileContext('keyboard-sidebearing', 'outline');
 
         await fontManager.compileEditingFont('a', [], ['a']);
 
@@ -1265,9 +1266,43 @@ describe('FontManager editing subset inclusion', () => {
         });
     });
 
+    test('master reinterpolation batch compiles stay on the outline-only incremental fast path', async () => {
+        setRequestCompileContext('master-reinterpolate-batch', 'outline');
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(
+            fontManager.currentFont.syncJsonFromModel
+        ).not.toHaveBeenCalled();
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'master-reinterpolate-batch',
+            optionOverrides: {
+                skip_features: true,
+                skip_kerning: true,
+                produce_varc_table: false
+            }
+        });
+    });
+
+    test('recompileEditingFont ignores stale ambient context without a request snapshot', async () => {
+        fontManager.lastChangeSource = 'keyboard-outline';
+        fontManager.lastEditType = 'outline';
+        fontManager.currentFont.compileRequestVersion = 99;
+
+        await fontManager.recompileEditingFont();
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).not.toMatchObject({
+            compileSource: 'keyboard-outline'
+        });
+        expect(
+            compileEditingSpy.mock.calls[0][3]?.optionOverrides
+        ).toBeUndefined();
+    });
+
     test('mouse-drag anchor compiles keep kerning enabled in anchor-only mode', async () => {
-        fontManager.lastChangeSource = 'mouse-drag-anchor';
-        fontManager.lastEditType = 'anchor';
+        setRequestCompileContext('mouse-drag-anchor', 'anchor');
         window.glyphCanvas.outlineEditor.draggingSomething = false;
 
         await fontManager.compileEditingFont('a', [], ['a']);
@@ -1289,8 +1324,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('keyboard-anchor compiles keep kerning enabled in anchor-only mode', async () => {
-        fontManager.lastChangeSource = 'keyboard-anchor';
-        fontManager.lastEditType = 'anchor';
+        setRequestCompileContext('keyboard-anchor', 'anchor');
 
         await fontManager.compileEditingFont('a', [], ['a']);
 
@@ -1310,8 +1344,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('remote-anchor compiles keep kerning enabled in anchor-only mode', async () => {
-        fontManager.lastChangeSource = 'remote-anchor';
-        fontManager.lastEditType = 'anchor';
+        setRequestCompileContext('remote-anchor', 'anchor');
 
         await fontManager.compileEditingFont('a', [], ['a']);
 
@@ -1331,8 +1364,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('anchor undo-redo compiles keep kerning enabled in anchor-only mode', async () => {
-        fontManager.lastChangeSource = 'keyboard-anchor';
-        fontManager.lastEditType = 'anchor';
+        setRequestCompileContext('keyboard-anchor', 'anchor');
 
         await fontManager.compileEditingFont('a', [], ['a']);
 
@@ -1352,8 +1384,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('keyboard kerning-value compiles use the kerning-only fast path', async () => {
-        fontManager.lastChangeSource = 'keyboard-kerning-value';
-        fontManager.lastEditType = 'kerning-value';
+        setRequestCompileContext('keyboard-kerning-value', 'kerning-value');
 
         await fontManager.compileEditingFont('a', [], ['a']);
 
@@ -1374,8 +1405,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('remote kern-group compiles use the kerning-only fast path', async () => {
-        fontManager.lastChangeSource = 'remote-kerning-groups';
-        fontManager.lastEditType = 'kerning-groups';
+        setRequestCompileContext('remote-kerning-groups', 'kerning-groups');
 
         await fontManager.compileEditingFont('a', [], ['a']);
 
@@ -1390,9 +1420,10 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('debounced post-interaction full compiles do not send incremental dirty-layer patches', async () => {
-        fontManager.lastChangeSource =
-            'debounced-post-interaction-full-compile';
-        fontManager.lastEditType = null;
+        setRequestCompileContext(
+            'debounced-post-interaction-full-compile',
+            null
+        );
 
         await fontManager.compileEditingFont('a', [], ['a']);
 
@@ -1416,7 +1447,7 @@ describe('FontManager editing subset inclusion', () => {
     ])(
         'compileEditingFont clears processed compile context for %s',
         async (changeSource, editType, expectedMode) => {
-            fontManager.setEditingCompileContext(changeSource, editType);
+            setRequestCompileContext(changeSource, editType);
             window.glyphCanvas.outlineEditor.draggingSomething = false;
 
             await fontManager.compileEditingFont('a', [], ['a']);
@@ -1434,7 +1465,7 @@ describe('FontManager editing subset inclusion', () => {
     test('stale editing compile results do not clear a newer error state', async () => {
         const priorEditingFont = new Uint8Array([9, 9, 9]);
         fontManager.editingFont = priorEditingFont;
-        fontManager.setEditingCompileContext('keyboard-outline', 'outline');
+        setRequestCompileContext('keyboard-outline', 'outline');
 
         let resolveCompile;
         compileEditingSpy.mockImplementation(
@@ -1454,7 +1485,7 @@ describe('FontManager editing subset inclusion', () => {
             );
 
             fontManager.currentFont.compileRequestVersion = 2;
-            fontManager.setEditingCompileContext('keyboard-anchor', 'anchor');
+            setRequestCompileContext('keyboard-anchor', 'anchor');
 
             resolveCompile({
                 result: new Uint8Array([1, 2, 3]),
@@ -1483,7 +1514,7 @@ describe('FontManager editing subset inclusion', () => {
     test('failed editing compile clears the matching compile context', async () => {
         const error = new Error('compile failed');
         compileEditingSpy.mockRejectedValueOnce(error);
-        fontManager.setEditingCompileContext('keyboard-anchor', 'anchor');
+        setRequestCompileContext('keyboard-anchor', 'anchor');
         const showErrorSpy = jest
             .spyOn(sidebarErrorDisplay, 'showError')
             .mockImplementation(() => {});
@@ -1512,7 +1543,7 @@ describe('FontManager editing subset inclusion', () => {
                     rejectCompile = reject;
                 })
         );
-        fontManager.setEditingCompileContext('keyboard-outline', 'outline');
+        setRequestCompileContext('keyboard-outline', 'outline');
         const showErrorSpy = jest
             .spyOn(sidebarErrorDisplay, 'showError')
             .mockImplementation(() => {});
@@ -1528,7 +1559,7 @@ describe('FontManager editing subset inclusion', () => {
             );
 
             fontManager.currentFont.compileRequestVersion = 2;
-            fontManager.setEditingCompileContext('keyboard-anchor', 'anchor');
+            setRequestCompileContext('keyboard-anchor', 'anchor');
             rejectCompile(new Error('stale compile failed'));
 
             await expect(compilePromise).rejects.toThrow(
@@ -1543,7 +1574,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('skipped editing compile without subset glyphs clears matching context', async () => {
-        fontManager.setEditingCompileContext('keyboard-outline', 'outline');
+        setRequestCompileContext('keyboard-outline', 'outline');
         fontManager.updateEditingSubsetSnapshot([]);
         window.glyphCanvas.textRunEditor.textBuffer = '';
         window.glyphCanvas.textRunEditor.glyphNameBuffer = [];
@@ -1568,7 +1599,7 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('pre-compile model sync failure clears matching context', async () => {
-        fontManager.setEditingCompileContext('feature-code', null);
+        setRequestCompileContext('feature-code', null);
         const syncSpy = jest
             .spyOn(fontManager, 'syncBabelfontJsonFromCurrentModel')
             .mockReturnValue(false);

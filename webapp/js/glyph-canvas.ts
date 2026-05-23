@@ -597,6 +597,7 @@ class GlyphCanvas {
     mouseCanvasX: number = 0;
     mouseCanvasY: number = 0;
     cursorVisible: boolean = true;
+    private mouseUpFinalization: Promise<void> | null = null;
 
     // Measurement tool
     measurementTool!: MeasurementTool; // Initialized in constructor
@@ -780,7 +781,9 @@ class GlyphCanvas {
         // Mouse events for panning
         this.canvas!.addEventListener('mousedown', (e) => this.onMouseDown(e));
         this.canvas!.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        this.canvas!.addEventListener('mouseup', (e) => this.onMouseUp(e));
+        this.canvas!.addEventListener('mouseup', (e) => {
+            void this.onMouseUp(e);
+        });
         this.canvas!.addEventListener('mouseleave', (e) =>
             this.onMouseLeave(e)
         );
@@ -1854,10 +1857,16 @@ class GlyphCanvas {
         }
     }
 
-    onMouseUp(e: MouseEvent): void {
-        void this.outlineEditor.onMouseUp(e).catch((error) => {
+    async onMouseUp(e: MouseEvent): Promise<void> {
+        const finalization = this.outlineEditor.onMouseUp(e).catch((error) => {
             console.error('Outline mouseup failed:', error);
         });
+        const trackedFinalization = finalization.finally(() => {
+            if (this.mouseUpFinalization === trackedFinalization) {
+                this.mouseUpFinalization = null;
+            }
+        });
+        this.mouseUpFinalization = trackedFinalization;
         this.isDraggingCanvas = false;
         this.measurementTool.handleMouseUp();
 
@@ -1865,11 +1874,13 @@ class GlyphCanvas {
         this.updateCursorStyle(e);
 
         this.render();
+
+        await finalization;
     }
 
     onMouseLeave(e: MouseEvent): void {
         // Call onMouseUp first to handle any ongoing drag operations
-        this.onMouseUp(e);
+        void this.onMouseUp(e);
 
         // Clear all hover states when mouse leaves the canvas
         const hadHover =
@@ -7386,6 +7397,18 @@ class GlyphCanvas {
     }
 
     onKeyDown(e: KeyboardEvent): void {
+        if (this.mouseUpFinalization) {
+            e.preventDefault();
+            const finalization = this.mouseUpFinalization;
+            void finalization.then(() => {
+                if (this.mouseUpFinalization !== null) {
+                    return;
+                }
+                this.onKeyDown(e);
+            });
+            return;
+        }
+
         // Handle Cmd+Plus/Minus for zoom in/out
         if (
             (e.metaKey || e.ctrlKey) &&

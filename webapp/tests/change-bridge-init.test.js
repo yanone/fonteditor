@@ -816,7 +816,7 @@ describe('handleRemoteChangeRefresh', () => {
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
         expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
-            'keyboard-sidebearing',
+            'keyboard-outline',
             'outline'
         );
     });
@@ -1038,6 +1038,8 @@ describe('bridge Yjs worker callback', () => {
     const originalWindowSync = window.windowSync;
     const originalWindowRole = window.windowRole;
     const originalFontManager = window.fontManager;
+    const originalAutoCompileManager = window.autoCompileManager;
+    const originalSaveButton = window.saveButton;
     const originalInitialized = fontCompilation.isInitialized;
 
     function makeBridgeInitFont() {
@@ -1091,8 +1093,56 @@ describe('bridge Yjs worker callback', () => {
         window.windowSync = originalWindowSync;
         window.windowRole = originalWindowRole;
         window.fontManager = originalFontManager;
+        window.autoCompileManager = originalAutoCompileManager;
+        window.saveButton = originalSaveButton;
         fontCompilation.isInitialized = originalInitialized;
         jest.restoreAllMocks();
+    });
+
+    test('dirty callback marks unsaved state without creating an ambient editing compile request', () => {
+        const markDirty = jest.fn();
+        const requestRecompileWithoutDataChange = jest.fn();
+        const updateDirtyIndicator = jest.fn();
+        const updateButtonState = jest.fn();
+
+        fontCompilation.isInitialized = false;
+        window.windowRole = {
+            isLinkedWindow: () => false,
+            getRoleLabel: () => 'main'
+        };
+        window.autoCompileManager = { checkAndSchedule: jest.fn() };
+        window.saveButton = { updateButtonState };
+        window.fontManager = {
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            clearEditingCompileContext: jest.fn(),
+            pendingBabelfontJsonSyncAfterDrag: false,
+            updateDirtyIndicator,
+            currentFont: {
+                changeVersion: 1,
+                compileRequestVersion: 1,
+                markDirty,
+                requestRecompileWithoutDataChange,
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            }
+        };
+
+        const bridge = initializeBridgeHarness();
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            610
+        );
+
+        expect(markDirty).toHaveBeenCalledWith(undefined, {
+            requestEditingCompile: false
+        });
+        expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
+        expect(updateDirtyIndicator).toHaveBeenCalledTimes(1);
+        expect(updateButtonState).toHaveBeenCalledTimes(1);
     });
 
     test('forwards feature-code Yjs updates to Rust with empty glyph metadata', async () => {
@@ -2329,6 +2379,7 @@ describe('committed undo/redo compile requests', () => {
                 this.lastChangeSource = null;
                 this.lastEditType = null;
             },
+            scheduleFullCompileDebounce: jest.fn(),
             currentFont: {
                 compileRequestVersion: 10,
                 requestRecompileWithoutDataChange
@@ -2353,9 +2404,18 @@ describe('committed undo/redo compile requests', () => {
             }
         );
 
-        expect(window.fontManager.lastChangeSource).toBe('keyboard-anchor');
-        expect(window.fontManager.lastEditType).toBe('anchor');
+        expect(window.fontManager.lastChangeSource).toBeNull();
+        expect(window.fontManager.lastEditType).toBeNull();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'keyboard-anchor',
+                editType: 'anchor'
+            }
+        });
+        expect(
+            window.fontManager.scheduleFullCompileDebounce
+        ).not.toHaveBeenCalled();
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
         expect(forceTrigger).toHaveBeenCalledTimes(1);
         expect(window.fontManager.currentFont.compileRequestVersion).toBe(11);
@@ -2404,11 +2464,15 @@ describe('committed undo/redo compile requests', () => {
             }
         );
 
-        expect(window.fontManager.lastChangeSource).toBe(
-            'keyboard-kerning-value'
-        );
-        expect(window.fontManager.lastEditType).toBe('kerning-value');
+        expect(window.fontManager.lastChangeSource).toBeNull();
+        expect(window.fontManager.lastEditType).toBeNull();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'keyboard-kerning-value',
+                editType: 'kerning-value'
+            }
+        });
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
     });
 
@@ -2457,9 +2521,15 @@ describe('committed undo/redo compile requests', () => {
             }
         );
 
-        expect(window.fontManager.lastChangeSource).toBe('keyboard-outline');
-        expect(window.fontManager.lastEditType).toBe('outline');
+        expect(window.fontManager.lastChangeSource).toBeNull();
+        expect(window.fontManager.lastEditType).toBeNull();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'keyboard-outline',
+                editType: 'outline'
+            }
+        });
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
     });
 
@@ -2493,7 +2563,13 @@ describe('committed undo/redo compile requests', () => {
         };
         originalWindow.autoCompileManager = {
             checkAndSchedule: jest.fn(),
-            forceTrigger: jest.fn().mockResolvedValue(undefined)
+            forceTrigger: jest.fn(async () => {
+                originalWindow.dispatchEvent(
+                    new CustomEvent('editingFontCompiled', {
+                        detail: { fontRevisionKey: '1' }
+                    })
+                );
+            })
         };
         originalWindow.glyphCanvas = {
             viewportManager: { panX: 100, scale: 2 },
@@ -2541,14 +2617,21 @@ describe('committed undo/redo compile requests', () => {
             null
         );
 
-        expect(originalWindow.fontManager.lastChangeSource).toBe(
-            'keyboard-outline'
-        );
-        expect(originalWindow.fontManager.lastEditType).toBe('outline');
+        expect(originalWindow.fontManager.lastChangeSource).toBeNull();
+        expect(originalWindow.fontManager.lastEditType).toBeNull();
         expect(
             originalWindow.fontManager.currentFont
                 .requestRecompileWithoutDataChange
         ).toHaveBeenCalledTimes(1);
+        expect(
+            originalWindow.fontManager.currentFont
+                .requestRecompileWithoutDataChange
+        ).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'keyboard-outline',
+                editType: 'outline'
+            }
+        });
     });
 
     test('undo outline replay reuses forward layer-snapshot metadata instead of generic undo source', async () => {
@@ -2588,7 +2671,13 @@ describe('committed undo/redo compile requests', () => {
         };
         originalWindow.autoCompileManager = {
             checkAndSchedule: jest.fn(),
-            forceTrigger: jest.fn().mockResolvedValue(undefined)
+            forceTrigger: jest.fn(async () => {
+                originalWindow.dispatchEvent(
+                    new CustomEvent('editingFontCompiled', {
+                        detail: { fontRevisionKey: '1' }
+                    })
+                );
+            })
         };
         originalWindow.glyphCanvas = {
             viewportManager: { panX: 100, scale: 2 },
@@ -2664,9 +2753,16 @@ describe('committed undo/redo compile requests', () => {
             null
         );
 
-        expect(originalWindow.fontManager.lastChangeSource).toBe(
-            'keyboard-outline'
-        );
-        expect(originalWindow.fontManager.lastEditType).toBe('outline');
+        expect(originalWindow.fontManager.lastChangeSource).toBeNull();
+        expect(originalWindow.fontManager.lastEditType).toBeNull();
+        expect(
+            originalWindow.fontManager.currentFont
+                .requestRecompileWithoutDataChange
+        ).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'keyboard-outline',
+                editType: 'outline'
+            }
+        });
     });
 });

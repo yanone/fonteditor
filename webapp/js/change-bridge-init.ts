@@ -845,7 +845,11 @@ function inferCommittedEditTypeFromEntries(
         ) {
             return {
                 editType: 'outline',
-                changeSource: changeSourceFor('outline')
+                changeSource:
+                    origin === 'local' &&
+                    label === 'Reinterpolate layer batch sync'
+                        ? 'master-reinterpolate-batch'
+                        : changeSourceFor('outline')
             };
         }
         if (
@@ -1713,37 +1717,7 @@ function inferHistoryItemKerningEditType(
 function resolveLocalCommittedCompileContext(
     entries: ChangeLogEntry[]
 ): LocalCommittedCompileContext {
-    const fm = window.fontManager;
-    const inferred = inferCommittedEditTypeFromEntries(entries, 'local');
-    const existingChangeSource = fm?.lastChangeSource;
-    const existingEditType = fm?.lastEditType;
-    const isLocalInteractiveSource =
-        typeof existingChangeSource === 'string' &&
-        (existingChangeSource.startsWith('keyboard-') ||
-            existingChangeSource.startsWith('mouse-drag-'));
-    const isReusableExplicitSource =
-        typeof existingChangeSource === 'string' &&
-        existingChangeSource.length > 0 &&
-        !existingChangeSource.startsWith('remote-') &&
-        existingChangeSource !== 'undo-redo' &&
-        existingChangeSource !== 'change-bridge-local' &&
-        existingChangeSource !== 'debounced-post-interaction-full-compile';
-    const shouldPreferInferredContext =
-        inferred.editType !== null &&
-        (!isReusableExplicitSource ||
-            (isLocalInteractiveSource &&
-                existingEditType !== inferred.editType));
-
-    return {
-        changeSource: shouldPreferInferredContext
-            ? inferred.changeSource
-            : isReusableExplicitSource
-              ? existingChangeSource
-              : inferred.changeSource,
-        editType: shouldPreferInferredContext
-            ? inferred.editType
-            : (existingEditType ?? inferred.editType)
-    };
+    return inferCommittedEditTypeFromEntries(entries, 'local');
 }
 
 /**
@@ -2052,16 +2026,6 @@ export async function handleCommittedChangeRefresh(
         const { editType, changeSource } =
             localCompileContext ?? resolveLocalCommittedCompileContext(entries);
         await requestCompile(changeSource, editType);
-
-        if (
-            isUndoRedoPacket &&
-            (editType === 'anchor' ||
-                editType === 'outline' ||
-                editType === 'kerning-value' ||
-                editType === 'kerning-groups')
-        ) {
-            window.fontManager?.scheduleFullCompileDebounce?.();
-        }
     }
 
     await refreshGlyphOverviewFromCommittedEntries(entries);
@@ -2344,11 +2308,14 @@ function initializeBridge(detail: {
     });
 
     // Wire dirty marking: when PatchSyncEngine records a change, also mark
-    // the font as needing recompilation via fontManager.
+    // the font as unsaved. The committed-change funnel owns editing compile
+    // requests so every request carries packet-explicit context.
     bridge.onDirty(() => {
         const fontManager = window.fontManager;
         if (fontManager?.currentFont) {
-            fontManager.currentFont.markDirty();
+            fontManager.currentFont.markDirty(undefined, {
+                requestEditingCompile: false
+            });
             void fontManager.updateDirtyIndicator();
             window.saveButton?.updateButtonState?.();
         }
