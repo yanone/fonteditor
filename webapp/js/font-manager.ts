@@ -553,6 +553,14 @@ class FontManager {
         | 'anchor-only'
         | 'kerning-only'
         | 'text-input' = 'full'; // Track last compilation mode
+    /**
+     * The `changeVersion` of the font at the time the last *full* editing
+     * compile completed successfully.  Used by the committed-change funnel to
+     * skip incremental compiles that would be redundant after the debounce full
+     * compile has already covered the same data version.
+     * -1 means no full compile has run yet for the current font.
+     */
+    lastFullCompiledDataVersion: number = -1;
     fullCompileDebounceTimer: ReturnType<typeof setTimeout> | null = null; // Timer for debounced full compile after interactive editing
     closureCache: {
         subsetGlyphs: string[];
@@ -617,6 +625,7 @@ class FontManager {
         this.glyphOrderCache = null; // Cache for glyph order to avoid re-parsing
         this.clearEditingCompileContext();
         this.lastCompilationMode = 'full';
+        this.lastFullCompiledDataVersion = -1;
         this.fullCompileDebounceTimer = null;
         this.closureCache = null;
         this.editingSubsetSnapshotGlyphs = [];
@@ -977,6 +986,7 @@ class FontManager {
         this.editingSubsetSnapshotKey = '';
         this.clearEditingCompileContext();
         this.lastCompilationMode = 'full';
+        this.lastFullCompiledDataVersion = -1;
         this.pendingDebugEditingFontSaveAfterDrag = false;
         this.pendingBabelfontJsonSyncAfterDrag = false;
         this.forceFullEditingCacheRefresh = false;
@@ -2220,11 +2230,25 @@ class FontManager {
             timelineMark(
                 'font.compileEditing.dispatchEvent.editingFontCompiled.done'
             );
-            this.clearEditingCompileContextIfCurrentRequest(
-                incrementalChangeSource,
-                editTypeAtRequest,
-                responseRevisionKey
-            );
+            if (compilationMode === 'full') {
+                // Record the data version covered by this full compile so the
+                // committed-change funnel can skip redundant incremental
+                // compiles whose data was already covered (APP.md Document
+                // Collaboration: "any transient compile or edit-source state
+                // must be cleaned up again so one edit cannot poison the next
+                // one").  Unconditional clear also prevents a late-arriving
+                // handleCommittedChangeRefresh from re-arming lastChangeSource
+                // after the debounce full compile already cleared it.
+                this.lastFullCompiledDataVersion =
+                    this.currentFont.changeVersion;
+                this.clearEditingCompileContext();
+            } else {
+                this.clearEditingCompileContextIfCurrentRequest(
+                    incrementalChangeSource,
+                    editTypeAtRequest,
+                    responseRevisionKey
+                );
+            }
 
             return this.editingFont;
         } catch (error) {

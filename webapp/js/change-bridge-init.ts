@@ -1459,6 +1459,31 @@ async function requestCommittedEditingFontCompile(
         return;
     }
 
+    // Incremental-compile guard: if a full compile has already covered the
+    // current font-data version (changeVersion), an incremental (outline /
+    // anchor / kerning) compile arriving from the committed-change funnel now
+    // would be redundant.  This happens when scheduleFullCompileDebounce fires
+    // its 500 ms full compile *before* handleCommittedChangeRefresh finishes
+    // awaiting the Rust worker.  Without this guard the late-arriving funnel
+    // call would re-arm lastChangeSource with a stale value, downgrade
+    // lastCompilationMode from 'full' to 'outline-only', and poison the
+    // next edit's compile context (APP.md Document Collaboration rule).
+    // forceTrigger bypasses the guard so that remote peers and undo/redo
+    // always produce a fresh compile regardless of the local compile history.
+    const isIncrementalEditType =
+        editType === 'outline' ||
+        editType === 'anchor' ||
+        editType === 'kerning-value' ||
+        editType === 'kerning-groups';
+    const lastFullDataVersion = fm.lastFullCompiledDataVersion ?? -1;
+    if (
+        !options?.forceTrigger &&
+        isIncrementalEditType &&
+        lastFullDataVersion >= fm.currentFont.changeVersion
+    ) {
+        return;
+    }
+
     fm.setEditingCompileContext?.(changeSource, editType ?? null);
 
     const targetRevision = fm.currentFont.compileRequestVersion + 1;
