@@ -10,22 +10,21 @@ const { execSync } = require('child_process');
 const EDITOR_VERSION =
     process.env.EDITOR_VERSION || require('./package.json').version + '-dev';
 
-// Read optional worktree config (set by worktree/create)
+// Read dev server port from worktree-config.json (always present, set by
+// worktree/create or defaults to 8000 in the main checkout).
 const WORKTREE_CONFIG_PATH = path.join(__dirname, 'worktree-config.json');
-let worktreeConfig = null;
+let worktreeConfig;
 try {
-    if (fs.existsSync(WORKTREE_CONFIG_PATH)) {
-        worktreeConfig = JSON.parse(
-            fs.readFileSync(WORKTREE_CONFIG_PATH, 'utf8')
-        );
-        console.log(
-            `[Worktree] Config loaded: port=${worktreeConfig.port}, name="${worktreeConfig.name}"`
-        );
-    }
+    worktreeConfig = JSON.parse(
+        fs.readFileSync(WORKTREE_CONFIG_PATH, 'utf8')
+    );
 } catch (_e) {
-    // Ignore — not running in a worktree
+    console.error(
+        `[Worktree] Missing or invalid ${WORKTREE_CONFIG_PATH}, defaulting to 8000`
+    );
+    worktreeConfig = { port: 8000 };
 }
-const WORKTREE_PORT = worktreeConfig?.port || 8000;
+const DEV_PORT = worktreeConfig.port;
 
 const resolveGitCommit = () => {
     if (process.env.BUILD_HASH_FULL) {
@@ -140,7 +139,7 @@ module.exports = {
                 watch: false
             }
         ],
-        port: 8000,
+        port: DEV_PORT,
         server: 'https',
         hot: false,
         liveReload: false,
@@ -149,10 +148,10 @@ module.exports = {
             // worker-executed bundles like glyph-filter-worker and any shared
             // entry loaded outside the browser main thread.
             overlay: false,
-webSocketURL: {
+            webSocketURL: {
                 hostname: 'localhost',
                 pathname: '/ws',
-                port: WORKTREE_PORT,
+                port: DEV_PORT,
                 protocol: 'wss'
             }
         },
