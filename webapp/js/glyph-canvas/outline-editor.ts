@@ -36,6 +36,10 @@ import {
     type SidebearingSide
 } from '../sidebearing-utils';
 import { LiveDragEditFunnel } from '../live-drag-edit-funnel';
+import {
+    computeLayerRecompositionClosure,
+    deriveEditKindsFromDrag
+} from '../recomposition-closure';
 import { translateLayerContentsX } from '../x-translation-utils';
 import { refreshGlyphOverviewFromGlyphNames } from '../change-bridge-init';
 import { Bezier } from 'bezier-js';
@@ -4448,6 +4452,102 @@ export class OutlineEditor {
                     : null;
             })
         );
+    }
+
+    /**
+     * Unified recomposition closure: delegates to the shared
+     * `computeLayerRecompositionClosure` in recomposition-closure.ts.
+     *
+     * Every committed edit path MUST call this before emitting a Yjs packet.
+     * Live drag paths use `scope: 'visible'`; all committed edits (keyboard,
+     * drag-end, undo, redo, remote) use `scope: 'all'`.
+     *
+     * The returned `allTargets` is the authoritative superset that should be
+     * stamped as `workerReplayTargets` on every layer-snapshot operation in the
+     * transaction.
+     */
+    private computeRecompositionClosure(options: {
+        sourceTargets: Array<{ glyphName: string; layerId: string }>;
+        editKinds: Set<'outline' | 'anchor' | 'sidebearing' | 'component'>;
+        scope: 'visible' | 'all';
+        activeLayerId?: string | null;
+    }): {
+        allTargets: Array<{ glyphName: string; layerId: string }>;
+        dependentTargets: Array<{ glyphName: string; layerId: string }>;
+        affectedGlyphNames: Set<string>;
+    } {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel) {
+            return {
+                allTargets: options.sourceTargets,
+                dependentTargets: [],
+                affectedGlyphNames: new Set(
+                    options.sourceTargets
+                        .map((t) => t.glyphName)
+                        .filter((n): n is string => !!n)
+                )
+            };
+        }
+
+        const effectiveLayerId =
+            options.activeLayerId ?? this.getCurrentLayerId();
+
+        // Derive visible glyph names from font manager when scope is 'visible'.
+        const visibleGlyphNames =
+            options.scope === 'visible'
+                ? fontManager.getLiveVisibleGlyphNames?.()
+                : undefined;
+
+        const result = computeLayerRecompositionClosure({
+            sourceTargets: options.sourceTargets,
+            editKinds: options.editKinds,
+            scope: options.scope,
+            fontModel: fontModel as any,
+            activeLayerId: effectiveLayerId,
+            sourceGlyphName: this.getCurrentGlyphModel()?.name,
+            suppressor: window.patchSyncEngine ?? undefined,
+            visibleGlyphNames
+        });
+
+        return result;
+    }
+
+    /**
+     * Derive the set of active edit kinds from the current selection and drag
+     * state.  Mixed selections (e.g. points + anchors + components selected at
+     * once) produce a superset so the recomposition closure covers all affected
+     * object types.
+     */
+    private getCurrentSelectionEditKinds(): Set<
+        'outline' | 'anchor' | 'sidebearing' | 'component'
+    > {
+        const kinds = new Set<
+            'outline' | 'anchor' | 'sidebearing' | 'component'
+        >();
+
+        if (this.selectedPoints.length > 0) kinds.add('outline');
+        if (this.selectedAnchors.length > 0) kinds.add('anchor');
+        if (this.selectedComponents.length > 0) kinds.add('component');
+        if (this.selectedSidebearingHandle) kinds.add('sidebearing');
+
+        // Drag type also contributes.
+        if (this._dragType === 'point' || this._dragType === 'transform')
+            kinds.add('outline');
+        if (this._dragType === 'anchor') kinds.add('anchor');
+        if (this._dragType === 'component') kinds.add('component');
+        if (this._dragType === 'sidebearing') kinds.add('sidebearing');
+
+        // If nothing is selected yet but we have a drag type (e.g. drag ended),
+        // derive from the drag type alone.
+        if (kinds.size === 0 && this._dragType) {
+            if (this._dragType === 'point' || this._dragType === 'transform')
+                kinds.add('outline');
+            if (this._dragType === 'anchor') kinds.add('anchor');
+            if (this._dragType === 'component') kinds.add('component');
+            if (this._dragType === 'sidebearing') kinds.add('sidebearing');
+        }
+
+        return kinds;
     }
 
     private refreshLiveVisibleAnchorDependents(now: number): void {
@@ -11860,27 +11960,53 @@ export class OutlineEditor {
                                 fontManager.currentFont?.syncJsonFromModel();
                             }
                         }
-                        const anchorChangedLayerTargets =
-                            dragType === 'anchor'
-                                ? this.collectMatchingLayerWorkerReplayTargets(
-                                      this._anchorAffectedGlyphNames,
-                                      this.getCurrentLayerId()
-                                  )
-                                : undefined;
-                        const sidebearingChangedLayerTargets =
-                            dragType === 'sidebearing'
-                                ? this.collectMatchingLayerWorkerReplayTargets(
-                                      this._sidebearingAffectedGlyphNames,
-                                      this.getCurrentLayerId()
-                                  )
-                                : undefined;
+                        const parsed = this.parseGlyphStack();
+                        const activeGlyphName =
+                            parsed.length > 0
+                                ? parsed[parsed.length - 1].glyphName
+                                : this.glyphCanvas.getCurrentGlyphName();
+                        const activeLayerId =
+                            this.getCurrentLayerId() ?? this.selectedLayerId;
+                        const sourceTarget =
+                            activeLayerId && activeGlyphName
+                                ? [
+                                      {
+                                          glyphName: activeGlyphName,
+                                          layerId: activeLayerId
+                                      }
+                                  ]
+                                : [];
+
+                        // Derive edit kinds from drag type and selection state
+                        const hasGeometryInSelection =
+                            !!selectionResizeSnapshot?.includesGeometry;
+                        const hasAnchorInSelection = !!(
+                            selectionResizeSnapshot?.includesAnchors ??
+                            this.selectedAnchors.length > 0
+                        );
+                        const hasComponentInSelection = !!(
+                            selectionResizeSnapshot?.components?.length ??
+                            this.selectedComponents.length > 0
+                        );
+                        const dragEditKinds = deriveEditKindsFromDrag(
+                            dragType,
+                            hasGeometryInSelection,
+                            hasAnchorInSelection,
+                            hasComponentInSelection
+                        );
+                        const closure = this.computeRecompositionClosure({
+                            sourceTargets: sourceTarget,
+                            editKinds: dragEditKinds,
+                            scope: 'all'
+                        });
                         this._syncCurrentGlyphToYDoc(
                             label,
                             preDragDesc ?? undefined,
                             encodedPostDesc,
                             metricsKeySide,
-                            anchorChangedLayerTargets ??
-                                sidebearingChangedLayerTargets
+                            closure.allTargets.length
+                                ? closure.allTargets
+                                : undefined
                         );
                     }
                 }
@@ -14968,10 +15094,10 @@ export class OutlineEditor {
         );
 
         const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer();
-
-        // Save to object model (non-blocking)
-        this.saveLayerData('keyboard-outline');
-        this.syncKeyboardOutlineLayerEdit('Move points', metricsUpdate);
+        // Save to object model.  The Yjs commit is owned by the caller
+        // (onKeyDown) which calls saveLayerData + computeRecompositionClosure +
+        // _syncCurrentGlyphToYDoc once for the mixed selection.
+        void this.saveLayerData('keyboard-outline');
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
     }
@@ -14996,46 +15122,16 @@ export class OutlineEditor {
         }
 
         // Rebuild auto-composites before saving so downstream layer data
-        // is current when the Yjs history entry is recorded and the
-        // workerReplayTargets are collected for the undo fast path.
+        // is current when the Yjs history entry is recorded.
         this._anchorAffectedGlyphNames =
             this.rebuildAutomaticCompositesForCurrentEditedGlyph();
 
-        // Wrap keyboard edit in a transaction so model changes from
-        // saveLayerData and auto-composite cascade are committed as
-        // a single Yjs transaction with one broadcast.
-        const bridge = window.patchSyncEngine;
-        const hasTransaction = typeof bridge?.beginTransaction === 'function';
-        if (hasTransaction) {
-            bridge.beginTransaction('Move anchor');
-        }
-        try {
-            // Save to object model (non-blocking)
-            this.saveLayerData('keyboard-anchor');
-            // Sync model → babelfontData before the Yjs commit so cascade
-            // composite shapes are included in the transaction and forwarded
-            // to the worker. Without this, cascade composites updated by
-            // rebuildAutomaticCompositesForCurrentEditedGlyph are not in
-            // _fontJson when syncLayersFromJson runs, so tiles show stale data.
-            if (this._anchorAffectedGlyphNames.size > 0) {
-                fontManager.currentFont?.syncJsonFromModel();
-            }
-            const anchorChangedLayerTargets =
-                this.collectMatchingLayerWorkerReplayTargets(
-                    this._anchorAffectedGlyphNames,
-                    this.getCurrentLayerId()
-                );
-            this._syncCurrentGlyphToYDoc(
-                'Move anchor',
-                undefined,
-                undefined,
-                null,
-                anchorChangedLayerTargets
-            );
-        } finally {
-            if (hasTransaction) {
-                bridge.endTransaction();
-            }
+        // Save to object model (non-blocking).  The Yjs commit is owned by
+        // the caller (onKeyDown) which computes one unified closure for the
+        // mixed selection.
+        this.saveLayerData('keyboard-anchor');
+        if (this._anchorAffectedGlyphNames.size > 0) {
+            fontManager.currentFont?.syncJsonFromModel();
         }
         this.glyphCanvas.render();
     }
@@ -15077,9 +15173,10 @@ export class OutlineEditor {
 
         const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer();
 
-        // Save to object model (non-blocking)
+        // Save to object model (non-blocking).  The Yjs commit is owned by
+        // the caller (onKeyDown) which computes one unified closure for the
+        // mixed selection and makes a single _syncCurrentGlyphToYDoc call.
         this.saveLayerData('keyboard-outline');
-        this.syncKeyboardOutlineLayerEdit('Move component', metricsUpdate);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
     }
@@ -15088,46 +15185,37 @@ export class OutlineEditor {
         label: string,
         metricsUpdate?: { affectedGlyphNames: Set<string> } | null
     ): void {
-        let affectedGlyphNames = metricsUpdate?.affectedGlyphNames;
-        if (affectedGlyphNames && affectedGlyphNames.size > 0) {
-            const fontModel = fontManager.currentFont?.fontModel;
-            if (fontModel?.collectComponentDependentGlyphs) {
-                const dependents = fontModel.collectComponentDependentGlyphs(
-                    affectedGlyphNames
-                );
-                if (dependents.size > 0) {
-                    affectedGlyphNames = new Set([
-                        ...affectedGlyphNames,
-                        ...dependents
-                    ]);
-                }
-            }
-        }
+        // Use the unified recomposition closure to derive complete replay
+        // targets (source layer + composite dependents + automatic composites
+        // + metrics-key dependents).  This is the committed path, so scope
+        // is always 'all'.
+        const activeLayerId = this.getCurrentLayerId();
+        const glyphName =
+            this.parseGlyphStack().slice(-1)[0]?.glyphName ??
+            this.glyphCanvas.getCurrentGlyphName();
+        const sourceTargets =
+            activeLayerId && glyphName
+                ? [{ glyphName, layerId: activeLayerId }]
+                : [];
 
-        const workerReplayTargets = affectedGlyphNames?.size
-            ? this.collectMatchingLayerWorkerReplayTargets(
-                  affectedGlyphNames,
-                  this.getCurrentLayerId()
-              )
-            : undefined;
+        const editKinds = this.getCurrentSelectionEditKinds();
+        // Default to outline if the selection doesn't narrow it
+        if (editKinds.size === 0) editKinds.add('outline');
+
+        const closure = this.computeRecompositionClosure({
+            sourceTargets,
+            editKinds,
+            scope: 'all',
+            activeLayerId
+        });
 
         this._syncCurrentGlyphToYDoc(
             label,
             undefined,
             undefined,
             null,
-            workerReplayTargets
+            closure.allTargets.length ? closure.allTargets : undefined
         );
-
-        // Also refresh the worker cache for composite-dependent glyphs that
-        // were not detected as changed by the Yjs diff (their component
-        // references are stable, but the component source outlines may have
-        // moved, so the worker must recompile them against the updated source).
-        if (workerReplayTargets && workerReplayTargets.length > 1) {
-            void fontManager.refreshWorkerCacheForReplayTargets?.(
-                workerReplayTargets
-            );
-        }
     }
 
     private getCurrentDirectSidebearing(side: 'left' | 'right'): number | null {
@@ -15342,17 +15430,29 @@ export class OutlineEditor {
             }
 
             this.saveLayerData('keyboard-outline');
-            const sidebearingChangedLayerTargets =
-                this.collectMatchingLayerWorkerReplayTargets(
-                    this._sidebearingAffectedGlyphNames,
-                    this.getCurrentLayerId()
-                );
+
+            // Use unified recomposition closure.
+            const activeLayerId = this.getCurrentLayerId();
+            const glyphName =
+                this.parseGlyphStack().slice(-1)[0]?.glyphName ??
+                this.glyphCanvas.getCurrentGlyphName();
+            const sourceTargets =
+                activeLayerId && glyphName
+                    ? [{ glyphName, layerId: activeLayerId }]
+                    : [];
+            const closure = this.computeRecompositionClosure({
+                sourceTargets,
+                editKinds: new Set(['sidebearing']),
+                scope: 'all',
+                activeLayerId
+            });
+
             this._syncCurrentGlyphToYDoc(
                 'Set sidebearing',
                 formatSidebearingHistoryValue(side, currentSidebearing),
                 formatSidebearingHistoryValue(side, targetValue),
                 side,
-                sidebearingChangedLayerTargets
+                closure.allTargets.length ? closure.allTargets : undefined
             );
         } finally {
             if (hasTransaction) {
@@ -15392,17 +15492,27 @@ export class OutlineEditor {
         }
         try {
             this.saveLayerData('keyboard-outline');
-            const sidebearingChangedLayerTargets =
-                this.collectMatchingLayerWorkerReplayTargets(
-                    this._sidebearingAffectedGlyphNames,
-                    this.getCurrentLayerId()
-                );
+            // Use unified recomposition closure.
+            const activeLayerId = this.getCurrentLayerId();
+            const glyphName =
+                this.parseGlyphStack().slice(-1)[0]?.glyphName ??
+                this.glyphCanvas.getCurrentGlyphName();
+            const sourceTargets =
+                activeLayerId && glyphName
+                    ? [{ glyphName, layerId: activeLayerId }]
+                    : [];
+            const closure = this.computeRecompositionClosure({
+                sourceTargets,
+                editKinds: new Set(['sidebearing']),
+                scope: 'all',
+                activeLayerId
+            });
             this._syncCurrentGlyphToYDoc(
                 'Move sidebearing',
                 undefined,
                 undefined,
                 this.selectedSidebearingHandle?.side ?? null,
-                sidebearingChangedLayerTargets
+                closure.allTargets.length ? closure.allTargets : undefined
             );
         } finally {
             if (hasTransaction) {
@@ -15769,7 +15879,29 @@ export class OutlineEditor {
         }
 
         this.saveLayerData('keyboard');
-        this._syncCurrentGlyphToYDoc('Toggle smooth');
+        // Use unified recomposition closure so undo metadata includes
+        // composite-dependent glyphs.
+        const activeLayerId = this.getCurrentLayerId();
+        const glyphName =
+            this.parseGlyphStack().slice(-1)[0]?.glyphName ??
+            this.glyphCanvas.getCurrentGlyphName();
+        const sourceTargets =
+            activeLayerId && glyphName
+                ? [{ glyphName, layerId: activeLayerId }]
+                : [];
+        const closure = this.computeRecompositionClosure({
+            sourceTargets,
+            editKinds: new Set(['outline']),
+            scope: 'all',
+            activeLayerId
+        });
+        this._syncCurrentGlyphToYDoc(
+            'Toggle smooth',
+            undefined,
+            undefined,
+            null,
+            closure.allTargets.length ? closure.allTargets : undefined
+        );
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
     }
@@ -16417,28 +16549,36 @@ export class OutlineEditor {
                     null;
                 this._metricsKeyEditedSide = null;
                 this._metricsKeyInteractionSide = null;
-                // When anchors were nudged, include downstream auto-composite
-                // targets so the undo fast path can refresh the worker cache
-                // incrementally instead of falling back to storeFontJson.
-                const anchorReplayTargets =
-                    this.selectedAnchors.length > 0
-                        ? this.collectMatchingLayerWorkerReplayTargets(
-                              this._anchorAffectedGlyphNames,
-                              this.getCurrentLayerId()
-                          )
-                        : undefined;
-                const sidebearingReplayTargets = this.selectedSidebearingHandle
-                    ? this.collectMatchingLayerWorkerReplayTargets(
-                          this._sidebearingAffectedGlyphNames,
-                          this.getCurrentLayerId()
-                      )
-                    : undefined;
+                // Use the unified recomposition closure so the Yjs packet
+                // carries complete workerReplayTargets (source + composite
+                // dependents + automatic composites + metrics-key dependents).
+                const activeGlyphName =
+                    this.parseGlyphStack().slice(-1)[0]?.glyphName ??
+                    this.glyphCanvas.getCurrentGlyphName();
+                const activeLayerId = this.getCurrentLayerId();
+                const sourceTargets =
+                    activeLayerId && activeGlyphName
+                        ? [
+                              {
+                                  glyphName: activeGlyphName,
+                                  layerId: activeLayerId
+                              }
+                          ]
+                        : [];
+                const editKinds = this.getCurrentSelectionEditKinds();
+                if (editKinds.size === 0) editKinds.add('outline');
+                const closure = this.computeRecompositionClosure({
+                    sourceTargets,
+                    editKinds,
+                    scope: 'all',
+                    activeLayerId
+                });
                 this._syncCurrentGlyphToYDoc(
                     'Arrow key',
                     preMoveDesc,
                     postMoveDesc,
                     visualAnchorSide,
-                    anchorReplayTargets ?? sidebearingReplayTargets
+                    closure.allTargets.length ? closure.allTargets : undefined
                 );
                 return;
             }
@@ -17170,13 +17310,29 @@ export class OutlineEditor {
     }
 
     /**
-     * Sync the current glyph's data from babelfontData into the Y.Doc.
-     * Called after direct JSON mutations (drag, keyboard edits) that
-     * bypass the babelfont-model setters.
+     * Commit layer data into Y.Doc after an edit.
      *
-     * @param workerReplayTargets - Direct targets for the undo fast path.
-     *   Cascade recompose targets are derived automatically by the caller
-     *   via collectCascadeRecomposeTargets() and included here.
+     * The caller has already:
+     *   1. Mutated the layer data
+     *   2. Called saveLayerData() to persist to the model and babelfontData
+     *   3. Computed the recomposition closure via computeRecompositionClosure()
+     *
+     * This method receives the pre-computed closure targets, merges
+     * dependent model layers into babelfontData so the bridge sees current
+     * data for all targets, then commits the full set to Yjs via
+     * syncLayersFromJson.  The complete closure (allTargets) is stamped
+     * as workerReplayTargets metadata on every change-log entry so the
+     * Rust worker refreshes the subset/font/filter cache for every
+     * affected glyph, not just the ones whose Yjs data changed.
+     *
+     * @param label        Human-readable edit label for the history view.
+     * @param oldValue     Previous state description for undo/redo display.
+     * @param newValue     New state description for undo/redo display.
+     * @param visualAnchorSide Which side was edited (for viewport pan).
+     * @param workerReplayTargets Pre-computed closure targets from the
+     *   caller.  MUST be the full allTargets set from
+     *   computeRecompositionClosure.  Pass undefined when no closure
+     *   was computed (fallback to direct source-only sync).
      */
     private _syncCurrentGlyphToYDoc(
         label: string,
@@ -17197,47 +17353,10 @@ export class OutlineEditor {
             return;
         }
 
-        // Expand workerReplayTargets with composite-dependent glyphs so
-        // every edit type (outline, anchor, sidebearing by keyboard and
-        // mouse) refreshes the worker cache for glyphs that reference
-        // the edited glyph as a component.  Without this expansion, only
-        // the directly-edited layer is marked in the Yjs update metadata,
-        // and composites whose component references are stable (but whose
-        // source outlines just moved) never get their worker-cache entry
-        // invalidated — causing stale-outline compilations on the next
-        // compile regardless of edit origin.
-        if (
-            activeLayerId &&
-            fontManager.currentFont?.fontModel?.collectComponentDependentGlyphs
-        ) {
-            const fontModel = fontManager.currentFont.fontModel;
-            const dependents = fontModel.collectComponentDependentGlyphs(
-                new Set([editedGlyphName])
-            );
-            if (dependents.size > 0) {
-                const extra: Array<{ glyphName: string; layerId: string }> = [];
-                for (const depName of dependents) {
-                    const depGlyph = fontModel.findGlyph(depName);
-                    const depLayer =
-                        depGlyph?.findLayerById?.(activeLayerId) ??
-                        depGlyph?.layers?.find?.(
-                            (l: any) => l.id === activeLayerId
-                        );
-                    if (depLayer?.id) {
-                        extra.push({
-                            glyphName: depName,
-                            layerId: depLayer.id
-                        });
-                    }
-                }
-                workerReplayTargets = normalizeWorkerReplayTargets([
-                    ...(workerReplayTargets ?? []),
-                    ...extra
-                ]);
-            }
-        }
-
-        // Build the full set of targets: directly edited layer + cascade targets.
+        // Build the full set of targets: directly edited layer + closure-derived targets.
+        // The caller is responsible for supplying pre-computed complete closure targets.
+        // This method does NOT perform additional dependent discovery — the shared
+        // recomposition-closure module is the single source of truth.
         const directTarget = activeLayerId
             ? [{ glyphName: editedGlyphName, layerId: activeLayerId }]
             : [];
@@ -17294,13 +17413,18 @@ export class OutlineEditor {
                 }
             }
 
+            // Pass allTargets as BOTH the sync targets AND the metadata
+            // workerReplayTargets so every operation entry carries the complete
+            // closure set rather than just its own layer path.  This ensures
+            // that Rust's subset/font/filter cache is refreshed for composite-
+            // dependent glyphs even when their own layer JSON is byte-equal.
             window.patchSyncEngine.syncLayersFromJson(
                 allTargets,
                 label,
                 oldValue,
                 newValue,
                 visualAnchorSide,
-                workerReplayTargets?.length ? workerReplayTargets : undefined
+                allTargets
             );
             return;
         }

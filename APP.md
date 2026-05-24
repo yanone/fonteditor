@@ -52,6 +52,27 @@ Full-document transport is reserved for bootstrap from external sources only, su
 
 Only a font’s main window syncs with the DO room in the cloud. Local linked windows only talk to the main window which relays messages back and forth between the cloud and the local linked windows.
 
+## The Editing Pipeline
+
+Live drags run through `LiveDragEditFunnel`, which bypasses Yjs packet creation on purpose. It calculates its own cascading layer recomposition closure based on glyphs visible in the editor.
+TODO: Check if closure calculations match with the rest; ideally unify.
+
+Edits that get committed are run through `computeRecompositionClosure` which calculates the cascading layer recomposition closure set. These edits are drag-end, property panel edits, keyboard moves of all object types incl. sidebearings, smooth point toggle.
+
+Structural edits (connect, split, open, close path) go to `syncStructuralGlyphChangeTransaction()` and Yjs bridge directly. Skip both closure and `_syncCurrentGlyphToYDoc`.
+TODO: Structural edits should ideally go through `_syncCurrentGlyphToYDoc` like all other edits to stamp them with replay targets, but for now it seems okay since it doesn't actually cause any harm if they don't have replayTargets.
+
+All committed interactive edits enter the pipeline in `_syncCurrentGlyphToYDoc()`, which sends results to the Yjs bridge. Exceptions are undo, redo, and remote edits, as these are already finalzed Yjs packets.
+
+`_syncCurrentGlyphToYDoc()` forwards to the Yjs bridge, which applies the operation to its Y.Doc, from which the binary Yjs diffs are created.
+TODO: This operation needs scrutiny to see if the Y.Doc sync is good.
+
+Here, undo, redo, and remote Yjs packets converge with forward GUI edits to be processed at `_emitLocalUpdate`.
+
+TODO: Continue with the Yjs packet handling, namely the compilation pipeline in Rust.
+
+TODO: Duplicate Yjs processing
+
 ## Glyphs
 
 ### Layers

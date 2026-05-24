@@ -21,6 +21,9 @@ import { fontCompilation, fullFontCompilation } from './font-compilation';
 import { Logger } from './logger';
 import { processCommittedEdit } from './compiled-edit-funnel';
 import {
+    computeLayerRecompositionClosure
+} from './recomposition-closure';
+import {
     deriveGlyphNamesFromPaths,
     deriveGlyphName,
     deriveLayerId,
@@ -678,23 +681,46 @@ export function buildCascadingRecompositionOperations(
         return [];
     }
 
-    const affectedGlyphNames = recomputeCascadeAffectedGlyphNames(
-        bridge,
-        sourceTargets
-    );
-    if (!affectedGlyphNames.size) {
+    // Use the shared recomposition closure instead of the local
+    // recomputeCascadeAffectedGlyphNames.  The bridge fallback path uses a
+    // superset of edit kinds so all dependency types are covered.
+    const fontModel =
+        window.fontManager?.currentFont?.fontModel ?? null;
+    if (!fontModel) {
         return [];
     }
 
-    const cascadeTargets = collectLayerTargetsForAffectedGlyphNames(
-        affectedGlyphNames,
-        sourceTargets
-    );
-    if (!cascadeTargets.length) {
+    // Extract the first source target's layer ID for matching-layer lookup.
+    const activeLayerId = sourceTargets[0]?.layerId ?? null;
+    const sourceGlyphName = sourceTargets[0]?.glyphName ?? null;
+
+    const closure = computeLayerRecompositionClosure({
+        sourceTargets,
+        editKinds: new Set(['outline', 'anchor', 'sidebearing', 'component']),
+        scope: 'all',
+        fontModel,
+        activeLayerId,
+        sourceGlyphName,
+        suppressor: bridge
+    });
+
+    if (!closure.affectedGlyphNames.size) {
         return [];
     }
 
-    return buildCascadeLayerOperations(bridge, cascadeTargets, operations);
+    // Build layer targets from the full affected set (source + dependents).
+    // Source layer targets are included so buildCascadeLayerOperations can
+    // detect model mutations that affected the source glyph's own layer
+    // (e.g. anchor clearing triggered by recomputeMetricsKeys).
+    const allCascadeTargets = normalizeWorkerReplayTargets([
+        ...sourceTargets,
+        ...closure.dependentTargets
+    ]);
+    if (!allCascadeTargets.length) {
+        return [];
+    }
+
+    return buildCascadeLayerOperations(bridge, allCascadeTargets, operations);
 }
 
 /**
@@ -1338,6 +1364,9 @@ function syncImmediateUndoOutlineLayerFromModel(
 /**
  * Derive cascading recomposition targets from the directly edited layers.
  *
+ * Delegates to the shared `computeLayerRecompositionClosure` so every
+ * edit path uses the same dependency derivation logic.
+ *
  * For each (glyphName, layerId) source pair, discovers glyphs that depend
  * on it as a component reference, then finds the matching layer (same master)
  * on each dependent glyph. Returns all targets that need recomposition.
@@ -1356,56 +1385,16 @@ export function collectCascadeRecomposeTargets(
         return [];
     }
 
-    const sourceLayer = sourceGlyphName
-        ? fontModel
-              .findGlyph(sourceGlyphName)
-              ?.findLayerById(sourceLayerId ?? '')
-        : null;
+    const closure = computeLayerRecompositionClosure({
+        sourceTargets,
+        editKinds: new Set(['outline', 'anchor', 'sidebearing', 'component']),
+        scope: 'all',
+        fontModel,
+        activeLayerId: sourceLayerId,
+        sourceGlyphName
+    });
 
-    // Union: directly edited layers + dependent component glyphs
-    const allGlyphNames = new Set<string>();
-    for (const target of sourceTargets) {
-        allGlyphNames.add(target.glyphName);
-    }
-
-    if (typeof fontModel.collectComponentDependentGlyphs === 'function') {
-        for (const dependentGlyphName of fontModel.collectComponentDependentGlyphs(
-            allGlyphNames
-        )) {
-            allGlyphNames.add(dependentGlyphName);
-        }
-    }
-
-    // For each affected glyph, find the matching layer (same master)
-    const recomposeTargets: WorkerReplayTarget[] = [];
-    for (const glyphName of allGlyphNames) {
-        // Skip glyphs already in source targets (already handled directly)
-        const alreadySource = sourceTargets.some(
-            (t) => t.glyphName === glyphName
-        );
-        if (alreadySource) continue;
-
-        const glyph = fontModel.findGlyph(glyphName);
-        if (!glyph) continue;
-
-        // Try to find the matching layer by looking at source layer's master
-        let matchedLayer = null;
-        if (
-            sourceLayer?.id &&
-            typeof sourceLayer.getMatchingLayerOnGlyph === 'function'
-        ) {
-            matchedLayer = sourceLayer.getMatchingLayerOnGlyph(glyphName);
-        }
-
-        if (matchedLayer?.id) {
-            recomposeTargets.push({
-                glyphName,
-                layerId: matchedLayer.id
-            });
-        }
-    }
-
-    return normalizeWorkerReplayTargets(recomposeTargets);
+    return closure.dependentTargets;
 }
 
 export function waitForEditingFontCompileRevision(
@@ -1964,59 +1953,23 @@ export async function handleCommittedChangeRefresh(
             (() => fontCompilation.awaitWorkerDocumentSync());
         await awaitLocalCommittedWorkerCacheSettled(awaitWorkerSync);
 
-        // For local GUI commits whose Yjs worker update was already forwarded
-        // by setYjsWorkerCallback, skip the duplicate replay-target cache
-        // refresh. The authoritative Yjs update already reached Rust through
-        // forwardWorkerYjsUpdate. A second refreshWorkerCacheForReplayTargets
-        // would serialize model layers again and send another applyYjsUpdate.
+        // For local undo/redo packets, the font model is stale — only
+        // babelfontData was synced from Yjs by _syncRemoteJsonFromYDoc.
+        // Skip the replay-target cache refresh to avoid sending pre-undo
+        // model data to the worker as a second applyYjsUpdate that would
+        // overwrite the correct post-undo state from the first
+        // forwardWorkerYjsUpdate.
         //
-        // Detect GUI-complete layer packets: all entries carry explicit
-        // workerReplayTargets and their paths are layer-scoped visual edits.
+        // For non-undo/redo local packets (keyboard, drag-end, property
+        // panel), the model is current (saveLayerData kept it in sync).
+        // Always refresh the Rust cache through replay targets, matching
+        // the remote path, so composite-dependent glyphs are fully
+        // populated before the compile starts.
         const replayTargets = collectReplayTargetsFromEntries(entries);
-        const allEntriesAreGuiCompleteLayerPackets =
-            entries.length > 0 &&
-            entries.every((entry) => {
-                const targets = normalizeWorkerReplayTargets(
-                    entry.workerReplayTargets
-                );
-                if (!targets.length) {
-                    return false;
-                }
-                const path = entry.path ?? '';
-                // Must be a layer-scoped visual path
-                return path.includes('.layers.') || path.includes(':layers.');
-            });
-        const allEntriesAreForwardedSidebearingKeyPackets =
-            entries.length > 0 &&
-            replayTargets.length > 0 &&
-            entries.every(isSidebearingKeyCommittedEntry);
-        const allEntriesAreForwardedMasterReinterpolationPackets =
-            entries.length > 0 &&
-            entries.every((entry) => {
-                const targets = normalizeWorkerReplayTargets(
-                    entry.workerReplayTargets
-                );
-                return (
-                    targets.length > 0 &&
-                    entry.transactionLabel === 'Reinterpolate layer batch sync'
-                );
-            });
-        const allEntriesAreForwardedAddMasterPackets =
-            entries.length > 0 &&
-            replayTargets.length > 0 &&
-            entries.every((entry) => entry.transactionLabel === 'Add master');
-
-        if (
-            !allEntriesAreGuiCompleteLayerPackets &&
-            !allEntriesAreForwardedSidebearingKeyPackets &&
-            !allEntriesAreForwardedMasterReinterpolationPackets &&
-            !allEntriesAreForwardedAddMasterPackets &&
-            replayTargets.length > 0
-        ) {
+        if (!isUndoRedoPacket && replayTargets.length > 0) {
             const queueCacheRefresh =
                 dependencies?.queueCacheRefresh ??
                 queueRustCacheAndRefreshCanvas;
-
             await queueCacheRefresh(undefined, undefined, {
                 allowSelectedLayerFallback: false,
                 workerReplayTargets: replayTargets

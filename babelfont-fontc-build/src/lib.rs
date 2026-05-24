@@ -719,7 +719,7 @@ fn compile_with_feature_debug_context(
     context: &str,
 ) -> Result<Vec<u8>, JsValue> {
     match BabelfontIrSource::compile(font.clone(), options.clone()) {
-        Ok(compiled) => Ok(compiled),
+        Ok(compiled) => Ok(zero_head_timestamps(&compiled)),
         Err(err) => {
             let error_text = format!("{:?}", err);
             if error_text.contains("FeatureParsing(") {
@@ -736,6 +736,77 @@ fn compile_with_feature_debug_context(
             Err(JsValue::from_str(&format!("Compilation failed: {:?}", err)))
         }
     }
+}
+
+/// Zero out the `head` table `created` and `modified` timestamps so that
+/// compiling the same input produces byte-identical output.  Without this,
+/// fontc embeds fresh timestamps on every compile, making pixel-level
+/// canvas snapshot comparison across compiles impossible.
+fn zero_head_timestamps(font_data: &[u8]) -> Vec<u8> {
+    if font_data.len() < 12 {
+        return font_data.to_vec();
+    }
+    // Parse sfVersion + numTables (2) + searchRange (2) + entrySelector (2) + rangeShift (2) = 12
+    let num_tables = u16::from_be_bytes([font_data[4], font_data[5]]) as usize;
+    let dir_start = 12;
+    let dir_end = dir_start + num_tables * 16;
+
+    if font_data.len() < dir_end {
+        return font_data.to_vec();
+    }
+
+    // "head" table tag as big-endian u32
+    let head_tag: u32 = u32::from_be_bytes([b'h', b'e', b'a', b'd']);
+    let head_tag_bytes = head_tag.to_be_bytes();
+
+    for i in 0..num_tables {
+        let entry_offset = dir_start + i * 16;
+        if entry_offset + 16 > font_data.len() {
+            break;
+        }
+        let tag = &font_data[entry_offset..entry_offset + 4];
+        if tag == head_tag_bytes {
+            let offset = u32::from_be_bytes([
+                font_data[entry_offset + 8],
+                font_data[entry_offset + 9],
+                font_data[entry_offset + 10],
+                font_data[entry_offset + 11],
+            ]) as usize;
+            let length = u32::from_be_bytes([
+                font_data[entry_offset + 12],
+                font_data[entry_offset + 13],
+                font_data[entry_offset + 14],
+                font_data[entry_offset + 15],
+            ]) as usize;
+
+            if offset + 32 > font_data.len() || length < 32 {
+                break;
+            }
+
+            // head table layout (after the first 12 bytes of table header):
+            // Offset 0:  version       (4 bytes, Fixed 16.16)
+            // Offset 4:  fontRevision  (4 bytes, Fixed 16.16)
+            // Offset 8:  checkSumAdjustment (4 bytes, uint32)
+            // Offset 12: magicNumber   (4 bytes, uint32 = 0x5F0F3CF5)
+            // Offset 16: flags         (2 bytes, uint16)
+            // Offset 18: unitsPerEm    (2 bytes, uint16)
+            // Offset 20: created       (8 bytes, LONGDATETIME)
+            // Offset 28: modified      (8 bytes, LONGDATETIME)
+            let mut result = font_data.to_vec();
+            let created_offset = offset + 20;
+            let modified_offset = offset + 28;
+
+            if created_offset + 8 <= result.len() {
+                result[created_offset..created_offset + 8].fill(0);
+            }
+            if modified_offset + 8 <= result.len() {
+                result[modified_offset..modified_offset + 8].fill(0);
+            }
+            return result;
+        }
+    }
+
+    font_data.to_vec()
 }
 
 const PERF_PREFIX: &str = "cp:wasm";
@@ -1973,13 +2044,21 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                                 continue;
                             }
 
-                            if replace_layer_json_entry(
+                            let changed = replace_layer_json_entry(
                                 subset_json,
                                 subset_index,
                                 &target.glyph_name,
                                 &target.layer_id,
                                 layer_json.clone(),
-                            ) {
+                            );
+                            // Always mark touched-subset layers for cache refresh,
+                            // even when the layer JSON is byte-equal.  Composite-
+                            // dependent glyphs (adieresis referencing a) are included
+                            // as layer targets via JS recomposition-closure logic,
+                            // but their own layer data may not have changed — the
+                            // subset font cache must still be refreshed so fontc
+                            // recompiles them from current data.
+                            if changed || touches_subset {
                                 touched_subset_glyphs.push(target.glyph_name.clone());
                             }
                         }
@@ -1991,12 +2070,13 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                                 continue;
                             }
 
-                            if replace_glyph_json_entry(
+                            let changed = replace_glyph_json_entry(
                                 subset_json,
                                 subset_index,
                                 glyph_name,
                                 glyph_json.clone(),
-                            ) {
+                            );
+                            if changed || touches_subset {
                                 touched_subset_glyphs.push(glyph_name.clone());
                             }
                         }
