@@ -184,6 +184,114 @@ class AIAgent {
                 if (!res.ok) throw new Error('API documentation not found');
                 return await res.text();
             }
+            case 'list_available_fonts': {
+                const pluginRegistry = (window as any).pluginRegistry;
+                if (!pluginRegistry) return 'Plugin registry not available.';
+
+                const plugins = pluginRegistry.getAll() || [];
+                const results: string[] = [];
+                const messages: string[] = [];
+                const fontExtensions = ['.babelfont', '.glyphs', '.vfj', '.sfd', '.designspace'];
+
+                for (const plugin of plugins) {
+                    const pluginId = plugin.getId();
+                    const pluginName = plugin.getName?.() || pluginId;
+                    const adapter = plugin.getAdapter();
+                    if (!adapter) continue;
+
+                    // Check plugin readiness with contextual messages
+                    if (pluginId === 'disk') {
+                        const hasDir = typeof adapter.hasDirectory === 'function' && adapter.hasDirectory();
+                        if (!hasDir) {
+                            messages.push(`⚠️ **${pluginName}**: No folder linked yet. Open the file browser and select a folder to enable disk access.`);
+                            continue;
+                        }
+                        const perm = typeof adapter.checkPermission === 'function' ? await adapter.checkPermission() : 'granted';
+                        if (perm !== 'granted') {
+                            messages.push(`⚠️ **${pluginName}**: Folder access expired. Re-enable access in the file browser to continue.`);
+                            continue;
+                        }
+                    }
+
+                    const scanPath = plugin.getDefaultPath?.() || '/';
+
+                    try {
+                        const files = await adapter.scanDirectory(scanPath);
+                        let found = 0;
+                        for (const [name, info] of Object.entries(files)) {
+                            const fileInfo = info as { is_dir: boolean; path: string };
+                            const filePath = fileInfo.path || `/${name}`;
+                            const lowerName = name.toLowerCase();
+                            if (fileInfo.is_dir) {
+                                if (lowerName.endsWith('.glyphspackage') || lowerName.endsWith('.ufo')) {
+                                    results.push(`${name} — ${pluginId}:///${filePath.replace(/^\//, '')}`);
+                                    found++;
+                                }
+                                continue;
+                            }
+                            if (fontExtensions.some((ext) => lowerName.endsWith(ext))) {
+                                results.push(`${name} — ${pluginId}:///${filePath.replace(/^\//, '')}`);
+                                found++;
+                            }
+                        }
+                        if (found === 0) {
+                            messages.push(`📂 **${pluginName}**: No font files found.`);
+                        }
+                    } catch {
+                        messages.push(`⚠️ **${pluginName}**: Could not scan — plugin may need setup.`);
+                    }
+                }
+
+                const output: string[] = [];
+                if (results.length > 0) {
+                    output.push('**Available fonts (name — URL):**');
+                    output.push('');
+                    output.push(...results);
+                    output.push('');
+                }
+                if (messages.length > 0) {
+                    output.push(...messages);
+                }
+                return output.length > 0
+                    ? output.join('\n')
+                    : 'No fonts found in any available storage plugin.';
+            }
+            case 'open_font': {
+                const url = args.url;
+                if (!url) throw new Error('Missing required parameter: url');
+
+                const parsed = (window as any).parseFileUri?.(url);
+                if (!parsed)
+                    throw new Error(
+                        `Invalid font URL: "${url}". Expected format: pluginId:///path (e.g. memory:///user/Fustat.glyphs)`
+                    );
+
+                const plugin = (window as any).pluginRegistry?.get?.(parsed.pluginId);
+                if (!plugin)
+                    throw new Error(
+                        `Plugin "${parsed.pluginId}" not found. Available: ${((window as any).pluginRegistry?.getAll?.() || [])
+                            .map((p: any) => p.getId())
+                            .join(', ') || 'none'}`
+                    );
+
+                try {
+                    // Check file exists before attempting to open
+                    const adapter = plugin.getAdapter();
+                    if (adapter && typeof adapter.fileExists === 'function') {
+                        const exists = await adapter.fileExists(parsed.path);
+                        if (!exists) {
+                            throw new Error(`File not found: ${parsed.path} (from ${url})`);
+                        }
+                    }
+                    await (window as any).openFont?.(parsed.path, undefined, {
+                        sourcePluginOverride: plugin,
+                    });
+                } catch (err: any) {
+                    throw new Error(`Failed to open font: ${err.message}`);
+                }
+
+                return `Font opened successfully: ${url}`;
+            }
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }
@@ -342,6 +450,20 @@ class AIAgent {
                 this.updateSessionMetricsBar();
 
                 if (result.toolCalls && result.toolCalls.length > 0) {
+                    // Ensure the agent message container exists even when the model
+                    // responds with only a tool call and no preamble text
+                    if (!messageDiv) {
+                        messageDiv = document.createElement('div');
+                        messageDiv.className = 'agent-message agent-message-agent';
+                        const header = document.createElement('div');
+                        header.className = 'agent-message-header';
+                        header.innerHTML = '<span class="material-symbols-outlined">robot_2</span> Agent';
+                        messageDiv.appendChild(header);
+                        bodyDiv = document.createElement('div');
+                        messageDiv.appendChild(bodyDiv);
+                        this.messagesContainer!.appendChild(messageDiv);
+                    }
+
                     conversationMessages.push({
                         role: 'assistant',
                         content: result.text || null,
@@ -376,11 +498,16 @@ class AIAgent {
 
                             const metaEl = document.createElement('div');
                             metaEl.style.cssText = 'font-size:11px;line-height:1.6;padding:4px;color:var(--text-primary);';
+                            const truncated = toolResult.length > 1000
+                                ? toolResult.slice(0, 1000) + '…'
+                                : toolResult;
                             metaEl.innerHTML = `
                                 <b>Tool:</b> ${toolCall.function.name}<br>
                                 <b>Arguments:</b> ${this.escapeHtml(JSON.stringify(args, null, 2))}<br>
                                 <b>Result:</b> ${resultLen} characters<br>
-                                <b>Time:</b> ${new Date().toLocaleTimeString()}
+                                <b>Time:</b> ${new Date().toLocaleTimeString()}<br>
+                                <hr style="margin:4px 0;border:none;border-top:1px solid var(--border-primary)">
+                                <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-size:10px;max-height:200px;overflow-y:auto">${this.escapeHtml(truncated)}</pre>
                             `;
 
                             tippy(infoBtn, {

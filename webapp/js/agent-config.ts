@@ -68,6 +68,38 @@ export const AGENT_TOOLS: AgentTool[] = [
                 required: []
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'list_available_fonts',
+            description:
+                'List all available fonts across all file storage plugins (memory, disk, cloud). Returns the full URL for each font, including the plugin prefix (e.g. memory:///user/Fustat.glyphs). Use this to discover which fonts the user can open.',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'open_font',
+            description:
+                'Open a font by its full URL (e.g. memory:///user/Fustat.glyphs). Use list_available_fonts first to get valid URLs. Shows a loading spinner while the font opens.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    url: {
+                        type: 'string',
+                        description:
+                            'Full font URL including plugin prefix, e.g. memory:///user/Fustat.glyphs or cloud://abc-123'
+                    }
+                },
+                required: ['url']
+            }
+        }
     }
 ];
 
@@ -83,9 +115,18 @@ You have access to these tools:
 
 3. **python_api_docs** — Returns the complete Python API documentation for the font editing model.
 
+4. **list_available_fonts** — Lists all fonts available across storage plugins (memory, disk, cloud). Each entry includes the full URL with plugin prefix, e.g. memory:///user/Fustat.glyphs.
+
+5. **open_font** — Opens a font by its full URL (e.g. memory:///user/Fustat.glyphs). Always use list_available_fonts first to find the URL.
+
 When a user asks about app functionality, follow this process:
 1. Use handbook_toc to find relevant documentation
 2. Use handbook_topic to read specific pages
 3. Use python_api_docs when the user asks about scripting or programming with the font model
+
+When a user wants to open or work with a font file, follow this process:
+1. Use list_available_fonts to see what fonts are available
+2. Ask the user which one to open if they haven't specified, or if several fonts with identical or almost identical names are available.
+3. Use open_font with the chosen URL to open it
 
 Always cite your sources by mentioning which documentation page you're referencing. Be thorough and helpful in explaining concepts to type designers.`;

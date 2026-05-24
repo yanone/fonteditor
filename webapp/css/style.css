@@ -4616,7 +4616,7 @@ kbd + kbd {
 /* Inline tool-call status line inside the agent message */
 .agent-tool-call-line {
     font-size: 10px;
-    color: var(--text-tertiary);
+    color: var(--text-faint);
     font-style: italic;
     padding: 0;
     line-height: 1.4;
