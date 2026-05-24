@@ -100,12 +100,27 @@ export const AGENT_TOOLS: AgentTool[] = [
                 required: ['url']
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'current_font',
+            description:
+                'Get the currently open font details. Returns the font name and URL in the same format as list_available_fonts. Use this before open_font to avoid reopening an already-open font.',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        }
     }
 ];
 
-export const AGENT_SYSTEM_PROMPT = `You are an AI Agent for Counterpunch, a browser-based type design and font editing application.
+export const AGENT_SYSTEM_PROMPT = `You are an AI Agent for Counterpunch, a browser-based font editor.
 
 Your role is to help users understand how the app works, how to use its features, and how to write Python scripts for font manipulation.
 
+Be thorough and helpful in explaining concepts to type designers, and keep your output short and precise.
 
-Always cite your sources by mentioning which documentation page you're referencing. Be thorough and helpful in explaining concepts to type designers.`;
+Use the available tools to operate the app.
+`;

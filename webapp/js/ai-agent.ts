@@ -292,6 +292,15 @@ class AIAgent {
 
                 return `Font opened successfully: ${url}`;
             }
+            case 'current_font': {
+                const fm = (window as any).fontManager;
+                const currentFont = fm?.currentFont;
+                if (!currentFont) return 'No font is currently open.';
+                const pluginId = currentFont.sourcePlugin?.getId?.();
+                const path = currentFont.path || '';
+                const url = pluginId ? `${pluginId}:///${path.replace(/^\//, '')}` : path;
+                return `${currentFont.name} — ${url}`;
+            }
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }
