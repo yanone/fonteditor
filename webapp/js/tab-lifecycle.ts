@@ -5,11 +5,13 @@ class TabLifecycleManager {
     lockHeld: boolean;
     persistentStorageGranted: boolean;
     keepAliveInterval: ReturnType<typeof setInterval> | null;
+    wakeLock: WakeLockSentinel | null;
 
     constructor() {
         this.lockHeld = false;
         this.persistentStorageGranted = false;
         this.keepAliveInterval = null;
+        this.wakeLock = null;
     }
 
     async initialize() {
@@ -20,6 +22,9 @@ class TabLifecycleManager {
 
         // Acquire Web Lock to prevent tab discard
         this.acquireWebLock();
+
+        // Acquire Screen Wake Lock to prevent tab freeze
+        await this.acquireWakeLock();
 
         // Set up visibility change handler
         this.setupVisibilityHandler();
@@ -126,14 +131,58 @@ class TabLifecycleManager {
             });
     }
 
+    async acquireWakeLock() {
+        if (!('wakeLock' in navigator)) {
+            console.warn('[Tab Lifecycle] Screen Wake Lock API not supported');
+            return;
+        }
+
+        // Don't re-acquire if already held
+        if (this.wakeLock) return;
+
+        try {
+            this.wakeLock = await navigator.wakeLock.request('screen');
+            console.log(
+                '[Tab Lifecycle] ⏰ Screen Wake Lock acquired - tab protected from freeze'
+            );
+
+            // The wake lock is auto-released when the tab becomes hidden.
+            // Listen for release so we can re-acquire when visible again.
+            this.wakeLock.addEventListener('release', () => {
+                console.log(
+                    '[Tab Lifecycle] Screen Wake Lock released (will re-acquire on next visibility)'
+                );
+                this.wakeLock = null;
+            });
+        } catch (error) {
+            console.warn(
+                '[Tab Lifecycle] Failed to acquire Screen Wake Lock:',
+                error
+            );
+            this.wakeLock = null;
+        }
+    }
+
+    releaseWakeLock() {
+        if (this.wakeLock) {
+            this.wakeLock.release();
+            this.wakeLock = null;
+        }
+    }
+
     setupVisibilityHandler() {
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 console.log('[Tab Lifecycle] Tab hidden - starting keepalive');
                 this.startKeepAlive();
+                // Wake lock auto-released by browser when tab hides;
+                // release our reference so we can re-acquire on return
+                this.wakeLock = null;
             } else {
                 console.log('[Tab Lifecycle] Tab visible - stopping keepalive');
                 this.stopKeepAlive();
+                // Re-acquire wake lock when user returns
+                this.acquireWakeLock();
             }
         });
 
@@ -283,7 +332,8 @@ class TabLifecycleManager {
             lockHeld: this.lockHeld,
             persistentStorageGranted: this.persistentStorageGranted,
             tabHidden: document.hidden,
-            keepAliveActive: this.keepAliveInterval !== null
+            keepAliveActive: this.keepAliveInterval !== null,
+            wakeLockHeld: this.wakeLock !== null
         };
     }
 }
