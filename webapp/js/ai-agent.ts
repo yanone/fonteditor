@@ -5,7 +5,7 @@
 
 import { resolveWebsiteURL } from './website-url';
 import { Logger } from './logger';
-import { AGENT_TOOLS, AGENT_SYSTEM_PROMPT } from './agent-config';
+import { AGENT_TOOLS, AGENT_SYSTEM_PROMPT, UsageMetrics } from './agent-config';
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import { getTheme } from './tippy-utils';
@@ -28,6 +28,8 @@ class AIAgent {
     abortController: AbortController | null;
     messages: Array<{ role: string; content: string }>;
     conversationMessages: Array<any>;
+    roundUsage: UsageMetrics[];
+    sessionTotals: UsageMetrics;
 
     constructor() {
         this.messagesContainer = null;
@@ -42,6 +44,8 @@ class AIAgent {
         this.abortController = null;
         this.messages = [];
         this.conversationMessages = [];
+        this.roundUsage = [];
+        this.sessionTotals = {};
 
         this.initUI();
         this.checkAuthenticationStatus();
@@ -312,6 +316,31 @@ class AIAgent {
                     this.scrollToBottomIfNear();
                 }, signal);
 
+                // ── Track usage for this round ──
+                const roundUsage = result.usage;
+                if (roundUsage) {
+                    this.roundUsage.push(roundUsage);
+                    this.accumulateSessionTotals(roundUsage);
+                }
+
+                // ── Render per-round metrics (dev mode only) ──
+                const isDev = window.isDevelopment?.() ?? false;
+                if (isDev && bodyDiv) {
+                    const bd = bodyDiv as HTMLDivElement;
+                    const metricsStr = this.formatUsageMetrics(roundUsage);
+                    if (metricsStr) {
+                        const roundTextEl = bd.querySelector('.agent-round-text:last-child') as HTMLElement | null;
+                        if (roundTextEl) {
+                            const metricsEl = document.createElement('div');
+                            metricsEl.className = 'agent-round-metrics';
+                            metricsEl.textContent = metricsStr;
+                            roundTextEl.insertAdjacentElement('afterend', metricsEl);
+                        }
+                    }
+                }
+
+                this.updateSessionMetricsBar();
+
                 if (result.toolCalls && result.toolCalls.length > 0) {
                     conversationMessages.push({
                         role: 'assistant',
@@ -453,15 +482,57 @@ class AIAgent {
         return d.innerHTML;
     }
 
+    // ── Dev-mode usage metrics ──
+
+    formatUsageMetrics(usage: UsageMetrics | null | undefined): string {
+        if (!usage) return '';
+        const parts: string[] = [];
+        if (usage.prompt_tokens != null) parts.push(`in: ${usage.prompt_tokens}`);
+        if (usage.completion_tokens != null) parts.push(`out: ${usage.completion_tokens}`);
+        if (usage.cached_tokens != null) parts.push(`cached: ${usage.cached_tokens}`);
+        if (usage.total_cost != null) parts.push(`$${usage.total_cost.toFixed(6)}`);
+        else if (usage.cost_eur_cents != null) parts.push(`${usage.cost_eur_cents}c`);
+        return parts.length > 0 ? parts.join(' · ') : '';
+    }
+
+    accumulateSessionTotals(usage: UsageMetrics | null | undefined): void {
+        if (!usage) return;
+        this.sessionTotals.prompt_tokens = (this.sessionTotals.prompt_tokens || 0) + (usage.prompt_tokens || 0);
+        this.sessionTotals.completion_tokens = (this.sessionTotals.completion_tokens || 0) + (usage.completion_tokens || 0);
+        this.sessionTotals.cached_tokens = (this.sessionTotals.cached_tokens || 0) + (usage.cached_tokens || 0);
+        this.sessionTotals.total_cost = (this.sessionTotals.total_cost || 0) + (usage.total_cost || 0);
+        this.sessionTotals.cost_eur_cents = (this.sessionTotals.cost_eur_cents || 0) + (usage.cost_eur_cents || 0);
+    }
+
+    updateSessionMetricsBar(): void {
+        const bar = document.getElementById('agent-session-metrics');
+        if (!bar) return;
+        if (!window.isDevelopment?.()) {
+            bar.style.display = 'none';
+            return;
+        }
+        const s = this.sessionTotals;
+        const hasData = s.prompt_tokens != null || s.completion_tokens != null || s.total_cost != null;
+        if (!hasData || Object.keys(s).length === 0) {
+            bar.style.display = 'none';
+            return;
+        }
+        bar.style.display = 'inline';
+        bar.textContent = this.formatUsageMetrics(s);
+    }
+
     newChat() {
         if (this.messagesContainer) this.messagesContainer.innerHTML = '';
         this.messages = [];
         this.conversationMessages = [];
+        this.roundUsage = [];
+        this.sessionTotals = {};
         this.isStreaming = false;
         if (this.promptInput) { this.promptInput.value = ''; this.promptInput.style.height = 'auto'; }
         if (this.sendButton) (this.sendButton as HTMLButtonElement).disabled = false;
         this.clearInitialStatus();
         this.hideStreamIndicator();
+        this.updateSessionMetricsBar();
         if (this.promptInput) this.promptInput.focus();
     }
 }

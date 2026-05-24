@@ -36,11 +36,11 @@
 
                 const hostname = window.location.hostname;
                 const port = window.location.port;
+                const portNum = parseInt(port, 10);
                 const isDev =
                     hostname === 'localhost' ||
                     hostname === '127.0.0.1' ||
-                    port === '8000' || // webpack dev server
-                    port === '5500'; // live server
+                    (!isNaN(portNum) && portNum >= 8000); // worktree ports
                 return isDev;
             };
             window.isProduction = function () {
@@ -709,6 +709,7 @@
                                             >
                                         </button>
                                     </div>
+                                    <span id="agent-session-metrics"></span>
                                 </div>
                             </div>
                         </div>

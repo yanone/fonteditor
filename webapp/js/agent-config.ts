@@ -5,6 +5,15 @@
  * as the agent's capabilities expand (e.g. editing Python files directly).
  */
 
+export interface UsageMetrics {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    cached_tokens?: number;
+    total_cost?: number;
+    cost_eur_cents?: number;
+}
+
 export type AgentTool = {
     type: 'function';
     function: {
@@ -24,9 +33,9 @@ export const AGENT_TOOLS: AgentTool[] = [
             parameters: {
                 type: 'object',
                 properties: {},
-                required: [],
-            },
-        },
+                required: []
+            }
+        }
     },
     {
         type: 'function',
@@ -40,26 +49,26 @@ export const AGENT_TOOLS: AgentTool[] = [
                     topic: {
                         type: 'string',
                         description:
-                            'Path to the documentation file, e.g. "getting-started/00-before-you-begin.md", "editor/01-glyph-editor-basics.md", "python/01-python-in-counterpunch.md"',
-                    },
+                            'Path to the documentation file, e.g. "getting-started/00-before-you-begin.md", "editor/01-glyph-editor-basics.md", "python/01-python-in-counterpunch.md"'
+                    }
                 },
-                required: ['topic'],
-            },
-        },
+                required: ['topic']
+            }
+        }
     },
     {
         type: 'function',
         function: {
             name: 'python_api_docs',
             description:
-                'Get the complete Python API documentation for the font editing model (context-py library). Includes all classes, methods, and properties available for scripting font operations.',
+                'Get the complete Python API documentation for the font editing model. Includes all classes, methods, and properties available for scripting font operations.',
             parameters: {
                 type: 'object',
                 properties: {},
-                required: [],
-            },
-        },
-    },
+                required: []
+            }
+        }
+    }
 ];
 
 export const AGENT_SYSTEM_PROMPT = `You are an AI Agent for Counterpunch, a browser-based type design and font editing application.
@@ -72,7 +81,7 @@ You have access to these tools:
 
 2. **handbook_topic** — Returns the full content of a specific documentation page from the handbook. Pass the file path (e.g. "getting-started/00-before-you-begin.md").
 
-3. **python_api_docs** — Returns the complete Python API documentation for the font editing model (context-py library).
+3. **python_api_docs** — Returns the complete Python API documentation for the font editing model.
 
 When a user asks about app functionality, follow this process:
 1. Use handbook_toc to find relevant documentation

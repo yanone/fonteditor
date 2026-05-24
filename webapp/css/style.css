@@ -4398,6 +4398,16 @@ kbd + kbd {
     flex-shrink: 0;
 }
 
+#agent-session-metrics {
+    display: none;
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-tertiary);
+    font-family: var(--font-families-mono);
+    opacity: 0.65;
+    white-space: nowrap;
+}
+
 .agent-send-button {
     align-self: flex-start;
     display: flex;
@@ -4519,6 +4529,15 @@ kbd + kbd {
 /* Per-round text container — each streaming round gets its own */
 .agent-round-text {
     /* inherits all styling from parent .agent-message-agent */
+}
+
+/* Per-round usage metrics (dev mode only) */
+.agent-round-metrics {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    padding: 1px 0 4px 0;
+    font-family: var(--font-families-mono);
+    opacity: 0.65;
 }
 
 /* Tool-call line — sits between round-text containers in chronological order */

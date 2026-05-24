@@ -745,8 +745,11 @@ class AIAssistant {
             const fullName =
                 model.name && model.name !== model.shortName ? model.name : '';
 
-            // Format pricing
-            const priceText = `$${model.inputPerMillion}/$${model.outputPerMillion} (I/O) per million tokens`;
+            // Format pricing (pricing may be removed in favor of real OpenRouter costs)
+            const priceText =
+                model.inputPerMillion != null && model.outputPerMillion != null
+                    ? `$${model.inputPerMillion}/$${model.outputPerMillion} (I/O) per million tokens`
+                    : 'Pricing from provider';
 
             const warningText =
                 model.warning ||
