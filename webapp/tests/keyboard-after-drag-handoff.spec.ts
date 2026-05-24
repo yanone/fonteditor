@@ -49,6 +49,20 @@ async function captureCanvas(page: any): Promise<string> {
     });
 }
 
+/** Force a render and wait for the GPU pipeline to settle. */
+async function stabiliseCanvas(page: any): Promise<void> {
+    await page.evaluate(() => {
+        const gc = (window as any).glyphCanvas;
+        if (gc?.render) gc.render();
+    });
+    for (let i = 0; i < 3; i++) {
+        await page.evaluate(
+            () => new Promise((r) => requestAnimationFrame(r))
+        );
+    }
+    await page.waitForTimeout(50);
+}
+
 /** Wait for the next editingFontCompiled event, with safety timeout. */
 async function waitForCompileSettle(page: any, label: string): Promise<void> {
     console.log(`[Test] Waiting for compile settle: ${label}`);
@@ -191,11 +205,26 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
 
         const canvasLocator = page.locator('#glyph-canvas-container canvas');
 
+        // Record framed viewport for later restoration (sidebearing anchoring shifts it).
+        const framedViewport = await page.evaluate(() => {
+            const vm = (window as any).glyphCanvas?.viewportManager;
+            return vm ? { panX: vm.panX, panY: vm.panY, scale: vm.scale } : null;
+        });
+        const revertToFramedViewport = async () => {
+            if (!framedViewport) return;
+            await page.evaluate((vp: any) => {
+                const vm = (window as any).glyphCanvas?.viewportManager;
+                if (vm) { vm.panX = vp.panX; vm.panY = vp.panY; vm.scale = vp.scale; }
+            }, framedViewport);
+            await stabiliseCanvas(page);
+        };
+
         // ── SCREENSHOT 1: Baseline ────────────────────────────────────────
         console.log('[Test] Screenshot 1: baseline');
         await expect(canvasLocator).toHaveScreenshot('kbd-01-baseline.png', {
             maxDiffPixelRatio: 0.03,
         });
+        await stabiliseCanvas(page);
         const canvas1 = await captureCanvas(page);
 
         // ── 3. Select a bottom-most node via mouse click ─────────────────
@@ -218,6 +247,7 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
             'kbd-02-after-keyboard-move.png',
             { maxDiffPixelRatio: 0.03 }
         );
+        await stabiliseCanvas(page);
         const canvas2 = await captureCanvas(page);
         expect(canvas2).not.toBe(canvas1);
 
@@ -267,6 +297,7 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
             'kbd-03-after-sidebearing-drag.png',
             { maxDiffPixelRatio: 0.03 }
         );
+        await stabiliseCanvas(page);
         const canvas3 = await captureCanvas(page);
         expect(canvas3).not.toBe(canvas2);
 
@@ -278,23 +309,24 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
 
         // ── SCREENSHOT 4: After undo — should equal screenshot 2 ─────────
         console.log('[Test] Screenshot 4: after undo');
+        await revertToFramedViewport();
+
+        // Re-select the node so selection state matches canvas2
+        const nodeScreen4 = await getNodeScreenCoords(page);
+        await page.mouse.click(nodeScreen4.x, nodeScreen4.y);
+        await page.waitForTimeout(100);
+
+        await stabiliseCanvas(page);
         await expect(canvasLocator).toHaveScreenshot('kbd-04-after-undo.png', {
             maxDiffPixelRatio: 0.03,
         });
         const canvas4 = await captureCanvas(page);
 
         // ASSERT: Undo reverts sidebearing drag → canvas must match canvas2
-        // EXPECTED TO FAIL: bug causes stale keyboard-after-drag compile
         console.log('[Test] Assert canvas after undo === canvas after keyboard move');
         expect.soft(canvas4).toBe(canvas2);
 
-        // ── 7. Re-select the same bottom-most node ───────────────────────
-        const nodeScreen2 = await getNodeScreenCoords(page);
-        console.log('[Test] Re-clicking bottom-most node at', nodeScreen2);
-        await page.mouse.click(nodeScreen2.x, nodeScreen2.y);
-        await page.waitForTimeout(200);
-
-        // ── 8. Move node back up 50u (undo the keyboard move) ────────────
+        // ── 7. (Node re-selected above) Move node back up 50u (undo the keyboard move)
         for (let i = 0; i < 5; i++) {
             await page.keyboard.press('Shift+ArrowUp');
             await page.waitForTimeout(60);
@@ -304,14 +336,21 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
 
         // ── SCREENSHOT 5: Back to baseline ────────────────────────────────
         console.log('[Test] Screenshot 5: back to baseline');
+
+        // Deselect so selection state matches baseline (canvas1)
+        await page.evaluate(() => {
+            const oe = (window as any).glyphCanvas?.outlineEditor;
+            if (oe) { oe.selectedPoints = []; oe.selectedAnchors = []; oe.selectedComponents = []; }
+        });
+        await revertToFramedViewport();
         await expect(canvasLocator).toHaveScreenshot(
             'kbd-05-back-to-baseline.png',
             { maxDiffPixelRatio: 0.03 }
         );
+        await stabiliseCanvas(page);
         const canvas5 = await captureCanvas(page);
 
         // ASSERT: Full round-trip restored → canvas must match baseline
-        // EXPECTED TO FAIL: bug causes stale keyboard-after-drag compile
         console.log('[Test] Assert final canvas === baseline canvas');
         expect.soft(canvas5).toBe(canvas1);
     });

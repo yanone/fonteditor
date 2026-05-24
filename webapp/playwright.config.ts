@@ -46,7 +46,7 @@ export default defineConfig({
         // Base URL for navigation
         baseURL: process.env.CI
             ? 'http://localhost:9000'
-            : 'https://localhost:8000',
+            : 'https://localhost:8001',
 
         // Collect trace when retrying the failed test
         trace: 'on-first-retry',
@@ -111,7 +111,7 @@ export default defineConfig({
         command: process.env.CI ? 'npm run serve:ci' : 'npm run serve',
         url: process.env.CI
             ? 'http://localhost:9000'
-            : 'https://localhost:8000',
+            : 'https://localhost:8001',
         reuseExistingServer: !process.env.CI,
         gracefulShutdown: {
             signal: 'SIGTERM',

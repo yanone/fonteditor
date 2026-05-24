@@ -133,6 +133,16 @@ export async function processCommittedEdit(
         return;
     }
 
+    // Cancel any pending deferred full compile from a prior edit.
+    // A stale deferred timer must not fire after a newer committed
+    // edit has entered the funnel: the deferred compile would produce
+    // a font blob based on the older model state, and its
+    // editingFontCompiled event would overwrite the correct post-undo
+    // (or post-redo) font on the canvas, causing the rendered output
+    // to differ from what a fresh forward compile would produce for
+    // the same model state.
+    cancelDeferredFullCompile();
+
     // Cast is safe: non-compiling edit types already filtered above.
     const compileContext: EditingCompileContext = {
         changeSource,
@@ -154,6 +164,10 @@ export async function processCommittedEdit(
 
     // Force-trigger for remote, undo, redo.
     if (options?.forceTrigger && canForceTrigger) {
+        // Force full cache refresh so the worker does a clean compile
+        // from the model JSON rather than reusing cached incremental
+        // data that may differ from a forward edit's cache state.
+        fm.forceFullEditingCacheRefresh = true;
         try {
             await window.autoCompileManager.forceTrigger();
         } catch {
