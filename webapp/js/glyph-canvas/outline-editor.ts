@@ -15088,7 +15088,22 @@ export class OutlineEditor {
         label: string,
         metricsUpdate?: { affectedGlyphNames: Set<string> } | null
     ): void {
-        const affectedGlyphNames = metricsUpdate?.affectedGlyphNames;
+        let affectedGlyphNames = metricsUpdate?.affectedGlyphNames;
+        if (affectedGlyphNames && affectedGlyphNames.size > 0) {
+            const fontModel = fontManager.currentFont?.fontModel;
+            if (fontModel?.collectComponentDependentGlyphs) {
+                const dependents = fontModel.collectComponentDependentGlyphs(
+                    affectedGlyphNames
+                );
+                if (dependents.size > 0) {
+                    affectedGlyphNames = new Set([
+                        ...affectedGlyphNames,
+                        ...dependents
+                    ]);
+                }
+            }
+        }
+
         const workerReplayTargets = affectedGlyphNames?.size
             ? this.collectMatchingLayerWorkerReplayTargets(
                   affectedGlyphNames,
@@ -15103,6 +15118,16 @@ export class OutlineEditor {
             null,
             workerReplayTargets
         );
+
+        // Also refresh the worker cache for composite-dependent glyphs that
+        // were not detected as changed by the Yjs diff (their component
+        // references are stable, but the component source outlines may have
+        // moved, so the worker must recompile them against the updated source).
+        if (workerReplayTargets && workerReplayTargets.length > 1) {
+            void fontManager.refreshWorkerCacheForReplayTargets?.(
+                workerReplayTargets
+            );
+        }
     }
 
     private getCurrentDirectSidebearing(side: 'left' | 'right'): number | null {
@@ -17170,6 +17195,46 @@ export class OutlineEditor {
 
         if (!editedGlyphName) {
             return;
+        }
+
+        // Expand workerReplayTargets with composite-dependent glyphs so
+        // every edit type (outline, anchor, sidebearing by keyboard and
+        // mouse) refreshes the worker cache for glyphs that reference
+        // the edited glyph as a component.  Without this expansion, only
+        // the directly-edited layer is marked in the Yjs update metadata,
+        // and composites whose component references are stable (but whose
+        // source outlines just moved) never get their worker-cache entry
+        // invalidated — causing stale-outline compilations on the next
+        // compile regardless of edit origin.
+        if (
+            activeLayerId &&
+            fontManager.currentFont?.fontModel?.collectComponentDependentGlyphs
+        ) {
+            const fontModel = fontManager.currentFont.fontModel;
+            const dependents = fontModel.collectComponentDependentGlyphs(
+                new Set([editedGlyphName])
+            );
+            if (dependents.size > 0) {
+                const extra: Array<{ glyphName: string; layerId: string }> = [];
+                for (const depName of dependents) {
+                    const depGlyph = fontModel.findGlyph(depName);
+                    const depLayer =
+                        depGlyph?.findLayerById?.(activeLayerId) ??
+                        depGlyph?.layers?.find?.(
+                            (l: any) => l.id === activeLayerId
+                        );
+                    if (depLayer?.id) {
+                        extra.push({
+                            glyphName: depName,
+                            layerId: depLayer.id
+                        });
+                    }
+                }
+                workerReplayTargets = normalizeWorkerReplayTargets([
+                    ...(workerReplayTargets ?? []),
+                    ...extra
+                ]);
+            }
         }
 
         // Build the full set of targets: directly edited layer + cascade targets.

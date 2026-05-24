@@ -182,7 +182,7 @@ export async function processCommittedEdit(
     // Arm the deferred full-compile timer for local fast-path edit types.
     // The main window owns the trailing correctness pass; linked windows only
     // run the immediate remote editing compile.
-    if (shouldArmDeferredFullCompile(changeSource, editType)) {
+    if (shouldArmDeferredFullCompile(changeSource, editType) && !options?.forceTrigger) {
         armDeferredFullCompile();
     }
 }
