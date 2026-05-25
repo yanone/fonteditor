@@ -821,7 +821,7 @@ describe('handleRemoteChangeRefresh', () => {
         );
     });
 
-    test('local commit without layer-scoped paths still runs cache refresh', async () => {
+    test('local feature-code commit still relies on the forwarded worker update', async () => {
         const awaitWorkerSync = jest.fn(async () => {});
         const requestCompile = jest.fn(async () => {});
         const queueCacheRefresh = jest.fn(async () => {});
@@ -859,8 +859,8 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        // Feature-code commit without layer-scope paths still runs the
-        // cache refresh (it's not a GUI-complete layer packet).
+        // Local committed packets rely on the forwarded worker update even
+        // when the edit is not a layer-scoped GUI packet.
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
         expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith('feature-code', null);
@@ -2481,6 +2481,7 @@ describe('committed undo/redo compile requests', () => {
         const requestRecompileWithoutDataChange = jest.fn(function () {
             this.compileRequestVersion += 1;
         });
+        const queueCacheRefresh = jest.fn(async () => {});
 
         window.autoCompileManager = {
             checkAndSchedule
@@ -2517,12 +2518,13 @@ describe('committed undo/redo compile requests', () => {
             'local',
             {
                 awaitWorkerSync: jest.fn(async () => {}),
-                queueCacheRefresh: jest.fn(async () => {})
+                queueCacheRefresh
             }
         );
 
         expect(window.fontManager.lastChangeSource).toBeNull();
         expect(window.fontManager.lastEditType).toBeNull();
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
             compileContext: {

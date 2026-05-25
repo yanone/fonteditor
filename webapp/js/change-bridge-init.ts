@@ -20,9 +20,7 @@ import { WindowSync } from './window-sync';
 import { fontCompilation, fullFontCompilation } from './font-compilation';
 import { Logger } from './logger';
 import { processCommittedEdit } from './compiled-edit-funnel';
-import {
-    computeLayerRecompositionClosure
-} from './recomposition-closure';
+import { computeLayerRecompositionClosure } from './recomposition-closure';
 import {
     deriveGlyphNamesFromPaths,
     deriveGlyphName,
@@ -684,8 +682,7 @@ export function buildCascadingRecompositionOperations(
     // Use the shared recomposition closure instead of the local
     // recomputeCascadeAffectedGlyphNames.  The bridge fallback path uses a
     // superset of edit kinds so all dependency types are covered.
-    const fontModel =
-        window.fontManager?.currentFont?.fontModel ?? null;
+    const fontModel = window.fontManager?.currentFont?.fontModel ?? null;
     if (!fontModel) {
         return [];
     }
@@ -1953,28 +1950,11 @@ export async function handleCommittedChangeRefresh(
             (() => fontCompilation.awaitWorkerDocumentSync());
         await awaitLocalCommittedWorkerCacheSettled(awaitWorkerSync);
 
-        // For local undo/redo packets, the font model is stale — only
-        // babelfontData was synced from Yjs by _syncRemoteJsonFromYDoc.
-        // Skip the replay-target cache refresh to avoid sending pre-undo
-        // model data to the worker as a second applyYjsUpdate that would
-        // overwrite the correct post-undo state from the first
-        // forwardWorkerYjsUpdate.
-        //
-        // For non-undo/redo local packets (keyboard, drag-end, property
-        // panel), the model is current (saveLayerData kept it in sync).
-        // Always refresh the Rust cache through replay targets, matching
-        // the remote path, so composite-dependent glyphs are fully
-        // populated before the compile starts.
-        const replayTargets = collectReplayTargetsFromEntries(entries);
-        if (!isUndoRedoPacket && replayTargets.length > 0) {
-            const queueCacheRefresh =
-                dependencies?.queueCacheRefresh ??
-                queueRustCacheAndRefreshCanvas;
-            await queueCacheRefresh(undefined, undefined, {
-                allowSelectedLayerFallback: false,
-                workerReplayTargets: replayTargets
-            });
-        }
+        // Local committed packets rely on the authoritative incremental Yjs
+        // worker update already forwarded by setYjsWorkerCallback().
+        // awaitLocalCommittedWorkerCacheSettled() waits for that forwarded
+        // update and any chained local worker-cache updates before compile.
+        // Do not send a second replay-target refresh from the sender path.
 
         const { editType, changeSource } =
             localCompileContext ?? resolveLocalCommittedCompileContext(entries);

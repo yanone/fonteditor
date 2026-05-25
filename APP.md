@@ -71,7 +71,7 @@ Here, undo, redo, and remote Yjs packets converge with forward GUI edits to be p
 
 TODO: Continue with the Yjs packet handling, namely the compilation pipeline in Rust.
 
-TODO: Duplicate Yjs processing
+TODO: Undo doesn't work
 
 ## Glyphs
 
