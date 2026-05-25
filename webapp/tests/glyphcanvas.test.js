@@ -3259,16 +3259,16 @@ describe('GlyphCanvas property panel metrics edits', () => {
         }
     });
 
-    test('keyboard sidebearing nudges sync affected layers through syncLayersFromJson', () => {
-        const targets = [
-            { glyphName: 'l', layerId: 'master-layer' },
-            { glyphName: 'n', layerId: 'master-layer' }
-        ];
+    test('keyboard sidebearing nudges stay preview-only until the debounce flush commits once', async () => {
+        jest.useFakeTimers();
         const originalChangeBridge = window.changeBridge;
         const originalPatchSyncEngine = window.patchSyncEngine;
         const syncCurrentGlyphToYDocSpy = jest
             .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
             .mockImplementation(() => {});
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue();
         const moveSelectedSidebearingSpy = jest
             .spyOn(canvas.outlineEditor, 'moveSelectedSidebearing')
             .mockImplementation(() => {
@@ -3276,15 +3276,25 @@ describe('GlyphCanvas property panel metrics edits', () => {
                     'l',
                     'n'
                 ]);
+                return true;
             });
-        const collectTargetsSpy = jest
-            .spyOn(
-                canvas.outlineEditor,
-                'collectMatchingLayerWorkerReplayTargets'
-            )
-            .mockReturnValue(targets);
+        const queueKeyboardSidebearingPreviewSpy = jest
+            .spyOn(canvas.outlineEditor, 'queueKeyboardSidebearingPreview')
+            .mockImplementation(() => {});
+        const computeClosureSpy = jest
+            .spyOn(canvas.outlineEditor, 'computeRecompositionClosure')
+            .mockReturnValue({
+                allTargets: [
+                    { glyphName: 'l', layerId: 'master-layer' },
+                    { glyphName: 'n', layerId: 'master-layer' }
+                ],
+                dependentTargets: [],
+                affectedGlyphNames: new Set(['l', 'n'])
+            });
 
         const patchSyncEngine = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
             syncLayersFromJson: jest.fn(),
             syncGlyphFromJson: jest.fn()
         };
@@ -3300,7 +3310,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         };
 
         try {
-            canvas.outlineEditor.onKeyDown({
+            await canvas.outlineEditor.onKeyDown({
                 key: 'ArrowRight',
                 shiftKey: false,
                 altKey: false,
@@ -3309,23 +3319,38 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 preventDefault: jest.fn()
             });
 
+            expect(queueKeyboardSidebearingPreviewSpy).toHaveBeenCalledTimes(1);
+            expect(syncCurrentGlyphToYDocSpy).not.toHaveBeenCalled();
+
+            await jest.advanceTimersByTimeAsync(1000);
+
             expect(syncCurrentGlyphToYDocSpy).toHaveBeenCalledWith(
                 'Arrow key',
                 'RIGHT',
-                undefined,
+                'RIGHT',
                 'right',
-                targets,
+                [
+                    { glyphName: 'l', layerId: 'master-layer' },
+                    { glyphName: 'n', layerId: 'master-layer' }
+                ],
                 {
                     changeSource: 'keyboard-sidebearing',
+                    editSource: 'keyboard-sidebearing',
                     editType: null
                 }
             );
+            expect(saveLayerDataSpy).toHaveBeenCalledWith(
+                'keyboard-sidebearing'
+            );
         } finally {
+            jest.useRealTimers();
             canvas.outlineEditor.selectedSidebearingHandle = null;
             window.changeBridge = originalChangeBridge;
             window.patchSyncEngine = originalPatchSyncEngine;
+            computeClosureSpy.mockRestore();
+            queueKeyboardSidebearingPreviewSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
             syncCurrentGlyphToYDocSpy.mockRestore();
-            collectTargetsSpy.mockRestore();
             moveSelectedSidebearingSpy.mockRestore();
         }
     });
@@ -9488,64 +9513,34 @@ describe('GlyphCanvas anchor movement', () => {
         expect(canvas.outlineEditor.layerData.anchors[0].y).toBe(100);
     });
 
-    test('keyboard anchor nudges mark the anchor fast path and commit replay targets for downstream layers', () => {
+    test('keyboard anchor move helper only mutates preview state until onKeyDown flushes the burst', () => {
         const affectedGlyphNames = new Set(['a', 'adieresis']);
-        const replayTargets = [{ glyphName: 'a', layerId: 'layer-1' }];
-        const syncJsonFromModel = jest.fn();
-        const originalLastChangeSource = fontManager.lastChangeSource;
-        const originalLastEditType = fontManager.lastEditType;
         const rebuildSpy = jest
             .spyOn(
                 canvas.outlineEditor,
                 'rebuildAutomaticCompositesForCurrentEditedGlyph'
             )
             .mockReturnValue(affectedGlyphNames);
-        const getCurrentGlyphModelSpy = jest
-            .spyOn(canvas.outlineEditor, 'getCurrentGlyphModel')
-            .mockReturnValue({ name: 'a' });
-        const getCurrentLayerIdSpy = jest
-            .spyOn(canvas.outlineEditor, 'getCurrentLayerId')
-            .mockReturnValue('layer-1');
-        const collectTargetsSpy = jest
-            .spyOn(
-                canvas.outlineEditor,
-                'collectMatchingLayerWorkerReplayTargets'
-            )
-            .mockReturnValue(replayTargets);
         const syncCurrentGlyphToYDocSpy = jest
             .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
             .mockImplementation(() => {});
-
-        currentFontSpy = jest
-            .spyOn(fontManager, 'currentFont', 'get')
-            .mockReturnValue({ syncJsonFromModel });
+        const saveLayerDataSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'saveLayerData'
+        );
 
         try {
-            fontManager.lastChangeSource = null;
-            fontManager.lastEditType = null;
-
-            canvas.outlineEditor.moveSelectedAnchors(10, 20);
-
-            expect(fontManager.lastChangeSource).toBe('keyboard-anchor');
-            expect(fontManager.lastEditType).toBe('anchor');
-            expect(canvas.outlineEditor.saveLayerData).toHaveBeenCalledWith(
-                'keyboard-anchor'
+            expect(canvas.outlineEditor.moveSelectedAnchors(10, 20)).toBe(true);
+            expect(canvas.outlineEditor.layerData.anchors[0].x).toBe(110);
+            expect(canvas.outlineEditor.layerData.anchors[0].y).toBe(120);
+            expect(canvas.outlineEditor._anchorAffectedGlyphNames).toEqual(
+                affectedGlyphNames
             );
-            expect(syncJsonFromModel).toHaveBeenCalledTimes(1);
-            expect(syncCurrentGlyphToYDocSpy).toHaveBeenCalledWith(
-                'Move anchor',
-                undefined,
-                undefined,
-                null,
-                replayTargets
-            );
+            expect(saveLayerDataSpy).not.toHaveBeenCalled();
+            expect(syncCurrentGlyphToYDocSpy).not.toHaveBeenCalled();
         } finally {
-            fontManager.lastChangeSource = originalLastChangeSource;
-            fontManager.lastEditType = originalLastEditType;
+            saveLayerDataSpy.mockRestore();
             syncCurrentGlyphToYDocSpy.mockRestore();
-            collectTargetsSpy.mockRestore();
-            getCurrentLayerIdSpy.mockRestore();
-            getCurrentGlyphModelSpy.mockRestore();
             rebuildSpy.mockRestore();
         }
     });

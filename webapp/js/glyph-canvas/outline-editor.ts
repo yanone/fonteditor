@@ -37,6 +37,7 @@ import {
     type SidebearingSide
 } from '../sidebearing-utils';
 import { LiveDragEditFunnel } from '../live-drag-edit-funnel';
+import { KeyboardPreviewEditFunnel } from '../keyboard-preview-edit-funnel';
 import {
     computeLayerRecompositionClosure,
     deriveEditKindsFromDrag
@@ -99,6 +100,11 @@ type VisibleSidebearingHandle = SidebearingHandle & {
     x: number;
     y: number;
     editable: boolean;
+};
+type ExplicitLayerCacheInput = {
+    glyphName: string;
+    layerId: string;
+    layerData: Babelfont.Layer;
 };
 type EditableContour = {
     nodes: Babelfont.Node[];
@@ -2953,6 +2959,10 @@ export class OutlineEditor {
     private _sidebearingAffectedGlyphNames: Set<string> = new Set();
     private _anchorAffectedGlyphNames: Set<string> = new Set();
     private liveDragEditFunnel = new LiveDragEditFunnel();
+    private keyboardPreviewEditFunnel = new KeyboardPreviewEditFunnel();
+    private _pendingKeyboardPreviewCommit: {
+        preMoveDesc?: string;
+    } | null = null;
     private _cachedAnchorDragScopeSourceGlyphName: string | null = null;
     private _cachedAnchorDragScopeVisibleKey: string = '';
     private _cachedAnchorDragScopeGlyphNames: Set<string> | null = null;
@@ -4137,6 +4147,251 @@ export class OutlineEditor {
             });
     }
 
+    private hasPendingKeyboardPreviewCommit(): boolean {
+        return (
+            this._pendingKeyboardPreviewCommit !== null ||
+            this.keyboardPreviewEditFunnel.hasPendingWork()
+        );
+    }
+
+    private getCurrentKeyboardSelectionHistoryDesc(): string | undefined {
+        if (this.selectedAnchors.length > 0) {
+            return this._buildAnchorDesc();
+        }
+        if (this.selectedPoints.length > 0) {
+            return this._buildNodeDesc();
+        }
+        if (this.selectedComponents.length > 0) {
+            return this._buildComponentDesc();
+        }
+        if (this.selectedSidebearingHandle) {
+            return this.selectedSidebearingHandle.side.toUpperCase();
+        }
+        return undefined;
+    }
+
+    private mergeGlyphNames(
+        target: Set<string>,
+        source: Iterable<string> | null | undefined
+    ): void {
+        if (!source) {
+            return;
+        }
+        for (const glyphName of source) {
+            if (glyphName) {
+                target.add(glyphName);
+            }
+        }
+    }
+
+    private queueKeyboardOutlinePreview(affectedGlyphNames: Set<string>): void {
+        const currentLayerId = this.getCurrentLayerId();
+        const fallbackGlyphName = this.getCurrentGlyphModel()?.name;
+        const previewGlyphNames = Array.from(
+            new Set([
+                ...affectedGlyphNames,
+                ...(fallbackGlyphName ? [fallbackGlyphName] : [])
+            ])
+        );
+
+        this.keyboardPreviewEditFunnel.queue({
+            compile: {
+                changeSource: 'keyboard-outline',
+                editType: 'outline'
+            },
+            isActive: () => this._pendingKeyboardPreviewCommit !== null,
+            run: async () => {
+                if (!currentLayerId || previewGlyphNames.length === 0) {
+                    return false;
+                }
+
+                const explicitLayerInput =
+                    this.getCurrentExplicitLayerCacheInput();
+                await fontManager.stageLiveDragPreviewFromModel(
+                    previewGlyphNames,
+                    currentLayerId,
+                    {
+                        dispatchGlyphChanged: false,
+                        ...(explicitLayerInput
+                            ? { explicitLayerData: [explicitLayerInput] }
+                            : undefined)
+                    }
+                );
+                return true;
+            },
+            onError: (error) => {
+                console.error(
+                    '[OutlineEditor] Error refreshing keyboard outline preview:',
+                    error
+                );
+            }
+        });
+    }
+
+    private queueKeyboardAnchorPreview(): void {
+        this.keyboardPreviewEditFunnel.queue({
+            compile: {
+                changeSource: 'keyboard-anchor',
+                editType: 'anchor'
+            },
+            isActive: () => this._pendingKeyboardPreviewCommit !== null,
+            run: async () => {
+                const currentFont = fontManager.currentFont;
+                const fontModel = currentFont?.fontModel;
+                const sourceGlyphName = this.getCurrentGlyphModel()?.name;
+                if (!fontModel || !sourceGlyphName) {
+                    return false;
+                }
+
+                const allowedGlyphNames =
+                    this.getCachedAnchorDragScopeGlyphNames(
+                        sourceGlyphName,
+                        fontModel
+                    );
+                this._anchorAffectedGlyphNames =
+                    this.rebuildAutomaticCompositesForCurrentEditedGlyph({
+                        allowedGlyphNames
+                    });
+
+                await this.syncDependentGlyphsAfterAnchorEdit(
+                    sourceGlyphName,
+                    this._anchorAffectedGlyphNames,
+                    {
+                        liveVisibleOnly: true,
+                        explicitLayerInput:
+                            this.getCurrentExplicitLayerCacheInput() ??
+                            undefined
+                    }
+                );
+                return true;
+            },
+            onError: (error) => {
+                console.error(
+                    '[OutlineEditor] Error refreshing keyboard anchor preview:',
+                    error
+                );
+            }
+        });
+    }
+
+    private queueKeyboardSidebearingPreview(): void {
+        this.keyboardPreviewEditFunnel.queue({
+            compile: {
+                changeSource: 'keyboard-outline',
+                editType: 'outline'
+            },
+            isActive: () => this._pendingKeyboardPreviewCommit !== null,
+            run: async () => {
+                const currentFont = fontManager.currentFont;
+                const fontModel = currentFont?.fontModel;
+                const sourceGlyphName = this.getCurrentGlyphModel()?.name;
+                if (!fontModel || !sourceGlyphName) {
+                    return false;
+                }
+
+                const affectedGlyphNames =
+                    this._sidebearingAffectedGlyphNames.size > 0
+                        ? new Set(this._sidebearingAffectedGlyphNames)
+                        : new Set<string>([sourceGlyphName]);
+
+                await this.syncDependentGlyphsAfterSidebearingEdit(
+                    sourceGlyphName,
+                    affectedGlyphNames,
+                    {
+                        liveVisibleOnly: true,
+                        explicitLayerInput:
+                            this.getCurrentExplicitLayerCacheInput() ??
+                            undefined
+                    }
+                );
+                return true;
+            },
+            onError: (error) => {
+                console.error(
+                    '[OutlineEditor] Error refreshing keyboard sidebearing preview:',
+                    error
+                );
+            }
+        });
+    }
+
+    private async commitPendingKeyboardPreviewCommit(): Promise<void> {
+        const pendingCommit = this._pendingKeyboardPreviewCommit;
+        this._pendingKeyboardPreviewCommit = null;
+        if (!pendingCommit) {
+            return;
+        }
+
+        const committedChangeSource =
+            this.getCommittedKeyboardSelectionChangeSource();
+        const bridge = window.patchSyncEngine;
+        const hasTransaction =
+            committedChangeSource === 'keyboard-sidebearing' &&
+            typeof bridge?.beginTransaction === 'function';
+
+        if (hasTransaction) {
+            bridge.beginTransaction('Arrow key');
+        }
+
+        try {
+            await this.saveLayerData(committedChangeSource);
+
+            const activeLayerId = this.getCurrentLayerId();
+            const glyphName =
+                this.parseGlyphStack().slice(-1)[0]?.glyphName ??
+                this.glyphCanvas.getCurrentGlyphName();
+            const sourceTargets =
+                activeLayerId && glyphName
+                    ? [{ glyphName, layerId: activeLayerId }]
+                    : [];
+            const editKinds = this.getCurrentSelectionEditKinds();
+            if (editKinds.size === 0) {
+                editKinds.add('outline');
+            }
+            const closure = this.computeRecompositionClosure({
+                sourceTargets,
+                editKinds,
+                scope: 'all',
+                activeLayerId
+            });
+
+            this._syncCurrentGlyphToYDoc(
+                'Arrow key',
+                pendingCommit.preMoveDesc,
+                this.getCurrentKeyboardSelectionHistoryDesc(),
+                this.selectedSidebearingHandle?.side ??
+                    this._metricsKeyEditedSide ??
+                    this._metricsKeyInteractionSide ??
+                    null,
+                closure.allTargets.length ? closure.allTargets : undefined,
+                this.getCommittedCompileMetadata(committedChangeSource)
+            );
+        } finally {
+            if (hasTransaction) {
+                bridge.endTransaction();
+            }
+            this._metricsKeyEditedSide = null;
+            this._metricsKeyInteractionSide = null;
+            await fontManager.clearLiveDragPreview();
+        }
+    }
+
+    public async flushPendingKeyboardPreviewCommit(): Promise<void> {
+        if (!this.hasPendingKeyboardPreviewCommit()) {
+            return;
+        }
+        await this.keyboardPreviewEditFunnel.flushPendingCommit();
+    }
+
+    private armPendingKeyboardPreviewCommit(preMoveDesc?: string): void {
+        if (!this._pendingKeyboardPreviewCommit) {
+            this._pendingKeyboardPreviewCommit = { preMoveDesc };
+        }
+        this.keyboardPreviewEditFunnel.scheduleCommit(async () => {
+            await this.commitPendingKeyboardPreviewCommit();
+        });
+    }
+
     private async refreshFinalSidebearingWorkerStateBeforeCommit(): Promise<void> {
         const parsed = this.parseGlyphStack();
         const sourceGlyphName =
@@ -4482,7 +4737,10 @@ export class OutlineEditor {
     private async syncDependentGlyphsAfterAnchorEdit(
         glyphName: string | null | undefined,
         affectedGlyphNames: Set<string>,
-        options?: { liveVisibleOnly?: boolean }
+        options?: {
+            liveVisibleOnly?: boolean;
+            explicitLayerInput?: ExplicitLayerCacheInput;
+        }
     ): Promise<void> {
         const currentLayerId = this.getCurrentLayerId();
         const downstreamGlyphNames = Array.from(
@@ -4510,7 +4768,14 @@ export class OutlineEditor {
                     previewGlyphNames,
                     currentLayerId,
                     {
-                        dispatchGlyphChanged: false
+                        dispatchGlyphChanged: false,
+                        ...(options.explicitLayerInput
+                            ? {
+                                  explicitLayerData: [
+                                      options.explicitLayerInput
+                                  ]
+                              }
+                            : undefined)
                     }
                 );
             }
@@ -8887,7 +9152,11 @@ export class OutlineEditor {
         return false; // Event not handled
     }
 
-    onSingleClick(e: MouseEvent) {
+    async onSingleClick(e: MouseEvent) {
+        if (this.hasPendingKeyboardPreviewCommit()) {
+            await this.flushPendingKeyboardPreviewCommit();
+        }
+
         if (
             !this.active ||
             !this.selectedLayerId ||
@@ -15272,11 +15541,11 @@ export class OutlineEditor {
         return slideResult.changed;
     }
 
-    async moveSelectedPoints(
+    moveSelectedPoints(
         deltaX: number,
         deltaY: number,
         preserveHandlePositions: boolean = false
-    ): Promise<void> {
+    ): Set<string> | null {
         // Move all selected points by the given delta
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (
@@ -15284,7 +15553,7 @@ export class OutlineEditor {
             !currentLayerData.shapes ||
             this.selectedPoints.length === 0
         ) {
-            return;
+            return null;
         }
 
         this.applySelectedPointMove(
@@ -15295,16 +15564,19 @@ export class OutlineEditor {
         );
 
         const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer();
-        // Save to object model.  The Yjs commit is owned by the caller
-        // (onKeyDown) which calls saveLayerData + computeRecompositionClosure +
-        // _syncCurrentGlyphToYDoc once for the mixed selection.
-        const savePromise = this.saveLayerData('keyboard-outline');
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
-        await savePromise;
+        return (
+            metricsUpdate?.affectedGlyphNames ||
+            new Set(
+                [this.getCurrentGlyphModel()?.name].filter(
+                    (glyphName): glyphName is string => !!glyphName
+                )
+            )
+        );
     }
 
-    async moveSelectedAnchors(deltaX: number, deltaY: number): Promise<void> {
+    moveSelectedAnchors(deltaX: number, deltaY: number): boolean {
         // Move all selected anchors by the given delta
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (
@@ -15312,7 +15584,7 @@ export class OutlineEditor {
             !currentLayerData.anchors ||
             this.selectedAnchors.length === 0
         ) {
-            return;
+            return false;
         }
 
         for (const anchorIndex of this.selectedAnchors) {
@@ -15324,38 +15596,29 @@ export class OutlineEditor {
         }
 
         // Rebuild auto-composites before saving so downstream layer data
-        // is current when the Yjs history entry is recorded.
+        // is current when the preview overlay is staged and when the
+        // debounced Yjs history entry is finally recorded.
         this._anchorAffectedGlyphNames =
             this.rebuildAutomaticCompositesForCurrentEditedGlyph();
 
-        // Save to object model (non-blocking).  The Yjs commit is owned by
-        // the caller (onKeyDown) which computes one unified closure for the
-        // mixed selection.
-        const savePromise = this.saveLayerData('keyboard-anchor');
-        if (this._anchorAffectedGlyphNames.size > 0) {
-            fontManager.currentFont?.syncJsonFromModel();
-        }
         this.glyphCanvas.render();
-        await savePromise;
+        return true;
     }
 
-    async moveSelectedComponents(
-        deltaX: number,
-        deltaY: number
-    ): Promise<void> {
+    moveSelectedComponents(deltaX: number, deltaY: number): Set<string> | null {
         // Move all selected components by the given delta
         if (
             !this.layerData ||
             !this.layerData.shapes ||
             this.selectedComponents.length === 0
         ) {
-            return;
+            return null;
         }
 
         if (this.isAutomaticComposedLayer()) {
             this.glyphCanvas.updatePropertyPanel();
             this.glyphCanvas.render();
-            return;
+            return null;
         }
 
         for (const compIndex of this.selectedComponents) {
@@ -15379,13 +15642,16 @@ export class OutlineEditor {
 
         const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer();
 
-        // Save to object model (non-blocking).  The Yjs commit is owned by
-        // the caller (onKeyDown) which computes one unified closure for the
-        // mixed selection and makes a single _syncCurrentGlyphToYDoc call.
-        const savePromise = this.saveLayerData('keyboard-outline');
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
-        await savePromise;
+        return (
+            metricsUpdate?.affectedGlyphNames ||
+            new Set(
+                [this.getCurrentGlyphModel()?.name].filter(
+                    (glyphName): glyphName is string => !!glyphName
+                )
+            )
+        );
     }
 
     private syncKeyboardOutlineLayerEdit(
@@ -15686,51 +15952,13 @@ export class OutlineEditor {
         return this.applySidebearingDelta(side, sidebearingDelta);
     }
 
-    moveSelectedSidebearing(deltaX: number): void {
+    moveSelectedSidebearing(deltaX: number): boolean {
         if (!this.adjustSelectedSidebearing(deltaX)) {
-            return;
-        }
-
-        // Wrap keyboard edit in a transaction so model changes from
-        // saveLayerData and metrics-key cascade are committed as a
-        // single Yjs transaction with one broadcast.
-        const bridge = window.patchSyncEngine;
-        const hasTransaction = typeof bridge?.beginTransaction === 'function';
-        if (hasTransaction) {
-            bridge.beginTransaction('Move sidebearing');
-        }
-        try {
-            this.saveLayerData('keyboard-sidebearing');
-            // Use unified recomposition closure.
-            const activeLayerId = this.getCurrentLayerId();
-            const glyphName =
-                this.parseGlyphStack().slice(-1)[0]?.glyphName ??
-                this.glyphCanvas.getCurrentGlyphName();
-            const sourceTargets =
-                activeLayerId && glyphName
-                    ? [{ glyphName, layerId: activeLayerId }]
-                    : [];
-            const closure = this.computeRecompositionClosure({
-                sourceTargets,
-                editKinds: new Set(['sidebearing']),
-                scope: 'all',
-                activeLayerId
-            });
-            this._syncCurrentGlyphToYDoc(
-                'Move sidebearing',
-                undefined,
-                undefined,
-                this.selectedSidebearingHandle?.side ?? null,
-                closure.allTargets.length ? closure.allTargets : undefined,
-                this.getCommittedCompileMetadata('keyboard-sidebearing')
-            );
-        } finally {
-            if (hasTransaction) {
-                bridge.endTransaction();
-            }
+            return false;
         }
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+        return true;
     }
 
     _updateDraggedSidebearing(deltaX: number): void {
@@ -16594,6 +16822,24 @@ export class OutlineEditor {
 
     async onKeyDown(e: KeyboardEvent) {
         if (!this.active) return;
+        const isKeyboardPreviewArrowKey =
+            !e.metaKey &&
+            !e.ctrlKey &&
+            (e.key === 'ArrowLeft' ||
+                e.key === 'ArrowRight' ||
+                e.key === 'ArrowUp' ||
+                e.key === 'ArrowDown') &&
+            !!this.selectedLayerId &&
+            (this.selectedPoints.length > 0 ||
+                this.selectedAnchors.length > 0 ||
+                this.selectedComponents.length > 0 ||
+                !!this.selectedSidebearingHandle);
+        if (
+            this.hasPendingKeyboardPreviewCommit() &&
+            !isKeyboardPreviewArrowKey
+        ) {
+            await this.flushPendingKeyboardPreviewCommit();
+        }
         // Handle space bar press to enter preview mode and enable panning
         if (e.code === 'Space') {
             e.preventDefault();
@@ -16666,170 +16912,114 @@ export class OutlineEditor {
         ) {
             const multiplier = e.shiftKey ? 10 : 1;
             let moved = false;
-            const pendingSavePromises: Promise<void>[] = [];
-
-            // Capture pre-move state for undo log description
-            let preMoveDesc: string | undefined;
-            if (this.selectedAnchors.length > 0) {
-                preMoveDesc = this._buildAnchorDesc();
-            } else if (this.selectedPoints.length > 0) {
-                preMoveDesc = this._buildNodeDesc();
-            } else if (this.selectedComponents.length > 0) {
-                preMoveDesc = this._buildComponentDesc();
-            } else if (this.selectedSidebearingHandle) {
-                preMoveDesc = this.selectedSidebearingHandle.side.toUpperCase();
-            }
+            let anchorMoved = false;
+            let sidebearingMoved = false;
+            const outlineAffectedGlyphNames = new Set<string>();
+            const preMoveDesc = this.getCurrentKeyboardSelectionHistoryDesc();
 
             if (e.key === 'ArrowLeft') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    pendingSavePromises.push(
+                    this.mergeGlyphNames(
+                        outlineAffectedGlyphNames,
                         this.moveSelectedPoints(-multiplier, 0, e.altKey)
                     );
                 }
                 if (this.selectedAnchors.length > 0) {
-                    pendingSavePromises.push(
-                        this.moveSelectedAnchors(-multiplier, 0)
-                    );
+                    anchorMoved =
+                        this.moveSelectedAnchors(-multiplier, 0) || anchorMoved;
                 }
                 if (this.selectedComponents.length > 0) {
-                    pendingSavePromises.push(
+                    this.mergeGlyphNames(
+                        outlineAffectedGlyphNames,
                         this.moveSelectedComponents(-multiplier, 0)
                     );
                 }
                 if (this.selectedSidebearingHandle) {
-                    this.moveSelectedSidebearing(-multiplier);
+                    sidebearingMoved =
+                        this.moveSelectedSidebearing(-multiplier) ||
+                        sidebearingMoved;
                 }
-                moved = true;
+                moved =
+                    anchorMoved ||
+                    sidebearingMoved ||
+                    outlineAffectedGlyphNames.size > 0;
             } else if (e.key === 'ArrowRight') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    pendingSavePromises.push(
+                    this.mergeGlyphNames(
+                        outlineAffectedGlyphNames,
                         this.moveSelectedPoints(multiplier, 0, e.altKey)
                     );
                 }
                 if (this.selectedAnchors.length > 0) {
-                    pendingSavePromises.push(
-                        this.moveSelectedAnchors(multiplier, 0)
-                    );
+                    anchorMoved =
+                        this.moveSelectedAnchors(multiplier, 0) || anchorMoved;
                 }
                 if (this.selectedComponents.length > 0) {
-                    pendingSavePromises.push(
+                    this.mergeGlyphNames(
+                        outlineAffectedGlyphNames,
                         this.moveSelectedComponents(multiplier, 0)
                     );
                 }
                 if (this.selectedSidebearingHandle) {
-                    this.moveSelectedSidebearing(multiplier);
+                    sidebearingMoved =
+                        this.moveSelectedSidebearing(multiplier) ||
+                        sidebearingMoved;
                 }
-                moved = true;
+                moved =
+                    anchorMoved ||
+                    sidebearingMoved ||
+                    outlineAffectedGlyphNames.size > 0;
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    pendingSavePromises.push(
+                    this.mergeGlyphNames(
+                        outlineAffectedGlyphNames,
                         this.moveSelectedPoints(0, multiplier, e.altKey)
                     );
                 }
                 if (this.selectedAnchors.length > 0) {
-                    pendingSavePromises.push(
-                        this.moveSelectedAnchors(0, multiplier)
-                    );
+                    anchorMoved =
+                        this.moveSelectedAnchors(0, multiplier) || anchorMoved;
                 }
                 if (this.selectedComponents.length > 0) {
-                    pendingSavePromises.push(
+                    this.mergeGlyphNames(
+                        outlineAffectedGlyphNames,
                         this.moveSelectedComponents(0, multiplier)
                     );
                 }
-                moved = true;
+                moved = anchorMoved || outlineAffectedGlyphNames.size > 0;
             } else if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    pendingSavePromises.push(
+                    this.mergeGlyphNames(
+                        outlineAffectedGlyphNames,
                         this.moveSelectedPoints(0, -multiplier, e.altKey)
                     );
                 }
                 if (this.selectedAnchors.length > 0) {
-                    pendingSavePromises.push(
-                        this.moveSelectedAnchors(0, -multiplier)
-                    );
+                    anchorMoved =
+                        this.moveSelectedAnchors(0, -multiplier) || anchorMoved;
                 }
                 if (this.selectedComponents.length > 0) {
-                    pendingSavePromises.push(
+                    this.mergeGlyphNames(
+                        outlineAffectedGlyphNames,
                         this.moveSelectedComponents(0, -multiplier)
                     );
                 }
-                moved = true;
+                moved = anchorMoved || outlineAffectedGlyphNames.size > 0;
             }
 
             if (moved) {
-                if (pendingSavePromises.length > 0) {
-                    try {
-                        await Promise.all(pendingSavePromises);
-                    } catch (error) {
-                        console.error(
-                            'Failed to save keyboard edit before Yjs sync:',
-                            error
-                        );
-                        return;
-                    }
+                this.armPendingKeyboardPreviewCommit(preMoveDesc);
+                if (sidebearingMoved) {
+                    this.queueKeyboardSidebearingPreview();
+                } else if (anchorMoved) {
+                    this.queueKeyboardAnchorPreview();
+                } else {
+                    this.queueKeyboardOutlinePreview(outlineAffectedGlyphNames);
                 }
-                // Build post-move description using coords-only (label already in preMoveDesc)
-                let postMoveDesc: string | undefined;
-                if (this.selectedAnchors.length > 0) {
-                    postMoveDesc = this._buildAnchorDesc(true);
-                } else if (this.selectedPoints.length > 0) {
-                    postMoveDesc = this._buildNodeDesc(true);
-                } else if (this.selectedComponents.length > 0) {
-                    postMoveDesc = this._buildComponentDesc(true);
-                }
-                // Encode the metrics-key edited side into postMoveDesc so
-                // inferSidebearingSideFromHistoryItem can detect it on undo
-                // and apply the matching viewport pan (same as drag-end path).
-                if (this._metricsKeyEditedSide && postMoveDesc !== undefined) {
-                    postMoveDesc = `${
-                        this._metricsKeyEditedSide === 'left' ? 'LEFT' : 'RIGHT'
-                    } ${postMoveDesc}`;
-                }
-                const visualAnchorSide =
-                    this._metricsKeyEditedSide ||
-                    this._metricsKeyInteractionSide ||
-                    this.selectedSidebearingHandle?.side ||
-                    null;
-                this._metricsKeyEditedSide = null;
-                this._metricsKeyInteractionSide = null;
-                // Use the unified recomposition closure so the Yjs packet
-                // carries complete workerReplayTargets (source + composite
-                // dependents + automatic composites + metrics-key dependents).
-                const activeGlyphName =
-                    this.parseGlyphStack().slice(-1)[0]?.glyphName ??
-                    this.glyphCanvas.getCurrentGlyphName();
-                const activeLayerId = this.getCurrentLayerId();
-                const sourceTargets =
-                    activeLayerId && activeGlyphName
-                        ? [
-                              {
-                                  glyphName: activeGlyphName,
-                                  layerId: activeLayerId
-                              }
-                          ]
-                        : [];
-                const editKinds = this.getCurrentSelectionEditKinds();
-                if (editKinds.size === 0) editKinds.add('outline');
-                const closure = this.computeRecompositionClosure({
-                    sourceTargets,
-                    editKinds,
-                    scope: 'all',
-                    activeLayerId
-                });
-                const committedChangeSource =
-                    this.getCommittedKeyboardSelectionChangeSource();
-                this._syncCurrentGlyphToYDoc(
-                    'Arrow key',
-                    preMoveDesc,
-                    postMoveDesc,
-                    visualAnchorSide,
-                    closure.allTargets.length ? closure.allTargets : undefined,
-                    this.getCommittedCompileMetadata(committedChangeSource)
-                );
                 return;
             }
         }
@@ -16951,6 +17141,7 @@ export class OutlineEditor {
     }
 
     async selectLayer(layer: Babelfont.Layer): Promise<void> {
+        await this.flushPendingKeyboardPreviewCommit();
         layer = this.resolveLayerModel(layer);
 
         this.cancelPendingLayerSwitchAnimation();

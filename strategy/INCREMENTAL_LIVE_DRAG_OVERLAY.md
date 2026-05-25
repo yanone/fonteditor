@@ -33,25 +33,28 @@ GUI/model mutation
 -> committed compile runs from authoritative worker state
 ```
 
-Mouseup, keyboard edits, undo, redo, Python edits, and linked-window replay all
-belong to this lane. They must not have a fallback that sends a full font or a
-full Yjs state.
+Mouseup, debounced keyboard commits, undo, redo, Python edits, and linked-window
+replay all belong to this lane. They must not have a fallback that sends a full
+font or a full Yjs state.
 
 ### Live Preview Lane
 
-Live drag is not document synchronization. It sends a transient preview overlay:
+Live drag and debounced keyboard nudge bursts are not document
+synchronization. They send a transient preview overlay:
 
 ```text
-drag movement
+drag movement or keyboard nudge burst
 -> JS recomputes active/dependent visible layers
 -> worker receives only changed { glyphName, layerId, layerData } records
 -> Rust stores those layer records in a preview overlay map
 -> preview compile reads authoritative cached subset plus overlay replacements
--> mouseup sends the real authoritative Yjs commit and clears the overlay
+-> mouseup or keyboard idle timeout sends the real authoritative Yjs commit and clears the overlay
 ```
 
 The preview overlay is a small map of changed layer records. It is not a Y.Doc,
-not a full font, and not an alternate authoritative state.
+not a full font, and not an alternate authoritative state. Keyboard preview
+uses the same overlay lane for speculative compilation, then emits one
+authoritative Yjs commit after the debounce window closes.
 
 ### Compile State Provenance
 

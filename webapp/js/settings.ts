@@ -86,6 +86,9 @@ const APP_SETTINGS = {
         // Preview mode
         PREVIEW_MODE_DELAY: 200, // ms - delay before activating preview mode with Space bar in text mode (below this delay, types a space character)
 
+        // Keyboard preview commits
+        KEYBOARD_PREVIEW_COMMIT_DEBOUNCE: 1000, // ms - idle delay before previewed keyboard edits commit to Yjs/history
+
         // Colors - Light Theme
         COLORS_LIGHT: {
             // Grid

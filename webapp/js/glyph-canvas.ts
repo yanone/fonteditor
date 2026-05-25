@@ -1718,7 +1718,7 @@ class GlyphCanvas {
         );
     }
 
-    onMouseDown(e: MouseEvent): void {
+    async onMouseDown(e: MouseEvent): Promise<void> {
         if (e.button === 2) {
             return;
         }
@@ -1775,7 +1775,7 @@ class GlyphCanvas {
             return;
         }
 
-        this.outlineEditor.onSingleClick(e);
+        await this.outlineEditor.onSingleClick(e);
 
         // Check if clicking on text to position cursor (only in text edit mode, not on double-click or glyph)
         // Skip if hovering over a glyph since that might be a double-click to enter edit mode
