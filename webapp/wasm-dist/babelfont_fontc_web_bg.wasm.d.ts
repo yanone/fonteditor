@@ -8,6 +8,7 @@ export const compile_cached_font: (a: any) => [number, number, number, number];
 export const compile_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
 export const compile_cached_full_font_with_filter_pipeline: (a: any) => [number, number, number, number];
 export const compile_glyphs: (a: number, b: number) => [number, number, number, number];
+export const dump_layer_state_json: (a: number, b: number) => [number, number, number, number];
 export const get_glyphs_outlines: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
 export const get_layout_closure: (a: number, b: number) => [number, number, number, number];
 export const get_layout_closure_cached: (a: number, b: number, c: number, d: number) => [number, number, number, number];

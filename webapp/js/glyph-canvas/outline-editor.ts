@@ -4142,6 +4142,40 @@ export class OutlineEditor {
             });
     }
 
+    private async refreshFinalSidebearingWorkerStateBeforeCommit(): Promise<void> {
+        const parsed = this.parseGlyphStack();
+        const sourceGlyphName =
+            parsed.length > 0
+                ? parsed[parsed.length - 1].glyphName
+                : this.glyphCanvas.getCurrentGlyphName();
+        const completeMetricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(
+            true,
+            {
+                rebuildAutomaticComposites: true
+            }
+        );
+        const affectedGlyphNames =
+            completeMetricsUpdate?.affectedGlyphNames ||
+            new Set([sourceGlyphName].filter(Boolean) as string[]);
+
+        this._sidebearingAffectedGlyphNames = affectedGlyphNames;
+
+        const currentLayerId = this.getCurrentLayerId();
+        if (!currentLayerId || affectedGlyphNames.size === 0) {
+            return;
+        }
+
+        const explicitLayerInput = this.getCurrentExplicitLayerCacheInput();
+        await this.syncDependentGlyphsAfterSidebearingEdit(
+            sourceGlyphName,
+            affectedGlyphNames,
+            {
+                liveVisibleOnly: true,
+                ...(explicitLayerInput ? { explicitLayerInput } : undefined)
+            }
+        );
+    }
+
     private rebuildAutomaticCompositesForCurrentEditedGlyph(options?: {
         limitToDragVisibleGlyphs?: boolean;
         allowedGlyphNames?: Set<string>;
@@ -11840,19 +11874,7 @@ export class OutlineEditor {
                                 : undefined;
                     }
                     if (dragType === 'sidebearing') {
-                        const completeMetricsUpdate =
-                            this.applyMetricsKeysToCurrentEditedLayer(true, {
-                                rebuildAutomaticComposites: true
-                            });
-                        const parsed = this.parseGlyphStack();
-                        const glyphName =
-                            completeMetricsUpdate?.glyphName ||
-                            (parsed.length > 0
-                                ? parsed[parsed.length - 1].glyphName
-                                : this.glyphCanvas.getCurrentGlyphName());
-                        this._sidebearingAffectedGlyphNames =
-                            completeMetricsUpdate?.affectedGlyphNames ||
-                            new Set([glyphName].filter(Boolean) as string[]);
+                        await this.refreshFinalSidebearingWorkerStateBeforeCommit();
                     }
                     const normalizeDragDesc = (
                         value: string | null | undefined
@@ -15071,11 +15093,11 @@ export class OutlineEditor {
         return slideResult.changed;
     }
 
-    moveSelectedPoints(
+    async moveSelectedPoints(
         deltaX: number,
         deltaY: number,
         preserveHandlePositions: boolean = false
-    ): void {
+    ): Promise<void> {
         // Move all selected points by the given delta
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (
@@ -15097,12 +15119,13 @@ export class OutlineEditor {
         // Save to object model.  The Yjs commit is owned by the caller
         // (onKeyDown) which calls saveLayerData + computeRecompositionClosure +
         // _syncCurrentGlyphToYDoc once for the mixed selection.
-        void this.saveLayerData('keyboard-outline');
+        const savePromise = this.saveLayerData('keyboard-outline');
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+        await savePromise;
     }
 
-    moveSelectedAnchors(deltaX: number, deltaY: number): void {
+    async moveSelectedAnchors(deltaX: number, deltaY: number): Promise<void> {
         // Move all selected anchors by the given delta
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (
@@ -15129,14 +15152,18 @@ export class OutlineEditor {
         // Save to object model (non-blocking).  The Yjs commit is owned by
         // the caller (onKeyDown) which computes one unified closure for the
         // mixed selection.
-        this.saveLayerData('keyboard-anchor');
+        const savePromise = this.saveLayerData('keyboard-anchor');
         if (this._anchorAffectedGlyphNames.size > 0) {
             fontManager.currentFont?.syncJsonFromModel();
         }
         this.glyphCanvas.render();
+        await savePromise;
     }
 
-    moveSelectedComponents(deltaX: number, deltaY: number): void {
+    async moveSelectedComponents(
+        deltaX: number,
+        deltaY: number
+    ): Promise<void> {
         // Move all selected components by the given delta
         if (
             !this.layerData ||
@@ -15176,9 +15203,10 @@ export class OutlineEditor {
         // Save to object model (non-blocking).  The Yjs commit is owned by
         // the caller (onKeyDown) which computes one unified closure for the
         // mixed selection and makes a single _syncCurrentGlyphToYDoc call.
-        this.saveLayerData('keyboard-outline');
+        const savePromise = this.saveLayerData('keyboard-outline');
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+        await savePromise;
     }
 
     private syncKeyboardOutlineLayerEdit(
@@ -16381,7 +16409,7 @@ export class OutlineEditor {
         }
     }
 
-    onKeyDown(e: KeyboardEvent) {
+    async onKeyDown(e: KeyboardEvent) {
         if (!this.active) return;
         // Handle space bar press to enter preview mode and enable panning
         if (e.code === 'Space') {
@@ -16455,6 +16483,7 @@ export class OutlineEditor {
         ) {
             const multiplier = e.shiftKey ? 10 : 1;
             let moved = false;
+            const pendingSavePromises: Promise<void>[] = [];
 
             // Capture pre-move state for undo log description
             let preMoveDesc: string | undefined;
@@ -16471,13 +16500,19 @@ export class OutlineEditor {
             if (e.key === 'ArrowLeft') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(-multiplier, 0, e.altKey);
+                    pendingSavePromises.push(
+                        this.moveSelectedPoints(-multiplier, 0, e.altKey)
+                    );
                 }
                 if (this.selectedAnchors.length > 0) {
-                    this.moveSelectedAnchors(-multiplier, 0);
+                    pendingSavePromises.push(
+                        this.moveSelectedAnchors(-multiplier, 0)
+                    );
                 }
                 if (this.selectedComponents.length > 0) {
-                    this.moveSelectedComponents(-multiplier, 0);
+                    pendingSavePromises.push(
+                        this.moveSelectedComponents(-multiplier, 0)
+                    );
                 }
                 if (this.selectedSidebearingHandle) {
                     this.moveSelectedSidebearing(-multiplier);
@@ -16486,13 +16521,19 @@ export class OutlineEditor {
             } else if (e.key === 'ArrowRight') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(multiplier, 0, e.altKey);
+                    pendingSavePromises.push(
+                        this.moveSelectedPoints(multiplier, 0, e.altKey)
+                    );
                 }
                 if (this.selectedAnchors.length > 0) {
-                    this.moveSelectedAnchors(multiplier, 0);
+                    pendingSavePromises.push(
+                        this.moveSelectedAnchors(multiplier, 0)
+                    );
                 }
                 if (this.selectedComponents.length > 0) {
-                    this.moveSelectedComponents(multiplier, 0);
+                    pendingSavePromises.push(
+                        this.moveSelectedComponents(multiplier, 0)
+                    );
                 }
                 if (this.selectedSidebearingHandle) {
                     this.moveSelectedSidebearing(multiplier);
@@ -16501,30 +16542,53 @@ export class OutlineEditor {
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(0, multiplier, e.altKey);
+                    pendingSavePromises.push(
+                        this.moveSelectedPoints(0, multiplier, e.altKey)
+                    );
                 }
                 if (this.selectedAnchors.length > 0) {
-                    this.moveSelectedAnchors(0, multiplier);
+                    pendingSavePromises.push(
+                        this.moveSelectedAnchors(0, multiplier)
+                    );
                 }
                 if (this.selectedComponents.length > 0) {
-                    this.moveSelectedComponents(0, multiplier);
+                    pendingSavePromises.push(
+                        this.moveSelectedComponents(0, multiplier)
+                    );
                 }
                 moved = true;
             } else if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(0, -multiplier, e.altKey);
+                    pendingSavePromises.push(
+                        this.moveSelectedPoints(0, -multiplier, e.altKey)
+                    );
                 }
                 if (this.selectedAnchors.length > 0) {
-                    this.moveSelectedAnchors(0, -multiplier);
+                    pendingSavePromises.push(
+                        this.moveSelectedAnchors(0, -multiplier)
+                    );
                 }
                 if (this.selectedComponents.length > 0) {
-                    this.moveSelectedComponents(0, -multiplier);
+                    pendingSavePromises.push(
+                        this.moveSelectedComponents(0, -multiplier)
+                    );
                 }
                 moved = true;
             }
 
             if (moved) {
+                if (pendingSavePromises.length > 0) {
+                    try {
+                        await Promise.all(pendingSavePromises);
+                    } catch (error) {
+                        console.error(
+                            'Failed to save keyboard edit before Yjs sync:',
+                            error
+                        );
+                        return;
+                    }
+                }
                 // Build post-move description using coords-only (label already in preMoveDesc)
                 let postMoveDesc: string | undefined;
                 if (this.selectedAnchors.length > 0) {

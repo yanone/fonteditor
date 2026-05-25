@@ -80,6 +80,21 @@ export function compile_cached_full_font_with_filter_pipeline(options: any): Uin
 export function compile_glyphs(_glyphs_json: string): Uint8Array;
 
 /**
+ * Dump Rust-side layer state for one or more glyph/layer targets.
+ *
+ * This is a debug/introspection facility for comparing the Rust caches against
+ * the JavaScript state during live editing. For each requested target it
+ * returns:
+ * - `canonicalLayer`: the layer JSON currently stored in CANONICAL_JSON_CACHE
+ * - `subsetLayer`: the layer JSON currently stored in SUBSET_JSON_CACHE, if any
+ * - `ydocLayer`: the layer JSON currently readable from the Rust Y.Doc, if any
+ *
+ * The payload also includes the current `fontCacheEpoch` and subset metadata.
+ * Throws when the request payload is invalid or the Rust snapshot locks are unavailable.
+ */
+export function dump_layer_state_json(layer_targets_json: string): string;
+
+/**
  * Get variation axes from compiled font bytes
  *
  * Returns a JSON array of axis objects:
@@ -321,6 +336,7 @@ export interface InitOutput {
     readonly compile_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
     readonly compile_cached_full_font_with_filter_pipeline: (a: any) => [number, number, number, number];
     readonly compile_glyphs: (a: number, b: number) => [number, number, number, number];
+    readonly dump_layer_state_json: (a: number, b: number) => [number, number, number, number];
     readonly get_glyphs_outlines: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly get_layout_closure: (a: number, b: number) => [number, number, number, number];
     readonly get_layout_closure_cached: (a: number, b: number, c: number, d: number) => [number, number, number, number];

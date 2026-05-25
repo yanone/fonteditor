@@ -3972,6 +3972,15 @@ class FontManager {
         const removedFingerprintKeys =
             targetLayerUpdates?.removedFingerprintKeys || [];
 
+        // After a fresh load or any full worker-cache crossing, the
+        // fingerprint baseline is intentionally empty. Re-seed the JS-side
+        // worker mirror from the authoritative bridge/font state before the
+        // first incremental update so the first delta does not apply against a
+        // stale structural baseline.
+        if (this.workerLayerFingerprintCache.size === 0) {
+            this.bootstrapWorkerYjsMirrorFromCurrentFont();
+        }
+
         this.applyWorkerYjsUpdateToMirror(update);
 
         const sent = await this.sendWorkerYjsUpdate(

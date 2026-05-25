@@ -10,6 +10,7 @@ import init, {
     store_font,
     init_ydoc_from_state,
     apply_yjs_update,
+    dump_layer_state_json,
     add_master_with_interpolated_layers_yjs,
     prime_layout_closure_cache,
     interpolate_glyph,
@@ -39,6 +40,7 @@ let fontCacheEpoch = 0;
 let lastStoreFontAtMs = 0;
 let dragCompilesSinceStore = 0;
 const PERF_TRACE_CONTEXT_GLOBAL_KEY = '__cpPerfTraceContext';
+const MAX_DUMP_LAYER_TARGETS = 256;
 
 type TimelineTraceContext = {
     process?: string;
@@ -46,6 +48,11 @@ type TimelineTraceContext = {
     parentSpanId?: string;
     requestId?: string;
     fontRevisionKey?: string;
+};
+
+type DumpLayerTarget = {
+    glyphName: string;
+    layerId: string;
 };
 
 function payloadDebugPrefix(payload: string): string {
@@ -599,6 +606,43 @@ export function compileFromLastLayoutClosureWithReprime(
         onReprime?.(closureGlyphCount);
         return compileFromLastClosure(options);
     }
+}
+
+export function sanitizeDumpLayerTargets(
+    layerTargets: unknown,
+    maxTargets = MAX_DUMP_LAYER_TARGETS
+): DumpLayerTarget[] {
+    if (!Array.isArray(layerTargets)) {
+        throw new Error('dumpLayerState requires an array of layer targets');
+    }
+
+    if (layerTargets.length > maxTargets) {
+        throw new Error(
+            `dumpLayerState received ${layerTargets.length} targets; max ${maxTargets}`
+        );
+    }
+
+    return layerTargets.map((target, index) => {
+        const glyphName =
+            typeof target?.glyphName === 'string'
+                ? target.glyphName.trim()
+                : '';
+        const layerId =
+            typeof target?.layerId === 'string' ? target.layerId.trim() : '';
+
+        if (!glyphName) {
+            throw new Error(
+                `dumpLayerState target ${index} must include a non-empty glyphName`
+            );
+        }
+        if (!layerId) {
+            throw new Error(
+                `dumpLayerState target ${index} must include a non-empty layerId`
+            );
+        }
+
+        return { glyphName, layerId };
+    });
 }
 
 /**
@@ -1993,6 +2037,40 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(outlinesSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'dumpLayerState') {
+            const dumpSpanId = timelineSpanStart('font.worker.dumpLayerState');
+            const { id, layerTargets } = data;
+
+            try {
+                if (!initialized) {
+                    await initializeWasm();
+                }
+
+                const sanitizedLayerTargets =
+                    sanitizeDumpLayerTargets(layerTargets);
+
+                const dumpJson = dump_layer_state_json(
+                    JSON.stringify(sanitizedLayerTargets)
+                );
+
+                self.postMessage({
+                    id,
+                    type: 'dumpLayerState',
+                    dumpJson
+                });
+            } catch (e: any) {
+                console.error('[Fontc Worker] dumpLayerState error:', e);
+                self.postMessage({
+                    id,
+                    type: 'dumpLayerState',
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(dumpSpanId);
             }
             return;
         }

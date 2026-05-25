@@ -5,6 +5,7 @@ jest.mock('../wasm-dist/babelfont_fontc_web.js', () =>
 const {
     compileFromLastLayoutClosureWithReprime,
     isMissingPrimedLayoutClosureError,
+    sanitizeDumpLayerTargets,
     shouldReprimeMissingLayoutClosure
 } = require('../js/fontc-worker');
 
@@ -95,5 +96,40 @@ describe('fontc-worker layout closure retry predicates', () => {
         ).toThrow(compileError);
         expect(compileFromLastClosure).toHaveBeenCalledTimes(1);
         expect(primeLayoutClosure).not.toHaveBeenCalled();
+    });
+
+    test('sanitizes valid dump layer targets', () => {
+        expect(
+            sanitizeDumpLayerTargets([
+                { glyphName: ' a ', layerId: ' regular ' },
+                { glyphName: 'adieresis', layerId: 'regular' }
+            ])
+        ).toEqual([
+            { glyphName: 'a', layerId: 'regular' },
+            { glyphName: 'adieresis', layerId: 'regular' }
+        ]);
+    });
+
+    test('rejects invalid dump layer target payloads', () => {
+        expect(() => sanitizeDumpLayerTargets(null)).toThrow(
+            'dumpLayerState requires an array of layer targets'
+        );
+        expect(() =>
+            sanitizeDumpLayerTargets([{ glyphName: '', layerId: 'regular' }])
+        ).toThrow('dumpLayerState target 0 must include a non-empty glyphName');
+        expect(() =>
+            sanitizeDumpLayerTargets([{ glyphName: 'a', layerId: '' }])
+        ).toThrow('dumpLayerState target 0 must include a non-empty layerId');
+    });
+
+    test('rejects oversized dump layer target batches', () => {
+        const targets = Array.from({ length: 3 }, (_, index) => ({
+            glyphName: `g${index}`,
+            layerId: 'regular'
+        }));
+
+        expect(() => sanitizeDumpLayerTargets(targets, 2)).toThrow(
+            'dumpLayerState received 3 targets; max 2'
+        );
     });
 });

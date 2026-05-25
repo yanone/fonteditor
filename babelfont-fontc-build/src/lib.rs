@@ -1388,6 +1388,36 @@ fn ydoc_get_layer_json_with_txn<T: ReadTxn>(
     Some(ydoc_layer_to_json(layer_id, layer_val, txn))
 }
 
+fn cached_layer_json_from_font_json(
+    font_json: &serde_json::Value,
+    glyph_name: &str,
+    layer_id: &str,
+    glyph_index: Option<&HashMap<String, usize>>,
+) -> Option<serde_json::Value> {
+    let glyphs = font_json.get("glyphs")?.as_array()?;
+    let glyph_position = glyph_index
+        .and_then(|index| index.get(glyph_name).copied())
+        .or_else(|| {
+            glyphs.iter().position(|glyph| {
+                glyph
+                    .get("name")
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|name| name == glyph_name)
+            })
+        })?;
+    let glyph_json = glyphs.get(glyph_position)?;
+    let layers = glyph_json.get("layers")?.as_array()?;
+    layers
+        .iter()
+        .find(|layer| {
+            layer
+                .get("id")
+                .and_then(|value| value.as_str())
+                .is_some_and(|id| id == layer_id)
+        })
+        .cloned()
+}
+
 fn ydoc_get_top_level_json_with_txn<T: ReadTxn>(key: &str, txn: &T) -> Option<serde_json::Value> {
     let font_map = txn.get_map("font")?;
     let value = font_map.get(txn, key)?;
@@ -2363,6 +2393,134 @@ pub fn get_glyphs_outlines(
     glyph_outlines::get_glyphs_outlines(&font, &glyph_names, location_json, flatten_components)
 }
 
+#[derive(serde::Deserialize)]
+struct LayerDumpRequest {
+    #[serde(rename = "glyphName")]
+    glyph_name: String,
+    #[serde(rename = "layerId")]
+    layer_id: String,
+}
+
+const MAX_LAYER_DUMP_TARGETS: usize = 256;
+
+fn dump_lock_error(cache_name: &str) -> JsValue {
+    JsValue::from_str(&format!("Layer dump lock poisoned: {}", cache_name))
+}
+
+/// Dump Rust-side layer state for one or more glyph/layer targets.
+///
+/// This is a debug/introspection facility for comparing the Rust caches against
+/// the JavaScript state during live editing. For each requested target it
+/// returns:
+/// - `canonicalLayer`: the layer JSON currently stored in CANONICAL_JSON_CACHE
+/// - `subsetLayer`: the layer JSON currently stored in SUBSET_JSON_CACHE, if any
+/// - `ydocLayer`: the layer JSON currently readable from the Rust Y.Doc, if any
+///
+/// The payload also includes the current `fontCacheEpoch` and subset metadata.
+#[wasm_bindgen]
+pub fn dump_layer_state_json(layer_targets_json: &str) -> Result<String, JsValue> {
+    let targets: Vec<LayerDumpRequest> = serde_json::from_str(layer_targets_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse layer targets: {}", e)))?;
+
+    if targets.len() > MAX_LAYER_DUMP_TARGETS {
+        return Err(JsValue::from_str(&format!(
+            "Too many layer targets requested: {} (max {})",
+            targets.len(),
+            MAX_LAYER_DUMP_TARGETS
+        )));
+    }
+
+    for target in &targets {
+        if target.glyph_name.trim().is_empty() {
+            return Err(JsValue::from_str("Layer dump target glyphName must be non-empty"));
+        }
+        if target.layer_id.trim().is_empty() {
+            return Err(JsValue::from_str("Layer dump target layerId must be non-empty"));
+        }
+    }
+
+    let response = {
+        let ydoc_lock = Y_DOC.lock().map_err(|_| dump_lock_error("Y_DOC"))?;
+        let canonical_lock = CANONICAL_JSON_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("CANONICAL_JSON_CACHE"))?;
+        let canonical_index_lock = CANONICAL_GLYPH_INDEX_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("CANONICAL_GLYPH_INDEX_CACHE"))?;
+        let subset_lock = SUBSET_JSON_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("SUBSET_JSON_CACHE"))?;
+        let subset_index_lock = SUBSET_GLYPH_INDEX_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("SUBSET_GLYPH_INDEX_CACHE"))?;
+
+        let has_ydoc = ydoc_lock.is_some();
+        let has_canonical_cache = canonical_lock.is_some();
+        let has_subset_cache = subset_lock.is_some();
+
+        let subset_metadata = subset_lock.as_ref().map(|(subset_key, subset_epoch, _)| {
+            serde_json::json!({
+                "subsetKey": subset_key,
+                "subsetEpoch": subset_epoch,
+            })
+        });
+
+        let ydoc_txn = ydoc_lock.as_ref().map(|doc| doc.transact());
+        let canonical_json = canonical_lock.as_ref();
+        let canonical_index = canonical_index_lock.as_ref();
+        let subset_json = subset_lock.as_ref().map(|(_, _, subset_json)| subset_json);
+        let subset_index = subset_index_lock.as_ref().map(|(_, index)| index);
+
+        let dumps: Vec<serde_json::Value> = targets
+            .iter()
+            .map(|target| {
+                let canonical_layer = canonical_json.and_then(|json| {
+                    cached_layer_json_from_font_json(
+                        json,
+                        &target.glyph_name,
+                        &target.layer_id,
+                        canonical_index,
+                    )
+                });
+                let subset_layer = subset_json.and_then(|json| {
+                    cached_layer_json_from_font_json(
+                        json,
+                        &target.glyph_name,
+                        &target.layer_id,
+                        subset_index,
+                    )
+                });
+                let ydoc_layer = ydoc_txn.as_ref().and_then(|txn| {
+                    ydoc_get_layer_json_with_txn(&target.glyph_name, &target.layer_id, txn)
+                });
+
+                serde_json::json!({
+                    "glyphName": target.glyph_name,
+                    "layerId": target.layer_id,
+                    "canonicalPresent": canonical_layer.is_some(),
+                    "subsetPresent": subset_layer.is_some(),
+                    "ydocPresent": ydoc_layer.is_some(),
+                    "canonicalLayer": canonical_layer,
+                    "subsetLayer": subset_layer,
+                    "ydocLayer": ydoc_layer,
+                })
+            })
+            .collect();
+
+        serde_json::json!({
+        "targets": dumps,
+        "fontCacheEpoch": FONT_CACHE_EPOCH.load(Ordering::Relaxed),
+        "subset": subset_metadata,
+        "hasYDoc": has_ydoc,
+        "hasCanonicalCache": has_canonical_cache,
+        "hasSubsetCache": has_subset_cache,
+        })
+    };
+
+    serde_json::to_string(&response)
+    .map_err(|e| JsValue::from_str(&format!("Layer dump serialization failed: {}", e)))
+}
+
 /// Compute layout closure for a set of glyphs
 ///
 /// Given a set of glyph names, returns all glyphs that are referenced
@@ -3092,4 +3250,101 @@ mod tests {
             Some("Renamed Regular")
         );
     }
+
+    #[test]
+    fn dump_layer_state_json_reports_canonical_subset_and_ydoc_layers() {
+        clear_font_cache();
+
+        let canonical_json = json!({
+            "glyphs": [
+                {
+                    "name": "alef",
+                    "layers": [
+                        {
+                            "id": "regular",
+                            "width": 400,
+                            "shapes": [],
+                            "anchors": []
+                        }
+                    ]
+                }
+            ]
+        });
+        set_canonical_json_cache(canonical_json);
+
+        let subset_json = json!({
+            "glyphs": [
+                {
+                    "name": "alef",
+                    "layers": [
+                        {
+                            "id": "regular",
+                            "width": 405,
+                            "shapes": [],
+                            "anchors": []
+                        }
+                    ]
+                }
+            ]
+        });
+        *SUBSET_JSON_CACHE.lock().unwrap() = Some((
+            "alef".to_string(),
+            7,
+            subset_json.clone(),
+        ));
+        *SUBSET_GLYPH_INDEX_CACHE.lock().unwrap() = Some((
+            "alef".to_string(),
+            build_glyph_index(&subset_json),
+        ));
+
+        let doc = Doc::new();
+        let font_map = doc.get_or_insert_map("font");
+        {
+            let mut txn = doc.transact_mut();
+            let glyphs_map: yrs::MapRef =
+                font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
+            let glyph_map: yrs::MapRef =
+                glyphs_map.insert(&mut txn, "alef", MapPrelim::<Any>::new());
+            let layers_map: yrs::MapRef =
+                glyph_map.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            let layer_map: yrs::MapRef =
+                layers_map.insert(&mut txn, "regular", MapPrelim::<Any>::new());
+            layer_map.insert(&mut txn, "width", Any::Number(410.0));
+            layer_map.insert(&mut txn, "id", "regular");
+            layer_map.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+            layer_map.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+        }
+        *Y_DOC.lock().unwrap() = Some(doc);
+
+        let dump_json = dump_layer_state_json(
+            r#"[{"glyphName":"alef","layerId":"regular"}]"#,
+        )
+        .unwrap();
+        let dump_value: serde_json::Value = serde_json::from_str(&dump_json).unwrap();
+
+        assert!(dump_value["fontCacheEpoch"].as_u64().unwrap_or_default() >= 1);
+        assert_eq!(dump_value["hasCanonicalCache"], json!(true));
+        assert_eq!(dump_value["hasSubsetCache"], json!(true));
+        assert_eq!(dump_value["hasYDoc"], json!(true));
+        assert_eq!(dump_value["subset"]["subsetKey"], json!("alef"));
+        assert_eq!(dump_value["subset"]["subsetEpoch"], json!(7));
+        assert_eq!(dump_value["targets"][0]["canonicalPresent"], json!(true));
+        assert_eq!(dump_value["targets"][0]["subsetPresent"], json!(true));
+        assert_eq!(dump_value["targets"][0]["ydocPresent"], json!(true));
+        assert_eq!(
+            dump_value["targets"][0]["canonicalLayer"]["width"],
+            json!(400)
+        );
+        assert_eq!(
+            dump_value["targets"][0]["subsetLayer"]["width"],
+            json!(405)
+        );
+        assert_eq!(
+            dump_value["targets"][0]["ydocLayer"]["width"],
+            json!(410)
+        );
+
+        clear_font_cache();
+    }
+
 }
