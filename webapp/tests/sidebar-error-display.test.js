@@ -91,4 +91,44 @@ describe('SidebarErrorDisplay copy report button', () => {
         jest.advanceTimersByTime(1500);
         expect(button.textContent).toBe('Copy Error Report');
     });
+
+    test('copies the displayed error message text', async () => {
+        jest.useFakeTimers();
+        sidebarErrorDisplay.showError(
+            new Error('Visible live drag mismatch\nReload before continuing')
+        );
+
+        const button = document.getElementById(
+            'sidebar-copy-error-message-btn'
+        );
+        expect(button).not.toBeNull();
+
+        writeTextMock.mockClear();
+        await button.click();
+
+        expect(writeTextMock).toHaveBeenCalledWith(
+            'Visible live drag mismatch\nReload before continuing'
+        );
+        expect(button.textContent).toBe('Copied');
+
+        jest.advanceTimersByTime(1500);
+        expect(button.textContent).toBe('Copy Error Message');
+    });
+
+    test('keeps sticky errors visible during normal hide attempts', () => {
+        sidebarErrorDisplay.showError(
+            new Error('Visible live drag mismatch'),
+            'editing',
+            { sticky: true }
+        );
+
+        const container = document.getElementById('sidebar-error-display');
+        expect(container.style.display).toBe('block');
+
+        sidebarErrorDisplay.hideError();
+        expect(container.style.display).toBe('block');
+
+        sidebarErrorDisplay.hideError(true);
+        expect(container.style.display).toBe('none');
+    });
 });

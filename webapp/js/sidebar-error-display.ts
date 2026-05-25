@@ -13,6 +13,7 @@ export class SidebarErrorDisplay {
     private normalContent: HTMLElement[] = [];
     private initialized: boolean = false;
     private copyFeedbackResetTimer: number | null = null;
+    private stickyErrorVisible: boolean = false;
 
     constructor() {
         // Don't initialize here - wait until first use
@@ -46,7 +47,11 @@ export class SidebarErrorDisplay {
     /**
      * Show error message and hide normal sidebar content
      */
-    showError(errorInput: unknown, source?: 'editing') {
+    showError(
+        errorInput: unknown,
+        source?: 'editing',
+        options?: { sticky?: boolean }
+    ) {
         // Initialize on first use
         this.initialize();
 
@@ -58,6 +63,7 @@ export class SidebarErrorDisplay {
         }
 
         const parsedError = this.parseErrorInput(errorInput);
+        this.stickyErrorVisible = options?.sticky === true;
         const featureErrorDetails =
             window.fontInfoManager?.getFeatureCompilationErrorDetails?.(
                 errorInput
@@ -91,10 +97,19 @@ export class SidebarErrorDisplay {
                                     font-size: 12px;
                                     color: var(--text-secondary);
                                     line-height: 1.5;
-                                    text-align: center;
+                                    text-align: left;
+                                    white-space: pre-wrap;
+                                    user-select: text;
                                     word-wrap: break-word;
                                     overflow-wrap: break-word;
                                     hyphens: auto;
+                                    background: var(--background-secondary);
+                                    border: 1px solid var(--border-primary);
+                                    border-radius: 6px;
+                                    padding: 8px 10px;
+                                    max-width: 100%;
+                                    max-height: 220px;
+                                    overflow: auto;
                                 ">${this.escapeHtml(message)}</div>`
                     )
                     .join('')
@@ -102,7 +117,19 @@ export class SidebarErrorDisplay {
                         font-size: 12px;
                         color: var(--text-secondary);
                         line-height: 1.5;
-                        text-align: center;
+                        text-align: left;
+                        white-space: pre-wrap;
+                        user-select: text;
+                        word-wrap: break-word;
+                        overflow-wrap: break-word;
+                        hyphens: auto;
+                        background: var(--background-secondary);
+                        border: 1px solid var(--border-primary);
+                        border-radius: 6px;
+                        padding: 8px 10px;
+                        max-width: 100%;
+                        max-height: 220px;
+                        overflow: auto;
                     ">${this.escapeHtml(parsedError.fallback)}</div>`;
 
         const fallbackLocation = featureErrorDetails
@@ -124,6 +151,10 @@ export class SidebarErrorDisplay {
                 ">Likely in ${this.escapeHtml(fallbackLocation.type)}: <strong>${this.escapeHtml(fallbackLocation.label)}</strong></div>`
             : '';
 
+        const copyableMessage = featureErrorDetails
+            ? `Feature code error: ${featureErrorDetails.message}`
+            : parsedError.copyText;
+
         const renderedOpenButton = hasResolvedFeatureTarget
             ? `<button id="sidebar-open-feature-error-btn" style="
                     margin-top: 4px;
@@ -136,6 +167,17 @@ export class SidebarErrorDisplay {
                     cursor: pointer;
                 ">Open in Features</button>`
             : '';
+
+        const renderedCopyMessageButton = `<button id="sidebar-copy-error-message-btn" style="
+                margin-top: 4px;
+                padding: 6px 10px;
+                border-radius: 6px;
+                border: 1px solid var(--border-primary);
+                background: var(--background-secondary);
+                color: var(--text-primary);
+                font-size: 12px;
+                cursor: pointer;
+            ">Copy Error Message</button>`;
 
         const renderedCopyButton = `<button id="sidebar-copy-error-report-btn" style="
                 margin-top: 4px;
@@ -200,6 +242,7 @@ export class SidebarErrorDisplay {
                     gap: 8px;
                 ">
                     ${renderedOpenButton}
+                    ${renderedCopyMessageButton}
                     ${renderedCopyButton}
                 </div>
                 
@@ -224,6 +267,13 @@ export class SidebarErrorDisplay {
             });
         }
 
+        const copyMessageButton = this.errorContainer.querySelector(
+            '#sidebar-copy-error-message-btn'
+        ) as HTMLButtonElement | null;
+        copyMessageButton?.addEventListener('click', async () => {
+            await this.copyErrorMessage(copyableMessage, copyMessageButton);
+        });
+
         const copyButton = this.errorContainer.querySelector(
             '#sidebar-copy-error-report-btn'
         ) as HTMLButtonElement | null;
@@ -236,9 +286,32 @@ export class SidebarErrorDisplay {
     }
 
     /**
+     * Copy the current sidebar message text.
+     */
+    private async copyErrorMessage(
+        message: string,
+        button: HTMLButtonElement
+    ): Promise<void> {
+        const originalLabel = button.textContent || 'Copy Error Message';
+        button.disabled = true;
+        button.textContent = 'Copying...';
+
+        try {
+            await navigator.clipboard.writeText(message);
+            this.setCopyButtonFeedback(button, 'Copied', originalLabel);
+        } catch (error) {
+            console.error(
+                '[SidebarError] Failed to copy error message:',
+                error
+            );
+            this.setCopyButtonFeedback(button, 'Copy failed', originalLabel);
+        }
+    }
+
+    /**
      * Hide error message and restore normal sidebar content
      */
-    hideError() {
+    hideError(force: boolean = false) {
         // Initialize if needed (in case hideError is called first)
         this.initialize();
 
@@ -246,6 +319,11 @@ export class SidebarErrorDisplay {
             console.log(
                 '[SidebarError] No error to hide (not initialized yet)'
             );
+            return;
+        }
+
+        if (this.stickyErrorVisible && !force) {
+            console.log('[SidebarError] Keeping sticky error visible');
             return;
         }
 
@@ -264,6 +342,7 @@ export class SidebarErrorDisplay {
         });
 
         this.normalContent = [];
+        this.stickyErrorVisible = false;
     }
 
     /**
@@ -319,6 +398,7 @@ export class SidebarErrorDisplay {
     private parseErrorInput(errorInput: unknown): {
         messages: string[];
         fallback: string;
+        copyText: string;
     } {
         const featureIssues =
             extractFeatureIssuesFromCompilationError(errorInput);
@@ -328,12 +408,13 @@ export class SidebarErrorDisplay {
                     issue.start !== undefined && issue.end !== undefined
                         ? ` (span ${issue.start}..${issue.end})`
                         : '';
-                return `${issue.category}: ${this.truncateForDisplay(issue.message + spanSuffix)}`;
+                return `${issue.category}: ${issue.message + spanSuffix}`;
             });
 
             return {
                 messages,
-                fallback: 'Compilation failed.'
+                fallback: 'Compilation failed.',
+                copyText: messages.join('\n')
             };
         }
 
@@ -352,17 +433,9 @@ export class SidebarErrorDisplay {
 
         return {
             messages: [],
-            fallback: this.truncateForDisplay(
-                fallbackText || 'Compilation failed.'
-            )
+            fallback: fallbackText || 'Compilation failed.',
+            copyText: fallbackText || 'Compilation failed.'
         };
-    }
-
-    private truncateForDisplay(text: string): string {
-        if (text.length > 240) {
-            return text.substring(0, 240) + '...';
-        }
-        return text;
     }
 
     /**

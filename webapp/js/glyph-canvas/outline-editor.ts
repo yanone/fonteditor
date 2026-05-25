@@ -19,6 +19,7 @@ import {
     endStartupInteractionLock
 } from '../startup-interaction-lock';
 import type { PatchSyncEngine } from '../patch-sync-engine';
+import { sidebarErrorDisplay } from '../sidebar-error-display';
 import {
     getHighestVisibleVerticalMetricValue,
     getLowestVisibleVerticalMetricValue,
@@ -4033,6 +4034,11 @@ export class OutlineEditor {
 
                 const explicitLayerInput =
                     this.getCurrentExplicitLayerCacheInput();
+                const expectedSnapshots =
+                    this.collectLiveVisibleDragDriftCheckSnapshots(
+                        glyphNames,
+                        explicitLayerInput
+                    );
 
                 await fontManager.refreshGlyphsAfterModelBatch(
                     glyphNames,
@@ -4044,6 +4050,10 @@ export class OutlineEditor {
                             ? { explicitLayerData: [explicitLayerInput] }
                             : undefined)
                     }
+                );
+
+                await this.assertLiveVisibleDragWorkerStateMatchesExpected(
+                    expectedSnapshots
                 );
 
                 return true;
@@ -4174,6 +4184,191 @@ export class OutlineEditor {
                 ...(explicitLayerInput ? { explicitLayerInput } : undefined)
             }
         );
+    }
+
+    private normalizeLayerDataForDriftCheck(layerData: unknown): string {
+        if (!layerData) {
+            return 'null';
+        }
+
+        const normalizeLayerForRust = (fontManager as any)
+            .normalizeLayerForRust as ((layer: unknown) => unknown) | undefined;
+        if (typeof normalizeLayerForRust !== 'function') {
+            return JSON.stringify(layerData);
+        }
+
+        return JSON.stringify(
+            normalizeLayerForRust.call(fontManager, layerData)
+        );
+    }
+
+    private collectLiveVisibleDragDriftCheckSnapshots(
+        affectedGlyphNames: Iterable<string>,
+        explicitLayerInput?: {
+            glyphName: string;
+            layerId: string;
+            layerData: Babelfont.Layer;
+        } | null
+    ): Array<{
+        glyphName: string;
+        layerId: string;
+        fingerprint: string;
+    }> {
+        const currentLayerId = this.getCurrentLayerId();
+        const normalizedGlyphNames = new Set(affectedGlyphNames);
+        if (!currentLayerId || normalizedGlyphNames.size === 0) {
+            return [];
+        }
+
+        const layerTargets = this.collectMatchingLayerWorkerReplayTargets(
+            normalizedGlyphNames,
+            currentLayerId
+        );
+
+        return layerTargets
+            .map((target) => {
+                const liveSourceLayer =
+                    explicitLayerInput &&
+                    explicitLayerInput.glyphName === target.glyphName &&
+                    explicitLayerInput.layerId === target.layerId
+                        ? explicitLayerInput.layerData
+                        : null;
+                const modelGlyph =
+                    fontManager.currentFont?.fontModel?.findGlyph(
+                        target.glyphName
+                    );
+                const modelLayer = modelGlyph?.findLayerById(target.layerId);
+                const layerData = liveSourceLayer
+                    ? liveSourceLayer
+                    : typeof modelLayer?.toJSON === 'function'
+                      ? (modelLayer.toJSON() as Babelfont.Layer)
+                      : (modelLayer as Babelfont.Layer | null);
+
+                if (!layerData) {
+                    return null;
+                }
+
+                return {
+                    glyphName: target.glyphName,
+                    layerId: target.layerId,
+                    fingerprint: this.normalizeLayerDataForDriftCheck(layerData)
+                };
+            })
+            .filter(
+                (
+                    snapshot
+                ): snapshot is {
+                    glyphName: string;
+                    layerId: string;
+                    fingerprint: string;
+                } => !!snapshot
+            );
+    }
+
+    private async assertLiveVisibleDragWorkerStateMatchesExpected(
+        expectedSnapshots: Array<{
+            glyphName: string;
+            layerId: string;
+            fingerprint: string;
+        }>
+    ): Promise<void> {
+        if (expectedSnapshots.length === 0) {
+            return;
+        }
+
+        if (!window.fontCompilation?.isInitialized) {
+            return;
+        }
+
+        await window.fontCompilation.awaitWorkerDocumentSync();
+
+        const layerTargets = expectedSnapshots.map(
+            ({ glyphName, layerId }) => ({
+                glyphName,
+                layerId
+            })
+        );
+
+        if (layerTargets.length === 0) {
+            return;
+        }
+
+        const response = await window.fontCompilation.sendMessage({
+            type: 'dumpLayerState',
+            layerTargets
+        });
+
+        if (response?.error) {
+            throw new Error(
+                `Failed to inspect live drag worker state: ${response.error}`
+            );
+        }
+
+        const dump = response?.dumpJson ? JSON.parse(response.dumpJson) : null;
+        const dumpTargets = Array.isArray(dump?.targets) ? dump.targets : [];
+        const mismatches: string[] = [];
+        const seenTargets = new Set<string>();
+        const expectedByTarget = new Map(
+            expectedSnapshots.map((snapshot) => [
+                `${snapshot.glyphName}@@${snapshot.layerId}`,
+                snapshot.fingerprint
+            ])
+        );
+
+        for (const target of dumpTargets) {
+            const glyphName =
+                typeof target?.glyphName === 'string' ? target.glyphName : null;
+            const layerId =
+                typeof target?.layerId === 'string' ? target.layerId : null;
+            if (!glyphName || !layerId) {
+                continue;
+            }
+
+            seenTargets.add(`${glyphName}@@${layerId}`);
+
+            const expectedFingerprint =
+                expectedByTarget.get(`${glyphName}@@${layerId}`) ?? 'null';
+            const rustCanonicalFingerprint =
+                this.normalizeLayerDataForDriftCheck(target?.canonicalLayer);
+            const rustSubsetFingerprint = this.normalizeLayerDataForDriftCheck(
+                target?.subsetLayer
+            );
+            const rustYDocFingerprint = this.normalizeLayerDataForDriftCheck(
+                target?.ydocLayer
+            );
+
+            if (
+                expectedFingerprint !== rustCanonicalFingerprint ||
+                expectedFingerprint !== rustSubsetFingerprint ||
+                expectedFingerprint !== rustYDocFingerprint
+            ) {
+                mismatches.push(
+                    `${glyphName}/${layerId}: expected=${expectedFingerprint} rustCanonical=${rustCanonicalFingerprint} rustSubset=${rustSubsetFingerprint} rustYDoc=${rustYDocFingerprint}`
+                );
+            }
+        }
+
+        for (const target of layerTargets) {
+            const targetKey = `${target.glyphName}@@${target.layerId}`;
+            if (!seenTargets.has(targetKey)) {
+                mismatches.push(
+                    `${target.glyphName}/${target.layerId}: missing from Rust dump response`
+                );
+            }
+        }
+
+        if (mismatches.length === 0) {
+            return;
+        }
+
+        const detail = mismatches.join('\n');
+        const error = new Error(
+            'Visible live drag glyph data did not reach the compiled worker state.\n' +
+                'Reload the font or app before continuing.\n\n' +
+                detail
+        );
+        sidebarErrorDisplay.showError(error, 'editing', { sticky: true });
+        throw error;
     }
 
     private rebuildAutomaticCompositesForCurrentEditedGlyph(options?: {
@@ -4440,11 +4635,18 @@ export class OutlineEditor {
                     this.rebuildAutomaticCompositesForCurrentEditedGlyph({
                         allowedGlyphNames
                     });
+                const expectedSnapshots =
+                    this.collectLiveVisibleDragDriftCheckSnapshots(
+                        this._anchorAffectedGlyphNames
+                    );
 
                 await this.syncDependentGlyphsAfterAnchorEdit(
                     sourceGlyphName,
                     this._anchorAffectedGlyphNames,
                     { liveVisibleOnly: true }
+                );
+                await this.assertLiveVisibleDragWorkerStateMatchesExpected(
+                    expectedSnapshots
                 );
                 return true;
             },
@@ -4630,6 +4832,11 @@ export class OutlineEditor {
 
                 const explicitLayerInput =
                     this.getCurrentExplicitLayerCacheInput();
+                const expectedSnapshots =
+                    this.collectLiveVisibleDragDriftCheckSnapshots(
+                        affectedGlyphNames,
+                        explicitLayerInput
+                    );
                 await this.syncDependentGlyphsAfterSidebearingEdit(
                     sourceGlyphName,
                     affectedGlyphNames,
@@ -4637,6 +4844,9 @@ export class OutlineEditor {
                         liveVisibleOnly: true,
                         explicitLayerInput: explicitLayerInput ?? undefined
                     }
+                );
+                await this.assertLiveVisibleDragWorkerStateMatchesExpected(
+                    expectedSnapshots
                 );
                 return true;
             },

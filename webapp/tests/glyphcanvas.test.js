@@ -1010,6 +1010,182 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
+    test('anchor live drag refresh runs the generic drift check after worker refresh', async () => {
+        const originalCurrentFont = fontManager.currentFont;
+        const expectedSnapshots = [
+            {
+                glyphName: 'a',
+                layerId: 'layer-1',
+                fingerprint: 'anchor-live'
+            }
+        ];
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                ...(originalCurrentFont || {}),
+                fontModel: originalCurrentFont?.fontModel || {}
+            });
+        const scopeSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCachedAnchorDragScopeGlyphNames')
+            .mockReturnValue(new Set(['a', 'adieresis']));
+        const rebuildSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'rebuildAutomaticCompositesForCurrentEditedGlyph'
+            )
+            .mockReturnValue(new Set(['a', 'adieresis']));
+        const snapshotSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'collectLiveVisibleDragDriftCheckSnapshots'
+            )
+            .mockReturnValue(expectedSnapshots);
+        const syncDependentsSpy = jest
+            .spyOn(canvas.outlineEditor, 'syncDependentGlyphsAfterAnchorEdit')
+            .mockResolvedValue();
+        const assertSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'assertLiveVisibleDragWorkerStateMatchesExpected'
+            )
+            .mockResolvedValue();
+        const glyphModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentGlyphModel')
+            .mockReturnValue({ name: 'a' });
+
+        try {
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.isDraggingAnchor = true;
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+
+            canvas.outlineEditor.queueLiveVisibleAnchorDependentRefresh();
+            await canvas.outlineEditor.liveDragEditFunnel.drainAndClearQueued();
+
+            expect(rebuildSpy).toHaveBeenCalledWith({
+                allowedGlyphNames: new Set(['a', 'adieresis'])
+            });
+            expect(snapshotSpy).toHaveBeenCalledWith(
+                new Set(['a', 'adieresis'])
+            );
+            expect(syncDependentsSpy).toHaveBeenCalledWith(
+                'a',
+                new Set(['a', 'adieresis']),
+                { liveVisibleOnly: true }
+            );
+            expect(assertSpy).toHaveBeenCalledWith(expectedSnapshots);
+            expect(syncDependentsSpy.mock.invocationCallOrder[0]).toBeLessThan(
+                assertSpy.mock.invocationCallOrder[0]
+            );
+        } finally {
+            glyphModelSpy.mockRestore();
+            assertSpy.mockRestore();
+            syncDependentsSpy.mockRestore();
+            snapshotSpy.mockRestore();
+            rebuildSpy.mockRestore();
+            scopeSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
+    test('outline live drag refresh runs the generic drift check after worker refresh', async () => {
+        const originalCurrentFont = fontManager.currentFont;
+        const expectedSnapshots = [
+            {
+                glyphName: 'a',
+                layerId: 'layer-1',
+                fingerprint: 'outline-live'
+            }
+        ];
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                ...(originalCurrentFont || {}),
+                fontModel: originalCurrentFont?.fontModel || {}
+            });
+        const refreshSpy = jest
+            .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
+            .mockResolvedValue();
+        const snapshotSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'collectLiveVisibleDragDriftCheckSnapshots'
+            )
+            .mockReturnValue(expectedSnapshots);
+        const assertSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'assertLiveVisibleDragWorkerStateMatchesExpected'
+            )
+            .mockResolvedValue();
+        const explicitLayerSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentExplicitLayerCacheInput')
+            .mockReturnValue({
+                glyphName: 'a',
+                layerId: 'layer-1',
+                layerData: {
+                    id: 'layer-1',
+                    width: 500,
+                    shapes: [],
+                    anchors: [],
+                    guides: []
+                }
+            });
+
+        try {
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.isDraggingPoint = true;
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.queueLiveVisibleOutlineDependentRefresh(
+                'mouse-drag-outline',
+                new Set(['a', 'adieresis'])
+            );
+            await canvas.outlineEditor.liveDragEditFunnel.drainAndClearQueued();
+
+            expect(snapshotSpy).toHaveBeenCalledWith(['a', 'adieresis'], {
+                glyphName: 'a',
+                layerId: 'layer-1',
+                layerData: {
+                    id: 'layer-1',
+                    width: 500,
+                    shapes: [],
+                    anchors: [],
+                    guides: []
+                }
+            });
+            expect(refreshSpy).toHaveBeenCalledWith(
+                ['a', 'adieresis'],
+                'layer-1',
+                {
+                    dispatchGlyphChanged: false,
+                    skipFingerprintBaseline: true,
+                    explicitLayerData: [
+                        {
+                            glyphName: 'a',
+                            layerId: 'layer-1',
+                            layerData: {
+                                id: 'layer-1',
+                                width: 500,
+                                shapes: [],
+                                anchors: [],
+                                guides: []
+                            }
+                        }
+                    ]
+                }
+            );
+            expect(assertSpy).toHaveBeenCalledWith(expectedSnapshots);
+            expect(refreshSpy.mock.invocationCallOrder[0]).toBeLessThan(
+                assertSpy.mock.invocationCallOrder[0]
+            );
+        } finally {
+            explicitLayerSpy.mockRestore();
+            assertSpy.mockRestore();
+            snapshotSpy.mockRestore();
+            refreshSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
     test('point drag that returns to original position does not sync to YDoc', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
