@@ -153,9 +153,9 @@ class AIAgent {
                     <h4 style="font-size:14px;margin:0 0 4px 0;color:var(--text-primary);font-weight:600">
                         ${tool.function.name}
                     </h4>
-                    <p style="margin:0 0 8px 0;font-size:12px;color:var(--text-tertiary);line-height:1.5">
-                        ${tool.function.description}
-                    </p>
+                    <div style="margin:0 0 8px 0;font-size:12px;color:var(--text-tertiary);line-height:1.5">
+                        ${typeof marked !== 'undefined' ? marked.parse(tool.function.description) : tool.function.description}
+                    </div>
                     ${
                         Object.keys(tool.function.parameters?.properties || {}).length > 0
                             ? `<div style="font-size:11px;color:var(--text-faint)">
@@ -606,24 +606,51 @@ if '_agent_original_stdout' in dir():
 
                             const metaEl = document.createElement('div');
                             metaEl.style.cssText = 'font-size:11px;line-height:1.6;padding:4px;color:var(--text-primary);';
-                            const truncated = toolResult.length > 1000
-                                ? toolResult.slice(0, 1000) + '…'
-                                : toolResult;
+
+                            // Format arguments — show Python code with syntax highlighting for execute_python_code
+                            let argsHtml: string;
+                            if (toolCall.function.name === 'execute_python_code' && args.code) {
+                                argsHtml = `<b>Arguments:</b><br><pre style="margin:4px 0 0 0;padding:8px;background:var(--background-hover);border-radius:4px;font-size:11px;line-height:1.5;overflow-x:auto;font-family:var(--font-families-mono);tab-size:4">${this.highlightPython(args.code)}</pre>`;
+                            } else {
+                                argsHtml = `<b>Arguments:</b> ${this.escapeHtml(JSON.stringify(args, null, 2))}`;
+                            }
+
                             metaEl.innerHTML = `
                                 <b>Tool:</b> ${toolCall.function.name}<br>
-                                <b>Arguments:</b> ${this.escapeHtml(JSON.stringify(args, null, 2))}<br>
+                                ${argsHtml}<br>
                                 <b>Result:</b> ${resultLen} characters<br>
                                 <b>Time:</b> ${new Date().toLocaleTimeString()}<br>
                                 <hr style="margin:4px 0;border:none;border-top:1px solid var(--border-primary)">
-                                <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-size:10px;max-height:200px;overflow-y:auto">${this.escapeHtml(truncated)}</pre>
+                                <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-size:10px">${this.escapeHtml(toolResult)}</pre>
                             `;
 
                             tippy(infoBtn, {
                                 content: metaEl,
                                 allowHTML: true,
                                 interactive: true,
+                                appendTo: document.body,
+                                maxWidth: 520,
                                 placement: 'right',
+                                zIndex: 99999,
                                 theme: getTheme(),
+                                popperOptions: {
+                                    modifiers: [
+                                        {
+                                            name: 'preventOverflow',
+                                            options: {
+                                                boundary: 'viewport',
+                                                padding: 12,
+                                            },
+                                        },
+                                    ],
+                                },
+                                onMount(instance) {
+                                    const content = instance.popper.querySelector('.tippy-content') as HTMLElement | null;
+                                    if (content) {
+                                        content.style.maxHeight = '70vh';
+                                        content.style.overflowY = 'auto';
+                                    }
+                                },
                             });
 
                             (bodyDiv as HTMLDivElement).appendChild(line);
@@ -715,6 +742,49 @@ if '_agent_original_stdout' in dir():
         const d = document.createElement('div');
         d.appendChild(document.createTextNode(text));
         return d.innerHTML;
+    }
+
+    highlightPython(code: string): string {
+        const escaped = this.escapeHtml(code);
+        let html = escaped;
+
+        // Triple-quoted strings (must come before single-line strings)
+        html = html.replace(
+            /(&quot;&quot;&quot;[\s\S]*?&quot;&quot;&quot;|&#x27;&#x27;&#x27;[\s\S]*?&#x27;&#x27;&#x27;)/g,
+            '<span style="color:var(--accent-orange)">$1</span>'
+        );
+        // Comments
+        html = html.replace(
+            /(#[^\n]*)/g,
+            '<span style="color:var(--accent-green);font-style:italic">$1</span>'
+        );
+        // F-strings (before regular strings)
+        html = html.replace(
+            /(f&quot;[^&]*?&quot;|f&#x27;[^&]*?&#x27;)/g,
+            '<span style="color:var(--accent-magenta)">$1</span>'
+        );
+        // Regular strings
+        html = html.replace(
+            /(&quot;[^&]*?&quot;|&#x27;[^&]*?&#x27;)/g,
+            '<span style="color:var(--accent-orange)">$1</span>'
+        );
+        // Keywords
+        html = html.replace(
+            /\b(def|class|if|elif|else|for|while|import|from|as|return|yield|try|except|finally|raise|with|pass|break|continue|and|or|not|in|is|lambda|async|await|True|False|None|self|del|global|nonlocal|assert)\b/g,
+            '<span style="color:var(--accent-blue);font-weight:bold">$1</span>'
+        );
+        // Built-in functions
+        html = html.replace(
+            /\b(print|len|range|int|str|float|list|dict|set|tuple|type|open|map|filter|zip|enumerate|sorted|reversed|abs|min|max|sum|any|all|isinstance|hasattr|getattr|setattr|super|property|staticmethod|classmethod|object|__init__|__str__|__repr__|__len__|__getitem__|__setitem__|__delitem__|__iter__|__next__|__enter__|__exit__)\b/g,
+            '<span style="color:var(--accent-cyan)">$1</span>'
+        );
+        // Numbers
+        html = html.replace(
+            /\b(\d+\.?\d*)\b/g,
+            '<span style="color:var(--accent-magenta)">$1</span>'
+        );
+
+        return html;
     }
 
     // ── Dev-mode usage metrics ──
