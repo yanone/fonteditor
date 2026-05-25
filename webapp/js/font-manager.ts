@@ -628,7 +628,6 @@ class FontManager {
         EditingCompileContext
     >;
     private workerCacheYDoc: Y.Doc | null;
-    private workerPreviewYDoc: Y.Doc | null;
     private workerYjsSendQueue: Promise<unknown>;
 
     /**
@@ -692,7 +691,6 @@ class FontManager {
         this.workerLayerFingerprintCache = new Map();
         this.editingCompileContextsByRevision = new Map();
         this.workerCacheYDoc = null;
-        this.workerPreviewYDoc = null;
         this.workerYjsSendQueue = Promise.resolve();
 
         window.addEventListener('cloudConnectionStatusChanged', () => {
@@ -2290,7 +2288,7 @@ class FontManager {
                             isIncrementalEditingCompile &&
                             wasJsonStale &&
                             !forceFullWorkerCompile,
-                        usePreviewWorkerCache:
+                        usePreviewLayerOverlay:
                             dataFreshnessModeAtRequest ===
                             'live-drag-worker-preview'
                     }
@@ -3582,15 +3580,6 @@ class FontManager {
         return this.buildWorkerYjsStateFromCurrentFont();
     }
 
-    private buildWorkerAuthoritativeYjsState(): Uint8Array | null {
-        const bridgeState = window.patchSyncEngine?.getFullState?.();
-        if (bridgeState?.length) {
-            return bridgeState;
-        }
-
-        return this.buildWorkerYjsStateFromCurrentFont();
-    }
-
     private bootstrapWorkerYjsMirrorFromCurrentFont(): boolean {
         const state = this.buildWorkerYjsStateFromCurrentFont();
         if (!state?.length) {
@@ -3608,7 +3597,6 @@ class FontManager {
         // No JSON crossing — Y.applyUpdate takes a binary Uint8Array.
         if (!state) {
             this.workerCacheYDoc = null;
-            this.workerPreviewYDoc = null;
             return;
         }
 
@@ -3618,35 +3606,6 @@ class FontManager {
             state instanceof Uint8Array ? state : new Uint8Array(state)
         );
         this.workerCacheYDoc = yDoc;
-        this.workerPreviewYDoc = null;
-    }
-
-    private replaceWorkerPreviewYjsMirrorFromState(
-        state: Uint8Array | ArrayBufferLike | null | undefined
-    ): void {
-        if (!state) {
-            this.workerPreviewYDoc = null;
-            return;
-        }
-
-        const yDoc = new Y.Doc();
-        Y.applyUpdate(
-            yDoc,
-            state instanceof Uint8Array ? state : new Uint8Array(state)
-        );
-        this.workerPreviewYDoc = yDoc;
-    }
-
-    private bootstrapWorkerPreviewYjsMirrorFromAuthoritativeState(): boolean {
-        const state = this.workerCacheYDoc
-            ? Y.encodeStateAsUpdate(this.workerCacheYDoc)
-            : this.buildWorkerAuthoritativeYjsState();
-        if (!state?.length) {
-            return false;
-        }
-
-        this.replaceWorkerPreviewYjsMirrorFromState(state);
-        return true;
     }
 
     applyWorkerYjsUpdateToMirror(
@@ -3889,8 +3848,12 @@ class FontManager {
         return queuedSend;
     }
 
-    private async sendWorkerPreviewYjsUpdate(
-        update: Uint8Array,
+    private async sendWorkerPreviewLayerOverlay(
+        layerUpdates: Array<{
+            glyphName: string;
+            layerId: string;
+            layerData: Babelfont.Layer;
+        }>,
         changedGlyphs: string[],
         invalidateLayoutClosure: boolean,
         nonGlyphChangeHints: string[] = [],
@@ -3901,7 +3864,7 @@ class FontManager {
                 return false;
             }
 
-            if (!update.length) {
+            if (!layerUpdates.length) {
                 return true;
             }
 
@@ -3909,8 +3872,8 @@ class FontManager {
                 const normalizedLayerTargets =
                     normalizeWorkerReplayTargets(layerTargets);
                 const response = await fontCompilation.sendMessage({
-                    type: 'applyPreviewYjsUpdate',
-                    update,
+                    type: 'applyPreviewLayerOverlay',
+                    layerUpdates,
                     changedGlyphs,
                     nonGlyphChangeHints,
                     ...(normalizedLayerTargets.length
@@ -3920,15 +3883,13 @@ class FontManager {
                 });
 
                 if (response?.success === false || response?.error) {
-                    this.workerPreviewYDoc = null;
                     return false;
                 }
 
                 return true;
             } catch (error) {
-                this.workerPreviewYDoc = null;
                 console.warn(
-                    '[FontManager] Failed to send worker preview Yjs update:',
+                    '[FontManager] Failed to send worker preview layer overlay:',
                     {
                         changedGlyphs,
                         invalidateLayoutClosure
@@ -3950,7 +3911,6 @@ class FontManager {
         reason: string
     ): Promise<boolean> {
         this.workerCacheYDoc = null;
-        this.workerPreviewYDoc = null;
         fontCompilation?.setWorkerCacheDocumentReady(false);
         console.error(
             '[FontManager] Incremental worker-cache invariant violated; full-state repair is disabled:',
@@ -4416,37 +4376,14 @@ class FontManager {
             const normalizedUpdates = updates.map((update) => ({
                 glyphName: update.glyphName,
                 layerId: update.layerId,
-                normalized: this.normalizeLayerForRust(update.layerData)
+                layerData: this.normalizeLayerForRust(update.layerData)
             }));
 
-            if (
-                !this.workerPreviewYDoc &&
-                !this.bootstrapWorkerPreviewYjsMirrorFromAuthoritativeState()
-            ) {
-                throw new Error(
-                    'Worker preview Yjs mirror not ready for incremental layer update'
-                );
-            }
-
-            if (!this.workerPreviewYDoc) {
-                throw new Error(
-                    'Worker preview Yjs mirror not ready for incremental layer update'
-                );
-            }
-
-            const workerUpdate = this.buildWorkerYjsLayerUpdateForDoc(
-                this.workerPreviewYDoc,
-                normalizedUpdates
-            );
-            if (!workerUpdate) {
-                throw new Error(
-                    'Worker preview Yjs mirror not ready for incremental layer update'
-                );
-            }
-
-            return await this.sendWorkerPreviewYjsUpdate(
-                workerUpdate.update,
-                workerUpdate.changedGlyphs,
+            return await this.sendWorkerPreviewLayerOverlay(
+                normalizedUpdates,
+                Array.from(
+                    new Set(normalizedUpdates.map((update) => update.glyphName))
+                ),
                 options?.invalidateLayoutClosure ?? false,
                 [],
                 normalizedUpdates.map(({ glyphName, layerId }) => ({
@@ -4456,14 +4393,13 @@ class FontManager {
             );
         } catch (error) {
             console.warn(
-                '[FontManager] Failed to submit incremental Yjs layer batch to worker preview cache:',
+                '[FontManager] Failed to submit live-drag layer overlay to worker preview cache:',
                 updates.map(({ glyphName, layerId }) => ({
                     glyphName,
                     layerId
                 })),
                 error
             );
-            this.workerPreviewYDoc = null;
             return false;
         }
     }
@@ -5185,15 +5121,6 @@ class FontManager {
             return;
         }
 
-        if (
-            !this.workerPreviewYDoc &&
-            !this.bootstrapWorkerPreviewYjsMirrorFromAuthoritativeState()
-        ) {
-            throw new Error(
-                'Worker preview Yjs mirror not ready for live drag preview'
-            );
-        }
-
         const previewPromise = (async () => {
             const pendingLayerUpdates =
                 this.collectChangedLayerUpdatesFromModel(
@@ -5219,7 +5146,7 @@ class FontManager {
 
             if (!updatedIncrementally) {
                 throw new Error(
-                    'Incremental worker preview Yjs sync failed during live drag refresh'
+                    'Incremental worker preview overlay failed during live drag refresh'
                 );
             }
         })();
@@ -5255,8 +5182,6 @@ class FontManager {
     }
 
     clearLiveDragPreview(): void {
-        this.workerPreviewYDoc = null;
-
         if (!fontCompilation?.isInitialized) {
             return;
         }
@@ -5266,11 +5191,11 @@ class FontManager {
             .then(async () => {
                 try {
                     await fontCompilation.sendMessage({
-                        type: 'clearPreviewYjsState'
+                        type: 'clearPreviewLayerOverlay'
                     });
                 } catch (error) {
                     console.warn(
-                        '[FontManager] Failed to clear worker preview Yjs state:',
+                        '[FontManager] Failed to clear worker preview layer overlay:',
                         error
                     );
                 }

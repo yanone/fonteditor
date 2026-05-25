@@ -1218,7 +1218,7 @@ describe('FontManager editing subset inclusion', () => {
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
             compileSource: 'mouse-drag-outline',
             usePatchedWorkerCache: true,
-            usePreviewWorkerCache: true
+            usePreviewLayerOverlay: true
         });
     });
 
@@ -1640,7 +1640,7 @@ describe('FontManager editing subset inclusion', () => {
                         produce_varc_table: false
                     }),
                     usePatchedWorkerCache: true,
-                    usePreviewWorkerCache: true
+                    usePreviewLayerOverlay: true
                 })
             );
         } finally {
@@ -2391,7 +2391,7 @@ describe('FontManager boundary-crossing budget', () => {
         );
     });
 
-    test('stageLiveDragPreviewFromModel sends preview Yjs packets without mutating the authoritative worker mirror', async () => {
+    test('stageLiveDragPreviewFromModel sends preview layer overlays without mutating the authoritative worker mirror', async () => {
         const currentFont = fontManager.currentFont;
         const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
         const storedLayer = currentFont.babelfontData.glyphs
@@ -2404,43 +2404,49 @@ describe('FontManager boundary-crossing budget', () => {
         const authoritativeBefore = yDocToJson(
             fontManager.workerCacheYDoc.getMap('font')
         );
+        const encodeStateSpy = jest.spyOn(Y, 'encodeStateAsUpdate');
 
-        await fontManager.stageLiveDragPreviewFromModel(['a'], layerId, {
-            dispatchGlyphChanged: false,
-            explicitLayerData: [
-                {
-                    glyphName: 'a',
-                    layerId,
-                    layerData: previewLayer
-                }
-            ]
-        });
+        try {
+            await fontManager.stageLiveDragPreviewFromModel(['a'], layerId, {
+                dispatchGlyphChanged: false,
+                explicitLayerData: [
+                    {
+                        glyphName: 'a',
+                        layerId,
+                        layerData: previewLayer
+                    }
+                ]
+            });
+        } finally {
+            expect(encodeStateSpy).not.toHaveBeenCalled();
+            encodeStateSpy.mockRestore();
+        }
 
         const authoritativeAfter = yDocToJson(
             fontManager.workerCacheYDoc.getMap('font')
         );
-        const previewFontJson = yDocToJson(
-            fontManager.workerPreviewYDoc.getMap('font')
-        );
-        const previewGlyph = previewFontJson.glyphs.find(
-            (entry) => entry.name === 'a'
-        );
-        const previewWorkerLayer = previewGlyph.layers.find(
-            (entry) => entry.id === layerId
-        );
 
         expect(authoritativeAfter).toEqual(authoritativeBefore);
-        expect(previewWorkerLayer.width).toBe(previewLayer.width);
+        expect(fontManager.workerPreviewYDoc).toBeUndefined();
         expect(sendMessageSpy).toHaveBeenCalledTimes(1);
         expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
-                type: 'applyPreviewYjsUpdate',
+                type: 'applyPreviewLayerOverlay',
                 invalidateLayoutClosure: false,
-                update: expect.any(Uint8Array),
                 changedGlyphs: ['a'],
+                layerUpdates: [
+                    expect.objectContaining({
+                        glyphName: 'a',
+                        layerId,
+                        layerData: expect.objectContaining({
+                            width: previewLayer.width
+                        })
+                    })
+                ],
                 layerTargets: [{ glyphName: 'a', layerId }]
             })
         );
+        expect(sendMessageSpy.mock.calls[0][0]).not.toHaveProperty('update');
         expect(
             sendMessageSpy.mock.calls.some(
                 ([message]) => message?.type === 'applyYjsUpdate'
@@ -2472,7 +2478,7 @@ describe('FontManager boundary-crossing budget', () => {
                 }
             ]
         });
-        expect(fontManager.workerPreviewYDoc).toBeTruthy();
+        expect(fontManager.workerPreviewYDoc).toBeUndefined();
 
         sendMessageSpy.mockClear();
         fontManager.clearLiveDragPreview();
@@ -2482,12 +2488,12 @@ describe('FontManager boundary-crossing budget', () => {
             fontManager.workerCacheYDoc.getMap('font')
         );
 
-        expect(fontManager.workerPreviewYDoc).toBeNull();
+        expect(fontManager.workerPreviewYDoc).toBeUndefined();
         expect(authoritativeAfter).toEqual(authoritativeBefore);
         expect(sendMessageSpy).toHaveBeenCalledTimes(1);
         expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
-                type: 'clearPreviewYjsState'
+                type: 'clearPreviewLayerOverlay'
             })
         );
         expect(

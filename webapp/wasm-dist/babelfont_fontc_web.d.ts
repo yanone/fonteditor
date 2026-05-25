@@ -4,11 +4,11 @@
 export function add_master_with_interpolated_layers_yjs(master_json: string): any;
 
 /**
- * Apply a live-drag Yjs update to a transient preview cache. This keeps the
- * authoritative Rust Y.Doc and committed caches untouched until mouseup sends
- * the real bridge packet through `apply_yjs_update`.
+ * Apply live-drag layer replacements to a transient preview overlay. This
+ * keeps the authoritative Rust Y.Doc and committed caches untouched until
+ * mouseup sends the real bridge packet through `apply_yjs_update`.
  */
-export function apply_preview_yjs_update(update: Uint8Array, update_metadata_json: string): string;
+export function apply_preview_layer_overlay(layer_updates_json: string, update_metadata_json: string): string;
 
 /**
  * Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
@@ -33,9 +33,9 @@ export function apply_yjs_update(update: Uint8Array, update_metadata_json: strin
 export function clear_font_cache(): void;
 
 /**
- * Drop all transient live-drag preview state.
+ * Drop all transient live-drag preview overlay state.
  */
-export function clear_preview_yjs_state(): void;
+export function clear_preview_layer_overlay(): void;
 
 /**
  * Compile a font from babelfont JSON directly to TTF
@@ -351,10 +351,10 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly apply_preview_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly apply_preview_layer_overlay: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly apply_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly clear_font_cache: () => void;
-    readonly clear_preview_yjs_state: () => void;
+    readonly clear_preview_layer_overlay: () => void;
     readonly compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
     readonly compile_cached_font: (a: any) => [number, number, number, number];
     readonly compile_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
@@ -374,6 +374,9 @@ export interface InitOutput {
     readonly seed_ydoc: (a: number, b: number) => [number, number];
     readonly store_font: (a: number, b: number) => [number, number];
     readonly version: () => [number, number];
+    readonly add_master_with_interpolated_layers_yjs: (a: number, b: number) => [number, number, number];
+    readonly reinterpolate_layer_yjs: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly reinterpolate_master_layers_yjs: (a: number, b: number) => [number, number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
@@ -381,9 +384,6 @@ export interface InitOutput {
     readonly get_glyph_order: (a: number, b: number) => [number, number, number, number];
     readonly get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
     readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly add_master_with_interpolated_layers_yjs: (a: number, b: number) => [number, number, number];
-    readonly reinterpolate_layer_yjs: (a: number, b: number, c: number, d: number) => [number, number, number];
-    readonly reinterpolate_master_layers_yjs: (a: number, b: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

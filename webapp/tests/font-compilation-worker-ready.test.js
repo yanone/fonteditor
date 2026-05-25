@@ -64,11 +64,11 @@ describe('FontCompilation worker document readiness', () => {
 
     test.each([
         {
-            type: 'applyPreviewYjsUpdate',
-            payload: { update: new Uint8Array([7, 8, 9]), changedGlyphs: [] }
+            type: 'applyPreviewLayerOverlay',
+            payload: { layerUpdates: [], changedGlyphs: [] }
         },
         {
-            type: 'clearPreviewYjsState',
+            type: 'clearPreviewLayerOverlay',
             payload: {}
         }
     ])(
@@ -127,12 +127,12 @@ describe('FontCompilation worker document readiness', () => {
                 subsetGlyphs: ['a'],
                 subsetKey: 'a',
                 layoutClosureKey: 'a\u001e',
-                _usePreviewWorkerCache: false
+                _usePreviewLayerOverlay: false
             })
         );
     });
 
-    test('cached editing compiles forward the preview worker cache flag', async () => {
+    test('cached editing compiles forward the preview layer overlay flag', async () => {
         const { fontCompilation } = createReadyFontCompilation();
         const sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
@@ -149,7 +149,7 @@ describe('FontCompilation worker document readiness', () => {
             ['a'],
             {
                 compileSource: 'mouse-drag-outline',
-                usePreviewWorkerCache: true
+                usePreviewLayerOverlay: true
             }
         );
 
@@ -157,7 +157,7 @@ describe('FontCompilation worker document readiness', () => {
             expect.objectContaining({
                 type: 'compileEditingCached',
                 babelfontJson: '__incremental_layer__',
-                _usePreviewWorkerCache: true
+                _usePreviewLayerOverlay: true
             })
         );
     });

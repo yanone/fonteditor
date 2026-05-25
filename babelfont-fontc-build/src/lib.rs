@@ -13,7 +13,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use yrs::updates::decoder::Decode;
-use yrs::{Array as _, GetString, Map as _, ReadTxn, StateVector, Transact};
+use yrs::{Array as _, GetString, Map as _, ReadTxn, Transact};
 
 // Font reading module (using read-fonts/skrifa)
 mod font_reader;
@@ -87,22 +87,31 @@ static PERF_SPAN_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// incremental cache maintenance.
 static Y_DOC: Mutex<Option<yrs::Doc>> = Mutex::new(None);
 
-static PREVIEW_STATE: Mutex<Option<PreviewState>> = Mutex::new(None);
+static PREVIEW_OVERLAY: Mutex<Option<PreviewOverlay>> = Mutex::new(None);
+static LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY: Mutex<Option<String>> = Mutex::new(None);
 
-struct PreviewState {
-    doc: yrs::Doc,
-    canonical_json: serde_json::Value,
-    canonical_glyph_index: HashMap<String, usize>,
-    subset_json: Option<(String, u64, serde_json::Value)>,
-    subset_glyph_index: Option<(String, HashMap<String, usize>)>,
-    font_cache: Option<babelfont::Font>,
-    font_cache_epoch: u64,
-    font_cache_built_at_epoch: u64,
-    subset_font_cache: Option<(String, u64, babelfont::Font)>,
-    subset_font_cache_built_at_epoch: u64,
-    filtered_font_cache: Option<FilteredFontCacheEntry>,
-    layout_closure_cache: HashMap<String, Vec<String>>,
-    last_layout_closure_cache_key: Option<String>,
+struct PreviewOverlay {
+    base_font_cache_epoch: u64,
+    generation: u64,
+    layer_overrides: HashMap<LayerTarget, serde_json::Value>,
+    subset_font_cache: Option<PreviewSubsetFontCacheEntry>,
+    filtered_font_cache: Option<PreviewFilteredFontCacheEntry>,
+}
+
+struct PreviewSubsetFontCacheEntry {
+    subset_key: String,
+    base_font_cache_epoch: u64,
+    overlay_generation: u64,
+    font: babelfont::Font,
+}
+
+struct PreviewFilteredFontCacheEntry {
+    subset_key: String,
+    filter_epoch: u64,
+    base_font_cache_epoch: u64,
+    overlay_generation: u64,
+    options_fingerprint: u64,
+    font: Arc<babelfont::Font>,
 }
 
 /// Cache entry for a pre-filtered font ready for compilation.
@@ -126,6 +135,11 @@ struct FilteredFontCacheEntry {
 struct LayerTarget {
     glyph_name: String,
     layer_id: String,
+}
+
+fn clear_preview_overlay_internal() {
+    *PREVIEW_OVERLAY.lock().unwrap() = None;
+    *LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
 }
 
 fn build_glyph_index(font_json: &serde_json::Value) -> HashMap<String, usize> {
@@ -179,26 +193,6 @@ fn store_subset_font_cache(
     let mut subset_font_cache = SUBSET_FONT_CACHE.lock().unwrap();
     *subset_font_cache = Some((subset_key.to_string(), subset_epoch, subset_font.clone()));
     SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(subset_epoch, Ordering::Relaxed);
-
-    Ok(subset_epoch)
-}
-
-fn store_preview_subset_font_cache(
-    state: &mut PreviewState,
-    subset_key: &str,
-    subset_font: &babelfont::Font,
-) -> Result<u64, JsValue> {
-    let subset_json = serde_json::to_value(subset_font).map_err(|e| {
-        JsValue::from_str(&format!("Preview subset font serialization error: {}", e))
-    })?;
-    let subset_epoch = state
-        .subset_json
-        .as_ref()
-        .map_or(1, |(_, epoch, _)| epoch.saturating_add(1));
-    state.subset_json = Some((subset_key.to_string(), subset_epoch, subset_json.clone()));
-    state.subset_glyph_index = Some((subset_key.to_string(), build_glyph_index(&subset_json)));
-    state.subset_font_cache = Some((subset_key.to_string(), subset_epoch, subset_font.clone()));
-    state.subset_font_cache_built_at_epoch = subset_epoch;
 
     Ok(subset_epoch)
 }
@@ -575,47 +569,15 @@ fn get_or_rebuild_subset_font_cache(
     Ok(Some(font))
 }
 
-fn get_or_rebuild_preview_font_cache(state: &mut PreviewState) -> Result<babelfont::Font, JsValue> {
-    if state.font_cache_epoch == state.font_cache_built_at_epoch {
-        if let Some(font) = state.font_cache.as_ref() {
-            return Ok(font.clone());
-        }
+fn build_subset_font_from_closure_subset(
+    closure_subset: &[String],
+) -> Result<babelfont::Font, JsValue> {
+    let full_font = get_or_rebuild_font_cache()?;
+    let mut subset_font = full_font;
+    if !closure_subset.is_empty() {
+        subset_font_using_cached_fea(&mut subset_font, closure_subset)?;
     }
-
-    let font: babelfont::Font = serde_json::from_value(state.canonical_json.clone())
-        .map_err(|e| JsValue::from_str(&format!("Preview font deserialization error: {}", e)))?;
-    state.font_cache = Some(font.clone());
-    state.font_cache_built_at_epoch = state.font_cache_epoch;
-
-    Ok(font)
-}
-
-fn get_or_rebuild_preview_subset_font_cache(
-    state: &mut PreviewState,
-    expected_subset_key: &str,
-) -> Result<Option<babelfont::Font>, JsValue> {
-    let Some((subset_key, subset_epoch, subset_json)) = state.subset_json.as_ref() else {
-        return Ok(None);
-    };
-    if subset_key != expected_subset_key {
-        return Ok(None);
-    }
-
-    if *subset_epoch == state.subset_font_cache_built_at_epoch {
-        if let Some((key, cache_epoch, font)) = state.subset_font_cache.as_ref() {
-            if key == expected_subset_key && *cache_epoch == *subset_epoch {
-                return Ok(Some(font.clone()));
-            }
-        }
-    }
-
-    let font: babelfont::Font = serde_json::from_value(subset_json.clone()).map_err(|e| {
-        JsValue::from_str(&format!("Preview subset font deserialization error: {}", e))
-    })?;
-    state.subset_font_cache = Some((expected_subset_key.to_string(), *subset_epoch, font.clone()));
-    state.subset_font_cache_built_at_epoch = *subset_epoch;
-
-    Ok(Some(font))
+    Ok(subset_font)
 }
 
 /// Compute a fingerprint for compilation options that affect filtering.
@@ -1880,7 +1842,7 @@ fn store_font_from_value(json_value: serde_json::Value) -> Result<(), JsValue> {
     FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
 
     glyph_outlines::clear_outline_cache();
-    *PREVIEW_STATE.lock().unwrap() = None;
+    clear_preview_overlay_internal();
     Ok(())
 }
 
@@ -1924,7 +1886,7 @@ pub fn seed_ydoc(state_update: &[u8]) -> Result<(), JsValue> {
         txn.apply_update(update);
     }
     *Y_DOC.lock().unwrap() = Some(doc);
-    *PREVIEW_STATE.lock().unwrap() = None;
+    clear_preview_overlay_internal();
     Ok(())
 }
 
@@ -1963,263 +1925,105 @@ pub fn init_ydoc_from_state(state_update: &[u8]) -> Result<(), JsValue> {
     store_font_from_value(json_value)
 }
 
-fn clone_authoritative_ydoc() -> Result<yrs::Doc, JsValue> {
-    let full_state = {
-        let guard = Y_DOC.lock().unwrap();
-        let doc = guard
-            .as_ref()
-            .ok_or_else(|| JsValue::from_str("Y.Doc not initialized"))?;
-        let txn = doc.transact();
-        txn.encode_state_as_update_v1(&StateVector::default())
-    };
-
-    let clone_doc = yrs::Doc::new();
-    {
-        let update = yrs::Update::decode_v1(full_state.as_slice()).map_err(|error| {
-            JsValue::from_str(&format!(
-                "clone_authoritative_ydoc decode failed: {:?}",
-                error
-            ))
-        })?;
-        let mut txn = clone_doc.transact_mut();
-        txn.apply_update(update);
-    }
-
-    Ok(clone_doc)
+#[derive(serde::Deserialize)]
+struct PreviewLayerOverlayUpdate {
+    #[serde(rename = "glyphName")]
+    glyph_name: String,
+    #[serde(rename = "layerId")]
+    layer_id: String,
+    #[serde(rename = "layerData")]
+    layer_data: serde_json::Value,
 }
 
-fn ensure_preview_state() -> Result<(), JsValue> {
-    let mut preview_lock = PREVIEW_STATE.lock().unwrap();
-    if preview_lock.is_some() {
-        return Ok(());
-    }
-
-    let doc = clone_authoritative_ydoc()?;
-    let canonical_json = CANONICAL_JSON_CACHE
-        .lock()
-        .unwrap()
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| JsValue::from_str("No canonical font cache for preview state"))?;
-    let canonical_glyph_index = CANONICAL_GLYPH_INDEX_CACHE
-        .lock()
-        .unwrap()
-        .as_ref()
-        .cloned()
-        .unwrap_or_else(|| build_glyph_index(&canonical_json));
-
-    *preview_lock = Some(PreviewState {
-        doc,
-        canonical_json,
-        canonical_glyph_index,
-        subset_json: SUBSET_JSON_CACHE.lock().unwrap().clone(),
-        subset_glyph_index: SUBSET_GLYPH_INDEX_CACHE.lock().unwrap().clone(),
-        font_cache: FONT_CACHE.lock().unwrap().clone(),
-        font_cache_epoch: FONT_CACHE_EPOCH.load(Ordering::Relaxed),
-        font_cache_built_at_epoch: FONT_CACHE_BUILT_AT_EPOCH.load(Ordering::Relaxed),
-        subset_font_cache: SUBSET_FONT_CACHE.lock().unwrap().clone(),
-        subset_font_cache_built_at_epoch: SUBSET_FONT_CACHE_BUILT_AT_EPOCH.load(Ordering::Relaxed),
-        filtered_font_cache: None,
-        layout_closure_cache: LAYOUT_CLOSURE_CACHE.lock().unwrap().clone(),
-        last_layout_closure_cache_key: LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().clone(),
-    });
-
-    Ok(())
-}
-
-/// Apply a live-drag Yjs update to a transient preview cache. This keeps the
-/// authoritative Rust Y.Doc and committed caches untouched until mouseup sends
-/// the real bridge packet through `apply_yjs_update`.
-#[wasm_bindgen]
-pub fn apply_preview_yjs_update(
-    update: &[u8],
+fn apply_preview_layer_overlay_internal(
+    layer_updates_json: &str,
     update_metadata_json: &str,
 ) -> Result<String, JsValue> {
-    let _span = PerfSpan::start("apply_preview_yjs_update.total");
-    ensure_preview_state()?;
-
-    let yrs_update = yrs::Update::decode_v1(update).map_err(|e| {
-        JsValue::from_str(&format!("apply_preview_yjs_update: decode failed: {:?}", e))
-    })?;
-    let (changed_glyphs, _non_glyph_change_hints, layer_targets) =
-        parse_apply_yjs_update_metadata(update_metadata_json);
-    let layer_target_glyphs: HashSet<String> = layer_targets
-        .iter()
-        .map(|target| target.glyph_name.clone())
-        .collect();
-
-    let mut preview_lock = PREVIEW_STATE.lock().unwrap();
-    let state = preview_lock
-        .as_mut()
-        .ok_or_else(|| JsValue::from_str("Preview state not initialized"))?;
-
-    let (changed_layer_snapshots, changed_glyph_snapshots) = {
-        let mut txn = state.doc.transact_mut();
-        txn.apply_update(yrs_update);
-
-        let changed_layer_snapshots: Vec<(LayerTarget, Option<serde_json::Value>)> = layer_targets
-            .iter()
-            .map(|target| {
-                (
-                    target.clone(),
-                    ydoc_get_layer_json_with_txn(&target.glyph_name, &target.layer_id, &txn),
-                )
-            })
-            .collect();
-        let changed_glyph_snapshots: Vec<(String, Option<serde_json::Value>)> = changed_glyphs
-            .iter()
-            .filter(|glyph_name| !layer_target_glyphs.contains(*glyph_name))
-            .map(|glyph_name| {
-                (
-                    glyph_name.clone(),
-                    ydoc_get_glyph_json_with_txn(glyph_name, &txn),
-                )
-            })
-            .collect();
-        (changed_layer_snapshots, changed_glyph_snapshots)
-    };
-
-    if changed_glyphs.is_empty() && changed_layer_snapshots.is_empty() {
-        let result = serde_json::json!({
-            "changedGlyphs": [],
-            "changedLayerIds": []
-        });
-        return serde_json::to_string(&result).map_err(|e| {
+    let layer_updates: Vec<PreviewLayerOverlayUpdate> = serde_json::from_str(layer_updates_json)
+        .map_err(|e| {
             JsValue::from_str(&format!(
-                "apply_preview_yjs_update: result serialisation failed: {}",
+                "apply_preview_layer_overlay: layer update parse failed: {}",
                 e
             ))
+        })?;
+    let (metadata_changed_glyphs, _non_glyph_change_hints, metadata_layer_targets) =
+        parse_apply_yjs_update_metadata(update_metadata_json);
+
+    let current_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
+    let mut preview_lock = PREVIEW_OVERLAY.lock().unwrap();
+    let needs_reset = preview_lock.as_ref().map_or(true, |overlay| {
+        overlay.base_font_cache_epoch != current_epoch
+    });
+    if needs_reset {
+        *preview_lock = Some(PreviewOverlay {
+            base_font_cache_epoch: current_epoch,
+            generation: 0,
+            layer_overrides: HashMap::new(),
+            subset_font_cache: None,
+            filtered_font_cache: None,
         });
     }
 
-    for (target, layer_json) in &changed_layer_snapshots {
-        replace_layer_json_entry(
-            &mut state.canonical_json,
-            &state.canonical_glyph_index,
-            &target.glyph_name,
-            &target.layer_id,
-            layer_json.clone(),
+    let overlay = preview_lock
+        .as_mut()
+        .ok_or_else(|| JsValue::from_str("Preview overlay not initialized"))?;
+    let mut changed_glyphs: HashSet<String> = metadata_changed_glyphs.into_iter().collect();
+    let mut changed_layer_ids: Vec<String> = Vec::new();
+
+    for update in layer_updates {
+        if update.glyph_name.is_empty() || update.layer_id.is_empty() {
+            return Err(JsValue::from_str(
+                "apply_preview_layer_overlay: glyphName and layerId are required",
+            ));
+        }
+
+        changed_glyphs.insert(update.glyph_name.clone());
+        changed_layer_ids.push(update.layer_id.clone());
+        overlay.layer_overrides.insert(
+            LayerTarget {
+                glyph_name: update.glyph_name,
+                layer_id: update.layer_id,
+            },
+            update.layer_data,
         );
     }
-    for (glyph_name, glyph_json) in &changed_glyph_snapshots {
-        replace_glyph_json_entry(
-            &mut state.canonical_json,
-            &mut state.canonical_glyph_index,
-            glyph_name,
-            glyph_json.clone(),
-        );
+
+    for target in metadata_layer_targets {
+        changed_glyphs.insert(target.glyph_name);
+        changed_layer_ids.push(target.layer_id);
     }
 
-    let mut subset_cache_refresh: Option<(String, u64, Vec<String>)> = None;
-    if let Some((ref subset_key, ref mut subset_epoch, ref mut subset_json)) = state.subset_json {
-        let subset_index = match state.subset_glyph_index.as_mut() {
-            Some((cached_key, index)) if *cached_key == *subset_key => index,
-            _ => {
-                state.subset_glyph_index =
-                    Some((subset_key.clone(), build_glyph_index(subset_json)));
-                match state.subset_glyph_index.as_mut() {
-                    Some((_, index)) => index,
-                    None => unreachable!(),
-                }
-            }
-        };
+    overlay.generation = overlay.generation.saturating_add(1);
+    overlay.subset_font_cache = None;
+    overlay.filtered_font_cache = None;
 
-        let mut touched_subset_glyphs: Vec<String> = Vec::new();
-        for (target, layer_json) in &changed_layer_snapshots {
-            let touches_subset =
-                subset_index.contains_key(&target.glyph_name) || layer_json.is_none();
-            if !touches_subset {
-                continue;
-            }
-
-            let changed = replace_layer_json_entry(
-                subset_json,
-                subset_index,
-                &target.glyph_name,
-                &target.layer_id,
-                layer_json.clone(),
-            );
-            if changed || touches_subset {
-                touched_subset_glyphs.push(target.glyph_name.clone());
-            }
-        }
-
-        for (glyph_name, glyph_json) in &changed_glyph_snapshots {
-            let touches_subset = subset_index.contains_key(glyph_name) || glyph_json.is_none();
-            if !touches_subset {
-                continue;
-            }
-
-            let changed =
-                replace_glyph_json_entry(subset_json, subset_index, glyph_name, glyph_json.clone());
-            if changed || touches_subset {
-                touched_subset_glyphs.push(glyph_name.clone());
-            }
-        }
-
-        if !touched_subset_glyphs.is_empty() {
-            *subset_epoch = subset_epoch.saturating_add(1);
-            subset_cache_refresh = Some((subset_key.clone(), *subset_epoch, touched_subset_glyphs));
-        }
-    }
-
-    if let Some(ref mut font_cache) = state.font_cache {
-        for (glyph_name, glyph_json) in &changed_glyph_snapshots {
-            replace_glyph_in_font_cache(font_cache, glyph_name, glyph_json.as_ref())?;
-        }
-        for (target, layer_json) in &changed_layer_snapshots {
-            replace_layer_in_font_cache(
-                font_cache,
-                &target.glyph_name,
-                &target.layer_id,
-                layer_json.as_ref(),
-            )?;
-        }
-    }
-
-    if let Some((subset_key, subset_epoch, subset_glyphs)) = subset_cache_refresh {
-        if let Some((ref cached_key, ref mut cached_epoch, ref mut subset_font)) =
-            state.subset_font_cache
-        {
-            if *cached_key == subset_key {
-                for (target, layer_json) in &changed_layer_snapshots {
-                    replace_layer_in_font_cache(
-                        subset_font,
-                        &target.glyph_name,
-                        &target.layer_id,
-                        layer_json.as_ref(),
-                    )?;
-                }
-                for glyph_name in &subset_glyphs {
-                    let Some((_, glyph_json)) = changed_glyph_snapshots
-                        .iter()
-                        .find(|(name, _)| name == glyph_name)
-                    else {
-                        continue;
-                    };
-                    replace_glyph_in_font_cache(subset_font, glyph_name, glyph_json.as_ref())?;
-                }
-                *cached_epoch = subset_epoch;
-                state.subset_font_cache_built_at_epoch = subset_epoch;
-            }
-        }
-
-        state.filtered_font_cache = None;
-    }
+    changed_layer_ids.sort();
+    changed_layer_ids.dedup();
+    let mut changed_glyphs: Vec<String> = changed_glyphs.into_iter().collect();
+    changed_glyphs.sort();
 
     let result = serde_json::json!({
         "changedGlyphs": changed_glyphs,
-        "changedLayerIds": layer_targets
-            .iter()
-            .map(|target| target.layer_id.clone())
-            .collect::<Vec<String>>()
+        "changedLayerIds": changed_layer_ids
     });
     serde_json::to_string(&result).map_err(|e| {
         JsValue::from_str(&format!(
-            "apply_preview_yjs_update: result serialisation failed: {}",
+            "apply_preview_layer_overlay: result serialisation failed: {}",
             e
         ))
     })
+}
+
+/// Apply live-drag layer replacements to a transient preview overlay. This
+/// keeps the authoritative Rust Y.Doc and committed caches untouched until
+/// mouseup sends the real bridge packet through `apply_yjs_update`.
+#[wasm_bindgen]
+pub fn apply_preview_layer_overlay(
+    layer_updates_json: &str,
+    update_metadata_json: &str,
+) -> Result<String, JsValue> {
+    let _span = PerfSpan::start("apply_preview_layer_overlay.total");
+    apply_preview_layer_overlay_internal(layer_updates_json, update_metadata_json)
 }
 
 /// Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
@@ -2243,7 +2047,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
     // refresh_non_glyph_feature_caches_from_ydoc which does a full Y.Doc→JSON
     // walk. Could target-patch only changed top-level keys (features, axes).
     let _span = PerfSpan::start("apply_yjs_update.total");
-    *PREVIEW_STATE.lock().unwrap() = None;
+    clear_preview_overlay_internal();
 
     // -- 1. Apply binary update to Y_DOC ----------------------------------
     let yrs_update = yrs::Update::decode_v1(update)
@@ -2578,7 +2382,7 @@ pub fn clear_font_cache() {
     FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
     SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
     FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
-    *PREVIEW_STATE.lock().unwrap() = None;
+    clear_preview_overlay_internal();
 
     glyph_outlines::clear_outline_cache();
 }
@@ -2976,37 +2780,9 @@ pub fn prime_preview_layout_closure_cache(
     glyph_names_json: &str,
 ) -> Result<u32, JsValue> {
     let _prime_span = PerfSpan::start("prime_preview_layout_closure_cache.total");
-    ensure_preview_state()?;
-
-    let glyph_names: Vec<String> = serde_json::from_str(glyph_names_json)
-        .map_err(|e| JsValue::from_str(&format!("Failed to parse glyph names JSON: {}", e)))?;
-    let subset_key = canonical_subset_key(glyph_names.clone());
-    let cache_key = layout_closure_cache_key(font_revision, &subset_key);
-
-    let mut preview_lock = PREVIEW_STATE.lock().unwrap();
-    let state = preview_lock
-        .as_mut()
-        .ok_or_else(|| JsValue::from_str("Preview state not initialized"))?;
-
-    if let Some(cached) = state.layout_closure_cache.get(&cache_key) {
-        state.last_layout_closure_cache_key = Some(cache_key.clone());
-        return Ok(cached.len() as u32);
-    }
-
-    let font = get_or_rebuild_preview_font_cache(state)?;
-    let glyph_set: HashSet<SmolStr> = glyph_names.into_iter().map(SmolStr::from).collect();
-    let closure_set = babelfont::close_layout(&font, glyph_set)
-        .map_err(|e| JsValue::from_str(&format!("Layout closure computation failed: {:?}", e)))?;
-    let mut result: Vec<String> = closure_set.into_iter().map(|s| s.to_string()).collect();
-    expand_closure_with_component_deps(&font, &mut result);
-    result.sort();
-    result.dedup();
-
-    prune_layout_closure_cache_for_subset(&mut state.layout_closure_cache, &subset_key);
-    state
-        .layout_closure_cache
-        .insert(cache_key.clone(), result.clone());
-    state.last_layout_closure_cache_key = Some(cache_key);
+    let (cache_key, result) =
+        compute_layout_closure_cached_internal(font_revision, glyph_names_json)?;
+    *LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = Some(cache_key);
 
     Ok(result.len() as u32)
 }
@@ -3019,51 +2795,25 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
 ) -> Result<Vec<u8>, JsValue> {
     let _compile_span =
         PerfSpan::start("compile_preview_cached_font_from_last_layout_closure.total");
-    ensure_preview_state()?;
 
-    let mut preview_lock = PREVIEW_STATE.lock().unwrap();
-    let state = preview_lock
-        .as_mut()
-        .ok_or_else(|| JsValue::from_str("Preview state not initialized"))?;
-
-    let cache_key = state.last_layout_closure_cache_key.clone().ok_or_else(|| {
-        JsValue::from_str(
+    let cache_key = LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| {
+            JsValue::from_str(
             "No primed preview layout closure. Call prime_preview_layout_closure_cache() first.",
         )
-    })?;
-    let closure_subset = state
-        .layout_closure_cache
+        })?;
+    let closure_subset = LAYOUT_CLOSURE_CACHE
+        .lock()
+        .unwrap()
         .get(&cache_key)
         .cloned()
         .ok_or_else(|| {
             JsValue::from_str("Primed preview layout closure key not found in cache.")
         })?;
     let prepared_subset_key = canonical_subset_key_from_sorted_unique(&closure_subset);
-
-    let subset_font = match get_or_rebuild_preview_subset_font_cache(state, &prepared_subset_key)? {
-        Some(cached) => {
-            perf_mark(&format!(
-                "{}:compile_preview_cached_font_from_last_layout_closure.subset_cache_hit{}",
-                PERF_PREFIX,
-                current_perf_trace_suffix()
-            ));
-            cached
-        }
-        None => {
-            perf_mark(&format!(
-                "{}:compile_preview_cached_font_from_last_layout_closure.subset_cache_miss{}",
-                PERF_PREFIX,
-                current_perf_trace_suffix()
-            ));
-            let full_font = get_or_rebuild_preview_font_cache(state)?;
-            let mut subset_font = full_font;
-            if !closure_subset.is_empty() {
-                subset_font_using_cached_fea(&mut subset_font, &closure_subset)?;
-            }
-            store_preview_subset_font_cache(state, &prepared_subset_key, &subset_font)?;
-            subset_font
-        }
-    };
 
     let compilation_options = CompilationOptions {
         skip_kerning: get_option(options, "skip_kerning", false),
@@ -3076,41 +2826,101 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
         debug_feature_file: None,
     };
 
+    let current_base_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
     let current_filter_epoch = FILTER_EPOCH.load(Ordering::Relaxed);
-    let current_cache_epoch = state.font_cache_epoch;
     let current_options_fp = options_filter_fingerprint(&compilation_options);
 
     let filtered_font = {
-        let cache_hit = state.filtered_font_cache.as_ref().map_or(false, |entry| {
-            entry.subset_key == prepared_subset_key
-                && entry.filter_epoch == current_filter_epoch
-                && entry.cache_epoch == current_cache_epoch
-                && entry.options_fingerprint == current_options_fp
-        });
+        let mut preview_lock = PREVIEW_OVERLAY.lock().unwrap();
+        if preview_lock
+            .as_ref()
+            .is_some_and(|overlay| overlay.base_font_cache_epoch != current_base_epoch)
+        {
+            *preview_lock = None;
+        }
 
-        if cache_hit {
-            perf_mark(&format!(
-                "{}:compile_preview_cached_font_from_last_layout_closure.filter_cache.hit{}",
-                PERF_PREFIX,
-                current_perf_trace_suffix()
-            ));
-            Arc::clone(&state.filtered_font_cache.as_ref().unwrap().font)
-        } else {
-            let filtered = apply_filter_pipeline(&subset_font, &compilation_options)?;
-            let filtered_arc = Arc::new(filtered);
-            state.filtered_font_cache = Some(FilteredFontCacheEntry {
-                subset_key: prepared_subset_key.clone(),
-                filter_epoch: current_filter_epoch,
-                cache_epoch: current_cache_epoch,
-                options_fingerprint: current_options_fp,
-                font: Arc::clone(&filtered_arc),
+        if let Some(overlay) = preview_lock.as_mut() {
+            let subset_font = match overlay.subset_font_cache.as_ref() {
+                Some(entry)
+                    if entry.subset_key == prepared_subset_key
+                        && entry.base_font_cache_epoch == current_base_epoch
+                        && entry.overlay_generation == overlay.generation =>
+                {
+                    perf_mark(&format!(
+                        "{}:compile_preview_cached_font_from_last_layout_closure.subset_cache_hit{}",
+                        PERF_PREFIX,
+                        current_perf_trace_suffix()
+                    ));
+                    entry.font.clone()
+                }
+                _ => {
+                    perf_mark(&format!(
+                        "{}:compile_preview_cached_font_from_last_layout_closure.subset_cache_miss{}",
+                        PERF_PREFIX,
+                        current_perf_trace_suffix()
+                    ));
+                    let mut subset_font =
+                        match get_or_rebuild_subset_font_cache(&prepared_subset_key)? {
+                            Some(cached) => cached,
+                            None => build_subset_font_from_closure_subset(&closure_subset)?,
+                        };
+                    for (target, layer_json) in &overlay.layer_overrides {
+                        replace_layer_in_font_cache(
+                            &mut subset_font,
+                            &target.glyph_name,
+                            &target.layer_id,
+                            Some(layer_json),
+                        )?;
+                    }
+                    overlay.subset_font_cache = Some(PreviewSubsetFontCacheEntry {
+                        subset_key: prepared_subset_key.clone(),
+                        base_font_cache_epoch: current_base_epoch,
+                        overlay_generation: overlay.generation,
+                        font: subset_font.clone(),
+                    });
+                    subset_font
+                }
+            };
+
+            let cache_hit = overlay.filtered_font_cache.as_ref().map_or(false, |entry| {
+                entry.subset_key == prepared_subset_key
+                    && entry.filter_epoch == current_filter_epoch
+                    && entry.base_font_cache_epoch == current_base_epoch
+                    && entry.overlay_generation == overlay.generation
+                    && entry.options_fingerprint == current_options_fp
             });
-            perf_mark(&format!(
-                "{}:compile_preview_cached_font_from_last_layout_closure.filter_cache.miss{}",
-                PERF_PREFIX,
-                current_perf_trace_suffix()
-            ));
-            filtered_arc
+
+            if cache_hit {
+                perf_mark(&format!(
+                    "{}:compile_preview_cached_font_from_last_layout_closure.filter_cache.hit{}",
+                    PERF_PREFIX,
+                    current_perf_trace_suffix()
+                ));
+                Arc::clone(&overlay.filtered_font_cache.as_ref().unwrap().font)
+            } else {
+                let filtered = apply_filter_pipeline(&subset_font, &compilation_options)?;
+                let filtered_arc = Arc::new(filtered);
+                overlay.filtered_font_cache = Some(PreviewFilteredFontCacheEntry {
+                    subset_key: prepared_subset_key.clone(),
+                    filter_epoch: current_filter_epoch,
+                    base_font_cache_epoch: current_base_epoch,
+                    overlay_generation: overlay.generation,
+                    options_fingerprint: current_options_fp,
+                    font: Arc::clone(&filtered_arc),
+                });
+                perf_mark(&format!(
+                    "{}:compile_preview_cached_font_from_last_layout_closure.filter_cache.miss{}",
+                    PERF_PREFIX,
+                    current_perf_trace_suffix()
+                ));
+                filtered_arc
+            }
+        } else {
+            let subset_font = match get_or_rebuild_subset_font_cache(&prepared_subset_key)? {
+                Some(cached) => cached,
+                None => build_subset_font_from_closure_subset(&closure_subset)?,
+            };
+            Arc::new(apply_filter_pipeline(&subset_font, &compilation_options)?)
         }
     };
 
@@ -3121,10 +2931,10 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
     )
 }
 
-/// Drop all transient live-drag preview state.
+/// Drop all transient live-drag preview overlay state.
 #[wasm_bindgen]
-pub fn clear_preview_yjs_state() {
-    *PREVIEW_STATE.lock().unwrap() = None;
+pub fn clear_preview_layer_overlay() {
+    clear_preview_overlay_internal();
 }
 
 /// Compile cached font using the last primed layout closure subset.
@@ -3435,6 +3245,55 @@ mod tests {
             layout_closure_cache_key("17", "alef\u{1f}beh"),
             "17::alef\u{1f}beh"
         );
+    }
+
+    #[test]
+    fn preview_layer_overlay_does_not_mutate_authoritative_json_cache() {
+        let previous_canonical = CANONICAL_JSON_CACHE.lock().unwrap().clone();
+        let previous_index = CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap().clone();
+        let previous_overlay = PREVIEW_OVERLAY.lock().unwrap().take();
+        let previous_preview_closure_key =
+            LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().take();
+
+        let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        set_canonical_json_cache(font_json.clone());
+
+        let result = apply_preview_layer_overlay_internal(
+            r#"[
+                {
+                    "glyphName": "A",
+                    "layerId": "layer-1",
+                    "layerData": { "id": "layer-1", "width": 650 }
+                }
+            ]"#,
+            r#"{
+                "changedGlyphs": ["A"],
+                "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }]
+            }"#,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(
+            CANONICAL_JSON_CACHE.lock().unwrap().as_ref(),
+            Some(&font_json)
+        );
+
+        let overlay_lock = PREVIEW_OVERLAY.lock().unwrap();
+        let overlay = overlay_lock.as_ref().unwrap();
+        assert_eq!(overlay.layer_overrides.len(), 1);
+        assert_eq!(
+            overlay.layer_overrides[&LayerTarget {
+                glyph_name: "A".to_string(),
+                layer_id: "layer-1".to_string(),
+            }]["width"],
+            json!(650)
+        );
+        drop(overlay_lock);
+
+        *CANONICAL_JSON_CACHE.lock().unwrap() = previous_canonical;
+        *CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap() = previous_index;
+        *PREVIEW_OVERLAY.lock().unwrap() = previous_overlay;
+        *LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = previous_preview_closure_key;
     }
 
     #[test]

@@ -1017,7 +1017,7 @@ export class FontCompilation {
                 produce_varc_table?: boolean;
             };
             usePatchedWorkerCache?: boolean;
-            usePreviewWorkerCache?: boolean;
+            usePreviewLayerOverlay?: boolean;
         }
     ): Promise<{
         result: Uint8Array;
@@ -1107,8 +1107,8 @@ export class FontCompilation {
                 filename: 'editing-font.ttf',
                 _dragActive: requestMeta?.dragActive === true,
                 _compileSource: requestMeta?.compileSource,
-                _usePreviewWorkerCache:
-                    requestMeta?.usePreviewWorkerCache === true
+                _usePreviewLayerOverlay:
+                    requestMeta?.usePreviewLayerOverlay === true
             });
 
             this.lastEditingSubsetKey = subsetKey;

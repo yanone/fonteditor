@@ -1,10 +1,10 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const apply_preview_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const apply_preview_layer_overlay: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const apply_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const clear_font_cache: () => void;
-export const clear_preview_yjs_state: () => void;
+export const clear_preview_layer_overlay: () => void;
 export const compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
 export const compile_cached_font: (a: any) => [number, number, number, number];
 export const compile_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
@@ -24,6 +24,9 @@ export const prime_preview_layout_closure_cache: (a: number, b: number, c: numbe
 export const seed_ydoc: (a: number, b: number) => [number, number];
 export const store_font: (a: number, b: number) => [number, number];
 export const version: () => [number, number];
+export const add_master_with_interpolated_layers_yjs: (a: number, b: number) => [number, number, number];
+export const reinterpolate_layer_yjs: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const reinterpolate_master_layers_yjs: (a: number, b: number) => [number, number, number];
 export const get_font_axes: (a: number, b: number) => [number, number, number, number];
 export const get_font_features: (a: number, b: number) => [number, number, number, number];
 export const get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
@@ -31,9 +34,6 @@ export const get_glyph_name: (a: number, b: number, c: number) => [number, numbe
 export const get_glyph_order: (a: number, b: number) => [number, number, number, number];
 export const get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
 export const run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-export const add_master_with_interpolated_layers_yjs: (a: number, b: number) => [number, number, number];
-export const reinterpolate_layer_yjs: (a: number, b: number, c: number, d: number) => [number, number, number];
-export const reinterpolate_master_layers_yjs: (a: number, b: number) => [number, number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_exn_store: (a: number) => void;

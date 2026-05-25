@@ -15,22 +15,22 @@ export function add_master_with_interpolated_layers_yjs(master_json) {
 }
 
 /**
- * Apply a live-drag Yjs update to a transient preview cache. This keeps the
- * authoritative Rust Y.Doc and committed caches untouched until mouseup sends
- * the real bridge packet through `apply_yjs_update`.
- * @param {Uint8Array} update
+ * Apply live-drag layer replacements to a transient preview overlay. This
+ * keeps the authoritative Rust Y.Doc and committed caches untouched until
+ * mouseup sends the real bridge packet through `apply_yjs_update`.
+ * @param {string} layer_updates_json
  * @param {string} update_metadata_json
  * @returns {string}
  */
-export function apply_preview_yjs_update(update, update_metadata_json) {
+export function apply_preview_layer_overlay(layer_updates_json, update_metadata_json) {
     let deferred4_0;
     let deferred4_1;
     try {
-        const ptr0 = passArray8ToWasm0(update, wasm.__wbindgen_malloc);
+        const ptr0 = passStringToWasm0(layer_updates_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ptr1 = passStringToWasm0(update_metadata_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.apply_preview_yjs_update(ptr0, len0, ptr1, len1);
+        const ret = wasm.apply_preview_layer_overlay(ptr0, len0, ptr1, len1);
         var ptr3 = ret[0];
         var len3 = ret[1];
         if (ret[3]) {
@@ -94,10 +94,10 @@ export function clear_font_cache() {
 }
 
 /**
- * Drop all transient live-drag preview state.
+ * Drop all transient live-drag preview overlay state.
  */
-export function clear_preview_yjs_state() {
-    wasm.clear_preview_yjs_state();
+export function clear_preview_layer_overlay() {
+    wasm.clear_preview_layer_overlay();
 }
 
 /**

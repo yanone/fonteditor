@@ -11,8 +11,8 @@ import init, {
     store_font,
     init_ydoc_from_state,
     apply_yjs_update,
-    apply_preview_yjs_update,
-    clear_preview_yjs_state,
+    apply_preview_layer_overlay,
+    clear_preview_layer_overlay,
     dump_layer_state_json,
     add_master_with_interpolated_layers_yjs,
     prime_layout_closure_cache,
@@ -1120,7 +1120,7 @@ self.onmessage = async (event) => {
                     fontRevisionKey,
                     _dragActive,
                     _compileSource,
-                    _usePreviewWorkerCache,
+                    _usePreviewLayerOverlay,
                     _validateFeaturesAgainstFullFont
                 } = data;
 
@@ -1191,10 +1191,10 @@ self.onmessage = async (event) => {
                 const primeClosureSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.primeLayoutClosure'
                 );
-                const currentCachedBaseSubsetKey = _usePreviewWorkerCache
+                const currentCachedBaseSubsetKey = _usePreviewLayerOverlay
                     ? cachedPreviewBaseSubsetKey
                     : cachedBaseSubsetKey;
-                const currentCachedClosureGlyphCount = _usePreviewWorkerCache
+                const currentCachedClosureGlyphCount = _usePreviewLayerOverlay
                     ? cachedPreviewClosureGlyphCount
                     : cachedClosureGlyphCount;
                 const needsPrimeClosure =
@@ -1226,7 +1226,7 @@ self.onmessage = async (event) => {
                         );
                     }
 
-                    const primedClosureGlyphCount = _usePreviewWorkerCache
+                    const primedClosureGlyphCount = _usePreviewLayerOverlay
                         ? prime_preview_layout_closure_cache(
                               effectiveSubsetKey,
                               JSON.stringify(baseSubsetGlyphs)
@@ -1235,7 +1235,7 @@ self.onmessage = async (event) => {
                               effectiveSubsetKey,
                               JSON.stringify(baseSubsetGlyphs)
                           );
-                    if (_usePreviewWorkerCache) {
+                    if (_usePreviewLayerOverlay) {
                         cachedPreviewClosureGlyphCount =
                             primedClosureGlyphCount;
                         cachedPreviewBaseSubsetKey = effectiveSubsetKey;
@@ -1275,10 +1275,10 @@ self.onmessage = async (event) => {
                     options || {},
                     effectiveSubsetKey,
                     baseSubsetGlyphs,
-                    _usePreviewWorkerCache
+                    _usePreviewLayerOverlay
                         ? compile_preview_cached_font_from_last_layout_closure
                         : compile_cached_font_from_last_layout_closure,
-                    _usePreviewWorkerCache
+                    _usePreviewLayerOverlay
                         ? prime_preview_layout_closure_cache
                         : prime_layout_closure_cache,
                     (closureGlyphCount) => {
@@ -1286,7 +1286,7 @@ self.onmessage = async (event) => {
                             'font.worker.compileEditingCached.compileCachedFont.reprimeMissingClosure',
                             { parentSpanId: compileCachedSpanId }
                         );
-                        if (_usePreviewWorkerCache) {
+                        if (_usePreviewLayerOverlay) {
                             cachedPreviewClosureGlyphCount = closureGlyphCount;
                             cachedPreviewBaseSubsetKey = effectiveSubsetKey;
                         } else {
@@ -1316,7 +1316,7 @@ self.onmessage = async (event) => {
                         time_taken: endTime - startTime,
                         fontRevisionKey: revisionKey,
                         closureGlyphCount:
-                            (_usePreviewWorkerCache
+                            (_usePreviewLayerOverlay
                                 ? cachedPreviewClosureGlyphCount
                                 : cachedClosureGlyphCount) || 0,
                         compileSource: _compileSource
@@ -1697,10 +1697,10 @@ self.onmessage = async (event) => {
             return;
         }
 
-        if (data.type === 'applyPreviewYjsUpdate') {
+        if (data.type === 'applyPreviewLayerOverlay') {
             const {
                 id,
-                update,
+                layerUpdates,
                 changedGlyphs,
                 layerTargets,
                 nonGlyphChangeHints,
@@ -1721,10 +1721,10 @@ self.onmessage = async (event) => {
                         ? layerTargets
                         : []
                 });
-                const resultJson = apply_preview_yjs_update(
-                    update instanceof Uint8Array
-                        ? update
-                        : new Uint8Array(update),
+                const resultJson = apply_preview_layer_overlay(
+                    JSON.stringify(
+                        Array.isArray(layerUpdates) ? layerUpdates : []
+                    ),
                     updateMetadataJson
                 );
                 let parsedResult: {
@@ -1743,16 +1743,19 @@ self.onmessage = async (event) => {
                 }
                 self.postMessage({
                     id,
-                    type: 'applyPreviewYjsUpdate',
+                    type: 'applyPreviewLayerOverlay',
                     success: true,
                     result: resultJson,
                     skipped: wasSkipped ? parsedResult!.skipped : undefined
                 });
             } catch (e: any) {
-                console.error('[Fontc Worker] applyPreviewYjsUpdate error:', e);
+                console.error(
+                    '[Fontc Worker] applyPreviewLayerOverlay error:',
+                    e
+                );
                 self.postMessage({
                     id,
-                    type: 'applyPreviewYjsUpdate',
+                    type: 'applyPreviewLayerOverlay',
                     success: false,
                     error: e.toString()
                 });
@@ -1760,25 +1763,28 @@ self.onmessage = async (event) => {
             return;
         }
 
-        if (data.type === 'clearPreviewYjsState') {
+        if (data.type === 'clearPreviewLayerOverlay') {
             const { id } = data;
             try {
                 if (!initialized) {
                     await initializeWasm();
                 }
-                clear_preview_yjs_state();
+                clear_preview_layer_overlay();
                 cachedPreviewBaseSubsetKey = null;
                 cachedPreviewClosureGlyphCount = null;
                 self.postMessage({
                     id,
-                    type: 'clearPreviewYjsState',
+                    type: 'clearPreviewLayerOverlay',
                     success: true
                 });
             } catch (e: any) {
-                console.error('[Fontc Worker] clearPreviewYjsState error:', e);
+                console.error(
+                    '[Fontc Worker] clearPreviewLayerOverlay error:',
+                    e
+                );
                 self.postMessage({
                     id,
-                    type: 'clearPreviewYjsState',
+                    type: 'clearPreviewLayerOverlay',
                     success: false,
                     error: e.toString()
                 });
