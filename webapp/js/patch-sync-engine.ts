@@ -83,6 +83,7 @@ export type CollaborationLogItem = {
     summary: string;
     label: string | null;
     source: string;
+    editSource: string | null;
     windowId: string | null;
     windowRoleLabel: string;
     historyItemId: string;
@@ -5120,6 +5121,7 @@ export class PatchSyncEngine {
             summary: message.summary,
             label: message.label,
             source: message.source,
+            editSource: message.metadata.editSource ?? null,
             windowId: message.windowId,
             windowRoleLabel:
                 message.metadata.sourceWindowRoleLabel ??

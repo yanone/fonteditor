@@ -35,6 +35,7 @@ describe('history view', () => {
                 summary: 'Resize glyph',
                 label: 'Resize glyph',
                 source: 'change-bridge',
+                editSource: 'mouse-drag-sidebearing',
                 windowId: 'main-1',
                 windowRoleLabel: 'main',
                 historyItemId: 'history-1',
@@ -65,6 +66,7 @@ describe('history view', () => {
                 summary: 'Undo',
                 label: 'Undo',
                 source: 'change-bridge',
+                editSource: 'keyboard-sidebearing',
                 windowId: 'main-1',
                 windowRoleLabel: 'main',
                 historyItemId: 'history-2',
@@ -130,6 +132,8 @@ describe('history view', () => {
         expect(
             tooltipMarkups.some(
                 (markup) =>
+                    markup.includes('Edit source') &&
+                    markup.includes('mouse-drag-sidebearing') &&
                     markup.includes('Transaction duration') &&
                     markup.includes('42.5 ms') &&
                     markup.includes('glyphs.A:layers.layer-1:width') &&
