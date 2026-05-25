@@ -10,6 +10,10 @@ This project is in **Alpha stage**. There is no backward compatibility. Old code
 
 `APP.md` is the principal authority document over how the app functions, described in human language, and translated into code and tests by agents.
 
+# Notes
+
+Known-good interactive glyph editor woth functional commits: 0509b80
+
 # Counterpunch Font Editor Software Architecture
 
 ## Keeping tests up-to-sate
