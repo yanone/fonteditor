@@ -73,7 +73,8 @@ describe('CompiledEditFunnel', () => {
             ).toHaveBeenCalledWith({
                 compileContext: {
                     changeSource: 'keyboard-outline',
-                    editType: 'outline'
+                    editType: 'outline',
+                    dataFreshnessMode: 'authoritative-worker-yjs'
                 }
             });
             expect(window.fontManager.lastChangeSource).toBeNull();
@@ -91,7 +92,8 @@ describe('CompiledEditFunnel', () => {
             ).toHaveBeenCalledWith({
                 compileContext: {
                     changeSource: 'keyboard-anchor',
-                    editType: 'anchor'
+                    editType: 'anchor',
+                    dataFreshnessMode: 'authoritative-worker-yjs'
                 }
             });
             expect(window.fontManager.lastChangeSource).toBeNull();
@@ -106,11 +108,26 @@ describe('CompiledEditFunnel', () => {
             ).toHaveBeenCalledWith({
                 compileContext: {
                     changeSource: 'change-bridge-local',
-                    editType: null
+                    editType: null,
+                    dataFreshnessMode: 'authoritative-worker-yjs'
                 }
             });
             expect(window.fontManager.lastChangeSource).toBeNull();
             expect(window.fontManager.lastEditType).toBeNull();
+        });
+
+        test('feature-code compiles leave worker freshness unset', async () => {
+            await process('feature-code', null);
+
+            expect(
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
+            ).toHaveBeenCalledWith({
+                compileContext: {
+                    changeSource: 'feature-code',
+                    editType: null,
+                    dataFreshnessMode: null
+                }
+            });
         });
 
         test('ignores stale ambient context when requesting a committed compile', async () => {
@@ -124,7 +141,8 @@ describe('CompiledEditFunnel', () => {
             ).toHaveBeenCalledWith({
                 compileContext: {
                     changeSource: 'keyboard-outline',
-                    editType: 'outline'
+                    editType: 'outline',
+                    dataFreshnessMode: 'authoritative-worker-yjs'
                 }
             });
             expect(window.fontManager.lastChangeSource).toBeNull();

@@ -223,6 +223,10 @@ type CapturedGlyphCanvasState = {
 export type EditingCompileContext = {
     changeSource: string | null;
     editType: 'outline' | 'anchor' | 'kerning-value' | 'kerning-groups' | null;
+    dataFreshnessMode:
+        | 'authoritative-worker-yjs'
+        | 'live-drag-worker-preview'
+        | null;
 };
 
 type EditingCompileRequestOptions = {
@@ -234,7 +238,8 @@ function normalizeEditingCompileContext(
 ): EditingCompileContext {
     return {
         changeSource: context?.changeSource ?? null,
-        editType: context?.editType ?? null
+        editType: context?.editType ?? null,
+        dataFreshnessMode: context?.dataFreshnessMode ?? null
     };
 }
 
@@ -615,7 +620,6 @@ class FontManager {
     pendingDebugEditingFontSaveAfterDrag: boolean;
     pendingBabelfontJsonSyncAfterDrag: boolean;
     pendingCommittedKeyboardDriftCheckAfterDrag: boolean;
-    liveDragPreviewBabelfontJson: string | null;
     workerCacheUpdatePromise: Promise<void> | null;
     forceFullEditingCacheRefresh: boolean;
     workerLayerFingerprintCache: Map<string, string>;
@@ -624,6 +628,7 @@ class FontManager {
         EditingCompileContext
     >;
     private workerCacheYDoc: Y.Doc | null;
+    private workerPreviewYDoc: Y.Doc | null;
     private workerYjsSendQueue: Promise<unknown>;
 
     /**
@@ -682,12 +687,12 @@ class FontManager {
         this.pendingDebugEditingFontSaveAfterDrag = false;
         this.pendingBabelfontJsonSyncAfterDrag = false;
         this.pendingCommittedKeyboardDriftCheckAfterDrag = false;
-        this.liveDragPreviewBabelfontJson = null;
         this.workerCacheUpdatePromise = null;
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache = new Map();
         this.editingCompileContextsByRevision = new Map();
         this.workerCacheYDoc = null;
+        this.workerPreviewYDoc = null;
         this.workerYjsSendQueue = Promise.resolve();
 
         window.addEventListener('cloudConnectionStatusChanged', () => {
@@ -726,7 +731,8 @@ class FontManager {
             ...(compileContext === undefined
                 ? {
                       changeSource: this.lastChangeSource,
-                      editType: this.lastEditType
+                      editType: this.lastEditType,
+                      dataFreshnessMode: null
                   }
                 : normalizeEditingCompileContext(compileContext))
         });
@@ -1088,7 +1094,6 @@ class FontManager {
         this.pendingDebugEditingFontSaveAfterDrag = false;
         this.pendingBabelfontJsonSyncAfterDrag = false;
         this.pendingCommittedKeyboardDriftCheckAfterDrag = false;
-        this.liveDragPreviewBabelfontJson = null;
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache.clear();
         window.currentFontModel = null;
@@ -1961,6 +1966,12 @@ class FontManager {
         let incrementalChangeSource = compileContextAtRequest.changeSource;
         let editTypeAtRequest: typeof this.lastEditType =
             compileContextAtRequest.editType;
+        let dataFreshnessModeAtRequest =
+            compileContextAtRequest.dataFreshnessMode;
+
+        const hasExplicitWorkerFreshnessAtRequest = () =>
+            dataFreshnessModeAtRequest === 'authoritative-worker-yjs' ||
+            dataFreshnessModeAtRequest === 'live-drag-worker-preview';
 
         let compileSource = incrementalChangeSource || 'unknown';
         let isIncrementalEditingCompile =
@@ -2013,10 +2024,13 @@ class FontManager {
             wasJsonStale &&
             canUseIncrementalDirtyLayerPatch &&
             isMouseDragSource;
+        const canSkipCanonicalJsonSyncForRequest =
+            hasExplicitWorkerFreshnessAtRequest() ||
+            canKeepStaleJsonDuringActiveMouseDrag;
 
         if (
-            !isIncrementalEditingCompile ||
-            (wasJsonStale && !canKeepStaleJsonDuringActiveMouseDrag)
+            (!isIncrementalEditingCompile || wasJsonStale) &&
+            !canSkipCanonicalJsonSyncForRequest
         ) {
             try {
                 if (!this.syncBabelfontJsonFromCurrentModel()) {
@@ -2161,6 +2175,8 @@ class FontManager {
                     );
                 incrementalChangeSource = compileContextAtRequest.changeSource;
                 editTypeAtRequest = compileContextAtRequest.editType;
+                dataFreshnessModeAtRequest =
+                    compileContextAtRequest.dataFreshnessMode;
                 compileSource = incrementalChangeSource || 'unknown';
                 isIncrementalEditingCompile =
                     compileSource.startsWith('mouse-drag') ||
@@ -2246,55 +2262,39 @@ class FontManager {
                 }
 
                 // Pre-compilation validation: assert canonical shape/array
-                // structure before crossing into Rust.
+                // structure before any compile path that still consumes the
+                // local babelfont JSON string. Request-scoped worker freshness
+                // means compileEditingCached will compile from the worker Y.Doc
+                // instead; feature-code remains the JSON-consuming exception.
                 const jsonToSend = this.currentFont.babelfontJson;
-                // Always validate after undo/redo (wasJsonStale) because
-                // canonical structure must still hold after every model/Yjs
-                // roundtrip; compile must fail rather than repair drift.
-                const liveDragPreviewJson =
-                    isMouseDragSource && dragActiveAtRequest
-                        ? this.liveDragPreviewBabelfontJson
-                        : null;
+                const validatedJson =
+                    hasExplicitWorkerFreshnessAtRequest() &&
+                    compileSource !== 'feature-code'
+                        ? jsonToSend
+                        : this.validateBabelfontJsonForRust(
+                              jsonToSend,
+                              wasJsonStale ||
+                                  this.pendingBabelfontJsonSyncAfterDrag
+                          );
 
-                if (liveDragPreviewJson) {
-                    const previewOptions = {
-                        ...COMPILATION_TARGETS.editing,
-                        ...(optionOverrides || {})
-                    };
-                    const previewResult = await fontCompilation.compileFromJson(
-                        liveDragPreviewJson,
-                        'editing-font.ttf',
-                        previewOptions,
-                        subsetForCompile ?? []
-                    );
-
-                    result = {
-                        ...previewResult,
-                        fontRevisionKey: requestedRevisionKey,
-                        compileSource: incrementalChangeSource || undefined
-                    };
-                } else {
-                    const validatedJson = this.validateBabelfontJsonForRust(
-                        jsonToSend,
-                        wasJsonStale || this.pendingBabelfontJsonSyncAfterDrag
-                    );
-
-                    result = await fontCompilation.compileEditingFromJsonCached(
-                        validatedJson,
-                        requestedRevisionKey,
-                        subsetForCompile ?? [],
-                        {
-                            dragActive: dragActiveAtRequest,
-                            compileSource: incrementalChangeSource || undefined,
-                            selectedFeatures: features,
-                            optionOverrides,
-                            usePatchedWorkerCache:
-                                isIncrementalEditingCompile &&
-                                wasJsonStale &&
-                                !forceFullWorkerCompile
-                        }
-                    );
-                }
+                result = await fontCompilation.compileEditingFromJsonCached(
+                    validatedJson,
+                    requestedRevisionKey,
+                    subsetForCompile ?? [],
+                    {
+                        dragActive: dragActiveAtRequest,
+                        compileSource: incrementalChangeSource || undefined,
+                        selectedFeatures: features,
+                        optionOverrides,
+                        usePatchedWorkerCache:
+                            isIncrementalEditingCompile &&
+                            wasJsonStale &&
+                            !forceFullWorkerCompile,
+                        usePreviewWorkerCache:
+                            dataFreshnessModeAtRequest ===
+                            'live-drag-worker-preview'
+                    }
+                );
 
                 timelineMark(
                     'font.compileEditing.closureToCompileBridge.compileResultReceived'
@@ -2752,7 +2752,8 @@ class FontManager {
                 this.currentFont.requestRecompileWithoutDataChange({
                     compileContext: {
                         changeSource: 'debounced-post-interaction-full-compile',
-                        editType: null
+                        editType: null,
+                        dataFreshnessMode: null
                     }
                 });
                 window.autoCompileManager.checkAndSchedule();
@@ -2780,7 +2781,8 @@ class FontManager {
         );
         const compileContext = {
             changeSource: this.lastChangeSource,
-            editType: null
+            editType: null,
+            dataFreshnessMode: null
         };
         this.setEditingCompileContext(
             compileContext.changeSource,
@@ -3606,6 +3608,7 @@ class FontManager {
         // No JSON crossing — Y.applyUpdate takes a binary Uint8Array.
         if (!state) {
             this.workerCacheYDoc = null;
+            this.workerPreviewYDoc = null;
             return;
         }
 
@@ -3615,6 +3618,35 @@ class FontManager {
             state instanceof Uint8Array ? state : new Uint8Array(state)
         );
         this.workerCacheYDoc = yDoc;
+        this.workerPreviewYDoc = null;
+    }
+
+    private replaceWorkerPreviewYjsMirrorFromState(
+        state: Uint8Array | ArrayBufferLike | null | undefined
+    ): void {
+        if (!state) {
+            this.workerPreviewYDoc = null;
+            return;
+        }
+
+        const yDoc = new Y.Doc();
+        Y.applyUpdate(
+            yDoc,
+            state instanceof Uint8Array ? state : new Uint8Array(state)
+        );
+        this.workerPreviewYDoc = yDoc;
+    }
+
+    private bootstrapWorkerPreviewYjsMirrorFromAuthoritativeState(): boolean {
+        const state = this.workerCacheYDoc
+            ? Y.encodeStateAsUpdate(this.workerCacheYDoc)
+            : this.buildWorkerAuthoritativeYjsState();
+        if (!state?.length) {
+            return false;
+        }
+
+        this.replaceWorkerPreviewYjsMirrorFromState(state);
+        return true;
     }
 
     applyWorkerYjsUpdateToMirror(
@@ -3654,10 +3686,28 @@ class FontManager {
             return null;
         }
 
-        const fontMap = this.workerCacheYDoc.getMap('font');
-        const previousStateVector = Y.encodeStateVector(this.workerCacheYDoc);
+        return this.buildWorkerYjsLayerUpdateForDoc(
+            this.workerCacheYDoc,
+            updates
+        );
+    }
 
-        this.workerCacheYDoc.transact(() => {
+    private buildWorkerYjsLayerUpdateForDoc(
+        yDoc: Y.Doc,
+        updates: Array<{
+            glyphName: string;
+            layerId: string;
+            normalized: Babelfont.Layer;
+        }>
+    ): { update: Uint8Array; changedGlyphs: string[] } | null {
+        if (!yDoc) {
+            return null;
+        }
+
+        const fontMap = yDoc.getMap('font');
+        const previousStateVector = Y.encodeStateVector(yDoc);
+
+        yDoc.transact(() => {
             for (const update of updates) {
                 setYPath(
                     fontMap,
@@ -3668,10 +3718,7 @@ class FontManager {
         });
 
         return {
-            update: Y.encodeStateAsUpdate(
-                this.workerCacheYDoc,
-                previousStateVector
-            ),
+            update: Y.encodeStateAsUpdate(yDoc, previousStateVector),
             changedGlyphs: Array.from(
                 new Set(updates.map((update) => update.glyphName))
             )
@@ -3842,10 +3889,68 @@ class FontManager {
         return queuedSend;
     }
 
+    private async sendWorkerPreviewYjsUpdate(
+        update: Uint8Array,
+        changedGlyphs: string[],
+        invalidateLayoutClosure: boolean,
+        nonGlyphChangeHints: string[] = [],
+        layerTargets: WorkerReplayTarget[] = []
+    ): Promise<boolean> {
+        const runSend = async (): Promise<boolean> => {
+            if (!fontCompilation?.isInitialized) {
+                return false;
+            }
+
+            if (!update.length) {
+                return true;
+            }
+
+            try {
+                const normalizedLayerTargets =
+                    normalizeWorkerReplayTargets(layerTargets);
+                const response = await fontCompilation.sendMessage({
+                    type: 'applyPreviewYjsUpdate',
+                    update,
+                    changedGlyphs,
+                    nonGlyphChangeHints,
+                    ...(normalizedLayerTargets.length
+                        ? { layerTargets: normalizedLayerTargets }
+                        : undefined),
+                    invalidateLayoutClosure
+                });
+
+                if (response?.success === false || response?.error) {
+                    this.workerPreviewYDoc = null;
+                    return false;
+                }
+
+                return true;
+            } catch (error) {
+                this.workerPreviewYDoc = null;
+                console.warn(
+                    '[FontManager] Failed to send worker preview Yjs update:',
+                    {
+                        changedGlyphs,
+                        invalidateLayoutClosure
+                    },
+                    error
+                );
+                return false;
+            }
+        };
+
+        const queuedSend = this.workerYjsSendQueue
+            .catch(() => undefined)
+            .then(runSend);
+        this.workerYjsSendQueue = queuedSend.catch(() => undefined);
+        return queuedSend;
+    }
+
     private async recoverWorkerCacheFromAuthoritativeState(
         reason: string
     ): Promise<boolean> {
         this.workerCacheYDoc = null;
+        this.workerPreviewYDoc = null;
         fontCompilation?.setWorkerCacheDocumentReady(false);
         console.error(
             '[FontManager] Incremental worker-cache invariant violated; full-state repair is disabled:',
@@ -4292,6 +4397,74 @@ class FontManager {
             return await this.recoverWorkerCacheFromAuthoritativeState(
                 'incremental layer batch threw before worker sync completed'
             );
+        }
+    }
+
+    private async submitLayerUpdatesToWorkerPreview(
+        updates: LayerCacheUpdate[],
+        options?: { invalidateLayoutClosure?: boolean }
+    ): Promise<boolean> {
+        if (!this.currentFont || !fontCompilation?.isInitialized) {
+            return false;
+        }
+
+        if (!updates.length) {
+            return true;
+        }
+
+        try {
+            const normalizedUpdates = updates.map((update) => ({
+                glyphName: update.glyphName,
+                layerId: update.layerId,
+                normalized: this.normalizeLayerForRust(update.layerData)
+            }));
+
+            if (
+                !this.workerPreviewYDoc &&
+                !this.bootstrapWorkerPreviewYjsMirrorFromAuthoritativeState()
+            ) {
+                throw new Error(
+                    'Worker preview Yjs mirror not ready for incremental layer update'
+                );
+            }
+
+            if (!this.workerPreviewYDoc) {
+                throw new Error(
+                    'Worker preview Yjs mirror not ready for incremental layer update'
+                );
+            }
+
+            const workerUpdate = this.buildWorkerYjsLayerUpdateForDoc(
+                this.workerPreviewYDoc,
+                normalizedUpdates
+            );
+            if (!workerUpdate) {
+                throw new Error(
+                    'Worker preview Yjs mirror not ready for incremental layer update'
+                );
+            }
+
+            return await this.sendWorkerPreviewYjsUpdate(
+                workerUpdate.update,
+                workerUpdate.changedGlyphs,
+                options?.invalidateLayoutClosure ?? false,
+                [],
+                normalizedUpdates.map(({ glyphName, layerId }) => ({
+                    glyphName,
+                    layerId
+                }))
+            );
+        } catch (error) {
+            console.warn(
+                '[FontManager] Failed to submit incremental Yjs layer batch to worker preview cache:',
+                updates.map(({ glyphName, layerId }) => ({
+                    glyphName,
+                    layerId
+                })),
+                error
+            );
+            this.workerPreviewYDoc = null;
+            return false;
         }
     }
 
@@ -4991,57 +5164,6 @@ class FontManager {
         }
     }
 
-    private buildLiveDragPreviewBabelfontJson(
-        explicitLayerData?: Iterable<ExplicitLayerCacheInput>
-    ): string | null {
-        const currentFont = this.currentFont;
-        if (!currentFont?.fontModel) {
-            return null;
-        }
-
-        const previewJson = currentFont.fontModel.toJSONString();
-        const explicitInputs = Array.from(explicitLayerData || []).filter(
-            (input): input is ExplicitLayerCacheInput =>
-                !!input?.glyphName && !!input?.layerId && !!input?.layerData
-        );
-        if (explicitInputs.length === 0) {
-            return previewJson;
-        }
-
-        const previewData = JSON.parse(previewJson) as {
-            glyphs?: Array<{ name?: string; layers?: Babelfont.Layer[] }>;
-        };
-
-        for (const input of explicitInputs) {
-            const serializedLayer = this.serializeLayerForStorage(
-                input.glyphName,
-                input.layerId,
-                input.layerData
-            );
-            if (!serializedLayer) {
-                return null;
-            }
-
-            const glyph = previewData.glyphs?.find(
-                (entry) => entry?.name === input.glyphName
-            );
-            if (!glyph?.layers) {
-                return null;
-            }
-
-            const layerIndex = glyph.layers.findIndex(
-                (layer) => layer?.id === input.layerId
-            );
-            if (layerIndex < 0) {
-                return null;
-            }
-
-            glyph.layers[layerIndex] = serializedLayer;
-        }
-
-        return JSON.stringify(previewData);
-    }
-
     async stageLiveDragPreviewFromModel(
         glyphNames: Iterable<string>,
         layerId?: string | null,
@@ -5060,18 +5182,56 @@ class FontManager {
         );
 
         if (!this.currentFont || uniqueGlyphNames.length === 0) {
-            this.liveDragPreviewBabelfontJson = null;
             return;
         }
 
-        const previewJson = this.buildLiveDragPreviewBabelfontJson(
-            options?.explicitLayerData
-        );
-        if (!previewJson) {
-            throw new Error('Failed to stage live drag preview font data');
+        if (
+            !this.workerPreviewYDoc &&
+            !this.bootstrapWorkerPreviewYjsMirrorFromAuthoritativeState()
+        ) {
+            throw new Error(
+                'Worker preview Yjs mirror not ready for live drag preview'
+            );
         }
 
-        this.liveDragPreviewBabelfontJson = previewJson;
+        const previewPromise = (async () => {
+            const pendingLayerUpdates =
+                this.collectChangedLayerUpdatesFromModel(
+                    uniqueGlyphNames,
+                    layerId,
+                    {
+                        skipFingerprintBaseline: true,
+                        ...(options?.explicitLayerData
+                            ? { explicitLayerData: options.explicitLayerData }
+                            : undefined)
+                    }
+                );
+
+            let updatedIncrementally = false;
+            if (pendingLayerUpdates && pendingLayerUpdates.length > 0) {
+                updatedIncrementally =
+                    await this.submitLayerUpdatesToWorkerPreview(
+                        pendingLayerUpdates
+                    );
+            } else if (pendingLayerUpdates) {
+                updatedIncrementally = true;
+            }
+
+            if (!updatedIncrementally) {
+                throw new Error(
+                    'Incremental worker preview Yjs sync failed during live drag refresh'
+                );
+            }
+        })();
+
+        this.workerCacheUpdatePromise = previewPromise;
+        try {
+            await previewPromise;
+        } finally {
+            if (this.workerCacheUpdatePromise === previewPromise) {
+                this.workerCacheUpdatePromise = null;
+            }
+        }
 
         if (options?.dispatchGlyphChanged === false) {
             return;
@@ -5095,7 +5255,27 @@ class FontManager {
     }
 
     clearLiveDragPreview(): void {
-        this.liveDragPreviewBabelfontJson = null;
+        this.workerPreviewYDoc = null;
+
+        if (!fontCompilation?.isInitialized) {
+            return;
+        }
+
+        const clearPromise = this.workerYjsSendQueue
+            .catch(() => undefined)
+            .then(async () => {
+                try {
+                    await fontCompilation.sendMessage({
+                        type: 'clearPreviewYjsState'
+                    });
+                } catch (error) {
+                    console.warn(
+                        '[FontManager] Failed to clear worker preview Yjs state:',
+                        error
+                    );
+                }
+            });
+        this.workerYjsSendQueue = clearPromise.catch(() => undefined);
     }
 
     async submitLayerToWorkerCache(

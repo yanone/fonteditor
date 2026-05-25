@@ -1051,11 +1051,15 @@ describe('FontManager editing subset inclusion', () => {
         fontCompilation.isInitialized = originalFontCompilationInitialized;
     });
 
-    function setRequestCompileContext(changeSource, editType) {
+    function setRequestCompileContext(
+        changeSource,
+        editType,
+        dataFreshnessMode = null
+    ) {
         fontManager.setEditingCompileContext(changeSource, editType);
         fontManager.recordEditingCompileRequestContext(
             fontManager.currentFont.compileRequestVersion,
-            { changeSource, editType }
+            { changeSource, editType, dataFreshnessMode }
         );
     }
 
@@ -1172,7 +1176,11 @@ describe('FontManager editing subset inclusion', () => {
         });
 
         fontManager.setEditingCompileContext('mouse-drag-outline', 'outline');
-        fontManager.recordEditingCompileRequestContext(2);
+        fontManager.recordEditingCompileRequestContext(2, {
+            changeSource: 'mouse-drag-outline',
+            editType: 'outline',
+            dataFreshnessMode: 'live-drag-worker-preview'
+        });
         fontManager.clearEditingCompileContext();
         window.glyphCanvas.outlineEditor.draggingSomething = false;
 
@@ -1193,7 +1201,11 @@ describe('FontManager editing subset inclusion', () => {
     });
 
     test('mouse-drag outline compiles do not force a full JSON sync when incremental layer patching is available', async () => {
-        setRequestCompileContext('mouse-drag-outline', 'outline');
+        setRequestCompileContext(
+            'mouse-drag-outline',
+            'outline',
+            'live-drag-worker-preview'
+        );
         fontManager.pendingBabelfontJsonSyncAfterDrag = true;
 
         await fontManager.compileEditingFont('a', [], ['a']);
@@ -1205,7 +1217,8 @@ describe('FontManager editing subset inclusion', () => {
         expect(compileEditingSpy).toHaveBeenCalledTimes(1);
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
             compileSource: 'mouse-drag-outline',
-            usePatchedWorkerCache: true
+            usePatchedWorkerCache: true,
+            usePreviewWorkerCache: true
         });
     });
 
@@ -1230,6 +1243,31 @@ describe('FontManager editing subset inclusion', () => {
         });
     });
 
+    test('authoritative committed keyboard outline compile after a drag skips the stale canonical JSON resync', async () => {
+        setRequestCompileContext(
+            'keyboard-outline',
+            'outline',
+            'authoritative-worker-yjs'
+        );
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(
+            fontManager.currentFont.syncJsonFromModel
+        ).not.toHaveBeenCalled();
+        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'keyboard-outline',
+            optionOverrides: {
+                skip_features: true,
+                skip_kerning: true,
+                produce_varc_table: false
+            }
+        });
+    });
+
     test('remote outline compile after a drag resyncs stale canonical JSON before compiling', async () => {
         setRequestCompileContext('remote-outline', 'outline');
         fontManager.pendingBabelfontJsonSyncAfterDrag = true;
@@ -1240,6 +1278,31 @@ describe('FontManager editing subset inclusion', () => {
             1
         );
         expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'remote-outline',
+            optionOverrides: {
+                skip_features: true,
+                skip_kerning: true,
+                produce_varc_table: false
+            }
+        });
+    });
+
+    test('authoritative committed remote outline compile after a drag skips the stale canonical JSON resync', async () => {
+        setRequestCompileContext(
+            'remote-outline',
+            'outline',
+            'authoritative-worker-yjs'
+        );
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(
+            fontManager.currentFont.syncJsonFromModel
+        ).not.toHaveBeenCalled();
+        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
         expect(compileEditingSpy).toHaveBeenCalledTimes(1);
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
             compileSource: 'remote-outline',
@@ -1536,7 +1599,7 @@ describe('FontManager editing subset inclusion', () => {
         }
     });
 
-    test('active mouse-drag compiles use the transient preview JSON path', async () => {
+    test('active mouse-drag compiles use the cached incremental worker path', async () => {
         const compileFromJsonSpy = jest
             .spyOn(fontCompilation, 'compileFromJson')
             .mockResolvedValue({
@@ -1544,29 +1607,45 @@ describe('FontManager editing subset inclusion', () => {
                 filename: 'editing.ttf',
                 time_taken: 2
             });
+        const stagePreviewSpy = jest
+            .spyOn(fontManager, 'stageLiveDragPreviewFromModel')
+            .mockImplementation(async () => {
+                fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+            });
 
         try {
             window.glyphCanvas.outlineEditor.draggingSomething = true;
-            setRequestCompileContext('mouse-drag-outline', 'outline');
+            setRequestCompileContext(
+                'mouse-drag-outline',
+                'outline',
+                'live-drag-worker-preview'
+            );
             await fontManager.stageLiveDragPreviewFromModel(['a'], 'layer-1', {
                 dispatchGlyphChanged: false
             });
 
             await fontManager.compileEditingFont('a', [], ['a']);
 
-            expect(compileFromJsonSpy).toHaveBeenCalledWith(
+            expect(compileFromJsonSpy).not.toHaveBeenCalled();
+            expect(compileEditingSpy).toHaveBeenCalledWith(
                 expect.any(String),
-                'editing-font.ttf',
+                expect.any(String),
+                ['a', 'n'],
                 expect.objectContaining({
-                    skip_features: true,
-                    skip_kerning: true,
-                    produce_varc_table: false
-                }),
-                ['a', 'n']
+                    dragActive: true,
+                    compileSource: 'mouse-drag-outline',
+                    optionOverrides: expect.objectContaining({
+                        skip_features: true,
+                        skip_kerning: true,
+                        produce_varc_table: false
+                    }),
+                    usePatchedWorkerCache: true,
+                    usePreviewWorkerCache: true
+                })
             );
-            expect(compileEditingSpy).not.toHaveBeenCalled();
         } finally {
             window.glyphCanvas.outlineEditor.draggingSomething = false;
+            stagePreviewSpy.mockRestore();
             compileFromJsonSpy.mockRestore();
         }
     });
@@ -2310,6 +2389,112 @@ describe('FontManager boundary-crossing budget', () => {
                 invalidateLayoutClosure: true
             })
         );
+    });
+
+    test('stageLiveDragPreviewFromModel sends preview Yjs packets without mutating the authoritative worker mirror', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+        const storedLayer = currentFont.babelfontData.glyphs
+            .find((entry) => entry.name === 'a')
+            .layers.find((entry) => entry.id === layerId);
+        const previewLayer = {
+            ...cloneJson(storedLayer),
+            width: storedLayer.width + 21
+        };
+        const authoritativeBefore = yDocToJson(
+            fontManager.workerCacheYDoc.getMap('font')
+        );
+
+        await fontManager.stageLiveDragPreviewFromModel(['a'], layerId, {
+            dispatchGlyphChanged: false,
+            explicitLayerData: [
+                {
+                    glyphName: 'a',
+                    layerId,
+                    layerData: previewLayer
+                }
+            ]
+        });
+
+        const authoritativeAfter = yDocToJson(
+            fontManager.workerCacheYDoc.getMap('font')
+        );
+        const previewFontJson = yDocToJson(
+            fontManager.workerPreviewYDoc.getMap('font')
+        );
+        const previewGlyph = previewFontJson.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const previewWorkerLayer = previewGlyph.layers.find(
+            (entry) => entry.id === layerId
+        );
+
+        expect(authoritativeAfter).toEqual(authoritativeBefore);
+        expect(previewWorkerLayer.width).toBe(previewLayer.width);
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyPreviewYjsUpdate',
+                invalidateLayoutClosure: false,
+                update: expect.any(Uint8Array),
+                changedGlyphs: ['a'],
+                layerTargets: [{ glyphName: 'a', layerId }]
+            })
+        );
+        expect(
+            sendMessageSpy.mock.calls.some(
+                ([message]) => message?.type === 'applyYjsUpdate'
+            )
+        ).toBe(false);
+    });
+
+    test('clearLiveDragPreview drops preview state without touching the authoritative worker mirror', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+        const storedLayer = currentFont.babelfontData.glyphs
+            .find((entry) => entry.name === 'a')
+            .layers.find((entry) => entry.id === layerId);
+        const previewLayer = {
+            ...cloneJson(storedLayer),
+            width: storedLayer.width + 17
+        };
+        const authoritativeBefore = yDocToJson(
+            fontManager.workerCacheYDoc.getMap('font')
+        );
+
+        await fontManager.stageLiveDragPreviewFromModel(['a'], layerId, {
+            dispatchGlyphChanged: false,
+            explicitLayerData: [
+                {
+                    glyphName: 'a',
+                    layerId,
+                    layerData: previewLayer
+                }
+            ]
+        });
+        expect(fontManager.workerPreviewYDoc).toBeTruthy();
+
+        sendMessageSpy.mockClear();
+        fontManager.clearLiveDragPreview();
+        await fontManager.workerYjsSendQueue;
+
+        const authoritativeAfter = yDocToJson(
+            fontManager.workerCacheYDoc.getMap('font')
+        );
+
+        expect(fontManager.workerPreviewYDoc).toBeNull();
+        expect(authoritativeAfter).toEqual(authoritativeBefore);
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'clearPreviewYjsState'
+            })
+        );
+        expect(
+            sendMessageSpy.mock.calls.some(
+                ([message]) => message?.type === 'applyYjsUpdate'
+            )
+        ).toBe(false);
     });
 
     test('forwardWorkerYjsUpdate exposes a pending cache update before the worker send runs', async () => {

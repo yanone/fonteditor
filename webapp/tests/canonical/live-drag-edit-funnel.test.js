@@ -37,11 +37,15 @@ beforeEach(() => {
             this.lastChangeSource = null;
             this.lastEditType = null;
         },
-        recordEditingCompileRequestContext(compileRequestVersion) {
+        recordEditingCompileRequestContext(
+            compileRequestVersion,
+            compileContext
+        ) {
             this.recordedCompileContexts.push({
                 compileRequestVersion,
                 changeSource: this.lastChangeSource,
-                editType: this.lastEditType
+                editType: this.lastEditType,
+                dataFreshnessMode: compileContext?.dataFreshnessMode ?? null
             });
         }
     };
@@ -80,7 +84,8 @@ describe('LiveDragEditFunnel', () => {
             {
                 compileRequestVersion: 1,
                 changeSource: 'mouse-drag-outline',
-                editType: 'outline'
+                editType: 'outline',
+                dataFreshnessMode: 'live-drag-worker-preview'
             }
         ]);
         expect(
@@ -88,7 +93,8 @@ describe('LiveDragEditFunnel', () => {
         ).toHaveBeenCalledWith({
             compileContext: {
                 changeSource: 'mouse-drag-outline',
-                editType: 'outline'
+                editType: 'outline',
+                dataFreshnessMode: 'live-drag-worker-preview'
             }
         });
         expect(

@@ -4,8 +4,10 @@
  * Every committed Yjs packet, local or remote, enters this serialized funnel.
  * The funnel:
  *   1. Builds compile context from the committed packet metadata.
- *   2. Requests the editing compile with that explicit context.
- *   3. Arms the deferred full-compile timer (replaces scheduleFullCompileDebounce).
+ *   2. Marks the compile request as worker-authoritative once the committed
+ *      Yjs update is already in Rust.
+ *   3. Requests the editing compile with that explicit context.
+ *   4. Arms the deferred full-compile timer (replaces scheduleFullCompileDebounce).
  *
  * The compile context is stored against the exact compile request revision.
  * After each processed edit, any transient compile or edit-source state is cleaned
@@ -21,6 +23,8 @@ import type { EditingCompileContext } from './font-manager';
 const console = new Logger('CompiledEditFunnel');
 
 const DEFERRED_FULL_MS = 500;
+const COMMITTED_DATA_FRESHNESS_MODE: EditingCompileContext['dataFreshnessMode'] =
+    'authoritative-worker-yjs';
 
 /** Edit types that should NOT trigger font recompilation. */
 const NON_COMPILING_EDIT_TYPES = new Set<string>(['guide', 'contrast-axis']);
@@ -146,7 +150,11 @@ export async function processCommittedEdit(
     // Cast is safe: non-compiling edit types already filtered above.
     const compileContext: EditingCompileContext = {
         changeSource,
-        editType: editType as CommittedCompilingEditType
+        editType: editType as CommittedCompilingEditType,
+        dataFreshnessMode:
+            changeSource === 'feature-code'
+                ? null
+                : COMMITTED_DATA_FRESHNESS_MODE
     };
 
     // Request the editing compile.
@@ -182,7 +190,10 @@ export async function processCommittedEdit(
     // Arm the deferred full-compile timer for local fast-path edit types.
     // The main window owns the trailing correctness pass; linked windows only
     // run the immediate remote editing compile.
-    if (shouldArmDeferredFullCompile(changeSource, editType) && !options?.forceTrigger) {
+    if (
+        shouldArmDeferredFullCompile(changeSource, editType) &&
+        !options?.forceTrigger
+    ) {
         armDeferredFullCompile();
     }
 }

@@ -4,6 +4,13 @@
 export function add_master_with_interpolated_layers_yjs(master_json: string): any;
 
 /**
+ * Apply a live-drag Yjs update to a transient preview cache. This keeps the
+ * authoritative Rust Y.Doc and committed caches untouched until mouseup sends
+ * the real bridge packet through `apply_yjs_update`.
+ */
+export function apply_preview_yjs_update(update: Uint8Array, update_metadata_json: string): string;
+
+/**
  * Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
  * update the CANONICAL_JSON_CACHE.
  *
@@ -24,6 +31,11 @@ export function apply_yjs_update(update: Uint8Array, update_metadata_json: strin
  * Clear the cached font from memory
  */
 export function clear_font_cache(): void;
+
+/**
+ * Drop all transient live-drag preview state.
+ */
+export function clear_preview_yjs_state(): void;
 
 /**
  * Compile a font from babelfont JSON directly to TTF
@@ -80,6 +92,12 @@ export function compile_cached_full_font_with_filter_pipeline(options: any): Uin
 export function compile_glyphs(_glyphs_json: string): Uint8Array;
 
 /**
+ * Compile the transient live-drag preview cached font using the last primed
+ * preview layout closure subset.
+ */
+export function compile_preview_cached_font_from_last_layout_closure(options: any): Uint8Array;
+
+/**
  * Dump Rust-side layer state for one or more glyph/layer targets.
  *
  * This is a debug/introspection facility for comparing the Rust caches against
@@ -90,7 +108,6 @@ export function compile_glyphs(_glyphs_json: string): Uint8Array;
  * - `ydocLayer`: the layer JSON currently readable from the Rust Y.Doc, if any
  *
  * The payload also includes the current `fontCacheEpoch` and subset metadata.
- * Throws when the request payload is invalid or the Rust snapshot locks are unavailable.
  */
 export function dump_layer_state_json(layer_targets_json: string): string;
 
@@ -291,6 +308,11 @@ export function open_font_file(filename: string, contents: string): string;
  */
 export function prime_layout_closure_cache(font_revision: string, glyph_names_json: string): number;
 
+/**
+ * Prime the transient live-drag preview layout-closure cache.
+ */
+export function prime_preview_layout_closure_cache(font_revision: string, glyph_names_json: string): number;
+
 export function reinterpolate_layer_yjs(glyph_name: string, layer_id: string): any;
 
 export function reinterpolate_master_layers_yjs(master_id: string): any;
@@ -329,13 +351,16 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly apply_preview_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly apply_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly clear_font_cache: () => void;
+    readonly clear_preview_yjs_state: () => void;
     readonly compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
     readonly compile_cached_font: (a: any) => [number, number, number, number];
     readonly compile_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
     readonly compile_cached_full_font_with_filter_pipeline: (a: any) => [number, number, number, number];
     readonly compile_glyphs: (a: number, b: number) => [number, number, number, number];
+    readonly compile_preview_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
     readonly dump_layer_state_json: (a: number, b: number) => [number, number, number, number];
     readonly get_glyphs_outlines: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly get_layout_closure: (a: number, b: number) => [number, number, number, number];
@@ -345,6 +370,7 @@ export interface InitOutput {
     readonly interpolate_glyph: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly open_font_file: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly prime_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly prime_preview_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly seed_ydoc: (a: number, b: number) => [number, number];
     readonly store_font: (a: number, b: number) => [number, number];
     readonly version: () => [number, number];

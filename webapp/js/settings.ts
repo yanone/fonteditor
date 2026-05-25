@@ -18,7 +18,7 @@ const APP_SETTINGS = {
 
     // In-browser live diagnostic checks
     IN_BROWSER_LIVE_TESTS: {
-        ENABLE_WORKER_DRIFT_CHECKS: false // Runtime drift sentinels for live debugging of drag/keyboard worker state
+        ENABLE_WORKER_DRIFT_CHECKS: true // Runtime drift sentinels for live debugging of drag/keyboard worker state
     },
 
     // Text display settings
