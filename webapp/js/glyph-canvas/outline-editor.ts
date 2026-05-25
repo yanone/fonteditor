@@ -4247,6 +4247,10 @@ export class OutlineEditor {
             fingerprint: string;
         }>
     ): Promise<void> {
+        if (!APP_SETTINGS.IN_BROWSER_LIVE_TESTS.ENABLE_WORKER_DRIFT_CHECKS) {
+            return;
+        }
+
         if (expectedSnapshots.length === 0) {
             return;
         }

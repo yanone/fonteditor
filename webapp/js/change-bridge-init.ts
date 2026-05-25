@@ -22,6 +22,7 @@ import { Logger } from './logger';
 import { processCommittedEdit } from './compiled-edit-funnel';
 import { computeLayerRecompositionClosure } from './recomposition-closure';
 import { sidebarErrorDisplay } from './sidebar-error-display';
+import APP_SETTINGS from './settings';
 import {
     deriveGlyphNamesFromPaths,
     deriveGlyphName,
@@ -1066,6 +1067,13 @@ async function showCommittedKeyboardWorkerDriftIfNeeded(
     entries: ChangeLogEntry[],
     localCompileContext: LocalCommittedCompileContext | null
 ): Promise<boolean> {
+    if (!APP_SETTINGS.IN_BROWSER_LIVE_TESTS.ENABLE_WORKER_DRIFT_CHECKS) {
+        if (window.fontManager) {
+            window.fontManager.pendingCommittedKeyboardDriftCheckAfterDrag = false;
+        }
+        return false;
+    }
+
     if (
         window.fontManager?.pendingCommittedKeyboardDriftCheckAfterDrag !== true
     ) {
