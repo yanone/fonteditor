@@ -2739,7 +2739,7 @@ describe('committed undo/redo compile requests', () => {
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
     });
 
-    test('undo sidebearing packets preserve the outline fast path', async () => {
+    test('undo sidebearing packets preserve the stamped sidebearing compile context', async () => {
         const checkAndSchedule = jest.fn();
         const requestRecompileWithoutDataChange = jest.fn(function () {
             this.compileRequestVersion += 1;
@@ -2772,6 +2772,8 @@ describe('committed undo/redo compile requests', () => {
                     historyAction: 'undo',
                     transactionLabel: 'Set sidebearing',
                     path: 'glyphs.a.layers.layer-1',
+                    compileChangeSource: 'keyboard-sidebearing',
+                    compileEditType: null,
                     visualAnchorSide: 'left',
                     workerReplayTargets: [
                         { glyphName: 'a', layerId: 'layer-1' }
@@ -2791,14 +2793,14 @@ describe('committed undo/redo compile requests', () => {
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
             compileContext: {
-                changeSource: 'keyboard-outline',
-                editType: 'outline'
+                changeSource: 'keyboard-sidebearing',
+                editType: null
             }
         });
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
     });
 
-    test('undo sidebearing fallback reuses history metadata for outline fast path', async () => {
+    test('undo sidebearing fallback reuses stamped history metadata for full compile', async () => {
         originalWindow.fontManager = {
             lastChangeSource: null,
             lastEditType: null,
@@ -2861,7 +2863,9 @@ describe('committed undo/redo compile requests', () => {
                     entries: [
                         {
                             oldValue: 480,
-                            newValue: 500
+                            newValue: 500,
+                            compileChangeSource: 'keyboard-sidebearing',
+                            compileEditType: null
                         }
                     ],
                     touchedPaths: ['glyphs.a.layers.layer-1.width'],
@@ -2893,8 +2897,8 @@ describe('committed undo/redo compile requests', () => {
                 .requestRecompileWithoutDataChange
         ).toHaveBeenCalledWith({
             compileContext: {
-                changeSource: 'keyboard-outline',
-                editType: 'outline'
+                changeSource: 'keyboard-sidebearing',
+                editType: null
             }
         });
     });

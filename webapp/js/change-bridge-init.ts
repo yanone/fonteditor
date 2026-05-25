@@ -832,6 +832,32 @@ function isSidebearingKeyCommittedEntry(entry: ChangeLogEntry): boolean {
     );
 }
 
+function getExplicitCommittedCompileContext(entries: ChangeLogEntry[]): {
+    editType: CommittedCompileEditType;
+    changeSource: string;
+} | null {
+    for (const entry of entries) {
+        if (!entry.compileChangeSource) {
+            continue;
+        }
+
+        const compileEditType = entry.compileEditType;
+        return {
+            changeSource: entry.compileChangeSource,
+            editType:
+                compileEditType === 'anchor' ||
+                compileEditType === 'outline' ||
+                compileEditType === 'guide' ||
+                compileEditType === 'kerning-value' ||
+                compileEditType === 'kerning-groups'
+                    ? compileEditType
+                    : null
+        };
+    }
+
+    return null;
+}
+
 function inferCommittedEditTypeFromEntries(
     entries: ChangeLogEntry[],
     origin: CommittedChangeOrigin
@@ -839,6 +865,11 @@ function inferCommittedEditTypeFromEntries(
     editType: CommittedCompileEditType;
     changeSource: string;
 } {
+    const explicitContext = getExplicitCommittedCompileContext(entries);
+    if (explicitContext) {
+        return explicitContext;
+    }
+
     const changeSourceFor = (editType: CommittedCompileEditType): string =>
         getCommittedChangeSource(origin, editType);
 
@@ -1488,9 +1519,6 @@ function applyImmediateUndoSidebearingSync(
         previousWidth,
         render: false
     });
-    gc.updatePropertyPanel?.();
-    gc.outlineEditor.performHitDetection?.(null);
-    gc.render?.();
 
     return true;
 }
@@ -1842,10 +1870,6 @@ function applyLocalUndoRedoVisualSync(
             context?.layerId
         );
 
-    if (!(appliedSidebearingSync && isDirectSidebearingUndoRedo(historyItem))) {
-        syncImmediateUndoOutlineLayerFromModel(editedGlyphName, layerId);
-    }
-
     const liveAdvanceGlyphNames = new Set<string>();
     for (const glyphName of deriveGlyphNamesFromPaths(entryPaths)) {
         liveAdvanceGlyphNames.add(glyphName);
@@ -1869,6 +1893,8 @@ function applyLocalUndoRedoVisualSync(
         compensatePanX: true,
         workerReplayTargets: collectReplayTargetsFromEntries(entries)
     });
+
+    syncImmediateUndoOutlineLayerFromModel(editedGlyphName, layerId);
 }
 
 function inferHistoryItemKerningEditType(

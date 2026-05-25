@@ -103,6 +103,9 @@ type SyntheticChangeOperation = {
     path: (string | number)[];
     oldValue: unknown;
     newValue: unknown;
+    editSource?: string | null;
+    compileChangeSource?: string | null;
+    compileEditType?: string | null;
     visualAnchorSide?: 'left' | 'right' | null;
     workerReplayTargets?: WorkerReplayTarget[];
 };
@@ -1066,7 +1069,10 @@ export class PatchSyncEngine {
         newValue?: string,
         layerId?: string | null,
         visualAnchorSide?: 'left' | 'right' | null,
-        workerReplayTargets?: WorkerReplayTarget[]
+        workerReplayTargets?: WorkerReplayTarget[],
+        editSource?: string | null,
+        compileChangeSource?: string | null,
+        compileEditType?: string | null
     ): void {
         this.syncGlyphsFromJson(
             [glyphName],
@@ -1075,7 +1081,10 @@ export class PatchSyncEngine {
             newValue,
             layerId,
             visualAnchorSide,
-            workerReplayTargets
+            workerReplayTargets,
+            editSource,
+            compileChangeSource,
+            compileEditType
         );
     }
 
@@ -1090,7 +1099,10 @@ export class PatchSyncEngine {
         oldValue?: string,
         newValue?: string,
         visualAnchorSide?: 'left' | 'right' | null,
-        workerReplayTargets?: WorkerReplayTarget[]
+        workerReplayTargets?: WorkerReplayTarget[],
+        editSource?: string | null,
+        compileChangeSource?: string | null,
+        compileEditType?: string | null
     ): void {
         if (!this._fontJson || this._suppressRecording || this._isSyncing) {
             return;
@@ -1110,7 +1122,10 @@ export class PatchSyncEngine {
                 oldValue,
                 newValue,
                 visualAnchorSide,
-                workerReplayTargets
+                workerReplayTargets,
+                editSource,
+                compileChangeSource,
+                compileEditType
             );
             return;
         }
@@ -1208,6 +1223,9 @@ export class PatchSyncEngine {
                 path: ['glyphs', target.glyphName, 'layers', target.layerId],
                 oldValue: cloneHistoryValue(target.previousLayerSnapshot),
                 newValue: cloneHistoryValue(target.layerSnapshot),
+                editSource: editSource ?? compileChangeSource ?? null,
+                compileChangeSource,
+                compileEditType,
                 visualAnchorSide,
                 workerReplayTargets,
                 applyPath: [
@@ -1240,7 +1258,10 @@ export class PatchSyncEngine {
         newValue?: string,
         layerId?: string | null,
         visualAnchorSide?: 'left' | 'right' | null,
-        workerReplayTargets?: WorkerReplayTarget[]
+        workerReplayTargets?: WorkerReplayTarget[],
+        editSource?: string | null,
+        compileChangeSource?: string | null,
+        compileEditType?: string | null
     ): void {
         if (!this._fontJson || this._suppressRecording || this._isSyncing)
             return;
@@ -1264,7 +1285,10 @@ export class PatchSyncEngine {
                     oldValue!,
                     newValue!,
                     visualAnchorSide,
-                    workerReplayTargets
+                    workerReplayTargets,
+                    editSource,
+                    compileChangeSource,
+                    compileEditType
                 )
             ) {
                 return;
@@ -1367,6 +1391,9 @@ export class PatchSyncEngine {
                         undoScope === 'font'
                             ? cloneHistoryValue(target.glyphJson)
                             : cloneHistoryValue(newValue ?? label),
+                    editSource: editSource ?? compileChangeSource ?? null,
+                    compileChangeSource,
+                    compileEditType,
                     visualAnchorSide,
                     workerReplayTargets,
                     applyPath: isLayerScope
@@ -1406,7 +1433,10 @@ export class PatchSyncEngine {
         oldValue?: string,
         newValue?: string,
         visualAnchorSide?: 'left' | 'right' | null,
-        workerReplayTargets?: WorkerReplayTarget[]
+        workerReplayTargets?: WorkerReplayTarget[],
+        editSource?: string | null,
+        compileChangeSource?: string | null,
+        compileEditType?: string | null
     ): boolean {
         const glyphs = (this._fontJson as Unsafe).glyphs;
         if (!Array.isArray(glyphs)) return false;
@@ -1469,6 +1499,9 @@ export class PatchSyncEngine {
                     path: ['glyphs', glyphName, 'layers', layerId],
                     oldValue: oldValue ?? glyphName,
                     newValue: newValue ?? label,
+                    editSource: editSource ?? compileChangeSource ?? null,
+                    compileChangeSource,
+                    compileEditType,
                     visualAnchorSide,
                     workerReplayTargets,
                     applyPath: ['glyphs', glyphName, 'layers', layerId],
@@ -2530,6 +2563,8 @@ export class PatchSyncEngine {
                     path: joinPathWithGlyphSeparator(operation.path),
                     oldValue: operation.oldValue,
                     newValue: operation.newValue,
+                    compileChangeSource: operation.compileChangeSource ?? null,
+                    compileEditType: operation.compileEditType ?? null,
                     replayOldValue:
                         operation.op !== 'set'
                             ? undefined
@@ -3025,6 +3060,9 @@ export class PatchSyncEngine {
             path: [...operation.path],
             oldValue: operation.oldValue,
             newValue: operation.newValue,
+            editSource: operation.editSource ?? null,
+            compileChangeSource: operation.compileChangeSource ?? null,
+            compileEditType: operation.compileEditType ?? null,
             visualAnchorSide: operation.visualAnchorSide ?? null,
             workerReplayTargets: normalizeWorkerReplayTargets(
                 operation.workerReplayTargets
@@ -3046,6 +3084,9 @@ export class PatchSyncEngine {
             path: [...operation.path],
             oldValue: cloneHistoryValue(operation.oldValue),
             newValue: cloneHistoryValue(operation.newValue),
+            editSource: operation.editSource ?? null,
+            compileChangeSource: operation.compileChangeSource ?? null,
+            compileEditType: operation.compileEditType ?? null,
             workerReplayTargets: normalizeWorkerReplayTargets(
                 operation.workerReplayTargets
             ),
@@ -3149,6 +3190,9 @@ export class PatchSyncEngine {
                 path: joinPathWithGlyphSeparator(operation.path),
                 oldValue: operation.oldValue,
                 newValue: operation.newValue,
+                editSource: operation.editSource ?? null,
+                compileChangeSource: operation.compileChangeSource ?? null,
+                compileEditType: operation.compileEditType ?? null,
                 replayOldValue:
                     operation.op !== 'set'
                         ? undefined

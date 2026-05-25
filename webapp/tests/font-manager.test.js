@@ -1043,6 +1043,7 @@ describe('FontManager editing subset inclusion', () => {
         compileEditingSpy?.mockRestore();
         saveEditingFontSpy?.mockRestore();
         hideErrorSpy?.mockRestore();
+        fontManager.clearLiveDragPreview();
         fontManager.updateEditingSubsetSnapshot([]);
         fontManager.openedFonts = originalOpenedFonts;
         fontManager.currentFontId = originalCurrentFontId;
@@ -1532,6 +1533,41 @@ describe('FontManager editing subset inclusion', () => {
         } finally {
             showErrorSpy.mockRestore();
             consoleErrorSpy.mockRestore();
+        }
+    });
+
+    test('active mouse-drag compiles use the transient preview JSON path', async () => {
+        const compileFromJsonSpy = jest
+            .spyOn(fontCompilation, 'compileFromJson')
+            .mockResolvedValue({
+                result: new Uint8Array([4, 5, 6]),
+                filename: 'editing.ttf',
+                time_taken: 2
+            });
+
+        try {
+            window.glyphCanvas.outlineEditor.draggingSomething = true;
+            setRequestCompileContext('mouse-drag-outline', 'outline');
+            await fontManager.stageLiveDragPreviewFromModel(['a'], 'layer-1', {
+                dispatchGlyphChanged: false
+            });
+
+            await fontManager.compileEditingFont('a', [], ['a']);
+
+            expect(compileFromJsonSpy).toHaveBeenCalledWith(
+                expect.any(String),
+                'editing-font.ttf',
+                expect.objectContaining({
+                    skip_features: true,
+                    skip_kerning: true,
+                    produce_varc_table: false
+                }),
+                ['a', 'n']
+            );
+            expect(compileEditingSpy).not.toHaveBeenCalled();
+        } finally {
+            window.glyphCanvas.outlineEditor.draggingSomething = false;
+            compileFromJsonSpy.mockRestore();
         }
     });
 

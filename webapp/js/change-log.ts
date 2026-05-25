@@ -113,6 +113,12 @@ export interface ChangeLogEntry {
     replayOldValue?: unknown;
     /** Optional replay payload after the change, when labels differ from replay data */
     replayNewValue?: unknown;
+    /** Exact producer-side edit source stamped onto the committed packet */
+    editSource?: string | null;
+    /** Exact compile source stamped onto the committed packet by the producer */
+    compileChangeSource?: string | null;
+    /** Compile edit type stamped onto the committed packet by the producer */
+    compileEditType?: string | null;
     /** Optional features-editor target type for scoped history */
     historyTargetType: HistoryTargetType | null;
     /** Optional stable-enough features-editor target key */
@@ -142,7 +148,10 @@ export function createLogEntry(
         | 'historyTargetKey'
         | 'historyTargetLabel'
         | 'transactionDurationMs'
+        | 'editSource'
         | 'workerReplayTargets'
+        | 'compileChangeSource'
+        | 'compileEditType'
         | 'semanticChangeLogEntries'
     > & {
         historyItemId?: string;
@@ -161,6 +170,9 @@ export function createLogEntry(
         historyTargetKey?: string | null;
         historyTargetLabel?: string | null;
         transactionDurationMs?: number | null;
+        editSource?: string | null;
+        compileChangeSource?: string | null;
+        compileEditType?: string | null;
         visualAnchorSide?: 'left' | 'right' | null;
         workerReplayTargets?: WorkerReplayTarget[];
         replayOldValue?: unknown;
@@ -189,6 +201,9 @@ export function createLogEntry(
         newValue: fields.newValue,
         replayOldValue: fields.replayOldValue,
         replayNewValue: fields.replayNewValue,
+        editSource: fields.editSource ?? null,
+        compileChangeSource: fields.compileChangeSource ?? null,
+        compileEditType: fields.compileEditType ?? null,
         historyTargetType: fields.historyTargetType ?? null,
         historyTargetKey: fields.historyTargetKey ?? null,
         historyTargetLabel: fields.historyTargetLabel ?? null,
@@ -967,6 +982,9 @@ export function normalizeChangeLogEntry(
         newValue: entry.newValue,
         replayOldValue: entry.replayOldValue,
         replayNewValue: entry.replayNewValue,
+        editSource: entry.editSource ?? null,
+        compileChangeSource: entry.compileChangeSource ?? null,
+        compileEditType: entry.compileEditType ?? null,
         historyItemId: normalizeHistoryItemId(entry.historyItemId, entry.id),
         historyAction: normalizeHistoryAction(entry.historyAction),
         undoScope: entry.undoScope ?? deriveUndoScope(glyphName, layerId),

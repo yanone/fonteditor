@@ -61,6 +61,9 @@ export type CollaborationChangeDescriptor = {
 
 export type CollaborationMessageMetadata = {
     editType: 'font' | 'outline';
+    editSource?: string | null;
+    compileChangeSource?: string | null;
+    compileEditType?: string | null;
     changedGlyphNames: string[];
     changedLayerIds: string[];
     workerReplayTargets: WorkerReplayTarget[];
@@ -242,6 +245,9 @@ export function createCollaborationMessageEnvelopeFromChangeLogEntries(
         })),
         metadata: {
             editType: workerReplayTargets.length ? 'outline' : 'font',
+            editSource: entries[0].editSource ?? null,
+            compileChangeSource: entries[0].compileChangeSource ?? null,
+            compileEditType: entries[0].compileEditType ?? null,
             changedGlyphNames,
             changedLayerIds,
             workerReplayTargets,
@@ -343,6 +349,9 @@ export function createChangeLogEntriesFromCollaborationMessageEnvelope(
             path: change.path,
             oldValue: undefined,
             newValue: undefined,
+            editSource: envelope.metadata.editSource ?? null,
+            compileChangeSource: envelope.metadata.compileChangeSource ?? null,
+            compileEditType: envelope.metadata.compileEditType ?? null,
             replayOldValue: change.replayOldValue,
             replayNewValue: change.replayNewValue,
             workerReplayTargets: normalizeWorkerReplayTargets(

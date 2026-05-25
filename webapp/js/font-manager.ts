@@ -9,7 +9,8 @@ import * as Y from 'yjs';
 import {
     fontCompilation,
     fullFontCompilation,
-    requestOpenFontConversion
+    requestOpenFontConversion,
+    COMPILATION_TARGETS
 } from './font-compilation';
 import { get_glyph_order } from '../wasm-dist/babelfont_fontc_web';
 import type { Babelfont } from './babelfont';
@@ -614,6 +615,7 @@ class FontManager {
     pendingDebugEditingFontSaveAfterDrag: boolean;
     pendingBabelfontJsonSyncAfterDrag: boolean;
     pendingCommittedKeyboardDriftCheckAfterDrag: boolean;
+    liveDragPreviewBabelfontJson: string | null;
     workerCacheUpdatePromise: Promise<void> | null;
     forceFullEditingCacheRefresh: boolean;
     workerLayerFingerprintCache: Map<string, string>;
@@ -680,6 +682,7 @@ class FontManager {
         this.pendingDebugEditingFontSaveAfterDrag = false;
         this.pendingBabelfontJsonSyncAfterDrag = false;
         this.pendingCommittedKeyboardDriftCheckAfterDrag = false;
+        this.liveDragPreviewBabelfontJson = null;
         this.workerCacheUpdatePromise = null;
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache = new Map();
@@ -1085,6 +1088,7 @@ class FontManager {
         this.pendingDebugEditingFontSaveAfterDrag = false;
         this.pendingBabelfontJsonSyncAfterDrag = false;
         this.pendingCommittedKeyboardDriftCheckAfterDrag = false;
+        this.liveDragPreviewBabelfontJson = null;
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache.clear();
         window.currentFontModel = null;
@@ -2247,26 +2251,50 @@ class FontManager {
                 // Always validate after undo/redo (wasJsonStale) because
                 // canonical structure must still hold after every model/Yjs
                 // roundtrip; compile must fail rather than repair drift.
-                const validatedJson = this.validateBabelfontJsonForRust(
-                    jsonToSend,
-                    wasJsonStale || this.pendingBabelfontJsonSyncAfterDrag
-                );
+                const liveDragPreviewJson =
+                    isMouseDragSource && dragActiveAtRequest
+                        ? this.liveDragPreviewBabelfontJson
+                        : null;
 
-                result = await fontCompilation.compileEditingFromJsonCached(
-                    validatedJson,
-                    requestedRevisionKey,
-                    subsetForCompile ?? [],
-                    {
-                        dragActive: dragActiveAtRequest,
-                        compileSource: incrementalChangeSource || undefined,
-                        selectedFeatures: features,
-                        optionOverrides,
-                        usePatchedWorkerCache:
-                            isIncrementalEditingCompile &&
-                            wasJsonStale &&
-                            !forceFullWorkerCompile
-                    }
-                );
+                if (liveDragPreviewJson) {
+                    const previewOptions = {
+                        ...COMPILATION_TARGETS.editing,
+                        ...(optionOverrides || {})
+                    };
+                    const previewResult = await fontCompilation.compileFromJson(
+                        liveDragPreviewJson,
+                        'editing-font.ttf',
+                        previewOptions,
+                        subsetForCompile ?? []
+                    );
+
+                    result = {
+                        ...previewResult,
+                        fontRevisionKey: requestedRevisionKey,
+                        compileSource: incrementalChangeSource || undefined
+                    };
+                } else {
+                    const validatedJson = this.validateBabelfontJsonForRust(
+                        jsonToSend,
+                        wasJsonStale || this.pendingBabelfontJsonSyncAfterDrag
+                    );
+
+                    result = await fontCompilation.compileEditingFromJsonCached(
+                        validatedJson,
+                        requestedRevisionKey,
+                        subsetForCompile ?? [],
+                        {
+                            dragActive: dragActiveAtRequest,
+                            compileSource: incrementalChangeSource || undefined,
+                            selectedFeatures: features,
+                            optionOverrides,
+                            usePatchedWorkerCache:
+                                isIncrementalEditingCompile &&
+                                wasJsonStale &&
+                                !forceFullWorkerCompile
+                        }
+                    );
+                }
 
                 timelineMark(
                     'font.compileEditing.closureToCompileBridge.compileResultReceived'
@@ -2351,6 +2379,8 @@ class FontManager {
                         duration: duration,
                         fontRevisionKey: responseRevisionKey,
                         dragActive: dragActiveAtRequest,
+                        changeSource: incrementalChangeSource,
+                        editType: editTypeAtRequest,
                         compilationMode
                     }
                 })
@@ -4959,6 +4989,113 @@ class FontManager {
                 this.workerCacheUpdatePromise = null;
             }
         }
+    }
+
+    private buildLiveDragPreviewBabelfontJson(
+        explicitLayerData?: Iterable<ExplicitLayerCacheInput>
+    ): string | null {
+        const currentFont = this.currentFont;
+        if (!currentFont?.fontModel) {
+            return null;
+        }
+
+        const previewJson = currentFont.fontModel.toJSONString();
+        const explicitInputs = Array.from(explicitLayerData || []).filter(
+            (input): input is ExplicitLayerCacheInput =>
+                !!input?.glyphName && !!input?.layerId && !!input?.layerData
+        );
+        if (explicitInputs.length === 0) {
+            return previewJson;
+        }
+
+        const previewData = JSON.parse(previewJson) as {
+            glyphs?: Array<{ name?: string; layers?: Babelfont.Layer[] }>;
+        };
+
+        for (const input of explicitInputs) {
+            const serializedLayer = this.serializeLayerForStorage(
+                input.glyphName,
+                input.layerId,
+                input.layerData
+            );
+            if (!serializedLayer) {
+                return null;
+            }
+
+            const glyph = previewData.glyphs?.find(
+                (entry) => entry?.name === input.glyphName
+            );
+            if (!glyph?.layers) {
+                return null;
+            }
+
+            const layerIndex = glyph.layers.findIndex(
+                (layer) => layer?.id === input.layerId
+            );
+            if (layerIndex < 0) {
+                return null;
+            }
+
+            glyph.layers[layerIndex] = serializedLayer;
+        }
+
+        return JSON.stringify(previewData);
+    }
+
+    async stageLiveDragPreviewFromModel(
+        glyphNames: Iterable<string>,
+        layerId?: string | null,
+        options?: {
+            dispatchGlyphChanged?: boolean;
+            explicitLayerData?: Iterable<ExplicitLayerCacheInput>;
+        }
+    ): Promise<void> {
+        const uniqueGlyphNames = Array.from(
+            new Set(
+                Array.from(glyphNames || []).filter(
+                    (glyphName): glyphName is string =>
+                        typeof glyphName === 'string' && glyphName.length > 0
+                )
+            )
+        );
+
+        if (!this.currentFont || uniqueGlyphNames.length === 0) {
+            this.liveDragPreviewBabelfontJson = null;
+            return;
+        }
+
+        const previewJson = this.buildLiveDragPreviewBabelfontJson(
+            options?.explicitLayerData
+        );
+        if (!previewJson) {
+            throw new Error('Failed to stage live drag preview font data');
+        }
+
+        this.liveDragPreviewBabelfontJson = previewJson;
+
+        if (options?.dispatchGlyphChanged === false) {
+            return;
+        }
+
+        window.dispatchEvent(
+            new CustomEvent('glyphChanged', {
+                detail:
+                    uniqueGlyphNames.length === 1
+                        ? {
+                              glyphName: uniqueGlyphNames[0],
+                              layerId: layerId ?? undefined
+                          }
+                        : {
+                              glyphName: uniqueGlyphNames[0],
+                              glyphNames: uniqueGlyphNames,
+                              layerId: layerId ?? undefined
+                          }
+            })
+        );
+    }
+
+    clearLiveDragPreview(): void {
+        this.liveDragPreviewBabelfontJson = null;
     }
 
     async submitLayerToWorkerCache(

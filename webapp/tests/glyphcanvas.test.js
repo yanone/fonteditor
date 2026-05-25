@@ -784,6 +784,12 @@ describe('GlyphCanvas onMouseUp', () => {
         const saveLayerDataSpy = jest
             .spyOn(canvas.outlineEditor, 'saveLayerData')
             .mockImplementation(() => {});
+        const refreshFinalSidebearingSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'refreshFinalSidebearingWorkerStateBeforeCommit'
+            )
+            .mockResolvedValue();
         const drainLiveRefreshSpy = jest
             .spyOn(
                 canvas.outlineEditor.liveDragEditFunnel,
@@ -854,6 +860,9 @@ describe('GlyphCanvas onMouseUp', () => {
             resolveLiveRefresh();
             await mouseUpPromise;
 
+            expect(
+                refreshFinalSidebearingSpy.mock.invocationCallOrder[0]
+            ).toBeLessThan(saveLayerDataSpy.mock.invocationCallOrder[0]);
             expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
             expect(syncSpy).toHaveBeenCalledWith(
                 'Set RSB',
@@ -868,6 +877,7 @@ describe('GlyphCanvas onMouseUp', () => {
             fontManager.flushPendingDebugEditingFontSaveAfterDrag =
                 originalFlushPendingDebugEditingFontSaveAfterDrag;
             drainLiveRefreshSpy.mockRestore();
+            refreshFinalSidebearingSpy.mockRestore();
             getSidebearingSpy.mockRestore();
             syncSpy.mockRestore();
             collectTargetsSpy.mockRestore();
@@ -1012,13 +1022,6 @@ describe('GlyphCanvas onMouseUp', () => {
 
     test('anchor live drag refresh runs the generic drift check after worker refresh', async () => {
         const originalCurrentFont = fontManager.currentFont;
-        const expectedSnapshots = [
-            {
-                glyphName: 'a',
-                layerId: 'layer-1',
-                fingerprint: 'anchor-live'
-            }
-        ];
         const currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue({
@@ -1034,20 +1037,8 @@ describe('GlyphCanvas onMouseUp', () => {
                 'rebuildAutomaticCompositesForCurrentEditedGlyph'
             )
             .mockReturnValue(new Set(['a', 'adieresis']));
-        const snapshotSpy = jest
-            .spyOn(
-                canvas.outlineEditor,
-                'collectLiveVisibleDragDriftCheckSnapshots'
-            )
-            .mockReturnValue(expectedSnapshots);
-        const syncDependentsSpy = jest
-            .spyOn(canvas.outlineEditor, 'syncDependentGlyphsAfterAnchorEdit')
-            .mockResolvedValue();
-        const assertSpy = jest
-            .spyOn(
-                canvas.outlineEditor,
-                'assertLiveVisibleDragWorkerStateMatchesExpected'
-            )
+        const previewSpy = jest
+            .spyOn(fontManager, 'stageLiveDragPreviewFromModel')
             .mockResolvedValue();
         const glyphModelSpy = jest
             .spyOn(canvas.outlineEditor, 'getCurrentGlyphModel')
@@ -1064,58 +1055,30 @@ describe('GlyphCanvas onMouseUp', () => {
             expect(rebuildSpy).toHaveBeenCalledWith({
                 allowedGlyphNames: new Set(['a', 'adieresis'])
             });
-            expect(snapshotSpy).toHaveBeenCalledWith(
-                new Set(['a', 'adieresis'])
-            );
-            expect(syncDependentsSpy).toHaveBeenCalledWith(
-                'a',
-                new Set(['a', 'adieresis']),
-                { liveVisibleOnly: true }
-            );
-            expect(assertSpy).toHaveBeenCalledWith(expectedSnapshots);
-            expect(syncDependentsSpy.mock.invocationCallOrder[0]).toBeLessThan(
-                assertSpy.mock.invocationCallOrder[0]
+            expect(previewSpy).toHaveBeenCalledWith(
+                ['a', 'adieresis'],
+                'layer-1',
+                { dispatchGlyphChanged: false }
             );
         } finally {
             glyphModelSpy.mockRestore();
-            assertSpy.mockRestore();
-            syncDependentsSpy.mockRestore();
-            snapshotSpy.mockRestore();
+            previewSpy.mockRestore();
             rebuildSpy.mockRestore();
             scopeSpy.mockRestore();
             currentFontSpy.mockRestore();
         }
     });
 
-    test('outline live drag refresh runs the generic drift check after worker refresh', async () => {
+    test('outline live drag stages a transient preview instead of mutating the worker cache', async () => {
         const originalCurrentFont = fontManager.currentFont;
-        const expectedSnapshots = [
-            {
-                glyphName: 'a',
-                layerId: 'layer-1',
-                fingerprint: 'outline-live'
-            }
-        ];
         const currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue({
                 ...(originalCurrentFont || {}),
                 fontModel: originalCurrentFont?.fontModel || {}
             });
-        const refreshSpy = jest
-            .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
-            .mockResolvedValue();
-        const snapshotSpy = jest
-            .spyOn(
-                canvas.outlineEditor,
-                'collectLiveVisibleDragDriftCheckSnapshots'
-            )
-            .mockReturnValue(expectedSnapshots);
-        const assertSpy = jest
-            .spyOn(
-                canvas.outlineEditor,
-                'assertLiveVisibleDragWorkerStateMatchesExpected'
-            )
+        const previewSpy = jest
+            .spyOn(fontManager, 'stageLiveDragPreviewFromModel')
             .mockResolvedValue();
         const explicitLayerSpy = jest
             .spyOn(canvas.outlineEditor, 'getCurrentExplicitLayerCacheInput')
@@ -1141,23 +1104,11 @@ describe('GlyphCanvas onMouseUp', () => {
             );
             await canvas.outlineEditor.liveDragEditFunnel.drainAndClearQueued();
 
-            expect(snapshotSpy).toHaveBeenCalledWith(['a', 'adieresis'], {
-                glyphName: 'a',
-                layerId: 'layer-1',
-                layerData: {
-                    id: 'layer-1',
-                    width: 500,
-                    shapes: [],
-                    anchors: [],
-                    guides: []
-                }
-            });
-            expect(refreshSpy).toHaveBeenCalledWith(
+            expect(previewSpy).toHaveBeenCalledWith(
                 ['a', 'adieresis'],
                 'layer-1',
                 {
                     dispatchGlyphChanged: false,
-                    skipFingerprintBaseline: true,
                     explicitLayerData: [
                         {
                             glyphName: 'a',
@@ -1173,15 +1124,9 @@ describe('GlyphCanvas onMouseUp', () => {
                     ]
                 }
             );
-            expect(assertSpy).toHaveBeenCalledWith(expectedSnapshots);
-            expect(refreshSpy.mock.invocationCallOrder[0]).toBeLessThan(
-                assertSpy.mock.invocationCallOrder[0]
-            );
         } finally {
             explicitLayerSpy.mockRestore();
-            assertSpy.mockRestore();
-            snapshotSpy.mockRestore();
-            refreshSpy.mockRestore();
+            previewSpy.mockRestore();
             currentFontSpy.mockRestore();
         }
     });
@@ -1890,8 +1835,10 @@ describe('GlyphCanvas onMouseUp', () => {
             fontManager.flushPendingDebugEditingFontSaveAfterDrag;
         const originalOpenedFonts = fontManager.openedFonts;
         const originalCurrentFontId = fontManager.currentFontId;
-        const originalRefreshGlyphsAfterModelBatch =
-            fontManager.refreshGlyphsAfterModelBatch;
+        const originalWindowFontManager = window.fontManager;
+        const originalStageLiveDragPreviewFromModel =
+            fontManager.stageLiveDragPreviewFromModel;
+        const originalClearLiveDragPreview = fontManager.clearLiveDragPreview;
         const applyMetricsKeysSpy = jest
             .spyOn(canvas.outlineEditor, 'applyMetricsKeysToCurrentEditedLayer')
             .mockReturnValue({
@@ -1941,9 +1888,10 @@ describe('GlyphCanvas onMouseUp', () => {
             .mockImplementationOnce(() => 110)
             .mockImplementation(() => 110);
         const requestRecompileWithoutDataChange = jest.fn();
-        const refreshGlyphsAfterModelBatchSpy = jest
+        const stageLiveDragPreviewFromModelSpy = jest
             .fn()
             .mockResolvedValue(undefined);
+        const clearLiveDragPreviewSpy = jest.fn();
 
         try {
             window.changeBridge = {
@@ -1953,6 +1901,7 @@ describe('GlyphCanvas onMouseUp', () => {
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+            window.fontManager = fontManager;
             fontManager.openedFonts = new Map([
                 [
                     'test-font',
@@ -1962,8 +1911,9 @@ describe('GlyphCanvas onMouseUp', () => {
                 ]
             ]);
             fontManager.currentFontId = 'test-font';
-            fontManager.refreshGlyphsAfterModelBatch =
-                refreshGlyphsAfterModelBatchSpy;
+            fontManager.stageLiveDragPreviewFromModel =
+                stageLiveDragPreviewFromModelSpy;
+            fontManager.clearLiveDragPreview = clearLiveDragPreviewSpy;
 
             canvas.outlineEditor.active = true;
             canvas.outlineEditor.currentGlyphName = 'A';
@@ -2020,16 +1970,16 @@ describe('GlyphCanvas onMouseUp', () => {
 
             scheduledFlushes.shift()();
             await Promise.resolve();
+            await canvas.outlineEditor.liveDragEditFunnel.drainAndClearQueued();
 
             expect(applyMetricsKeysSpy).toHaveBeenCalledTimes(1);
             expect(saveLayerDataSpy).toHaveBeenCalledTimes(0);
-            expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
-            expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledWith(
+            expect(stageLiveDragPreviewFromModelSpy).toHaveBeenCalledTimes(1);
+            expect(stageLiveDragPreviewFromModelSpy).toHaveBeenCalledWith(
                 ['A'],
                 'layer-1',
                 expect.objectContaining({
                     dispatchGlyphChanged: false,
-                    skipFingerprintBaseline: true,
                     explicitLayerData: [
                         expect.objectContaining({
                             glyphName: 'A',
@@ -2048,6 +1998,7 @@ describe('GlyphCanvas onMouseUp', () => {
 
             expect(applyMetricsKeysSpy).toHaveBeenCalledTimes(2);
             expect(saveLayerDataSpy).toHaveBeenCalledTimes(1);
+            expect(clearLiveDragPreviewSpy).toHaveBeenCalledTimes(1);
             expect(saveLayerDataSpy).toHaveBeenNthCalledWith(
                 1,
                 'mouse-drag-outline'
@@ -2059,8 +2010,10 @@ describe('GlyphCanvas onMouseUp', () => {
                 originalFlushPendingDebugEditingFontSaveAfterDrag;
             fontManager.openedFonts = originalOpenedFonts;
             fontManager.currentFontId = originalCurrentFontId;
-            fontManager.refreshGlyphsAfterModelBatch =
-                originalRefreshGlyphsAfterModelBatch;
+            window.fontManager = originalWindowFontManager;
+            fontManager.stageLiveDragPreviewFromModel =
+                originalStageLiveDragPreviewFromModel;
+            fontManager.clearLiveDragPreview = originalClearLiveDragPreview;
             applyMetricsKeysSpy.mockRestore();
             saveLayerDataSpy.mockRestore();
             syncSpy.mockRestore();
@@ -3203,6 +3156,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             { glyphName: 'n', layerId: 'master-layer' }
         ];
         const originalChangeBridge = window.changeBridge;
+        const originalPatchSyncEngine = window.patchSyncEngine;
         const callOrder = [];
         const saveLayerDataSpy = jest
             .spyOn(canvas.outlineEditor, 'saveLayerData')
@@ -3246,7 +3200,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             )
             .mockReturnValue(targets);
 
-        window.changeBridge = {
+        const patchSyncEngine = {
             beginTransaction: jest.fn(() => {
                 callOrder.push('begin');
             }),
@@ -3258,6 +3212,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
             }),
             syncGlyphFromJson: jest.fn()
         };
+        window.changeBridge = patchSyncEngine;
+        window.patchSyncEngine = patchSyncEngine;
 
         try {
             expect(canvas.outlineEditor.setSidebearingValue('left', 20)).toBe(
@@ -3269,7 +3225,9 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 expect.any(String),
                 expect.any(String),
                 'left',
-                targets
+                targets,
+                'keyboard-sidebearing',
+                null
             );
             expect(clearEffectiveSidebearingKeySpy).toHaveBeenCalledWith(
                 'left'
@@ -3290,6 +3248,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             ).not.toHaveBeenCalled();
         } finally {
             window.changeBridge = originalChangeBridge;
+            window.patchSyncEngine = originalPatchSyncEngine;
             collectTargetsSpy.mockRestore();
             glyphModelSpy.mockRestore();
             syncDependentsSpy.mockRestore();
@@ -3306,6 +3265,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             { glyphName: 'n', layerId: 'master-layer' }
         ];
         const originalChangeBridge = window.changeBridge;
+        const originalPatchSyncEngine = window.patchSyncEngine;
         const syncCurrentGlyphToYDocSpy = jest
             .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
             .mockImplementation(() => {});
@@ -3324,10 +3284,12 @@ describe('GlyphCanvas property panel metrics edits', () => {
             )
             .mockReturnValue(targets);
 
-        window.changeBridge = {
+        const patchSyncEngine = {
             syncLayersFromJson: jest.fn(),
             syncGlyphFromJson: jest.fn()
         };
+        window.changeBridge = patchSyncEngine;
+        window.patchSyncEngine = patchSyncEngine;
         canvas.outlineEditor.active = true;
         canvas.getCurrentGlyphName = jest.fn(() => 'l');
         canvas.outlineEditor.currentGlyphName = 'l';
@@ -3352,11 +3314,16 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 'RIGHT',
                 undefined,
                 'right',
-                targets
+                targets,
+                {
+                    changeSource: 'keyboard-sidebearing',
+                    editType: null
+                }
             );
         } finally {
             canvas.outlineEditor.selectedSidebearingHandle = null;
             window.changeBridge = originalChangeBridge;
+            window.patchSyncEngine = originalPatchSyncEngine;
             syncCurrentGlyphToYDocSpy.mockRestore();
             collectTargetsSpy.mockRestore();
             moveSelectedSidebearingSpy.mockRestore();

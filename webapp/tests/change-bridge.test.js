@@ -7118,7 +7118,10 @@ describe('syncGlyphFromJson', () => {
             undefined,
             'LEFT 40',
             'left',
-            changedTargets
+            changedTargets,
+            'mouse-drag-sidebearing',
+            'keyboard-sidebearing',
+            null
         );
 
         const remoteEntries = senderBridge.getNewChangeLogEntries();
@@ -7129,6 +7132,9 @@ describe('syncGlyphFromJson', () => {
         expect(changeEntries).toHaveLength(2);
         changeEntries.forEach((entry) => {
             expect(entry.workerReplayTargets).toEqual(changedTargets);
+            expect(entry.editSource).toBe('mouse-drag-sidebearing');
+            expect(entry.compileChangeSource).toBe('keyboard-sidebearing');
+            expect(entry.compileEditType).toBeNull();
         });
 
         receiverBridge.applyRemoteUpdate(lastUpdate, remoteEntries);

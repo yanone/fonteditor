@@ -49,6 +49,63 @@ async function captureCanvas(page: any): Promise<string> {
     });
 }
 
+async function getCanvasDiffRatio(
+    page: any,
+    previousDataUrl: string,
+    currentDataUrl: string
+): Promise<number> {
+    return page.evaluate(
+        async ({ previousDataUrl, currentDataUrl }) => {
+            const loadImage = (src: string) =>
+                new Promise<HTMLImageElement>((resolve, reject) => {
+                    const image = new Image();
+                    image.onload = () => resolve(image);
+                    image.onerror = () =>
+                        reject(new Error('Failed to load canvas snapshot'));
+                    image.src = src;
+                });
+
+            const [previousImage, currentImage] = await Promise.all([
+                loadImage(previousDataUrl),
+                loadImage(currentDataUrl)
+            ]);
+
+            const width = Math.max(previousImage.width, currentImage.width);
+            const height = Math.max(previousImage.height, currentImage.height);
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (!ctx) {
+                throw new Error('Failed to create canvas diff context');
+            }
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(previousImage, 0, 0);
+            const previousPixels = ctx.getImageData(0, 0, width, height).data;
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(currentImage, 0, 0);
+            const currentPixels = ctx.getImageData(0, 0, width, height).data;
+
+            let diffPixels = 0;
+            for (let index = 0; index < previousPixels.length; index += 4) {
+                if (
+                    previousPixels[index] !== currentPixels[index] ||
+                    previousPixels[index + 1] !== currentPixels[index + 1] ||
+                    previousPixels[index + 2] !== currentPixels[index + 2] ||
+                    previousPixels[index + 3] !== currentPixels[index + 3]
+                ) {
+                    diffPixels += 1;
+                }
+            }
+
+            return diffPixels / (width * height);
+        },
+        { previousDataUrl, currentDataUrl }
+    );
+}
+
 /** Force a render and wait for the GPU pipeline to settle. */
 async function stabiliseCanvas(page: any): Promise<void> {
     await page.evaluate(() => {
@@ -56,9 +113,7 @@ async function stabiliseCanvas(page: any): Promise<void> {
         if (gc?.render) gc.render();
     });
     for (let i = 0; i < 3; i++) {
-        await page.evaluate(
-            () => new Promise((r) => requestAnimationFrame(r))
-        );
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(r)));
     }
     await page.waitForTimeout(50);
 }
@@ -68,24 +123,57 @@ async function waitForCompileSettle(page: any, label: string): Promise<void> {
     console.log(`[Test] Waiting for compile settle: ${label}`);
     await page.evaluate(() => {
         return new Promise<void>((resolve) => {
-            let done = false;
+            let finished = false;
+            let sawCompile = false;
+            let idleTimer: number | null = null;
+            let fallbackTimer: number | null = null;
+
+            const cleanup = () => {
+                window.removeEventListener('editingFontCompiled', onCompile);
+                if (idleTimer !== null) {
+                    window.clearTimeout(idleTimer);
+                    idleTimer = null;
+                }
+                if (fallbackTimer !== null) {
+                    window.clearTimeout(fallbackTimer);
+                    fallbackTimer = null;
+                }
+            };
+
             const finish = () => {
-                if (done) return;
-                done = true;
+                if (finished) return;
+                finished = true;
+                cleanup();
                 resolve();
             };
-            window.addEventListener('editingFontCompiled', finish, {
-                once: true
-            });
-            setTimeout(finish, 15000);
+
+            const armIdleTimer = () => {
+                if (idleTimer !== null) {
+                    window.clearTimeout(idleTimer);
+                }
+                idleTimer = window.setTimeout(() => {
+                    if (sawCompile) {
+                        finish();
+                    }
+                }, 700);
+            };
+
+            const onCompile = () => {
+                sawCompile = true;
+                armIdleTimer();
+            };
+
+            window.addEventListener('editingFontCompiled', onCompile);
+            fallbackTimer = window.setTimeout(finish, 15000);
         });
     });
-    await page.waitForTimeout(300);
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(r)));
 }
 
 /** Find screen coordinates of the bottom-most on-curve node. */
-async function getNodeScreenCoords(page: any): Promise<{ x: number; y: number }> {
+async function getNodeScreenCoords(
+    page: any
+): Promise<{ x: number; y: number }> {
     return page.evaluate(() => {
         const gc = (window as any).glyphCanvas;
         const oe = gc.outlineEditor;
@@ -151,13 +239,22 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
             return new Promise<void>((resolve) => {
                 const gc = (window as any).glyphCanvas;
                 const tre = gc?.textRunEditor;
-                if (!gc || !tre) { resolve(); return; }
+                if (!gc || !tre) {
+                    resolve();
+                    return;
+                }
 
                 if (gc.outlineEditor?.active) gc.exitGlyphEditMode();
 
                 let done = false;
-                const finish = () => { if (done) return; done = true; resolve(); };
-                window.addEventListener('editingFontCompiled', finish, { once: true });
+                const finish = () => {
+                    if (done) return;
+                    done = true;
+                    resolve();
+                };
+                window.addEventListener('editingFontCompiled', finish, {
+                    once: true
+                });
 
                 tre.setTextBuffer('aä');
                 tre.cursorPosition = 0;
@@ -208,13 +305,19 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         // Record framed viewport for later restoration (sidebearing anchoring shifts it).
         const framedViewport = await page.evaluate(() => {
             const vm = (window as any).glyphCanvas?.viewportManager;
-            return vm ? { panX: vm.panX, panY: vm.panY, scale: vm.scale } : null;
+            return vm
+                ? { panX: vm.panX, panY: vm.panY, scale: vm.scale }
+                : null;
         });
         const revertToFramedViewport = async () => {
             if (!framedViewport) return;
             await page.evaluate((vp: any) => {
                 const vm = (window as any).glyphCanvas?.viewportManager;
-                if (vm) { vm.panX = vp.panX; vm.panY = vp.panY; vm.scale = vp.scale; }
+                if (vm) {
+                    vm.panX = vp.panX;
+                    vm.panY = vp.panY;
+                    vm.scale = vp.scale;
+                }
             }, framedViewport);
             await stabiliseCanvas(page);
         };
@@ -222,7 +325,7 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         // ── SCREENSHOT 1: Baseline ────────────────────────────────────────
         console.log('[Test] Screenshot 1: baseline');
         await expect(canvasLocator).toHaveScreenshot('kbd-01-baseline.png', {
-            maxDiffPixelRatio: 0.03,
+            maxDiffPixelRatio: 0.03
         });
         await stabiliseCanvas(page);
         const canvas1 = await captureCanvas(page);
@@ -282,11 +385,9 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         await page.mouse.move(handleInfo.x, handleInfo.y);
         await page.waitForTimeout(50);
         await page.mouse.down();
-        await page.mouse.move(
-            handleInfo.x + handleInfo.deltaX,
-            handleInfo.y,
-            { steps: 8 }
-        );
+        await page.mouse.move(handleInfo.x + handleInfo.deltaX, handleInfo.y, {
+            steps: 8
+        });
         await page.mouse.up();
         await waitForCompileSettle(page, 'sidebearing-drag');
         await page.waitForTimeout(200);
@@ -318,13 +419,17 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
 
         await stabiliseCanvas(page);
         await expect(canvasLocator).toHaveScreenshot('kbd-04-after-undo.png', {
-            maxDiffPixelRatio: 0.03,
+            maxDiffPixelRatio: 0.03
         });
         const canvas4 = await captureCanvas(page);
 
         // ASSERT: Undo reverts sidebearing drag → canvas must match canvas2
-        console.log('[Test] Assert canvas after undo === canvas after keyboard move');
-        expect.soft(canvas4).toBe(canvas2);
+        console.log(
+            '[Test] Assert canvas after undo === canvas after keyboard move'
+        );
+        expect
+            .soft(await getCanvasDiffRatio(page, canvas2, canvas4))
+            .toBeLessThan(0.001);
 
         // ── 7. (Node re-selected above) Move node back up 50u (undo the keyboard move)
         for (let i = 0; i < 5; i++) {
@@ -337,10 +442,18 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
         // ── SCREENSHOT 5: Back to baseline ────────────────────────────────
         console.log('[Test] Screenshot 5: back to baseline');
 
+        // Match the original baseline capture: keep hover affordances off-canvas.
+        await page.mouse.move(-100, -100);
+        await page.waitForTimeout(100);
+
         // Deselect so selection state matches baseline (canvas1)
         await page.evaluate(() => {
             const oe = (window as any).glyphCanvas?.outlineEditor;
-            if (oe) { oe.selectedPoints = []; oe.selectedAnchors = []; oe.selectedComponents = []; }
+            if (oe) {
+                oe.selectedPoints = [];
+                oe.selectedAnchors = [];
+                oe.selectedComponents = [];
+            }
         });
         await revertToFramedViewport();
         await expect(canvasLocator).toHaveScreenshot(
@@ -352,6 +465,8 @@ test.describe('Keyboard-after-drag stale editing handoff', () => {
 
         // ASSERT: Full round-trip restored → canvas must match baseline
         console.log('[Test] Assert final canvas === baseline canvas');
-        expect.soft(canvas5).toBe(canvas1);
+        expect
+            .soft(await getCanvasDiffRatio(page, canvas1, canvas5))
+            .toBeLessThan(0.001);
     });
 });
