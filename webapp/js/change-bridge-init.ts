@@ -21,6 +21,7 @@ import { fontCompilation, fullFontCompilation } from './font-compilation';
 import { Logger } from './logger';
 import { processCommittedEdit } from './compiled-edit-funnel';
 import { computeLayerRecompositionClosure } from './recomposition-closure';
+import { sidebarErrorDisplay } from './sidebar-error-display';
 import {
     deriveGlyphNamesFromPaths,
     deriveGlyphName,
@@ -1004,6 +1005,197 @@ function collectReplayTargetsFromEntries(
     return normalizeWorkerReplayTargets(targets);
 }
 
+function normalizeLayerDataForWorkerDriftCheck(layerData: unknown): string {
+    if (!layerData) {
+        return 'null';
+    }
+
+    const normalizeLayerForRust = (window.fontManager as any)
+        ?.normalizeLayerForRust as ((layer: unknown) => unknown) | undefined;
+    if (typeof normalizeLayerForRust !== 'function') {
+        return JSON.stringify(layerData);
+    }
+
+    return JSON.stringify(
+        normalizeLayerForRust.call(window.fontManager, layerData)
+    );
+}
+
+function isLocalKeyboardMoveCommittedPacket(
+    entries: ChangeLogEntry[]
+): boolean {
+    return entries.some(
+        (entry) =>
+            entry?.transactionLabel === 'Arrow key' ||
+            (entry as { label?: string } | null)?.label === 'Arrow key'
+    );
+}
+
+async function showCommittedKeyboardWorkerDriftIfNeeded(
+    entries: ChangeLogEntry[],
+    localCompileContext: LocalCommittedCompileContext | null
+): Promise<boolean> {
+    if (
+        window.fontManager?.pendingCommittedKeyboardDriftCheckAfterDrag !== true
+    ) {
+        return false;
+    }
+
+    if (
+        !localCompileContext ||
+        (localCompileContext.editType !== 'outline' &&
+            localCompileContext.editType !== 'anchor')
+    ) {
+        return false;
+    }
+
+    if (
+        entries.some(
+            (entry) =>
+                entry.historyAction === 'undo' || entry.historyAction === 'redo'
+        )
+    ) {
+        return false;
+    }
+
+    if (!isLocalKeyboardMoveCommittedPacket(entries)) {
+        return false;
+    }
+
+    if (!fontCompilation?.isInitialized) {
+        return false;
+    }
+
+    const replayTargets = collectReplayTargetsFromEntries(entries);
+    if (replayTargets.length === 0) {
+        return false;
+    }
+
+    const fontModel = window.fontManager?.currentFont?.fontModel;
+    if (!fontModel) {
+        return false;
+    }
+
+    const expectedSnapshots = replayTargets
+        .map((target) => {
+            const layer = fontModel
+                .findGlyph(target.glyphName)
+                ?.findLayerById(target.layerId);
+            const layerData =
+                typeof layer?.toJSON === 'function'
+                    ? layer.toJSON()
+                    : (layer as unknown);
+            if (!layerData) {
+                return null;
+            }
+
+            return {
+                glyphName: target.glyphName,
+                layerId: target.layerId,
+                fingerprint: normalizeLayerDataForWorkerDriftCheck(layerData)
+            };
+        })
+        .filter(
+            (
+                snapshot
+            ): snapshot is {
+                glyphName: string;
+                layerId: string;
+                fingerprint: string;
+            } => !!snapshot
+        );
+
+    if (expectedSnapshots.length === 0) {
+        return false;
+    }
+
+    const response = await fontCompilation.sendMessage({
+        type: 'dumpLayerState',
+        layerTargets: replayTargets
+    });
+
+    window.fontManager.pendingCommittedKeyboardDriftCheckAfterDrag = false;
+
+    if (response?.error) {
+        console.error(
+            '[ChangeBridgeInit] Failed to inspect committed keyboard worker state:',
+            response.error
+        );
+        return false;
+    }
+
+    const dump = response?.dumpJson ? JSON.parse(response.dumpJson) : null;
+    const dumpTargets = Array.isArray(dump?.targets) ? dump.targets : [];
+    const mismatches: string[] = [];
+    const seenTargets = new Set<string>();
+    const expectedByTarget = new Map(
+        expectedSnapshots.map((snapshot) => [
+            `${snapshot.glyphName}@@${snapshot.layerId}`,
+            snapshot.fingerprint
+        ])
+    );
+
+    for (const target of dumpTargets) {
+        const glyphName =
+            typeof target?.glyphName === 'string' ? target.glyphName : null;
+        const layerId =
+            typeof target?.layerId === 'string' ? target.layerId : null;
+        if (!glyphName || !layerId) {
+            continue;
+        }
+
+        const targetKey = `${glyphName}@@${layerId}`;
+        seenTargets.add(targetKey);
+
+        const expectedFingerprint = expectedByTarget.get(targetKey) ?? 'null';
+        const rustCanonicalFingerprint = normalizeLayerDataForWorkerDriftCheck(
+            target?.canonicalLayer
+        );
+        const rustSubsetFingerprint = normalizeLayerDataForWorkerDriftCheck(
+            target?.subsetLayer
+        );
+        const rustYDocFingerprint = normalizeLayerDataForWorkerDriftCheck(
+            target?.ydocLayer
+        );
+
+        if (
+            expectedFingerprint !== rustCanonicalFingerprint ||
+            expectedFingerprint !== rustSubsetFingerprint ||
+            expectedFingerprint !== rustYDocFingerprint
+        ) {
+            mismatches.push(
+                `${glyphName}/${layerId}: expected=${expectedFingerprint} rustCanonical=${rustCanonicalFingerprint} rustSubset=${rustSubsetFingerprint} rustYDoc=${rustYDocFingerprint}`
+            );
+        }
+    }
+
+    for (const target of replayTargets) {
+        const targetKey = `${target.glyphName}@@${target.layerId}`;
+        if (!seenTargets.has(targetKey)) {
+            mismatches.push(
+                `${target.glyphName}/${target.layerId}: missing from Rust dump response`
+            );
+        }
+    }
+
+    if (mismatches.length === 0) {
+        return false;
+    }
+
+    const error = new Error(
+        'Committed keyboard glyph data did not reach the compiled worker state after the authoritative commit.\n' +
+            'Keyboard edits are no longer recompiling the editing font on fresh data.\n' +
+            'Reload the font or app before continuing.\n\n' +
+            mismatches.join('\n')
+    );
+    sidebarErrorDisplay.showError(error, 'editing', { sticky: true });
+    console.error(
+        '[ChangeBridgeInit] Committed keyboard worker drift detected:',
+        error.message
+    );
+    return true;
+}
+
 function getLayerWidth(
     glyphName?: string | null,
     layerId?: string | null
@@ -1949,6 +2141,16 @@ export async function handleCommittedChangeRefresh(
             dependencies?.awaitWorkerSync ??
             (() => fontCompilation.awaitWorkerDocumentSync());
         await awaitLocalCommittedWorkerCacheSettled(awaitWorkerSync);
+
+        if (
+            await showCommittedKeyboardWorkerDriftIfNeeded(
+                entries,
+                localCompileContext
+            )
+        ) {
+            await refreshGlyphOverviewFromCommittedEntries(entries);
+            return;
+        }
 
         // Local committed packets rely on the authoritative incremental Yjs
         // worker update already forwarded by setYjsWorkerCallback().

@@ -4362,6 +4362,7 @@ export class OutlineEditor {
         }
 
         const detail = mismatches.join('\n');
+        fontManager.pendingCommittedKeyboardDriftCheckAfterDrag = true;
         const error = new Error(
             'Visible live drag glyph data did not reach the compiled worker state.\n' +
                 'Reload the font or app before continuing.\n\n' +

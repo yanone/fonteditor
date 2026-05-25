@@ -613,6 +613,7 @@ class FontManager {
     isExternalReloading: boolean = false;
     pendingDebugEditingFontSaveAfterDrag: boolean;
     pendingBabelfontJsonSyncAfterDrag: boolean;
+    pendingCommittedKeyboardDriftCheckAfterDrag: boolean;
     workerCacheUpdatePromise: Promise<void> | null;
     forceFullEditingCacheRefresh: boolean;
     workerLayerFingerprintCache: Map<string, string>;
@@ -678,6 +679,7 @@ class FontManager {
         this.isExternalReloading = false;
         this.pendingDebugEditingFontSaveAfterDrag = false;
         this.pendingBabelfontJsonSyncAfterDrag = false;
+        this.pendingCommittedKeyboardDriftCheckAfterDrag = false;
         this.workerCacheUpdatePromise = null;
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache = new Map();
@@ -1082,6 +1084,7 @@ class FontManager {
         this.lastFullCompiledDataVersion = -1;
         this.pendingDebugEditingFontSaveAfterDrag = false;
         this.pendingBabelfontJsonSyncAfterDrag = false;
+        this.pendingCommittedKeyboardDriftCheckAfterDrag = false;
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache.clear();
         window.currentFontModel = null;
