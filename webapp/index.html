@@ -599,7 +599,17 @@
                                     >G</span
                                 >
                             </div>
-                            <div class="view-title-actions"></div>
+                            <div class="view-title-actions">
+                                <button
+                                    id="agent-info-btn"
+                                    class="view-title-action-btn"
+                                    title="Agent tools and capabilities"
+                                >
+                                    <span class="material-symbols-outlined"
+                                        >question_mark</span
+                                    >
+                                </button>
+                            </div>
                         </div>
                         <div class="view-title-right">
                             <button
@@ -1467,6 +1477,28 @@
                             >
                         </p>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Agent Info Modal -->
+        <div
+            class="info-popup-overlay"
+            id="agent-info-modal"
+            style="display: none"
+        >
+            <div class="info-popup">
+                <div class="info-popup-header">
+                    <h3>Agent Tools and Capabilities</h3>
+                    <button
+                        class="info-popup-close"
+                        id="agent-info-modal-close-btn"
+                    >
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <div class="info-popup-content" id="agent-info-modal-content">
+                    <!-- Populated by JavaScript -->
                 </div>
             </div>
         </div>

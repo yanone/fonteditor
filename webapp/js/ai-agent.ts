@@ -135,6 +135,68 @@ class AIAgent {
             this.promptInput!.style.height = 'auto';
             this.promptInput!.style.height = Math.min(this.promptInput!.scrollHeight, 120) + 'px';
         });
+
+        this.setupInfoModal();
+    }
+
+    setupInfoModal() {
+        const btn = document.getElementById('agent-info-btn');
+        const modal = document.getElementById('agent-info-modal');
+        const close = document.getElementById('agent-info-modal-close-btn');
+        const content = document.getElementById('agent-info-modal-content');
+        if (!btn || !modal || !close || !content) return;
+
+        // Populate content from AGENT_TOOLS
+        content.innerHTML = AGENT_TOOLS.map(
+            (tool) => `
+                <div class="ai-info-section" style="margin-bottom: 16px">
+                    <h4 style="font-size:14px;margin:0 0 4px 0;color:var(--text-primary);font-weight:600">
+                        ${tool.function.name}
+                    </h4>
+                    <p style="margin:0 0 8px 0;font-size:12px;color:var(--text-tertiary);line-height:1.5">
+                        ${tool.function.description}
+                    </p>
+                    ${
+                        Object.keys(tool.function.parameters?.properties || {}).length > 0
+                            ? `<div style="font-size:11px;color:var(--text-faint)">
+                                <strong>Parameters:</strong>
+                                ${Object.entries(tool.function.parameters?.properties || {})
+                                    .map(([name, prop]: [string, any]) =>
+                                        `<code style="background:var(--background-hover);padding:1px 4px;border-radius:3px">${name}</code>`
+                                    )
+                                    .join(' ')}
+                               </div>`
+                            : '<div style="font-size:11px;color:var(--text-faint)"><em>No parameters</em></div>'
+                    }
+                </div>
+            `
+        ).join('');
+
+        // Open
+        btn.addEventListener('click', (e: Event) => {
+            e.stopPropagation();
+            modal.style.display = 'flex';
+        });
+
+        // Close
+        const closeModal = () => {
+            modal.style.display = 'none';
+        };
+        close.addEventListener('click', closeModal);
+
+        // Close on backdrop click
+        modal.addEventListener('click', (e: Event) => {
+            if (e.target === modal) closeModal();
+        });
+
+        // Close on Escape
+        document.addEventListener('keydown', (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && modal.style.display === 'flex') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeModal();
+            }
+        });
     }
 
     addMessage(role: 'user' | 'agent' | 'error', content: string) {
@@ -300,6 +362,43 @@ class AIAgent {
                 const path = currentFont.path || '';
                 const url = pluginId ? `${pluginId}:///${path.replace(/^\//, '')}` : path;
                 return `${currentFont.name} — ${url}`;
+            }
+            case 'execute_python_code': {
+                const code = args.code;
+                if (!code) throw new Error('Missing required parameter: code');
+
+                const pyodide = (window as any).pyodide;
+                if (!pyodide) throw new Error('Python environment (Pyodide) not loaded yet. Please wait and try again.');
+
+                // Set up stdout capture
+                await pyodide.runPythonAsync(`
+import sys
+from io import StringIO
+_agent_output_buffer = StringIO()
+_agent_original_stdout = sys.stdout
+sys.stdout = _agent_output_buffer
+                `);
+
+                let output = '';
+                try {
+                    await pyodide.runPythonAsync(code);
+                    output = await pyodide.runPythonAsync(`
+output = _agent_output_buffer.getvalue()
+sys.stdout = _agent_original_stdout
+del _agent_output_buffer
+del _agent_original_stdout
+output
+                    `);
+                } catch (err: any) {
+                    // Restore stdout on error
+                    await pyodide.runPythonAsync(`
+if '_agent_original_stdout' in dir():
+    sys.stdout = _agent_original_stdout
+                    `);
+                    throw new Error(`Python error: ${err.message}`);
+                }
+
+                return output || '(no output)';
             }
             default:
                 throw new Error(`Unknown tool: ${name}`);

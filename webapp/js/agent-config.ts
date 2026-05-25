@@ -113,6 +113,24 @@ export const AGENT_TOOLS: AgentTool[] = [
                 required: []
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'execute_python_code',
+            description:
+                "Execute a custom Python script to read or modify the current font. Use the tool `python_api_docs` first to learn how to write Python scripts for the font model. The font is accessible via the Font() function which is readily available and doesn't need to be imported. Print output with print() to see results. Changes to the font model are automatically tracked and compiled.",
+            parameters: {
+                type: 'object',
+                properties: {
+                    code: {
+                        type: 'string',
+                        description: 'The Python code to execute.'
+                    }
+                },
+                required: ['code']
+            }
+        }
     }
 ];
 
