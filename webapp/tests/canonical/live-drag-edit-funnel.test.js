@@ -18,10 +18,11 @@ beforeEach(() => {
     window.fontManager = {
         currentFont: {
             compileRequestVersion: 0,
-            requestRecompileWithoutDataChange: jest.fn(() => {
+            requestRecompileWithoutDataChange: jest.fn((options) => {
                 window.fontManager.currentFont.compileRequestVersion += 1;
                 window.fontManager.recordEditingCompileRequestContext(
-                    window.fontManager.currentFont.compileRequestVersion
+                    window.fontManager.currentFont.compileRequestVersion,
+                    options?.compileContext
                 );
             })
         },
@@ -36,11 +37,15 @@ beforeEach(() => {
             this.lastChangeSource = null;
             this.lastEditType = null;
         },
-        recordEditingCompileRequestContext(compileRequestVersion) {
+        recordEditingCompileRequestContext(
+            compileRequestVersion,
+            compileContext
+        ) {
             this.recordedCompileContexts.push({
                 compileRequestVersion,
                 changeSource: this.lastChangeSource,
-                editType: this.lastEditType
+                editType: this.lastEditType,
+                dataFreshnessMode: compileContext?.dataFreshnessMode ?? null
             });
         }
     };
@@ -79,12 +84,19 @@ describe('LiveDragEditFunnel', () => {
             {
                 compileRequestVersion: 1,
                 changeSource: 'mouse-drag-outline',
-                editType: 'outline'
+                editType: 'outline',
+                dataFreshnessMode: 'live-drag-worker-preview'
             }
         ]);
         expect(
             window.fontManager.currentFont.requestRecompileWithoutDataChange
-        ).toHaveBeenCalledTimes(1);
+        ).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'mouse-drag-outline',
+                editType: 'outline',
+                dataFreshnessMode: 'live-drag-worker-preview'
+            }
+        });
         expect(
             window.autoCompileManager.checkAndSchedule
         ).toHaveBeenCalledTimes(1);

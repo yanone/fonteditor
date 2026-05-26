@@ -116,7 +116,10 @@ describe('collaboration-message scaffold', () => {
                 historyTargetType: 'feature',
                 historyTargetKey: 'liga',
                 historyTargetLabel: 'liga',
-                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }],
+                editSource: 'mouse-drag-sidebearing',
+                compileChangeSource: 'keyboard-sidebearing',
+                compileEditType: null
             })
         ];
 
@@ -146,6 +149,9 @@ describe('collaboration-message scaffold', () => {
                 transactionDurationMs: 18.25,
                 undoScope: 'glyph',
                 path: 'glyphs.A:name',
+                editSource: 'mouse-drag-sidebearing',
+                compileChangeSource: 'keyboard-sidebearing',
+                compileEditType: null,
                 historyTargetType: 'feature',
                 historyTargetKey: 'liga',
                 historyTargetLabel: 'liga'

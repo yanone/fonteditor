@@ -9,6 +9,7 @@ const {
     fontCompilation,
     fullFontCompilation
 } = require('../js/font-compilation');
+const { sidebarErrorDisplay } = require('../js/sidebar-error-display');
 const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
 
 describe('handleRemoteChangeRefresh', () => {
@@ -116,6 +117,268 @@ describe('handleRemoteChangeRefresh', () => {
             glyphName: 'a',
             glyphNames: ['a', 'adieresis']
         });
+    });
+
+    test('shows a sticky sidebar error for post-commit keyboard drift and skips compile', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const originalShowError = sidebarErrorDisplay.showError;
+        const showErrorMock = jest.fn();
+        const originalSendMessage = fontCompilation.sendMessage;
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const sendMessageMock = jest.fn(async () => ({
+            dumpJson: JSON.stringify({
+                targets: [
+                    {
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        canonicalLayer: staleLayer,
+                        subsetLayer: staleLayer,
+                        ydocLayer: staleLayer
+                    }
+                ]
+            })
+        }));
+        const expectedLayer = {
+            width: 542,
+            shapes: [],
+            anchors: [{ name: 'top', x: 278, y: 500 }],
+            guides: []
+        };
+        const staleLayer = {
+            width: 540,
+            shapes: [],
+            anchors: [{ name: 'top', x: 278, y: 490 }],
+            guides: []
+        };
+
+        fontCompilation.isInitialized = true;
+        fontCompilation.sendMessage = sendMessageMock;
+        sidebarErrorDisplay.showError = showErrorMock;
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
+                    findGlyph: jest.fn((glyphName) => ({
+                        findLayerById: jest.fn((layerId) =>
+                            glyphName === 'a' && layerId === 'layer-1'
+                                ? {
+                                      toJSON: () => expectedLayer
+                                  }
+                                : null
+                        )
+                    }))
+                }
+            },
+            pendingBabelfontJsonSyncAfterDrag: false,
+            pendingCommittedKeyboardDriftCheckAfterDrag: true,
+            lastChangeSource: 'keyboard-outline',
+            lastEditType: 'outline',
+            normalizeLayerForRust: jest.fn((layer) => layer)
+        };
+        const fontManagerState = window.fontManager;
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Arrow key',
+                        path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
+                        workerReplayTargets: [
+                            { glyphName: 'a', layerId: 'layer-1' }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile
+                }
+            );
+        } finally {
+            delete window.fontManager;
+            fontCompilation.sendMessage = originalSendMessage;
+            fontCompilation.isInitialized = originalIsInitialized;
+            sidebarErrorDisplay.showError = originalShowError;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(requestCompile).not.toHaveBeenCalled();
+        expect(sendMessageMock).toHaveBeenCalledWith({
+            type: 'dumpLayerState',
+            layerTargets: [{ glyphName: 'a', layerId: 'layer-1' }]
+        });
+        expect(showErrorMock).toHaveBeenCalledWith(
+            expect.any(Error),
+            'editing',
+            { sticky: true }
+        );
+        expect(
+            fontManagerState.pendingCommittedKeyboardDriftCheckAfterDrag
+        ).toBe(false);
+        const error = showErrorMock.mock.calls[0][0];
+        expect(error.message).toContain(
+            'Committed keyboard glyph data did not reach the compiled worker state after the authoritative commit.'
+        );
+        expect(error.message).toContain(
+            'Keyboard edits are no longer recompiling the editing font on fresh data.'
+        );
+        expect(error.message).toContain('a/layer-1: expected=');
+    });
+
+    test('continues the post-commit keyboard compile when post-drag worker state is already fresh', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const originalShowError = sidebarErrorDisplay.showError;
+        const showErrorMock = jest.fn();
+        const originalSendMessage = fontCompilation.sendMessage;
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const expectedLayer = {
+            width: 542,
+            shapes: [],
+            anchors: [{ name: 'top', x: 278, y: 500 }],
+            guides: []
+        };
+        const sendMessageMock = jest.fn(async () => ({
+            dumpJson: JSON.stringify({
+                targets: [
+                    {
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        canonicalLayer: expectedLayer,
+                        subsetLayer: expectedLayer,
+                        ydocLayer: expectedLayer
+                    }
+                ]
+            })
+        }));
+
+        fontCompilation.isInitialized = true;
+        fontCompilation.sendMessage = sendMessageMock;
+        sidebarErrorDisplay.showError = showErrorMock;
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
+                    findGlyph: jest.fn((glyphName) => ({
+                        findLayerById: jest.fn((layerId) =>
+                            glyphName === 'a' && layerId === 'layer-1'
+                                ? {
+                                      toJSON: () => expectedLayer
+                                  }
+                                : null
+                        )
+                    }))
+                }
+            },
+            pendingBabelfontJsonSyncAfterDrag: false,
+            pendingCommittedKeyboardDriftCheckAfterDrag: true,
+            lastChangeSource: 'keyboard-outline',
+            lastEditType: 'outline',
+            normalizeLayerForRust: jest.fn((layer) => layer)
+        };
+        const fontManagerState = window.fontManager;
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Arrow key',
+                        path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
+                        workerReplayTargets: [
+                            { glyphName: 'a', layerId: 'layer-1' }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile
+                }
+            );
+        } finally {
+            delete window.fontManager;
+            fontCompilation.sendMessage = originalSendMessage;
+            fontCompilation.isInitialized = originalIsInitialized;
+            sidebarErrorDisplay.showError = originalShowError;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(sendMessageMock).toHaveBeenCalledWith({
+            type: 'dumpLayerState',
+            layerTargets: [{ glyphName: 'a', layerId: 'layer-1' }]
+        });
+        expect(showErrorMock).not.toHaveBeenCalled();
+        expect(
+            fontManagerState.pendingCommittedKeyboardDriftCheckAfterDrag
+        ).toBe(false);
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
+        );
+    });
+
+    test('skips the post-commit keyboard drift check in fresh keyboard state', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const originalShowError = sidebarErrorDisplay.showError;
+        const showErrorMock = jest.fn();
+        const originalSendMessage = fontCompilation.sendMessage;
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const sendMessageMock = jest.fn(async () => ({
+            dumpJson: JSON.stringify({ targets: [] })
+        }));
+
+        fontCompilation.isInitialized = true;
+        fontCompilation.sendMessage = sendMessageMock;
+        sidebarErrorDisplay.showError = showErrorMock;
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            pendingBabelfontJsonSyncAfterDrag: false,
+            pendingCommittedKeyboardDriftCheckAfterDrag: false,
+            lastChangeSource: 'keyboard-outline',
+            lastEditType: 'outline',
+            normalizeLayerForRust: jest.fn((layer) => layer)
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Arrow key',
+                        path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
+                        workerReplayTargets: [
+                            { glyphName: 'a', layerId: 'layer-1' }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile
+                }
+            );
+        } finally {
+            delete window.fontManager;
+            fontCompilation.sendMessage = originalSendMessage;
+            fontCompilation.isInitialized = originalIsInitialized;
+            sidebarErrorDisplay.showError = originalShowError;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(sendMessageMock).not.toHaveBeenCalled();
+        expect(showErrorMock).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
+        );
     });
 
     test('prefers inferred keyboard-anchor context over a stale trailing full-compile source', async () => {
@@ -816,12 +1079,12 @@ describe('handleRemoteChangeRefresh', () => {
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
         expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
-            'keyboard-sidebearing',
+            'keyboard-outline',
             'outline'
         );
     });
 
-    test('local commit without layer-scoped paths still runs cache refresh', async () => {
+    test('local feature-code commit still relies on the forwarded worker update', async () => {
         const awaitWorkerSync = jest.fn(async () => {});
         const requestCompile = jest.fn(async () => {});
         const queueCacheRefresh = jest.fn(async () => {});
@@ -859,8 +1122,8 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        // Feature-code commit without layer-scope paths still runs the
-        // cache refresh (it's not a GUI-complete layer packet).
+        // Local committed packets rely on the forwarded worker update even
+        // when the edit is not a layer-scoped GUI packet.
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
         expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith('feature-code', null);
@@ -1038,6 +1301,8 @@ describe('bridge Yjs worker callback', () => {
     const originalWindowSync = window.windowSync;
     const originalWindowRole = window.windowRole;
     const originalFontManager = window.fontManager;
+    const originalAutoCompileManager = window.autoCompileManager;
+    const originalSaveButton = window.saveButton;
     const originalInitialized = fontCompilation.isInitialized;
 
     function makeBridgeInitFont() {
@@ -1091,8 +1356,56 @@ describe('bridge Yjs worker callback', () => {
         window.windowSync = originalWindowSync;
         window.windowRole = originalWindowRole;
         window.fontManager = originalFontManager;
+        window.autoCompileManager = originalAutoCompileManager;
+        window.saveButton = originalSaveButton;
         fontCompilation.isInitialized = originalInitialized;
         jest.restoreAllMocks();
+    });
+
+    test('dirty callback marks unsaved state without creating an ambient editing compile request', () => {
+        const markDirty = jest.fn();
+        const requestRecompileWithoutDataChange = jest.fn();
+        const updateDirtyIndicator = jest.fn();
+        const updateButtonState = jest.fn();
+
+        fontCompilation.isInitialized = false;
+        window.windowRole = {
+            isLinkedWindow: () => false,
+            getRoleLabel: () => 'main'
+        };
+        window.autoCompileManager = { checkAndSchedule: jest.fn() };
+        window.saveButton = { updateButtonState };
+        window.fontManager = {
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            clearEditingCompileContext: jest.fn(),
+            pendingBabelfontJsonSyncAfterDrag: false,
+            updateDirtyIndicator,
+            currentFont: {
+                changeVersion: 1,
+                compileRequestVersion: 1,
+                markDirty,
+                requestRecompileWithoutDataChange,
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            }
+        };
+
+        const bridge = initializeBridgeHarness();
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            610
+        );
+
+        expect(markDirty).toHaveBeenCalledWith(undefined, {
+            requestEditingCompile: false
+        });
+        expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
+        expect(updateDirtyIndicator).toHaveBeenCalledTimes(1);
+        expect(updateButtonState).toHaveBeenCalledTimes(1);
     });
 
     test('forwards feature-code Yjs updates to Rust with empty glyph metadata', async () => {
@@ -2329,6 +2642,7 @@ describe('committed undo/redo compile requests', () => {
                 this.lastChangeSource = null;
                 this.lastEditType = null;
             },
+            scheduleFullCompileDebounce: jest.fn(),
             currentFont: {
                 compileRequestVersion: 10,
                 requestRecompileWithoutDataChange
@@ -2353,9 +2667,18 @@ describe('committed undo/redo compile requests', () => {
             }
         );
 
-        expect(window.fontManager.lastChangeSource).toBe('keyboard-anchor');
-        expect(window.fontManager.lastEditType).toBe('anchor');
+        expect(window.fontManager.lastChangeSource).toBeNull();
+        expect(window.fontManager.lastEditType).toBeNull();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'keyboard-anchor',
+                editType: 'anchor'
+            }
+        });
+        expect(
+            window.fontManager.scheduleFullCompileDebounce
+        ).not.toHaveBeenCalled();
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
         expect(forceTrigger).toHaveBeenCalledTimes(1);
         expect(window.fontManager.currentFont.compileRequestVersion).toBe(11);
@@ -2404,19 +2727,24 @@ describe('committed undo/redo compile requests', () => {
             }
         );
 
-        expect(window.fontManager.lastChangeSource).toBe(
-            'keyboard-kerning-value'
-        );
-        expect(window.fontManager.lastEditType).toBe('kerning-value');
+        expect(window.fontManager.lastChangeSource).toBeNull();
+        expect(window.fontManager.lastEditType).toBeNull();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'keyboard-kerning-value',
+                editType: 'kerning-value'
+            }
+        });
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
     });
 
-    test('undo sidebearing packets preserve the outline fast path', async () => {
+    test('undo sidebearing packets preserve the stamped sidebearing compile context', async () => {
         const checkAndSchedule = jest.fn();
         const requestRecompileWithoutDataChange = jest.fn(function () {
             this.compileRequestVersion += 1;
         });
+        const queueCacheRefresh = jest.fn(async () => {});
 
         window.autoCompileManager = {
             checkAndSchedule
@@ -2444,6 +2772,8 @@ describe('committed undo/redo compile requests', () => {
                     historyAction: 'undo',
                     transactionLabel: 'Set sidebearing',
                     path: 'glyphs.a.layers.layer-1',
+                    compileChangeSource: 'keyboard-sidebearing',
+                    compileEditType: null,
                     visualAnchorSide: 'left',
                     workerReplayTargets: [
                         { glyphName: 'a', layerId: 'layer-1' }
@@ -2453,17 +2783,24 @@ describe('committed undo/redo compile requests', () => {
             'local',
             {
                 awaitWorkerSync: jest.fn(async () => {}),
-                queueCacheRefresh: jest.fn(async () => {})
+                queueCacheRefresh
             }
         );
 
-        expect(window.fontManager.lastChangeSource).toBe('keyboard-outline');
-        expect(window.fontManager.lastEditType).toBe('outline');
+        expect(window.fontManager.lastChangeSource).toBeNull();
+        expect(window.fontManager.lastEditType).toBeNull();
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'keyboard-sidebearing',
+                editType: null
+            }
+        });
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
     });
 
-    test('undo sidebearing fallback reuses history metadata for outline fast path', async () => {
+    test('undo sidebearing fallback reuses stamped history metadata for full compile', async () => {
         originalWindow.fontManager = {
             lastChangeSource: null,
             lastEditType: null,
@@ -2493,7 +2830,13 @@ describe('committed undo/redo compile requests', () => {
         };
         originalWindow.autoCompileManager = {
             checkAndSchedule: jest.fn(),
-            forceTrigger: jest.fn().mockResolvedValue(undefined)
+            forceTrigger: jest.fn(async () => {
+                originalWindow.dispatchEvent(
+                    new CustomEvent('editingFontCompiled', {
+                        detail: { fontRevisionKey: '1' }
+                    })
+                );
+            })
         };
         originalWindow.glyphCanvas = {
             viewportManager: { panX: 100, scale: 2 },
@@ -2520,7 +2863,9 @@ describe('committed undo/redo compile requests', () => {
                     entries: [
                         {
                             oldValue: 480,
-                            newValue: 500
+                            newValue: 500,
+                            compileChangeSource: 'keyboard-sidebearing',
+                            compileEditType: null
                         }
                     ],
                     touchedPaths: ['glyphs.a.layers.layer-1.width'],
@@ -2541,14 +2886,21 @@ describe('committed undo/redo compile requests', () => {
             null
         );
 
-        expect(originalWindow.fontManager.lastChangeSource).toBe(
-            'keyboard-outline'
-        );
-        expect(originalWindow.fontManager.lastEditType).toBe('outline');
+        expect(originalWindow.fontManager.lastChangeSource).toBeNull();
+        expect(originalWindow.fontManager.lastEditType).toBeNull();
         expect(
             originalWindow.fontManager.currentFont
                 .requestRecompileWithoutDataChange
         ).toHaveBeenCalledTimes(1);
+        expect(
+            originalWindow.fontManager.currentFont
+                .requestRecompileWithoutDataChange
+        ).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'keyboard-sidebearing',
+                editType: null
+            }
+        });
     });
 
     test('undo outline replay reuses forward layer-snapshot metadata instead of generic undo source', async () => {
@@ -2588,7 +2940,13 @@ describe('committed undo/redo compile requests', () => {
         };
         originalWindow.autoCompileManager = {
             checkAndSchedule: jest.fn(),
-            forceTrigger: jest.fn().mockResolvedValue(undefined)
+            forceTrigger: jest.fn(async () => {
+                originalWindow.dispatchEvent(
+                    new CustomEvent('editingFontCompiled', {
+                        detail: { fontRevisionKey: '1' }
+                    })
+                );
+            })
         };
         originalWindow.glyphCanvas = {
             viewportManager: { panX: 100, scale: 2 },
@@ -2664,9 +3022,16 @@ describe('committed undo/redo compile requests', () => {
             null
         );
 
-        expect(originalWindow.fontManager.lastChangeSource).toBe(
-            'keyboard-outline'
-        );
-        expect(originalWindow.fontManager.lastEditType).toBe('outline');
+        expect(originalWindow.fontManager.lastChangeSource).toBeNull();
+        expect(originalWindow.fontManager.lastEditType).toBeNull();
+        expect(
+            originalWindow.fontManager.currentFont
+                .requestRecompileWithoutDataChange
+        ).toHaveBeenCalledWith({
+            compileContext: {
+                changeSource: 'keyboard-outline',
+                editType: 'outline'
+            }
+        });
     });
 });

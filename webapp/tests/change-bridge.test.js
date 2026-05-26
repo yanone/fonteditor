@@ -3410,6 +3410,47 @@ describe('WindowSync', () => {
         bridge.destroy();
     });
 
+    test('local commits emit the in-hand packet entries even if the local cursor is stale', () => {
+        const { bridge } = createTestBridge('win-exact-packet');
+        const localUpdates = [];
+        bridge.onLocalUpdate((update, _message, changeLogEntries) => {
+            localUpdates.push({ update, changeLogEntries });
+        });
+
+        bridge.applySyntheticChangeSet('First packet', [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 700
+            }
+        ]);
+
+        bridge._lastLocalUpdateLogIndex = 0;
+
+        bridge.applySyntheticChangeSet('Second packet', [
+            {
+                op: 'set',
+                path: ['glyphs', 'B', 'layers', 'layer-2', 'width'],
+                oldValue: 650,
+                newValue: 720
+            }
+        ]);
+
+        expect(localUpdates).toHaveLength(2);
+        expect(localUpdates[1].update).toBeInstanceOf(Uint8Array);
+        expect(
+            localUpdates[1].changeLogEntries.map((entry) => entry.path)
+        ).toEqual(['glyphs.B:layers.layer-2:width']);
+        expect(
+            localUpdates[1].changeLogEntries.map(
+                (entry) => entry.transactionLabel
+            )
+        ).toEqual(['Second packet']);
+
+        bridge.destroy();
+    });
+
     test('linked window can undo a main-window edit', () => {
         const fontJson1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('win-1');
@@ -7077,7 +7118,10 @@ describe('syncGlyphFromJson', () => {
             undefined,
             'LEFT 40',
             'left',
-            changedTargets
+            changedTargets,
+            'mouse-drag-sidebearing',
+            'keyboard-sidebearing',
+            null
         );
 
         const remoteEntries = senderBridge.getNewChangeLogEntries();
@@ -7088,6 +7132,9 @@ describe('syncGlyphFromJson', () => {
         expect(changeEntries).toHaveLength(2);
         changeEntries.forEach((entry) => {
             expect(entry.workerReplayTargets).toEqual(changedTargets);
+            expect(entry.editSource).toBe('mouse-drag-sidebearing');
+            expect(entry.compileChangeSource).toBe('keyboard-sidebearing');
+            expect(entry.compileEditType).toBeNull();
         });
 
         receiverBridge.applyRemoteUpdate(lastUpdate, remoteEntries);
@@ -7568,7 +7615,8 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
 
         // Undo a layer-scoped edit (this goes through um.undo(), not
         // _applyHistoryItem if the history item can't be replayed directly)
-        bridge.undo('A', 'layer-1');
+        const undoResult = bridge.undo('A', 'layer-1');
+        expect(undoResult).not.toBeNull();
         flushTimers();
 
         const yjsUpdates = captured.filter((m) => m.type === 'yjs-update');
@@ -7599,10 +7647,6 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
             undefined,
             'layer-1'
         );
-
-        // Undo on primary
-        const undoResult = bridge.undo('A', 'layer-1');
-        expect(undoResult).not.toBeNull();
 
         // Verify the undo was effective locally
         expect(

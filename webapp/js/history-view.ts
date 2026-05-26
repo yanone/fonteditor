@@ -363,6 +363,7 @@ class HistoryViewController {
             this.buildMetadataRow('Label', item.label),
             this.buildMetadataRow('Direction', item.direction),
             this.buildMetadataRow('Source', item.source),
+            this.buildMetadataRow('Edit source', item.editSource),
             this.buildMetadataRow(
                 'Timestamp',
                 this.formatTimestamp(item.timestamp)

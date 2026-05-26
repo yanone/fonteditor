@@ -16,6 +16,11 @@ const APP_SETTINGS = {
         SAVE_DEBUG_FONTS: true // Set to true to save typing/editing fonts to file system for inspection
     },
 
+    // In-browser live diagnostic checks
+    IN_BROWSER_LIVE_TESTS: {
+        ENABLE_WORKER_DRIFT_CHECKS: true // Runtime drift sentinels for live debugging of drag/keyboard worker state
+    },
+
     // Text display settings
     TEXT_DISPLAY: {
         LOAD_FROM_FONT: true // Set to true to load display string from font.format_specific on font open
@@ -80,6 +85,9 @@ const APP_SETTINGS = {
 
         // Preview mode
         PREVIEW_MODE_DELAY: 200, // ms - delay before activating preview mode with Space bar in text mode (below this delay, types a space character)
+
+        // Keyboard preview commits
+        KEYBOARD_PREVIEW_COMMIT_DEBOUNCE: 1000, // ms - idle delay before previewed keyboard edits commit to Yjs/history
 
         // Colors - Light Theme
         COLORS_LIGHT: {
@@ -227,6 +235,9 @@ const PRODUCTION_OVERRIDES = {
     },
     FONT_MANAGER: {
         SAVE_DEBUG_FONTS: false // Disable debug font generation in production
+    },
+    IN_BROWSER_LIVE_TESTS: {
+        ENABLE_WORKER_DRIFT_CHECKS: false // Disable live runtime drift sentinels in production
     }
 };
 
@@ -263,6 +274,13 @@ if (isProduction()) {
         Object.assign(
             APP_SETTINGS.FONT_MANAGER,
             PRODUCTION_OVERRIDES.FONT_MANAGER
+        );
+    }
+
+    if (PRODUCTION_OVERRIDES.IN_BROWSER_LIVE_TESTS) {
+        Object.assign(
+            APP_SETTINGS.IN_BROWSER_LIVE_TESTS,
+            PRODUCTION_OVERRIDES.IN_BROWSER_LIVE_TESTS
         );
     }
 } else {

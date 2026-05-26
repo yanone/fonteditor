@@ -1,3 +1,5 @@
+import type { EditingCompileContext } from './font-manager';
+
 export type LiveDragEditKind =
     | 'outline'
     | 'anchor'
@@ -8,6 +10,9 @@ export type LiveDragEditKind =
     | 'contrast-axis';
 
 export type LiveDragCompilingEditType = 'outline' | 'anchor' | null;
+
+const LIVE_DRAG_DATA_FRESHNESS_MODE: EditingCompileContext['dataFreshnessMode'] =
+    'live-drag-worker-preview';
 
 export type LiveDragEditRequest = {
     kind: LiveDragEditKind;
@@ -128,7 +133,13 @@ export class LiveDragEditFunnel {
             request.compile.changeSource,
             request.compile.editType
         );
-        currentFont.requestRecompileWithoutDataChange();
+        currentFont.requestRecompileWithoutDataChange({
+            compileContext: {
+                changeSource: request.compile.changeSource,
+                editType: request.compile.editType,
+                dataFreshnessMode: LIVE_DRAG_DATA_FRESHNESS_MODE
+            }
+        });
         window.autoCompileManager?.checkAndSchedule?.();
         this.clearMatchingCompileContext(request);
     }

@@ -7,11 +7,16 @@ import init, {
     compile_cached_font,
     compile_cached_full_font_with_filter_pipeline,
     compile_cached_font_from_last_layout_closure,
+    compile_preview_cached_font_from_last_layout_closure,
     store_font,
     init_ydoc_from_state,
     apply_yjs_update,
+    apply_preview_layer_overlay,
+    clear_preview_layer_overlay,
+    dump_layer_state_json,
     add_master_with_interpolated_layers_yjs,
     prime_layout_closure_cache,
+    prime_preview_layout_closure_cache,
     interpolate_glyph,
     reinterpolate_layer_yjs,
     reinterpolate_master_layers_yjs,
@@ -35,10 +40,13 @@ let cachedBabelfontJson: string | null = null; // Cache babelfont JSON for re-us
 let cachedFontRevisionKey: string | null = null;
 let cachedBaseSubsetKey: string | null = null;
 let cachedClosureGlyphCount: number | null = null;
+let cachedPreviewBaseSubsetKey: string | null = null;
+let cachedPreviewClosureGlyphCount: number | null = null;
 let fontCacheEpoch = 0;
 let lastStoreFontAtMs = 0;
 let dragCompilesSinceStore = 0;
 const PERF_TRACE_CONTEXT_GLOBAL_KEY = '__cpPerfTraceContext';
+const MAX_DUMP_LAYER_TARGETS = 256;
 
 type TimelineTraceContext = {
     process?: string;
@@ -46,6 +54,11 @@ type TimelineTraceContext = {
     parentSpanId?: string;
     requestId?: string;
     fontRevisionKey?: string;
+};
+
+type DumpLayerTarget = {
+    glyphName: string;
+    layerId: string;
 };
 
 function payloadDebugPrefix(payload: string): string {
@@ -601,6 +614,43 @@ export function compileFromLastLayoutClosureWithReprime(
     }
 }
 
+export function sanitizeDumpLayerTargets(
+    layerTargets: unknown,
+    maxTargets = MAX_DUMP_LAYER_TARGETS
+): DumpLayerTarget[] {
+    if (!Array.isArray(layerTargets)) {
+        throw new Error('dumpLayerState requires an array of layer targets');
+    }
+
+    if (layerTargets.length > maxTargets) {
+        throw new Error(
+            `dumpLayerState received ${layerTargets.length} targets; max ${maxTargets}`
+        );
+    }
+
+    return layerTargets.map((target, index) => {
+        const glyphName =
+            typeof target?.glyphName === 'string'
+                ? target.glyphName.trim()
+                : '';
+        const layerId =
+            typeof target?.layerId === 'string' ? target.layerId.trim() : '';
+
+        if (!glyphName) {
+            throw new Error(
+                `dumpLayerState target ${index} must include a non-empty glyphName`
+            );
+        }
+        if (!layerId) {
+            throw new Error(
+                `dumpLayerState target ${index} must include a non-empty layerId`
+            );
+        }
+
+        return { glyphName, layerId };
+    });
+}
+
 /**
  * Strip layerData fields from components in the font JSON,
  * ensure all layers have a shapes array,
@@ -1070,6 +1120,7 @@ self.onmessage = async (event) => {
                     fontRevisionKey,
                     _dragActive,
                     _compileSource,
+                    _usePreviewLayerOverlay,
                     _validateFeaturesAgainstFullFont
                 } = data;
 
@@ -1140,9 +1191,15 @@ self.onmessage = async (event) => {
                 const primeClosureSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.primeLayoutClosure'
                 );
+                const currentCachedBaseSubsetKey = _usePreviewLayerOverlay
+                    ? cachedPreviewBaseSubsetKey
+                    : cachedBaseSubsetKey;
+                const currentCachedClosureGlyphCount = _usePreviewLayerOverlay
+                    ? cachedPreviewClosureGlyphCount
+                    : cachedClosureGlyphCount;
                 const needsPrimeClosure =
-                    cachedBaseSubsetKey !== effectiveSubsetKey ||
-                    cachedClosureGlyphCount === null;
+                    currentCachedBaseSubsetKey !== effectiveSubsetKey ||
+                    currentCachedClosureGlyphCount === null;
                 const isOutlineIncrementalCompile =
                     String(_compileSource || '').startsWith('mouse-drag') ||
                     String(_compileSource || '').startsWith('keyboard');
@@ -1155,7 +1212,7 @@ self.onmessage = async (event) => {
                         '[FontWorker] Subset key changed during outline incremental compile',
                         {
                             _compileSource,
-                            previousSubsetKey: cachedBaseSubsetKey,
+                            previousSubsetKey: currentCachedBaseSubsetKey,
                             incomingSubsetKey: effectiveSubsetKey,
                             hasSubsetGlyphs: !!baseSubsetGlyphs?.length
                         }
@@ -1169,11 +1226,23 @@ self.onmessage = async (event) => {
                         );
                     }
 
-                    cachedClosureGlyphCount = prime_layout_closure_cache(
-                        effectiveSubsetKey,
-                        JSON.stringify(baseSubsetGlyphs)
-                    );
-                    cachedBaseSubsetKey = effectiveSubsetKey;
+                    const primedClosureGlyphCount = _usePreviewLayerOverlay
+                        ? prime_preview_layout_closure_cache(
+                              effectiveSubsetKey,
+                              JSON.stringify(baseSubsetGlyphs)
+                          )
+                        : prime_layout_closure_cache(
+                              effectiveSubsetKey,
+                              JSON.stringify(baseSubsetGlyphs)
+                          );
+                    if (_usePreviewLayerOverlay) {
+                        cachedPreviewClosureGlyphCount =
+                            primedClosureGlyphCount;
+                        cachedPreviewBaseSubsetKey = effectiveSubsetKey;
+                    } else {
+                        cachedClosureGlyphCount = primedClosureGlyphCount;
+                        cachedBaseSubsetKey = effectiveSubsetKey;
+                    }
                     timelineMark(
                         'font.worker.compileEditingCached.primeLayoutClosure.primed'
                     );
@@ -1206,15 +1275,24 @@ self.onmessage = async (event) => {
                     options || {},
                     effectiveSubsetKey,
                     baseSubsetGlyphs,
-                    compile_cached_font_from_last_layout_closure,
-                    prime_layout_closure_cache,
+                    _usePreviewLayerOverlay
+                        ? compile_preview_cached_font_from_last_layout_closure
+                        : compile_cached_font_from_last_layout_closure,
+                    _usePreviewLayerOverlay
+                        ? prime_preview_layout_closure_cache
+                        : prime_layout_closure_cache,
                     (closureGlyphCount) => {
                         timelineMark(
                             'font.worker.compileEditingCached.compileCachedFont.reprimeMissingClosure',
                             { parentSpanId: compileCachedSpanId }
                         );
-                        cachedClosureGlyphCount = closureGlyphCount;
-                        cachedBaseSubsetKey = effectiveSubsetKey;
+                        if (_usePreviewLayerOverlay) {
+                            cachedPreviewClosureGlyphCount = closureGlyphCount;
+                            cachedPreviewBaseSubsetKey = effectiveSubsetKey;
+                        } else {
+                            cachedClosureGlyphCount = closureGlyphCount;
+                            cachedBaseSubsetKey = effectiveSubsetKey;
+                        }
                     }
                 );
                 timelineMark(
@@ -1237,7 +1315,10 @@ self.onmessage = async (event) => {
                         id,
                         time_taken: endTime - startTime,
                         fontRevisionKey: revisionKey,
-                        closureGlyphCount: cachedClosureGlyphCount || 0,
+                        closureGlyphCount:
+                            (_usePreviewLayerOverlay
+                                ? cachedPreviewClosureGlyphCount
+                                : cachedClosureGlyphCount) || 0,
                         compileSource: _compileSource
                     },
                     compiledBytes
@@ -1421,6 +1502,8 @@ self.onmessage = async (event) => {
                 cachedBabelfontJson = babelfontJson;
                 cachedBaseSubsetKey = null;
                 cachedClosureGlyphCount = null;
+                cachedPreviewBaseSubsetKey = null;
+                cachedPreviewClosureGlyphCount = null;
 
                 self.postMessage({
                     id,
@@ -1506,6 +1589,8 @@ self.onmessage = async (event) => {
                 cachedBabelfontJson = null;
                 cachedBaseSubsetKey = null;
                 cachedClosureGlyphCount = null;
+                cachedPreviewBaseSubsetKey = null;
+                cachedPreviewClosureGlyphCount = null;
                 fontCacheEpoch += 1;
                 self.postMessage({ id, type: 'seedYdoc', success: true });
             } catch (e: any) {
@@ -1578,6 +1663,8 @@ self.onmessage = async (event) => {
                     ? parsedResult.changedGlyphs.length
                     : null;
                 cachedBabelfontJson = null;
+                cachedPreviewBaseSubsetKey = null;
+                cachedPreviewClosureGlyphCount = null;
                 // Rust clears the primed layout-closure cache for any
                 // successful no-glyph update because it rebuilds top-level
                 // feature caches from the Y.Doc. Mirror that invalidation in
@@ -1603,6 +1690,101 @@ self.onmessage = async (event) => {
                 self.postMessage({
                     id,
                     type: 'applyYjsUpdate',
+                    success: false,
+                    error: e.toString()
+                });
+            }
+            return;
+        }
+
+        if (data.type === 'applyPreviewLayerOverlay') {
+            const {
+                id,
+                layerUpdates,
+                changedGlyphs,
+                layerTargets,
+                nonGlyphChangeHints,
+                invalidateLayoutClosure
+            } = data;
+            try {
+                if (!initialized) {
+                    await initializeWasm();
+                }
+                const updateMetadataJson = JSON.stringify({
+                    changedGlyphs: Array.isArray(changedGlyphs)
+                        ? changedGlyphs
+                        : [],
+                    nonGlyphChangeHints: Array.isArray(nonGlyphChangeHints)
+                        ? nonGlyphChangeHints
+                        : [],
+                    layerTargets: Array.isArray(layerTargets)
+                        ? layerTargets
+                        : []
+                });
+                const resultJson = apply_preview_layer_overlay(
+                    JSON.stringify(
+                        Array.isArray(layerUpdates) ? layerUpdates : []
+                    ),
+                    updateMetadataJson
+                );
+                let parsedResult: {
+                    skipped?: string;
+                    changedGlyphs?: unknown;
+                } | null = null;
+                try {
+                    parsedResult = JSON.parse(resultJson);
+                } catch {
+                    // Ignore parse errors — treat as non-skipped
+                }
+                const wasSkipped = parsedResult?.skipped != null;
+                if (!wasSkipped && invalidateLayoutClosure !== false) {
+                    cachedPreviewBaseSubsetKey = null;
+                    cachedPreviewClosureGlyphCount = null;
+                }
+                self.postMessage({
+                    id,
+                    type: 'applyPreviewLayerOverlay',
+                    success: true,
+                    result: resultJson,
+                    skipped: wasSkipped ? parsedResult!.skipped : undefined
+                });
+            } catch (e: any) {
+                console.error(
+                    '[Fontc Worker] applyPreviewLayerOverlay error:',
+                    e
+                );
+                self.postMessage({
+                    id,
+                    type: 'applyPreviewLayerOverlay',
+                    success: false,
+                    error: e.toString()
+                });
+            }
+            return;
+        }
+
+        if (data.type === 'clearPreviewLayerOverlay') {
+            const { id } = data;
+            try {
+                if (!initialized) {
+                    await initializeWasm();
+                }
+                clear_preview_layer_overlay();
+                cachedPreviewBaseSubsetKey = null;
+                cachedPreviewClosureGlyphCount = null;
+                self.postMessage({
+                    id,
+                    type: 'clearPreviewLayerOverlay',
+                    success: true
+                });
+            } catch (e: any) {
+                console.error(
+                    '[Fontc Worker] clearPreviewLayerOverlay error:',
+                    e
+                );
+                self.postMessage({
+                    id,
+                    type: 'clearPreviewLayerOverlay',
                     success: false,
                     error: e.toString()
                 });
@@ -1816,6 +1998,8 @@ self.onmessage = async (event) => {
                 cachedFontRevisionKey = null;
                 cachedBaseSubsetKey = null;
                 cachedClosureGlyphCount = null;
+                cachedPreviewBaseSubsetKey = null;
+                cachedPreviewClosureGlyphCount = null;
                 fontCacheEpoch = 0;
                 dragCompilesSinceStore = 0;
                 self.postMessage({
@@ -1863,6 +2047,8 @@ self.onmessage = async (event) => {
                 cachedFontRevisionKey = null;
                 cachedBaseSubsetKey = null;
                 cachedClosureGlyphCount = null;
+                cachedPreviewBaseSubsetKey = null;
+                cachedPreviewClosureGlyphCount = null;
                 fontCacheEpoch += 1;
                 dragCompilesSinceStore = 0;
                 lastStoreFontAtMs = 0;
@@ -1993,6 +2179,40 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(outlinesSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'dumpLayerState') {
+            const dumpSpanId = timelineSpanStart('font.worker.dumpLayerState');
+            const { id, layerTargets } = data;
+
+            try {
+                if (!initialized) {
+                    await initializeWasm();
+                }
+
+                const sanitizedLayerTargets =
+                    sanitizeDumpLayerTargets(layerTargets);
+
+                const dumpJson = dump_layer_state_json(
+                    JSON.stringify(sanitizedLayerTargets)
+                );
+
+                self.postMessage({
+                    id,
+                    type: 'dumpLayerState',
+                    dumpJson
+                });
+            } catch (e: any) {
+                console.error('[Fontc Worker] dumpLayerState error:', e);
+                self.postMessage({
+                    id,
+                    type: 'dumpLayerState',
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(dumpSpanId);
             }
             return;
         }

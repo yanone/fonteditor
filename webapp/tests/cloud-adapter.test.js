@@ -117,6 +117,7 @@ describe('CloudAdapter outbound updates', () => {
             path: 'glyphs.A:name',
             oldValue: 'A',
             newValue: 'A.alt',
+            editSource: 'mouse-drag-sidebearing',
             workerReplayTargets: []
         });
         const collaborationMessageHistory = [
@@ -182,6 +183,21 @@ describe('CloudAdapter outbound updates', () => {
                 expect.objectContaining({
                     path: 'glyphs.B:name',
                     transactionLabel: 'Pending Local'
+                })
+            ])
+        );
+        expect(bridge.mergeImportedCollaborationMessages).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    historyItemId:
+                        collaborationMessageHistory[0].metadata.historyItemId,
+                    editSource: 'mouse-drag-sidebearing'
+                }),
+                expect.objectContaining({
+                    historyItemId:
+                        adapter._pendingDurabilityMessages[0].metadata
+                            .historyItemId,
+                    editSource: null
                 })
             ])
         );

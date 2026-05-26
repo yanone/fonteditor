@@ -218,6 +218,7 @@ function importCollaborationMessageHistory(
             summary: message.summary,
             label: message.label,
             source: message.source,
+            editSource: message.metadata.editSource ?? null,
             windowId: message.windowId,
             windowRoleLabel:
                 message.metadata.sourceWindowRoleLabel ??

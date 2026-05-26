@@ -1017,6 +1017,7 @@ export class FontCompilation {
                 produce_varc_table?: boolean;
             };
             usePatchedWorkerCache?: boolean;
+            usePreviewLayerOverlay?: boolean;
         }
     ): Promise<{
         result: Uint8Array;
@@ -1052,6 +1053,9 @@ export class FontCompilation {
                 Object.assign(options, requestMeta.optionOverrides);
             }
 
+            // Cached editing compiles consume the worker's ready Y.Doc and send
+            // only the incremental sentinel below. feature-code is the one
+            // edit-time path that still compiles from the provided JSON string.
             if (requestMeta?.compileSource === 'feature-code') {
                 const result = await this.compileFromJson(
                     babelfontJson,
@@ -1102,7 +1106,9 @@ export class FontCompilation {
                 fontRevisionKey,
                 filename: 'editing-font.ttf',
                 _dragActive: requestMeta?.dragActive === true,
-                _compileSource: requestMeta?.compileSource
+                _compileSource: requestMeta?.compileSource,
+                _usePreviewLayerOverlay:
+                    requestMeta?.usePreviewLayerOverlay === true
             });
 
             this.lastEditingSubsetKey = subsetKey;

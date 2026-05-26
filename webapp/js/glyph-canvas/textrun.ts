@@ -68,6 +68,7 @@ export class TextRunEditor {
     explicitGlyphTokens: ExplicitGlyphToken[];
     explicitGlyphOutlineCache: Map<string, ExplicitGlyphOutlineData>;
     explicitGlyphOutlinePending: Set<string>;
+    explicitGlyphOutlineGeneration: number;
     displayTextBuffer: string;
     displayIndexToRawStart: number[];
     displayIndexToRawEnd: number[];
@@ -119,6 +120,7 @@ export class TextRunEditor {
         this.explicitGlyphTokens = [];
         this.explicitGlyphOutlineCache = new Map();
         this.explicitGlyphOutlinePending = new Set();
+        this.explicitGlyphOutlineGeneration = 0;
         this.displayTextBuffer = this.textBuffer;
         this.displayIndexToRawStart = [];
         this.displayIndexToRawEnd = [];
@@ -1682,6 +1684,7 @@ export class TextRunEditor {
     invalidateExplicitGlyphOutlineCache(): void {
         this.explicitGlyphOutlineCache.clear();
         this.explicitGlyphOutlinePending.clear();
+        this.explicitGlyphOutlineGeneration += 1;
     }
 
     async setFont(fontData: Uint8Array, isInitialLoad: boolean = false) {
@@ -2734,6 +2737,7 @@ export class TextRunEditor {
 
         const locationSnapshot = this.getCurrentVariationLocationSnapshot();
         const locationKey = this.serializeVariationLocation(locationSnapshot);
+        const requestGeneration = this.explicitGlyphOutlineGeneration;
 
         const glyphNamesToFetch = new Set<string>();
         for (const glyph of this.shapedGlyphs) {
@@ -2791,6 +2795,10 @@ export class TextRunEditor {
             const outlines: ExplicitGlyphOutlineData[] = JSON.parse(
                 response.outlinesJson || '[]'
             );
+
+            if (this.explicitGlyphOutlineGeneration !== requestGeneration) {
+                return;
+            }
 
             for (const outline of outlines) {
                 if (!outline?.name) {

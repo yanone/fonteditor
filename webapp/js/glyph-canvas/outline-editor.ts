@@ -19,6 +19,7 @@ import {
     endStartupInteractionLock
 } from '../startup-interaction-lock';
 import type { PatchSyncEngine } from '../patch-sync-engine';
+import { sidebarErrorDisplay } from '../sidebar-error-display';
 import {
     getHighestVisibleVerticalMetricValue,
     getLowestVisibleVerticalMetricValue,
@@ -36,6 +37,11 @@ import {
     type SidebearingSide
 } from '../sidebearing-utils';
 import { LiveDragEditFunnel } from '../live-drag-edit-funnel';
+import { KeyboardPreviewEditFunnel } from '../keyboard-preview-edit-funnel';
+import {
+    computeLayerRecompositionClosure,
+    deriveEditKindsFromDrag
+} from '../recomposition-closure';
 import { translateLayerContentsX } from '../x-translation-utils';
 import { refreshGlyphOverviewFromGlyphNames } from '../change-bridge-init';
 import { Bezier } from 'bezier-js';
@@ -94,6 +100,11 @@ type VisibleSidebearingHandle = SidebearingHandle & {
     x: number;
     y: number;
     editable: boolean;
+};
+type ExplicitLayerCacheInput = {
+    glyphName: string;
+    layerId: string;
+    layerData: Babelfont.Layer;
 };
 type EditableContour = {
     nodes: Babelfont.Node[];
@@ -2948,6 +2959,11 @@ export class OutlineEditor {
     private _sidebearingAffectedGlyphNames: Set<string> = new Set();
     private _anchorAffectedGlyphNames: Set<string> = new Set();
     private liveDragEditFunnel = new LiveDragEditFunnel();
+    private keyboardPreviewEditFunnel = new KeyboardPreviewEditFunnel();
+    private _pendingKeyboardPreviewCommit: {
+        preMoveDesc?: string;
+    } | null = null;
+    private _keyboardPreviewCommitInFlight: Promise<void> | null = null;
     private _cachedAnchorDragScopeSourceGlyphName: string | null = null;
     private _cachedAnchorDragScopeVisibleKey: string = '';
     private _cachedAnchorDragScopeGlyphNames: Set<string> | null = null;
@@ -4029,13 +4045,11 @@ export class OutlineEditor {
 
                 const explicitLayerInput =
                     this.getCurrentExplicitLayerCacheInput();
-
-                await fontManager.refreshGlyphsAfterModelBatch(
+                await fontManager.stageLiveDragPreviewFromModel(
                     glyphNames,
                     currentLayerId,
                     {
                         dispatchGlyphChanged: false,
-                        skipFingerprintBaseline: true,
                         ...(explicitLayerInput
                             ? { explicitLayerData: [explicitLayerInput] }
                             : undefined)
@@ -4084,11 +4098,8 @@ export class OutlineEditor {
         const currentLayerId = this.getCurrentLayerId();
 
         if (options?.liveVisibleOnly) {
-            // Batch source + downstream layer updates into a single worker
-            // cache sync. The live drag funnel owns the compile wake-up.
-            // Always include the source glyph even when there are no downstream
-            // dependents — the source glyph itself needs to be recompiled so
-            // the live text run reflects the current drag state.
+            // Live drag compiles use a transient preview JSON snapshot rather
+            // than mutating the authoritative worker document before commit.
             const allGlyphNames = [
                 ...(glyphName ? [glyphName] : []),
                 ...downstreamGlyphNames
@@ -4096,12 +4107,11 @@ export class OutlineEditor {
             if (allGlyphNames.length === 0) {
                 return;
             }
-            await fontManager.refreshGlyphsAfterModelBatch(
+            await fontManager.stageLiveDragPreviewFromModel(
                 allGlyphNames,
                 currentLayerId,
                 {
                     dispatchGlyphChanged: false,
-                    skipFingerprintBaseline: true,
                     ...(options.explicitLayerInput
                         ? {
                               explicitLayerData: [options.explicitLayerInput]
@@ -4136,6 +4146,509 @@ export class OutlineEditor {
                     error
                 );
             });
+    }
+
+    private hasPendingKeyboardPreviewCommit(): boolean {
+        return (
+            this._pendingKeyboardPreviewCommit !== null ||
+            this._keyboardPreviewCommitInFlight !== null ||
+            this.keyboardPreviewEditFunnel.hasPendingWork()
+        );
+    }
+
+    private getCurrentKeyboardSelectionHistoryDesc(): string | undefined {
+        if (this.selectedAnchors.length > 0) {
+            return this._buildAnchorDesc();
+        }
+        if (this.selectedPoints.length > 0) {
+            return this._buildNodeDesc();
+        }
+        if (this.selectedComponents.length > 0) {
+            return this._buildComponentDesc();
+        }
+        if (this.selectedSidebearingHandle) {
+            return this.selectedSidebearingHandle.side.toUpperCase();
+        }
+        return undefined;
+    }
+
+    private mergeGlyphNames(
+        target: Set<string>,
+        source: Iterable<string> | null | undefined
+    ): void {
+        if (!source) {
+            return;
+        }
+        for (const glyphName of source) {
+            if (glyphName) {
+                target.add(glyphName);
+            }
+        }
+    }
+
+    private async runKeyboardOutlinePreview(
+        affectedGlyphNames: Set<string>
+    ): Promise<boolean> {
+        const currentLayerId = this.getCurrentLayerId();
+        const fallbackGlyphName = this.getCurrentGlyphModel()?.name;
+        const previewGlyphNames = Array.from(
+            new Set([
+                ...affectedGlyphNames,
+                ...(fallbackGlyphName ? [fallbackGlyphName] : [])
+            ])
+        );
+
+        if (!currentLayerId || previewGlyphNames.length === 0) {
+            return false;
+        }
+
+        const explicitLayerInput = this.getCurrentExplicitLayerCacheInput();
+        await fontManager.stageLiveDragPreviewFromModel(
+            previewGlyphNames,
+            currentLayerId,
+            {
+                dispatchGlyphChanged: false,
+                ...(explicitLayerInput
+                    ? { explicitLayerData: [explicitLayerInput] }
+                    : undefined)
+            }
+        );
+
+        return true;
+    }
+
+    private async runKeyboardAnchorPreview(): Promise<boolean> {
+        const currentFont = fontManager.currentFont;
+        const fontModel = currentFont?.fontModel;
+        const sourceGlyphName = this.getCurrentGlyphModel()?.name;
+        if (!fontModel || !sourceGlyphName) {
+            return false;
+        }
+
+        const allowedGlyphNames = this.getCachedAnchorDragScopeGlyphNames(
+            sourceGlyphName,
+            fontModel
+        );
+        this._anchorAffectedGlyphNames =
+            this.rebuildAutomaticCompositesForCurrentEditedGlyph({
+                allowedGlyphNames
+            });
+
+        await this.syncDependentGlyphsAfterAnchorEdit(
+            sourceGlyphName,
+            this._anchorAffectedGlyphNames,
+            {
+                liveVisibleOnly: true,
+                explicitLayerInput:
+                    this.getCurrentExplicitLayerCacheInput() ?? undefined
+            }
+        );
+
+        return true;
+    }
+
+    private async runKeyboardSidebearingPreview(): Promise<boolean> {
+        const currentFont = fontManager.currentFont;
+        const fontModel = currentFont?.fontModel;
+        const sourceGlyphName = this.getCurrentGlyphModel()?.name;
+        if (!fontModel || !sourceGlyphName) {
+            return false;
+        }
+
+        const affectedGlyphNames =
+            this._sidebearingAffectedGlyphNames.size > 0
+                ? new Set(this._sidebearingAffectedGlyphNames)
+                : new Set<string>([sourceGlyphName]);
+
+        await this.syncDependentGlyphsAfterSidebearingEdit(
+            sourceGlyphName,
+            affectedGlyphNames,
+            {
+                liveVisibleOnly: true,
+                explicitLayerInput:
+                    this.getCurrentExplicitLayerCacheInput() ?? undefined
+            }
+        );
+
+        return true;
+    }
+
+    private queueKeyboardPreviewMovement(
+        prepareMove: () => {
+            previewKind: 'outline' | 'anchor' | 'sidebearing';
+            affectedGlyphNames?: Set<string>;
+        } | null
+    ): void {
+        let previewKind: 'outline' | 'anchor' | 'sidebearing' | null = null;
+        let outlineAffectedGlyphNames = new Set<string>();
+
+        this.keyboardPreviewEditFunnel.queue({
+            prepare: () => {
+                const preparedPreview = prepareMove();
+                if (!preparedPreview) {
+                    return false;
+                }
+
+                previewKind = preparedPreview.previewKind;
+                outlineAffectedGlyphNames =
+                    preparedPreview.affectedGlyphNames ?? new Set<string>();
+                return true;
+            },
+            render: () => {
+                this.glyphCanvas.render();
+            },
+            compile: () => {
+                if (previewKind === 'anchor') {
+                    return {
+                        changeSource: 'keyboard-anchor',
+                        editType: 'anchor' as const
+                    };
+                }
+
+                if (
+                    previewKind === 'outline' ||
+                    previewKind === 'sidebearing'
+                ) {
+                    return {
+                        changeSource: 'keyboard-outline',
+                        editType: 'outline' as const
+                    };
+                }
+
+                return null;
+            },
+            isActive: () => this._pendingKeyboardPreviewCommit !== null,
+            run: async () => {
+                if (previewKind === 'anchor') {
+                    return this.runKeyboardAnchorPreview();
+                }
+
+                if (previewKind === 'sidebearing') {
+                    return this.runKeyboardSidebearingPreview();
+                }
+
+                if (previewKind === 'outline') {
+                    return this.runKeyboardOutlinePreview(
+                        outlineAffectedGlyphNames
+                    );
+                }
+
+                return false;
+            },
+            onError: (error) => {
+                console.error(
+                    `[OutlineEditor] Error refreshing keyboard ${previewKind ?? 'unknown'} preview:`,
+                    error
+                );
+            }
+        });
+    }
+
+    private async commitPendingKeyboardPreviewCommit(): Promise<void> {
+        if (this._keyboardPreviewCommitInFlight) {
+            await this._keyboardPreviewCommitInFlight;
+            return;
+        }
+
+        const pendingCommit = this._pendingKeyboardPreviewCommit;
+        if (!pendingCommit) {
+            return;
+        }
+
+        const commitPromise = (async () => {
+            const committedChangeSource =
+                this.getCommittedKeyboardSelectionChangeSource();
+            const bridge = window.patchSyncEngine;
+            const hasTransaction =
+                committedChangeSource === 'keyboard-sidebearing' &&
+                typeof bridge?.beginTransaction === 'function';
+
+            if (hasTransaction) {
+                bridge.beginTransaction('Arrow key');
+            }
+
+            try {
+                await this.saveLayerData(committedChangeSource);
+
+                const activeLayerId = this.getCurrentLayerId();
+                const glyphName =
+                    this.parseGlyphStack().slice(-1)[0]?.glyphName ??
+                    this.glyphCanvas.getCurrentGlyphName();
+                const sourceTargets =
+                    activeLayerId && glyphName
+                        ? [{ glyphName, layerId: activeLayerId }]
+                        : [];
+                const editKinds = this.getCurrentSelectionEditKinds();
+                if (editKinds.size === 0) {
+                    editKinds.add('outline');
+                }
+                const closure = this.computeRecompositionClosure({
+                    sourceTargets,
+                    editKinds,
+                    scope: 'all',
+                    activeLayerId
+                });
+
+                this._syncCurrentGlyphToYDoc(
+                    'Arrow key',
+                    pendingCommit.preMoveDesc,
+                    this.getCurrentKeyboardSelectionHistoryDesc(),
+                    this.selectedSidebearingHandle?.side ??
+                        this._metricsKeyEditedSide ??
+                        this._metricsKeyInteractionSide ??
+                        null,
+                    closure.allTargets.length ? closure.allTargets : undefined,
+                    this.getCommittedCompileMetadata(committedChangeSource)
+                );
+            } finally {
+                if (hasTransaction) {
+                    bridge.endTransaction();
+                }
+                this._pendingKeyboardPreviewCommit = null;
+                this._metricsKeyEditedSide = null;
+                this._metricsKeyInteractionSide = null;
+                await fontManager.clearLiveDragPreview();
+                this._keyboardPreviewCommitInFlight = null;
+            }
+        })();
+
+        this._keyboardPreviewCommitInFlight = commitPromise;
+        await commitPromise;
+    }
+
+    public async flushPendingKeyboardPreviewCommit(): Promise<void> {
+        if (this._keyboardPreviewCommitInFlight) {
+            await this._keyboardPreviewCommitInFlight;
+            return;
+        }
+
+        if (!this.hasPendingKeyboardPreviewCommit()) {
+            return;
+        }
+        await this.keyboardPreviewEditFunnel.flushPendingCommit();
+    }
+
+    private armPendingKeyboardPreviewCommit(preMoveDesc?: string): void {
+        if (!this._pendingKeyboardPreviewCommit) {
+            this._pendingKeyboardPreviewCommit = { preMoveDesc };
+        }
+        this.keyboardPreviewEditFunnel.scheduleCommit(async () => {
+            await this.commitPendingKeyboardPreviewCommit();
+        });
+    }
+
+    private async refreshFinalSidebearingWorkerStateBeforeCommit(): Promise<void> {
+        const parsed = this.parseGlyphStack();
+        const sourceGlyphName =
+            parsed.length > 0
+                ? parsed[parsed.length - 1].glyphName
+                : this.glyphCanvas.getCurrentGlyphName();
+        const completeMetricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(
+            true,
+            {
+                rebuildAutomaticComposites: true
+            }
+        );
+        const affectedGlyphNames =
+            completeMetricsUpdate?.affectedGlyphNames ||
+            new Set([sourceGlyphName].filter(Boolean) as string[]);
+
+        this._sidebearingAffectedGlyphNames = affectedGlyphNames;
+
+        const currentLayerId = this.getCurrentLayerId();
+        if (!currentLayerId || affectedGlyphNames.size === 0) {
+            return;
+        }
+    }
+
+    private normalizeLayerDataForDriftCheck(layerData: unknown): string {
+        if (!layerData) {
+            return 'null';
+        }
+
+        const normalizeLayerForRust = (fontManager as any)
+            .normalizeLayerForRust as ((layer: unknown) => unknown) | undefined;
+        if (typeof normalizeLayerForRust !== 'function') {
+            return JSON.stringify(layerData);
+        }
+
+        return JSON.stringify(
+            normalizeLayerForRust.call(fontManager, layerData)
+        );
+    }
+
+    private collectLiveVisibleDragDriftCheckSnapshots(
+        affectedGlyphNames: Iterable<string>,
+        explicitLayerInput?: {
+            glyphName: string;
+            layerId: string;
+            layerData: Babelfont.Layer;
+        } | null
+    ): Array<{
+        glyphName: string;
+        layerId: string;
+        fingerprint: string;
+    }> {
+        const currentLayerId = this.getCurrentLayerId();
+        const normalizedGlyphNames = new Set(affectedGlyphNames);
+        if (!currentLayerId || normalizedGlyphNames.size === 0) {
+            return [];
+        }
+
+        const layerTargets = this.collectMatchingLayerWorkerReplayTargets(
+            normalizedGlyphNames,
+            currentLayerId
+        );
+
+        return layerTargets
+            .map((target) => {
+                const liveSourceLayer =
+                    explicitLayerInput &&
+                    explicitLayerInput.glyphName === target.glyphName &&
+                    explicitLayerInput.layerId === target.layerId
+                        ? explicitLayerInput.layerData
+                        : null;
+                const modelGlyph =
+                    fontManager.currentFont?.fontModel?.findGlyph(
+                        target.glyphName
+                    );
+                const modelLayer = modelGlyph?.findLayerById(target.layerId);
+                const layerData = liveSourceLayer
+                    ? liveSourceLayer
+                    : typeof modelLayer?.toJSON === 'function'
+                      ? (modelLayer.toJSON() as Babelfont.Layer)
+                      : (modelLayer as Babelfont.Layer | null);
+
+                if (!layerData) {
+                    return null;
+                }
+
+                return {
+                    glyphName: target.glyphName,
+                    layerId: target.layerId,
+                    fingerprint: this.normalizeLayerDataForDriftCheck(layerData)
+                };
+            })
+            .filter(
+                (
+                    snapshot
+                ): snapshot is {
+                    glyphName: string;
+                    layerId: string;
+                    fingerprint: string;
+                } => !!snapshot
+            );
+    }
+
+    private async assertLiveVisibleDragWorkerStateMatchesExpected(
+        expectedSnapshots: Array<{
+            glyphName: string;
+            layerId: string;
+            fingerprint: string;
+        }>
+    ): Promise<void> {
+        if (!APP_SETTINGS.IN_BROWSER_LIVE_TESTS.ENABLE_WORKER_DRIFT_CHECKS) {
+            return;
+        }
+
+        if (expectedSnapshots.length === 0) {
+            return;
+        }
+
+        if (!window.fontCompilation?.isInitialized) {
+            return;
+        }
+
+        await window.fontCompilation.awaitWorkerDocumentSync();
+
+        const layerTargets = expectedSnapshots.map(
+            ({ glyphName, layerId }) => ({
+                glyphName,
+                layerId
+            })
+        );
+
+        if (layerTargets.length === 0) {
+            return;
+        }
+
+        const response = await window.fontCompilation.sendMessage({
+            type: 'dumpLayerState',
+            layerTargets
+        });
+
+        if (response?.error) {
+            throw new Error(
+                `Failed to inspect live drag worker state: ${response.error}`
+            );
+        }
+
+        const dump = response?.dumpJson ? JSON.parse(response.dumpJson) : null;
+        const dumpTargets = Array.isArray(dump?.targets) ? dump.targets : [];
+        const mismatches: string[] = [];
+        const seenTargets = new Set<string>();
+        const expectedByTarget = new Map(
+            expectedSnapshots.map((snapshot) => [
+                `${snapshot.glyphName}@@${snapshot.layerId}`,
+                snapshot.fingerprint
+            ])
+        );
+
+        for (const target of dumpTargets) {
+            const glyphName =
+                typeof target?.glyphName === 'string' ? target.glyphName : null;
+            const layerId =
+                typeof target?.layerId === 'string' ? target.layerId : null;
+            if (!glyphName || !layerId) {
+                continue;
+            }
+
+            seenTargets.add(`${glyphName}@@${layerId}`);
+
+            const expectedFingerprint =
+                expectedByTarget.get(`${glyphName}@@${layerId}`) ?? 'null';
+            const rustCanonicalFingerprint =
+                this.normalizeLayerDataForDriftCheck(target?.canonicalLayer);
+            const rustSubsetFingerprint = this.normalizeLayerDataForDriftCheck(
+                target?.subsetLayer
+            );
+            const rustYDocFingerprint = this.normalizeLayerDataForDriftCheck(
+                target?.ydocLayer
+            );
+
+            if (
+                expectedFingerprint !== rustCanonicalFingerprint ||
+                expectedFingerprint !== rustSubsetFingerprint ||
+                expectedFingerprint !== rustYDocFingerprint
+            ) {
+                mismatches.push(
+                    `${glyphName}/${layerId}: expected=${expectedFingerprint} rustCanonical=${rustCanonicalFingerprint} rustSubset=${rustSubsetFingerprint} rustYDoc=${rustYDocFingerprint}`
+                );
+            }
+        }
+
+        for (const target of layerTargets) {
+            const targetKey = `${target.glyphName}@@${target.layerId}`;
+            if (!seenTargets.has(targetKey)) {
+                mismatches.push(
+                    `${target.glyphName}/${target.layerId}: missing from Rust dump response`
+                );
+            }
+        }
+
+        if (mismatches.length === 0) {
+            return;
+        }
+
+        const detail = mismatches.join('\n');
+        fontManager.pendingCommittedKeyboardDriftCheckAfterDrag = true;
+        const error = new Error(
+            'Visible live drag glyph data did not reach the compiled worker state.\n' +
+                'Reload the font or app before continuing.\n\n' +
+                detail
+        );
+        sidebarErrorDisplay.showError(error, 'editing', { sticky: true });
+        throw error;
     }
 
     private rebuildAutomaticCompositesForCurrentEditedGlyph(options?: {
@@ -4269,7 +4782,10 @@ export class OutlineEditor {
     private async syncDependentGlyphsAfterAnchorEdit(
         glyphName: string | null | undefined,
         affectedGlyphNames: Set<string>,
-        options?: { liveVisibleOnly?: boolean }
+        options?: {
+            liveVisibleOnly?: boolean;
+            explicitLayerInput?: ExplicitLayerCacheInput;
+        }
     ): Promise<void> {
         const currentLayerId = this.getCurrentLayerId();
         const downstreamGlyphNames = Array.from(
@@ -4287,6 +4803,30 @@ export class OutlineEditor {
             return;
         }
 
+        if (options?.liveVisibleOnly) {
+            const previewGlyphNames = [
+                ...(glyphName ? [glyphName] : []),
+                ...downstreamGlyphNames
+            ];
+            if (previewGlyphNames.length > 0) {
+                await fontManager.stageLiveDragPreviewFromModel(
+                    previewGlyphNames,
+                    currentLayerId,
+                    {
+                        dispatchGlyphChanged: false,
+                        ...(options.explicitLayerInput
+                            ? {
+                                  explicitLayerData: [
+                                      options.explicitLayerInput
+                                  ]
+                              }
+                            : undefined)
+                    }
+                );
+            }
+            return;
+        }
+
         const refreshSourceGlyphPromise =
             glyphName && currentLayerId
                 ? fontManager.refreshWorkerCacheForReplayTargets([
@@ -4296,25 +4836,6 @@ export class OutlineEditor {
                       }
                   ])
                 : Promise.resolve(false);
-
-        if (options?.liveVisibleOnly) {
-            // Refresh the actively edited glyph via replay targets first so
-            // anchor-only compiles can reshape live GPOS even when there are
-            // no downstream automatic composites in view.
-            await refreshSourceGlyphPromise;
-
-            if (downstreamGlyphNames.length > 0) {
-                await fontManager.refreshGlyphsAfterModelBatch(
-                    downstreamGlyphNames,
-                    currentLayerId,
-                    {
-                        dispatchGlyphChanged: false,
-                        skipFingerprintBaseline: true
-                    }
-                );
-            }
-            return;
-        }
 
         if (downstreamGlyphNames.length === 0) {
             return;
@@ -4448,6 +4969,102 @@ export class OutlineEditor {
                     : null;
             })
         );
+    }
+
+    /**
+     * Unified recomposition closure: delegates to the shared
+     * `computeLayerRecompositionClosure` in recomposition-closure.ts.
+     *
+     * Every committed edit path MUST call this before emitting a Yjs packet.
+     * Live drag paths use `scope: 'visible'`; all committed edits (keyboard,
+     * drag-end, undo, redo, remote) use `scope: 'all'`.
+     *
+     * The returned `allTargets` is the authoritative superset that should be
+     * stamped as `workerReplayTargets` on every layer-snapshot operation in the
+     * transaction.
+     */
+    private computeRecompositionClosure(options: {
+        sourceTargets: Array<{ glyphName: string; layerId: string }>;
+        editKinds: Set<'outline' | 'anchor' | 'sidebearing' | 'component'>;
+        scope: 'visible' | 'all';
+        activeLayerId?: string | null;
+    }): {
+        allTargets: Array<{ glyphName: string; layerId: string }>;
+        dependentTargets: Array<{ glyphName: string; layerId: string }>;
+        affectedGlyphNames: Set<string>;
+    } {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel) {
+            return {
+                allTargets: options.sourceTargets,
+                dependentTargets: [],
+                affectedGlyphNames: new Set(
+                    options.sourceTargets
+                        .map((t) => t.glyphName)
+                        .filter((n): n is string => !!n)
+                )
+            };
+        }
+
+        const effectiveLayerId =
+            options.activeLayerId ?? this.getCurrentLayerId();
+
+        // Derive visible glyph names from font manager when scope is 'visible'.
+        const visibleGlyphNames =
+            options.scope === 'visible'
+                ? fontManager.getLiveVisibleGlyphNames?.()
+                : undefined;
+
+        const result = computeLayerRecompositionClosure({
+            sourceTargets: options.sourceTargets,
+            editKinds: options.editKinds,
+            scope: options.scope,
+            fontModel: fontModel as any,
+            activeLayerId: effectiveLayerId,
+            sourceGlyphName: this.getCurrentGlyphModel()?.name,
+            suppressor: window.patchSyncEngine ?? undefined,
+            visibleGlyphNames
+        });
+
+        return result;
+    }
+
+    /**
+     * Derive the set of active edit kinds from the current selection and drag
+     * state.  Mixed selections (e.g. points + anchors + components selected at
+     * once) produce a superset so the recomposition closure covers all affected
+     * object types.
+     */
+    private getCurrentSelectionEditKinds(): Set<
+        'outline' | 'anchor' | 'sidebearing' | 'component'
+    > {
+        const kinds = new Set<
+            'outline' | 'anchor' | 'sidebearing' | 'component'
+        >();
+
+        if (this.selectedPoints.length > 0) kinds.add('outline');
+        if (this.selectedAnchors.length > 0) kinds.add('anchor');
+        if (this.selectedComponents.length > 0) kinds.add('component');
+        if (this.selectedSidebearingHandle) kinds.add('sidebearing');
+
+        // Drag type also contributes.
+        if (this._dragType === 'point' || this._dragType === 'transform')
+            kinds.add('outline');
+        if (this._dragType === 'anchor') kinds.add('anchor');
+        if (this._dragType === 'component') kinds.add('component');
+        if (this._dragType === 'sidebearing') kinds.add('sidebearing');
+
+        // If nothing is selected yet but we have a drag type (e.g. drag ended),
+        // derive from the drag type alone.
+        if (kinds.size === 0 && this._dragType) {
+            if (this._dragType === 'point' || this._dragType === 'transform')
+                kinds.add('outline');
+            if (this._dragType === 'anchor') kinds.add('anchor');
+            if (this._dragType === 'component') kinds.add('component');
+            if (this._dragType === 'sidebearing') kinds.add('sidebearing');
+        }
+
+        return kinds;
     }
 
     private refreshLiveVisibleAnchorDependents(now: number): void {
@@ -8580,7 +9197,11 @@ export class OutlineEditor {
         return false; // Event not handled
     }
 
-    onSingleClick(e: MouseEvent) {
+    async onSingleClick(e: MouseEvent) {
+        if (this.hasPendingKeyboardPreviewCommit()) {
+            await this.flushPendingKeyboardPreviewCommit();
+        }
+
         if (
             !this.active ||
             !this.selectedLayerId ||
@@ -11661,17 +12282,24 @@ export class OutlineEditor {
             try {
                 await this.drainLiveDragRefreshBeforeCommit();
 
+                const dragChangeSource =
+                    dragType === 'anchor'
+                        ? 'mouse-drag-anchor'
+                        : dragType === 'sidebearing'
+                          ? 'mouse-drag-sidebearing'
+                          : dragType === 'transform' &&
+                              selectionResizeSnapshot &&
+                              !selectionResizeSnapshot.includesGeometry &&
+                              selectionResizeSnapshot.includesAnchors
+                            ? 'mouse-drag-anchor'
+                            : 'mouse-drag-outline';
+
+                if (this._hasMoved && dragType === 'sidebearing') {
+                    await this.refreshFinalSidebearingWorkerStateBeforeCommit();
+                }
+
                 // Flush the final saveLayerData that throttling may have skipped
                 if (this._hasMoved && dragType !== 'guide') {
-                    const dragChangeSource =
-                        dragType === 'anchor'
-                            ? 'mouse-drag-anchor'
-                            : dragType === 'transform' &&
-                                selectionResizeSnapshot &&
-                                !selectionResizeSnapshot.includesGeometry &&
-                                selectionResizeSnapshot.includesAnchors
-                              ? 'mouse-drag-anchor'
-                              : 'mouse-drag-outline';
                     if (
                         dragType === 'point' ||
                         dragType === 'component' ||
@@ -11738,21 +12366,6 @@ export class OutlineEditor {
                                       sidebearingValue
                                   )
                                 : undefined;
-                    }
-                    if (dragType === 'sidebearing') {
-                        const completeMetricsUpdate =
-                            this.applyMetricsKeysToCurrentEditedLayer(true, {
-                                rebuildAutomaticComposites: true
-                            });
-                        const parsed = this.parseGlyphStack();
-                        const glyphName =
-                            completeMetricsUpdate?.glyphName ||
-                            (parsed.length > 0
-                                ? parsed[parsed.length - 1].glyphName
-                                : this.glyphCanvas.getCurrentGlyphName());
-                        this._sidebearingAffectedGlyphNames =
-                            completeMetricsUpdate?.affectedGlyphNames ||
-                            new Set([glyphName].filter(Boolean) as string[]);
                     }
                     const normalizeDragDesc = (
                         value: string | null | undefined
@@ -11860,27 +12473,54 @@ export class OutlineEditor {
                                 fontManager.currentFont?.syncJsonFromModel();
                             }
                         }
-                        const anchorChangedLayerTargets =
-                            dragType === 'anchor'
-                                ? this.collectMatchingLayerWorkerReplayTargets(
-                                      this._anchorAffectedGlyphNames,
-                                      this.getCurrentLayerId()
-                                  )
-                                : undefined;
-                        const sidebearingChangedLayerTargets =
-                            dragType === 'sidebearing'
-                                ? this.collectMatchingLayerWorkerReplayTargets(
-                                      this._sidebearingAffectedGlyphNames,
-                                      this.getCurrentLayerId()
-                                  )
-                                : undefined;
+                        const parsed = this.parseGlyphStack();
+                        const activeGlyphName =
+                            parsed.length > 0
+                                ? parsed[parsed.length - 1].glyphName
+                                : this.glyphCanvas.getCurrentGlyphName();
+                        const activeLayerId =
+                            this.getCurrentLayerId() ?? this.selectedLayerId;
+                        const sourceTarget =
+                            activeLayerId && activeGlyphName
+                                ? [
+                                      {
+                                          glyphName: activeGlyphName,
+                                          layerId: activeLayerId
+                                      }
+                                  ]
+                                : [];
+
+                        // Derive edit kinds from drag type and selection state
+                        const hasGeometryInSelection =
+                            !!selectionResizeSnapshot?.includesGeometry;
+                        const hasAnchorInSelection = !!(
+                            selectionResizeSnapshot?.includesAnchors ??
+                            this.selectedAnchors.length > 0
+                        );
+                        const hasComponentInSelection = !!(
+                            selectionResizeSnapshot?.components?.length ??
+                            this.selectedComponents.length > 0
+                        );
+                        const dragEditKinds = deriveEditKindsFromDrag(
+                            dragType,
+                            hasGeometryInSelection,
+                            hasAnchorInSelection,
+                            hasComponentInSelection
+                        );
+                        const closure = this.computeRecompositionClosure({
+                            sourceTargets: sourceTarget,
+                            editKinds: dragEditKinds,
+                            scope: 'all'
+                        });
                         this._syncCurrentGlyphToYDoc(
                             label,
                             preDragDesc ?? undefined,
                             encodedPostDesc,
                             metricsKeySide,
-                            anchorChangedLayerTargets ??
-                                sidebearingChangedLayerTargets
+                            closure.allTargets.length
+                                ? closure.allTargets
+                                : undefined,
+                            this.getCommittedCompileMetadata(dragChangeSource)
                         );
                     }
                 }
@@ -11912,6 +12552,7 @@ export class OutlineEditor {
                 endDragTransaction();
                 throw error;
             } finally {
+                fontManager.clearLiveDragPreview();
                 this._pointDragDeltaX = 0;
                 this._componentDragDeltaX = 0;
                 this._sidebearingAffectedGlyphNames = new Set();
@@ -14949,7 +15590,7 @@ export class OutlineEditor {
         deltaX: number,
         deltaY: number,
         preserveHandlePositions: boolean = false
-    ): void {
+    ): Set<string> | null {
         // Move all selected points by the given delta
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (
@@ -14957,7 +15598,7 @@ export class OutlineEditor {
             !currentLayerData.shapes ||
             this.selectedPoints.length === 0
         ) {
-            return;
+            return null;
         }
 
         this.applySelectedPointMove(
@@ -14968,15 +15609,19 @@ export class OutlineEditor {
         );
 
         const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer();
-
-        // Save to object model (non-blocking)
-        this.saveLayerData('keyboard-outline');
-        this.syncKeyboardOutlineLayerEdit('Move points', metricsUpdate);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+        return (
+            metricsUpdate?.affectedGlyphNames ||
+            new Set(
+                [this.getCurrentGlyphModel()?.name].filter(
+                    (glyphName): glyphName is string => !!glyphName
+                )
+            )
+        );
     }
 
-    moveSelectedAnchors(deltaX: number, deltaY: number): void {
+    moveSelectedAnchors(deltaX: number, deltaY: number): boolean {
         // Move all selected anchors by the given delta
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (
@@ -14984,7 +15629,7 @@ export class OutlineEditor {
             !currentLayerData.anchors ||
             this.selectedAnchors.length === 0
         ) {
-            return;
+            return false;
         }
 
         for (const anchorIndex of this.selectedAnchors) {
@@ -14996,64 +15641,29 @@ export class OutlineEditor {
         }
 
         // Rebuild auto-composites before saving so downstream layer data
-        // is current when the Yjs history entry is recorded and the
-        // workerReplayTargets are collected for the undo fast path.
+        // is current when the preview overlay is staged and when the
+        // debounced Yjs history entry is finally recorded.
         this._anchorAffectedGlyphNames =
             this.rebuildAutomaticCompositesForCurrentEditedGlyph();
 
-        // Wrap keyboard edit in a transaction so model changes from
-        // saveLayerData and auto-composite cascade are committed as
-        // a single Yjs transaction with one broadcast.
-        const bridge = window.patchSyncEngine;
-        const hasTransaction = typeof bridge?.beginTransaction === 'function';
-        if (hasTransaction) {
-            bridge.beginTransaction('Move anchor');
-        }
-        try {
-            // Save to object model (non-blocking)
-            this.saveLayerData('keyboard-anchor');
-            // Sync model → babelfontData before the Yjs commit so cascade
-            // composite shapes are included in the transaction and forwarded
-            // to the worker. Without this, cascade composites updated by
-            // rebuildAutomaticCompositesForCurrentEditedGlyph are not in
-            // _fontJson when syncLayersFromJson runs, so tiles show stale data.
-            if (this._anchorAffectedGlyphNames.size > 0) {
-                fontManager.currentFont?.syncJsonFromModel();
-            }
-            const anchorChangedLayerTargets =
-                this.collectMatchingLayerWorkerReplayTargets(
-                    this._anchorAffectedGlyphNames,
-                    this.getCurrentLayerId()
-                );
-            this._syncCurrentGlyphToYDoc(
-                'Move anchor',
-                undefined,
-                undefined,
-                null,
-                anchorChangedLayerTargets
-            );
-        } finally {
-            if (hasTransaction) {
-                bridge.endTransaction();
-            }
-        }
         this.glyphCanvas.render();
+        return true;
     }
 
-    moveSelectedComponents(deltaX: number, deltaY: number): void {
+    moveSelectedComponents(deltaX: number, deltaY: number): Set<string> | null {
         // Move all selected components by the given delta
         if (
             !this.layerData ||
             !this.layerData.shapes ||
             this.selectedComponents.length === 0
         ) {
-            return;
+            return null;
         }
 
         if (this.isAutomaticComposedLayer()) {
             this.glyphCanvas.updatePropertyPanel();
             this.glyphCanvas.render();
-            return;
+            return null;
         }
 
         for (const compIndex of this.selectedComponents) {
@@ -15077,31 +15687,53 @@ export class OutlineEditor {
 
         const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer();
 
-        // Save to object model (non-blocking)
-        this.saveLayerData('keyboard-outline');
-        this.syncKeyboardOutlineLayerEdit('Move component', metricsUpdate);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+        return (
+            metricsUpdate?.affectedGlyphNames ||
+            new Set(
+                [this.getCurrentGlyphModel()?.name].filter(
+                    (glyphName): glyphName is string => !!glyphName
+                )
+            )
+        );
     }
 
     private syncKeyboardOutlineLayerEdit(
         label: string,
         metricsUpdate?: { affectedGlyphNames: Set<string> } | null
     ): void {
-        const affectedGlyphNames = metricsUpdate?.affectedGlyphNames;
-        const workerReplayTargets = affectedGlyphNames?.size
-            ? this.collectMatchingLayerWorkerReplayTargets(
-                  affectedGlyphNames,
-                  this.getCurrentLayerId()
-              )
-            : undefined;
+        // Use the unified recomposition closure to derive complete replay
+        // targets (source layer + composite dependents + automatic composites
+        // + metrics-key dependents).  This is the committed path, so scope
+        // is always 'all'.
+        const activeLayerId = this.getCurrentLayerId();
+        const glyphName =
+            this.parseGlyphStack().slice(-1)[0]?.glyphName ??
+            this.glyphCanvas.getCurrentGlyphName();
+        const sourceTargets =
+            activeLayerId && glyphName
+                ? [{ glyphName, layerId: activeLayerId }]
+                : [];
+
+        const editKinds = this.getCurrentSelectionEditKinds();
+        // Default to outline if the selection doesn't narrow it
+        if (editKinds.size === 0) editKinds.add('outline');
+
+        const closure = this.computeRecompositionClosure({
+            sourceTargets,
+            editKinds,
+            scope: 'all',
+            activeLayerId
+        });
 
         this._syncCurrentGlyphToYDoc(
             label,
             undefined,
             undefined,
             null,
-            workerReplayTargets
+            closure.allTargets.length ? closure.allTargets : undefined,
+            this.getCommittedCompileMetadata('keyboard-outline')
         );
     }
 
@@ -15316,18 +15948,31 @@ export class OutlineEditor {
                 return false;
             }
 
-            this.saveLayerData('keyboard-outline');
-            const sidebearingChangedLayerTargets =
-                this.collectMatchingLayerWorkerReplayTargets(
-                    this._sidebearingAffectedGlyphNames,
-                    this.getCurrentLayerId()
-                );
+            this.saveLayerData('keyboard-sidebearing');
+
+            // Use unified recomposition closure.
+            const activeLayerId = this.getCurrentLayerId();
+            const glyphName =
+                this.parseGlyphStack().slice(-1)[0]?.glyphName ??
+                this.glyphCanvas.getCurrentGlyphName();
+            const sourceTargets =
+                activeLayerId && glyphName
+                    ? [{ glyphName, layerId: activeLayerId }]
+                    : [];
+            const closure = this.computeRecompositionClosure({
+                sourceTargets,
+                editKinds: new Set(['sidebearing']),
+                scope: 'all',
+                activeLayerId
+            });
+
             this._syncCurrentGlyphToYDoc(
                 'Set sidebearing',
                 formatSidebearingHistoryValue(side, currentSidebearing),
                 formatSidebearingHistoryValue(side, targetValue),
                 side,
-                sidebearingChangedLayerTargets
+                closure.allTargets.length ? closure.allTargets : undefined,
+                this.getCommittedCompileMetadata('keyboard-sidebearing')
             );
         } finally {
             if (hasTransaction) {
@@ -15352,40 +15997,13 @@ export class OutlineEditor {
         return this.applySidebearingDelta(side, sidebearingDelta);
     }
 
-    moveSelectedSidebearing(deltaX: number): void {
+    moveSelectedSidebearing(deltaX: number): boolean {
         if (!this.adjustSelectedSidebearing(deltaX)) {
-            return;
-        }
-
-        // Wrap keyboard edit in a transaction so model changes from
-        // saveLayerData and metrics-key cascade are committed as a
-        // single Yjs transaction with one broadcast.
-        const bridge = window.patchSyncEngine;
-        const hasTransaction = typeof bridge?.beginTransaction === 'function';
-        if (hasTransaction) {
-            bridge.beginTransaction('Move sidebearing');
-        }
-        try {
-            this.saveLayerData('keyboard-outline');
-            const sidebearingChangedLayerTargets =
-                this.collectMatchingLayerWorkerReplayTargets(
-                    this._sidebearingAffectedGlyphNames,
-                    this.getCurrentLayerId()
-                );
-            this._syncCurrentGlyphToYDoc(
-                'Move sidebearing',
-                undefined,
-                undefined,
-                this.selectedSidebearingHandle?.side ?? null,
-                sidebearingChangedLayerTargets
-            );
-        } finally {
-            if (hasTransaction) {
-                bridge.endTransaction();
-            }
+            return false;
         }
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+        return true;
     }
 
     _updateDraggedSidebearing(deltaX: number): void {
@@ -15743,8 +16361,31 @@ export class OutlineEditor {
             return;
         }
 
-        this.saveLayerData('keyboard');
-        this._syncCurrentGlyphToYDoc('Toggle smooth');
+        this.saveLayerData('keyboard-outline');
+        // Use unified recomposition closure so undo metadata includes
+        // composite-dependent glyphs.
+        const activeLayerId = this.getCurrentLayerId();
+        const glyphName =
+            this.parseGlyphStack().slice(-1)[0]?.glyphName ??
+            this.glyphCanvas.getCurrentGlyphName();
+        const sourceTargets =
+            activeLayerId && glyphName
+                ? [{ glyphName, layerId: activeLayerId }]
+                : [];
+        const closure = this.computeRecompositionClosure({
+            sourceTargets,
+            editKinds: new Set(['outline']),
+            scope: 'all',
+            activeLayerId
+        });
+        this._syncCurrentGlyphToYDoc(
+            'Toggle smooth',
+            undefined,
+            undefined,
+            null,
+            closure.allTargets.length ? closure.allTargets : undefined,
+            this.getCommittedCompileMetadata('keyboard-outline')
+        );
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
     }
@@ -16034,7 +16675,30 @@ export class OutlineEditor {
         });
     }
 
+    onKeyUp(e: KeyboardEvent) {
+        if (!this.active) {
+            return;
+        }
+
+        const isKeyboardPreviewArrowKey =
+            !e.metaKey &&
+            !e.ctrlKey &&
+            (e.key === 'ArrowLeft' ||
+                e.key === 'ArrowRight' ||
+                e.key === 'ArrowUp' ||
+                e.key === 'ArrowDown');
+
+        if (isKeyboardPreviewArrowKey) {
+            this.cancelQueuedKeyboardPreviewMoves();
+        }
+    }
+
+    cancelQueuedKeyboardPreviewMoves() {
+        this.keyboardPreviewEditFunnel.clearQueued();
+    }
+
     onBlur() {
+        this.cancelQueuedKeyboardPreviewMoves();
         this.setCommandKeyPressed(false);
         this.spaceKeyPressed = false;
         this.isDraggingPoint = false;
@@ -16224,8 +16888,29 @@ export class OutlineEditor {
         }
     }
 
-    onKeyDown(e: KeyboardEvent) {
+    async onKeyDown(e: KeyboardEvent) {
         if (!this.active) return;
+        const isKeyboardPreviewArrowKey =
+            !e.metaKey &&
+            !e.ctrlKey &&
+            (e.key === 'ArrowLeft' ||
+                e.key === 'ArrowRight' ||
+                e.key === 'ArrowUp' ||
+                e.key === 'ArrowDown') &&
+            !!this.selectedLayerId &&
+            (this.selectedPoints.length > 0 ||
+                this.selectedAnchors.length > 0 ||
+                this.selectedComponents.length > 0 ||
+                !!this.selectedSidebearingHandle);
+        if (isKeyboardPreviewArrowKey && this._keyboardPreviewCommitInFlight) {
+            await this._keyboardPreviewCommitInFlight;
+        }
+        if (
+            this.hasPendingKeyboardPreviewCommit() &&
+            !isKeyboardPreviewArrowKey
+        ) {
+            await this.flushPendingKeyboardPreviewCommit();
+        }
         // Handle space bar press to enter preview mode and enable panning
         if (e.code === 'Space') {
             e.preventDefault();
@@ -16297,124 +16982,84 @@ export class OutlineEditor {
                 this.selectedSidebearingHandle)
         ) {
             const multiplier = e.shiftKey ? 10 : 1;
-            let moved = false;
+            const preMoveDesc = this.getCurrentKeyboardSelectionHistoryDesc();
+            if (
+                e.key === 'ArrowLeft' ||
+                e.key === 'ArrowRight' ||
+                e.key === 'ArrowUp' ||
+                e.key === 'ArrowDown'
+            ) {
+                e.preventDefault();
+                this.queueKeyboardPreviewMovement(() => {
+                    let dx = 0;
+                    let dy = 0;
+                    if (e.key === 'ArrowLeft') {
+                        dx = -multiplier;
+                    } else if (e.key === 'ArrowRight') {
+                        dx = multiplier;
+                    } else if (e.key === 'ArrowUp') {
+                        dy = multiplier;
+                    } else if (e.key === 'ArrowDown') {
+                        dy = -multiplier;
+                    }
 
-            // Capture pre-move state for undo log description
-            let preMoveDesc: string | undefined;
-            if (this.selectedAnchors.length > 0) {
-                preMoveDesc = this._buildAnchorDesc();
-            } else if (this.selectedPoints.length > 0) {
-                preMoveDesc = this._buildNodeDesc();
-            } else if (this.selectedComponents.length > 0) {
-                preMoveDesc = this._buildComponentDesc();
-            } else if (this.selectedSidebearingHandle) {
-                preMoveDesc = this.selectedSidebearingHandle.side.toUpperCase();
-            }
+                    let anchorMoved = false;
+                    let sidebearingMoved = false;
+                    const outlineAffectedGlyphNames = new Set<string>();
 
-            if (e.key === 'ArrowLeft') {
-                e.preventDefault();
-                if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(-multiplier, 0, e.altKey);
-                }
-                if (this.selectedAnchors.length > 0) {
-                    this.moveSelectedAnchors(-multiplier, 0);
-                }
-                if (this.selectedComponents.length > 0) {
-                    this.moveSelectedComponents(-multiplier, 0);
-                }
-                if (this.selectedSidebearingHandle) {
-                    this.moveSelectedSidebearing(-multiplier);
-                }
-                moved = true;
-            } else if (e.key === 'ArrowRight') {
-                e.preventDefault();
-                if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(multiplier, 0, e.altKey);
-                }
-                if (this.selectedAnchors.length > 0) {
-                    this.moveSelectedAnchors(multiplier, 0);
-                }
-                if (this.selectedComponents.length > 0) {
-                    this.moveSelectedComponents(multiplier, 0);
-                }
-                if (this.selectedSidebearingHandle) {
-                    this.moveSelectedSidebearing(multiplier);
-                }
-                moved = true;
-            } else if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(0, multiplier, e.altKey);
-                }
-                if (this.selectedAnchors.length > 0) {
-                    this.moveSelectedAnchors(0, multiplier);
-                }
-                if (this.selectedComponents.length > 0) {
-                    this.moveSelectedComponents(0, multiplier);
-                }
-                moved = true;
-            } else if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(0, -multiplier, e.altKey);
-                }
-                if (this.selectedAnchors.length > 0) {
-                    this.moveSelectedAnchors(0, -multiplier);
-                }
-                if (this.selectedComponents.length > 0) {
-                    this.moveSelectedComponents(0, -multiplier);
-                }
-                moved = true;
-            }
+                    if (this.selectedPoints.length > 0) {
+                        this.mergeGlyphNames(
+                            outlineAffectedGlyphNames,
+                            this.moveSelectedPoints(dx, dy, e.altKey)
+                        );
+                    }
+                    if (this.selectedAnchors.length > 0) {
+                        anchorMoved =
+                            this.moveSelectedAnchors(dx, dy) || anchorMoved;
+                    }
+                    if (this.selectedComponents.length > 0) {
+                        this.mergeGlyphNames(
+                            outlineAffectedGlyphNames,
+                            this.moveSelectedComponents(dx, dy)
+                        );
+                    }
+                    if (
+                        this.selectedSidebearingHandle &&
+                        dx !== 0 &&
+                        dy === 0
+                    ) {
+                        sidebearingMoved =
+                            this.moveSelectedSidebearing(dx) ||
+                            sidebearingMoved;
+                    }
 
-            if (moved) {
-                // Build post-move description using coords-only (label already in preMoveDesc)
-                let postMoveDesc: string | undefined;
-                if (this.selectedAnchors.length > 0) {
-                    postMoveDesc = this._buildAnchorDesc(true);
-                } else if (this.selectedPoints.length > 0) {
-                    postMoveDesc = this._buildNodeDesc(true);
-                } else if (this.selectedComponents.length > 0) {
-                    postMoveDesc = this._buildComponentDesc(true);
-                }
-                // Encode the metrics-key edited side into postMoveDesc so
-                // inferSidebearingSideFromHistoryItem can detect it on undo
-                // and apply the matching viewport pan (same as drag-end path).
-                if (this._metricsKeyEditedSide && postMoveDesc !== undefined) {
-                    postMoveDesc = `${
-                        this._metricsKeyEditedSide === 'left' ? 'LEFT' : 'RIGHT'
-                    } ${postMoveDesc}`;
-                }
-                const visualAnchorSide =
-                    this._metricsKeyEditedSide ||
-                    this._metricsKeyInteractionSide ||
-                    this.selectedSidebearingHandle?.side ||
-                    null;
-                this._metricsKeyEditedSide = null;
-                this._metricsKeyInteractionSide = null;
-                // When anchors were nudged, include downstream auto-composite
-                // targets so the undo fast path can refresh the worker cache
-                // incrementally instead of falling back to storeFontJson.
-                const anchorReplayTargets =
-                    this.selectedAnchors.length > 0
-                        ? this.collectMatchingLayerWorkerReplayTargets(
-                              this._anchorAffectedGlyphNames,
-                              this.getCurrentLayerId()
-                          )
-                        : undefined;
-                const sidebearingReplayTargets = this.selectedSidebearingHandle
-                    ? this.collectMatchingLayerWorkerReplayTargets(
-                          this._sidebearingAffectedGlyphNames,
-                          this.getCurrentLayerId()
-                      )
-                    : undefined;
-                this._syncCurrentGlyphToYDoc(
-                    'Arrow key',
-                    preMoveDesc,
-                    postMoveDesc,
-                    visualAnchorSide,
-                    anchorReplayTargets ?? sidebearingReplayTargets
-                );
+                    const moved =
+                        anchorMoved ||
+                        sidebearingMoved ||
+                        outlineAffectedGlyphNames.size > 0;
+                    if (!moved) {
+                        return null;
+                    }
+
+                    this.armPendingKeyboardPreviewCommit(preMoveDesc);
+
+                    if (sidebearingMoved) {
+                        return {
+                            previewKind: 'sidebearing' as const
+                        };
+                    }
+
+                    if (anchorMoved) {
+                        return {
+                            previewKind: 'anchor' as const
+                        };
+                    }
+
+                    return {
+                        previewKind: 'outline' as const,
+                        affectedGlyphNames: outlineAffectedGlyphNames
+                    };
+                });
                 return;
             }
         }
@@ -16536,6 +17181,7 @@ export class OutlineEditor {
     }
 
     async selectLayer(layer: Babelfont.Layer): Promise<void> {
+        await this.flushPendingKeyboardPreviewCommit();
         layer = this.resolveLayerModel(layer);
 
         this.cancelPendingLayerSwitchAnimation();
@@ -17145,20 +17791,41 @@ export class OutlineEditor {
     }
 
     /**
-     * Sync the current glyph's data from babelfontData into the Y.Doc.
-     * Called after direct JSON mutations (drag, keyboard edits) that
-     * bypass the babelfont-model setters.
+     * Commit layer data into Y.Doc after an edit.
      *
-     * @param workerReplayTargets - Direct targets for the undo fast path.
-     *   Cascade recompose targets are derived automatically by the caller
-     *   via collectCascadeRecomposeTargets() and included here.
+     * The caller has already:
+     *   1. Mutated the layer data
+     *   2. Called saveLayerData() to persist to the model and babelfontData
+     *   3. Computed the recomposition closure via computeRecompositionClosure()
+     *
+     * This method receives the pre-computed closure targets, merges
+     * dependent model layers into babelfontData so the bridge sees current
+     * data for all targets, then commits the full set to Yjs via
+     * syncLayersFromJson.  The complete closure (allTargets) is stamped
+     * as workerReplayTargets metadata on every change-log entry so the
+     * Rust worker refreshes the subset/font/filter cache for every
+     * affected glyph, not just the ones whose Yjs data changed.
+     *
+     * @param label        Human-readable edit label for the history view.
+     * @param oldValue     Previous state description for undo/redo display.
+     * @param newValue     New state description for undo/redo display.
+     * @param visualAnchorSide Which side was edited (for viewport pan).
+     * @param workerReplayTargets Pre-computed closure targets from the
+     *   caller.  MUST be the full allTargets set from
+     *   computeRecompositionClosure.  Pass undefined when no closure
+     *   was computed (fallback to direct source-only sync).
      */
     private _syncCurrentGlyphToYDoc(
         label: string,
         oldValue?: string,
         newValue?: string,
         visualAnchorSide?: SidebearingSide | null,
-        workerReplayTargets?: Array<{ glyphName: string; layerId: string }>
+        workerReplayTargets?: Array<{ glyphName: string; layerId: string }>,
+        compileMetadata?: {
+            editSource: string;
+            changeSource: string;
+            editType: string | null;
+        }
     ): void {
         if (!window.patchSyncEngine) return;
         const parsed = this.parseGlyphStack();
@@ -17172,7 +17839,10 @@ export class OutlineEditor {
             return;
         }
 
-        // Build the full set of targets: directly edited layer + cascade targets.
+        // Build the full set of targets: directly edited layer + closure-derived targets.
+        // The caller is responsible for supplying pre-computed complete closure targets.
+        // This method does NOT perform additional dependent discovery — the shared
+        // recomposition-closure module is the single source of truth.
         const directTarget = activeLayerId
             ? [{ glyphName: editedGlyphName, layerId: activeLayerId }]
             : [];
@@ -17229,13 +17899,23 @@ export class OutlineEditor {
                 }
             }
 
+            // Pass allTargets as BOTH the sync targets AND the metadata
+            // workerReplayTargets so every operation entry carries the complete
+            // closure set rather than just its own layer path.  This ensures
+            // that Rust's subset/font/filter cache is refreshed for composite-
+            // dependent glyphs even when their own layer JSON is byte-equal.
             window.patchSyncEngine.syncLayersFromJson(
                 allTargets,
                 label,
                 oldValue,
                 newValue,
                 visualAnchorSide,
-                workerReplayTargets?.length ? workerReplayTargets : undefined
+                allTargets,
+                compileMetadata?.editSource ??
+                    compileMetadata?.changeSource ??
+                    null,
+                compileMetadata?.changeSource ?? null,
+                compileMetadata?.editType ?? null
             );
             return;
         }
@@ -17247,8 +17927,75 @@ export class OutlineEditor {
             newValue,
             activeLayerId,
             visualAnchorSide,
-            undefined
+            undefined,
+            compileMetadata?.editSource ??
+                compileMetadata?.changeSource ??
+                null,
+            compileMetadata?.changeSource ?? null,
+            compileMetadata?.editType ?? null
         );
+    }
+
+    private getCommittedCompileMetadata(changeSource: string): {
+        editSource: string;
+        changeSource: string;
+        editType: string | null;
+    } {
+        if (
+            changeSource === 'mouse-drag-sidebearing' ||
+            changeSource === 'keyboard-sidebearing'
+        ) {
+            return {
+                editSource: changeSource,
+                changeSource: 'keyboard-sidebearing',
+                editType: null
+            };
+        }
+
+        if (changeSource.endsWith('-anchor')) {
+            return {
+                editSource: changeSource,
+                changeSource,
+                editType: 'anchor'
+            };
+        }
+
+        if (changeSource.endsWith('-guide')) {
+            return {
+                editSource: changeSource,
+                changeSource,
+                editType: 'guide'
+            };
+        }
+
+        if (
+            changeSource.endsWith('-outline') ||
+            changeSource === 'keyboard-outline'
+        ) {
+            return {
+                editSource: changeSource,
+                changeSource,
+                editType: 'outline'
+            };
+        }
+
+        return {
+            editSource: changeSource,
+            changeSource,
+            editType: null
+        };
+    }
+
+    private getCommittedKeyboardSelectionChangeSource(): string {
+        if (this.selectedSidebearingHandle?.editable) {
+            return 'keyboard-sidebearing';
+        }
+
+        const editKinds = this.getCurrentSelectionEditKinds();
+        if (editKinds.size === 1 && editKinds.has('anchor')) {
+            return 'keyboard-anchor';
+        }
+        return 'keyboard-outline';
     }
 
     /**

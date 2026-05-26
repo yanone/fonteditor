@@ -64,7 +64,26 @@ describe('settings bootstrap', () => {
             false
         );
         expect(
+            settingsModule.default.IN_BROWSER_LIVE_TESTS
+                .ENABLE_WORKER_DRIFT_CHECKS
+        ).toBe(false);
+        expect(
             settingsModule.default.OUTLINE_EDITOR.SHOW_COMPONENT_ORIGIN_MARKERS
         ).toBe(false);
+    });
+
+    test('enables in-browser live drift checks by default outside production', () => {
+        delete global.window;
+        globalThis.isDevelopment = () => true;
+
+        let settingsModule;
+        jest.isolateModules(() => {
+            settingsModule = require('../js/settings');
+        });
+
+        expect(
+            settingsModule.default.IN_BROWSER_LIVE_TESTS
+                .ENABLE_WORKER_DRIFT_CHECKS
+        ).toBe(true);
     });
 });

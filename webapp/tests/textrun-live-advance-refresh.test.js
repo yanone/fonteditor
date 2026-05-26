@@ -169,6 +169,55 @@ describe('TextRunEditor live advance refresh', () => {
 
         expect(sendMessage).not.toHaveBeenCalled();
     });
+
+    test('drops stale explicit outline responses after cache invalidation', async () => {
+        let resolveOutlines;
+        const sendMessage = jest.fn(
+            () =>
+                new Promise((resolve) => {
+                    resolveOutlines = resolve;
+                })
+        );
+        window.fontCompilation = { sendMessage };
+        window.glyphCanvas = {
+            outlineEditor: {
+                draggingSomething: false
+            }
+        };
+
+        editor.shapedGlyphs = [
+            {
+                ax: 500,
+                dx: 0,
+                dy: 0,
+                g: 0,
+                cl: 0,
+                explicitGlyphName: 'adieresis'
+            }
+        ];
+
+        const renderCallback = jest.fn();
+        editor.on('render', renderCallback);
+
+        const prefetchPromise =
+            editor.prefetchExplicitGlyphOutlinesForCurrentState();
+        editor.invalidateExplicitGlyphOutlineCache();
+
+        resolveOutlines({
+            outlinesJson: JSON.stringify([
+                {
+                    name: 'adieresis',
+                    width: 533,
+                    shapes: []
+                }
+            ])
+        });
+
+        await prefetchPromise;
+
+        expect(editor.getCachedExplicitGlyphOutline('adieresis')).toBeNull();
+        expect(renderCallback).not.toHaveBeenCalled();
+    });
 });
 
 describe('applyLiveSidebearingVisualSync', () => {

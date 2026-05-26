@@ -6,7 +6,7 @@
  *   2. Guide edits skip compilation.
  *   3. Fast-path edit types arm the deferred full compile.
  *   4. The startup bootstrap guard prevents no-data wake-ups.
- *   5. `lastChangeSource`/`lastEditType` are set from funnel metadata.
+ *   5. Compile context is passed explicitly with the compile request.
  *
  * See developer-docs/COMPILATION_EDIT_POLICY.md §CompiledEditFunnel.
  */
@@ -65,41 +65,88 @@ function process(changeSource, editType, options) {
 
 describe('CompiledEditFunnel', () => {
     describe('processCommittedEdit', () => {
-        test('sets compile context and requests compile for outline edits', async () => {
+        test('requests outline compiles with explicit compile context', async () => {
             await process('keyboard-outline', 'outline');
 
-            expect(window.fontManager.lastChangeSource).toBe(
-                'keyboard-outline'
-            );
-            expect(window.fontManager.lastEditType).toBe('outline');
             expect(
                 window.fontManager.currentFont.requestRecompileWithoutDataChange
-            ).toHaveBeenCalledTimes(1);
+            ).toHaveBeenCalledWith({
+                compileContext: {
+                    changeSource: 'keyboard-outline',
+                    editType: 'outline',
+                    dataFreshnessMode: 'authoritative-worker-yjs'
+                }
+            });
+            expect(window.fontManager.lastChangeSource).toBeNull();
+            expect(window.fontManager.lastEditType).toBeNull();
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).toHaveBeenCalledTimes(1);
         });
 
-        test('sets compile context for anchor edits', async () => {
+        test('requests anchor compiles with explicit compile context', async () => {
             await process('keyboard-anchor', 'anchor');
 
-            expect(window.fontManager.lastChangeSource).toBe('keyboard-anchor');
-            expect(window.fontManager.lastEditType).toBe('anchor');
             expect(
                 window.fontManager.currentFont.requestRecompileWithoutDataChange
-            ).toHaveBeenCalledTimes(1);
+            ).toHaveBeenCalledWith({
+                compileContext: {
+                    changeSource: 'keyboard-anchor',
+                    editType: 'anchor',
+                    dataFreshnessMode: 'authoritative-worker-yjs'
+                }
+            });
+            expect(window.fontManager.lastChangeSource).toBeNull();
+            expect(window.fontManager.lastEditType).toBeNull();
         });
 
-        test('sets null compile context for full (unknown) edits', async () => {
+        test('requests full compiles with explicit null edit type', async () => {
             await process('change-bridge-local', null);
 
-            expect(window.fontManager.lastChangeSource).toBe(
-                'change-bridge-local'
-            );
-            expect(window.fontManager.lastEditType).toBeNull();
             expect(
                 window.fontManager.currentFont.requestRecompileWithoutDataChange
-            ).toHaveBeenCalledTimes(1);
+            ).toHaveBeenCalledWith({
+                compileContext: {
+                    changeSource: 'change-bridge-local',
+                    editType: null,
+                    dataFreshnessMode: 'authoritative-worker-yjs'
+                }
+            });
+            expect(window.fontManager.lastChangeSource).toBeNull();
+            expect(window.fontManager.lastEditType).toBeNull();
+        });
+
+        test('feature-code compiles leave worker freshness unset', async () => {
+            await process('feature-code', null);
+
+            expect(
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
+            ).toHaveBeenCalledWith({
+                compileContext: {
+                    changeSource: 'feature-code',
+                    editType: null,
+                    dataFreshnessMode: null
+                }
+            });
+        });
+
+        test('ignores stale ambient context when requesting a committed compile', async () => {
+            window.fontManager.lastChangeSource = 'mouse-drag-anchor';
+            window.fontManager.lastEditType = 'anchor';
+
+            await process('keyboard-outline', 'outline');
+
+            expect(
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
+            ).toHaveBeenCalledWith({
+                compileContext: {
+                    changeSource: 'keyboard-outline',
+                    editType: 'outline',
+                    dataFreshnessMode: 'authoritative-worker-yjs'
+                }
+            });
+            expect(window.fontManager.lastChangeSource).toBeNull();
+            expect(window.fontManager.lastEditType).toBeNull();
         });
 
         test('guide edits skip compile context and skip compilation', async () => {
@@ -213,6 +260,27 @@ describe('CompiledEditFunnel', () => {
             await processPromise;
             expect(settled).toBe(true);
         });
+
+        test('waitForCompletion rejects when the requested revision never compiles', async () => {
+            jest.useFakeTimers();
+            window.fontManager.currentFont.requestRecompileWithoutDataChange.mockImplementation(
+                () => {
+                    window.fontManager.currentFont.compileRequestVersion += 1;
+                }
+            );
+
+            const processPromise = process('keyboard-outline', 'outline', {
+                forceTrigger: true,
+                waitForCompletion: true
+            });
+
+            await Promise.resolve();
+            jest.advanceTimersByTime(4000);
+
+            await expect(processPromise).rejects.toThrow(
+                'Timed out waiting for editing font revision 11'
+            );
+        });
     });
 
     describe('deferred full compile', () => {
@@ -229,6 +297,26 @@ describe('CompiledEditFunnel', () => {
             expect(
                 window.fontManager.currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(2);
+        });
+
+        test('does not arm deferred full compile for remote fast-path edits', async () => {
+            await process('remote-outline', 'outline');
+
+            jest.advanceTimersByTime(500);
+
+            expect(
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
+            ).toHaveBeenCalledTimes(1);
+        });
+
+        test('does not arm deferred full compile for full compile packets', async () => {
+            await process('feature-code', null);
+
+            jest.advanceTimersByTime(500);
+
+            expect(
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
+            ).toHaveBeenCalledTimes(1);
         });
 
         test('does not arm deferred full compile for guide edits', async () => {

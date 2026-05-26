@@ -20,6 +20,9 @@ import { WindowSync } from './window-sync';
 import { fontCompilation, fullFontCompilation } from './font-compilation';
 import { Logger } from './logger';
 import { processCommittedEdit } from './compiled-edit-funnel';
+import { computeLayerRecompositionClosure } from './recomposition-closure';
+import { sidebarErrorDisplay } from './sidebar-error-display';
+import APP_SETTINGS from './settings';
 import {
     deriveGlyphNamesFromPaths,
     deriveGlyphName,
@@ -678,23 +681,45 @@ export function buildCascadingRecompositionOperations(
         return [];
     }
 
-    const affectedGlyphNames = recomputeCascadeAffectedGlyphNames(
-        bridge,
-        sourceTargets
-    );
-    if (!affectedGlyphNames.size) {
+    // Use the shared recomposition closure instead of the local
+    // recomputeCascadeAffectedGlyphNames.  The bridge fallback path uses a
+    // superset of edit kinds so all dependency types are covered.
+    const fontModel = window.fontManager?.currentFont?.fontModel ?? null;
+    if (!fontModel) {
         return [];
     }
 
-    const cascadeTargets = collectLayerTargetsForAffectedGlyphNames(
-        affectedGlyphNames,
-        sourceTargets
-    );
-    if (!cascadeTargets.length) {
+    // Extract the first source target's layer ID for matching-layer lookup.
+    const activeLayerId = sourceTargets[0]?.layerId ?? null;
+    const sourceGlyphName = sourceTargets[0]?.glyphName ?? null;
+
+    const closure = computeLayerRecompositionClosure({
+        sourceTargets,
+        editKinds: new Set(['outline', 'anchor', 'sidebearing', 'component']),
+        scope: 'all',
+        fontModel,
+        activeLayerId,
+        sourceGlyphName,
+        suppressor: bridge
+    });
+
+    if (!closure.affectedGlyphNames.size) {
         return [];
     }
 
-    return buildCascadeLayerOperations(bridge, cascadeTargets, operations);
+    // Build layer targets from the full affected set (source + dependents).
+    // Source layer targets are included so buildCascadeLayerOperations can
+    // detect model mutations that affected the source glyph's own layer
+    // (e.g. anchor clearing triggered by recomputeMetricsKeys).
+    const allCascadeTargets = normalizeWorkerReplayTargets([
+        ...sourceTargets,
+        ...closure.dependentTargets
+    ]);
+    if (!allCascadeTargets.length) {
+        return [];
+    }
+
+    return buildCascadeLayerOperations(bridge, allCascadeTargets, operations);
 }
 
 /**
@@ -808,6 +833,32 @@ function isSidebearingKeyCommittedEntry(entry: ChangeLogEntry): boolean {
     );
 }
 
+function getExplicitCommittedCompileContext(entries: ChangeLogEntry[]): {
+    editType: CommittedCompileEditType;
+    changeSource: string;
+} | null {
+    for (const entry of entries) {
+        if (!entry.compileChangeSource) {
+            continue;
+        }
+
+        const compileEditType = entry.compileEditType;
+        return {
+            changeSource: entry.compileChangeSource,
+            editType:
+                compileEditType === 'anchor' ||
+                compileEditType === 'outline' ||
+                compileEditType === 'guide' ||
+                compileEditType === 'kerning-value' ||
+                compileEditType === 'kerning-groups'
+                    ? compileEditType
+                    : null
+        };
+    }
+
+    return null;
+}
+
 function inferCommittedEditTypeFromEntries(
     entries: ChangeLogEntry[],
     origin: CommittedChangeOrigin
@@ -815,6 +866,11 @@ function inferCommittedEditTypeFromEntries(
     editType: CommittedCompileEditType;
     changeSource: string;
 } {
+    const explicitContext = getExplicitCommittedCompileContext(entries);
+    if (explicitContext) {
+        return explicitContext;
+    }
+
     const changeSourceFor = (editType: CommittedCompileEditType): string =>
         getCommittedChangeSource(origin, editType);
 
@@ -845,7 +901,11 @@ function inferCommittedEditTypeFromEntries(
         ) {
             return {
                 editType: 'outline',
-                changeSource: changeSourceFor('outline')
+                changeSource:
+                    origin === 'local' &&
+                    label === 'Reinterpolate layer batch sync'
+                        ? 'master-reinterpolate-batch'
+                        : changeSourceFor('outline')
             };
         }
         if (
@@ -975,6 +1035,204 @@ function collectReplayTargetsFromEntries(
         }
     }
     return normalizeWorkerReplayTargets(targets);
+}
+
+function normalizeLayerDataForWorkerDriftCheck(layerData: unknown): string {
+    if (!layerData) {
+        return 'null';
+    }
+
+    const normalizeLayerForRust = (window.fontManager as any)
+        ?.normalizeLayerForRust as ((layer: unknown) => unknown) | undefined;
+    if (typeof normalizeLayerForRust !== 'function') {
+        return JSON.stringify(layerData);
+    }
+
+    return JSON.stringify(
+        normalizeLayerForRust.call(window.fontManager, layerData)
+    );
+}
+
+function isLocalKeyboardMoveCommittedPacket(
+    entries: ChangeLogEntry[]
+): boolean {
+    return entries.some(
+        (entry) =>
+            entry?.transactionLabel === 'Arrow key' ||
+            (entry as { label?: string } | null)?.label === 'Arrow key'
+    );
+}
+
+async function showCommittedKeyboardWorkerDriftIfNeeded(
+    entries: ChangeLogEntry[],
+    localCompileContext: LocalCommittedCompileContext | null
+): Promise<boolean> {
+    if (!APP_SETTINGS.IN_BROWSER_LIVE_TESTS.ENABLE_WORKER_DRIFT_CHECKS) {
+        if (window.fontManager) {
+            window.fontManager.pendingCommittedKeyboardDriftCheckAfterDrag = false;
+        }
+        return false;
+    }
+
+    if (
+        window.fontManager?.pendingCommittedKeyboardDriftCheckAfterDrag !== true
+    ) {
+        return false;
+    }
+
+    if (
+        !localCompileContext ||
+        (localCompileContext.editType !== 'outline' &&
+            localCompileContext.editType !== 'anchor')
+    ) {
+        return false;
+    }
+
+    if (
+        entries.some(
+            (entry) =>
+                entry.historyAction === 'undo' || entry.historyAction === 'redo'
+        )
+    ) {
+        return false;
+    }
+
+    if (!isLocalKeyboardMoveCommittedPacket(entries)) {
+        return false;
+    }
+
+    if (!fontCompilation?.isInitialized) {
+        return false;
+    }
+
+    const replayTargets = collectReplayTargetsFromEntries(entries);
+    if (replayTargets.length === 0) {
+        return false;
+    }
+
+    const fontModel = window.fontManager?.currentFont?.fontModel;
+    if (!fontModel) {
+        return false;
+    }
+
+    const expectedSnapshots = replayTargets
+        .map((target) => {
+            const layer = fontModel
+                .findGlyph(target.glyphName)
+                ?.findLayerById(target.layerId);
+            const layerData =
+                typeof layer?.toJSON === 'function'
+                    ? layer.toJSON()
+                    : (layer as unknown);
+            if (!layerData) {
+                return null;
+            }
+
+            return {
+                glyphName: target.glyphName,
+                layerId: target.layerId,
+                fingerprint: normalizeLayerDataForWorkerDriftCheck(layerData)
+            };
+        })
+        .filter(
+            (
+                snapshot
+            ): snapshot is {
+                glyphName: string;
+                layerId: string;
+                fingerprint: string;
+            } => !!snapshot
+        );
+
+    if (expectedSnapshots.length === 0) {
+        return false;
+    }
+
+    const response = await fontCompilation.sendMessage({
+        type: 'dumpLayerState',
+        layerTargets: replayTargets
+    });
+
+    window.fontManager.pendingCommittedKeyboardDriftCheckAfterDrag = false;
+
+    if (response?.error) {
+        console.error(
+            '[ChangeBridgeInit] Failed to inspect committed keyboard worker state:',
+            response.error
+        );
+        return false;
+    }
+
+    const dump = response?.dumpJson ? JSON.parse(response.dumpJson) : null;
+    const dumpTargets = Array.isArray(dump?.targets) ? dump.targets : [];
+    const mismatches: string[] = [];
+    const seenTargets = new Set<string>();
+    const expectedByTarget = new Map(
+        expectedSnapshots.map((snapshot) => [
+            `${snapshot.glyphName}@@${snapshot.layerId}`,
+            snapshot.fingerprint
+        ])
+    );
+
+    for (const target of dumpTargets) {
+        const glyphName =
+            typeof target?.glyphName === 'string' ? target.glyphName : null;
+        const layerId =
+            typeof target?.layerId === 'string' ? target.layerId : null;
+        if (!glyphName || !layerId) {
+            continue;
+        }
+
+        const targetKey = `${glyphName}@@${layerId}`;
+        seenTargets.add(targetKey);
+
+        const expectedFingerprint = expectedByTarget.get(targetKey) ?? 'null';
+        const rustCanonicalFingerprint = normalizeLayerDataForWorkerDriftCheck(
+            target?.canonicalLayer
+        );
+        const rustSubsetFingerprint = normalizeLayerDataForWorkerDriftCheck(
+            target?.subsetLayer
+        );
+        const rustYDocFingerprint = normalizeLayerDataForWorkerDriftCheck(
+            target?.ydocLayer
+        );
+
+        if (
+            expectedFingerprint !== rustCanonicalFingerprint ||
+            expectedFingerprint !== rustSubsetFingerprint ||
+            expectedFingerprint !== rustYDocFingerprint
+        ) {
+            mismatches.push(
+                `${glyphName}/${layerId}: expected=${expectedFingerprint} rustCanonical=${rustCanonicalFingerprint} rustSubset=${rustSubsetFingerprint} rustYDoc=${rustYDocFingerprint}`
+            );
+        }
+    }
+
+    for (const target of replayTargets) {
+        const targetKey = `${target.glyphName}@@${target.layerId}`;
+        if (!seenTargets.has(targetKey)) {
+            mismatches.push(
+                `${target.glyphName}/${target.layerId}: missing from Rust dump response`
+            );
+        }
+    }
+
+    if (mismatches.length === 0) {
+        return false;
+    }
+
+    const error = new Error(
+        'Committed keyboard glyph data did not reach the compiled worker state after the authoritative commit.\n' +
+            'Keyboard edits are no longer recompiling the editing font on fresh data.\n' +
+            'Reload the font or app before continuing.\n\n' +
+            mismatches.join('\n')
+    );
+    sidebarErrorDisplay.showError(error, 'editing', { sticky: true });
+    console.error(
+        '[ChangeBridgeInit] Committed keyboard worker drift detected:',
+        error.message
+    );
+    return true;
 }
 
 function getLayerWidth(
@@ -1269,9 +1527,6 @@ function applyImmediateUndoSidebearingSync(
         previousWidth,
         render: false
     });
-    gc.updatePropertyPanel?.();
-    gc.outlineEditor.performHitDetection?.(null);
-    gc.render?.();
 
     return true;
 }
@@ -1334,6 +1589,9 @@ function syncImmediateUndoOutlineLayerFromModel(
 /**
  * Derive cascading recomposition targets from the directly edited layers.
  *
+ * Delegates to the shared `computeLayerRecompositionClosure` so every
+ * edit path uses the same dependency derivation logic.
+ *
  * For each (glyphName, layerId) source pair, discovers glyphs that depend
  * on it as a component reference, then finds the matching layer (same master)
  * on each dependent glyph. Returns all targets that need recomposition.
@@ -1352,56 +1610,16 @@ export function collectCascadeRecomposeTargets(
         return [];
     }
 
-    const sourceLayer = sourceGlyphName
-        ? fontModel
-              .findGlyph(sourceGlyphName)
-              ?.findLayerById(sourceLayerId ?? '')
-        : null;
+    const closure = computeLayerRecompositionClosure({
+        sourceTargets,
+        editKinds: new Set(['outline', 'anchor', 'sidebearing', 'component']),
+        scope: 'all',
+        fontModel,
+        activeLayerId: sourceLayerId,
+        sourceGlyphName
+    });
 
-    // Union: directly edited layers + dependent component glyphs
-    const allGlyphNames = new Set<string>();
-    for (const target of sourceTargets) {
-        allGlyphNames.add(target.glyphName);
-    }
-
-    if (typeof fontModel.collectComponentDependentGlyphs === 'function') {
-        for (const dependentGlyphName of fontModel.collectComponentDependentGlyphs(
-            allGlyphNames
-        )) {
-            allGlyphNames.add(dependentGlyphName);
-        }
-    }
-
-    // For each affected glyph, find the matching layer (same master)
-    const recomposeTargets: WorkerReplayTarget[] = [];
-    for (const glyphName of allGlyphNames) {
-        // Skip glyphs already in source targets (already handled directly)
-        const alreadySource = sourceTargets.some(
-            (t) => t.glyphName === glyphName
-        );
-        if (alreadySource) continue;
-
-        const glyph = fontModel.findGlyph(glyphName);
-        if (!glyph) continue;
-
-        // Try to find the matching layer by looking at source layer's master
-        let matchedLayer = null;
-        if (
-            sourceLayer?.id &&
-            typeof sourceLayer.getMatchingLayerOnGlyph === 'function'
-        ) {
-            matchedLayer = sourceLayer.getMatchingLayerOnGlyph(glyphName);
-        }
-
-        if (matchedLayer?.id) {
-            recomposeTargets.push({
-                glyphName,
-                layerId: matchedLayer.id
-            });
-        }
-    }
-
-    return normalizeWorkerReplayTargets(recomposeTargets);
+    return closure.dependentTargets;
 }
 
 export function waitForEditingFontCompileRevision(
@@ -1660,10 +1878,6 @@ function applyLocalUndoRedoVisualSync(
             context?.layerId
         );
 
-    if (!(appliedSidebearingSync && isDirectSidebearingUndoRedo(historyItem))) {
-        syncImmediateUndoOutlineLayerFromModel(editedGlyphName, layerId);
-    }
-
     const liveAdvanceGlyphNames = new Set<string>();
     for (const glyphName of deriveGlyphNamesFromPaths(entryPaths)) {
         liveAdvanceGlyphNames.add(glyphName);
@@ -1687,6 +1901,8 @@ function applyLocalUndoRedoVisualSync(
         compensatePanX: true,
         workerReplayTargets: collectReplayTargetsFromEntries(entries)
     });
+
+    syncImmediateUndoOutlineLayerFromModel(editedGlyphName, layerId);
 }
 
 function inferHistoryItemKerningEditType(
@@ -1713,37 +1929,7 @@ function inferHistoryItemKerningEditType(
 function resolveLocalCommittedCompileContext(
     entries: ChangeLogEntry[]
 ): LocalCommittedCompileContext {
-    const fm = window.fontManager;
-    const inferred = inferCommittedEditTypeFromEntries(entries, 'local');
-    const existingChangeSource = fm?.lastChangeSource;
-    const existingEditType = fm?.lastEditType;
-    const isLocalInteractiveSource =
-        typeof existingChangeSource === 'string' &&
-        (existingChangeSource.startsWith('keyboard-') ||
-            existingChangeSource.startsWith('mouse-drag-'));
-    const isReusableExplicitSource =
-        typeof existingChangeSource === 'string' &&
-        existingChangeSource.length > 0 &&
-        !existingChangeSource.startsWith('remote-') &&
-        existingChangeSource !== 'undo-redo' &&
-        existingChangeSource !== 'change-bridge-local' &&
-        existingChangeSource !== 'debounced-post-interaction-full-compile';
-    const shouldPreferInferredContext =
-        inferred.editType !== null &&
-        (!isReusableExplicitSource ||
-            (isLocalInteractiveSource &&
-                existingEditType !== inferred.editType));
-
-    return {
-        changeSource: shouldPreferInferredContext
-            ? inferred.changeSource
-            : isReusableExplicitSource
-              ? existingChangeSource
-              : inferred.changeSource,
-        editType: shouldPreferInferredContext
-            ? inferred.editType
-            : (existingEditType ?? inferred.editType)
-    };
+    return inferCommittedEditTypeFromEntries(entries, 'local');
 }
 
 /**
@@ -1990,78 +2176,25 @@ export async function handleCommittedChangeRefresh(
             (() => fontCompilation.awaitWorkerDocumentSync());
         await awaitLocalCommittedWorkerCacheSettled(awaitWorkerSync);
 
-        // For local GUI commits whose Yjs worker update was already forwarded
-        // by setYjsWorkerCallback, skip the duplicate replay-target cache
-        // refresh. The authoritative Yjs update already reached Rust through
-        // forwardWorkerYjsUpdate. A second refreshWorkerCacheForReplayTargets
-        // would serialize model layers again and send another applyYjsUpdate.
-        //
-        // Detect GUI-complete layer packets: all entries carry explicit
-        // workerReplayTargets and their paths are layer-scoped visual edits.
-        const replayTargets = collectReplayTargetsFromEntries(entries);
-        const allEntriesAreGuiCompleteLayerPackets =
-            entries.length > 0 &&
-            entries.every((entry) => {
-                const targets = normalizeWorkerReplayTargets(
-                    entry.workerReplayTargets
-                );
-                if (!targets.length) {
-                    return false;
-                }
-                const path = entry.path ?? '';
-                // Must be a layer-scoped visual path
-                return path.includes('.layers.') || path.includes(':layers.');
-            });
-        const allEntriesAreForwardedSidebearingKeyPackets =
-            entries.length > 0 &&
-            replayTargets.length > 0 &&
-            entries.every(isSidebearingKeyCommittedEntry);
-        const allEntriesAreForwardedMasterReinterpolationPackets =
-            entries.length > 0 &&
-            entries.every((entry) => {
-                const targets = normalizeWorkerReplayTargets(
-                    entry.workerReplayTargets
-                );
-                return (
-                    targets.length > 0 &&
-                    entry.transactionLabel === 'Reinterpolate layer batch sync'
-                );
-            });
-        const allEntriesAreForwardedAddMasterPackets =
-            entries.length > 0 &&
-            replayTargets.length > 0 &&
-            entries.every((entry) => entry.transactionLabel === 'Add master');
-
         if (
-            !allEntriesAreGuiCompleteLayerPackets &&
-            !allEntriesAreForwardedSidebearingKeyPackets &&
-            !allEntriesAreForwardedMasterReinterpolationPackets &&
-            !allEntriesAreForwardedAddMasterPackets &&
-            replayTargets.length > 0
+            await showCommittedKeyboardWorkerDriftIfNeeded(
+                entries,
+                localCompileContext
+            )
         ) {
-            const queueCacheRefresh =
-                dependencies?.queueCacheRefresh ??
-                queueRustCacheAndRefreshCanvas;
-
-            await queueCacheRefresh(undefined, undefined, {
-                allowSelectedLayerFallback: false,
-                workerReplayTargets: replayTargets
-            });
+            await refreshGlyphOverviewFromCommittedEntries(entries);
+            return;
         }
+
+        // Local committed packets rely on the authoritative incremental Yjs
+        // worker update already forwarded by setYjsWorkerCallback().
+        // awaitLocalCommittedWorkerCacheSettled() waits for that forwarded
+        // update and any chained local worker-cache updates before compile.
+        // Do not send a second replay-target refresh from the sender path.
 
         const { editType, changeSource } =
             localCompileContext ?? resolveLocalCommittedCompileContext(entries);
         await requestCompile(changeSource, editType);
-
-        if (
-            isUndoRedoPacket &&
-            (editType === 'anchor' ||
-                editType === 'outline' ||
-                editType === 'kerning-value' ||
-                editType === 'kerning-groups')
-        ) {
-            window.fontManager?.scheduleFullCompileDebounce?.();
-        }
     }
 
     await refreshGlyphOverviewFromCommittedEntries(entries);
@@ -2344,11 +2477,14 @@ function initializeBridge(detail: {
     });
 
     // Wire dirty marking: when PatchSyncEngine records a change, also mark
-    // the font as needing recompilation via fontManager.
+    // the font as unsaved. The committed-change funnel owns editing compile
+    // requests so every request carries packet-explicit context.
     bridge.onDirty(() => {
         const fontManager = window.fontManager;
         if (fontManager?.currentFont) {
-            fontManager.currentFont.markDirty();
+            fontManager.currentFont.markDirty(undefined, {
+                requestEditingCompile: false
+            });
             void fontManager.updateDirtyIndicator();
             window.saveButton?.updateButtonState?.();
         }

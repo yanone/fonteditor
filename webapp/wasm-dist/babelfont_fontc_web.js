@@ -15,6 +15,37 @@ export function add_master_with_interpolated_layers_yjs(master_json) {
 }
 
 /**
+ * Apply live-drag layer replacements to a transient preview overlay. This
+ * keeps the authoritative Rust Y.Doc and committed caches untouched until
+ * mouseup sends the real bridge packet through `apply_yjs_update`.
+ * @param {string} layer_updates_json
+ * @param {string} update_metadata_json
+ * @returns {string}
+ */
+export function apply_preview_layer_overlay(layer_updates_json, update_metadata_json) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(layer_updates_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(update_metadata_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.apply_preview_layer_overlay(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
  * Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
  * update the CANONICAL_JSON_CACHE.
  *
@@ -60,6 +91,13 @@ export function apply_yjs_update(update, update_metadata_json) {
  */
 export function clear_font_cache() {
     wasm.clear_font_cache();
+}
+
+/**
+ * Drop all transient live-drag preview overlay state.
+ */
+export function clear_preview_layer_overlay() {
+    wasm.clear_preview_layer_overlay();
 }
 
 /**
@@ -169,6 +207,57 @@ export function compile_glyphs(_glyphs_json) {
     var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     return v2;
+}
+
+/**
+ * Compile the transient live-drag preview cached font using the last primed
+ * preview layout closure subset.
+ * @param {any} options
+ * @returns {Uint8Array}
+ */
+export function compile_preview_cached_font_from_last_layout_closure(options) {
+    const ret = wasm.compile_preview_cached_font_from_last_layout_closure(options);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v1;
+}
+
+/**
+ * Dump Rust-side layer state for one or more glyph/layer targets.
+ *
+ * This is a debug/introspection facility for comparing the Rust caches against
+ * the JavaScript state during live editing. For each requested target it
+ * returns:
+ * - `canonicalLayer`: the layer JSON currently stored in CANONICAL_JSON_CACHE
+ * - `subsetLayer`: the layer JSON currently stored in SUBSET_JSON_CACHE, if any
+ * - `ydocLayer`: the layer JSON currently readable from the Rust Y.Doc, if any
+ *
+ * The payload also includes the current `fontCacheEpoch` and subset metadata.
+ * @param {string} layer_targets_json
+ * @returns {string}
+ */
+export function dump_layer_state_json(layer_targets_json) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(layer_targets_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.dump_layer_state_json(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
 }
 
 /**
@@ -622,6 +711,24 @@ export function prime_layout_closure_cache(font_revision, glyph_names_json) {
     const ptr1 = passStringToWasm0(glyph_names_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.prime_layout_closure_cache(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] >>> 0;
+}
+
+/**
+ * Prime the transient live-drag preview layout-closure cache.
+ * @param {string} font_revision
+ * @param {string} glyph_names_json
+ * @returns {number}
+ */
+export function prime_preview_layout_closure_cache(font_revision, glyph_names_json) {
+    const ptr0 = passStringToWasm0(font_revision, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(glyph_names_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.prime_preview_layout_closure_cache(ptr0, len0, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
