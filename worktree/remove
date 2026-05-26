@@ -36,13 +36,12 @@ fi
 if [ -d "$WORKTREE_PATH" ]; then
     echo ""
     echo "Removing worktree..."
-    if git -C "$WORKTREE_PATH" status --porcelain | grep -q . 2>/dev/null; then
-        git worktree remove "$WORKTREE_PATH" --force 2>/dev/null || rm -rf "$WORKTREE_PATH"
-        echo "  Worktree removed (forced): $WORKTREE_PATH"
-    else
-        git worktree remove "$WORKTREE_PATH"
-        echo "  Worktree removed: $WORKTREE_PATH"
-    fi
+    # Try graceful removal, then forced, then just nuke from disk.
+    # git worktree remove --force does NOT delete untracked/ignored files.
+    git worktree remove "$WORKTREE_PATH" 2>/dev/null || \
+        git worktree remove "$WORKTREE_PATH" --force 2>/dev/null || true
+    rm -rf "$WORKTREE_PATH"
+    echo "  Worktree removed: $WORKTREE_PATH"
 else
     echo ""
     echo "Worktree not found at $WORKTREE_PATH (already removed)."
