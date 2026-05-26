@@ -27,6 +27,12 @@ if ! git rev-parse --verify "$BRANCH" > /dev/null 2>&1; then
     exit 1
 fi
 
+# Files that are auto-reset to main's version during merge
+# (worktree-specific generated files — differ per worktree, never merged)
+WORKTREE_LOCAL_FILES=(
+    "webapp/worktree-config.json"
+)
+
 echo "━━━ Merging '$BRANCH' into main ━━━"
 echo ""
 
@@ -56,40 +62,69 @@ DRY_RUN_OUTPUT=$(git merge --no-commit --no-ff "$BRANCH" 2>&1) || MERGE_CONFLICT
 git merge --abort 2>/dev/null
 
 if [ "$MERGE_CONFLICTS" = true ]; then
-    echo ""
-    echo "⚠ Merge would produce conflicts."
-    echo ""
     CONFLICT_FILES=$(echo "$DRY_RUN_OUTPUT" | grep "^CONFLICT" | sed 's/^CONFLICT ([^)]*) *//' | sed 's/Merge conflict in //' | sed 's/ *([^)]*)$//' | tr -d "'" | sed 's/^ *//;s/ *$//')
-    if [ -n "$CONFLICT_FILES" ]; then
-        echo "Conflicting files:"
-        echo "$CONFLICT_FILES"
-    fi
-    echo ""
-    echo "Force merge anyway? (y/N) "
-    read CONFIRM
-    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
-        echo "Merge aborted."
-        exit 1
-    fi
-    echo ""
-    echo "Force-merging (conflict markers will be placed in working tree)..."
-    if ! git merge --no-ff --no-commit "$BRANCH"; then
+
+    # Filter out worktree-local files — they get auto-resolved
+    REAL_CONFLICTS=false
+    REAL_CONFLICT_FILES=""
+    while IFS= read -r cf; do
+        [ -z "$cf" ] && continue
+        IS_WORKTREE=false
+        for wf in "${WORKTREE_LOCAL_FILES[@]}"; do
+            if [ "$cf" = "$wf" ]; then
+                IS_WORKTREE=true
+                break
+            fi
+        done
+        if [ "$IS_WORKTREE" = false ]; then
+            REAL_CONFLICTS=true
+            REAL_CONFLICT_FILES="$REAL_CONFLICT_FILES"$'\n'"$cf"
+        fi
+    done <<< "$CONFLICT_FILES"
+
+    if [ "$REAL_CONFLICTS" = false ]; then
+        # Only worktree-local files — auto-resolve, no prompt needed
+        echo "  (Worktree-local files will be kept at main's version)"
+        MERGE_CONFLICTS=false
+    else
         echo ""
-        echo "=== Merge is in progress with conflicts ==="
-        echo "Resolve conflicts in: $REPO_ROOT"
-        echo "After committing, clean up manually:"
-        echo "  worktree/remove $NAME"
-        exit 1
+        echo "⚠ Merge would produce conflicts."
+        echo ""
+        echo "Conflicting files:"
+        echo "$REAL_CONFLICT_FILES"
+        echo ""
+        echo "Force merge anyway? (y/N) "
+        read CONFIRM
+        if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+            echo "Merge aborted."
+            exit 1
+        fi
+        echo ""
+        echo "Force-merging (conflict markers will be placed in working tree)..."
+        if ! git merge --no-ff --no-commit "$BRANCH"; then
+            echo ""
+            echo "=== Merge is in progress with conflicts ==="
+            echo "Resolve conflicts in: $REPO_ROOT"
+            echo "After committing, clean up manually:"
+            echo "  worktree/remove $NAME"
+            exit 1
+        fi
+        # Restore main's versions of worktree-local files
+        for f in "${WORKTREE_LOCAL_FILES[@]}"; do
+            git checkout main -- "$f"
+        done
+        git commit -m "$COMMIT_MSG"
+        echo ""
+        echo "✓ Merge complete."
     fi
-    # Restore main's versions of worktree-local files
-    git checkout main -- webapp/worktree-config.json
-    git commit -m "$COMMIT_MSG"
-    echo ""
-    echo "✓ Merge complete."
-else
-    # No conflicts — merge and restore worktree-local files before committing
+fi
+
+# No conflicts (or only worktree-local) — merge cleanly
+if [ "$MERGE_CONFLICTS" = false ]; then
     git merge --no-ff --no-commit "$BRANCH"
-    git checkout main -- webapp/worktree-config.json
+    for f in "${WORKTREE_LOCAL_FILES[@]}"; do
+        git checkout main -- "$f"
+    done
     git commit -m "$COMMIT_MSG"
     echo ""
     echo "✓ Merge complete."
