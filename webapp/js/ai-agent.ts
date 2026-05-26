@@ -9,6 +9,7 @@ import { AGENT_TOOLS, AGENT_SYSTEM_PROMPT, UsageMetrics } from './agent-config';
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import { getTheme } from './tippy-utils';
+import { getFeatureDescription } from './opentype-features';
 
 const console = new Logger('AIAgent');
 
@@ -399,6 +400,69 @@ if '_agent_original_stdout' in dir():
                 }
 
                 return output || '(no output)';
+            }
+            case 'get_editor_state': {
+                const sm = (window as any).stateManager;
+                if (!sm) throw new Error('State manager not available');
+
+                const snapshot = sm.getStateSnapshot();
+                const s = snapshot.state;
+
+                // Build feature list with descriptions from all font-defined features
+                const allFeatureTags = new Set<string>();
+                const featuresIn = s.editor_opentype_features_in_subset || {};
+                const featuresOut = s.editor_opentype_features_not_in_subset || {};
+                for (const tag of Object.keys(featuresIn)) allFeatureTags.add(tag);
+                for (const tag of Object.keys(featuresOut)) allFeatureTags.add(tag);
+
+                const features = [...allFeatureTags].sort().map((tag) => ({
+                    tag,
+                    active: featuresIn[tag] === true,
+                    inSubset: tag in featuresIn,
+                    description: getFeatureDescription(tag) || tag,
+                }));
+
+                return JSON.stringify(
+                    {
+                        textBuffer: s.editor_text_buffer || '',
+                        glyphs: s.editor_harfbuzz_glyph_names || '',
+                        gids: s.editor_harfbuzz_gids || '',
+                        advances: s.editor_harfbuzz_ax || '',
+                        clusters: s.editor_harfbuzz_cl || '',
+                        features,
+                        file: s.editor_file || '',
+                    },
+                    null,
+                    2
+                );
+            }
+            case 'set_editor_text_buffer': {
+                const text = args.text;
+                if (text == null) throw new Error('Missing required parameter: text');
+
+                const gcSet = (window as any).glyphCanvas;
+                if (!gcSet?.textRunEditor) throw new Error('Editor not available');
+
+                gcSet.textRunEditor.setTextBuffer(String(text));
+                return `Text buffer set to: ${text}`;
+            }
+            case 'set_editor_opentype_features': {
+                const featureTags: string[] = args.features || [];
+                const gcSet2 = (window as any).glyphCanvas;
+                if (!gcSet2?.featuresManager) throw new Error('Editor not available');
+
+                const fm2 = gcSet2.featuresManager;
+                const allF = await fm2.getDiscretionaryFeatures();
+
+                // Set all features to false first, then enable specified ones
+                for (const f of allF) {
+                    fm2.featureSettings[f.tag] = featureTags.includes(f.tag);
+                }
+
+                fm2.updateFeatureResetButton();
+                fm2.call('change');
+
+                return `Features updated. Active: ${featureTags.length > 0 ? featureTags.join(', ') : '(none)'}`;
             }
             default:
                 throw new Error(`Unknown tool: ${name}`);

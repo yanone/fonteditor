@@ -131,6 +131,58 @@ export const AGENT_TOOLS: AgentTool[] = [
                 required: ['code']
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_editor_state',
+            description:
+                "Get the current editor state: the text buffer contents, the complete list of available OpenType features, which features are activatable (available in the current font subset defined by the text buffer and GSUB layout closure), which features are currently activated, and the shaped glyph buffer as returned by HarfBuzz. Use this to understand the current text layout and feature configuration before making changes. This state can change depending on OpenType feature code edits, so you may have to refresh it after executing code that modifies the text buffer or opentype features or font data. OpenType features that are not activatable in the current context (e.g. 'liga' when only single-letter glyphs are in the text buffer) are returned with \"activatable\": false and cannot be activated until the text buffer or font data is modified to a state where they become activatable. Don\'t explain to the user that these features don\'t exist in the font. They do exist, just not as part of the current subset font which is not the complete font that the user is editing but only the subset based on the current text buffer and GSUB layout closure.",
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'set_editor_text_buffer',
+            description:
+                'Set the text buffer contents. The string may include encoded Unicode characters as well as glyph names using the /glyphname notation. Several glyph names may appear consecutively, but the last one needs to have a space character as a suffix before encoded characters may follow. Use tool `get_editor_state` first to see the current buffer.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    text: {
+                        type: 'string',
+                        description:
+                            'The new text buffer content. Supports /glyphname notation for explicit glyph references, space-separated. Example: "H/Ohorn/e/l/l/o" or "ABC /fi /ffi def".'
+                    }
+                },
+                required: ['text']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'set_editor_opentype_features',
+            description:
+                'Set which OpenType features are activated. Provide a list of feature tags to enable. All other features are set to false. Use tool `get_editor_state` first to see available features and their tags.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    features: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description:
+                            'Array of OpenType feature tags to enable (e.g. ["liga", "kern", "dlig"]). All features not in this list will be disabled.'
+                    }
+                },
+                required: ['features']
+            }
+        }
     }
 ];
 
