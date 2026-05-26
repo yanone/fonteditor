@@ -1181,16 +1181,17 @@ class GlyphCanvas {
                 this.outlineEditor.active &&
                 this.outlineEditor.selectedLayerId
             ) {
-                // Editing mode: fetch new layer data for potentially substituted glyph
-                await this.outlineEditor.fetchLayerData(true); // Skip render
-
                 // Rebuild glyph stack with the new glyph name after substitution
                 const newGlyphName = this.getCurrentGlyphName();
+                this.outlineEditor.currentGlyphName = newGlyphName;
                 this.outlineEditor.buildGlyphStack(
                     newGlyphName,
                     this.outlineEditor.selectedLayerId!,
                     []
                 );
+
+                // Editing mode: fetch new layer data for the reshaped glyph.
+                await this.outlineEditor.fetchLayerData(true, newGlyphName); // Skip render
 
                 // Apply auto-pan adjustment and render
                 this.outlineEditor.applyAutoPanAdjustment();

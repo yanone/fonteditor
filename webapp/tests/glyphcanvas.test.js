@@ -3518,6 +3518,42 @@ describe('GlyphCanvas property panel metrics edits', () => {
         }
     });
 
+    test('feature toggles in edit mode fetch layer data for the reshaped active glyph', async () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.currentGlyphName = 'f';
+        canvas.outlineEditor.captureAutoPanAnchor = jest.fn();
+        canvas.outlineEditor.applyAutoPanAdjustment = jest.fn();
+        canvas.outlineEditor.fetchLayerData = jest
+            .fn()
+            .mockResolvedValue(undefined);
+        canvas.outlineEditor.buildGlyphStack = jest.fn();
+        canvas.updateComponentBreadcrumb = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ explicitGlyphName: 'f', g: 1 }];
+        canvas.textRunEditor.shapeStage2WithBiDiRuns = jest.fn(() => {
+            canvas.textRunEditor.shapedGlyphs = [
+                { explicitGlyphName: 'fi', g: 2 }
+            ];
+        });
+        canvas.textRunEditor.buildClusterMap = jest.fn();
+        canvas.textRunEditor.updateCursorVisualPosition = jest.fn();
+
+        await canvas.featuresManager.call('change');
+
+        expect(canvas.outlineEditor.buildGlyphStack).toHaveBeenCalledWith(
+            'fi',
+            'layer-1',
+            []
+        );
+        expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(
+            true,
+            'fi'
+        );
+        expect(canvas.outlineEditor.currentGlyphName).toBe('fi');
+    });
+
     test('editingFontCompiled skips superseded full-compile revisions', async () => {
         const setFontSpy = jest
             .spyOn(canvas, 'setFont')
