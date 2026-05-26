@@ -73,7 +73,7 @@ if [ "$MERGE_CONFLICTS" = true ]; then
     fi
     echo ""
     echo "Force-merging (conflict markers will be placed in working tree)..."
-    if ! git merge --no-ff "$BRANCH" -m "$COMMIT_MSG"; then
+    if ! git merge --no-ff --no-commit "$BRANCH"; then
         echo ""
         echo "=== Merge is in progress with conflicts ==="
         echo "Resolve conflicts in: $REPO_ROOT"
@@ -81,11 +81,16 @@ if [ "$MERGE_CONFLICTS" = true ]; then
         echo "  worktree/remove $NAME"
         exit 1
     fi
+    # Restore main's versions of worktree-local files
+    git checkout main -- webapp/worktree-config.json
+    git commit -m "$COMMIT_MSG"
     echo ""
     echo "✓ Merge complete."
 else
-    # No conflicts — proceed normally
-    git merge "$BRANCH" --no-ff -m "$COMMIT_MSG"
+    # No conflicts — merge and restore worktree-local files before committing
+    git merge --no-ff --no-commit "$BRANCH"
+    git checkout main -- webapp/worktree-config.json
+    git commit -m "$COMMIT_MSG"
     echo ""
     echo "✓ Merge complete."
 fi
