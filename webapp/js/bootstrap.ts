@@ -420,6 +420,7 @@ if (document.readyState === 'loading') {
 import './auth-manager'; // Authentication with fonteditorwebsite
 import './chat-session-manager';
 import './ai-assistant';
+import './ai-agent';
 import './auto-compile-manager';
 import './cache-manager';
 import './canvas-plugin-manager';
