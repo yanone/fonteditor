@@ -48,10 +48,47 @@ git fetch origin main 2>/dev/null || true
 
 # --- Merge ---
 git checkout main
-git merge "$BRANCH" --no-ff -m "$COMMIT_MSG"
 
-echo ""
-echo "✓ Merge complete."
+# --- Pre-check for conflicts ---
+echo "Checking for merge conflicts..."
+MERGE_CONFLICTS=false
+DRY_RUN_OUTPUT=$(git merge --no-commit --no-ff "$BRANCH" 2>&1) || MERGE_CONFLICTS=true
+git merge --abort 2>/dev/null
+
+if [ "$MERGE_CONFLICTS" = true ]; then
+    echo ""
+    echo "⚠ Merge would produce conflicts."
+    echo ""
+    CONFLICT_FILES=$(echo "$DRY_RUN_OUTPUT" | grep "^CONFLICT" | sed 's/^CONFLICT ([^)]*) *//' | sed 's/Merge conflict in //' | sed 's/ *([^)]*)$//' | tr -d "'" | sed 's/^ *//;s/ *$//')
+    if [ -n "$CONFLICT_FILES" ]; then
+        echo "Conflicting files:"
+        echo "$CONFLICT_FILES"
+    fi
+    echo ""
+    echo "Force merge anyway? (y/N) "
+    read CONFIRM
+    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+        echo "Merge aborted."
+        exit 1
+    fi
+    echo ""
+    echo "Force-merging (conflict markers will be placed in working tree)..."
+    if ! git merge --no-ff "$BRANCH" -m "$COMMIT_MSG"; then
+        echo ""
+        echo "=== Merge is in progress with conflicts ==="
+        echo "Resolve conflicts in: $REPO_ROOT"
+        echo "After committing, clean up manually:"
+        echo "  worktree/remove $NAME"
+        exit 1
+    fi
+    echo ""
+    echo "✓ Merge complete."
+else
+    # No conflicts — proceed normally
+    git merge "$BRANCH" --no-ff -m "$COMMIT_MSG"
+    echo ""
+    echo "✓ Merge complete."
+fi
 
 # --- Remove worktree ---
 echo ""
