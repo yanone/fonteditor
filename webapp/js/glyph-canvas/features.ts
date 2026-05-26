@@ -402,6 +402,47 @@ export class FeaturesManager {
         }
     }
 
+    async setEnabledFeatures(featureTags: string[]): Promise<void> {
+        if (!this.featuresSection) {
+            throw new Error('OpenType features UI is not ready');
+        }
+
+        let buttons = Array.from(
+            this.featuresSection.querySelectorAll<HTMLButtonElement>(
+                'button[data-feature-tag]'
+            )
+        );
+
+        if (buttons.length === 0) {
+            await this.updateFeaturesUI();
+            buttons = Array.from(
+                this.featuresSection.querySelectorAll<HTMLButtonElement>(
+                    'button[data-feature-tag]'
+                )
+            );
+        }
+
+        const requestedFeatures = new Set(featureTags);
+
+        for (const button of buttons) {
+            const tag = button.getAttribute('data-feature-tag');
+            if (!tag) {
+                continue;
+            }
+
+            const shouldEnable = requestedFeatures.has(tag);
+            const isEnabled = this.featureSettings[tag] === true;
+
+            if (isEnabled === shouldEnable || button.disabled) {
+                continue;
+            }
+
+            // Reuse the exact sidebar button click path so UI state and
+            // downstream callbacks stay in sync with manual interaction.
+            button.click();
+        }
+    }
+
     resetFeaturesToDefaults() {
         // Reset all features to their default states
         Object.keys(this.defaultFeatureSettings).forEach((tag) => {

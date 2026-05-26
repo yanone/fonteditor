@@ -548,17 +548,13 @@ if '_agent_original_stdout' in dir():
                     throw new Error('Editor not available');
 
                 const fm2 = gcSet2.featuresManager;
-                const allF = await fm2.getDiscretionaryFeatures();
+                await fm2.setEnabledFeatures(featureTags);
 
-                // Set all features to false first, then enable specified ones
-                for (const f of allF) {
-                    fm2.featureSettings[f.tag] = featureTags.includes(f.tag);
-                }
+                const activeFeatures = Object.entries(fm2.featureSettings)
+                    .filter(([, enabled]) => enabled)
+                    .map(([tag]) => tag);
 
-                fm2.updateFeatureResetButton();
-                fm2.call('change');
-
-                return `Features updated. Active: ${featureTags.length > 0 ? featureTags.join(', ') : '(none)'}`;
+                return `Features updated. Active: ${activeFeatures.length > 0 ? activeFeatures.join(', ') : '(none)'}`;
             }
             default:
                 throw new Error(`Unknown tool: ${name}`);

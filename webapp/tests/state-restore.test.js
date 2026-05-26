@@ -194,4 +194,48 @@ describe('ensureStartupStateReady', () => {
         delete global.requestAnimationFrame;
         delete global.cancelAnimationFrame;
     });
+
+    test('applies restored OpenType features through the shared feature helper', async () => {
+        jest.resetModules();
+
+        const initStateSync = jest.fn();
+        const enableSync = jest.fn();
+
+        jest.doMock('../js/state-sync', () => ({
+            initStateSync,
+            enableSync
+        }));
+        jest.unmock('../js/url-state');
+
+        const { restoreStateFromUrl } = require('../js/state-restore');
+
+        window.history.replaceState({}, '', '/?features=liga,dlig');
+
+        const setEnabledFeatures = jest.fn().mockResolvedValue(undefined);
+        const glyphCanvas = {
+            featuresManager: {
+                setEnabledFeatures
+            },
+            axesManager: null,
+            textRunEditor: null,
+            outlineEditor: { active: false },
+            renderer: null,
+            autoSelectMatchingMaster: jest.fn().mockResolvedValue(undefined),
+            alignTextModeEscapeStateWithCurrentMaster: jest.fn()
+        };
+
+        window.stateManager = {
+            editor_file: '',
+            editor_text_buffer: '',
+            editor_cursor_position: 0,
+            editor_mode: 'text',
+            editor_variation_location: {},
+            editor_opentype_features_in_subset: {},
+            editor_opentype_features_not_in_subset: {}
+        };
+
+        await restoreStateFromUrl(glyphCanvas);
+
+        expect(setEnabledFeatures).toHaveBeenCalledWith(['liga', 'dlig']);
+    });
 });

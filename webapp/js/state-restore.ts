@@ -160,18 +160,11 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
     if (features && glyphCanvas.featuresManager) {
         console.log('Applying features:', features);
 
-        // Turn off all features first
-        for (const tag in glyphCanvas.featuresManager.featureSettings) {
-            glyphCanvas.featuresManager.featureSettings[tag] = false;
-        }
+        const enabledFeatures = Object.entries(features)
+            .filter(([, enabled]) => enabled)
+            .map(([tag]) => tag);
 
-        // Enable features from StateManager
-        for (const [tag, enabled] of Object.entries(features)) {
-            glyphCanvas.featuresManager.featureSettings[tag] = enabled;
-        }
-
-        // Update UI
-        glyphCanvas.featuresManager.updateFeaturesUI?.();
+        await glyphCanvas.featuresManager.setEnabledFeatures(enabledFeatures);
         // Note: no explicit recompile here — the text buffer restore in step 3
         // calls setTextBuffer() which triggers a debounced subset compile.
     }
