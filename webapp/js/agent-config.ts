@@ -137,7 +137,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'get_editor_state',
             description:
-                "Get the current editor state: the text buffer contents, the complete list of available OpenType features, which features are activatable (available in the current font subset defined by the text buffer and GSUB layout closure), which features are currently activated, and the shaped glyph buffer as returned by HarfBuzz. Use this to understand the current text layout and feature configuration before making changes. This state can change depending on OpenType feature code edits, so you may have to refresh it after executing code that modifies the text buffer or opentype features or font data. OpenType features that are not activatable in the current context (e.g. 'liga' when only single-letter glyphs are in the text buffer) are returned with \"activatable\": false and cannot be activated until the text buffer or font data is modified to a state where they become activatable. Don\'t explain to the user that these features don\'t exist in the font. They do exist, just not as part of the current subset font which is not the complete font that the user is editing but only the subset based on the current text buffer and GSUB layout closure.",
+                'Get the current editor state for both inspection and parameter-copying. Returns the text buffer contents; HarfBuzz shaped buffers (glyph names, gids, advances, clusters); the complete current OpenType feature inventory with descriptions, subset availability, and activation flags; a per-feature tag-to-boolean activation dictionary; the current userspace location; the current designspace location; and the current file. Use this to understand the active text layout and feature configuration, and also to copy explicit inputs for compile_and_shape_font. This state can change after text, feature, or font-data edits, so refresh it when needed.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -221,28 +221,32 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'compile_and_shape_font',
             description:
-                'Compile a committed-state editing subset on a dedicated debug cache lane without mutating the UI, then shape the provided text with explicit OpenType features and variation location. Returns the compiled font hash, subset glyph seed, closure size, and shaped glyph buffer.',
+                'Compile and shape with explicit inputs only and no editor-state fallback. text selects mode: empty string compiles the full font, non-empty text compiles a subset in the debug lane seeded from shaping that text. featureOverrides is optional and is a tag->boolean dictionary that overrides HarfBuzz defaults; omit it or pass an empty object to use HarfBuzz defaults only. userspaceLocation and designspaceLocation are optional explicit location overrides; omit both to use the font default location. To avoid conflict, provide at most one of userspaceLocation or designspaceLocation, never both. The font can change after text, feature, or font-data edits, so refresh it when needed.',
             parameters: {
                 type: 'object',
                 properties: {
                     text: {
                         type: 'string',
                         description:
-                            'Optional text buffer to shape. Defaults to the current editor text buffer.'
+                            'Required. Text to shape. Empty string means full-font mode; non-empty string means subset mode.'
                     },
-                    features: {
-                        type: 'array',
-                        items: { type: 'string' },
-                        description:
-                            'Optional list of OpenType feature tags to enable for shaping. Defaults to the current active feature set.'
-                    },
-                    variationLocation: {
+                    featureOverrides: {
                         type: 'object',
                         description:
-                            'Optional userspace variation location object, e.g. {"wght": 500}. Defaults to the current editor variation location.'
+                            'Optional. OpenType feature override dictionary, e.g. {"liga": false, "kern": true}. Omit it or pass {} to use HarfBuzz defaults without overrides.'
+                    },
+                    userspaceLocation: {
+                        type: 'object',
+                        description:
+                            'Optional. Userspace variation location override, e.g. {"wght": 500}. Omit it to avoid overriding the font default location. Do not provide this together with designspaceLocation.'
+                    },
+                    designspaceLocation: {
+                        type: 'object',
+                        description:
+                            'Optional. Designspace location override, e.g. {"wght": 75}. Omit it to avoid overriding the font default location. Do not provide this together with userspaceLocation.'
                     }
                 },
-                required: []
+                required: ['text']
             }
         }
     }

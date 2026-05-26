@@ -20,6 +20,7 @@ import {
     isDiscretionary,
     SCRIPT_TO_SHAPER
 } from './opentype-features';
+import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 
 const console = new Logger('AIAgent');
 
@@ -1577,6 +1578,7 @@ if '_agent_original_stdout' in dir():
             }
             case 'get_editor_state': {
                 const sm = (window as any).stateManager;
+                const fm = (window as any).fontManager;
                 if (!sm) throw new Error('State manager not available');
 
                 const snapshot = sm.getStateSnapshot();
@@ -1599,6 +1601,30 @@ if '_agent_original_stdout' in dir():
                     description: getFeatureDescription(tag) || tag
                 }));
 
+                const featureStateByTag = Object.fromEntries(
+                    [...allFeatureTags]
+                        .sort()
+                        .map((tag) => [tag, featuresIn[tag] === true])
+                );
+
+                const userspaceLocationRaw =
+                    s.editor_variation_location &&
+                    typeof s.editor_variation_location === 'object'
+                        ? s.editor_variation_location
+                        : {};
+                const userspaceLocation = Object.fromEntries(
+                    Object.entries(userspaceLocationRaw).filter(
+                        ([, value]) =>
+                            typeof value === 'number' && Number.isFinite(value)
+                    )
+                ) as Record<string, number>;
+
+                const axes = fm?.currentFontModel?.axes || [];
+                const designspaceLocation = userspaceToDesignspace(
+                    userspaceLocation as any,
+                    axes
+                );
+
                 return JSON.stringify(
                     {
                         textBuffer: s.editor_text_buffer || '',
@@ -1606,7 +1632,9 @@ if '_agent_original_stdout' in dir():
                         gids: s.editor_harfbuzz_gids || '',
                         advances: s.editor_harfbuzz_ax || '',
                         clusters: s.editor_harfbuzz_cl || '',
-                        variationLocation: s.editor_variation_location || {},
+                        userspaceLocation,
+                        designspaceLocation,
+                        featureStateByTag,
                         features,
                         file: s.editor_file || ''
                     },
@@ -1653,15 +1681,14 @@ if '_agent_original_stdout' in dir():
                 return `Features updated. Active: ${activeFeatures.length > 0 ? activeFeatures.join(', ') : '(none)'}`;
             }
             case 'compile_and_shape_font': {
-                const sm = (window as any).stateManager;
                 const fm = (window as any).fontManager;
                 const fc = (window as any).fontCompilation;
                 const shapeWithFontDetailed = (window as any)
                     .shapeTextWithFontDetailed;
 
-                if (!sm || !fm || !fc || !shapeWithFontDetailed) {
+                if (!fm || !fc || !shapeWithFontDetailed) {
                     throw new Error(
-                        'Debug compile dependencies are not available yet.'
+                        'compile_and_shape_font dependencies are not available yet.'
                     );
                 }
                 if (window.windowRole && !window.windowRole.isMainWindow()) {
@@ -1670,79 +1697,165 @@ if '_agent_original_stdout' in dir():
                     );
                 }
 
-                const snapshot = sm.getStateSnapshot();
-                const s = snapshot.state || {};
-                const text =
-                    typeof args.text === 'string'
-                        ? args.text
-                        : s.editor_text_buffer || '';
-                if (!text) {
+                if (typeof args.text !== 'string') {
                     throw new Error(
-                        'No text buffer available for debug shaping.'
+                        'Missing required parameter: text (string). Use an empty string for full-font mode.'
+                    );
+                }
+                const text = args.text;
+                const fullFontMode = text.length === 0;
+
+                if (
+                    args.featureOverrides != null &&
+                    (typeof args.featureOverrides !== 'object' ||
+                        Array.isArray(args.featureOverrides))
+                ) {
+                    throw new Error(
+                        'featureOverrides must be an object of { tag: boolean } when provided.'
+                    );
+                }
+                const featureOverridesInput = (args.featureOverrides ||
+                    {}) as Record<string, unknown>;
+                const featureOverrides: Record<string, boolean> = {};
+                for (const [rawTag, enabled] of Object.entries(
+                    featureOverridesInput
+                )) {
+                    const tag = rawTag.trim();
+                    if (tag.length === 0 || typeof enabled !== 'boolean') {
+                        continue;
+                    }
+                    featureOverrides[tag] = enabled;
+                }
+                const featureOverrideList = Object.entries(featureOverrides)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([tag, enabled]) => `${tag}=${enabled ? 1 : 0}`);
+                const featureOverrideString =
+                    featureOverrideList.length > 0
+                        ? featureOverrideList.join(',')
+                        : undefined;
+
+                const hasUserspaceLocation = args.userspaceLocation != null;
+                const hasDesignspaceLocation = args.designspaceLocation != null;
+                if (hasUserspaceLocation && hasDesignspaceLocation) {
+                    throw new Error(
+                        'Provide at most one of userspaceLocation or designspaceLocation, not both.'
                     );
                 }
 
-                const featureTags = Array.isArray(args.features)
-                    ? args.features
-                          .map((feature: unknown) =>
-                              typeof feature === 'string' ? feature.trim() : ''
-                          )
-                          .filter((feature: string) => feature.length > 0)
-                    : Object.entries(s.editor_opentype_features_in_subset || {})
-                          .filter(([, enabled]) => enabled === true)
-                          .map(([tag]) => tag);
+                if (
+                    (hasUserspaceLocation &&
+                        typeof args.userspaceLocation !== 'object') ||
+                    Array.isArray(args.userspaceLocation)
+                ) {
+                    throw new Error(
+                        'userspaceLocation must be an object when provided.'
+                    );
+                }
+                if (
+                    (hasDesignspaceLocation &&
+                        typeof args.designspaceLocation !== 'object') ||
+                    Array.isArray(args.designspaceLocation)
+                ) {
+                    throw new Error(
+                        'designspaceLocation must be an object when provided.'
+                    );
+                }
 
-                const variationLocationSource =
-                    args.variationLocation &&
-                    typeof args.variationLocation === 'object'
-                        ? args.variationLocation
-                        : s.editor_variation_location || {};
-                const variationLocation = Object.fromEntries(
-                    Object.entries(variationLocationSource).filter(
+                const axes = fm?.currentFontModel?.axes || [];
+                const explicitUserspaceLocation = Object.fromEntries(
+                    Object.entries(
+                        (args.userspaceLocation || {}) as Record<
+                            string,
+                            unknown
+                        >
+                    ).filter(
                         ([, value]) =>
                             typeof value === 'number' && Number.isFinite(value)
                     )
-                );
+                ) as Record<string, number>;
+
+                const explicitDesignspaceLocation = Object.fromEntries(
+                    Object.entries(
+                        (args.designspaceLocation || {}) as Record<
+                            string,
+                            unknown
+                        >
+                    ).filter(
+                        ([, value]) =>
+                            typeof value === 'number' && Number.isFinite(value)
+                    )
+                ) as Record<string, number>;
+
+                const userspaceLocation = hasDesignspaceLocation
+                    ? (designspaceToUserspace(
+                          explicitDesignspaceLocation as any,
+                          axes
+                      ) as Record<string, number>)
+                    : explicitUserspaceLocation;
+                const designspaceLocation = hasUserspaceLocation
+                    ? userspaceToDesignspace(
+                          explicitUserspaceLocation as any,
+                          axes
+                      )
+                    : explicitDesignspaceLocation;
 
                 const fullCommittedFont = await fc.compileCached(
                     'full',
                     'debug-full-font.ttf'
                 );
-                const subsetSeedShape = await shapeWithFontDetailed(
-                    fullCommittedFont.result,
-                    text,
-                    {
-                        features: featureTags,
-                        variationLocation
-                    }
-                );
-                const subsetGlyphs = Array.from(
-                    new Set(
-                        subsetSeedShape.glyphs.filter(
-                            (glyphName: string) =>
-                                glyphName && glyphName !== '.notdef'
+
+                let subsetGlyphs: string[] = [];
+                let compileResult = fullCommittedFont;
+                let subsetSeedShape = null;
+
+                if (!fullFontMode) {
+                    subsetSeedShape = await shapeWithFontDetailed(
+                        fullCommittedFont.result,
+                        text,
+                        {
+                            features: featureOverrideString,
+                            variationLocation: userspaceLocation
+                        }
+                    );
+                    subsetGlyphs = Array.from(
+                        new Set(
+                            subsetSeedShape.glyphs.filter(
+                                (glyphName: string) =>
+                                    glyphName && glyphName !== '.notdef'
+                            )
                         )
-                    )
-                );
-                const compileResult =
-                    await fc.compileCommittedDebugFont(subsetGlyphs);
+                    );
+                    compileResult =
+                        await fc.compileCommittedDebugFont(subsetGlyphs);
+                }
+
                 const shaped = await shapeWithFontDetailed(
                     compileResult.result,
                     text,
                     {
-                        features: featureTags,
-                        variationLocation
+                        features: featureOverrideString,
+                        variationLocation: userspaceLocation
                     }
                 );
 
                 return JSON.stringify(
                     {
+                        mode: fullFontMode ? 'full-font' : 'subset-debug-lane',
                         text,
-                        features: featureTags,
-                        variationLocation,
+                        featureOverrides,
+                        featureOverrideString: featureOverrideString || '',
+                        userspaceLocation,
+                        designspaceLocation,
                         subsetGlyphs,
-                        fontHash: compileResult.fontHash,
-                        closureGlyphCount: compileResult.closureGlyphCount,
+                        subsetSeedShaping: subsetSeedShape,
+                        fontHash:
+                            typeof compileResult.fontHash === 'string'
+                                ? compileResult.fontHash
+                                : null,
+                        closureGlyphCount:
+                            typeof compileResult.closureGlyphCount === 'number'
+                                ? compileResult.closureGlyphCount
+                                : null,
                         fontBytes: compileResult.result.length,
                         shaped
                     },
