@@ -9,7 +9,12 @@ import { AGENT_TOOLS, AGENT_SYSTEM_PROMPT, UsageMetrics } from './agent-config';
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import { getTheme } from './tippy-utils';
-import { getFeatureDescription } from './opentype-features';
+import {
+    getFeatureDescription,
+    getFeatureExecutionOrder,
+    isDiscretionary,
+    SCRIPT_TO_SHAPER
+} from './opentype-features';
 
 const console = new Logger('AIAgent');
 
@@ -476,6 +481,249 @@ class AIAgent {
         return outputEl;
     }
 
+    getFontFeatureSourceOrder(): string[] {
+        const font = (window as any).currentFontModel;
+        if (!font?.features?.features) {
+            return [];
+        }
+
+        return font.features.features
+            .map(([tag]: [string, unknown]) => tag)
+            .filter((tag: string): tag is string => typeof tag === 'string');
+    }
+
+    extractFontLanguageSystems(): string[] {
+        const font = (window as any).currentFontModel;
+        if (!font?.features) {
+            return ['DFLT'];
+        }
+
+        const scripts = new Set<string>();
+        scripts.add('DFLT');
+
+        const allCode: string[] = [];
+
+        if (font.features.prefixes) {
+            Object.values(font.features.prefixes).forEach((prefix: any) => {
+                if (prefix?.code) {
+                    allCode.push(prefix.code);
+                }
+            });
+        }
+
+        if (font.features.features) {
+            font.features.features.forEach(([, codeData]: [string, any]) => {
+                if (codeData?.code) {
+                    allCode.push(codeData.code);
+                }
+            });
+        }
+
+        const languageSystemRegex = /languagesystem\s+(\w+)\s+\w+/gi;
+        allCode.forEach((code) => {
+            let match: RegExpExecArray | null;
+            while ((match = languageSystemRegex.exec(code)) !== null) {
+                scripts.add(match[1]);
+            }
+        });
+
+        return Array.from(scripts).sort();
+    }
+
+    getShapersInUse(): Map<string, string[]> {
+        const supportedScripts = this.extractFontLanguageSystems();
+        const shaperMap = new Map<string, string[]>();
+
+        supportedScripts.forEach((script) => {
+            const shaper = SCRIPT_TO_SHAPER[script] || 'default';
+            if (!shaperMap.has(shaper)) {
+                shaperMap.set(shaper, []);
+            }
+            shaperMap.get(shaper)!.push(script);
+        });
+
+        return new Map(
+            Array.from(shaperMap.entries()).sort(([left], [right]) =>
+                left.localeCompare(right)
+            )
+        );
+    }
+
+    categorizeFeaturesForShaper(
+        features: Array<[string, any]>,
+        executionOrder: string[]
+    ): {
+        usedByShaper: Array<{ tag: string; index: number }>;
+        discretionary: Array<{ tag: string; index: number }>;
+        postUserFeatures: Array<{ tag: string; index: number }>;
+        notUsedByShaper: Array<{ tag: string; index: number }>;
+    } {
+        const userFeaturesIndex = executionOrder.indexOf(
+            '--- USER FEATURES ---'
+        );
+
+        let preUserFeatures: string[] = [];
+        let postUserFeaturesList: string[] = [];
+
+        if (userFeaturesIndex >= 0) {
+            preUserFeatures = executionOrder
+                .slice(0, userFeaturesIndex)
+                .filter((feature) => !feature.startsWith('---'));
+            postUserFeaturesList = executionOrder
+                .slice(userFeaturesIndex + 1)
+                .filter((feature) => !feature.startsWith('---'));
+        } else {
+            preUserFeatures = executionOrder.filter(
+                (feature) => !feature.startsWith('---')
+            );
+        }
+
+        const preUserFeaturesSet = new Set(preUserFeatures);
+        const postUserFeaturesSet = new Set(postUserFeaturesList);
+
+        const usedByShaper: Array<{ tag: string; index: number }> = [];
+        const discretionary: Array<{ tag: string; index: number }> = [];
+        const postUserFeatures: Array<{ tag: string; index: number }> = [];
+        const notUsedByShaper: Array<{ tag: string; index: number }> = [];
+
+        features.forEach(([tag], index) => {
+            if (isDiscretionary(tag)) {
+                discretionary.push({ tag, index });
+                return;
+            }
+
+            if (preUserFeaturesSet.has(tag)) {
+                usedByShaper.push({ tag, index });
+                return;
+            }
+
+            if (postUserFeaturesSet.has(tag)) {
+                postUserFeatures.push({ tag, index });
+                return;
+            }
+
+            notUsedByShaper.push({ tag, index });
+        });
+
+        usedByShaper.sort(
+            (left, right) =>
+                preUserFeatures.indexOf(left.tag) -
+                preUserFeatures.indexOf(right.tag)
+        );
+        discretionary.sort((left, right) => left.index - right.index);
+        postUserFeatures.sort(
+            (left, right) =>
+                postUserFeaturesList.indexOf(left.tag) -
+                postUserFeaturesList.indexOf(right.tag)
+        );
+        notUsedByShaper.sort((left, right) =>
+            left.tag.localeCompare(right.tag)
+        );
+
+        return {
+            usedByShaper,
+            discretionary,
+            postUserFeatures,
+            notUsedByShaper
+        };
+    }
+
+    formatFeatureSection(
+        title: string,
+        features: Array<{ tag: string; index: number }>
+    ): string[] {
+        return [
+            `### ${title}`,
+            ...(features.length > 0
+                ? features.map(
+                      (feature) => `- ${feature.tag} # index ${feature.index}`
+                  )
+                : ['- (empty)']),
+            ''
+        ];
+    }
+
+    getFontOpenTypeInfo(): string {
+        const font = (window as any).currentFontModel;
+        if (!font) {
+            throw new Error('No font is currently open.');
+        }
+
+        const features: Array<[string, any]> = font.features?.features || [];
+        const sourceOrder = this.getFontFeatureSourceOrder();
+        const shapersInUse = this.getShapersInUse();
+
+        const lines: string[] = [
+            'OpenType shaping order depends on the script-specific HarfBuzz shaper used for the current script, not on the raw order in which features are defined in the font.',
+            '',
+            'Other shaping engines besides HarfBuzz exist and may handle feature execution differently. Counterpunch is explicitly based on HarfBuzz, so the shaper ordering described here is HarfBuzz-specific and matches Counterpunch.',
+            '',
+            'The feature order below is the explicit source order as defined in the font. This is not the order in which shaping executes those features.',
+            '',
+            'One feature may be defined several times in the font under the same code but with different instructions each. The shaper will execute these in the order they are defined in the font, which is why some features may appear several times in the shaper-specific sections below.',
+            '',
+            'The indices shown here and in the shaper-specific sections refer to the feature array as defined in the font.',
+            '',
+            '## Feature order as defined in the font',
+            ...(sourceOrder.length > 0
+                ? sourceOrder.map((tag, index) => `${index}. ${tag}`)
+                : ['(empty)']),
+            '',
+            'For each shaper in use below, the output is split into up to four sections exactly like the features editor sidebar in the UI:',
+            '- `Used by X shaper`: required features that this HarfBuzz shaper uses before the user-features split, ordered by the shaper. These features are not accessible in typesetting applications as user-controllable features but are controlled by the shaper based on the language of the text inferred either explicitly or implicitly.',
+            '- `Discretionary (sortable)`: user-controllable features, ordered by the user-defined source sorting in the font editor. Typesetting applications typically only allow activating these discretionary features, so these are the only features that can be user-controlled in those applications. The discretionary section is sorted by the user-defined source order in the font, and also executed by the shaper in this order, which is why order matters here. If glyph substitutions are not reachable, the discretionary feature order could be a culprit.',
+            '- `Used by X shaper, continued`: required features that this HarfBuzz shaper uses after the user-features split, ordered by the shaper. These features are not accessible in typesetting applications as user-controllable features but are controlled by the shaper based on the language of the text inferred either explicitly or implicitly.',
+            '- `Inactive for X shaper`: features present in the font but unused by that shaper, listed as the inactive remainder for that shaper.',
+            ''
+        ];
+
+        if (shapersInUse.size === 0) {
+            lines.push('No shapers are currently in use for this font.');
+            return lines.join('\n');
+        }
+
+        for (const [shaper, scripts] of shapersInUse.entries()) {
+            const shaperDisplayName =
+                shaper.charAt(0).toUpperCase() + shaper.slice(1);
+            const categorized = this.categorizeFeaturesForShaper(
+                features,
+                getFeatureExecutionOrder(shaper)
+            );
+
+            lines.push(`## ${shaperDisplayName} shaper`);
+            lines.push(
+                `Scripts in use for this shaper: ${scripts.join(', ') || '(none)'}`
+            );
+            lines.push('');
+            lines.push(
+                ...this.formatFeatureSection(
+                    `Used by ${shaperDisplayName} shaper`,
+                    categorized.usedByShaper
+                )
+            );
+            lines.push(
+                ...this.formatFeatureSection(
+                    'Discretionary (sortable)',
+                    categorized.discretionary
+                )
+            );
+            lines.push(
+                ...this.formatFeatureSection(
+                    `Used by ${shaperDisplayName} shaper, continued`,
+                    categorized.postUserFeatures
+                )
+            );
+            lines.push(
+                ...this.formatFeatureSection(
+                    `Inactive for ${shaperDisplayName} shaper`,
+                    categorized.notUsedByShaper
+                )
+            );
+        }
+
+        return lines.join('\n');
+    }
+
     createHeaderToolCallsElement(toolCalls: any[]): HTMLElement {
         const wrapper = document.createElement('div');
         wrapper.style.cssText =
@@ -858,6 +1106,9 @@ if '_agent_original_stdout' in dir():
                     null,
                     2
                 );
+            }
+            case 'get_font_opentype_info': {
+                return this.getFontOpenTypeInfo();
             }
             case 'set_editor_text_buffer': {
                 const text = args.text;

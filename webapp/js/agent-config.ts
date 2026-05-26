@@ -148,6 +148,19 @@ export const AGENT_TOOLS: AgentTool[] = [
     {
         type: 'function',
         function: {
+            name: 'get_font_opentype_info',
+            description:
+                'Explain how OpenType shaping depends on script-specific shaper execution order for the current font. Reports the explicit feature source order as defined in the font, clarifies that source order is not shaping order, and then reproduces the shaper-specific feature sections shown in the features sidebar for every shaper currently in use.',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'set_editor_text_buffer',
             description:
                 'Set the text buffer contents. The string may include encoded Unicode characters as well as glyph names using the /glyphname notation. Several glyph names may appear consecutively, but the last one needs to have a space character as a suffix before encoded characters may follow. Use tool `get_editor_state` first to see the current buffer.',
