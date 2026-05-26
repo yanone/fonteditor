@@ -899,6 +899,8 @@ class GlyphCanvas {
                 this.updateCursorStyle();
                 this.render();
             }
+
+            this.outlineEditor.onKeyUp(e);
         });
 
         // Reset key states when window loses focus (e.g., Cmd+Tab to switch apps)
@@ -928,6 +930,7 @@ class GlyphCanvas {
         this.canvas!.addEventListener('blur', () => {
             this.measurementKeyPressed = false;
             this.isDraggingCanvas = false;
+            this.outlineEditor.cancelQueuedKeyboardPreviewMoves();
             this.outlineEditor.setCommandKeyPressed(false);
             // Note: Don't reset spaceKeyPressed here - it should be handled by the keyup event
             // Resetting it here causes preview mode to malfunction because the keyup handler

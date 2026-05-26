@@ -3426,6 +3426,51 @@ describe('GlyphCanvas property panel metrics edits', () => {
         }
     });
 
+    test('releasing an arrow key clears queued keyboard preview moves', () => {
+        const clearQueuedSpy = jest.spyOn(
+            canvas.outlineEditor.keyboardPreviewEditFunnel,
+            'clearQueued'
+        );
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'right',
+            editable: true
+        };
+
+        try {
+            canvas.canvas.dispatchEvent(
+                new KeyboardEvent('keyup', {
+                    key: 'ArrowRight',
+                    bubbles: true
+                })
+            );
+
+            expect(clearQueuedSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            canvas.outlineEditor.selectedSidebearingHandle = null;
+            clearQueuedSpy.mockRestore();
+        }
+    });
+
+    test('canvas blur clears queued keyboard preview moves', () => {
+        const cancelQueuedKeyboardPreviewMovesSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'cancelQueuedKeyboardPreviewMoves'
+        );
+
+        try {
+            canvas.canvas.dispatchEvent(new Event('blur'));
+
+            expect(cancelQueuedKeyboardPreviewMovesSpy).toHaveBeenCalledTimes(
+                1
+            );
+        } finally {
+            cancelQueuedKeyboardPreviewMovesSpy.mockRestore();
+        }
+    });
+
     test('reapplyActiveEditedGlyphAdvanceAfterShape restores the active layer width into the text run', () => {
         const layer = { width: 494 };
 

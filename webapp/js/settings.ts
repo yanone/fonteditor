@@ -89,9 +89,6 @@ const APP_SETTINGS = {
         // Keyboard preview commits
         KEYBOARD_PREVIEW_COMMIT_DEBOUNCE: 1000, // ms - idle delay before previewed keyboard edits commit to Yjs/history
 
-        // Keyboard preview commits
-        KEYBOARD_PREVIEW_COMMIT_DEBOUNCE: 1000, // ms - idle delay before previewed keyboard edits commit to Yjs/history
-
         // Colors - Light Theme
         COLORS_LIGHT: {
             // Grid

@@ -261,4 +261,54 @@ describe('KeyboardPreviewEditFunnel', () => {
             'commit'
         ]);
     });
+
+    test('clearQueued drops future queued increments but lets the running one finish', async () => {
+        const funnel = new KeyboardPreviewEditFunnel();
+        const firstPrepare = deferred();
+        const calls = [];
+
+        funnel.queue({
+            prepare: async () => {
+                calls.push('prepare-1');
+                await firstPrepare.promise;
+                return true;
+            },
+            render: () => {
+                calls.push('render-1');
+            },
+            run: () => {
+                calls.push('run-1');
+            }
+        });
+        funnel.queue({
+            prepare: () => {
+                calls.push('prepare-2');
+                return true;
+            },
+            render: () => {
+                calls.push('render-2');
+            },
+            run: () => {
+                calls.push('run-2');
+            }
+        });
+
+        expect(calls).toEqual(['prepare-1']);
+
+        funnel.clearQueued();
+        firstPrepare.resolve();
+
+        for (let attempts = 0; attempts < 10; attempts += 1) {
+            await Promise.resolve();
+            await Promise.resolve();
+            await flushQueuedAnimationFrames();
+
+            if (!funnel.hasPendingWork()) {
+                break;
+            }
+        }
+
+        expect(calls).toEqual(['prepare-1', 'render-1', 'run-1']);
+        expect(funnel.hasPendingWork()).toBe(false);
+    });
 });

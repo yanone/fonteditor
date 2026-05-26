@@ -16675,7 +16675,30 @@ export class OutlineEditor {
         });
     }
 
+    onKeyUp(e: KeyboardEvent) {
+        if (!this.active) {
+            return;
+        }
+
+        const isKeyboardPreviewArrowKey =
+            !e.metaKey &&
+            !e.ctrlKey &&
+            (e.key === 'ArrowLeft' ||
+                e.key === 'ArrowRight' ||
+                e.key === 'ArrowUp' ||
+                e.key === 'ArrowDown');
+
+        if (isKeyboardPreviewArrowKey) {
+            this.cancelQueuedKeyboardPreviewMoves();
+        }
+    }
+
+    cancelQueuedKeyboardPreviewMoves() {
+        this.keyboardPreviewEditFunnel.clearQueued();
+    }
+
     onBlur() {
+        this.cancelQueuedKeyboardPreviewMoves();
         this.setCommandKeyPressed(false);
         this.spaceKeyPressed = false;
         this.isDraggingPoint = false;
