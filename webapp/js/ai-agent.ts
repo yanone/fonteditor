@@ -181,35 +181,150 @@ class AIAgent {
         const content = document.getElementById('agent-info-modal-content');
         if (!btn || !modal || !close || !content) return;
 
-        // Populate content from AGENT_TOOLS
-        content.innerHTML = AGENT_TOOLS.map(
-            (tool) => `
-                <div class="ai-info-section" style="margin-bottom: 16px">
-                    <h4 style="font-size:14px;margin:0 0 4px 0;color:var(--text-primary);font-weight:600">
-                        ${tool.function.name}
-                    </h4>
-                    <div style="margin:0 0 8px 0;font-size:12px;color:var(--text-tertiary);line-height:1.5">
-                        ${typeof marked !== 'undefined' ? marked.parse(tool.function.description) : tool.function.description}
-                    </div>
-                    ${
-                        Object.keys(tool.function.parameters?.properties || {})
-                            .length > 0
-                            ? `<div style="font-size:11px;color:var(--text-faint)">
-                                <strong>Parameters:</strong>
-                                ${Object.entries(
-                                    tool.function.parameters?.properties || {}
-                                )
-                                    .map(
-                                        ([name, prop]: [string, any]) =>
-                                            `<code style="background:var(--background-hover);padding:1px 4px;border-radius:3px">${name}</code>`
-                                    )
-                                    .join(' ')}
-                               </div>`
-                            : '<div style="font-size:11px;color:var(--text-faint)"><em>No parameters</em></div>'
+        const createLiveToolButton = (toolName: string) => {
+            const infoBtn = document.createElement('button');
+            infoBtn.className = 'agent-tool-call-info-btn';
+            infoBtn.textContent = 'ⓘ';
+            infoBtn.title = 'Run tool and show current output';
+
+            const loadingEl = document.createElement('div');
+            loadingEl.style.cssText =
+                'font-size:11px;line-height:1.6;padding:4px;color:var(--text-primary);';
+            loadingEl.textContent = 'Running...';
+
+            const instance = tippy(infoBtn, {
+                content: loadingEl,
+                allowHTML: true,
+                interactive: true,
+                appendTo: document.body,
+                maxWidth: 520,
+                placement: 'right',
+                trigger: 'manual',
+                zIndex: 99999,
+                theme: getTheme(),
+                popperOptions: {
+                    modifiers: [
+                        {
+                            name: 'preventOverflow',
+                            options: {
+                                boundary: 'viewport',
+                                padding: 12
+                            }
+                        }
+                    ]
+                },
+                onMount(instance) {
+                    const inner = instance.popper.querySelector(
+                        '.tippy-content'
+                    ) as HTMLElement | null;
+                    if (inner) {
+                        inner.style.maxHeight = '70vh';
+                        inner.style.overflowY = 'auto';
                     }
-                </div>
-            `
-        ).join('');
+                }
+            });
+
+            let inFlight = false;
+            infoBtn.addEventListener('click', async (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (inFlight) {
+                    return;
+                }
+
+                inFlight = true;
+                infoBtn.style.opacity = '1';
+                instance.setContent(loadingEl);
+                instance.show();
+
+                try {
+                    const toolResult = await this.executeToolCall({
+                        id: `info-${toolName}`,
+                        function: {
+                            name: toolName,
+                            arguments: '{}'
+                        }
+                    });
+                    instance.setContent(
+                        this.createToolCallOutputElement(
+                            toolName,
+                            toolResult,
+                            new Date().toLocaleTimeString()
+                        )
+                    );
+                } catch (err: any) {
+                    instance.setContent(
+                        this.createToolCallOutputElement(
+                            toolName,
+                            `Error: ${err.message}`,
+                            new Date().toLocaleTimeString()
+                        )
+                    );
+                } finally {
+                    inFlight = false;
+                }
+            });
+
+            return infoBtn;
+        };
+
+        content.innerHTML = '';
+        for (const tool of AGENT_TOOLS) {
+            const section = document.createElement('div');
+            section.className = 'ai-info-section';
+            section.style.marginBottom = '16px';
+
+            const titleRow = document.createElement('div');
+            titleRow.style.cssText =
+                'display:flex;align-items:center;gap:6px;margin:0 0 4px 0;';
+
+            const title = document.createElement('h4');
+            title.style.cssText =
+                'font-size:14px;margin:0;color:var(--text-primary);font-weight:600;';
+            title.textContent = tool.function.name;
+            titleRow.appendChild(title);
+
+            const properties =
+                (tool.function.parameters as any)?.properties || {};
+            if (Object.keys(properties).length === 0) {
+                titleRow.appendChild(createLiveToolButton(tool.function.name));
+            }
+
+            section.appendChild(titleRow);
+
+            const description = document.createElement('div');
+            description.style.cssText =
+                'margin:0 0 8px 0;font-size:12px;color:var(--text-tertiary);line-height:1.5';
+            if (typeof marked !== 'undefined') {
+                description.innerHTML = marked.parse(tool.function.description);
+            } else {
+                description.textContent = tool.function.description;
+            }
+            section.appendChild(description);
+
+            const params = document.createElement('div');
+            params.style.cssText = 'font-size:11px;color:var(--text-faint)';
+            if (Object.keys(properties).length > 0) {
+                const strong = document.createElement('strong');
+                strong.textContent = 'Parameters:';
+                params.appendChild(strong);
+                params.appendChild(document.createTextNode(' '));
+
+                for (const name of Object.keys(properties)) {
+                    const code = document.createElement('code');
+                    code.style.cssText =
+                        'background:var(--background-hover);padding:1px 4px;border-radius:3px;margin-right:4px';
+                    code.textContent = name;
+                    params.appendChild(code);
+                }
+            } else {
+                const em = document.createElement('em');
+                em.textContent = 'No parameters';
+                params.appendChild(em);
+            }
+            section.appendChild(params);
+            content.appendChild(section);
+        }
 
         // Open
         btn.addEventListener('click', (e: Event) => {
@@ -238,6 +353,220 @@ class AIAgent {
         });
     }
 
+    createAgentMessageShell() {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'agent-message agent-message-agent';
+
+        const header = document.createElement('div');
+        header.className = 'agent-message-header';
+        header.style.display = 'flex';
+        header.style.alignItems = 'center';
+        header.style.gap = '6px';
+
+        const label = document.createElement('span');
+        label.style.display = 'inline-flex';
+        label.style.alignItems = 'center';
+        label.style.gap = '4px';
+        label.innerHTML =
+            '<span class="material-symbols-outlined">robot_2</span> Agent';
+        header.appendChild(label);
+
+        messageDiv.appendChild(header);
+
+        const body = document.createElement('div');
+        messageDiv.appendChild(body);
+
+        return { messageDiv, header, body };
+    }
+
+    attachPopup(
+        button: HTMLElement,
+        contentFactory: () => HTMLElement,
+        placement: string = 'right',
+        maxWidth: number = 520
+    ) {
+        tippy(button, {
+            content: contentFactory(),
+            allowHTML: true,
+            interactive: true,
+            appendTo: document.body,
+            maxWidth,
+            placement: placement as any,
+            zIndex: 99999,
+            theme: getTheme(),
+            popperOptions: {
+                modifiers: [
+                    {
+                        name: 'preventOverflow',
+                        options: {
+                            boundary: 'viewport',
+                            padding: 12
+                        }
+                    }
+                ]
+            },
+            onShow: (instance) => {
+                instance.setContent(contentFactory());
+            },
+            onMount(instance) {
+                const content = instance.popper.querySelector(
+                    '.tippy-content'
+                ) as HTMLElement | null;
+                if (content) {
+                    content.style.maxHeight = '70vh';
+                    content.style.overflowY = 'auto';
+                }
+            }
+        });
+    }
+
+    toolCallHasNoArguments(args: any): boolean {
+        return (
+            !args ||
+            (typeof args === 'object' &&
+                !Array.isArray(args) &&
+                Object.keys(args).length === 0)
+        );
+    }
+
+    createToolCallMetaElement(
+        toolName: string,
+        args: any,
+        toolResult: string,
+        timeLabel: string
+    ): HTMLElement {
+        const resultLen = toolResult.length;
+        const metaEl = document.createElement('div');
+        metaEl.style.cssText =
+            'font-size:11px;line-height:1.6;padding:4px;color:var(--text-primary);';
+
+        let argsHtml: string;
+        if (toolName === 'execute_python_code' && args.code) {
+            argsHtml = `<b>Arguments:</b><br><pre style="margin:4px 0 0 0;padding:8px;background:var(--background-hover);border-radius:4px;font-size:11px;line-height:1.5;overflow-x:auto;font-family:var(--font-families-mono);tab-size:4">${this.highlightPython(args.code)}</pre>`;
+        } else {
+            argsHtml = `<b>Arguments:</b> ${this.escapeHtml(JSON.stringify(args, null, 2))}`;
+        }
+
+        metaEl.innerHTML = `
+            <b>Tool:</b> ${toolName}<br>
+            ${argsHtml}<br>
+            <b>Result:</b> ${resultLen} characters<br>
+            <b>Time:</b> ${this.escapeHtml(timeLabel)}<br>
+            <hr style="margin:4px 0;border:none;border-top:1px solid var(--border-primary)">
+            <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-size:10px">${this.escapeHtml(toolResult)}</pre>
+        `;
+
+        return metaEl;
+    }
+
+    createToolCallOutputElement(
+        toolName: string,
+        toolResult: string,
+        timeLabel: string
+    ): HTMLElement {
+        const outputEl = document.createElement('div');
+        outputEl.style.cssText =
+            'font-size:11px;line-height:1.6;padding:4px;color:var(--text-primary);';
+        outputEl.innerHTML = `
+            <b>Tool:</b> ${toolName}<br>
+            <b>Time:</b> ${this.escapeHtml(timeLabel)}<br>
+            <hr style="margin:4px 0;border:none;border-top:1px solid var(--border-primary)">
+            <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-size:10px">${this.escapeHtml(toolResult)}</pre>
+        `;
+        return outputEl;
+    }
+
+    createHeaderToolCallsElement(toolCalls: any[]): HTMLElement {
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText =
+            'min-width:260px;max-width:420px;padding:4px;color:var(--text-primary);';
+
+        const title = document.createElement('div');
+        title.textContent = 'Tool calls';
+        title.style.cssText =
+            'font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text-primary);';
+        wrapper.appendChild(title);
+
+        if (toolCalls.length === 0) {
+            const empty = document.createElement('div');
+            empty.textContent = 'No tool calls recorded.';
+            empty.style.cssText = 'font-size:11px;color:var(--text-tertiary);';
+            wrapper.appendChild(empty);
+            return wrapper;
+        }
+
+        for (const call of toolCalls) {
+            const row = document.createElement('div');
+            row.style.cssText =
+                'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px solid var(--border-primary);';
+
+            const left = document.createElement('div');
+            left.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+            const name = document.createElement('span');
+            name.textContent = call.name;
+            name.style.cssText =
+                'font-size:11px;font-family:var(--font-families-mono);color:var(--text-primary);';
+            left.appendChild(name);
+
+            if (this.toolCallHasNoArguments(call.args)) {
+                const infoBtn = document.createElement('button');
+                infoBtn.className = 'agent-tool-call-info-btn';
+                infoBtn.textContent = 'ⓘ';
+                infoBtn.title = 'Show tool output';
+                this.attachPopup(
+                    infoBtn,
+                    () =>
+                        this.createToolCallOutputElement(
+                            call.name,
+                            call.result,
+                            call.timeLabel
+                        ),
+                    'right',
+                    520
+                );
+                left.appendChild(infoBtn);
+            }
+
+            const meta = document.createElement('span');
+            meta.textContent = this.toolCallHasNoArguments(call.args)
+                ? 'no arguments'
+                : `${Object.keys(call.args || {}).length} args`;
+            meta.style.cssText =
+                'font-size:10px;color:var(--text-tertiary);white-space:nowrap;';
+
+            row.appendChild(left);
+            row.appendChild(meta);
+            wrapper.appendChild(row);
+        }
+
+        return wrapper;
+    }
+
+    ensureHeaderToolCallsButton(header: HTMLElement, toolCalls: any[]) {
+        let button = header.querySelector(
+            '.agent-message-info-btn'
+        ) as HTMLButtonElement | null;
+
+        if (!button) {
+            button = document.createElement('button');
+            button.className =
+                'agent-tool-call-info-btn agent-message-info-btn';
+            button.textContent = 'ⓘ';
+            button.title = 'Show tool calls';
+            button.style.marginLeft = '2px';
+            header.appendChild(button);
+            this.attachPopup(
+                button,
+                () => this.createHeaderToolCallsElement(toolCalls),
+                'bottom-end',
+                440
+            );
+        }
+
+        button.style.display = toolCalls.length > 0 ? 'inline-flex' : 'none';
+    }
+
     addMessage(role: 'user' | 'agent' | 'error', content: string) {
         if (!this.messagesContainer) return;
         const msgDiv = document.createElement('div');
@@ -251,14 +580,15 @@ class AIAgent {
             msgDiv.appendChild(header);
             msgDiv.appendChild(document.createTextNode(content));
         } else if (role === 'agent') {
-            header.innerHTML =
-                '<span class="material-symbols-outlined">robot_2</span> Agent';
-            msgDiv.appendChild(header);
-            const body = document.createElement('div');
-            if (typeof marked !== 'undefined')
-                body.innerHTML = marked.parse(content);
-            else body.textContent = content;
-            msgDiv.appendChild(body);
+            const shell = this.createAgentMessageShell();
+            shell.body.innerHTML =
+                typeof marked !== 'undefined'
+                    ? marked.parse(content)
+                    : this.escapeHtml(content);
+            this.messagesContainer.appendChild(shell.messageDiv);
+            this.messagesContainer.scrollTop =
+                this.messagesContainer.scrollHeight;
+            return;
         } else {
             header.innerHTML =
                 '<span class="material-symbols-outlined">error</span> Error';
@@ -677,7 +1007,19 @@ if '_agent_original_stdout' in dir():
         try {
             let messageDiv: HTMLDivElement | null = null;
             let bodyDiv: HTMLDivElement | null = null;
+            let headerDiv: HTMLDivElement | null = null;
             let currentRoundIndex = -1;
+            const executedToolCalls: any[] = [];
+
+            const ensureMessageShell = () => {
+                if (!messageDiv) {
+                    const shell = this.createAgentMessageShell();
+                    messageDiv = shell.messageDiv;
+                    headerDiv = shell.header;
+                    bodyDiv = shell.body;
+                    this.messagesContainer!.appendChild(messageDiv);
+                }
+            };
 
             while (true) {
                 currentRoundIndex++;
@@ -685,19 +1027,7 @@ if '_agent_original_stdout' in dir():
                     conversationMessages,
                     (chunk) => {
                         this.clearInitialStatus();
-                        if (!messageDiv) {
-                            messageDiv = document.createElement('div');
-                            messageDiv.className =
-                                'agent-message agent-message-agent';
-                            const header = document.createElement('div');
-                            header.className = 'agent-message-header';
-                            header.innerHTML =
-                                '<span class="material-symbols-outlined">robot_2</span> Agent';
-                            messageDiv.appendChild(header);
-                            bodyDiv = document.createElement('div');
-                            messageDiv.appendChild(bodyDiv);
-                            this.messagesContainer!.appendChild(messageDiv);
-                        }
+                        ensureMessageShell();
 
                         // Append/render to the LAST round-text container in bodyDiv
                         roundTexts[currentRoundIndex] =
@@ -757,19 +1087,7 @@ if '_agent_original_stdout' in dir():
                 if (result.toolCalls && result.toolCalls.length > 0) {
                     // Ensure the agent message container exists even when the model
                     // responds with only a tool call and no preamble text
-                    if (!messageDiv) {
-                        messageDiv = document.createElement('div');
-                        messageDiv.className =
-                            'agent-message agent-message-agent';
-                        const header = document.createElement('div');
-                        header.className = 'agent-message-header';
-                        header.innerHTML =
-                            '<span class="material-symbols-outlined">robot_2</span> Agent';
-                        messageDiv.appendChild(header);
-                        bodyDiv = document.createElement('div');
-                        messageDiv.appendChild(bodyDiv);
-                        this.messagesContainer!.appendChild(messageDiv);
-                    }
+                    ensureMessageShell();
 
                     conversationMessages.push({
                         role: 'assistant',
@@ -810,62 +1128,33 @@ if '_agent_original_stdout' in dir():
                                 toolResult = `Error: ${err.message}`;
                             }
 
-                            const metaEl = document.createElement('div');
-                            metaEl.style.cssText =
-                                'font-size:11px;line-height:1.6;padding:4px;color:var(--text-primary);';
+                            const timeLabel = new Date().toLocaleTimeString();
 
-                            // Format arguments — show Python code with syntax highlighting for execute_python_code
-                            let argsHtml: string;
-                            if (
-                                toolCall.function.name ===
-                                    'execute_python_code' &&
-                                args.code
-                            ) {
-                                argsHtml = `<b>Arguments:</b><br><pre style="margin:4px 0 0 0;padding:8px;background:var(--background-hover);border-radius:4px;font-size:11px;line-height:1.5;overflow-x:auto;font-family:var(--font-families-mono);tab-size:4">${this.highlightPython(args.code)}</pre>`;
-                            } else {
-                                argsHtml = `<b>Arguments:</b> ${this.escapeHtml(JSON.stringify(args, null, 2))}`;
-                            }
+                            this.attachPopup(
+                                infoBtn,
+                                () =>
+                                    this.createToolCallMetaElement(
+                                        toolCall.function.name,
+                                        args,
+                                        toolResult,
+                                        timeLabel
+                                    ),
+                                'right',
+                                520
+                            );
 
-                            metaEl.innerHTML = `
-                                <b>Tool:</b> ${toolCall.function.name}<br>
-                                ${argsHtml}<br>
-                                <b>Result:</b> ${resultLen} characters<br>
-                                <b>Time:</b> ${new Date().toLocaleTimeString()}<br>
-                                <hr style="margin:4px 0;border:none;border-top:1px solid var(--border-primary)">
-                                <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-size:10px">${this.escapeHtml(toolResult)}</pre>
-                            `;
-
-                            tippy(infoBtn, {
-                                content: metaEl,
-                                allowHTML: true,
-                                interactive: true,
-                                appendTo: document.body,
-                                maxWidth: 520,
-                                placement: 'right',
-                                zIndex: 99999,
-                                theme: getTheme(),
-                                popperOptions: {
-                                    modifiers: [
-                                        {
-                                            name: 'preventOverflow',
-                                            options: {
-                                                boundary: 'viewport',
-                                                padding: 12
-                                            }
-                                        }
-                                    ]
-                                },
-                                onMount(instance) {
-                                    const content =
-                                        instance.popper.querySelector(
-                                            '.tippy-content'
-                                        ) as HTMLElement | null;
-                                    if (content) {
-                                        content.style.maxHeight = '70vh';
-                                        content.style.overflowY = 'auto';
-                                    }
-                                }
+                            executedToolCalls.push({
+                                name: toolCall.function.name,
+                                args,
+                                result: toolResult,
+                                timeLabel
                             });
+                            if (headerDiv) {
+                                this.ensureHeaderToolCallsButton(
+                                    headerDiv,
+                                    executedToolCalls
+                                );
+                            }
 
                             (bodyDiv as HTMLDivElement).appendChild(line);
                             this.scrollToBottomIfNear();
