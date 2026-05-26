@@ -1165,9 +1165,10 @@ class AIAgent {
             '',
             'The feature order below is the explicit source order as defined in the font. This is not the order in which shaping executes those features.',
             '',
-            'One feature may be defined several times in the font under the same code but with different instructions each. The shaper will execute these in the order they are defined in the font, which is why some features may appear several times in the shaper-specific sections below.',
+            'One feature may be defined several times in the font under the same tag but with different instructions each. The shaper will execute these in the order they are defined in the font, which is why some features may appear several times in the shaper-specific sections below.',
             '',
             'The indices shown here and in the shaper-specific sections refer to the feature array as defined in the font.',
+            'Since one feature may be defined several times in a font under the same tag, it is best to retrieve a feature by its index in Python code instead of looping over the feature names. Example: `font.features.features[3]` instead of searching for a feature with a specific tag, since multiple features may have the same tag.',
             '',
             '## Feature order as defined in the font',
             ...(sourceOrder.length > 0
