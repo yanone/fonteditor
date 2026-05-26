@@ -27,6 +27,10 @@ if ! git rev-parse --verify "$BRANCH" > /dev/null 2>&1; then
     exit 1
 fi
 
+# Change to repo root so all git commands and paths work regardless
+# of where the user invoked this script from
+cd "$REPO_ROOT"
+
 # Files that are auto-reset to main's version during merge
 # (worktree-specific generated files — differ per worktree, never merged)
 WORKTREE_LOCAL_FILES=(
