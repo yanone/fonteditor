@@ -3,27 +3,33 @@ import type { EditingCompileContext } from './font-manager';
 
 export type KeyboardPreviewCompilingEditType = 'outline' | 'anchor' | null;
 
+type KeyboardPreviewCompileRequest = {
+    changeSource: string;
+    editType: KeyboardPreviewCompilingEditType;
+};
+
 const KEYBOARD_PREVIEW_DATA_FRESHNESS_MODE: EditingCompileContext['dataFreshnessMode'] =
     'live-drag-worker-preview';
 
 export type KeyboardPreviewEditRequest = {
+    prepare?: () => boolean | void | Promise<boolean | void>;
     run: () => boolean | void | Promise<boolean | void>;
     isActive?: () => boolean;
-    compile?: {
-        changeSource: string;
-        editType: KeyboardPreviewCompilingEditType;
-    };
+    render?: () => void;
+    compile?:
+        | KeyboardPreviewCompileRequest
+        | (() => KeyboardPreviewCompileRequest | null);
     onError?: (error: Error) => void;
 };
 
 export class KeyboardPreviewEditFunnel {
     private runningRequest: Promise<void> | null = null;
-    private queuedRequest: KeyboardPreviewEditRequest | null = null;
+    private queuedRequests: KeyboardPreviewEditRequest[] = [];
     private commitTimer: number | null = null;
     private pendingCommit: (() => Promise<void>) | null = null;
 
     queue(request: KeyboardPreviewEditRequest): void {
-        this.queuedRequest = request;
+        this.queuedRequests.push(request);
         this.startNextRequest();
     }
 
@@ -41,14 +47,14 @@ export class KeyboardPreviewEditFunnel {
     hasPendingWork(): boolean {
         return !!(
             this.runningRequest ||
-            this.queuedRequest ||
+            this.queuedRequests.length > 0 ||
             this.pendingCommit ||
             this.commitTimer !== null
         );
     }
 
     clearQueued(): void {
-        this.queuedRequest = null;
+        this.queuedRequests = [];
     }
 
     cancelPendingCommit(): void {
@@ -60,17 +66,21 @@ export class KeyboardPreviewEditFunnel {
     }
 
     async drainAndClearQueued(): Promise<void> {
-        this.queuedRequest = null;
+        while (this.runningRequest || this.queuedRequests.length > 0) {
+            if (!this.runningRequest && this.queuedRequests.length > 0) {
+                this.startNextRequest();
+            }
 
-        while (this.runningRequest) {
             const runningRequest = this.runningRequest;
+            if (!runningRequest) {
+                continue;
+            }
+
             await runningRequest;
             if (this.runningRequest === runningRequest) {
                 this.runningRequest = null;
             }
         }
-
-        this.queuedRequest = null;
     }
 
     async flushPendingCommit(): Promise<void> {
@@ -94,12 +104,14 @@ export class KeyboardPreviewEditFunnel {
     }
 
     private startNextRequest(): void {
-        if (this.runningRequest || !this.queuedRequest) {
+        if (this.runningRequest || this.queuedRequests.length === 0) {
             return;
         }
 
-        const request = this.queuedRequest;
-        this.queuedRequest = null;
+        const request = this.queuedRequests.shift();
+        if (!request) {
+            return;
+        }
 
         const runningRequest = this.processRequest(request);
         this.runningRequest = runningRequest;
@@ -115,9 +127,42 @@ export class KeyboardPreviewEditFunnel {
     private async processRequest(
         request: KeyboardPreviewEditRequest
     ): Promise<void> {
-        if (!this.isRequestActive(request)) {
+        if (!request.prepare && !this.isRequestActive(request)) {
             this.clearMatchingCompileContext(request);
             return;
+        }
+
+        let shouldContinue: boolean | void = true;
+        if (request.prepare) {
+            try {
+                shouldContinue = await request.prepare();
+            } catch (error) {
+                const normalizedError =
+                    error instanceof Error ? error : new Error(String(error));
+                request.onError?.(normalizedError);
+                this.clearMatchingCompileContext(request);
+                return;
+            }
+
+            if (shouldContinue === false) {
+                this.clearMatchingCompileContext(request);
+                return;
+            }
+
+            if (!this.isRequestActive(request)) {
+                this.clearMatchingCompileContext(request);
+                return;
+            }
+
+            if (request.render) {
+                request.render();
+                await this.waitForNextPaint();
+
+                if (!this.isRequestActive(request)) {
+                    this.clearMatchingCompileContext(request);
+                    return;
+                }
+            }
         }
 
         let shouldCompile: boolean | void;
@@ -149,7 +194,8 @@ export class KeyboardPreviewEditFunnel {
     }
 
     private requestLiveCompile(request: KeyboardPreviewEditRequest): void {
-        if (!request.compile) {
+        const compileRequest = this.resolveCompileRequest(request);
+        if (!compileRequest) {
             return;
         }
 
@@ -160,13 +206,13 @@ export class KeyboardPreviewEditFunnel {
         }
 
         fm.setEditingCompileContext(
-            request.compile.changeSource,
-            request.compile.editType
+            compileRequest.changeSource,
+            compileRequest.editType
         );
         currentFont.requestRecompileWithoutDataChange({
             compileContext: {
-                changeSource: request.compile.changeSource,
-                editType: request.compile.editType,
+                changeSource: compileRequest.changeSource,
+                editType: compileRequest.editType,
                 dataFreshnessMode: KEYBOARD_PREVIEW_DATA_FRESHNESS_MODE
             }
         });
@@ -175,7 +221,8 @@ export class KeyboardPreviewEditFunnel {
     }
 
     private clearMatchingCompileContext(request: KeyboardPreviewEditRequest) {
-        if (!request.compile) {
+        const compileRequest = this.resolveCompileRequest(request);
+        if (!compileRequest) {
             return;
         }
 
@@ -185,10 +232,30 @@ export class KeyboardPreviewEditFunnel {
         }
 
         if (
-            fm.lastChangeSource === request.compile.changeSource &&
-            fm.lastEditType === request.compile.editType
+            fm.lastChangeSource === compileRequest.changeSource &&
+            fm.lastEditType === compileRequest.editType
         ) {
             fm.clearEditingCompileContext();
         }
+    }
+
+    private resolveCompileRequest(
+        request: KeyboardPreviewEditRequest
+    ): KeyboardPreviewCompileRequest | null {
+        if (!request.compile) {
+            return null;
+        }
+
+        return typeof request.compile === 'function'
+            ? request.compile()
+            : request.compile;
+    }
+
+    private async waitForNextPaint(): Promise<void> {
+        await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => resolve());
+            });
+        });
     }
 }

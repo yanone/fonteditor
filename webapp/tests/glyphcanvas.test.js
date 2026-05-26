@@ -3263,6 +3263,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         jest.useFakeTimers();
         const originalChangeBridge = window.changeBridge;
         const originalPatchSyncEngine = window.patchSyncEngine;
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
         const syncCurrentGlyphToYDocSpy = jest
             .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
             .mockImplementation(() => {});
@@ -3278,9 +3279,16 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 ]);
                 return true;
             });
-        const queueKeyboardSidebearingPreviewSpy = jest
-            .spyOn(canvas.outlineEditor, 'queueKeyboardSidebearingPreview')
-            .mockImplementation(() => {});
+        const queueKeyboardPreviewMovementSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'queueKeyboardPreviewMovement'
+        );
+        const syncDependentGlyphsAfterSidebearingEditSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'syncDependentGlyphsAfterSidebearingEdit'
+            )
+            .mockResolvedValue();
         const computeClosureSpy = jest
             .spyOn(canvas.outlineEditor, 'computeRecompositionClosure')
             .mockReturnValue({
@@ -3308,6 +3316,10 @@ describe('GlyphCanvas property panel metrics edits', () => {
             side: 'right',
             editable: true
         };
+        global.requestAnimationFrame = jest.fn((callback) => {
+            callback(0);
+            return 1;
+        });
 
         try {
             await canvas.outlineEditor.onKeyDown({
@@ -3318,12 +3330,25 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 ctrlKey: false,
                 preventDefault: jest.fn()
             });
+            await canvas.outlineEditor.onKeyDown({
+                key: 'ArrowRight',
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false,
+                preventDefault: jest.fn()
+            });
 
-            expect(queueKeyboardSidebearingPreviewSpy).toHaveBeenCalledTimes(1);
+            expect(queueKeyboardPreviewMovementSpy).toHaveBeenCalledTimes(2);
             expect(syncCurrentGlyphToYDocSpy).not.toHaveBeenCalled();
+
+            await canvas.outlineEditor.keyboardPreviewEditFunnel.flushPendingCommit();
+
+            expect(moveSelectedSidebearingSpy).toHaveBeenCalledTimes(2);
 
             await jest.advanceTimersByTimeAsync(1000);
 
+            expect(syncCurrentGlyphToYDocSpy).toHaveBeenCalledTimes(1);
             expect(syncCurrentGlyphToYDocSpy).toHaveBeenCalledWith(
                 'Arrow key',
                 'RIGHT',
@@ -3344,14 +3369,60 @@ describe('GlyphCanvas property panel metrics edits', () => {
             );
         } finally {
             jest.useRealTimers();
+            global.requestAnimationFrame = originalRequestAnimationFrame;
             canvas.outlineEditor.selectedSidebearingHandle = null;
             window.changeBridge = originalChangeBridge;
             window.patchSyncEngine = originalPatchSyncEngine;
             computeClosureSpy.mockRestore();
-            queueKeyboardSidebearingPreviewSpy.mockRestore();
+            queueKeyboardPreviewMovementSpy.mockRestore();
+            syncDependentGlyphsAfterSidebearingEditSpy.mockRestore();
             saveLayerDataSpy.mockRestore();
             syncCurrentGlyphToYDocSpy.mockRestore();
             moveSelectedSidebearingSpy.mockRestore();
+        }
+    });
+
+    test('keyboard sidebearing nudges wait for an in-flight keyboard commit before starting a new burst', async () => {
+        const queueKeyboardPreviewMovementSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'queueKeyboardPreviewMovement'
+        );
+        let resolveCommitInFlight;
+        const commitInFlight = new Promise((resolve) => {
+            resolveCommitInFlight = resolve;
+        });
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'right',
+            editable: true
+        };
+        canvas.outlineEditor._keyboardPreviewCommitInFlight = commitInFlight;
+
+        try {
+            const keydownPromise = canvas.outlineEditor.onKeyDown({
+                key: 'ArrowRight',
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false,
+                preventDefault: jest.fn()
+            });
+
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(queueKeyboardPreviewMovementSpy).not.toHaveBeenCalled();
+
+            resolveCommitInFlight();
+            await keydownPromise;
+
+            expect(queueKeyboardPreviewMovementSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            canvas.outlineEditor._keyboardPreviewCommitInFlight = null;
+            canvas.outlineEditor.selectedSidebearingHandle = null;
+            queueKeyboardPreviewMovementSpy.mockRestore();
         }
     });
 
