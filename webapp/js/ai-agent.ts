@@ -484,6 +484,7 @@ if '_agent_original_stdout' in dir():
 
         const response = await fetch(`${this.getWebsiteURL()}/api/ai/agent`, {
             method: 'POST',
+            credentials: 'include',
             headers,
             signal,
             body: JSON.stringify({
