@@ -121,7 +121,7 @@ fi
 
 # No conflicts (or only worktree-local) — merge cleanly
 if [ "$MERGE_CONFLICTS" = false ]; then
-    git merge --no-ff --no-commit "$BRANCH"
+    git merge --no-ff --no-commit "$BRANCH" || true
     for f in "${WORKTREE_LOCAL_FILES[@]}"; do
         git checkout main -- "$f"
     done
