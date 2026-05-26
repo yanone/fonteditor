@@ -117,7 +117,7 @@ if [ "$MERGE_CONFLICTS" = true ]; then
         for f in "${WORKTREE_LOCAL_FILES[@]}"; do
             git checkout main -- "$f"
         done
-        git commit -m "$COMMIT_MSG"
+        git commit -m "$COMMIT_MSG" || true
         echo ""
         echo "✓ Merge complete."
     fi
@@ -129,35 +129,31 @@ if [ "$MERGE_CONFLICTS" = false ]; then
     for f in "${WORKTREE_LOCAL_FILES[@]}"; do
         git checkout main -- "$f"
     done
-    git commit -m "$COMMIT_MSG"
+    git commit -m "$COMMIT_MSG" || true
     echo ""
     echo "✓ Merge complete."
 fi
 
-# --- Remove worktree ---
+# --- Clean up worktree and branch (only reached after successful merge) ---
 echo ""
 echo "Removing worktree..."
 if [ -d "$WORKTREE_PATH" ]; then
-    # Remove git worktree registration (may fail if already pruned)
     git worktree remove "$WORKTREE_PATH" 2>/dev/null || \
         git worktree remove "$WORKTREE_PATH" --force 2>/dev/null || true
-    # Always nuke the directory on disk — git worktree remove --force
-    # does NOT delete untracked/ignored files (e.g. webapp/build/)
-    rm -rf "$WORKTREE_PATH"
+    if [ -d "$WORKTREE_PATH" ]; then
+        rm -rf "$WORKTREE_PATH"
+    fi
     echo "  Worktree removed: $WORKTREE_PATH"
 else
     echo "  Worktree not found at $WORKTREE_PATH (already removed)."
 fi
-
-# --- Delete branch ---
 echo ""
 echo "Deleting branch '$BRANCH'..."
 if git rev-parse --verify "$BRANCH" > /dev/null 2>&1; then
-    git branch -d "$BRANCH"
+    git branch -d "$BRANCH" 2>/dev/null || git branch -D "$BRANCH" 2>/dev/null || true
     echo "  Branch deleted: $BRANCH"
 else
     echo "  Branch already deleted."
 fi
-
 echo ""
 echo "✓ Cleanup complete!"
