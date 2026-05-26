@@ -5,7 +5,12 @@
 
 import { resolveWebsiteURL } from './website-url';
 import { Logger } from './logger';
-import { AGENT_TOOLS, AGENT_SYSTEM_PROMPT, UsageMetrics } from './agent-config';
+import {
+    AGENT_TOOLS,
+    AGENT_SYSTEM_PROMPT,
+    AgentTool,
+    UsageMetrics
+} from './agent-config';
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import { getTheme } from './tippy-utils';
@@ -186,19 +191,18 @@ class AIAgent {
         const content = document.getElementById('agent-info-modal-content');
         if (!btn || !modal || !close || !content) return;
 
-        const createLiveToolButton = (toolName: string) => {
+        const createLiveToolButton = (tool: AgentTool) => {
+            const properties = this.getToolParameterProperties(tool);
+            const hasParameters = Object.keys(properties).length > 0;
             const infoBtn = document.createElement('button');
             infoBtn.className = 'agent-tool-call-info-btn';
             infoBtn.textContent = 'ⓘ';
-            infoBtn.title = 'Run tool and show current output';
-
-            const loadingEl = document.createElement('div');
-            loadingEl.style.cssText =
-                'font-size:11px;line-height:1.6;padding:4px;color:var(--text-primary);';
-            loadingEl.textContent = 'Running...';
+            infoBtn.title = hasParameters
+                ? 'Configure and run tool'
+                : 'Run tool and show current output';
 
             const instance = tippy(infoBtn, {
-                content: loadingEl,
+                content: this.createToolInvocationPopup(tool),
                 allowHTML: true,
                 interactive: true,
                 appendTo: document.body,
@@ -229,45 +233,15 @@ class AIAgent {
                 }
             });
 
-            let inFlight = false;
             infoBtn.addEventListener('click', async (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                if (inFlight) {
-                    return;
-                }
-
-                inFlight = true;
-                infoBtn.style.opacity = '1';
-                instance.setContent(loadingEl);
+                instance.setContent(
+                    this.createToolInvocationPopup(tool, {
+                        autoRun: !hasParameters
+                    })
+                );
                 instance.show();
-
-                try {
-                    const toolResult = await this.executeToolCall({
-                        id: `info-${toolName}`,
-                        function: {
-                            name: toolName,
-                            arguments: '{}'
-                        }
-                    });
-                    instance.setContent(
-                        this.createToolCallOutputElement(
-                            toolName,
-                            toolResult,
-                            new Date().toLocaleTimeString()
-                        )
-                    );
-                } catch (err: any) {
-                    instance.setContent(
-                        this.createToolCallOutputElement(
-                            toolName,
-                            `Error: ${err.message}`,
-                            new Date().toLocaleTimeString()
-                        )
-                    );
-                } finally {
-                    inFlight = false;
-                }
             });
 
             return infoBtn;
@@ -289,11 +263,8 @@ class AIAgent {
             title.textContent = tool.function.name;
             titleRow.appendChild(title);
 
-            const properties =
-                (tool.function.parameters as any)?.properties || {};
-            if (Object.keys(properties).length === 0) {
-                titleRow.appendChild(createLiveToolButton(tool.function.name));
-            }
+            const properties = this.getToolParameterProperties(tool);
+            titleRow.appendChild(createLiveToolButton(tool));
 
             section.appendChild(titleRow);
 
@@ -356,6 +327,296 @@ class AIAgent {
                 closeModal();
             }
         });
+    }
+
+    getToolParameterProperties(tool: AgentTool): Record<string, any> {
+        return ((tool.function.parameters as any)?.properties || {}) as Record<
+            string,
+            any
+        >;
+    }
+
+    getToolRequiredParameters(tool: AgentTool): Set<string> {
+        const required = (tool.function.parameters as any)?.required;
+        return new Set(Array.isArray(required) ? required : []);
+    }
+
+    shouldUseTextareaForToolParameter(
+        paramName: string,
+        schema: Record<string, any>
+    ): boolean {
+        if (schema.type === 'array' || schema.type === 'object') {
+            return true;
+        }
+
+        return paramName === 'code' || paramName === 'text';
+    }
+
+    parseToolParameterValue(
+        rawValue: string,
+        schema: Record<string, any>
+    ): any {
+        const trimmed = rawValue.trim();
+
+        switch (schema.type) {
+            case 'array': {
+                if (!trimmed) {
+                    return [];
+                }
+
+                if (trimmed.startsWith('[')) {
+                    const parsed = JSON.parse(trimmed);
+                    if (!Array.isArray(parsed)) {
+                        throw new Error('Expected a JSON array.');
+                    }
+                    return parsed;
+                }
+
+                return trimmed
+                    .split(/[\n,]/)
+                    .map((value) => value.trim())
+                    .filter(Boolean);
+            }
+            case 'integer': {
+                if (!trimmed) {
+                    return undefined;
+                }
+                const value = Number(trimmed);
+                if (!Number.isInteger(value)) {
+                    throw new Error('Expected an integer value.');
+                }
+                return value;
+            }
+            case 'number': {
+                if (!trimmed) {
+                    return undefined;
+                }
+                const value = Number(trimmed);
+                if (!Number.isFinite(value)) {
+                    throw new Error('Expected a numeric value.');
+                }
+                return value;
+            }
+            case 'boolean': {
+                if (!trimmed) {
+                    return undefined;
+                }
+                if (trimmed === 'true') {
+                    return true;
+                }
+                if (trimmed === 'false') {
+                    return false;
+                }
+                throw new Error('Expected `true` or `false`.');
+            }
+            case 'object': {
+                if (!trimmed) {
+                    return {};
+                }
+                return JSON.parse(trimmed);
+            }
+            default:
+                return rawValue;
+        }
+    }
+
+    collectToolInvocationArguments(
+        tool: AgentTool,
+        fields: Record<string, HTMLInputElement | HTMLTextAreaElement>
+    ): Record<string, any> {
+        const properties = this.getToolParameterProperties(tool);
+        const required = this.getToolRequiredParameters(tool);
+        const args: Record<string, any> = {};
+
+        for (const [paramName, schema] of Object.entries(properties)) {
+            const field = fields[paramName];
+            if (!field) {
+                continue;
+            }
+
+            const rawValue = field.value;
+            const trimmed = rawValue.trim();
+            if (!trimmed && schema.type !== 'array') {
+                if (required.has(paramName)) {
+                    throw new Error(`Missing required parameter: ${paramName}`);
+                }
+                continue;
+            }
+
+            const value = this.parseToolParameterValue(rawValue, schema);
+            if (value === undefined && !required.has(paramName)) {
+                continue;
+            }
+            args[paramName] = value;
+        }
+
+        return args;
+    }
+
+    createToolInvocationPopup(
+        tool: AgentTool,
+        options: { autoRun?: boolean } = {}
+    ): HTMLElement {
+        const properties = this.getToolParameterProperties(tool);
+        const fieldEntries = Object.entries(properties);
+        const fields: Record<string, HTMLInputElement | HTMLTextAreaElement> =
+            {};
+
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText =
+            'min-width:320px;max-width:520px;padding:8px;color:var(--text-primary);';
+
+        const title = document.createElement('div');
+        title.textContent = tool.function.name;
+        title.style.cssText =
+            'font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text-primary);';
+        wrapper.appendChild(title);
+
+        const form = document.createElement('form');
+        form.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
+
+        for (const [paramName, schema] of fieldEntries) {
+            const fieldWrapper = document.createElement('label');
+            fieldWrapper.style.cssText =
+                'display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text-primary);';
+
+            const label = document.createElement('span');
+            label.textContent = paramName;
+            label.style.cssText = 'font-weight:600;';
+            fieldWrapper.appendChild(label);
+
+            const input = this.shouldUseTextareaForToolParameter(
+                paramName,
+                schema
+            )
+                ? document.createElement('textarea')
+                : document.createElement('input');
+
+            input.style.cssText =
+                'width:100%;box-sizing:border-box;border:1px solid var(--border-primary);border-radius:6px;padding:8px;background:var(--background-primary);color:var(--text-primary);font:inherit;font-size:11px;';
+            if (input instanceof HTMLTextAreaElement) {
+                input.rows = schema.type === 'array' ? 4 : 6;
+                if (schema.type === 'array') {
+                    input.placeholder =
+                        '["liga", "kern"] or one value per line';
+                }
+            } else {
+                input.type = 'text';
+            }
+
+            if (!input.placeholder && typeof schema.description === 'string') {
+                input.placeholder = schema.description;
+            }
+
+            fieldWrapper.appendChild(input);
+
+            if (typeof schema.description === 'string' && schema.description) {
+                const description = document.createElement('div');
+                description.textContent = schema.description;
+                description.style.cssText =
+                    'font-size:10px;line-height:1.4;color:var(--text-tertiary);';
+                fieldWrapper.appendChild(description);
+            }
+
+            fields[paramName] = input;
+            form.appendChild(fieldWrapper);
+        }
+
+        const controls = document.createElement('div');
+        controls.style.cssText =
+            'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+
+        const submitButton = document.createElement('button');
+        submitButton.type = 'submit';
+        submitButton.textContent = 'Run tool';
+        submitButton.style.cssText =
+            'border:1px solid var(--border-primary);border-radius:6px;padding:6px 10px;background:var(--background-hover);color:var(--text-primary);font-size:11px;cursor:pointer;';
+        controls.appendChild(submitButton);
+
+        const status = document.createElement('div');
+        status.style.cssText =
+            'font-size:10px;line-height:1.4;color:var(--text-tertiary);';
+        status.textContent =
+            fieldEntries.length > 0
+                ? 'Fill parameters and run the live tool call.'
+                : 'Run the live tool call.';
+        controls.appendChild(status);
+
+        form.appendChild(controls);
+        wrapper.appendChild(form);
+
+        const output = document.createElement('div');
+        output.style.marginTop = '10px';
+        wrapper.appendChild(output);
+
+        const setOutput = (element: HTMLElement) => {
+            output.innerHTML = '';
+            output.appendChild(element);
+        };
+
+        const runTool = async () => {
+            let args: Record<string, any> = {};
+            try {
+                args = this.collectToolInvocationArguments(tool, fields);
+            } catch (error: any) {
+                status.textContent = error.message || 'Invalid parameters.';
+                status.style.color = 'var(--accent-red)';
+                return;
+            }
+
+            submitButton.disabled = true;
+            submitButton.style.opacity = '0.65';
+            status.textContent = 'Running...';
+            status.style.color = 'var(--text-tertiary)';
+
+            try {
+                const toolResult = await this.executeToolCall({
+                    id: `info-${tool.function.name}`,
+                    function: {
+                        name: tool.function.name,
+                        arguments: JSON.stringify(args)
+                    }
+                });
+
+                status.textContent = 'Completed.';
+                setOutput(
+                    this.createToolCallMetaElement(
+                        tool.function.name,
+                        args,
+                        toolResult,
+                        new Date().toLocaleTimeString()
+                    )
+                );
+            } catch (error: any) {
+                status.textContent = 'Tool call failed.';
+                status.style.color = 'var(--accent-red)';
+                setOutput(
+                    this.createToolCallMetaElement(
+                        tool.function.name,
+                        args,
+                        `Error: ${error.message}`,
+                        new Date().toLocaleTimeString()
+                    )
+                );
+                return;
+            } finally {
+                submitButton.disabled = false;
+                submitButton.style.opacity = '1';
+            }
+
+            status.style.color = 'var(--text-tertiary)';
+        };
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            await runTool();
+        });
+
+        if (options.autoRun) {
+            void runTool();
+        }
+
+        return wrapper;
     }
 
     createAgentMessageShell() {
