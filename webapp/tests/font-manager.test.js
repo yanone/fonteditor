@@ -3198,38 +3198,26 @@ describe('FontCompilation worker cache readiness', () => {
         );
     });
 
-    test('compileEditingFromJsonCached uses the full JSON path for feature-code commits', async () => {
-        const compileFromJsonSpy = jest
-            .spyOn(fontCompilation, 'compileFromJson')
-            .mockResolvedValue({
-                result: new Uint8Array([1, 2, 3]),
-                filename: 'editing.ttf',
-                time_taken: 1
-            });
+    test('compileEditingFromJsonCached keeps feature-code commits on the incremental worker path', async () => {
+        fontCompilation.setWorkerCacheDocumentReady(true);
 
-        try {
-            await fontCompilation.compileEditingFromJsonCached(
-                '{"glyphs":[]}',
-                '1',
-                ['o', 'odieresis'],
-                {
-                    compileSource: 'feature-code'
-                }
-            );
+        await fontCompilation.compileEditingFromJsonCached(
+            '{"glyphs":[]}',
+            '1',
+            ['o', 'odieresis'],
+            {
+                compileSource: 'feature-code'
+            }
+        );
 
-            expect(compileFromJsonSpy).toHaveBeenCalledWith(
-                '{"glyphs":[]}',
-                'editing-font.ttf',
-                expect.objectContaining({
-                    skip_features: false,
-                    skip_kerning: false,
-                    dont_use_production_names: true
-                })
-            );
-            expect(sendMessageSpy).not.toHaveBeenCalled();
-        } finally {
-            compileFromJsonSpy.mockRestore();
-        }
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'compileEditingCached',
+                babelfontJson: '__incremental_layer__',
+                subsetGlyphs: ['o', 'odieresis'],
+                _compileSource: 'feature-code'
+            })
+        );
     });
 
     test('compileEditingFromJsonCached rejects when the worker cache is cold', async () => {

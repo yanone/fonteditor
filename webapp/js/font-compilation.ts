@@ -918,18 +918,10 @@ export class FontCompilation {
                 return;
             }
 
-            // Send JSON string directly to worker
-            // FULLJSON_UNNECESSARY (U2/A3): Full babelfont JSON sent for feature-code
-            // compile. Should use compile_cached_full_font_with_filter_pipeline
-            // which reads from CANONICAL_JSON_CACHE without a full JSON crossing.
-            // TODO(feature-code): This is linked to the TODO beside U4 in
-            // change-bridge-ydoc.ts. Best current guess: feature-code commits
-            // already enter the shared Yjs commit funnel correctly, but the
-            // cached full-font validation path previously appeared to compile
-            // stale Rust feature state after applyYjsUpdate. Until that is
-            // proven fixed by inspecting the feature text Rust reads after the
-            // update, this explicit JSON compile remains as the workaround that
-            // makes inline babelfont-rs feature syntax errors observable.
+            // Send JSON string directly to worker only for paths that still
+            // compile from explicit JSON. Worker-authoritative editing compiles,
+            // including feature-code commits, now validate/compile from the
+            // cached Yjs-backed worker state instead.
             timelineMark('fontCompilation.compileFromJson.posted');
             try {
                 const postMessageSpanId = timelineSpanStart(
@@ -1003,7 +995,7 @@ export class FontCompilation {
     }
 
     async compileEditingFromJsonCached(
-        babelfontJson: string,
+        _babelfontJson: string,
         fontRevisionKey: string,
         subsetGlyphs: Array<string>,
         requestMeta?: {
@@ -1054,22 +1046,9 @@ export class FontCompilation {
             }
 
             // Cached editing compiles consume the worker's ready Y.Doc and send
-            // only the incremental sentinel below. feature-code is the one
-            // edit-time path that still compiles from the provided JSON string.
-            if (requestMeta?.compileSource === 'feature-code') {
-                const result = await this.compileFromJson(
-                    babelfontJson,
-                    'editing-font.ttf',
-                    options
-                );
-
-                return {
-                    result: result.result,
-                    filename: result.filename || 'editing-font.ttf',
-                    time_taken: result.time_taken || 0,
-                    fontRevisionKey
-                };
-            }
+            // only the incremental sentinel below. Feature-code commits still
+            // validate against the worker's cached full font, but the displayed
+            // editing font remains the subsetted incremental compile.
 
             const normalizedSubsetGlyphs = Array.from(
                 new Set((subsetGlyphs || []).filter((glyph) => !!glyph))

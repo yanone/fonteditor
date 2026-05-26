@@ -162,14 +162,15 @@ describe('FontCompilation worker document readiness', () => {
         );
     });
 
-    test('feature-code editing compiles still consume the supplied canonical JSON', async () => {
+    test('feature-code editing compiles stay on the cached incremental worker path', async () => {
         const { fontCompilation } = createReadyFontCompilation();
-        const compileFromJsonSpy = jest
-            .spyOn(fontCompilation, 'compileFromJson')
+        const sendMessageSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({
                 result: new Uint8Array([4, 5, 6]),
                 filename: 'editing-font.ttf',
-                time_taken: 2
+                time_taken: 2,
+                fontRevisionKey: '9'
             });
 
         await expect(
@@ -181,10 +182,13 @@ describe('FontCompilation worker document readiness', () => {
             )
         ).resolves.toEqual(expect.objectContaining({ fontRevisionKey: '9' }));
 
-        expect(compileFromJsonSpy).toHaveBeenCalledWith(
-            '{"glyphs":[]}',
-            'editing-font.ttf',
-            expect.any(Object)
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'compileEditingCached',
+                babelfontJson: '__incremental_layer__',
+                subsetGlyphs: ['a'],
+                _compileSource: 'feature-code'
+            })
         );
     });
 });

@@ -2263,17 +2263,15 @@ class FontManager {
                 // structure before any compile path that still consumes the
                 // local babelfont JSON string. Request-scoped worker freshness
                 // means compileEditingCached will compile from the worker Y.Doc
-                // instead; feature-code remains the JSON-consuming exception.
+                // instead, including feature-code commits once the worker cache
+                // is proven fresh for this request.
                 const jsonToSend = this.currentFont.babelfontJson;
-                const validatedJson =
-                    hasExplicitWorkerFreshnessAtRequest() &&
-                    compileSource !== 'feature-code'
-                        ? jsonToSend
-                        : this.validateBabelfontJsonForRust(
-                              jsonToSend,
-                              wasJsonStale ||
-                                  this.pendingBabelfontJsonSyncAfterDrag
-                          );
+                const validatedJson = hasExplicitWorkerFreshnessAtRequest()
+                    ? jsonToSend
+                    : this.validateBabelfontJsonForRust(
+                          jsonToSend,
+                          wasJsonStale || this.pendingBabelfontJsonSyncAfterDrag
+                      );
 
                 result = await fontCompilation.compileEditingFromJsonCached(
                     validatedJson,

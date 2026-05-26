@@ -11,6 +11,7 @@ babelfont = { path = "../../babelfont-rs/babelfont", features = ["fontir", "glyp
 fontc = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts", default-features = false }
 fontbe = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts", default-features = false }
 fontir = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts" }
+fea-rs = "0.22.0"
 fea-rs-ast = "0.1.2"
 typeshare = "1.0"
 kurbo = "0.13"

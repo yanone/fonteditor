@@ -80,13 +80,6 @@ export function compile_cached_font(options: any): Uint8Array;
 export function compile_cached_font_from_last_layout_closure(options: any): Uint8Array;
 
 /**
- * Compile the full cached font after running the standard filter pipeline.
- * This preserves feature parsing/validation without constraining the compile
- * to the current text subset.
- */
-export function compile_cached_full_font_with_filter_pipeline(options: any): Uint8Array;
-
-/**
  * Legacy function for compatibility
  */
 export function compile_glyphs(_glyphs_json: string): Uint8Array;
@@ -342,6 +335,8 @@ export function seed_ydoc(state_update: Uint8Array): void;
  */
 export function store_font(babelfont_json: string): void;
 
+export function validate_feature_source_with_full_filter_pipeline(options: any): void;
+
 /**
  * Get version information
  */
@@ -358,7 +353,6 @@ export interface InitOutput {
     readonly compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
     readonly compile_cached_font: (a: any) => [number, number, number, number];
     readonly compile_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
-    readonly compile_cached_full_font_with_filter_pipeline: (a: any) => [number, number, number, number];
     readonly compile_glyphs: (a: number, b: number) => [number, number, number, number];
     readonly compile_preview_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
     readonly dump_layer_state_json: (a: number, b: number) => [number, number, number, number];
@@ -373,17 +367,18 @@ export interface InitOutput {
     readonly prime_preview_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly seed_ydoc: (a: number, b: number) => [number, number];
     readonly store_font: (a: number, b: number) => [number, number];
+    readonly validate_feature_source_with_full_filter_pipeline: (a: any) => [number, number];
     readonly version: () => [number, number];
     readonly add_master_with_interpolated_layers_yjs: (a: number, b: number) => [number, number, number];
     readonly reinterpolate_layer_yjs: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly reinterpolate_master_layers_yjs: (a: number, b: number) => [number, number, number];
+    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
     readonly get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
     readonly get_glyph_order: (a: number, b: number) => [number, number, number, number];
     readonly get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
-    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

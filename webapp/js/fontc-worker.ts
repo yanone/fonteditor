@@ -5,7 +5,6 @@
 import init, {
     compile_babelfont,
     compile_cached_font,
-    compile_cached_full_font_with_filter_pipeline,
     compile_cached_font_from_last_layout_closure,
     compile_preview_cached_font_from_last_layout_closure,
     store_font,
@@ -24,6 +23,7 @@ import init, {
     open_font_file,
     get_glyphs_outlines,
     run_fontspector,
+    validate_feature_source_with_full_filter_pipeline,
     version
 } from '../wasm-dist/babelfont_fontc_web.js';
 import {
@@ -1120,8 +1120,7 @@ self.onmessage = async (event) => {
                     fontRevisionKey,
                     _dragActive,
                     _compileSource,
-                    _usePreviewLayerOverlay,
-                    _validateFeaturesAgainstFullFont
+                    _usePreviewLayerOverlay
                 } = data;
 
                 if (data.babelfontJson !== '__incremental_layer__') {
@@ -1141,46 +1140,21 @@ self.onmessage = async (event) => {
                 const baseSubsetGlyphs = Array.isArray(subsetGlyphs)
                     ? subsetGlyphs
                     : null;
-                const shouldCompileFullFontForFeatureCode =
-                    _validateFeaturesAgainstFullFont === true ||
-                    _compileSource === 'feature-code';
 
-                if (shouldCompileFullFontForFeatureCode) {
-                    const compileCachedSpanId = timelineSpanStart(
-                        'font.worker.compileEditingCached.compileFullCachedFont'
+                if (_compileSource === 'feature-code') {
+                    const validateFeaturesSpanId = timelineSpanStart(
+                        'font.worker.compileEditingCached.validateFeatureSource'
                     );
-                    const compiledBytes =
-                        compile_cached_full_font_with_filter_pipeline(
-                            options || {}
-                        );
+                    validate_feature_source_with_full_filter_pipeline(
+                        options || {}
+                    );
                     timelineMark(
-                        'font.worker.compileEditingCached.compileFullCachedFont.resultReady',
+                        'font.worker.compileEditingCached.validateFeatureSource.valid',
                         {
-                            parentSpanId: compileCachedSpanId
+                            parentSpanId: validateFeaturesSpanId
                         }
                     );
-                    timelineSpanEnd(compileCachedSpanId);
-
-                    const endTime = performance.now();
-                    postCompiledResult(
-                        {
-                            id,
-                            time_taken: endTime - startTime,
-                            fontRevisionKey: revisionKey,
-                            closureGlyphCount: 0,
-                            compileSource: _compileSource
-                        },
-                        compiledBytes
-                    );
-                    timelineMark(
-                        'font.worker.compileEditingCached.success',
-                        withProcess(
-                            messageTraceContext,
-                            'worker',
-                            compileEditingSpanId
-                        )
-                    );
-                    return;
+                    timelineSpanEnd(validateFeaturesSpanId);
                 }
 
                 const ensureFontCachedSpanId = timelineSpanStart(

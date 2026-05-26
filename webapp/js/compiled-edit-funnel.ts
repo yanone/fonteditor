@@ -151,10 +151,7 @@ export async function processCommittedEdit(
     const compileContext: EditingCompileContext = {
         changeSource,
         editType: editType as CommittedCompilingEditType,
-        dataFreshnessMode:
-            changeSource === 'feature-code'
-                ? null
-                : COMMITTED_DATA_FRESHNESS_MODE
+        dataFreshnessMode: COMMITTED_DATA_FRESHNESS_MODE
     };
 
     // Request the editing compile.

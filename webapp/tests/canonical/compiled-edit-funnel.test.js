@@ -116,7 +116,7 @@ describe('CompiledEditFunnel', () => {
             expect(window.fontManager.lastEditType).toBeNull();
         });
 
-        test('feature-code compiles leave worker freshness unset', async () => {
+        test('feature-code compiles keep authoritative worker freshness', async () => {
             await process('feature-code', null);
 
             expect(
@@ -125,7 +125,7 @@ describe('CompiledEditFunnel', () => {
                 compileContext: {
                     changeSource: 'feature-code',
                     editType: null,
-                    dataFreshnessMode: null
+                    dataFreshnessMode: 'authoritative-worker-yjs'
                 }
             });
         });

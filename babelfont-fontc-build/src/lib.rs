@@ -4,10 +4,19 @@ use babelfont::{
         DropIncompatiblePaths, FontFilter as _, GlyphsBracketLayers, GlyphsData,
         GlyphsStylisticSetLabel, RetainGlyphs, RewriteSmartAxes,
     },
+    BabelfontError,
+};
+use fea_rs::{
+    compile::NopVariationInfo,
+    parse::{parse_root, SourceLoadError, SourceResolver},
+    Diagnostic, GlyphMap,
 };
 use fea_rs_ast::FeatureFile;
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use wasm_bindgen::prelude::*;
@@ -756,6 +765,192 @@ fn feature_span_debug_context(fea: &str, start: usize, end: usize) -> String {
     )
 }
 
+fn render_feature_parsing_error_entries(diagnostics: &[Diagnostic]) -> String {
+    let mut rendered = String::new();
+
+    for (index, diagnostic) in diagnostics.iter().enumerate() {
+        if index > 0 {
+            rendered.push_str(", ");
+        }
+        let span = diagnostic.span();
+        let _ = write!(
+            rendered,
+            "FeatureError {{ message: {:?}, span: {}..{}, is_error: {} }}",
+            diagnostic.message.text,
+            span.start,
+            span.end,
+            diagnostic.is_error()
+        );
+    }
+
+    rendered
+}
+
+fn feature_diagnostics_to_error_string(
+    prefix: &str,
+    diagnostics: &[fea_rs::Diagnostic],
+    fea: &str,
+    context: &str,
+) -> String {
+    let rendered = format!(
+        "FeatureParsing([{}])",
+        render_feature_parsing_error_entries(diagnostics)
+    );
+    let debug_context = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.is_error())
+        .or_else(|| diagnostics.first())
+        .map(|diagnostic| {
+            let span = diagnostic.span();
+            feature_span_debug_context(fea, span.start, span.end)
+        })
+        .unwrap_or_else(|| "span not found in FeatureParsing payload".to_string());
+
+    format!(
+        "{}: {}\n[FeatureDebug:{}] {}",
+        prefix, rendered, context, debug_context
+    )
+}
+
+fn feature_debug_error_from_babelfont_error(
+    prefix: &str,
+    err: &BabelfontError,
+    fea: &str,
+    context: &str,
+) -> JsValue {
+    let error_text = format!("{:?}", err);
+    if error_text.contains("FeatureParsing(") {
+        let debug_context = extract_feature_error_span(&error_text)
+            .map(|(start, end)| feature_span_debug_context(fea, start, end))
+            .unwrap_or_else(|| "span not found in FeatureParsing payload".to_string());
+        return JsValue::from_str(&format!(
+            "{}: {:?}\n[FeatureDebug:{}] {}",
+            prefix, err, context, debug_context
+        ));
+    }
+
+    JsValue::from_str(&format!("{}: {:?}", prefix, err))
+}
+
+struct InMemoryFeatureValidationResolver {
+    content_path: PathBuf,
+    content: Arc<str>,
+    include_dir: Option<PathBuf>,
+}
+
+impl InMemoryFeatureValidationResolver {
+}
+
+impl SourceResolver for InMemoryFeatureValidationResolver {
+    fn get_contents(&self, rel_path: &Path) -> Result<Arc<str>, SourceLoadError> {
+        if rel_path == &*self.content_path {
+            return Ok(self.content.clone());
+        }
+        let Some(include_dir) = &self.include_dir else {
+            return Err(SourceLoadError::new(
+                rel_path.to_path_buf(),
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "No include path configured for feature validation",
+                ),
+            ));
+        };
+        let path = include_dir
+            .join(rel_path)
+            .canonicalize()
+            .map_err(|error| SourceLoadError::new(rel_path.to_path_buf(), error))?;
+        if !path.is_file() {
+            return Err(SourceLoadError::new(
+                rel_path.to_path_buf(),
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("Feature include file not found: {}", path.display()),
+                ),
+            ));
+        }
+        let contents = fs::read_to_string(path)
+            .map_err(|error| SourceLoadError::new(rel_path.to_path_buf(), error))?;
+        Ok(Arc::from(contents.as_str()))
+    }
+}
+
+fn feature_validation_resolver(
+    fea: &str,
+    include_dir: Option<PathBuf>,
+) -> (Box<dyn SourceResolver>, PathBuf) {
+    (
+        Box::new(InMemoryFeatureValidationResolver {
+            content_path: PathBuf::new(),
+            content: Arc::from(fea),
+            include_dir,
+        }),
+        PathBuf::new(),
+    )
+}
+
+fn validate_feature_source_with_full_filter_pipeline_internal(
+    options: &CompilationOptions,
+) -> Result<(), String> {
+    let full_font = get_or_rebuild_font_cache()
+        .map_err(|error| error.as_string().unwrap_or_else(|| format!("{:?}", error)))?;
+    let filtered_font = apply_filter_pipeline(&full_font, options)
+        .map_err(|error| error.as_string().unwrap_or_else(|| format!("{:?}", error)))?;
+    let fea = filtered_font.features.to_fea();
+    let glyph_map: GlyphMap = filtered_font
+        .glyphs
+        .iter()
+        .map(|glyph| glyph.name.as_str())
+        .collect();
+    let include_dir = filtered_font
+        .source
+        .as_ref()
+        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()));
+    let (resolver, root_path) = feature_validation_resolver(&fea, include_dir);
+
+    let (ast, parse_diagnostics) = parse_root(root_path, Some(&glyph_map), resolver)
+        .map_err(|error| format!("Feature validation failed: {:?}", error))?;
+    if parse_diagnostics.has_errors() {
+        return Err(feature_diagnostics_to_error_string(
+            "Feature validation failed",
+            parse_diagnostics.diagnostics(),
+            &fea,
+            "validate_feature_source_with_full_filter_pipeline",
+        ));
+    }
+
+    let validation_diagnostics =
+        fea_rs::compile::validate(&ast, &glyph_map, Some(&NopVariationInfo));
+    if validation_diagnostics.has_errors() {
+        return Err(feature_diagnostics_to_error_string(
+            "Feature validation failed",
+            validation_diagnostics.diagnostics(),
+            &fea,
+            "validate_feature_source_with_full_filter_pipeline",
+        ));
+    }
+
+    Ok(())
+}
+
+#[wasm_bindgen]
+pub fn validate_feature_source_with_full_filter_pipeline(
+    options: &JsValue,
+) -> Result<(), JsValue> {
+    let compilation_options = CompilationOptions {
+        skip_kerning: get_option(options, "skip_kerning", false),
+        skip_features: get_option(options, "skip_features", false),
+        skip_metrics: get_option(options, "skip_metrics", false),
+        skip_outlines: get_option(options, "skip_outlines", false),
+        dont_use_production_names: get_option(options, "dont_use_production_names", false),
+        drop_incompatible_paths: get_option(options, "drop_incompatible_paths", false),
+        produce_varc_table: get_option(options, "produce_varc_table", false),
+        debug_feature_file: None,
+    };
+
+    validate_feature_source_with_full_filter_pipeline_internal(&compilation_options)
+        .map_err(|error| JsValue::from_str(&error))
+}
+
 fn compile_with_feature_debug_context(
     font: &babelfont::Font,
     options: &CompilationOptions,
@@ -763,21 +958,12 @@ fn compile_with_feature_debug_context(
 ) -> Result<Vec<u8>, JsValue> {
     match BabelfontIrSource::compile(font.clone(), options.clone()) {
         Ok(compiled) => Ok(zero_head_timestamps(&compiled)),
-        Err(err) => {
-            let error_text = format!("{:?}", err);
-            if error_text.contains("FeatureParsing(") {
-                let fea = font.features.to_fea();
-                let debug_context = extract_feature_error_span(&error_text)
-                    .map(|(start, end)| feature_span_debug_context(&fea, start, end))
-                    .unwrap_or_else(|| "span not found in FeatureParsing payload".to_string());
-                return Err(JsValue::from_str(&format!(
-                    "Compilation failed: {:?}\n[FeatureDebug:{}] {}",
-                    err, context, debug_context
-                )));
-            }
-
-            Err(JsValue::from_str(&format!("Compilation failed: {:?}", err)))
-        }
+        Err(err) => Err(feature_debug_error_from_babelfont_error(
+            "Compilation failed",
+            &err,
+            &font.features.to_fea(),
+            context,
+        )),
     }
 }
 
@@ -3067,48 +3253,6 @@ pub fn compile_cached_font_from_last_layout_closure(options: &JsValue) -> Result
     Ok(compiled_font)
 }
 
-/// Compile the full cached font after running the standard filter pipeline.
-/// This preserves feature parsing/validation without constraining the compile
-/// to the current text subset.
-#[wasm_bindgen]
-pub fn compile_cached_full_font_with_filter_pipeline(
-    options: &JsValue,
-) -> Result<Vec<u8>, JsValue> {
-    let _compile_span = PerfSpan::start("compile_cached_full_font_with_filter_pipeline.total");
-
-    let _cache_read_span =
-        PerfSpan::start("compile_cached_full_font_with_filter_pipeline.cache_read");
-    let full_font = get_or_rebuild_font_cache()?;
-    drop(_cache_read_span);
-
-    let compilation_options = CompilationOptions {
-        skip_kerning: get_option(options, "skip_kerning", false),
-        skip_features: get_option(options, "skip_features", false),
-        skip_metrics: get_option(options, "skip_metrics", false),
-        skip_outlines: get_option(options, "skip_outlines", false),
-        dont_use_production_names: get_option(options, "dont_use_production_names", false),
-        drop_incompatible_paths: get_option(options, "drop_incompatible_paths", false),
-        produce_varc_table: get_option(options, "produce_varc_table", false),
-        debug_feature_file: None,
-    };
-
-    let _filter_span =
-        PerfSpan::start("compile_cached_full_font_with_filter_pipeline.apply_filters");
-    let filtered_font = apply_filter_pipeline(&full_font, &compilation_options)?;
-    drop(_filter_span);
-
-    let _ir_compile_span =
-        PerfSpan::start("compile_cached_full_font_with_filter_pipeline.ir_compile");
-    let compiled_font = compile_with_feature_debug_context(
-        &filtered_font,
-        &compilation_options,
-        "compile_cached_full_font_with_filter_pipeline",
-    )?;
-    drop(_ir_compile_span);
-
-    Ok(compiled_font)
-}
-
 /// Compile the cached font to TTF
 ///
 /// This is a convenience function that compiles the currently cached font
@@ -3324,6 +3468,48 @@ mod tests {
                 .map(|glyphs| glyphs.len()),
             Some(2)
         );
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn validate_feature_source_with_full_filter_pipeline_reports_feature_spans_without_compiling() {
+        let previous_canonical = CANONICAL_JSON_CACHE.lock().unwrap().clone();
+        let previous_index = CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap().clone();
+        let previous_font_cache = FONT_CACHE.lock().unwrap().clone();
+        let previous_font_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
+        let previous_font_cache_epoch = FONT_CACHE_BUILT_AT_EPOCH.load(Ordering::Relaxed);
+
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        font_json["features"] = json!({
+            "classes": {},
+            "prefixes": {},
+            "features": [["liga", { "code": "sub A by ;" }]]
+        });
+
+        store_font_from_value(font_json).unwrap();
+
+        let options = CompilationOptions {
+            skip_kerning: false,
+            skip_features: false,
+            skip_metrics: false,
+            skip_outlines: false,
+            dont_use_production_names: true,
+            drop_incompatible_paths: true,
+            produce_varc_table: false,
+            debug_feature_file: None,
+        };
+        let error = validate_feature_source_with_full_filter_pipeline_internal(&options)
+            .expect_err("invalid feature code should fail validation");
+        let message = error;
+
+        assert!(message.contains("FeatureParsing([FeatureError"));
+        assert!(message.contains("[FeatureDebug:validate_feature_source_with_full_filter_pipeline]"));
+
+        *CANONICAL_JSON_CACHE.lock().unwrap() = previous_canonical;
+        *CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap() = previous_index;
+        *FONT_CACHE.lock().unwrap() = previous_font_cache;
+        FONT_CACHE_EPOCH.store(previous_font_epoch, Ordering::Relaxed);
+        FONT_CACHE_BUILT_AT_EPOCH.store(previous_font_cache_epoch, Ordering::Relaxed);
     }
 
     #[test]
