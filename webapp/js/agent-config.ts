@@ -215,6 +215,36 @@ export const AGENT_TOOLS: AgentTool[] = [
                 required: ['features']
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'compile_and_shape_font',
+            description:
+                'Compile a committed-state editing subset on a dedicated debug cache lane without mutating the UI, then shape the provided text with explicit OpenType features and variation location. Returns the compiled font hash, subset glyph seed, closure size, and shaped glyph buffer.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    text: {
+                        type: 'string',
+                        description:
+                            'Optional text buffer to shape. Defaults to the current editor text buffer.'
+                    },
+                    features: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description:
+                            'Optional list of OpenType feature tags to enable for shaping. Defaults to the current active feature set.'
+                    },
+                    variationLocation: {
+                        type: 'object',
+                        description:
+                            'Optional userspace variation location object, e.g. {"wght": 500}. Defaults to the current editor variation location.'
+                    }
+                },
+                required: []
+            }
+        }
     }
 ];
 

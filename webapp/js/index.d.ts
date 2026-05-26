@@ -406,6 +406,22 @@ declare global {
             fontBytes: Uint8Array,
             text: string
         ) => Promise<string[]>;
+        shapeTextWithFontDetailed: (
+            fontBytes: Uint8Array,
+            text: string,
+            options?: {
+                features?: string[] | string;
+                variationLocation?: Record<string, number>;
+            }
+        ) => Promise<{
+            glyphs: string[];
+            gids: number[];
+            advances: number[];
+            advancesY: number[];
+            offsetsX: number[];
+            offsetsY: number[];
+            clusters: number[];
+        }>;
 
         // From file-browser.js
         refreshFileSystem: () => Promise<void>;

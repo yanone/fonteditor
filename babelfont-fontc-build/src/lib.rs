@@ -13,9 +13,10 @@ use fea_rs::{
 };
 use fea_rs_ast::FeatureFile;
 use smol_str::SmolStr;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Write as _;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -79,13 +80,19 @@ static FEATURE_FILE_CACHE: Mutex<Option<FeatureFile>> = Mutex::new(None);
 /// C1: Serialized FEA string + full glyph name list stored alongside the parsed
 /// FeatureFile.
 static FEATURE_FEA_STRING_CACHE: Mutex<Option<(String, Vec<String>)>> = Mutex::new(None);
+static COMMITTED_FONT_FINGERPRINT: Mutex<Option<String>> = Mutex::new(None);
 static LAYOUT_CLOSURE_CACHE: LazyLock<Mutex<HashMap<String, Vec<String>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static LAST_LAYOUT_CLOSURE_CACHE_KEY: Mutex<Option<String>> = Mutex::new(None);
+static LAST_DEBUG_LAYOUT_CLOSURE_CACHE_KEY: Mutex<Option<String>> = Mutex::new(None);
 static FONT_CACHE_EPOCH: AtomicU64 = AtomicU64::new(0);
 /// Filtered font cache: stores the result of apply_filters() keyed by
 /// (subset_key, filter_epoch, options_fingerprint).
 static FILTERED_FONT_CACHE: Mutex<Option<FilteredFontCacheEntry>> = Mutex::new(None);
+static DEBUG_SETTINGS_TO_FONT_HASH_CACHE: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static DEBUG_FONT_BYTES_CACHE: LazyLock<Mutex<DebugFontBytesCache>> =
+    LazyLock::new(|| Mutex::new(DebugFontBytesCache::default()));
 /// Epoch counter for structural (non-outline) changes that require re-filtering.
 /// Incremented by store_font_internal() and clear_font_cache().
 static FILTER_EPOCH: AtomicU64 = AtomicU64::new(0);
@@ -140,6 +147,73 @@ struct FilteredFontCacheEntry {
     font: Arc<babelfont::Font>,
 }
 
+#[derive(Default)]
+struct DebugFontBytesCache {
+    max_bytes: usize,
+    total_bytes: usize,
+    entries: HashMap<String, Arc<Vec<u8>>>,
+    lru: VecDeque<String>,
+}
+
+impl DebugFontBytesCache {
+    fn set_max_bytes(&mut self, max_bytes: usize) {
+        self.max_bytes = max_bytes;
+        self.evict_if_needed();
+    }
+
+    fn get(&mut self, font_hash: &str) -> Option<Vec<u8>> {
+        let bytes = self.entries.get(font_hash).cloned()?;
+        self.touch(font_hash);
+        Some((*bytes).clone())
+    }
+
+    fn insert(&mut self, font_hash: String, bytes: Vec<u8>) {
+        if let Some(previous) = self.entries.remove(&font_hash) {
+            self.total_bytes = self.total_bytes.saturating_sub(previous.len());
+            self.remove_from_lru(&font_hash);
+        }
+
+        let bytes_len = bytes.len();
+        self.entries.insert(font_hash.clone(), Arc::new(bytes));
+        self.total_bytes = self.total_bytes.saturating_add(bytes_len);
+        self.touch(&font_hash);
+        self.evict_if_needed();
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.lru.clear();
+        self.total_bytes = 0;
+    }
+
+    fn touch(&mut self, font_hash: &str) {
+        self.remove_from_lru(font_hash);
+        self.lru.push_back(font_hash.to_string());
+    }
+
+    fn remove_from_lru(&mut self, font_hash: &str) {
+        if let Some(index) = self.lru.iter().position(|entry| entry == font_hash) {
+            self.lru.remove(index);
+        }
+    }
+
+    fn evict_if_needed(&mut self) {
+        if self.max_bytes == 0 {
+            return;
+        }
+
+        while self.total_bytes > self.max_bytes {
+            let Some(oldest_key) = self.lru.pop_front() else {
+                break;
+            };
+
+            if let Some(removed) = self.entries.remove(&oldest_key) {
+                self.total_bytes = self.total_bytes.saturating_sub(removed.len());
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 struct LayerTarget {
     glyph_name: String,
@@ -149,6 +223,26 @@ struct LayerTarget {
 fn clear_preview_overlay_internal() {
     *PREVIEW_OVERLAY.lock().unwrap() = None;
     *LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
+}
+
+fn reset_debug_font_caches_with_fingerprint(committed_font_fingerprint: Option<String>) {
+    *COMMITTED_FONT_FINGERPRINT.lock().unwrap() = committed_font_fingerprint;
+    *LAST_DEBUG_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
+    DEBUG_SETTINGS_TO_FONT_HASH_CACHE.lock().unwrap().clear();
+    DEBUG_FONT_BYTES_CACHE.lock().unwrap().clear();
+}
+
+fn refresh_debug_font_caches_from_canonical_cache() -> Result<(), JsValue> {
+    let canonical_json = CANONICAL_JSON_CACHE.lock().unwrap().clone();
+    match canonical_json {
+        Some(value) => {
+            let fingerprint = stable_hash_json_value(&value)?;
+            reset_debug_font_caches_with_fingerprint(Some(fingerprint));
+        }
+        None => reset_debug_font_caches_with_fingerprint(None),
+    }
+
+    Ok(())
 }
 
 fn build_glyph_index(font_json: &serde_json::Value) -> HashMap<String, usize> {
@@ -173,6 +267,29 @@ fn build_glyph_index(font_json: &serde_json::Value) -> HashMap<String, usize> {
 fn set_canonical_json_cache(json_value: serde_json::Value) {
     *CANONICAL_JSON_CACHE.lock().unwrap() = Some(json_value.clone());
     *CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap() = Some(build_glyph_index(&json_value));
+    let fingerprint = stable_hash_json_value(&json_value)
+        .expect("canonical JSON cache fingerprinting must not fail");
+    reset_debug_font_caches_with_fingerprint(Some(fingerprint));
+}
+
+fn stable_hash_bytes(bytes: &[u8]) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn stable_hash_json_value(value: &serde_json::Value) -> Result<String, JsValue> {
+    let serialized = serde_json::to_vec(value)
+        .map_err(|e| JsValue::from_str(&format!("JSON serialization error: {}", e)))?;
+    Ok(stable_hash_bytes(&serialized))
+}
+
+fn get_committed_font_fingerprint() -> Result<String, JsValue> {
+    COMMITTED_FONT_FINGERPRINT
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| JsValue::from_str("No committed font fingerprint available."))
 }
 
 fn store_subset_cache_json(subset_key: &str, subset_json: serde_json::Value) -> u64 {
@@ -604,6 +721,45 @@ fn options_filter_fingerprint(options: &CompilationOptions) -> u64 {
         h |= 4;
     }
     h
+}
+
+fn options_compile_fingerprint(options: &CompilationOptions) -> u64 {
+    let mut h: u64 = 0;
+    if options.skip_kerning {
+        h |= 1;
+    }
+    if options.skip_features {
+        h |= 1 << 1;
+    }
+    if options.skip_metrics {
+        h |= 1 << 2;
+    }
+    if options.skip_outlines {
+        h |= 1 << 3;
+    }
+    if options.dont_use_production_names {
+        h |= 1 << 4;
+    }
+    if options.drop_incompatible_paths {
+        h |= 1 << 5;
+    }
+    if options.produce_varc_table {
+        h |= 1 << 6;
+    }
+    h
+}
+
+fn make_debug_compile_settings_key(
+    committed_font_fingerprint: &str,
+    subset_key: &str,
+    options: &CompilationOptions,
+) -> String {
+    format!(
+        "{}::{}::{:016x}",
+        committed_font_fingerprint,
+        subset_key,
+        options_compile_fingerprint(options)
+    )
 }
 
 /// C1: Apply RetainGlyphs to `font` using the cached FEA string to re-parse a
@@ -2526,6 +2682,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
         }
 
         drop(txn);
+        refresh_debug_font_caches_from_canonical_cache()?;
 
         // -- 5. Return changed-glyph list for JS subset-cache replay ------------
         let result = serde_json::json!({
@@ -2561,9 +2718,11 @@ pub fn clear_font_cache() {
     *SUBSET_FONT_CACHE.lock().unwrap() = None;
     LAYOUT_CLOSURE_CACHE.lock().unwrap().clear();
     *LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
+    *LAST_DEBUG_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
     *FILTERED_FONT_CACHE.lock().unwrap() = None;
     *FEATURE_FILE_CACHE.lock().unwrap() = None;
     *FEATURE_FEA_STRING_CACHE.lock().unwrap() = None;
+    reset_debug_font_caches_with_fingerprint(None);
     FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
     FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
     SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
@@ -2973,6 +3132,19 @@ pub fn prime_preview_layout_closure_cache(
     Ok(result.len() as u32)
 }
 
+/// Prime the committed-state debug layout-closure cache on a lane isolated
+/// from the normal editing compile's last-closure pointer.
+#[wasm_bindgen]
+pub fn prime_debug_layout_closure_cache(glyph_names_json: &str) -> Result<u32, JsValue> {
+    let _prime_span = PerfSpan::start("prime_debug_layout_closure_cache.total");
+    let committed_font_fingerprint = get_committed_font_fingerprint()?;
+    let (cache_key, result) =
+        compute_layout_closure_cached_internal(&committed_font_fingerprint, glyph_names_json)?;
+    *LAST_DEBUG_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = Some(cache_key);
+
+    Ok(result.len() as u32)
+}
+
 /// Compile the transient live-drag preview cached font using the last primed
 /// preview layout closure subset.
 #[wasm_bindgen]
@@ -3251,6 +3423,114 @@ pub fn compile_cached_font_from_last_layout_closure(options: &JsValue) -> Result
     drop(_ir_compile_span);
 
     Ok(compiled_font)
+}
+
+/// Configure the maximum total size of the dedicated debug compiled-font bytes
+/// cache. The caller should pass one eighth of the app memory budget.
+#[wasm_bindgen]
+pub fn set_debug_font_cache_max_bytes(max_bytes: u32) {
+    DEBUG_FONT_BYTES_CACHE
+        .lock()
+        .unwrap()
+        .set_max_bytes(max_bytes as usize);
+}
+
+/// Compile the committed-state debug cached font using the last primed debug
+/// layout closure subset. Returns a stable hash key for retrieving the cached
+/// font bytes via get_debug_cached_font_bytes().
+#[wasm_bindgen]
+pub fn compile_debug_cached_font_from_last_layout_closure(
+    options: &JsValue,
+) -> Result<String, JsValue> {
+    let _compile_span = PerfSpan::start("compile_debug_cached_font_from_last_layout_closure.total");
+
+    let cache_key = LAST_DEBUG_LAYOUT_CLOSURE_CACHE_KEY
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| {
+            JsValue::from_str(
+                "No primed debug layout closure. Call prime_debug_layout_closure_cache() first.",
+            )
+        })?;
+
+    let closure_subset = LAYOUT_CLOSURE_CACHE
+        .lock()
+        .unwrap()
+        .get(&cache_key)
+        .cloned()
+        .ok_or_else(|| JsValue::from_str("Primed debug layout closure key not found in cache."))?;
+
+    let prepared_subset_key = canonical_subset_key_from_sorted_unique(&closure_subset);
+    let compilation_options = CompilationOptions {
+        skip_kerning: get_option(options, "skip_kerning", false),
+        skip_features: get_option(options, "skip_features", false),
+        skip_metrics: get_option(options, "skip_metrics", false),
+        skip_outlines: get_option(options, "skip_outlines", false),
+        dont_use_production_names: get_option(options, "dont_use_production_names", false),
+        drop_incompatible_paths: get_option(options, "drop_incompatible_paths", false),
+        produce_varc_table: get_option(options, "produce_varc_table", false),
+        debug_feature_file: None,
+    };
+
+    let committed_font_fingerprint = get_committed_font_fingerprint()?;
+    let settings_key = make_debug_compile_settings_key(
+        &committed_font_fingerprint,
+        &prepared_subset_key,
+        &compilation_options,
+    );
+
+    if let Some(font_hash) = DEBUG_SETTINGS_TO_FONT_HASH_CACHE
+        .lock()
+        .unwrap()
+        .get(&settings_key)
+        .cloned()
+    {
+        if DEBUG_FONT_BYTES_CACHE
+            .lock()
+            .unwrap()
+            .get(&font_hash)
+            .is_some()
+        {
+            return Ok(font_hash);
+        }
+    }
+
+    let subset_font = match get_or_rebuild_subset_font_cache(&prepared_subset_key)? {
+        Some(cached) => cached,
+        None => build_subset_font_from_closure_subset(&closure_subset)?,
+    };
+
+    let filtered_font = apply_filter_pipeline(&subset_font, &compilation_options)?;
+    let compiled_font = compile_with_feature_debug_context(
+        &filtered_font,
+        &compilation_options,
+        "compile_debug_cached_font_from_last_layout_closure",
+    )?;
+    let font_hash = stable_hash_bytes(&compiled_font);
+
+    DEBUG_FONT_BYTES_CACHE
+        .lock()
+        .unwrap()
+        .insert(font_hash.clone(), compiled_font);
+    DEBUG_SETTINGS_TO_FONT_HASH_CACHE
+        .lock()
+        .unwrap()
+        .insert(settings_key, font_hash.clone());
+
+    Ok(font_hash)
+}
+
+/// Retrieve compiled font bytes from the dedicated debug bytes cache.
+#[wasm_bindgen]
+pub fn get_debug_cached_font_bytes(font_hash: &str) -> Result<Vec<u8>, JsValue> {
+    DEBUG_FONT_BYTES_CACHE
+        .lock()
+        .unwrap()
+        .get(font_hash)
+        .ok_or_else(|| {
+            JsValue::from_str(&format!("Debug cached font bytes not found for hash {}", font_hash))
+        })
 }
 
 /// Compile the cached font to TTF
@@ -3800,6 +4080,45 @@ mod tests {
                 .map(|value| value.as_str()),
             Some("Renamed Regular")
         );
+    }
+
+    #[test]
+    fn refresh_debug_font_caches_from_canonical_cache_rotates_fingerprint_and_clears_debug_state() {
+        clear_font_cache();
+
+        let canonical_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        set_canonical_json_cache(canonical_json);
+
+        let original_fingerprint = COMMITTED_FONT_FINGERPRINT
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap();
+        *LAST_DEBUG_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = Some("debug-key".to_string());
+        DEBUG_SETTINGS_TO_FONT_HASH_CACHE
+            .lock()
+            .unwrap()
+            .insert("settings".to_string(), "hash".to_string());
+        DEBUG_FONT_BYTES_CACHE
+            .lock()
+            .unwrap()
+            .insert("hash".to_string(), vec![1, 2, 3]);
+
+        let mut mutated_json = CANONICAL_JSON_CACHE.lock().unwrap().clone().unwrap();
+        mutated_json["glyphs"][0]["name"] = json!("A.alt");
+        *CANONICAL_JSON_CACHE.lock().unwrap() = Some(mutated_json);
+
+        refresh_debug_font_caches_from_canonical_cache().unwrap();
+
+        let refreshed_fingerprint = COMMITTED_FONT_FINGERPRINT
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap();
+        assert_ne!(refreshed_fingerprint, original_fingerprint);
+        assert!(LAST_DEBUG_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().is_none());
+        assert!(DEBUG_SETTINGS_TO_FONT_HASH_CACHE.lock().unwrap().is_empty());
+        assert!(DEBUG_FONT_BYTES_CACHE.lock().unwrap().entries.is_empty());
     }
 
     #[test]

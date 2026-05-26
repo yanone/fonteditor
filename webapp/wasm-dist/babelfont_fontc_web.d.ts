@@ -80,6 +80,13 @@ export function compile_cached_font(options: any): Uint8Array;
 export function compile_cached_font_from_last_layout_closure(options: any): Uint8Array;
 
 /**
+ * Compile the committed-state debug cached font using the last primed debug
+ * layout closure subset. Returns a stable hash key for retrieving the cached
+ * font bytes via get_debug_cached_font_bytes().
+ */
+export function compile_debug_cached_font_from_last_layout_closure(options: any): string;
+
+/**
  * Legacy function for compatibility
  */
 export function compile_glyphs(_glyphs_json: string): Uint8Array;
@@ -103,6 +110,11 @@ export function compile_preview_cached_font_from_last_layout_closure(options: an
  * The payload also includes the current `fontCacheEpoch` and subset metadata.
  */
 export function dump_layer_state_json(layer_targets_json: string): string;
+
+/**
+ * Retrieve compiled font bytes from the dedicated debug bytes cache.
+ */
+export function get_debug_cached_font_bytes(font_hash: string): Uint8Array;
 
 /**
  * Get variation axes from compiled font bytes
@@ -296,6 +308,12 @@ export function interpolate_glyph(glyph_name: string, location_json: string, ext
 export function open_font_file(filename: string, contents: string): string;
 
 /**
+ * Prime the committed-state debug layout-closure cache on a lane isolated
+ * from the normal editing compile's last-closure pointer.
+ */
+export function prime_debug_layout_closure_cache(glyph_names_json: string): number;
+
+/**
  * Prime Rust layout-closure cache and mark it as the current closure subset.
  * Returns number of glyphs in the resolved closure subset.
  */
@@ -320,6 +338,12 @@ export function run_fontspector(font_bytes: Uint8Array, profile: string): string
  * happened in the `openFont` worker handler.
  */
 export function seed_ydoc(state_update: Uint8Array): void;
+
+/**
+ * Configure the maximum total size of the dedicated debug compiled-font bytes
+ * cache. The caller should pass one eighth of the app memory budget.
+ */
+export function set_debug_font_cache_max_bytes(max_bytes: number): void;
 
 /**
  * Store a font in memory from babelfont JSON.
@@ -353,9 +377,11 @@ export interface InitOutput {
     readonly compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
     readonly compile_cached_font: (a: any) => [number, number, number, number];
     readonly compile_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
+    readonly compile_debug_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
     readonly compile_glyphs: (a: number, b: number) => [number, number, number, number];
     readonly compile_preview_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
     readonly dump_layer_state_json: (a: number, b: number) => [number, number, number, number];
+    readonly get_debug_cached_font_bytes: (a: number, b: number) => [number, number, number, number];
     readonly get_glyphs_outlines: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly get_layout_closure: (a: number, b: number) => [number, number, number, number];
     readonly get_layout_closure_cached: (a: number, b: number, c: number, d: number) => [number, number, number, number];
@@ -363,15 +389,14 @@ export interface InitOutput {
     readonly init_ydoc_from_state: (a: number, b: number) => [number, number];
     readonly interpolate_glyph: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly open_font_file: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly prime_debug_layout_closure_cache: (a: number, b: number) => [number, number, number];
     readonly prime_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly prime_preview_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly seed_ydoc: (a: number, b: number) => [number, number];
+    readonly set_debug_font_cache_max_bytes: (a: number) => void;
     readonly store_font: (a: number, b: number) => [number, number];
     readonly validate_feature_source_with_full_filter_pipeline: (a: any) => [number, number];
     readonly version: () => [number, number];
-    readonly add_master_with_interpolated_layers_yjs: (a: number, b: number) => [number, number, number];
-    readonly reinterpolate_layer_yjs: (a: number, b: number, c: number, d: number) => [number, number, number];
-    readonly reinterpolate_master_layers_yjs: (a: number, b: number) => [number, number, number];
     readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features: (a: number, b: number) => [number, number, number, number];
@@ -379,6 +404,9 @@ export interface InitOutput {
     readonly get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
     readonly get_glyph_order: (a: number, b: number) => [number, number, number, number];
     readonly get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
+    readonly add_master_with_interpolated_layers_yjs: (a: number, b: number) => [number, number, number];
+    readonly reinterpolate_layer_yjs: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly reinterpolate_master_layers_yjs: (a: number, b: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

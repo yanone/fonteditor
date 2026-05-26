@@ -1606,6 +1606,7 @@ if '_agent_original_stdout' in dir():
                         gids: s.editor_harfbuzz_gids || '',
                         advances: s.editor_harfbuzz_ax || '',
                         clusters: s.editor_harfbuzz_cl || '',
+                        variationLocation: s.editor_variation_location || {},
                         features,
                         file: s.editor_file || ''
                     },
@@ -1650,6 +1651,104 @@ if '_agent_original_stdout' in dir():
                     .map(([tag]) => tag);
 
                 return `Features updated. Active: ${activeFeatures.length > 0 ? activeFeatures.join(', ') : '(none)'}`;
+            }
+            case 'compile_and_shape_font': {
+                const sm = (window as any).stateManager;
+                const fm = (window as any).fontManager;
+                const fc = (window as any).fontCompilation;
+                const shapeWithFontDetailed = (window as any)
+                    .shapeTextWithFontDetailed;
+
+                if (!sm || !fm || !fc || !shapeWithFontDetailed) {
+                    throw new Error(
+                        'Debug compile dependencies are not available yet.'
+                    );
+                }
+                if (window.windowRole && !window.windowRole.isMainWindow()) {
+                    throw new Error(
+                        'compile_and_shape_font is only available in the main window.'
+                    );
+                }
+
+                const snapshot = sm.getStateSnapshot();
+                const s = snapshot.state || {};
+                const text =
+                    typeof args.text === 'string'
+                        ? args.text
+                        : s.editor_text_buffer || '';
+                if (!text) {
+                    throw new Error(
+                        'No text buffer available for debug shaping.'
+                    );
+                }
+
+                const featureTags = Array.isArray(args.features)
+                    ? args.features
+                          .map((feature: unknown) =>
+                              typeof feature === 'string' ? feature.trim() : ''
+                          )
+                          .filter((feature: string) => feature.length > 0)
+                    : Object.entries(s.editor_opentype_features_in_subset || {})
+                          .filter(([, enabled]) => enabled === true)
+                          .map(([tag]) => tag);
+
+                const variationLocationSource =
+                    args.variationLocation &&
+                    typeof args.variationLocation === 'object'
+                        ? args.variationLocation
+                        : s.editor_variation_location || {};
+                const variationLocation = Object.fromEntries(
+                    Object.entries(variationLocationSource).filter(
+                        ([, value]) =>
+                            typeof value === 'number' && Number.isFinite(value)
+                    )
+                );
+
+                const fullCommittedFont = await fc.compileCached(
+                    'full',
+                    'debug-full-font.ttf'
+                );
+                const subsetSeedShape = await shapeWithFontDetailed(
+                    fullCommittedFont.result,
+                    text,
+                    {
+                        features: featureTags,
+                        variationLocation
+                    }
+                );
+                const subsetGlyphs = Array.from(
+                    new Set(
+                        subsetSeedShape.glyphs.filter(
+                            (glyphName: string) =>
+                                glyphName && glyphName !== '.notdef'
+                        )
+                    )
+                );
+                const compileResult =
+                    await fc.compileCommittedDebugFont(subsetGlyphs);
+                const shaped = await shapeWithFontDetailed(
+                    compileResult.result,
+                    text,
+                    {
+                        features: featureTags,
+                        variationLocation
+                    }
+                );
+
+                return JSON.stringify(
+                    {
+                        text,
+                        features: featureTags,
+                        variationLocation,
+                        subsetGlyphs,
+                        fontHash: compileResult.fontHash,
+                        closureGlyphCount: compileResult.closureGlyphCount,
+                        fontBytes: compileResult.result.length,
+                        shaped
+                    },
+                    null,
+                    2
+                );
             }
             default:
                 throw new Error(`Unknown tool: ${name}`);

@@ -39,6 +39,50 @@ interface CompilationOptions {
     produce_varc_table?: boolean;
 }
 
+type ShapeTextWithFontOptions = {
+    features?: string[] | string;
+    variationLocation?: Record<string, number>;
+};
+
+type DetailedShapingResult = {
+    glyphs: string[];
+    gids: number[];
+    advances: number[];
+    advancesY: number[];
+    offsetsX: number[];
+    offsetsY: number[];
+    clusters: number[];
+};
+
+type DestroyableHarfBuzzObject = {
+    destroy: () => void;
+};
+
+type HarfBuzzBuffer = DestroyableHarfBuzzObject & {
+    addText: (text: string) => void;
+    guessSegmentProperties: () => void;
+    json: () => Array<Record<string, number>>;
+};
+
+type HarfBuzzFont = DestroyableHarfBuzzObject & {
+    setVariations: (location: Record<string, number>) => void;
+};
+
+type HarfBuzzShapingApi = {
+    createBlob: (fontBytes: Uint8Array) => DestroyableHarfBuzzObject;
+    createFace: (
+        blob: DestroyableHarfBuzzObject,
+        index: number
+    ) => DestroyableHarfBuzzObject;
+    createFont: (face: DestroyableHarfBuzzObject) => HarfBuzzFont;
+    createBuffer: () => HarfBuzzBuffer;
+    shape: (
+        font: HarfBuzzFont,
+        buffer: HarfBuzzBuffer,
+        features?: string
+    ) => void;
+};
+
 type TimelineTraceContext = {
     process?: string;
     traceId?: string;
@@ -93,6 +137,197 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
     }
 };
 
+const DEFAULT_DEBUG_FONT_CACHE_BYTES = 64 * 1024 * 1024;
+
+function normalizeHarfBuzzFeatures(
+    features?: string[] | string
+): string | undefined {
+    if (typeof features === 'string') {
+        const trimmed = features.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+    }
+
+    if (!Array.isArray(features)) {
+        return undefined;
+    }
+
+    const normalized = Array.from(
+        new Set(
+            features
+                .map((feature) =>
+                    typeof feature === 'string' ? feature.trim() : ''
+                )
+                .filter((feature) => feature.length > 0)
+        )
+    );
+
+    return normalized.length > 0
+        ? normalized.map((feature) => `${feature}=1`).join(',')
+        : undefined;
+}
+
+function hasHarfBuzzShapingApi(
+    candidate: unknown
+): candidate is HarfBuzzShapingApi {
+    if (!candidate || typeof candidate !== 'object') {
+        return false;
+    }
+
+    const api = candidate as Partial<HarfBuzzShapingApi>;
+    return (
+        typeof api.createBlob === 'function' &&
+        typeof api.createFace === 'function' &&
+        typeof api.createFont === 'function' &&
+        typeof api.createBuffer === 'function' &&
+        typeof api.shape === 'function'
+    );
+}
+
+async function getHarfBuzzShapingApi(): Promise<HarfBuzzShapingApi> {
+    let rawModule: unknown;
+    if (typeof window.createHarfBuzz === 'function') {
+        rawModule = await window.createHarfBuzz();
+    } else if (typeof window.hbInit !== 'undefined') {
+        rawModule =
+            typeof window.hbInit === 'function'
+                ? await window.hbInit()
+                : await window.hbInit;
+    } else {
+        throw new Error(
+            'HarfBuzz not available. Make sure harfbuzzjs is loaded.'
+        );
+    }
+
+    let wrappedApi: unknown;
+    if (typeof window.hbjs === 'function') {
+        try {
+            wrappedApi = window.hbjs(rawModule);
+        } catch (error) {
+            console.warn(
+                '[FontCompilation] Failed to construct hbjs wrapper, trying raw HarfBuzz module fallback',
+                error
+            );
+        }
+    }
+
+    if (hasHarfBuzzShapingApi(wrappedApi)) {
+        return wrappedApi;
+    }
+
+    if (hasHarfBuzzShapingApi(rawModule)) {
+        return rawModule;
+    }
+
+    throw new Error(
+        'HarfBuzz shaping API is unavailable (missing createBlob/createFace/createFont/createBuffer/shape).'
+    );
+}
+
+function getDebugFontCacheBudgetBytes(): number {
+    const perfWithMemory = performance as Performance & {
+        memory?: {
+            jsHeapSizeLimit?: number;
+        };
+    };
+
+    const heapLimit = perfWithMemory.memory?.jsHeapSizeLimit;
+    if (typeof heapLimit === 'number' && Number.isFinite(heapLimit)) {
+        return Math.max(1, Math.floor(heapLimit / 8));
+    }
+
+    const navWithMemory = navigator as Navigator & {
+        deviceMemory?: number;
+    };
+    if (
+        typeof navWithMemory.deviceMemory === 'number' &&
+        Number.isFinite(navWithMemory.deviceMemory) &&
+        navWithMemory.deviceMemory > 0
+    ) {
+        return Math.max(
+            1,
+            Math.floor((navWithMemory.deviceMemory * 1024 * 1024 * 1024) / 8)
+        );
+    }
+
+    return DEFAULT_DEBUG_FONT_CACHE_BYTES;
+}
+
+async function shapeTextWithFontDetailed(
+    fontBytes: Uint8Array,
+    inputString: string,
+    options: ShapeTextWithFontOptions = {}
+): Promise<DetailedShapingResult> {
+    const hb = await getHarfBuzzShapingApi();
+
+    const blob = hb.createBlob(fontBytes);
+    const face = hb.createFace(blob, 0);
+    const hbFont = hb.createFont(face);
+    if (
+        options.variationLocation &&
+        Object.keys(options.variationLocation).length > 0 &&
+        typeof hbFont.setVariations === 'function'
+    ) {
+        hbFont.setVariations(options.variationLocation);
+    }
+
+    const buffer = hb.createBuffer();
+    buffer.addText(inputString);
+    buffer.guessSegmentProperties();
+
+    const features = normalizeHarfBuzzFeatures(options.features);
+    if (features) {
+        hb.shape(hbFont, buffer, features);
+    } else {
+        hb.shape(hbFont, buffer);
+    }
+
+    const shapedGlyphs = buffer.json();
+    const glyphs: string[] = [];
+    const gids: number[] = [];
+    const advances: number[] = [];
+    const advancesY: number[] = [];
+    const offsetsX: number[] = [];
+    const offsetsY: number[] = [];
+    const clusters: number[] = [];
+
+    for (const shapedGlyph of shapedGlyphs) {
+        const glyphId = Number(shapedGlyph.g || 0);
+        let glyphName = '.notdef';
+        try {
+            glyphName = get_glyph_name(fontBytes, glyphId) || '.notdef';
+        } catch (error) {
+            console.warn(
+                '[FontCompilation] Failed to get name for glyph',
+                glyphId,
+                error
+            );
+        }
+
+        glyphs.push(glyphName);
+        gids.push(glyphId);
+        advances.push(Number(shapedGlyph.ax || 0));
+        advancesY.push(Number(shapedGlyph.ay || 0));
+        offsetsX.push(Number(shapedGlyph.dx || 0));
+        offsetsY.push(Number(shapedGlyph.dy || 0));
+        clusters.push(Number(shapedGlyph.cl || 0));
+    }
+
+    buffer.destroy();
+    hbFont.destroy();
+    face.destroy();
+    blob.destroy();
+
+    return {
+        glyphs,
+        gids,
+        advances,
+        advancesY,
+        offsetsX,
+        offsetsY,
+        clusters
+    };
+}
+
 /**
  * Shape text with a compiled font buffer and return glyph names
  * This is a lower-level function that works with font bytes directly
@@ -105,58 +340,13 @@ async function shapeTextWithFont(
     fontBytes: Uint8Array,
     inputString: string
 ): Promise<Array<string>> {
-    // Initialize HarfBuzz
-    let hbModule;
-    if (typeof window.createHarfBuzz !== 'undefined') {
-        // Browser environment - use createHarfBuzz
-        hbModule = await window.createHarfBuzz();
-    } else if (typeof window.hbInit !== 'undefined') {
-        // Node.js environment - use hbInit Promise
-        hbModule = await window.hbInit;
-    } else {
-        throw new Error(
-            'HarfBuzz not available. Make sure harfbuzzjs is loaded.'
-        );
-    }
-
-    // Create HarfBuzz blob and font
-    const blob = hbModule.createBlob(fontBytes);
-    const face = hbModule.createFace(blob, 0);
-    const hbFont = hbModule.createFont(face);
-
-    // Create buffer and shape text
-    const buffer = hbModule.createBuffer();
-    buffer.addText(inputString);
-    buffer.guessSegmentProperties();
-
-    // Shape the text
-    hbModule.shape(hbFont, buffer);
-
-    // Get shaped glyphs (contains glyph IDs)
-    const shapedGlyphs = buffer.json();
-
-    // Map glyph IDs to glyph names using WASM get_glyph_name
+    const shaped = await shapeTextWithFontDetailed(fontBytes, inputString);
     const glyphNames: Set<string> = new Set();
-    for (const shapedGlyph of shapedGlyphs) {
-        const glyphId = shapedGlyph.g;
-        try {
-            const glyphName = get_glyph_name(fontBytes, glyphId);
-            if (glyphName && glyphName !== '.notdef') {
-                glyphNames.add(glyphName);
-            }
-        } catch (e) {
-            console.warn(
-                `[FontCompilation] Failed to get name for glyph ${glyphId}:`,
-                e
-            );
+    for (const glyphName of shaped.glyphs) {
+        if (glyphName && glyphName !== '.notdef') {
+            glyphNames.add(glyphName);
         }
     }
-
-    // Clean up HarfBuzz resources
-    buffer.destroy();
-    hbFont.destroy();
-    face.destroy();
-    blob.destroy();
 
     return Array.from(glyphNames);
 }
@@ -1105,6 +1295,69 @@ export class FontCompilation {
         }
     }
 
+    async compileCommittedDebugFont(
+        subsetGlyphs: Array<string>,
+        filename: string = 'debug-font.ttf',
+        target: string | CompilationOptions = 'editing'
+    ): Promise<{
+        result: Uint8Array;
+        filename: string;
+        time_taken: number;
+        fontHash: string;
+        closureGlyphCount: number;
+    }> {
+        const spanId = timelineSpanStart(
+            'fontCompilation.compileCommittedDebugFont'
+        );
+
+        try {
+            if (!this.isInitialized) {
+                const initialized = await this.initialize();
+                if (!initialized) {
+                    throw new Error(
+                        'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+                    );
+                }
+            }
+
+            if (!this.workerCacheDocumentReady) {
+                await this.awaitWorkerDocumentSync();
+            }
+
+            if (!this.workerCacheDocumentReady) {
+                throw new Error(
+                    'Debug cached compile requires a ready worker Yjs document.'
+                );
+            }
+
+            const options: CompilationOptions =
+                typeof target === 'string'
+                    ? { ...COMPILATION_TARGETS[target] }
+                    : target;
+            const normalizedSubsetGlyphs = Array.from(
+                new Set((subsetGlyphs || []).filter((glyph) => !!glyph))
+            ).sort();
+
+            const result = await this.sendMessage({
+                type: 'compileDebugCached',
+                options,
+                subsetGlyphs: normalizedSubsetGlyphs,
+                filename,
+                memoryBudgetBytes: getDebugFontCacheBudgetBytes()
+            });
+
+            return {
+                result: result.result,
+                filename: result.filename || filename,
+                time_taken: result.time_taken || 0,
+                fontHash: String(result.fontHash || ''),
+                closureGlyphCount: Number(result.closureGlyphCount || 0)
+            };
+        } finally {
+            timelineSpanEnd(spanId);
+        }
+    }
+
     /**
      * Compile font from Python Font object
      * This calls Python's font.to_dict() and compiles the result
@@ -1343,6 +1596,7 @@ if (typeof document !== 'undefined') {
 (window as any).initFontCompilation = initFontCompilation;
 (window as any).fontCompilation = fontCompilation;
 (window as any).fullFontCompilation = fullFontCompilation;
+(window as any).shapeTextWithFontDetailed = shapeTextWithFontDetailed;
 
 export type { CompilationOptions };
 export {
@@ -1350,5 +1604,6 @@ export {
     fullFontCompilation,
     COMPILATION_TARGETS,
     shapeTextWithFont,
+    shapeTextWithFontDetailed,
     requestOpenFontConversion
 };

@@ -6,6 +6,7 @@ import init, {
     compile_babelfont,
     compile_cached_font,
     compile_cached_font_from_last_layout_closure,
+    compile_debug_cached_font_from_last_layout_closure,
     compile_preview_cached_font_from_last_layout_closure,
     store_font,
     init_ydoc_from_state,
@@ -14,7 +15,9 @@ import init, {
     clear_preview_layer_overlay,
     dump_layer_state_json,
     add_master_with_interpolated_layers_yjs,
+    get_debug_cached_font_bytes,
     prime_layout_closure_cache,
+    prime_debug_layout_closure_cache,
     prime_preview_layout_closure_cache,
     interpolate_glyph,
     reinterpolate_layer_yjs,
@@ -23,6 +26,7 @@ import init, {
     open_font_file,
     get_glyphs_outlines,
     run_fontspector,
+    set_debug_font_cache_max_bytes,
     validate_feature_source_with_full_filter_pipeline,
     version
 } from '../wasm-dist/babelfont_fontc_web.js';
@@ -534,6 +538,7 @@ function postCompiledResult(
         time_taken: number;
         filename?: string;
         fontRevisionKey?: string;
+        fontHash?: string;
         closureGlyphCount?: number;
         compileSource?: string;
         workerPostedAtMs?: number;
@@ -1324,6 +1329,108 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(compileEditingSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'compileDebugCached') {
+            const compileDebugSpanId = timelineSpanStart(
+                'font.worker.compileDebugCached'
+            );
+
+            if (!initialized) {
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: 'Worker not initialized'
+                });
+                return;
+            }
+
+            try {
+                const startTime = performance.now();
+                const {
+                    id,
+                    options,
+                    subsetGlyphs,
+                    filename,
+                    memoryBudgetBytes
+                } = data;
+                const baseSubsetGlyphs = Array.isArray(subsetGlyphs)
+                    ? subsetGlyphs
+                    : null;
+
+                if (!baseSubsetGlyphs) {
+                    throw new Error(
+                        'compileDebugCached requires subsetGlyphs.'
+                    );
+                }
+
+                if (
+                    typeof memoryBudgetBytes === 'number' &&
+                    Number.isFinite(memoryBudgetBytes) &&
+                    memoryBudgetBytes > 0
+                ) {
+                    set_debug_font_cache_max_bytes(
+                        Math.max(1, Math.floor(memoryBudgetBytes))
+                    );
+                }
+
+                let closureGlyphCount = prime_debug_layout_closure_cache(
+                    JSON.stringify(baseSubsetGlyphs)
+                );
+                let fontHash: string;
+
+                try {
+                    fontHash =
+                        compile_debug_cached_font_from_last_layout_closure(
+                            options || {}
+                        );
+                } catch (error) {
+                    if (
+                        !shouldReprimeMissingLayoutClosure(
+                            error,
+                            baseSubsetGlyphs
+                        )
+                    ) {
+                        throw error;
+                    }
+
+                    closureGlyphCount = prime_debug_layout_closure_cache(
+                        JSON.stringify(baseSubsetGlyphs)
+                    );
+                    fontHash =
+                        compile_debug_cached_font_from_last_layout_closure(
+                            options || {}
+                        );
+                }
+
+                const compiledBytes = get_debug_cached_font_bytes(fontHash);
+                const endTime = performance.now();
+
+                postCompiledResult(
+                    {
+                        id,
+                        filename: filename || 'debug-font.ttf',
+                        time_taken: endTime - startTime,
+                        fontHash,
+                        closureGlyphCount
+                    },
+                    compiledBytes
+                );
+                timelineMark('font.worker.compileDebugCached.success');
+            } catch (error: unknown) {
+                timelineMark('font.worker.compileDebugCached.failed');
+                const normalizedError = normalizeWorkerError(error);
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: normalizedError.message,
+                    errorPayload: normalizedError.payload,
+                    stack: normalizedError.stack
+                });
+            } finally {
+                timelineSpanEnd(compileDebugSpanId);
             }
             return;
         }

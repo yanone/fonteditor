@@ -191,4 +191,36 @@ describe('FontCompilation worker document readiness', () => {
             })
         );
     });
+
+    test('committed debug compiles use the dedicated worker lane with normalized subset glyphs', async () => {
+        const { fontCompilation } = createReadyFontCompilation();
+        const sendMessageSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({
+                result: new Uint8Array([7, 8, 9]),
+                filename: 'debug-font.ttf',
+                time_taken: 3,
+                fontHash: 'abc123',
+                closureGlyphCount: 5
+            });
+
+        await expect(
+            fontCompilation.compileCommittedDebugFont(['b', 'a', 'a'])
+        ).resolves.toEqual(
+            expect.objectContaining({
+                filename: 'debug-font.ttf',
+                fontHash: 'abc123',
+                closureGlyphCount: 5
+            })
+        );
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'compileDebugCached',
+                subsetGlyphs: ['a', 'b'],
+                filename: 'debug-font.ttf',
+                memoryBudgetBytes: expect.any(Number)
+            })
+        );
+    });
 });

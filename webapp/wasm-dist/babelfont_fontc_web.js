@@ -176,6 +176,32 @@ export function compile_cached_font_from_last_layout_closure(options) {
 }
 
 /**
+ * Compile the committed-state debug cached font using the last primed debug
+ * layout closure subset. Returns a stable hash key for retrieving the cached
+ * font bytes via get_debug_cached_font_bytes().
+ * @param {any} options
+ * @returns {string}
+ */
+export function compile_debug_cached_font_from_last_layout_closure(options) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ret = wasm.compile_debug_cached_font_from_last_layout_closure(options);
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0; len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * Legacy function for compatibility
  * @param {string} _glyphs_json
  * @returns {Uint8Array}
@@ -241,6 +267,23 @@ export function dump_layer_state_json(layer_targets_json) {
     } finally {
         wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
     }
+}
+
+/**
+ * Retrieve compiled font bytes from the dedicated debug bytes cache.
+ * @param {string} font_hash
+ * @returns {Uint8Array}
+ */
+export function get_debug_cached_font_bytes(font_hash) {
+    const ptr0 = passStringToWasm0(font_hash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.get_debug_cached_font_bytes(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
 }
 
 /**
@@ -682,6 +725,22 @@ export function open_font_file(filename, contents) {
 }
 
 /**
+ * Prime the committed-state debug layout-closure cache on a lane isolated
+ * from the normal editing compile's last-closure pointer.
+ * @param {string} glyph_names_json
+ * @returns {number}
+ */
+export function prime_debug_layout_closure_cache(glyph_names_json) {
+    const ptr0 = passStringToWasm0(glyph_names_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.prime_debug_layout_closure_cache(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] >>> 0;
+}
+
+/**
  * Prime Rust layout-closure cache and mark it as the current closure subset.
  * Returns number of glyphs in the resolved closure subset.
  * @param {string} font_revision
@@ -792,6 +851,15 @@ export function seed_ydoc(state_update) {
     if (ret[1]) {
         throw takeFromExternrefTable0(ret[0]);
     }
+}
+
+/**
+ * Configure the maximum total size of the dedicated debug compiled-font bytes
+ * cache. The caller should pass one eighth of the app memory budget.
+ * @param {number} max_bytes
+ */
+export function set_debug_font_cache_max_bytes(max_bytes) {
+    wasm.set_debug_font_cache_max_bytes(max_bytes);
 }
 
 /**
