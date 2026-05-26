@@ -62,7 +62,7 @@ DRY_RUN_OUTPUT=$(git merge --no-commit --no-ff "$BRANCH" 2>&1) || MERGE_CONFLICT
 git merge --abort 2>/dev/null
 
 if [ "$MERGE_CONFLICTS" = true ]; then
-    CONFLICT_FILES=$(echo "$DRY_RUN_OUTPUT" | grep "^CONFLICT" | sed 's/^CONFLICT ([^)]*) *//' | sed 's/Merge conflict in //' | sed 's/ *([^)]*)$//' | tr -d "'" | sed 's/^ *//;s/ *$//')
+    CONFLICT_FILES=$(echo "$DRY_RUN_OUTPUT" | grep "^CONFLICT" | sed 's/^CONFLICT ([^)]*): *//' | sed 's/Merge conflict in //' | sed 's/ *([^)]*)$//' | tr -d "'" | sed 's/^ *//;s/ *$//')
 
     # Filter out worktree-local files — they get auto-resolved
     REAL_CONFLICTS=false
