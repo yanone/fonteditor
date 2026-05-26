@@ -742,6 +742,250 @@ class AIAgent {
         return outputEl;
     }
 
+    parseOpenTypeSearchTerms(query: string): string[] {
+        return query
+            .toLowerCase()
+            .split(/\s+/)
+            .map((term) => term.trim())
+            .filter(Boolean);
+    }
+
+    parseOpenTypeClassGlyphMembers(classCode: string): Set<string> {
+        const glyphs = new Set<string>();
+        if (!classCode) {
+            return glyphs;
+        }
+
+        const codeWithoutComments = classCode.replace(/#.*/g, '');
+        const tokens = codeWithoutComments
+            .split(/\s+/)
+            .map((token) => token.trim())
+            .filter(Boolean);
+
+        tokens.forEach((token) => glyphs.add(token));
+        return glyphs;
+    }
+
+    getAllOpenTypeGlyphsInClass(
+        className: string,
+        classGlyphMembers: Map<string, Set<string>>,
+        visited: Set<string> = new Set()
+    ): Set<string> {
+        const allGlyphs = new Set<string>();
+        if (visited.has(className)) {
+            return allGlyphs;
+        }
+        visited.add(className);
+
+        const cleanName = className.startsWith('@')
+            ? className.slice(1)
+            : className;
+        const members = classGlyphMembers.get(cleanName);
+        if (!members) {
+            return allGlyphs;
+        }
+
+        members.forEach((member) => {
+            if (member.startsWith('@')) {
+                const nestedGlyphs = this.getAllOpenTypeGlyphsInClass(
+                    member,
+                    classGlyphMembers,
+                    visited
+                );
+                nestedGlyphs.forEach((glyph) => allGlyphs.add(glyph));
+                return;
+            }
+
+            allGlyphs.add(member);
+        });
+
+        return allGlyphs;
+    }
+
+    findOpenTypeFeatureMatchLines(
+        code: string,
+        searchTerms: string[],
+        matchingClasses: string[]
+    ): Array<{ lineNumber: number; line: string }> {
+        const lines = code.split(/\r?\n/);
+        const matches: Array<{ lineNumber: number; line: string }> = [];
+
+        lines.forEach((line, index) => {
+            const lineLower = line.toLowerCase();
+            const matchesSearchTerm = searchTerms.some((term) =>
+                lineLower.includes(term)
+            );
+            const matchesClassReference = matchingClasses.some((className) =>
+                line.includes(`@${className}`)
+            );
+
+            if (!matchesSearchTerm && !matchesClassReference) {
+                return;
+            }
+
+            matches.push({
+                lineNumber: index + 1,
+                line: line.replace(/\t/g, ' ').replace(/ {2,}/g, ' ').trim()
+            });
+        });
+
+        return matches;
+    }
+
+    searchFontOpenTypeClassesAndFeatures(query: string): string {
+        const font = (window as any).currentFontModel;
+        if (!font) {
+            throw new Error('No font is currently open.');
+        }
+
+        const searchTerms = this.parseOpenTypeSearchTerms(query);
+        if (searchTerms.length === 0) {
+            throw new Error('Search query is empty.');
+        }
+
+        const classEntries = Object.entries(
+            font.features?.classes || {}
+        ) as Array<[string, { code?: string }]>;
+        const featureEntries = (font.features?.features || []) as Array<
+            [string, { code?: string }]
+        >;
+
+        const classCodeData = new Map<string, string>();
+        const classGlyphMembers = new Map<string, Set<string>>();
+
+        classEntries.forEach(([className, classData]) => {
+            const code = classData?.code || '';
+            classCodeData.set(className, code);
+            classGlyphMembers.set(
+                className,
+                this.parseOpenTypeClassGlyphMembers(code)
+            );
+        });
+
+        const matchingClasses = classEntries
+            .map(([className, classData]) => {
+                const code = classData?.code || '';
+                const directMatchText = `${className} ${code}`.toLowerCase();
+                const hasDirectMatch = searchTerms.every((term) =>
+                    directMatchText.includes(term)
+                );
+                const matchingGlyphs = Array.from(
+                    this.getAllOpenTypeGlyphsInClass(
+                        className,
+                        classGlyphMembers
+                    )
+                )
+                    .filter((glyph) => {
+                        const glyphLower = glyph.toLowerCase();
+                        return searchTerms.every((term) =>
+                            glyphLower.includes(term)
+                        );
+                    })
+                    .sort((left, right) => left.localeCompare(right));
+
+                if (!hasDirectMatch && matchingGlyphs.length === 0) {
+                    return null;
+                }
+
+                return {
+                    className,
+                    matchingGlyphs
+                };
+            })
+            .filter(
+                (
+                    value
+                ): value is { className: string; matchingGlyphs: string[] } =>
+                    value !== null
+            )
+            .sort((left, right) =>
+                left.className.localeCompare(right.className)
+            );
+
+        const matchingClassNames = matchingClasses.map(
+            ({ className }) => className
+        );
+
+        const matchingFeatures = featureEntries
+            .map(([tag, codeData], index) => {
+                const code = codeData?.code || '';
+                const searchText = `${tag} ${code}`.toLowerCase();
+                const hasDirectMatch = searchTerms.every((term) =>
+                    searchText.includes(term)
+                );
+                const referencedMatchingClasses = matchingClassNames.filter(
+                    (className) => code.includes(`@${className}`)
+                );
+
+                if (!hasDirectMatch && referencedMatchingClasses.length === 0) {
+                    return null;
+                }
+
+                const lineMatches = this.findOpenTypeFeatureMatchLines(
+                    code,
+                    searchTerms,
+                    referencedMatchingClasses
+                );
+
+                return {
+                    tag,
+                    index,
+                    lineMatches,
+                    tagOnlyMatch: lineMatches.length === 0 && hasDirectMatch
+                };
+            })
+            .filter(
+                (
+                    value
+                ): value is {
+                    tag: string;
+                    index: number;
+                    lineMatches: Array<{ lineNumber: number; line: string }>;
+                    tagOnlyMatch: boolean;
+                } => value !== null
+            );
+
+        const lines: string[] = [
+            `Search query: ${query}`,
+            `Parsed search terms: ${searchTerms.join(', ')}`,
+            '',
+            '## Matching classes',
+            ...(matchingClasses.length > 0
+                ? matchingClasses.map(({ className, matchingGlyphs }) =>
+                      matchingGlyphs.length > 0
+                          ? `- @${className} (matching glyphs: ${matchingGlyphs.join(', ')})`
+                          : `- @${className}`
+                  )
+                : ['- (none)']),
+            '',
+            '## Matching features',
+            ...(matchingFeatures.length > 0
+                ? matchingFeatures.flatMap((feature) => {
+                      const featureLines = [
+                          `- ${feature.tag} # index ${feature.index}`
+                      ];
+
+                      if (feature.lineMatches.length > 0) {
+                          featureLines.push(
+                              ...feature.lineMatches.map(
+                                  ({ lineNumber, line }) =>
+                                      `  - line ${lineNumber}: ${line || '(blank line)'}`
+                              )
+                          );
+                      } else if (feature.tagOnlyMatch) {
+                          featureLines.push(
+                              '  - tag/code-level match, but no individual code line matched directly'
+                          );
+                      }
+
+                      return featureLines;
+                  })
+                : ['- (none)'])
+        ];
+
+        return lines.join('\n');
+    }
+
     getFontFeatureSourceOrder(): string[] {
         const font = (window as any).currentFontModel;
         if (!font?.features?.features) {
@@ -1370,6 +1614,14 @@ if '_agent_original_stdout' in dir():
             }
             case 'get_font_opentype_info': {
                 return this.getFontOpenTypeInfo();
+            }
+            case 'search_font_opentype_classes_and_features': {
+                const query = args.query;
+                if (query == null) {
+                    throw new Error('Missing required parameter: query');
+                }
+
+                return this.searchFontOpenTypeClassesAndFeatures(String(query));
             }
             case 'set_editor_text_buffer': {
                 const text = args.text;

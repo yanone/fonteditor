@@ -161,6 +161,25 @@ export const AGENT_TOOLS: AgentTool[] = [
     {
         type: 'function',
         function: {
+            name: 'search_font_opentype_classes_and_features',
+            description:
+                "Search the current font's OpenType classes and features using the same term-based matching logic as the search field in the OpenType editor sidebar. Returns matching class names, glyph names, and lines of feature code. Feature matches are reported with the feature source-order index and the matching line numbers within each feature. If you want to see the entire content of a certain feature, it is better to read it via Python, as `search_font_opentype_classes_and_features` will only match glyph names in classes as well as glyphs names and class names in features.",
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: {
+                        type: 'string',
+                        description:
+                            'Search query, split into space-separated search terms just like the OpenType editor search field. Example: "grave" or "grave @marks".'
+                    }
+                },
+                required: ['query']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'set_editor_text_buffer',
             description:
                 'Set the text buffer contents. The string may include encoded Unicode characters as well as glyph names using the /glyphname notation. Several glyph names may appear consecutively, but the last one needs to have a space character as a suffix before encoded characters may follow. Use tool `get_editor_state` first to see the current buffer.',
