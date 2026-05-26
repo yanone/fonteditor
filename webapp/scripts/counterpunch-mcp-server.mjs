@@ -2,13 +2,28 @@
 
 import process from 'node:process';
 import { chromium } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_NAME = 'counterpunch';
 const SERVER_VERSION = '0.1.0';
+
+// Try worktree config first, then env var, then default
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const WORKTREE_CONFIG_PATH = resolve(__dirname, '..', 'worktree-config.json');
+let worktreePort = null;
+try {
+    const cfg = JSON.parse(readFileSync(WORKTREE_CONFIG_PATH, 'utf8'));
+    if (cfg.port) worktreePort = cfg.port;
+} catch (_e) {
+    // Not a worktree — use defaults below
+}
+
 const DEFAULT_APP_URL = process.env.CI
     ? 'http://localhost:9000'
-    : 'https://localhost:8000';
+    : `https://localhost:${worktreePort || 8000}`;
 const APP_URL = process.env.COUNTERPUNCH_MCP_URL || DEFAULT_APP_URL;
 const HEADLESS = process.env.COUNTERPUNCH_MCP_HEADLESS !== 'false';
 const TOOL_TIMEOUT_MS = 30000;
