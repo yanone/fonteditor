@@ -1799,6 +1799,14 @@ if '_agent_original_stdout' in dir():
                       )
                     : explicitDesignspaceLocation;
 
+                const allFeatureTags = Object.keys(featureOverrides).sort();
+                const features = allFeatureTags.map((tag) => ({
+                    tag,
+                    active: featureOverrides[tag] === true,
+                    inSubset: !fullFontMode,
+                    description: getFeatureDescription(tag) || tag
+                }));
+
                 const fullCommittedFont = await fc.compileCached(
                     'full',
                     'debug-full-font.ttf'
@@ -1838,30 +1846,24 @@ if '_agent_original_stdout' in dir():
                     }
                 );
 
-                return JSON.stringify(
-                    {
-                        mode: fullFontMode ? 'full-font' : 'subset-debug-lane',
-                        text,
-                        featureOverrides,
-                        featureOverrideString: featureOverrideString || '',
-                        userspaceLocation,
-                        designspaceLocation,
-                        subsetGlyphs,
-                        subsetSeedShaping: subsetSeedShape,
-                        fontHash:
-                            typeof compileResult.fontHash === 'string'
-                                ? compileResult.fontHash
-                                : null,
-                        closureGlyphCount:
-                            typeof compileResult.closureGlyphCount === 'number'
-                                ? compileResult.closureGlyphCount
-                                : null,
-                        fontBytes: compileResult.result.length,
-                        shaped
-                    },
-                    null,
-                    2
-                );
+                const editorStateOutput = {
+                    textBuffer: text,
+                    glyphs: shaped.glyphs.join(' '),
+                    gids: shaped.gids.join(' '),
+                    advances: shaped.advances.join(' '),
+                    clusters: shaped.clusters.join(' '),
+                    userspaceLocation,
+                    designspaceLocation,
+                    featureStateByTag: Object.fromEntries(
+                        allFeatureTags.map((tag) => [
+                            tag,
+                            featureOverrides[tag]
+                        ])
+                    ),
+                    features,
+                    file: fm?.currentFont?.path || ''
+                };
+                return JSON.stringify(editorStateOutput, null, 2);
             }
             default:
                 throw new Error(`Unknown tool: ${name}`);
