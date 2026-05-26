@@ -21,6 +21,12 @@ import {
     SCRIPT_TO_SHAPER
 } from './opentype-features';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
+import {
+    buildCompileAndShapeFontCacheKey,
+    buildCompileAndShapeFontRevisionKey,
+    CompileAndShapeFontCacheEntry,
+    resolveCompileAndShapeFontCompilation
+} from './compile-and-shape-font-cache';
 
 const console = new Logger('AIAgent');
 
@@ -42,6 +48,7 @@ class AIAgent {
     conversationMessages: Array<any>;
     roundUsage: UsageMetrics[];
     sessionTotals: UsageMetrics;
+    compileAndShapeFontCache: CompileAndShapeFontCacheEntry | null;
 
     constructor() {
         this.messagesContainer = null;
@@ -58,6 +65,7 @@ class AIAgent {
         this.conversationMessages = [];
         this.roundUsage = [];
         this.sessionTotals = {};
+        this.compileAndShapeFontCache = null;
 
         this.initUI();
         this.checkAuthenticationStatus();
@@ -1799,6 +1807,22 @@ if '_agent_original_stdout' in dir():
                       )
                     : explicitDesignspaceLocation;
 
+                const currentFont = fm?.currentFont;
+                const fontRevision = {
+                    pluginId: currentFont?.sourcePlugin?.getId?.() || '',
+                    fontPath: currentFont?.path || '',
+                    changeVersion:
+                        typeof currentFont?.changeVersion === 'number'
+                            ? currentFont.changeVersion
+                            : null
+                };
+                const fontRevisionKey =
+                    buildCompileAndShapeFontRevisionKey(fontRevision);
+                const cacheKey = buildCompileAndShapeFontCacheKey(
+                    fontRevision,
+                    text
+                );
+
                 const allFeatureTags = Object.keys(featureOverrides).sort();
                 const features = allFeatureTags.map((tag) => ({
                     tag,
@@ -1807,38 +1831,36 @@ if '_agent_original_stdout' in dir():
                     description: getFeatureDescription(tag) || tag
                 }));
 
-                const fullCommittedFont = await fc.compileCached(
-                    'full',
-                    'debug-full-font.ttf'
-                );
-
-                let subsetGlyphs: string[] = [];
-                let compileResult = fullCommittedFont;
-                let subsetSeedShape = null;
-
-                if (!fullFontMode) {
-                    subsetSeedShape = await shapeWithFontDetailed(
-                        fullCommittedFont.result,
+                const compileResolution =
+                    await resolveCompileAndShapeFontCompilation({
+                        cacheEntry: this.compileAndShapeFontCache,
+                        fontRevisionKey,
+                        cacheKey,
+                        fullFontMode,
                         text,
-                        {
+                        shapeOptions: {
                             features: featureOverrideString,
                             variationLocation: userspaceLocation
+                        },
+                        compileFullFont: async () => {
+                            const fullCommittedFont = await fc.compileCached(
+                                'full',
+                                'debug-full-font.ttf'
+                            );
+                            return fullCommittedFont.result;
+                        },
+                        shapeSubsetWithFont: shapeWithFontDetailed,
+                        compileSubsetFont: async (subsetGlyphs) => {
+                            const compileResult =
+                                await fc.compileCommittedDebugFont(
+                                    subsetGlyphs
+                                );
+                            return compileResult.result;
                         }
-                    );
-                    subsetGlyphs = Array.from(
-                        new Set(
-                            subsetSeedShape.glyphs.filter(
-                                (glyphName: string) =>
-                                    glyphName && glyphName !== '.notdef'
-                            )
-                        )
-                    );
-                    compileResult =
-                        await fc.compileCommittedDebugFont(subsetGlyphs);
-                }
+                    });
 
                 const shaped = await shapeWithFontDetailed(
-                    compileResult.result,
+                    compileResolution.compiledFont,
                     text,
                     {
                         features: featureOverrideString,
@@ -1852,6 +1874,7 @@ if '_agent_original_stdout' in dir():
                     gids: shaped.gids.join(' '),
                     advances: shaped.advances.join(' '),
                     clusters: shaped.clusters.join(' '),
+                    fontRevision,
                     userspaceLocation,
                     designspaceLocation,
                     featureStateByTag: Object.fromEntries(
@@ -1863,7 +1886,9 @@ if '_agent_original_stdout' in dir():
                     features,
                     file: fm?.currentFont?.path || ''
                 };
-                return JSON.stringify(editorStateOutput, null, 2);
+                const result = JSON.stringify(editorStateOutput, null, 2);
+                this.compileAndShapeFontCache = compileResolution.cacheEntry;
+                return result;
             }
             default:
                 throw new Error(`Unknown tool: ${name}`);
