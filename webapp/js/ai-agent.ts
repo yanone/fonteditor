@@ -52,7 +52,9 @@ class AIAgent {
         this.checkAuthenticationStatus();
     }
 
-    getWebsiteURL() { return resolveWebsiteURL(); }
+    getWebsiteURL() {
+        return resolveWebsiteURL();
+    }
 
     async checkAuthenticationStatus() {
         if (!window.authManager) {
@@ -61,13 +63,20 @@ class AIAgent {
         }
         const originalCallback = window.authManager.onAuthStateChanged;
         window.authManager.onAuthStateChanged = (
-            isAuthenticated: boolean, user: any, subscription: any
+            isAuthenticated: boolean,
+            user: any,
+            subscription: any
         ) => {
             this.isAuthenticated = isAuthenticated;
             this.subscription = subscription;
             this.updateAuthUI();
             if (originalCallback)
-                originalCallback.call(window.authManager, isAuthenticated, user, subscription);
+                originalCallback.call(
+                    window.authManager,
+                    isAuthenticated,
+                    user,
+                    subscription
+                );
         };
         const user = await window.authManager.checkAuthStatus();
         this.isAuthenticated = !!user;
@@ -78,7 +87,9 @@ class AIAgent {
     updateAuthUI() {
         const chatContainer = document.getElementById('agent-chat-container');
         const loginContainer = document.getElementById('agent-login-container');
-        const subscriptionContainer = document.getElementById('agent-subscription-container');
+        const subscriptionContainer = document.getElementById(
+            'agent-subscription-container'
+        );
         if (!chatContainer || !loginContainer || !subscriptionContainer) return;
 
         if (!this.isAuthenticated) {
@@ -97,44 +108,67 @@ class AIAgent {
     }
 
     initUI() {
-        this.promptInput = document.getElementById('agent-prompt') as HTMLTextAreaElement | null;
+        this.promptInput = document.getElementById(
+            'agent-prompt'
+        ) as HTMLTextAreaElement | null;
         this.sendButton = document.getElementById('agent-send-btn');
         this.messagesContainer = document.getElementById('agent-messages');
         this.chatContainer = document.getElementById('agent-chat-container');
         this.loginContainer = document.getElementById('agent-login-container');
-        this.subscriptionContainer = document.getElementById('agent-subscription-container');
+        this.subscriptionContainer = document.getElementById(
+            'agent-subscription-container'
+        );
         if (!this.sendButton || !this.promptInput || !this.messagesContainer) {
             console.warn('Agent UI elements not found');
             return;
         }
 
-        this.sendButton.addEventListener('click', (e: Event) => { e.stopPropagation(); this.sendPrompt(); });
+        this.sendButton.addEventListener('click', (e: Event) => {
+            e.stopPropagation();
+            this.sendPrompt();
+        });
         this.promptInput.addEventListener('keydown', (e: KeyboardEvent) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.sendPrompt(); }
-        });
-
-        const loginBtn = document.getElementById('agent-login-btn');
-        if (loginBtn) loginBtn.addEventListener('click', () => {
-            window.location.href = this.getWebsiteURL() + '/login?returnTo=' + encodeURIComponent(window.location.href);
-        });
-
-        const accountBtn = document.getElementById('agent-account-btn');
-        if (accountBtn) accountBtn.addEventListener('click', () => {
-            window.location.href = this.getWebsiteURL() + '/account?returnTo=' + encodeURIComponent(window.location.href);
-        });
-
-        document.getElementById('agent-new-chat-btn')?.addEventListener('click', () => this.newChat());
-
-        document.getElementById('agent-stop-btn')?.addEventListener('click', () => {
-            if (this.abortController) {
-                this.abortController.abort();
-                this.abortController = null;
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                this.sendPrompt();
             }
         });
 
+        const loginBtn = document.getElementById('agent-login-btn');
+        if (loginBtn)
+            loginBtn.addEventListener('click', () => {
+                window.location.href =
+                    this.getWebsiteURL() +
+                    '/login?returnTo=' +
+                    encodeURIComponent(window.location.href);
+            });
+
+        const accountBtn = document.getElementById('agent-account-btn');
+        if (accountBtn)
+            accountBtn.addEventListener('click', () => {
+                window.location.href =
+                    this.getWebsiteURL() +
+                    '/account?returnTo=' +
+                    encodeURIComponent(window.location.href);
+            });
+
+        document
+            .getElementById('agent-new-chat-btn')
+            ?.addEventListener('click', () => this.newChat());
+
+        document
+            .getElementById('agent-stop-btn')
+            ?.addEventListener('click', () => {
+                if (this.abortController) {
+                    this.abortController.abort();
+                    this.abortController = null;
+                }
+            });
+
         this.promptInput.addEventListener('input', () => {
             this.promptInput!.style.height = 'auto';
-            this.promptInput!.style.height = Math.min(this.promptInput!.scrollHeight, 120) + 'px';
+            this.promptInput!.style.height =
+                Math.min(this.promptInput!.scrollHeight, 120) + 'px';
         });
 
         this.setupInfoModal();
@@ -158,12 +192,16 @@ class AIAgent {
                         ${typeof marked !== 'undefined' ? marked.parse(tool.function.description) : tool.function.description}
                     </div>
                     ${
-                        Object.keys(tool.function.parameters?.properties || {}).length > 0
+                        Object.keys(tool.function.parameters?.properties || {})
+                            .length > 0
                             ? `<div style="font-size:11px;color:var(--text-faint)">
                                 <strong>Parameters:</strong>
-                                ${Object.entries(tool.function.parameters?.properties || {})
-                                    .map(([name, prop]: [string, any]) =>
-                                        `<code style="background:var(--background-hover);padding:1px 4px;border-radius:3px">${name}</code>`
+                                ${Object.entries(
+                                    tool.function.parameters?.properties || {}
+                                )
+                                    .map(
+                                        ([name, prop]: [string, any]) =>
+                                            `<code style="background:var(--background-hover);padding:1px 4px;border-radius:3px">${name}</code>`
                                     )
                                     .join(' ')}
                                </div>`
@@ -208,18 +246,22 @@ class AIAgent {
         const header = document.createElement('div');
         header.className = 'agent-message-header';
         if (role === 'user') {
-            header.innerHTML = '<span class="material-symbols-outlined">person</span> You';
+            header.innerHTML =
+                '<span class="material-symbols-outlined">person</span> You';
             msgDiv.appendChild(header);
             msgDiv.appendChild(document.createTextNode(content));
         } else if (role === 'agent') {
-            header.innerHTML = '<span class="material-symbols-outlined">robot_2</span> Agent';
+            header.innerHTML =
+                '<span class="material-symbols-outlined">robot_2</span> Agent';
             msgDiv.appendChild(header);
             const body = document.createElement('div');
-            if (typeof marked !== 'undefined') body.innerHTML = marked.parse(content);
+            if (typeof marked !== 'undefined')
+                body.innerHTML = marked.parse(content);
             else body.textContent = content;
             msgDiv.appendChild(body);
         } else {
-            header.innerHTML = '<span class="material-symbols-outlined">error</span> Error';
+            header.innerHTML =
+                '<span class="material-symbols-outlined">error</span> Error';
             msgDiv.appendChild(header);
             msgDiv.appendChild(document.createTextNode(content));
         }
@@ -235,15 +277,19 @@ class AIAgent {
                 return await this.fetchText('/handbook/README.md');
             case 'handbook_topic': {
                 const topic = args.topic;
-                if (!topic) throw new Error('Missing required parameter: topic');
+                if (!topic)
+                    throw new Error('Missing required parameter: topic');
                 const clean = topic.replace(/\.\.\//g, '').replace(/^\/+/, '');
-                if (!clean.endsWith('.md')) throw new Error('Only .md files can be accessed');
+                if (!clean.endsWith('.md'))
+                    throw new Error('Only .md files can be accessed');
                 return await this.fetchText(`/handbook/${clean}`);
             }
             case 'python_api_docs': {
                 let res = await fetch('/API.md').catch(() => null);
                 if (!res || !res.ok)
-                    res = await fetch(`${this.getWebsiteURL()}/data/api-docs.md`);
+                    res = await fetch(
+                        `${this.getWebsiteURL()}/data/api-docs.md`
+                    );
                 if (!res.ok) throw new Error('API documentation not found');
                 return await res.text();
             }
@@ -254,7 +300,13 @@ class AIAgent {
                 const plugins = pluginRegistry.getAll() || [];
                 const results: string[] = [];
                 const messages: string[] = [];
-                const fontExtensions = ['.babelfont', '.glyphs', '.vfj', '.sfd', '.designspace'];
+                const fontExtensions = [
+                    '.babelfont',
+                    '.glyphs',
+                    '.vfj',
+                    '.sfd',
+                    '.designspace'
+                ];
 
                 for (const plugin of plugins) {
                     const pluginId = plugin.getId();
@@ -264,14 +316,23 @@ class AIAgent {
 
                     // Check plugin readiness with contextual messages
                     if (pluginId === 'disk') {
-                        const hasDir = typeof adapter.hasDirectory === 'function' && adapter.hasDirectory();
+                        const hasDir =
+                            typeof adapter.hasDirectory === 'function' &&
+                            adapter.hasDirectory();
                         if (!hasDir) {
-                            messages.push(`⚠️ **${pluginName}**: No folder linked yet. Open the file browser and select a folder to enable disk access.`);
+                            messages.push(
+                                `⚠️ **${pluginName}**: No folder linked yet. Open the file browser and select a folder to enable disk access.`
+                            );
                             continue;
                         }
-                        const perm = typeof adapter.checkPermission === 'function' ? await adapter.checkPermission() : 'granted';
+                        const perm =
+                            typeof adapter.checkPermission === 'function'
+                                ? await adapter.checkPermission()
+                                : 'granted';
                         if (perm !== 'granted') {
-                            messages.push(`⚠️ **${pluginName}**: Folder access expired. Re-enable access in the file browser to continue.`);
+                            messages.push(
+                                `⚠️ **${pluginName}**: Folder access expired. Re-enable access in the file browser to continue.`
+                            );
                             continue;
                         }
                     }
@@ -282,26 +343,44 @@ class AIAgent {
                         const files = await adapter.scanDirectory(scanPath);
                         let found = 0;
                         for (const [name, info] of Object.entries(files)) {
-                            const fileInfo = info as { is_dir: boolean; path: string };
+                            const fileInfo = info as {
+                                is_dir: boolean;
+                                path: string;
+                            };
                             const filePath = fileInfo.path || `/${name}`;
                             const lowerName = name.toLowerCase();
                             if (fileInfo.is_dir) {
-                                if (lowerName.endsWith('.glyphspackage') || lowerName.endsWith('.ufo')) {
-                                    results.push(`${name} — ${pluginId}:///${filePath.replace(/^\//, '')}`);
+                                if (
+                                    lowerName.endsWith('.glyphspackage') ||
+                                    lowerName.endsWith('.ufo')
+                                ) {
+                                    results.push(
+                                        `${name} — ${pluginId}:///${filePath.replace(/^\//, '')}`
+                                    );
                                     found++;
                                 }
                                 continue;
                             }
-                            if (fontExtensions.some((ext) => lowerName.endsWith(ext))) {
-                                results.push(`${name} — ${pluginId}:///${filePath.replace(/^\//, '')}`);
+                            if (
+                                fontExtensions.some((ext) =>
+                                    lowerName.endsWith(ext)
+                                )
+                            ) {
+                                results.push(
+                                    `${name} — ${pluginId}:///${filePath.replace(/^\//, '')}`
+                                );
                                 found++;
                             }
                         }
                         if (found === 0) {
-                            messages.push(`📂 **${pluginName}**: No font files found.`);
+                            messages.push(
+                                `📂 **${pluginName}**: No font files found.`
+                            );
                         }
                     } catch {
-                        messages.push(`⚠️ **${pluginName}**: Could not scan — plugin may need setup.`);
+                        messages.push(
+                            `⚠️ **${pluginName}**: Could not scan — plugin may need setup.`
+                        );
                     }
                 }
 
@@ -329,12 +408,16 @@ class AIAgent {
                         `Invalid font URL: "${url}". Expected format: pluginId:///path (e.g. memory:///user/Fustat.glyphs)`
                     );
 
-                const plugin = (window as any).pluginRegistry?.get?.(parsed.pluginId);
+                const plugin = (window as any).pluginRegistry?.get?.(
+                    parsed.pluginId
+                );
                 if (!plugin)
                     throw new Error(
-                        `Plugin "${parsed.pluginId}" not found. Available: ${((window as any).pluginRegistry?.getAll?.() || [])
-                            .map((p: any) => p.getId())
-                            .join(', ') || 'none'}`
+                        `Plugin "${parsed.pluginId}" not found. Available: ${
+                            ((window as any).pluginRegistry?.getAll?.() || [])
+                                .map((p: any) => p.getId())
+                                .join(', ') || 'none'
+                        }`
                     );
 
                 try {
@@ -343,11 +426,13 @@ class AIAgent {
                     if (adapter && typeof adapter.fileExists === 'function') {
                         const exists = await adapter.fileExists(parsed.path);
                         if (!exists) {
-                            throw new Error(`File not found: ${parsed.path} (from ${url})`);
+                            throw new Error(
+                                `File not found: ${parsed.path} (from ${url})`
+                            );
                         }
                     }
                     await (window as any).openFont?.(parsed.path, undefined, {
-                        sourcePluginOverride: plugin,
+                        sourcePluginOverride: plugin
                     });
                 } catch (err: any) {
                     throw new Error(`Failed to open font: ${err.message}`);
@@ -361,7 +446,9 @@ class AIAgent {
                 if (!currentFont) return 'No font is currently open.';
                 const pluginId = currentFont.sourcePlugin?.getId?.();
                 const path = currentFont.path || '';
-                const url = pluginId ? `${pluginId}:///${path.replace(/^\//, '')}` : path;
+                const url = pluginId
+                    ? `${pluginId}:///${path.replace(/^\//, '')}`
+                    : path;
                 return `${currentFont.name} — ${url}`;
             }
             case 'execute_python_code': {
@@ -369,7 +456,10 @@ class AIAgent {
                 if (!code) throw new Error('Missing required parameter: code');
 
                 const pyodide = (window as any).pyodide;
-                if (!pyodide) throw new Error('Python environment (Pyodide) not loaded yet. Please wait and try again.');
+                if (!pyodide)
+                    throw new Error(
+                        'Python environment (Pyodide) not loaded yet. Please wait and try again.'
+                    );
 
                 // Set up stdout capture
                 await pyodide.runPythonAsync(`
@@ -411,15 +501,18 @@ if '_agent_original_stdout' in dir():
                 // Build feature list with descriptions from all font-defined features
                 const allFeatureTags = new Set<string>();
                 const featuresIn = s.editor_opentype_features_in_subset || {};
-                const featuresOut = s.editor_opentype_features_not_in_subset || {};
-                for (const tag of Object.keys(featuresIn)) allFeatureTags.add(tag);
-                for (const tag of Object.keys(featuresOut)) allFeatureTags.add(tag);
+                const featuresOut =
+                    s.editor_opentype_features_not_in_subset || {};
+                for (const tag of Object.keys(featuresIn))
+                    allFeatureTags.add(tag);
+                for (const tag of Object.keys(featuresOut))
+                    allFeatureTags.add(tag);
 
                 const features = [...allFeatureTags].sort().map((tag) => ({
                     tag,
                     active: featuresIn[tag] === true,
                     inSubset: tag in featuresIn,
-                    description: getFeatureDescription(tag) || tag,
+                    description: getFeatureDescription(tag) || tag
                 }));
 
                 return JSON.stringify(
@@ -430,7 +523,7 @@ if '_agent_original_stdout' in dir():
                         advances: s.editor_harfbuzz_ax || '',
                         clusters: s.editor_harfbuzz_cl || '',
                         features,
-                        file: s.editor_file || '',
+                        file: s.editor_file || ''
                     },
                     null,
                     2
@@ -438,10 +531,12 @@ if '_agent_original_stdout' in dir():
             }
             case 'set_editor_text_buffer': {
                 const text = args.text;
-                if (text == null) throw new Error('Missing required parameter: text');
+                if (text == null)
+                    throw new Error('Missing required parameter: text');
 
                 const gcSet = (window as any).glyphCanvas;
-                if (!gcSet?.textRunEditor) throw new Error('Editor not available');
+                if (!gcSet?.textRunEditor)
+                    throw new Error('Editor not available');
 
                 gcSet.textRunEditor.setTextBuffer(String(text));
                 return `Text buffer set to: ${text}`;
@@ -449,7 +544,8 @@ if '_agent_original_stdout' in dir():
             case 'set_editor_opentype_features': {
                 const featureTags: string[] = args.features || [];
                 const gcSet2 = (window as any).glyphCanvas;
-                if (!gcSet2?.featuresManager) throw new Error('Editor not available');
+                if (!gcSet2?.featuresManager)
+                    throw new Error('Editor not available');
 
                 const fm2 = gcSet2.featuresManager;
                 const allF = await fm2.getDiscretionaryFeatures();
@@ -477,9 +573,15 @@ if '_agent_original_stdout' in dir():
 
     // ── Single streaming round ──
 
-    async streamRound(messages: any[], onChunk: (text: string) => void, signal?: AbortSignal): Promise<any> {
+    async streamRound(
+        messages: any[],
+        onChunk: (text: string) => void,
+        signal?: AbortSignal
+    ): Promise<any> {
         const sessionToken = window.authManager?.getSessionToken();
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+        };
         if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
 
         const response = await fetch(`${this.getWebsiteURL()}/api/ai/agent`, {
@@ -491,12 +593,14 @@ if '_agent_original_stdout' in dir():
                 messages,
                 tools: AGENT_TOOLS,
                 systemPrompt: AGENT_SYSTEM_PROMPT,
-                stream: true,
-            }),
+                stream: true
+            })
         });
 
         if (!response.ok) {
-            const err = await response.json().catch(() => ({ error: 'Request failed' }));
+            const err = await response
+                .json()
+                .catch(() => ({ error: 'Request failed' }));
             throw new Error(err.error || `HTTP ${response.status}`);
         }
 
@@ -524,14 +628,24 @@ if '_agent_original_stdout' in dir():
                     if (parsed.type === 'chunk' && parsed.content) {
                         streamedText += parsed.content;
                         onChunk(parsed.content);
-                    } else if (parsed.type === 'tool_call' && parsed.tool_calls) {
+                    } else if (
+                        parsed.type === 'tool_call' &&
+                        parsed.tool_calls
+                    ) {
                         toolCalls = parsed.tool_calls;
                     } else if (parsed.type === 'done') {
-                        return { text: streamedText, toolCalls, usage: parsed.usage, done: true };
+                        return {
+                            text: streamedText,
+                            toolCalls,
+                            usage: parsed.usage,
+                            done: true
+                        };
                     } else if (parsed.type === 'error') {
                         throw new Error(parsed.error || 'Stream error');
                     }
-                } catch { /* skip unparseable */ }
+                } catch {
+                    /* skip unparseable */
+                }
             }
         }
         return { text: streamedText, toolCalls, done: false };
@@ -540,18 +654,23 @@ if '_agent_original_stdout' in dir():
     // ── Main entry: streaming multi-round loop ──
 
     async sendPrompt() {
-        if (!this.promptInput || !this.messagesContainer || this.isStreaming) return;
+        if (!this.promptInput || !this.messagesContainer || this.isStreaming)
+            return;
         const prompt = this.promptInput.value.trim();
         if (!prompt) return;
 
         this.promptInput.value = '';
         this.promptInput.style.height = 'auto';
         this.isStreaming = true;
-        if (this.sendButton) (this.sendButton as HTMLButtonElement).disabled = true;
+        if (this.sendButton)
+            (this.sendButton as HTMLButtonElement).disabled = true;
         this.showStreamIndicator();
 
         this.addMessage('user', prompt);
-        const conversationMessages: any[] = [...this.conversationMessages, { role: 'user', content: prompt }];
+        const conversationMessages: any[] = [
+            ...this.conversationMessages,
+            { role: 'user', content: prompt }
+        ];
         this.showInitialStatus();
 
         const abortController = new AbortController();
@@ -566,36 +685,48 @@ if '_agent_original_stdout' in dir():
 
             while (true) {
                 currentRoundIndex++;
-                const result = await this.streamRound(conversationMessages, (chunk) => {
-                    this.clearInitialStatus();
-                    if (!messageDiv) {
-                        messageDiv = document.createElement('div');
-                        messageDiv.className = 'agent-message agent-message-agent';
-                        const header = document.createElement('div');
-                        header.className = 'agent-message-header';
-                        header.innerHTML = '<span class="material-symbols-outlined">robot_2</span> Agent';
-                        messageDiv.appendChild(header);
-                        bodyDiv = document.createElement('div');
-                        messageDiv.appendChild(bodyDiv);
-                        this.messagesContainer!.appendChild(messageDiv);
-                    }
+                const result = await this.streamRound(
+                    conversationMessages,
+                    (chunk) => {
+                        this.clearInitialStatus();
+                        if (!messageDiv) {
+                            messageDiv = document.createElement('div');
+                            messageDiv.className =
+                                'agent-message agent-message-agent';
+                            const header = document.createElement('div');
+                            header.className = 'agent-message-header';
+                            header.innerHTML =
+                                '<span class="material-symbols-outlined">robot_2</span> Agent';
+                            messageDiv.appendChild(header);
+                            bodyDiv = document.createElement('div');
+                            messageDiv.appendChild(bodyDiv);
+                            this.messagesContainer!.appendChild(messageDiv);
+                        }
 
-                    // Append/render to the LAST round-text container in bodyDiv
-                    roundTexts[currentRoundIndex] = (roundTexts[currentRoundIndex] || '') + chunk;
-                    const bd = bodyDiv as HTMLDivElement;
-                    let textContainer = bd.querySelector('.agent-round-text:last-child') as HTMLDivElement | null;
-                    if (!textContainer) {
-                        textContainer = document.createElement('div');
-                        textContainer.className = 'agent-round-text';
-                        bd.appendChild(textContainer);
-                    }
-                    if (typeof marked !== 'undefined') {
-                        textContainer.innerHTML = marked.parse(roundTexts[currentRoundIndex]);
-                    } else {
-                        textContainer.textContent = roundTexts[currentRoundIndex];
-                    }
-                    this.scrollToBottomIfNear();
-                }, signal);
+                        // Append/render to the LAST round-text container in bodyDiv
+                        roundTexts[currentRoundIndex] =
+                            (roundTexts[currentRoundIndex] || '') + chunk;
+                        const bd = bodyDiv as HTMLDivElement;
+                        let textContainer = bd.querySelector(
+                            '.agent-round-text:last-child'
+                        ) as HTMLDivElement | null;
+                        if (!textContainer) {
+                            textContainer = document.createElement('div');
+                            textContainer.className = 'agent-round-text';
+                            bd.appendChild(textContainer);
+                        }
+                        if (typeof marked !== 'undefined') {
+                            textContainer.innerHTML = marked.parse(
+                                roundTexts[currentRoundIndex]
+                            );
+                        } else {
+                            textContainer.textContent =
+                                roundTexts[currentRoundIndex];
+                        }
+                        this.scrollToBottomIfNear();
+                    },
+                    signal
+                );
 
                 // ── Track usage for this round ──
                 const roundUsage = result.usage;
@@ -610,12 +741,17 @@ if '_agent_original_stdout' in dir():
                     const bd = bodyDiv as HTMLDivElement;
                     const metricsStr = this.formatUsageMetrics(roundUsage);
                     if (metricsStr) {
-                        const roundTextEl = bd.querySelector('.agent-round-text:last-child') as HTMLElement | null;
+                        const roundTextEl = bd.querySelector(
+                            '.agent-round-text:last-child'
+                        ) as HTMLElement | null;
                         if (roundTextEl) {
                             const metricsEl = document.createElement('div');
                             metricsEl.className = 'agent-round-metrics';
                             metricsEl.textContent = metricsStr;
-                            roundTextEl.insertAdjacentElement('afterend', metricsEl);
+                            roundTextEl.insertAdjacentElement(
+                                'afterend',
+                                metricsEl
+                            );
                         }
                     }
                 }
@@ -627,10 +763,12 @@ if '_agent_original_stdout' in dir():
                     // responds with only a tool call and no preamble text
                     if (!messageDiv) {
                         messageDiv = document.createElement('div');
-                        messageDiv.className = 'agent-message agent-message-agent';
+                        messageDiv.className =
+                            'agent-message agent-message-agent';
                         const header = document.createElement('div');
                         header.className = 'agent-message-header';
-                        header.innerHTML = '<span class="material-symbols-outlined">robot_2</span> Agent';
+                        header.innerHTML =
+                            '<span class="material-symbols-outlined">robot_2</span> Agent';
                         messageDiv.appendChild(header);
                         bodyDiv = document.createElement('div');
                         messageDiv.appendChild(bodyDiv);
@@ -640,12 +778,18 @@ if '_agent_original_stdout' in dir():
                     conversationMessages.push({
                         role: 'assistant',
                         content: result.text || null,
-                        tool_calls: result.toolCalls,
+                        tool_calls: result.toolCalls
                     });
 
                     for (const toolCall of result.toolCalls) {
                         let args;
-                        try { args = JSON.parse(toolCall.function.arguments || '{}'); } catch { args = {}; }
+                        try {
+                            args = JSON.parse(
+                                toolCall.function.arguments || '{}'
+                            );
+                        } catch {
+                            args = {};
+                        }
 
                         let toolResult: string;
                         let resultLen = 0;
@@ -663,18 +807,24 @@ if '_agent_original_stdout' in dir():
                             line.appendChild(infoBtn);
 
                             try {
-                                toolResult = await this.executeToolCall(toolCall);
+                                toolResult =
+                                    await this.executeToolCall(toolCall);
                                 resultLen = toolResult.length;
                             } catch (err: any) {
                                 toolResult = `Error: ${err.message}`;
                             }
 
                             const metaEl = document.createElement('div');
-                            metaEl.style.cssText = 'font-size:11px;line-height:1.6;padding:4px;color:var(--text-primary);';
+                            metaEl.style.cssText =
+                                'font-size:11px;line-height:1.6;padding:4px;color:var(--text-primary);';
 
                             // Format arguments — show Python code with syntax highlighting for execute_python_code
                             let argsHtml: string;
-                            if (toolCall.function.name === 'execute_python_code' && args.code) {
+                            if (
+                                toolCall.function.name ===
+                                    'execute_python_code' &&
+                                args.code
+                            ) {
                                 argsHtml = `<b>Arguments:</b><br><pre style="margin:4px 0 0 0;padding:8px;background:var(--background-hover);border-radius:4px;font-size:11px;line-height:1.5;overflow-x:auto;font-family:var(--font-families-mono);tab-size:4">${this.highlightPython(args.code)}</pre>`;
                             } else {
                                 argsHtml = `<b>Arguments:</b> ${this.escapeHtml(JSON.stringify(args, null, 2))}`;
@@ -704,25 +854,29 @@ if '_agent_original_stdout' in dir():
                                             name: 'preventOverflow',
                                             options: {
                                                 boundary: 'viewport',
-                                                padding: 12,
-                                            },
-                                        },
-                                    ],
+                                                padding: 12
+                                            }
+                                        }
+                                    ]
                                 },
                                 onMount(instance) {
-                                    const content = instance.popper.querySelector('.tippy-content') as HTMLElement | null;
+                                    const content =
+                                        instance.popper.querySelector(
+                                            '.tippy-content'
+                                        ) as HTMLElement | null;
                                     if (content) {
                                         content.style.maxHeight = '70vh';
                                         content.style.overflowY = 'auto';
                                     }
-                                },
+                                }
                             });
 
                             (bodyDiv as HTMLDivElement).appendChild(line);
                             this.scrollToBottomIfNear();
                         } else {
                             try {
-                                toolResult = await this.executeToolCall(toolCall);
+                                toolResult =
+                                    await this.executeToolCall(toolCall);
                             } catch (err: any) {
                                 toolResult = `Error: ${err.message}`;
                             }
@@ -732,7 +886,7 @@ if '_agent_original_stdout' in dir():
                             role: 'tool',
                             tool_call_id: toolCall.id,
                             name: toolCall.function.name,
-                            content: toolResult,
+                            content: toolResult
                         });
                     }
                     // Continue to next streaming round
@@ -740,11 +894,18 @@ if '_agent_original_stdout' in dir():
                     // No more tool calls — final text response
                     const finalText = roundTexts.join(' ') || result.text || '';
                     this.conversationMessages = conversationMessages;
-                    conversationMessages.push({ role: 'assistant', content: finalText });
-                    this.messages.push({ role: 'assistant', content: finalText });
+                    conversationMessages.push({
+                        role: 'assistant',
+                        content: finalText
+                    });
+                    this.messages.push({
+                        role: 'assistant',
+                        content: finalText
+                    });
                     this.hideStreamIndicator();
                     this.isStreaming = false;
-                    if (this.sendButton) (this.sendButton as HTMLButtonElement).disabled = false;
+                    if (this.sendButton)
+                        (this.sendButton as HTMLButtonElement).disabled = false;
                     if (this.promptInput) this.promptInput.focus();
                     return;
                 }
@@ -756,7 +917,10 @@ if '_agent_original_stdout' in dir():
                 // model can pick up from "Continue"
                 const partialText = roundTexts.filter(Boolean).join(' ').trim();
                 if (partialText) {
-                    conversationMessages.push({ role: 'assistant', content: partialText });
+                    conversationMessages.push({
+                        role: 'assistant',
+                        content: partialText
+                    });
                     this.conversationMessages = conversationMessages;
                 }
             } else {
@@ -767,7 +931,8 @@ if '_agent_original_stdout' in dir():
 
         this.hideStreamIndicator();
         this.isStreaming = false;
-        if (this.sendButton) (this.sendButton as HTMLButtonElement).disabled = false;
+        if (this.sendButton)
+            (this.sendButton as HTMLButtonElement).disabled = false;
         if (this.promptInput) this.promptInput.focus();
     }
 
@@ -797,9 +962,13 @@ if '_agent_original_stdout' in dir():
 
     scrollToBottomIfNear(threshold = 150) {
         if (!this.messagesContainer) return;
-        const dist = this.messagesContainer.scrollHeight - this.messagesContainer.scrollTop - this.messagesContainer.clientHeight;
+        const dist =
+            this.messagesContainer.scrollHeight -
+            this.messagesContainer.scrollTop -
+            this.messagesContainer.clientHeight;
         if (dist < threshold) {
-            this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+            this.messagesContainer.scrollTop =
+                this.messagesContainer.scrollHeight;
         }
     }
 
@@ -857,21 +1026,35 @@ if '_agent_original_stdout' in dir():
     formatUsageMetrics(usage: UsageMetrics | null | undefined): string {
         if (!usage) return '';
         const parts: string[] = [];
-        if (usage.prompt_tokens != null) parts.push(`in: ${usage.prompt_tokens}`);
-        if (usage.completion_tokens != null) parts.push(`out: ${usage.completion_tokens}`);
-        if (usage.cached_tokens != null) parts.push(`cached: ${usage.cached_tokens}`);
-        if (usage.total_cost != null) parts.push(`$${usage.total_cost.toFixed(6)}`);
-        else if (usage.cost_eur_cents != null) parts.push(`${usage.cost_eur_cents}c`);
+        if (usage.prompt_tokens != null)
+            parts.push(`in: ${usage.prompt_tokens}`);
+        if (usage.completion_tokens != null)
+            parts.push(`out: ${usage.completion_tokens}`);
+        if (usage.cached_tokens != null)
+            parts.push(`cached: ${usage.cached_tokens}`);
+        if (usage.total_cost != null)
+            parts.push(`$${usage.total_cost.toFixed(6)}`);
+        else if (usage.cost_eur_cents != null)
+            parts.push(`${usage.cost_eur_cents}c`);
         return parts.length > 0 ? parts.join(' · ') : '';
     }
 
     accumulateSessionTotals(usage: UsageMetrics | null | undefined): void {
         if (!usage) return;
-        this.sessionTotals.prompt_tokens = (this.sessionTotals.prompt_tokens || 0) + (usage.prompt_tokens || 0);
-        this.sessionTotals.completion_tokens = (this.sessionTotals.completion_tokens || 0) + (usage.completion_tokens || 0);
-        this.sessionTotals.cached_tokens = (this.sessionTotals.cached_tokens || 0) + (usage.cached_tokens || 0);
-        this.sessionTotals.total_cost = (this.sessionTotals.total_cost || 0) + (usage.total_cost || 0);
-        this.sessionTotals.cost_eur_cents = (this.sessionTotals.cost_eur_cents || 0) + (usage.cost_eur_cents || 0);
+        this.sessionTotals.prompt_tokens =
+            (this.sessionTotals.prompt_tokens || 0) +
+            (usage.prompt_tokens || 0);
+        this.sessionTotals.completion_tokens =
+            (this.sessionTotals.completion_tokens || 0) +
+            (usage.completion_tokens || 0);
+        this.sessionTotals.cached_tokens =
+            (this.sessionTotals.cached_tokens || 0) +
+            (usage.cached_tokens || 0);
+        this.sessionTotals.total_cost =
+            (this.sessionTotals.total_cost || 0) + (usage.total_cost || 0);
+        this.sessionTotals.cost_eur_cents =
+            (this.sessionTotals.cost_eur_cents || 0) +
+            (usage.cost_eur_cents || 0);
     }
 
     updateSessionMetricsBar(): void {
@@ -882,7 +1065,10 @@ if '_agent_original_stdout' in dir():
             return;
         }
         const s = this.sessionTotals;
-        const hasData = s.prompt_tokens != null || s.completion_tokens != null || s.total_cost != null;
+        const hasData =
+            s.prompt_tokens != null ||
+            s.completion_tokens != null ||
+            s.total_cost != null;
         if (!hasData || Object.keys(s).length === 0) {
             bar.style.display = 'none';
             return;
@@ -898,8 +1084,12 @@ if '_agent_original_stdout' in dir():
         this.roundUsage = [];
         this.sessionTotals = {};
         this.isStreaming = false;
-        if (this.promptInput) { this.promptInput.value = ''; this.promptInput.style.height = 'auto'; }
-        if (this.sendButton) (this.sendButton as HTMLButtonElement).disabled = false;
+        if (this.promptInput) {
+            this.promptInput.value = '';
+            this.promptInput.style.height = 'auto';
+        }
+        if (this.sendButton)
+            (this.sendButton as HTMLButtonElement).disabled = false;
         this.clearInitialStatus();
         this.hideStreamIndicator();
         this.updateSessionMetricsBar();
@@ -909,13 +1099,17 @@ if '_agent_original_stdout' in dir():
 
 function initAgent() {
     const checkReady = () => {
-        if (window.authManager) { window.aiAgent = new AIAgent(); }
-        else { setTimeout(checkReady, 100); }
+        if (window.authManager) {
+            window.aiAgent = new AIAgent();
+        } else {
+            setTimeout(checkReady, 100);
+        }
     };
     checkReady();
 }
 
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAgent);
+if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', initAgent);
 else initAgent();
 
 export default AIAgent;
