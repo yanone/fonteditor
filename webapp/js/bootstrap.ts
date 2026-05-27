@@ -13,6 +13,94 @@ const console = new Logger('Bootstrap');
 
 timelineMark('app.bootstrap.moduleLoaded');
 
+function summarizeStartupEvent(
+    eventName: string,
+    event: Event
+): Record<string, unknown> {
+    const detail = (event as CustomEvent<Record<string, unknown> | undefined>)
+        .detail;
+
+    if (!detail || typeof detail !== 'object') {
+        return {};
+    }
+
+    if (eventName === 'fontLoaded') {
+        return {
+            path: detail.path ?? null,
+            sourcePluginId:
+                (
+                    detail.sourcePlugin as { getId?: () => string } | undefined
+                )?.getId?.() ??
+                (detail.sourcePlugin as { id?: string } | undefined)?.id ??
+                null
+        };
+    }
+
+    if (eventName === 'fontOpenLifecycle') {
+        return {
+            openSessionId: detail.openSessionId ?? null,
+            phase: detail.phase ?? null,
+            reason: detail.reason ?? null,
+            path: detail.path ?? null,
+            sourcePluginId: detail.sourcePluginId ?? null,
+            canvasReady: detail.canvasReady ?? null,
+            startupFinalizeStarted: detail.startupFinalizeStarted ?? null,
+            scheduleFullCompile: detail.scheduleFullCompile ?? null
+        };
+    }
+
+    if (eventName === 'fontspectorUpdated') {
+        return {
+            status: detail.status ?? null,
+            changeVersion: detail.changeVersion ?? null,
+            error: detail.error ?? null,
+            profile: detail.profile ?? null,
+            checks: Array.isArray(detail.checks) ? detail.checks.length : null,
+            summary: detail.summary ?? null
+        };
+    }
+
+    if (
+        eventName === 'editingFontCompiled' ||
+        eventName === 'fullFontCompiled'
+    ) {
+        return {
+            changeVersion: detail.changeVersion ?? null,
+            duration: detail.duration ?? null,
+            error: detail.error ?? null,
+            qcSummary: detail.qcSummary ?? null
+        };
+    }
+
+    return { ...detail };
+}
+
+function registerStartupEventLogging(): void {
+    const startupEvents = [
+        'unsupportedBrowserContinue',
+        'pwaLaunchFilesPending',
+        'fontLoaded',
+        'fontOpenLifecycle',
+        'fontModelReady',
+        'canvasInitialReady',
+        'editingFontCompiled',
+        'fontReady',
+        'fullFontCompiled',
+        'fontspectorUpdated'
+    ];
+
+    for (const eventName of startupEvents) {
+        window.addEventListener(eventName, (event: Event) => {
+            globalThis.console.log(
+                `[StartupEvent] ${eventName}`,
+                summarizeStartupEvent(eventName, event)
+            );
+        });
+    }
+}
+
+registerStartupEventLogging();
+
 window.EDITOR_VERSION = process.env.EDITOR_VERSION || null;
 window.BUILD_HASH_FULL = process.env.BUILD_HASH_FULL || null;
 window.BUILD_HASH_SHORT = process.env.BUILD_HASH_SHORT || null;
@@ -310,10 +398,18 @@ const handleURLFontOpen = () => {
 
     // Try new file URI format first
     if (fileParam) {
-        // parseFileUri will be available after file-browser.ts loads
-        // For bootstrap, parse inline to avoid dependency
+        const legacyCloudPath =
+            fileParam.startsWith('cloud://') &&
+            !fileParam.startsWith('cloud:///')
+                ? fileParam.slice('cloud://'.length)
+                : null;
+
+        // parseFileUri will be available after file-browser.ts loads.
+        // For bootstrap, parse inline to avoid dependency.
         const match = fileParam.match(/^([^:]+):\/\/\/(.*)$/);
-        if (match) {
+        if (legacyCloudPath) {
+            fontPath = '/' + legacyCloudPath;
+        } else if (match) {
             fontPath = '/' + match[2];
         }
     } else if (legacyPath) {

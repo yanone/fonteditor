@@ -333,3 +333,208 @@ describe('CloudPlugin.openAsset', () => {
         expect(mockConnectDirect).toHaveBeenCalledTimes(2);
     });
 });
+
+describe('CloudPlugin sharing APIs', () => {
+    let plugin;
+    let originalAuthManager;
+    let originalFontManager;
+    let originalFetch;
+
+    beforeEach(() => {
+        originalAuthManager = window.authManager;
+        originalFontManager = window.fontManager;
+        originalFetch = global.fetch;
+
+        window.authManager = {
+            websiteURL: 'http://localhost:8788',
+            ensureCloudSession: jest.fn().mockResolvedValue({ id: 'user-1' }),
+            getSessionToken: jest.fn().mockReturnValue('token')
+        };
+        window.fontManager = {
+            currentFont: {
+                path: 'cloud://asset-1',
+                sourcePlugin: {
+                    getId: jest.fn(() => 'cloud')
+                }
+            }
+        };
+        global.fetch = jest.fn();
+        plugin = new CloudPlugin();
+    });
+
+    afterEach(() => {
+        window.authManager = originalAuthManager;
+        window.fontManager = originalFontManager;
+        global.fetch = originalFetch;
+    });
+
+    test('resolves the current cloud asset id from the open font path', () => {
+        expect(plugin.getCurrentAssetIdForSharing()).toBe('asset-1');
+    });
+
+    test('loads share state for the current cloud asset', async () => {
+        global.fetch.mockResolvedValue({
+            ok: true,
+            json: jest.fn().mockResolvedValue({
+                asset: {
+                    id: 'asset-1',
+                    name: 'Shared Font',
+                    role: 'owner',
+                    ownerUserId: 'user-1',
+                    createdAt: 1,
+                    updatedAt: 2,
+                    accessEpoch: 0
+                },
+                permissions: { canManage: true },
+                members: [],
+                invitations: []
+            })
+        });
+
+        const shareState = await plugin.getShareState();
+
+        expect(shareState.asset.id).toBe('asset-1');
+        expect(global.fetch).toHaveBeenCalledWith(
+            'http://localhost:8788/api/cloud/assets/asset-1/members',
+            expect.objectContaining({
+                credentials: 'include',
+                headers: expect.objectContaining({
+                    Authorization: 'Bearer token'
+                })
+            })
+        );
+    });
+
+    test('creates invitations for the current cloud asset', async () => {
+        global.fetch.mockResolvedValue({
+            ok: true,
+            json: jest.fn().mockResolvedValue({
+                invitation: {
+                    id: 'invite-1',
+                    email: 'viewer@example.com',
+                    role: 'viewer',
+                    targetUserId: 'user-2',
+                    targetUserEmail: 'viewer@example.com',
+                    createdAt: 1,
+                    expiresAt: 2,
+                    lastSentAt: 1,
+                    resendCount: 0
+                },
+                inviteUrl: 'http://localhost:8788/invite?token=secret'
+            })
+        });
+
+        const result = await plugin.inviteUser('viewer@example.com', 'viewer');
+
+        expect(result.invitation.id).toBe('invite-1');
+        expect(result.inviteUrl).toBe(
+            'http://localhost:8788/invite?token=secret'
+        );
+        expect(global.fetch).toHaveBeenCalledWith(
+            'http://localhost:8788/api/cloud/assets/asset-1/invitations',
+            expect.objectContaining({
+                method: 'POST',
+                body: JSON.stringify({
+                    email: 'viewer@example.com',
+                    role: 'viewer'
+                })
+            })
+        );
+    });
+
+    test('updates member role and removes members for the current cloud asset', async () => {
+        global.fetch
+            .mockResolvedValueOnce({
+                ok: true,
+                json: jest.fn().mockResolvedValue({ success: true })
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: jest.fn().mockResolvedValue({ success: true })
+            });
+
+        await plugin.updateMemberRole('user-2', 'editor');
+        await plugin.removeMember('user-2');
+
+        expect(global.fetch).toHaveBeenNthCalledWith(
+            1,
+            'http://localhost:8788/api/cloud/assets/asset-1/members/user-2',
+            expect.objectContaining({
+                method: 'PATCH',
+                body: JSON.stringify({ role: 'editor' })
+            })
+        );
+        expect(global.fetch).toHaveBeenNthCalledWith(
+            2,
+            'http://localhost:8788/api/cloud/assets/asset-1/members/user-2',
+            expect.objectContaining({ method: 'DELETE' })
+        );
+    });
+});
+
+describe('CloudPlugin eligibility gating', () => {
+    let plugin;
+    let originalAuthManager;
+    let originalFetch;
+    let originalRefreshFileSystem;
+
+    beforeEach(() => {
+        originalAuthManager = window.authManager;
+        originalFetch = global.fetch;
+        originalRefreshFileSystem = window.refreshFileSystem;
+
+        document.body.innerHTML = `
+            <div id="cloud-panel"></div>
+            <div id="cloud-panel-title"></div>
+            <div id="cloud-panel-message"></div>
+            <button id="cloud-panel-login-btn"></button>
+        `;
+
+        window.authManager = {
+            websiteURL: 'http://localhost:8788',
+            ensureCloudSession: jest.fn().mockResolvedValue({ id: 'user-1' }),
+            checkAuthStatus: jest.fn().mockResolvedValue({ id: 'user-1' }),
+            getSessionToken: jest.fn().mockReturnValue('token')
+        };
+        window.refreshFileSystem = jest.fn();
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: jest.fn().mockResolvedValue({
+                cloudHostingEnabled: false,
+                maxFontsOwned: null,
+                snapshotRetentionDays: null,
+                fontsOwnedCount: 0
+            })
+        });
+
+        plugin = new CloudPlugin();
+    });
+
+    afterEach(() => {
+        window.authManager = originalAuthManager;
+        window.refreshFileSystem = originalRefreshFileSystem;
+        global.fetch = originalFetch;
+        document.body.innerHTML = '';
+    });
+
+    test('activates for authenticated invited users even without hosting eligibility', async () => {
+        await expect(plugin.onActivate()).resolves.toBe(true);
+    });
+
+    test('does not show the hosting-disabled panel to authenticated users without hosting eligibility', async () => {
+        await plugin.updateUI({
+            showOpenFolderUI: jest.fn(),
+            hideOpenFolderUI: jest.fn(),
+            showPermissionBanner: jest.fn(),
+            showUnsupportedBrowserUI: jest.fn(),
+            hideUnsupportedBrowserUI: jest.fn(),
+            showPluginMessage: jest.fn(),
+            hidePluginMessage: jest.fn()
+        });
+
+        expect(
+            document.getElementById('cloud-panel').classList.contains('visible')
+        ).toBe(false);
+        expect(window.refreshFileSystem).toHaveBeenCalled();
+    });
+});

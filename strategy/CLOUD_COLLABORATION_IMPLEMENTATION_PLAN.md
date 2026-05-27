@@ -111,18 +111,18 @@ only on website-side ACL checks.
 
 ### Tasks
 
-- [ ] Define a final role matrix for room operations.
-- [ ] Persist the verified role in the WebSocket attachment.
-- [ ] Allow room open and sync-request for owner/editor/viewer.
-- [ ] Allow live update only for owner and editor.
-- [ ] Allow mutating sync-complete only for owner and editor.
-- [ ] Reject viewer update attempts with a clear room error and close reason.
-- [ ] Stop trusting any client-sent role or client identity fields.
-- [ ] Ensure viewers still receive room broadcasts and sync state.
-- [ ] Add tests that viewers can connect and sync.
-- [ ] Add tests that viewers cannot write.
-- [ ] Add tests that editors can write.
-- [ ] Add tests that owners can write.
+- [x] Define a final role matrix for room operations.
+- [x] Persist the verified role in the WebSocket attachment.
+- [x] Allow room open and sync-request for owner/editor/viewer.
+- [x] Allow live update only for owner and editor.
+- [x] Allow mutating sync-complete only for owner and editor.
+- [x] Reject viewer update attempts with a clear room error and close reason.
+- [x] Stop trusting any client-sent role or client identity fields.
+- [x] Ensure viewers still receive room broadcasts and sync state.
+- [x] Add tests that viewers can connect and sync.
+- [x] Add tests that viewers cannot write.
+- [x] Add tests that editors can write.
+- [x] Add tests that owners can write.
 
 ## Phase 4: Secure Sharing For Collaborators And Viewers
 
@@ -131,58 +131,58 @@ membership management and revocation.
 
 ### Data Model Tasks
 
-- [ ] Review `font_asset_members` and `font_asset_invitations` for current
+- [x] Review `font_asset_members` and `font_asset_invitations` for current
       suitability.
-- [ ] Add normalized email storage for invitations.
-- [ ] Add token hash storage for invitations instead of storing raw tokens.
-- [ ] Add invitation status fields for revoked, accepted, and expired state.
-- [ ] Add inviter metadata and resend metadata as needed.
-- [ ] Add `access_epoch` or equivalent revision field to `font_assets`.
+- [x] Add normalized email storage for invitations.
+- [x] Add token hash storage for invitations instead of storing raw tokens.
+- [x] Add invitation status fields for revoked, accepted, and expired state.
+- [x] Add inviter metadata and resend metadata as needed.
+- [x] Add `access_epoch` or equivalent revision field to `font_assets`.
 
 ### API Tasks
 
-- [ ] Add endpoint to list current asset members.
-- [ ] Add endpoint to create editor/viewer invitations.
-- [ ] Add endpoint to revoke pending invitations.
-- [ ] Add endpoint to accept an invitation.
-- [ ] Add endpoint to decline an invitation.
-- [ ] Add endpoint to change an existing member's role between editor and
+- [x] Add endpoint to list current asset members.
+- [x] Add endpoint to create editor/viewer invitations.
+- [x] Add endpoint to revoke pending invitations.
+- [x] Add endpoint to accept an invitation.
+- [x] Add endpoint to decline an invitation.
+- [x] Add endpoint to change an existing member's role between editor and
       viewer.
-- [ ] Add endpoint to remove an existing member.
+- [x] Add endpoint to remove an existing member.
 
 ### Behavior Tasks
 
-- [ ] Restrict invitation creation to owners.
-- [ ] Require target role to be editor or viewer.
-- [ ] Require invitation acceptance by an authenticated user.
-- [ ] Require the accepting user's verified email to match the invited email.
-- [ ] Create or update the member row on acceptance.
-- [ ] Create the receiving user's `cloud_folder_entries` row on acceptance.
-- [ ] Increment the asset access epoch when invitations are accepted or members
+- [x] Restrict invitation creation to owners.
+- [x] Require target role to be editor or viewer.
+- [x] Require invitation acceptance by an authenticated user.
+- [x] Require the accepting user's verified email to match the invited email.
+- [x] Create or update the member row on acceptance.
+- [x] Create the receiving user's `cloud_folder_entries` row on acceptance.
+- [x] Increment the asset access epoch when invitations are accepted or members
       are changed.
-- [ ] Add audit events for invite create, revoke, accept, decline, role change,
+- [x] Add audit events for invite create, revoke, accept, decline, role change,
       and remove.
 
 ### UI Tasks
 
-- [ ] Add an owner-only member list in the cloud asset UI.
-- [ ] Add owner controls to invite editor or viewer by email.
-- [ ] Add owner controls to revoke pending invitations.
-- [ ] Add owner controls to change member role.
-- [ ] Add owner controls to remove a member.
-- [ ] Add read-only role display for non-owners.
-- [ ] Add invitation acceptance flow in the website.
-- [ ] Add invitation email template.
+- [x] Add an owner-only member list in the cloud asset UI.
+- [x] Add owner controls to invite editor or viewer by email.
+- [x] Add owner controls to revoke pending invitations.
+- [x] Add owner controls to change member role.
+- [x] Add owner controls to remove a member.
+- [x] Add read-only role display for non-owners.
+- [x] Add invitation acceptance flow in the website.
+- [x] Add invitation email template.
 
 ### Test Tasks
 
-- [ ] Add API tests for invitation creation.
-- [ ] Add API tests for invitation revocation.
-- [ ] Add API tests for invitation acceptance.
-- [ ] Add API tests for role change.
-- [ ] Add API tests for member removal.
-- [ ] Add end-to-end test for editor invitation and write access.
-- [ ] Add end-to-end test for viewer invitation and read-only access.
+- [x] Add API tests for invitation creation.
+- [x] Add API tests for invitation revocation.
+- [x] Add API tests for invitation acceptance.
+- [x] Add API tests for role change.
+- [x] Add API tests for member removal.
+- [x] Add end-to-end test for editor invitation and write access.
+- [x] Add end-to-end test for viewer invitation and read-only access.
 
 ## Phase 5: Ownership Transfer
 

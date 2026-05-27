@@ -1374,7 +1374,12 @@
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         const cmdKey = isMac ? event.metaKey : event.ctrlKey;
         const shiftKey = event.shiftKey;
-        const key = event.key.toLowerCase();
+        const key =
+            typeof event.key === 'string' ? event.key.toLowerCase() : '';
+
+        if (!key) {
+            return;
+        }
 
         // Debug: Log Cmd+Alt combinations
         if (cmdKey && event.altKey) {

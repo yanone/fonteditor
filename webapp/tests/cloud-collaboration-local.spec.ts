@@ -600,6 +600,66 @@ async function waitForAuthenticatedCloudSession(page: Page): Promise<void> {
     await waitForBridgeReady(page);
 }
 
+async function waitForCloudFontModelReady(page: Page): Promise<void> {
+    await page.waitForFunction(
+        () => {
+            const font = (window as any).currentFontModel;
+            return (
+                !!font &&
+                Array.isArray(font.glyphs) &&
+                font.glyphs.length > 0 &&
+                !!(window as any).fontManager?.currentFont
+            );
+        },
+        { timeout: 30000 }
+    );
+}
+
+async function createInvitationFromShareDialog(
+    page: Page,
+    email: string,
+    role: 'editor' | 'viewer'
+): Promise<string> {
+    await page.locator('#share-btn').click();
+    await page
+        .locator('.plugin-menu-item', { hasText: 'Invite People' })
+        .click();
+    await expect(page.locator('.share-dialog')).toBeVisible();
+
+    await page
+        .locator('.share-dialog-invite-form input[name="email"]')
+        .fill(email);
+    await page
+        .locator('.share-dialog-invite-form select[name="role"]')
+        .selectOption(role);
+    await page.getByRole('button', { name: 'Send invite' }).click();
+
+    const linkInput = page.locator('.share-dialog-link-input');
+    await expect(linkInput).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.share-dialog-banner-success')).toContainText(
+        `Invitation sent to ${email}.`
+    );
+    return await linkInput.inputValue();
+}
+
+async function acceptInvitationAndOpenEditor(
+    page: Page,
+    inviteUrl: string
+): Promise<void> {
+    await page.goto(inviteUrl);
+    await page.getByRole('button', { name: 'Accept invitation' }).click();
+    await expect(
+        page.getByRole('link', { name: 'Open in editor' })
+    ).toBeVisible({
+        timeout: 15000
+    });
+    await page.getByRole('link', { name: 'Open in editor' }).click();
+    await waitForCanvasReady(page);
+    await waitForCloudFontModelReady(page);
+    await waitForCloudConnected(page);
+    await waitForAuthenticatedCloudSession(page);
+}
+
 async function getEditingFontCompileTracker(page: Page): Promise<{
     count: number;
     revision: number;
@@ -1759,6 +1819,131 @@ test.describe('Local cloud collaboration', () => {
             .toEqual({ totalCheckpoints: 1, dirtyJournalRows: 0 });
 
         await sourceContext.close();
+    });
+
+    test('accepts an editor invite and allows live edits from the invited account', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const ownerEmail = `owner-${Date.now()}@counterpunch.test`;
+        const editorEmail = `editor-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const editorContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+        const editorPage = await editorContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+        await loadCloudTestFont(ownerPage);
+        await waitForCloudFontModelReady(ownerPage);
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Invite Editor ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+        await focusEditorGlyph(ownerPage, 'A');
+
+        await editorPage.goto('/?test=true');
+        await waitForCanvasReady(editorPage);
+        await bootstrapCloudSession(editorPage, editorEmail);
+
+        const inviteUrl = await createInvitationFromShareDialog(
+            ownerPage,
+            editorEmail,
+            'editor'
+        );
+
+        await acceptInvitationAndOpenEditor(editorPage, inviteUrl);
+        await focusEditorGlyph(editorPage, 'A');
+
+        const beforeOwner = await getPrimaryNodePosition(ownerPage);
+        const beforeEditor = await getPrimaryNodePosition(editorPage);
+        expect(beforeEditor).toEqual(beforeOwner);
+
+        const mutation = await movePrimaryNode(editorPage, 13, 6);
+        await waitForPrimaryNodePosition(ownerPage, mutation.after);
+
+        const afterOwner = await getPrimaryNodePosition(ownerPage);
+        expect(afterOwner).toEqual(mutation.after);
+
+        await ownerContext.close();
+        await editorContext.close();
+    });
+
+    test('accepts a viewer invite and keeps the invited account read-only', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const ownerEmail = `owner-viewer-${Date.now()}@counterpunch.test`;
+        const viewerEmail = `viewer-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const viewerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+        const viewerPage = await viewerContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+        await loadCloudTestFont(ownerPage);
+        await waitForCloudFontModelReady(ownerPage);
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Invite Viewer ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+        await focusEditorGlyph(ownerPage, 'A');
+
+        await viewerPage.goto('/?test=true');
+        await waitForCanvasReady(viewerPage);
+        await bootstrapCloudSession(viewerPage, viewerEmail);
+
+        const inviteUrl = await createInvitationFromShareDialog(
+            ownerPage,
+            viewerEmail,
+            'viewer'
+        );
+
+        await acceptInvitationAndOpenEditor(viewerPage, inviteUrl);
+        await focusEditorGlyph(viewerPage, 'A');
+
+        const ownerBefore = await getPrimaryNodePosition(ownerPage);
+        const roomStatusBefore = await fetchRoomStatus(ownerPage, assetId);
+
+        await movePrimaryNode(viewerPage, 9, 4).catch(() => undefined);
+
+        await expect
+            .poll(async () => await getPrimaryNodePosition(ownerPage), {
+                timeout: 5000
+            })
+            .toEqual(ownerBefore);
+
+        const roomStatusAfter = await fetchRoomStatus(ownerPage, assetId);
+        expect(roomStatusAfter.roomVersion).toBe(roomStatusBefore.roomVersion);
+        expect(roomStatusAfter.totalUpdatesApplied).toBe(
+            roomStatusBefore.totalUpdatesApplied
+        );
+
+        await ownerContext.close();
+        await viewerContext.close();
     });
 
     test('supports linked-window sync and cloud sync simultaneously', async ({

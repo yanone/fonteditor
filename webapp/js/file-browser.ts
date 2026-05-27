@@ -883,6 +883,13 @@ function syncEditorFileStateFromCurrentFont(): void {
  * Format: pluginId:///path/to/file
  */
 function parseFileUri(uri: string): { pluginId: string; path: string } | null {
+    if (uri.startsWith('cloud://') && !uri.startsWith('cloud:///')) {
+        return {
+            pluginId: 'cloud',
+            path: '/' + uri.slice('cloud://'.length)
+        };
+    }
+
     const match = uri.match(/^([^:]+):\/\/\/(.*)$/);
     if (!match) return null;
     return {

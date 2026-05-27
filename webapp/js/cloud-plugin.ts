@@ -517,6 +517,40 @@ export interface CloudEligibility {
     fontsOwnedCount: number;
 }
 
+export interface CloudAssetMember {
+    userId: string;
+    email: string;
+    role: string;
+    invitedByUserId: string | null;
+    invitedByEmail: string | null;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface CloudAssetInvitation {
+    id: string;
+    email: string;
+    role: string;
+    targetUserId: string | null;
+    targetUserEmail: string | null;
+    createdAt: number;
+    expiresAt: number | null;
+    lastSentAt: number | null;
+    resendCount: number;
+}
+
+export interface CloudShareState {
+    asset: CloudAsset & {
+        ownerEmail?: string | null;
+        accessEpoch?: number;
+    };
+    permissions: {
+        canManage: boolean;
+    };
+    members: CloudAssetMember[];
+    invitations: CloudAssetInvitation[];
+}
+
 export class CloudPlugin extends FilesystemPlugin {
     private _cloudAdapter: CloudAdapter | null = null;
     private _activeAssetId: string | null = null;
@@ -779,8 +813,8 @@ export class CloudPlugin extends FilesystemPlugin {
             if (!user) return false;
 
             this._eligibility = null; // bust cache on every activation
-            const eligibility = await this.checkEligibility();
-            return eligibility?.cloudHostingEnabled === true;
+            void this.checkEligibility();
+            return true;
         } catch (error) {
             const message = this._describeAvailabilityError(error);
             this._availabilityErrorMessage = message;
@@ -848,18 +882,8 @@ export class CloudPlugin extends FilesystemPlugin {
             return;
         }
 
-        const eligibility = await this.checkEligibility();
-        if (!eligibility?.cloudHostingEnabled) {
-            if (titleEl) titleEl.textContent = 'Cloud Storage';
-            if (msgEl)
-                msgEl.textContent =
-                    'Cloud hosting is not enabled for your account.';
-            if (loginBtn) loginBtn.style.display = 'none';
-            if (cloudPanel) cloudPanel.classList.add('visible');
-            return;
-        }
-
-        // Authenticated + eligible — hide cloud panel, file list will render.
+        // Authenticated users may access shared assets even if they cannot host
+        // their own cloud fonts. Creation remains separately server-enforced.
         if (cloudPanel) cloudPanel.classList.remove('visible');
 
         // Refresh the asset list so it reflects the latest server state.
@@ -949,6 +973,196 @@ export class CloudPlugin extends FilesystemPlugin {
         }
         const data = (await resp.json()) as { assets: CloudAsset[] };
         return data.assets;
+    }
+
+    getCurrentAssetIdForSharing(): string | null {
+        const currentFont = (window as any).fontManager?.currentFont;
+        const currentPlugin = currentFont?.sourcePlugin;
+        const currentPluginId = currentPlugin?.getId?.();
+        if (currentPlugin !== this && currentPluginId !== this.getId()) {
+            return null;
+        }
+
+        const rawPath = String(currentFont?.path || '').trim();
+        if (!rawPath) {
+            return this.activeAssetId;
+        }
+
+        if (rawPath.startsWith('cloud://')) {
+            return rawPath.slice('cloud://'.length).replace(/^\/+/, '') || null;
+        }
+
+        return rawPath.replace(/^\/+/, '') || this.activeAssetId;
+    }
+
+    private _resolveShareAssetId(assetId?: string): string {
+        const resolvedAssetId = assetId || this.getCurrentAssetIdForSharing();
+        if (!resolvedAssetId) {
+            throw new Error('No cloud asset is currently open');
+        }
+        return resolvedAssetId;
+    }
+
+    async getShareState(assetId?: string): Promise<CloudShareState> {
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
+        if (!user) {
+            throw new Error('Authentication required');
+        }
+
+        const resolvedAssetId = this._resolveShareAssetId(assetId);
+        const resp = await fetch(
+            `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(resolvedAssetId)}/members`,
+            {
+                credentials: 'include',
+                headers: getCloudRequestHeaders()
+            }
+        );
+
+        if (!resp.ok) {
+            const body = await resp.text().catch(() => '');
+            throw new Error(
+                `Failed to load sharing settings: ${resp.status} ${body}`
+            );
+        }
+
+        return (await resp.json()) as CloudShareState;
+    }
+
+    async inviteUser(
+        email: string,
+        role: 'editor' | 'viewer',
+        assetId?: string
+    ): Promise<{
+        invitation: CloudAssetInvitation;
+        inviteUrl?: string;
+    }> {
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
+        if (!user) {
+            throw new Error('Authentication required');
+        }
+
+        const resolvedAssetId = this._resolveShareAssetId(assetId);
+        const resp = await fetch(
+            `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(resolvedAssetId)}/invitations`,
+            {
+                method: 'POST',
+                credentials: 'include',
+                headers: getCloudRequestHeaders({
+                    'Content-Type': 'application/json'
+                }),
+                body: JSON.stringify({ email, role })
+            }
+        );
+
+        const data = (await resp.json().catch(() => ({}))) as {
+            error?: string;
+            invitation?: CloudAssetInvitation;
+            inviteUrl?: string;
+        };
+        if (!resp.ok) {
+            throw new Error(data.error || 'Failed to create invitation');
+        }
+
+        if (!data.invitation) {
+            throw new Error('Invitation response missing invitation data');
+        }
+
+        return {
+            invitation: data.invitation,
+            ...(data.inviteUrl ? { inviteUrl: data.inviteUrl } : {})
+        };
+    }
+
+    async revokeInvitation(
+        invitationId: string,
+        assetId?: string
+    ): Promise<void> {
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
+        if (!user) {
+            throw new Error('Authentication required');
+        }
+
+        const resolvedAssetId = this._resolveShareAssetId(assetId);
+        const resp = await fetch(
+            `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(resolvedAssetId)}/invitations/${encodeURIComponent(invitationId)}`,
+            {
+                method: 'POST',
+                credentials: 'include',
+                headers: getCloudRequestHeaders()
+            }
+        );
+
+        const data = (await resp.json().catch(() => ({}))) as {
+            error?: string;
+        };
+        if (!resp.ok) {
+            throw new Error(data.error || 'Failed to revoke invitation');
+        }
+    }
+
+    async updateMemberRole(
+        userId: string,
+        role: 'editor' | 'viewer',
+        assetId?: string
+    ): Promise<void> {
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
+        if (!user) {
+            throw new Error('Authentication required');
+        }
+
+        const resolvedAssetId = this._resolveShareAssetId(assetId);
+        const resp = await fetch(
+            `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(resolvedAssetId)}/members/${encodeURIComponent(userId)}`,
+            {
+                method: 'PATCH',
+                credentials: 'include',
+                headers: getCloudRequestHeaders({
+                    'Content-Type': 'application/json'
+                }),
+                body: JSON.stringify({ role })
+            }
+        );
+
+        const data = (await resp.json().catch(() => ({}))) as {
+            error?: string;
+        };
+        if (!resp.ok) {
+            throw new Error(data.error || 'Failed to update member role');
+        }
+    }
+
+    async removeMember(userId: string, assetId?: string): Promise<void> {
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
+        if (!user) {
+            throw new Error('Authentication required');
+        }
+
+        const resolvedAssetId = this._resolveShareAssetId(assetId);
+        const resp = await fetch(
+            `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(resolvedAssetId)}/members/${encodeURIComponent(userId)}`,
+            {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: getCloudRequestHeaders()
+            }
+        );
+
+        const data = (await resp.json().catch(() => ({}))) as {
+            error?: string;
+        };
+        if (!resp.ok) {
+            throw new Error(data.error || 'Failed to remove member');
+        }
     }
 
     // ── Opening a cloud font ─────────────────────────────────────
