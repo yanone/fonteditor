@@ -93,16 +93,16 @@ state and raw log data.
 
 ### Tasks
 
-- [ ] Audit all room-worker HTTP endpoints for production exposure.
-- [ ] Require admin or service authentication for room status endpoints.
-- [ ] Require stronger admin or service authentication for room log endpoints.
-- [ ] Remove raw update payloads from normal status responses.
-- [ ] Remove room-content previews from default debug responses.
-- [ ] Add an explicit production flag for debug availability.
-- [ ] Restrict room-worker CORS to the actual editor origins.
-- [ ] Validate WebSocket `Origin` against allowed editor origins.
-- [ ] Add tests for authenticated access to room status.
-- [ ] Add tests for denied unauthenticated access to room log endpoints.
+- [x] Audit all room-worker HTTP endpoints for production exposure.
+- [x] Require admin or service authentication for room status endpoints.
+- [x] Require stronger admin or service authentication for room log endpoints.
+- [x] Remove raw update payloads from normal status responses.
+- [x] Remove room-content previews from default debug responses.
+- [x] Add an explicit production flag for debug availability.
+- [x] Restrict room-worker CORS to the actual editor origins.
+- [x] Validate WebSocket `Origin` against allowed editor origins.
+- [x] Add tests for authenticated access to room status.
+- [x] Add tests for denied unauthenticated access to room log endpoints.
 
 ## Phase 3: Enforce Owner / Editor / Viewer In The Room Runtime
 
