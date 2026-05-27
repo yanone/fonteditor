@@ -7,8 +7,11 @@ const webpack = require('webpack');
 const { execSync } = require('child_process');
 
 // Get version from environment variable, package.json, or default to development
+const packageJson = JSON.parse(
+    fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')
+);
 const EDITOR_VERSION =
-    process.env.EDITOR_VERSION || require('./package.json').version + '-dev';
+    process.env.EDITOR_VERSION || packageJson.version + '-dev';
 
 // Read dev server port from worktree-config.json (always present, set by
 // worktree/create or defaults to 8000 in the main checkout).

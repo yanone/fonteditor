@@ -137,7 +137,9 @@ describe('FontInfo feature code compilation scheduling', () => {
             },
             isReady: jest.fn(() => true),
             currentText: 'office',
-            compileEditingFont
+            compileEditingFont,
+            setEditingCompileContext: jest.fn(),
+            clearEditingCompileContext: jest.fn()
         };
         window.glyphCanvas = {
             textRunEditor: {

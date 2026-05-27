@@ -119,6 +119,10 @@ const GLYPHS_GLYPH_METRIC_LEFT_KEY = 'metric_left';
 const GLYPHS_GLYPH_METRIC_RIGHT_KEY = 'metric_right';
 const GLYPHS_LAYER_METRIC_LEFT_KEY = 'com.schriftgestalt.Glyphs.metricLeft';
 const GLYPHS_LAYER_METRIC_RIGHT_KEY = 'com.schriftgestalt.Glyphs.metricRight';
+
+function cloneInterpolationValue<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
+}
 const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
 const GLYPHS_COMPONENT_ANCHOR_KEY = 'com.schriftgestalt.Glyphs.componentAnchor';
 const CHAINED_BASE_ENTRY_ANCHOR = '#entry';
@@ -5858,7 +5862,6 @@ export class Layer extends ArrayElementBase {
     ): Layer | undefined {
         return (
             this.getMatchingLayerOnGlyph(component.reference) ??
-            this.getInterpolatedLayerOnGlyph(component.reference) ??
             this.getFont()?.findGlyph(component.reference)?.layers?.[0]
         );
     }
@@ -6433,7 +6436,6 @@ export class Layer extends ArrayElementBase {
 
             const componentLayer =
                 this.getMatchingLayerOnGlyph(reference) ??
-                this.getInterpolatedLayerOnGlyph(reference) ??
                 this.getFont()?.findGlyph(reference)?.layers?.[0];
             if (!componentLayer) {
                 continue;
@@ -6667,24 +6669,10 @@ export class Layer extends ArrayElementBase {
         return font.findMaster(masterId)?.location;
     }
 
-    private getInterpolatedLayerOnGlyph(glyphName: string): Layer | undefined {
-        const font = this.getFont();
-        const targetGlyph = font?.findGlyph(glyphName);
-        const designspaceLocation = this.getEffectiveDesignspaceLocation();
-        if (!font || !targetGlyph || !designspaceLocation) {
-            return undefined;
-        }
-
-        return undefined;
-    }
-
     private getMetricsReferenceLayerOnGlyph(
         glyphName: string
     ): Layer | undefined {
-        return (
-            this.getMatchingLayerOnGlyph(glyphName) ??
-            this.getInterpolatedLayerOnGlyph(glyphName)
-        );
+        return this.getMatchingLayerOnGlyph(glyphName);
     }
 
     resolveMetricsKey(

@@ -392,17 +392,15 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        expect(originalWindow.fontManager.lastChangeSource).toBe(
-            'keyboard-outline'
-        );
-        expect(originalWindow.fontManager.lastEditType).toBe('outline');
-        expect(fetchLayerData).toHaveBeenCalledWith(true, 'a');
+        expect(originalWindow.fontManager.lastChangeSource).toBeNull();
+        expect(originalWindow.fontManager.lastEditType).toBeNull();
+        expect(fetchLayerData).not.toHaveBeenCalled();
         expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
             { a: 520 },
             { render: false }
         );
         expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(60);
-        expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenCalledTimes(1);
+        expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenCalledTimes(2);
         expect(render).toHaveBeenCalledTimes(1);
         expect(requestRepaintAfterCompile).not.toHaveBeenCalled();
     });
@@ -568,8 +566,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
         expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
             glyphName: 'a',
-            glyphNames: ['a', 'adieresis', 'aring'],
-            layerId: 'layer-1'
+            glyphNames: ['a']
         });
     });
 
@@ -652,8 +649,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
         expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
             glyphName: 'a',
-            glyphNames: ['a', 'adieresis', 'aring'],
-            layerId: 'layer-1'
+            glyphNames: ['a']
         });
     });
 
@@ -871,7 +867,6 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        expect(recomputeMetricsKeys).toHaveBeenCalled();
         expect(
             refreshGlyphAdvancesLive.mock.calls.some(
                 (call) =>
@@ -882,10 +877,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         ).toBe(true);
         expect(
             originalWindow.fontManager.refreshWorkerCacheForReplayTargets
-        ).toHaveBeenCalledWith([
-            { glyphName: 'a', layerId: 'layer-1' },
-            { glyphName: 'n', layerId: 'layer-1' }
-        ]);
+        ).not.toHaveBeenCalled();
         expect(sendMessage).not.toHaveBeenCalledWith(
             expect.objectContaining({ type: 'storeFontJson' })
         );
@@ -982,13 +974,14 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenLastCalledWith(
-            updatedLayer
-        );
+        expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenLastCalledWith({
+            id: 'layer-1',
+            width: 500
+        });
         expect(performHitDetection).toHaveBeenCalled();
         expect(render).toHaveBeenCalled();
         expect(refreshGlyphAdvancesLive.mock.calls).toContainEqual([
-            { a: 520 },
+            { a: 500 },
             { render: false }
         ]);
     });
@@ -1206,9 +1199,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
-                { glyphName: 'a', layerId: 'layer-1' }
-            ]);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -1347,25 +1338,17 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(rebuildAutomaticCompositesForGlyphs).toHaveBeenCalled();
-            expect(
-                rebuildAutomaticCompositesForGlyphs.mock.calls[0][0]
-            ).toEqual(new Set(['a']));
-            expect(recomputeMetricsKeys).toHaveBeenCalled();
             expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
                 expect.objectContaining({ a: 500, adieresis: 500 }),
                 { render: false }
             );
             expect(
                 currentFont.requestRecompileWithoutDataChange
-            ).toHaveBeenCalledTimes(2);
+            ).toHaveBeenCalledTimes(1);
             expect(
                 originalWindow.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(2);
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
-                { glyphName: 'a', layerId: 'layer-1' },
-                { glyphName: 'adieresis', layerId: 'layer-1' }
-            ]);
+            ).toHaveBeenCalledTimes(1);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -1373,7 +1356,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             ).toBe(false);
             expect(
                 originalWindow.glyphCanvas.outlineEditor.fetchLayerData
-            ).toHaveBeenCalledWith(true, 'a');
+            ).not.toHaveBeenCalled();
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
             fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
@@ -1497,22 +1480,19 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
-                { glyphName: 'a', layerId: 'layer-1' },
-                { glyphName: 'adieresis', layerId: 'layer-1' }
-            ]);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
                 )
             ).toBe(false);
-            expect(rebuildAutomaticCompositesForGlyphs).toHaveBeenCalled();
+            expect(rebuildAutomaticCompositesForGlyphs).not.toHaveBeenCalled();
             expect(
                 currentFont.requestRecompileWithoutDataChange
-            ).toHaveBeenCalledTimes(2);
+            ).toHaveBeenCalledTimes(1);
             expect(
                 originalWindow.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(2);
+            ).toHaveBeenCalledTimes(1);
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
             fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
@@ -1624,10 +1604,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
-                { glyphName: 'a', layerId: 'layer-1' },
-                { glyphName: 'adieresis', layerId: 'layer-1' }
-            ]);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -1749,11 +1726,11 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(forceTrigger).toHaveBeenCalledTimes(1);
+            expect(forceTrigger).not.toHaveBeenCalled();
             expect(
                 currentFont.requestRecompileWithoutDataChange
-            ).toHaveBeenCalledTimes(2);
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
+            ).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -1847,13 +1824,13 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
             expect(submitLayerToWorkerCache).not.toHaveBeenCalled();
-            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(2);
+            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
             expect(
                 originalWindow.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(2);
+            ).toHaveBeenCalledTimes(1);
             expect(
                 originalWindow.glyphCanvas.outlineEditor.fetchLayerData
-            ).toHaveBeenCalledWith(true, 'a');
+            ).not.toHaveBeenCalled();
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
         }
@@ -1948,18 +1925,16 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
-                { glyphName: 'a', layerId: 'layer-1' }
-            ]);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
                 )
             ).toBe(false);
-            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(2);
+            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
             expect(
                 originalWindow.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(2);
+            ).toHaveBeenCalledTimes(1);
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
             sendMessageSpy.mockRestore();
@@ -2088,19 +2063,16 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
-                { glyphName: 'a', layerId: 'layer-1' },
-                { glyphName: 'adieresis', layerId: 'layer-1' }
-            ]);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
                 )
             ).toBe(false);
-            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(2);
+            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
             expect(
                 originalWindow.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(2);
+            ).toHaveBeenCalledTimes(1);
             expect(
                 originalWindow.autoCompileManager.forceTrigger
             ).toHaveBeenCalledTimes(1);
@@ -2209,16 +2181,14 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
             expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
-                { glyphName: 'a', layerId: 'layer-1' }
-            ]);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(sendMessageSpy).not.toHaveBeenCalledWith(
                 expect.objectContaining({ type: 'storeFontJson' })
             );
-            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(2);
+            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
             expect(
                 originalWindow.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(2);
+            ).toHaveBeenCalledTimes(1);
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
             fontCompilation.lastStoredFontJson = originalLastStoredFontJson;

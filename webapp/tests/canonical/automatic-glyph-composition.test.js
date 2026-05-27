@@ -1644,16 +1644,10 @@ describe('Automatic component editing canonical behavior', () => {
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue(currentFont);
 
-        const refreshGlyphsAfterModelBatchSpy = jest
-            .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
+        const stageLiveDragPreviewFromModelSpy = jest
+            .spyOn(fontManager, 'stageLiveDragPreviewFromModel')
             .mockResolvedValue();
-        const refreshWorkerCacheForReplayTargetsSpy = jest
-            .spyOn(fontManager, 'refreshWorkerCacheForReplayTargets')
-            .mockResolvedValue(true);
         const glyphChangedHandler = jest.fn();
-        const forceFullWorkerCacheUpdateSpy = jest
-            .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
-            .mockResolvedValue();
         const autoCompileManager = window.autoCompileManager;
         window.autoCompileManager = {
             ...(autoCompileManager || {}),
@@ -1695,41 +1689,28 @@ describe('Automatic component editing canonical behavior', () => {
 
             // liveVisibleOnly skips syncJsonFromModel (deferred to mouseup)
             expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
-            expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
-            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][0]).toEqual([
+            expect(stageLiveDragPreviewFromModelSpy).toHaveBeenCalledTimes(1);
+            expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][0]).toEqual([
+                'A',
                 'visibleComposite'
             ]);
-            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][1]).toBe('A0');
-            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][2]).toEqual({
-                dispatchGlyphChanged: false,
-                skipFingerprintBaseline: true
+            expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][1]).toBe(
+                'A0'
+            );
+            expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][2]).toEqual({
+                dispatchGlyphChanged: false
             });
             expect(glyphChangedHandler).not.toHaveBeenCalled();
-            expect(refreshWorkerCacheForReplayTargetsSpy).toHaveBeenCalledTimes(
-                1
-            );
-            expect(
-                refreshWorkerCacheForReplayTargetsSpy.mock.calls[0][0]
-            ).toEqual([{ glyphName: 'A', layerId: 'A0' }]);
-            expect(
-                refreshWorkerCacheForReplayTargetsSpy.mock
-                    .invocationCallOrder[0]
-            ).toBeLessThan(
-                refreshGlyphsAfterModelBatchSpy.mock.invocationCallOrder[0]
-            );
-            expect(
-                currentFont.requestRecompileWithoutDataChange
-            ).toHaveBeenCalledTimes(1);
             expect(
                 window.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(1);
-            expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
+            ).not.toHaveBeenCalled();
+            expect(
+                currentFont.requestRecompileWithoutDataChange
+            ).not.toHaveBeenCalled();
         } finally {
             window.removeEventListener('glyphChanged', glyphChangedHandler);
             window.autoCompileManager = autoCompileManager;
-            refreshGlyphsAfterModelBatchSpy.mockRestore();
-            refreshWorkerCacheForReplayTargetsSpy.mockRestore();
-            forceFullWorkerCacheUpdateSpy.mockRestore();
+            stageLiveDragPreviewFromModelSpy.mockRestore();
             fontManager.updateEditingSubsetSnapshot([]);
         }
     });
@@ -1795,12 +1776,9 @@ describe('Automatic component editing canonical behavior', () => {
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue(currentFont);
 
-        const refreshGlyphsAfterModelBatchSpy = jest
-            .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
+        const stageLiveDragPreviewFromModelSpy = jest
+            .spyOn(fontManager, 'stageLiveDragPreviewFromModel')
             .mockResolvedValue();
-        const refreshWorkerCacheForReplayTargetsSpy = jest
-            .spyOn(fontManager, 'refreshWorkerCacheForReplayTargets')
-            .mockResolvedValue(true);
         const glyphChangedHandler = jest.fn();
         const autoCompileManager = window.autoCompileManager;
         window.autoCompileManager = {
@@ -1819,25 +1797,27 @@ describe('Automatic component editing canonical behavior', () => {
             );
 
             expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
-            expect(refreshWorkerCacheForReplayTargetsSpy).toHaveBeenCalledTimes(
-                1
+            expect(stageLiveDragPreviewFromModelSpy).toHaveBeenCalledTimes(1);
+            expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][0]).toEqual([
+                'A'
+            ]);
+            expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][1]).toBe(
+                'A0'
             );
-            expect(
-                refreshWorkerCacheForReplayTargetsSpy.mock.calls[0][0]
-            ).toEqual([{ glyphName: 'A', layerId: 'A0' }]);
-            expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
+            expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][2]).toEqual({
+                dispatchGlyphChanged: false
+            });
             expect(glyphChangedHandler).not.toHaveBeenCalled();
             expect(
                 currentFont.requestRecompileWithoutDataChange
-            ).toHaveBeenCalledTimes(1);
+            ).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(1);
+            ).not.toHaveBeenCalled();
         } finally {
             window.removeEventListener('glyphChanged', glyphChangedHandler);
             window.autoCompileManager = autoCompileManager;
-            refreshGlyphsAfterModelBatchSpy.mockRestore();
-            refreshWorkerCacheForReplayTargetsSpy.mockRestore();
+            stageLiveDragPreviewFromModelSpy.mockRestore();
         }
     });
 

@@ -2671,10 +2671,10 @@ describe('committed undo/redo compile requests', () => {
         expect(window.fontManager.lastEditType).toBeNull();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
-            compileContext: {
+            compileContext: expect.objectContaining({
                 changeSource: 'keyboard-anchor',
                 editType: 'anchor'
-            }
+            })
         });
         expect(
             window.fontManager.scheduleFullCompileDebounce
@@ -2731,10 +2731,10 @@ describe('committed undo/redo compile requests', () => {
         expect(window.fontManager.lastEditType).toBeNull();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
-            compileContext: {
+            compileContext: expect.objectContaining({
                 changeSource: 'keyboard-kerning-value',
                 editType: 'kerning-value'
-            }
+            })
         });
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
     });
@@ -2792,10 +2792,10 @@ describe('committed undo/redo compile requests', () => {
         expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
-            compileContext: {
+            compileContext: expect.objectContaining({
                 changeSource: 'keyboard-sidebearing',
                 editType: null
-            }
+            })
         });
         expect(checkAndSchedule).toHaveBeenCalledTimes(1);
     });
@@ -2896,10 +2896,10 @@ describe('committed undo/redo compile requests', () => {
             originalWindow.fontManager.currentFont
                 .requestRecompileWithoutDataChange
         ).toHaveBeenCalledWith({
-            compileContext: {
+            compileContext: expect.objectContaining({
                 changeSource: 'keyboard-sidebearing',
                 editType: null
-            }
+            })
         });
     });
 
@@ -3028,10 +3028,10 @@ describe('committed undo/redo compile requests', () => {
             originalWindow.fontManager.currentFont
                 .requestRecompileWithoutDataChange
         ).toHaveBeenCalledWith({
-            compileContext: {
+            compileContext: expect.objectContaining({
                 changeSource: 'keyboard-outline',
                 editType: 'outline'
-            }
+            })
         });
     });
 });

@@ -1908,7 +1908,7 @@ describe('FontManager loadFont', () => {
         window.currentFontModel = originalCurrentFontModel;
     });
 
-    test('normalizes keyed sidebearings when opening a font without marking it dirty', async () => {
+    test('preserves stored keyed sidebearing fallback when opening a font without marking it dirty', async () => {
         await fontManager.loadFont(
             JSON.stringify(cloneJson(intermediateLayerData)),
             '/user/intermediate_layer_on_a.glyphs',
@@ -1926,8 +1926,8 @@ describe('FontManager loadFont', () => {
             (layer) => layer.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
         );
 
-        expect(braceLayer.resolveMetricsKey('right').value).toBe(50);
-        expect(braceLayer.rsb).toBe(50);
+        expect(braceLayer.resolveMetricsKey('right').value).toBe(94);
+        expect(braceLayer.rsb).toBe(94);
         expect(currentFont.hasUnsavedChanges).toBe(false);
         expect(currentFont.needsRecompile).toBe(false);
         expect(

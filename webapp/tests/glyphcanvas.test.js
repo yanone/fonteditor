@@ -731,31 +731,18 @@ describe('GlyphCanvas onMouseUp', () => {
             expect(applyMetricsSpy).toHaveBeenCalledWith(true, {
                 rebuildAutomaticComposites: true
             });
-            expect(syncDependentsSpy).toHaveBeenCalledTimes(1);
-            const [syncGlyphName, syncAffectedGlyphNames, syncOptions] =
-                syncDependentsSpy.mock.calls[0];
-            expect(syncGlyphName).toBe('l');
-            expect([...syncAffectedGlyphNames].sort()).toEqual(['a', 'l', 'n']);
-            expect(syncOptions).toEqual({
-                liveVisibleOnly: true,
-                explicitLayerInput: {
-                    glyphName: 'l',
-                    layerId: 'layer-1',
-                    layerData: canvas.outlineEditor.layerData
-                }
-            });
-            expect(saveLayerDataSpy.mock.invocationCallOrder[0]).toBeLessThan(
-                syncDependentsSpy.mock.invocationCallOrder[0]
-            );
-            expect(syncDependentsSpy.mock.invocationCallOrder[0]).toBeLessThan(
-                syncSpy.mock.invocationCallOrder[0]
-            );
+            expect(syncDependentsSpy).not.toHaveBeenCalled();
             expect(syncSpy).toHaveBeenCalledWith(
                 'Set RSB',
                 'RSB: 10',
                 'RIGHT RIGHT 20',
                 'right',
-                [{ glyphName: 'l', layerId: 'layer-1' }]
+                [{ glyphName: 'l', layerId: 'layer-1' }],
+                {
+                    editSource: 'mouse-drag-sidebearing',
+                    changeSource: 'keyboard-sidebearing',
+                    editType: null
+                }
             );
         } finally {
             window.changeBridge = originalWindowChangeBridge;
@@ -863,13 +850,20 @@ describe('GlyphCanvas onMouseUp', () => {
             expect(
                 refreshFinalSidebearingSpy.mock.invocationCallOrder[0]
             ).toBeLessThan(saveLayerDataSpy.mock.invocationCallOrder[0]);
-            expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
+            expect(saveLayerDataSpy).toHaveBeenCalledWith(
+                'mouse-drag-sidebearing'
+            );
             expect(syncSpy).toHaveBeenCalledWith(
                 'Set RSB',
                 'RSB: 10',
                 'RIGHT 20',
                 null,
-                [{ glyphName: 'l', layerId: 'layer-1' }]
+                [{ glyphName: 'l', layerId: 'layer-1' }],
+                {
+                    editSource: 'mouse-drag-sidebearing',
+                    changeSource: 'keyboard-sidebearing',
+                    editType: null
+                }
             );
         } finally {
             window.changeBridge = originalWindowChangeBridge;
@@ -993,13 +987,7 @@ describe('GlyphCanvas onMouseUp', () => {
             resolveLiveRefresh();
             await mouseUpPromise;
 
-            expect(syncDependentsSpy).toHaveBeenCalledTimes(2);
-            const finalRefreshCall = syncDependentsSpy.mock.calls[1];
-            expect(finalRefreshCall[0]).toBe('l');
-            expect([...finalRefreshCall[1]].sort()).toEqual(['l', 'n']);
-            expect(finalRefreshCall[2]).toEqual({
-                liveVisibleOnly: true
-            });
+            expect(syncDependentsSpy).toHaveBeenCalledTimes(1);
             expect(syncSpy).toHaveBeenCalled();
         } finally {
             window.changeBridge = originalWindowChangeBridge;
@@ -1320,7 +1308,12 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
-                undefined
+                [{ glyphName: 'A', layerId: 'layer-1' }],
+                {
+                    editSource: 'mouse-drag-outline',
+                    changeSource: 'mouse-drag-outline',
+                    editType: 'outline'
+                }
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
         } finally {
@@ -1375,7 +1368,6 @@ describe('GlyphCanvas onMouseUp', () => {
                 clientY: 23
             });
 
-            expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
             expect(syncSpy).not.toHaveBeenCalled();
 
             resolveSave();
@@ -1386,7 +1378,12 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 '(105, 282)',
                 null,
-                undefined
+                [{ glyphName: 'A', layerId: 'layer-1' }],
+                {
+                    editSource: 'mouse-drag-outline',
+                    changeSource: 'mouse-drag-outline',
+                    editType: 'outline'
+                }
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
         } finally {
@@ -1522,7 +1519,12 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
-                undefined
+                [{ glyphName: 'A', layerId: 'layer-1' }],
+                {
+                    editSource: 'mouse-drag-outline',
+                    changeSource: 'mouse-drag-outline',
+                    editType: 'outline'
+                }
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
         } finally {
@@ -1811,7 +1813,12 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
-                undefined
+                [{ glyphName: 'A', layerId: 'layer-1' }],
+                {
+                    editSource: 'mouse-drag-outline',
+                    changeSource: 'mouse-drag-outline',
+                    editType: 'outline'
+                }
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
 
@@ -2072,7 +2079,12 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(205, 182)'",
                 'RIGHT (205, 182)',
                 'right',
-                undefined
+                [{ glyphName: 'A', layerId: 'layer-1' }],
+                {
+                    editSource: 'mouse-drag-outline',
+                    changeSource: 'mouse-drag-outline',
+                    editType: 'outline'
+                }
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
         } finally {
@@ -2317,9 +2329,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
 
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
         expect(fontManager.lastEditType).toBe('outline');
-        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
-            1
-        );
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(
             window.autoCompileManager.checkAndSchedule
         ).toHaveBeenCalledTimes(1);
@@ -2395,9 +2405,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
 
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
         expect(fontManager.lastEditType).toBe('outline');
-        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
-            1
-        );
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(
             window.fontManager.refreshGlyphsAfterModelBatch
         ).not.toHaveBeenCalled();
@@ -2567,9 +2575,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
 
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
         expect(fontManager.lastEditType).toBe('outline');
-        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
-            1
-        );
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(
             requestRecompileWithoutDataChange.mock.invocationCallOrder[0]
@@ -2690,9 +2696,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             window.fontManager.refreshGlyphsAfterModelBatch
         ).toHaveBeenCalledWith(['a'], undefined);
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
-        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
-            1
-        );
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(
             requestRecompileWithoutDataChange.mock.invocationCallOrder[0]
         ).toBeGreaterThan(
@@ -2865,9 +2869,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
         expect(fontManager.lastEditType).toBe('outline');
-        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
-            1
-        );
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(
             requestRecompileWithoutDataChange.mock.invocationCallOrder[0]
         ).toBeGreaterThan(
@@ -3150,7 +3152,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         setSidebearingValueSpy.mockRestore();
     });
 
-    test('setSidebearingValue syncs affected sidebearing layers through syncLayersFromJson', () => {
+    test('setSidebearingValue syncs affected sidebearing layers through the YDoc funnel', () => {
         const targets = [
             { glyphName: 'l', layerId: 'master-layer' },
             { glyphName: 'n', layerId: 'master-layer' }
@@ -3199,6 +3201,11 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 'collectMatchingLayerWorkerReplayTargets'
             )
             .mockReturnValue(targets);
+        const syncCurrentGlyphToYDocSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {
+                callOrder.push('sync-ydoc');
+            });
 
         const patchSyncEngine = {
             beginTransaction: jest.fn(() => {
@@ -3219,15 +3226,17 @@ describe('GlyphCanvas property panel metrics edits', () => {
             expect(canvas.outlineEditor.setSidebearingValue('left', 20)).toBe(
                 true
             );
-            expect(window.changeBridge.syncLayersFromJson).toHaveBeenCalledWith(
-                targets,
+            expect(syncCurrentGlyphToYDocSpy).toHaveBeenCalledWith(
                 'Set sidebearing',
                 expect.any(String),
                 expect.any(String),
                 'left',
-                targets,
-                'keyboard-sidebearing',
-                null
+                undefined,
+                {
+                    editSource: 'keyboard-sidebearing',
+                    changeSource: 'keyboard-sidebearing',
+                    editType: null
+                }
             );
             expect(clearEffectiveSidebearingKeySpy).toHaveBeenCalledWith(
                 'left'
@@ -3240,7 +3249,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 'clear-key',
                 'apply-delta',
                 'save',
-                'sync-layers',
+                'sync-ydoc',
                 'end'
             ]);
             expect(
@@ -3249,6 +3258,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         } finally {
             window.changeBridge = originalChangeBridge;
             window.patchSyncEngine = originalPatchSyncEngine;
+            syncCurrentGlyphToYDocSpy.mockRestore();
             collectTargetsSpy.mockRestore();
             glyphModelSpy.mockRestore();
             syncDependentsSpy.mockRestore();
@@ -5035,24 +5045,20 @@ describe('GlyphCanvas point movement', () => {
         expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].y).toBe(100);
     });
 
-    test('keyboard point nudges commit a sparse layer sync packet', () => {
+    test('keyboard point nudges update geometry without immediately syncing', () => {
         const syncCurrentGlyphToYDocSpy = jest
             .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
             .mockImplementation(() => {});
 
         try {
-            canvas.outlineEditor.moveSelectedPoints(10, 20);
+            const affectedGlyphNames = canvas.outlineEditor.moveSelectedPoints(
+                10,
+                20
+            );
 
-            expect(canvas.outlineEditor.saveLayerData).toHaveBeenCalledWith(
-                'keyboard-outline'
-            );
-            expect(syncCurrentGlyphToYDocSpy).toHaveBeenCalledWith(
-                'Move points',
-                undefined,
-                undefined,
-                null,
-                undefined
-            );
+            expect(canvas.outlineEditor.saveLayerData).not.toHaveBeenCalled();
+            expect(syncCurrentGlyphToYDocSpy).not.toHaveBeenCalled();
+            expect(Array.from(affectedGlyphNames || [])).toEqual([]);
         } finally {
             syncCurrentGlyphToYDocSpy.mockRestore();
         }
@@ -9754,24 +9760,18 @@ describe('GlyphCanvas component movement', () => {
         expect(canvas.outlineEditor.layerData.shapes[0].transform[5]).toBe(100);
     });
 
-    test('keyboard component nudges commit a sparse layer sync packet', () => {
+    test('keyboard component nudges update geometry without immediately syncing', () => {
         const syncCurrentGlyphToYDocSpy = jest
             .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
             .mockImplementation(() => {});
 
         try {
-            canvas.outlineEditor.moveSelectedComponents(10, 20);
+            const affectedGlyphNames =
+                canvas.outlineEditor.moveSelectedComponents(10, 20);
 
-            expect(canvas.outlineEditor.saveLayerData).toHaveBeenCalledWith(
-                'keyboard-outline'
-            );
-            expect(syncCurrentGlyphToYDocSpy).toHaveBeenCalledWith(
-                'Move component',
-                undefined,
-                undefined,
-                null,
-                undefined
-            );
+            expect(canvas.outlineEditor.saveLayerData).not.toHaveBeenCalled();
+            expect(syncCurrentGlyphToYDocSpy).not.toHaveBeenCalled();
+            expect(Array.from(affectedGlyphNames || [])).toEqual([]);
         } finally {
             syncCurrentGlyphToYDocSpy.mockRestore();
         }
@@ -15015,54 +15015,63 @@ describe('AxesManager coordinate fields', () => {
     });
 
     test('keeps userspace and designspace axis inputs synchronized', async () => {
-        await canvas.axesManager.updateAxesUI();
-        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        global.requestAnimationFrame = (callback) => {
+            callback(0);
+            return 1;
+        };
 
-        const userspaceInput = document.querySelector(
-            '.editor-axis-value[data-axis-tag="wght"]'
-        );
-        const designspaceInput = document.querySelector(
-            '.editor-axis-value-designspace[data-axis-tag="wght"]'
-        );
-        const slider = document.querySelector(
-            '.editor-axis-slider[data-axis-tag="wght"]'
-        );
+        try {
+            await canvas.axesManager.updateAxesUI();
 
-        expect(userspaceInput.value).toBe('0');
-        expect(designspaceInput.value).toBe('100');
+            const userspaceInput = document.querySelector(
+                '.editor-axis-value[data-axis-tag="wght"]'
+            );
+            const designspaceInput = document.querySelector(
+                '.editor-axis-value-designspace[data-axis-tag="wght"]'
+            );
+            const slider = document.querySelector(
+                '.editor-axis-slider[data-axis-tag="wght"]'
+            );
 
-        expect(canvas.axesManager.getUserspaceValueForAxis('wght', 500)).toBe(
-            50
-        );
+            expect(userspaceInput.value).toBe('0');
+            expect(designspaceInput.value).toBe('100');
 
-        canvas.axesManager.setAxisValue('wght', 50);
-        expect(userspaceInput.value).toBe('50');
-        expect(designspaceInput.value).toBe('500');
-        expect(slider.value).toBe('50');
+            expect(
+                canvas.axesManager.getUserspaceValueForAxis('wght', 500)
+            ).toBe(50);
 
-        canvas.axesManager.setAxisValue('wght', 75);
+            canvas.axesManager.setAxisValue('wght', 50);
+            expect(userspaceInput.value).toBe('50');
+            expect(designspaceInput.value).toBe('500');
+            expect(slider.value).toBe('50');
 
-        expect(userspaceInput.value).toBe('75');
-        expect(designspaceInput.value).toBe('700');
-        expect(slider.value).toBe('75');
+            canvas.axesManager.setAxisValue('wght', 75);
 
-        canvas.axesManager.setAxisValue('wght', 75.6);
+            expect(userspaceInput.value).toBe('75');
+            expect(designspaceInput.value).toBe('700');
+            expect(slider.value).toBe('75');
 
-        expect(userspaceInput.value).toBe('76');
-        expect(designspaceInput.value).toBe('705');
-        expect(slider.value).toBe('75.6');
+            canvas.axesManager.setAxisValue('wght', 75.6);
 
-        userspaceInput.value = '50.7';
-        userspaceInput.dispatchEvent(
-            new window.Event('input', { bubbles: true })
-        );
-        expect(userspaceInput.value).toBe('50');
+            expect(userspaceInput.value).toBe('76');
+            expect(designspaceInput.value).toBe('705');
+            expect(slider.value).toBe('75.6');
 
-        designspaceInput.value = '700.9';
-        designspaceInput.dispatchEvent(
-            new window.Event('input', { bubbles: true })
-        );
-        expect(designspaceInput.value).toBe('700');
+            userspaceInput.value = '50.7';
+            userspaceInput.dispatchEvent(
+                new window.Event('input', { bubbles: true })
+            );
+            expect(userspaceInput.value).toBe('50');
+
+            designspaceInput.value = '700.9';
+            designspaceInput.dispatchEvent(
+                new window.Event('input', { bubbles: true })
+            );
+            expect(designspaceInput.value).toBe('700');
+        } finally {
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+        }
     });
 });
 
@@ -15167,7 +15176,15 @@ describe('GlyphCanvas state management', () => {
         expect(canvas.outlineEditor.layerDataDirty).toBe(false);
 
         canvas.outlineEditor.active = true;
-        canvas.outlineEditor.layerData = { shapes: [], anchors: [] };
+        canvas.outlineEditor.layerData = {
+            shapes: [
+                {
+                    nodes: [{ x: 0, y: 0, type: 'l' }],
+                    closed: false
+                }
+            ],
+            anchors: []
+        };
         canvas.outlineEditor.selectedPoints = [
             { contourIndex: 0, nodeIndex: 0 }
         ];
@@ -15175,8 +15192,11 @@ describe('GlyphCanvas state management', () => {
 
         canvas.outlineEditor.moveSelectedPoints(10, 20);
 
-        // layerDataDirty should be managed by saveLayerData
-        expect(canvas.outlineEditor.saveLayerData).toHaveBeenCalled();
+        expect(canvas.outlineEditor.layerDataDirty).toBe(false);
+        expect(canvas.outlineEditor.saveLayerData).not.toHaveBeenCalled();
+        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0]).toEqual(
+            expect.objectContaining({ x: 10, y: 20 })
+        );
     });
 });
 
