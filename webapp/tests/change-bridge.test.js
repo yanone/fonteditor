@@ -4815,6 +4815,56 @@ describe('syncGlyphFromJson', () => {
         receiverBridge.destroy();
     });
 
+    test('duplicate metadata-free remote update does not re-fire remote side effects', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-remote-noop');
+        const receiverBridge = new ChangeBridge('receiver-remote-noop');
+        let lastUpdate = null;
+
+        const onAfterSync = jest.fn();
+        const onDirty = jest.fn();
+        const onRemoteChange = jest.fn();
+        const onCommittedChange = jest.fn();
+        const workerCallback = jest.fn();
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+        receiverBridge.onAfterSync(onAfterSync);
+        receiverBridge.onDirty(onDirty);
+        receiverBridge.onRemoteChange(onRemoteChange);
+        receiverBridge.onCommittedChange(onCommittedChange);
+        receiverBridge.setYjsWorkerCallback(workerCallback);
+
+        senderFontJson.glyphs[0].layers[0].width = 710;
+        senderBridge.syncGlyphFromJson('A', 'Remote drag');
+
+        receiverBridge.applyRemoteUpdate(lastUpdate);
+
+        expect(receiverFontJson.glyphs[0].layers[0].width).toBe(710);
+        expect(onAfterSync).toHaveBeenCalledTimes(1);
+        expect(onDirty).toHaveBeenCalledTimes(1);
+        expect(onRemoteChange).toHaveBeenCalledTimes(1);
+        expect(onCommittedChange).toHaveBeenCalledTimes(1);
+        expect(workerCallback).toHaveBeenCalledTimes(1);
+
+        receiverBridge.applyRemoteUpdate(lastUpdate);
+
+        expect(receiverFontJson.glyphs[0].layers[0].width).toBe(710);
+        expect(onAfterSync).toHaveBeenCalledTimes(1);
+        expect(onDirty).toHaveBeenCalledTimes(1);
+        expect(onRemoteChange).toHaveBeenCalledTimes(1);
+        expect(onCommittedChange).toHaveBeenCalledTimes(1);
+        expect(workerCallback).toHaveBeenCalledTimes(1);
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
     test('undo works after syncGlyphFromJson', () => {
         const { bridge, fontJson } = createTestBridge('test-1');
 

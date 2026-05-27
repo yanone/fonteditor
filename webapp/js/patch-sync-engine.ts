@@ -1910,6 +1910,30 @@ export class PatchSyncEngine {
                           }
                       )
                   ) ?? []);
+            const beforeStateVector = Y.encodeStateVector(this.yDoc);
+            // Apply linked-window updates using the shared same-user origin so
+            // every window can undo the combined edit history.
+            Y.applyUpdate(
+                this.yDoc,
+                update,
+                this._getRemoteUpdateOrigin(effectiveRemoteEntries)
+            );
+            const afterStateVector = Y.encodeStateVector(this.yDoc);
+            const isNoopRemoteUpdate =
+                beforeStateVector.length === afterStateVector.length &&
+                beforeStateVector.every(
+                    (value, index) => value === afterStateVector[index]
+                );
+            // Bootstrap/reconciliation packets can legitimately arrive without
+            // semantic change-log metadata. If such a packet is also a CRDT
+            // no-op, suppress all receiver side effects so it cannot mark the
+            // font dirty or wake remote compile paths.
+            if (
+                isNoopRemoteUpdate &&
+                (!effectiveRemoteEntries || effectiveRemoteEntries.length === 0)
+            ) {
+                return;
+            }
             if (effectiveRemoteEntries?.length) {
                 const glyphNames = new Set(
                     effectiveRemoteEntries
@@ -1929,13 +1953,6 @@ export class PatchSyncEngine {
                     }
                 }
             }
-            // Apply linked-window updates using the shared same-user origin so
-            // every window can undo the combined edit history.
-            Y.applyUpdate(
-                this.yDoc,
-                update,
-                this._getRemoteUpdateOrigin(effectiveRemoteEntries)
-            );
             this._syncRemoteJsonFromYDoc(effectiveRemoteEntries);
             this._yjsWorkerCallback?.(update, effectiveRemoteEntries);
             this._onAfterSync?.();
