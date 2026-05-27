@@ -71,9 +71,7 @@ export interface FontModelLike {
         }
     ) => Set<string>;
     recomputeMetricsKeys?: (sourceGlyphNames: Set<string>) => Set<string>;
-    invalidateLayoutCachesForGlyphs?: (
-        glyphNames: Set<string>
-    ) => void;
+    invalidateLayoutCachesForGlyphs?: (glyphNames: Set<string>) => void;
 }
 
 export interface GlyphLike {
@@ -114,18 +112,16 @@ export interface RecordingSuppressor {
  * @param options.visibleGlyphNames Glyph names considered visible.  Used only
  *                                when scope is `'visible'` to limit dependents.
  */
-export function computeLayerRecompositionClosure(
-    options: {
-        sourceTargets: RecompositionSourceTarget[];
-        editKinds: Set<RecompositionEditKind>;
-        scope: RecompositionScope;
-        fontModel: FontModelLike;
-        activeLayerId?: string | null;
-        sourceGlyphName?: string | null;
-        suppressor?: RecordingSuppressor | null;
-        visibleGlyphNames?: Iterable<string>;
-    }
-): RecompositionClosure {
+export function computeLayerRecompositionClosure(options: {
+    sourceTargets: RecompositionSourceTarget[];
+    editKinds: Set<RecompositionEditKind>;
+    scope: RecompositionScope;
+    fontModel: FontModelLike;
+    activeLayerId?: string | null;
+    sourceGlyphName?: string | null;
+    suppressor?: RecordingSuppressor | null;
+    visibleGlyphNames?: Iterable<string>;
+}): RecompositionClosure {
     const {
         sourceTargets,
         editKinds,
@@ -151,9 +147,7 @@ export function computeLayerRecompositionClosure(
 
     // ── 1. Seed glyph set ──────────────────────────────────────────────
     const sourceGlyphNames = new Set(
-        sourceTargets
-            .map((t) => t.glyphName)
-            .filter((n): n is string => !!n)
+        sourceTargets.map((t) => t.glyphName).filter((n): n is string => !!n)
     );
     const allGlyphNames = new Set(sourceGlyphNames);
 
@@ -216,7 +210,8 @@ export function computeLayerRecompositionClosure(
                 if (
                     scope === 'visible' &&
                     visibleSet &&
-                    typeof fontModel.invalidateLayoutCachesForGlyphs === 'function'
+                    typeof fontModel.invalidateLayoutCachesForGlyphs ===
+                        'function'
                 ) {
                     fontModel.invalidateLayoutCachesForGlyphs(visibleSet);
                 }
@@ -267,7 +262,9 @@ export function computeLayerRecompositionClosure(
     //    Find the matching layer (same master) on each dependent glyph.
     const sourceLayer =
         sourceGlyphName && activeLayerId
-            ? fontModel.findGlyph?.(sourceGlyphName)?.findLayerById?.(activeLayerId)
+            ? fontModel
+                  .findGlyph?.(sourceGlyphName)
+                  ?.findLayerById?.(activeLayerId)
             : null;
 
     const dependentTargets: WorkerReplayTarget[] = [];

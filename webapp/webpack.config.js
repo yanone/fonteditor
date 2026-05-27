@@ -15,9 +15,7 @@ const EDITOR_VERSION =
 const WORKTREE_CONFIG_PATH = path.join(__dirname, 'worktree-config.json');
 let worktreeConfig;
 try {
-    worktreeConfig = JSON.parse(
-        fs.readFileSync(WORKTREE_CONFIG_PATH, 'utf8')
-    );
+    worktreeConfig = JSON.parse(fs.readFileSync(WORKTREE_CONFIG_PATH, 'utf8'));
 } catch (_e) {
     console.error(
         `[Worktree] Missing or invalid ${WORKTREE_CONFIG_PATH}, defaulting to 8000`

@@ -151,6 +151,9 @@ class AuthManager {
             } else {
                 const errorData = await response.json().catch(() => ({}));
                 console.log('[Auth] Authentication failed:', errorData);
+                if (sessionToken && response.status === 401) {
+                    this.clearLocalSessionToken();
+                }
                 this.user = null;
                 this.subscription = null;
                 this.credits = null;
@@ -416,12 +419,20 @@ class AuthManager {
     }
 
     /**
+     * Clear stale editor-domain session tokens after website verification fails.
+     */
+    clearLocalSessionToken() {
+        document.cookie = 'editor_session=; Max-Age=0; Path=/';
+        document.cookie = 'session=; Max-Age=0; Path=/';
+        this.sessionToken = null;
+    }
+
+    /**
      * Logout - clears session only on the editor domain
      */
     async logout() {
         // Clear editor session cookie only
-        document.cookie = 'editor_session=; Max-Age=0; Path=/';
-        this.sessionToken = null;
+        this.clearLocalSessionToken();
         this.user = null;
         this.subscription = null;
         this.credits = null;

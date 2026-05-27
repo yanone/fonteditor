@@ -68,23 +68,23 @@ the website issues and the room worker verifies.
 
 ### Tasks
 
-- [ ] Define a signed session token format for the website.
-- [ ] Define a signed room token format for room access.
-- [ ] Include `iss`, `aud`, `sub`, `assetId`, `role`, `iat`, `exp`, and an
+- [x] Define a signed session token format for the website.
+- [x] Define a signed room token format for room access.
+- [x] Include `iss`, `aud`, `sub`, `assetId`, `role`, `iat`, `exp`, and an
       access-revision claim in room tokens.
-- [ ] Add signing key configuration and key rotation support via `kid`.
-- [ ] Add token verification helpers in the website and collab worker.
-- [ ] Replace current base64 room-token issuance in the website.
-- [ ] Replace current base64 session-token handling in the website.
-- [ ] Update the collab worker auth path to verify signed room tokens.
-- [ ] Reject expired, malformed, or wrong-audience tokens in the collab worker.
-- [ ] Store verified `userId`, `role`, `assetId`, and access revision in the
+- [x] Add signing key configuration and key rotation support via `kid`.
+- [x] Add token verification helpers in the website and collab worker.
+- [x] Replace current base64 room-token issuance in the website.
+- [x] Replace current base64 session-token handling in the website.
+- [x] Update the collab worker auth path to verify signed room tokens.
+- [x] Reject expired, malformed, or wrong-audience tokens in the collab worker.
+- [x] Store verified `userId`, `role`, `assetId`, and access revision in the
       WebSocket attachment.
-- [ ] Add tests for valid owner/editor/viewer auth.
-- [ ] Add tests for expired token rejection.
-- [ ] Add tests for wrong asset rejection.
-- [ ] Add tests for forged token rejection.
-- [ ] Add tests for key rotation behavior.
+- [x] Add tests for valid owner/editor/viewer auth.
+- [x] Add tests for expired token rejection.
+- [x] Add tests for wrong asset rejection.
+- [x] Add tests for forged token rejection.
+- [x] Add tests for key rotation behavior.
 
 ## Phase 2: Lock Down Debug And Room Control Surfaces
 
