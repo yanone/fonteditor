@@ -331,6 +331,28 @@ describe('CloudAdapter outbound updates', () => {
         expect(adapter._pendingDurabilityMessages).toEqual([]);
     });
 
+    it('ignores echoed live updates from the same cloud client', () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const applyRemoteUpdate = jest.fn();
+
+        adapter._bridge = {
+            applyRemoteUpdate,
+            encodeBridgeState: jest.fn(() => new Uint8Array([1]))
+        };
+        adapter._clientId = 'client-1';
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'update',
+                clientId: 'client-1',
+                seq: 1,
+                update: Buffer.from([1, 2, 3]).toString('base64')
+            })
+        );
+
+        expect(applyRemoteUpdate).not.toHaveBeenCalled();
+    });
+
     it('preserves and retries an unacked live update across reconnect bootstrap', async () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
         const sentFrames = [];
@@ -619,6 +641,26 @@ describe('CloudAdapter outbound updates', () => {
 });
 
 describe('CloudAdapter durability failures', () => {
+    it('does not request a resync for noop remote updates', () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const requestServerResyncAfterNoopUpdate = jest.spyOn(
+            adapter,
+            '_requestServerResyncAfterNoopUpdate'
+        );
+
+        adapter._bridge = {
+            applyRemoteUpdate: jest.fn(),
+            encodeBridgeState: jest
+                .fn()
+                .mockReturnValueOnce(new Uint8Array([1, 2, 3]))
+                .mockReturnValueOnce(new Uint8Array([1, 2, 3]))
+        };
+
+        adapter._applyRemoteUpdate(new Uint8Array([9, 9, 9]));
+
+        expect(requestServerResyncAfterNoopUpdate).not.toHaveBeenCalled();
+    });
+
     it('resyncs noop remote updates with the current bridge state vector', () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
         const sentFrames = [];
