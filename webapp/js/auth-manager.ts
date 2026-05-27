@@ -117,6 +117,14 @@ class AuthManager {
         try {
             // Use already-set session token or read from cookie
             const sessionToken = this.sessionToken || this.getSessionToken();
+            const hasLocalSessionArtifacts = document.cookie
+                .split(';')
+                .map((cookie) => cookie.trim())
+                .some(
+                    (cookie) =>
+                        cookie.startsWith('editor_session=') ||
+                        cookie.startsWith('session=')
+                );
             console.log('[Auth] Checking auth status...');
             console.log(
                 '[Auth] Session token:',
@@ -151,7 +159,7 @@ class AuthManager {
             } else {
                 const errorData = await response.json().catch(() => ({}));
                 console.log('[Auth] Authentication failed:', errorData);
-                if (sessionToken && response.status === 401) {
+                if (response.status === 401 && hasLocalSessionArtifacts) {
                     this.clearLocalSessionToken();
                 }
                 this.user = null;
