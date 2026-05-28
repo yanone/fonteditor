@@ -14,9 +14,9 @@ Primary outcomes:
    validation, and retention.
 3. Invite-based sharing for collaborators and viewers.
 4. Ownership transfer flow with acceptance and quota checks.
-5. Snapshot and metadata layout that can support later whole-font restore and
-   cherry-pick restore.
-6. Policy hooks for future subscription-based quotas and retention rules.
+5. Snapshot and metadata layout that can support later whole-font restore.
+6. Centralized policy hooks that can absorb future subscription-based quotas
+   and retention rules.
 
 ## Explicit Non-Goals For This Plan
 
@@ -57,8 +57,10 @@ Priority order:
 3. Enforce owner/editor/viewer in the room runtime.
 4. Implement secure sharing for collaborators and viewers.
 5. Implement ownership transfer with quota-aware acceptance.
-6. Add quota and retention policy helpers now, with unlimited defaults.
-7. Make the checkpoint path restore-ready and validation-gated.
+6. Centralize quota and retention policy hooks now, with current temporary
+   defaults.
+7. Make the checkpoint path restore-ready and validation-gated for full-font
+   checkpoints.
 8. Add observability, operational controls, and cleanup policies.
 
 ## Phase 1: Signed Identity And Room Tokens
@@ -239,27 +241,41 @@ explicit acceptance and quota checks.
 
 ## Phase 6: Quota And Subscription Policy Preparation
 
-Goal: prepare all ownership, sharing, and snapshot paths to consume
-subscription-based policy later without enforcing artificial limits today.
+Goal: centralize current cloud eligibility, ownership caps, and retention
+defaults behind the existing entitlement helpers so later subscription policy
+can change without reopening call sites.
+
+Scope note: this phase does not introduce the final structured policy object.
+It keeps today's temporary policy surface centralized and explicit, and defers
+collaborator caps plus richer retention policy until real subscription tiers
+exist.
 
 ### Tasks
 
-- [ ] Replace separate quota helpers with a structured cloud policy helper.
-- [ ] Represent `maxFontsOwned` in the policy helper.
-- [ ] Represent collaborator limits in the policy helper.
-- [ ] Represent snapshot retention limits in the policy helper.
-- [ ] Represent operational checkpoint retention count in the policy helper.
-- [ ] Use the policy helper during asset creation.
-- [ ] Use the policy helper during invitation creation.
-- [ ] Use the policy helper during ownership transfer acceptance.
-- [ ] Return unlimited defaults for current production behavior.
-- [ ] Add tests for unlimited default policy.
-- [ ] Add tests for quota-blocked ownership transfer with mocked limited policy.
+- [x] Centralize cloud hosting eligibility decisions in the entitlement helper
+      module.
+- [x] Centralize owned-font quota decisions in the entitlement helper module.
+- [x] Centralize snapshot retention defaults in the entitlement helper module.
+- [x] Use the centralized helpers during asset creation.
+- [x] Use the centralized helpers during ownership transfer acceptance.
+- [x] Keep the current temporary hosting default explicit: authenticated users
+      may host cloud assets.
+- [x] Keep the current temporary ownership cap explicit: one owned cloud asset
+      per user.
+- [x] Keep the current temporary snapshot-retention default explicit: named
+      snapshot retention remains unlimited until that feature exists.
+- [x] Add tests for the current helper defaults.
 
 ## Phase 7: Restore-Ready Snapshot Data Model
 
 Goal: do not build user-facing restore now, but make operational and retained
-snapshots structured enough to support future whole-font and cherry-pick restore.
+snapshots structured enough to support future whole-font restore.
+
+Scope note: this phase prepares immutable full-font checkpoint data in R2 only.
+If named snapshots are added later, the website can add metadata rows that
+store user-visible names and point at immutable R2 objects or manifests. That
+website metadata layer is out of scope now. Defining cherry-pick semantics is
+also out of scope now and should wait for later restore design.
 
 ### Tasks
 
@@ -268,13 +284,11 @@ snapshots structured enough to support future whole-font and cherry-pick restore
 - [ ] Add a current checkpoint manifest pointer in R2.
 - [ ] Add a manifest format with asset id, room version, log id, schema
       versions, hash, byte length, and validation state.
-- [ ] Add an index sidecar format with glyph, layer, master, and section-level
-      hashes for future restore tooling.
 - [ ] Keep operational checkpoint objects distinct from future named snapshots.
 - [ ] Define R2 key layout for operational checkpoints, manifests, and future
       retained versions.
-- [ ] Record enough stable identifiers in the checkpoint index for later
-      cherry-pick operations.
+- [ ] Reserve future retained-version objects for later website metadata
+      without implementing that metadata layer yet.
 - [ ] Keep current operational retention separate from future user-facing
       retained versions.
 
@@ -399,8 +413,8 @@ Recommended implementation order:
 5. Sharing UI and invitation emails.
 6. Ownership transfer API and data model.
 7. Ownership transfer UI and emails.
-8. Structured quota policy helper.
-9. Restore-ready checkpoint manifest and retention model.
+8. Centralized quota helper updates.
+9. Restore-ready full-font checkpoint manifest and retention model.
 10. Runtime Babelfont validation gate.
 11. Two-phase checkpoint promotion and prune protection.
 12. Access epoch and live revocation.
@@ -434,7 +448,7 @@ This plan intentionally prepares, but does not implement, user-facing restore.
 When restore work starts later, it should build on:
 
 1. immutable retained checkpoints;
-2. manifest and index sidecars;
-3. stable glyph/layer/master identifiers;
-4. validated Babelfont payloads;
+2. manifest pointers and immutable payload metadata;
+3. validated Babelfont payloads;
+4. a later decision about named-snapshot metadata rows; and
 5. policy-driven retention and quota helpers.
