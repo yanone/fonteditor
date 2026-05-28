@@ -294,23 +294,36 @@ also out of scope now and should wait for later restore design.
 
 ## Phase 8: Runtime Babelfont Validation Before Destructive Cleanup
 
-Goal: never prune recovery material based only on Yjs validity; require a valid
-runtime font payload before destructive cleanup.
+Goal: never let a malformed reconstructed font payload destroy recovery
+material, while keeping live collaboration and repair attempts unblocked.
+
+Scope note: validation in this phase is a promotion and prune gate, not a live
+sync gate. Invalid candidate checkpoints must leave the room in a degraded
+persistence state that preserves the last known-good operational checkpoint and
+the unpruned journal so users can continue editing toward a repair.
 
 ### Tasks
 
-- [ ] Define the runtime Babelfont validation boundary for checkpoint
-      candidates.
-- [ ] Choose the runtime validator approach for the room worker.
-- [ ] Validate a reconstructed candidate font payload after checkpoint write and
-      before promotion.
-- [ ] Add semantic invariants that go beyond TypeScript shape validation.
-- [ ] Fail checkpoint promotion if runtime validation fails.
+- [ ] Define the validation boundary on reconstructed candidate font payloads,
+      not on individual live sync updates.
+- [ ] Make runtime validation non-blocking for live collaboration and required
+      only for checkpoint promotion and destructive prune.
+- [ ] Choose one authoritative runtime parser boundary shared with the editor
+      pipeline, rather than TypeScript-only shape checks.
+- [ ] Validate a reconstructed candidate font payload after candidate checkpoint
+      write and before promotion.
+- [ ] Add semantic invariants that go beyond raw JSON parse and TypeScript shape
+      validation.
+- [ ] Enter degraded persistence mode on validation failure instead of blocking
+      live sync.
 - [ ] Keep journal rows intact on validation failure.
-- [ ] Preserve prior operational checkpoints on validation failure.
+- [ ] Preserve the prior known-good operational checkpoint on validation
+      failure.
+- [ ] Surface degraded persistence status to connected clients so repair can be
+      guided in the UI later.
 - [ ] Record validation failures as audit or operational events.
-- [ ] Add tests for validation failure preserving logs.
-- [ ] Add tests for validation success allowing prune.
+- [ ] Add tests for validation failure preserving logs and prior checkpoints.
+- [ ] Add tests for validation success allowing later promotion and prune.
 
 ## Phase 9: Two-Phase Checkpoint Promotion And Retention
 
@@ -435,8 +448,8 @@ Minimum gate for shipping sharing:
 
 Minimum gate for shipping integrity hardening:
 
-- [ ] Runtime validation blocks destructive prune when snapshot candidates are
-      malformed.
+- [ ] Runtime validation never blocks live sync and blocks destructive prune
+      when candidate snapshots are malformed.
 - [ ] Current plus previous operational checkpoints are retained.
 - [ ] Recovery fallback from a prior checkpoint works.
 - [ ] Checkpoint promotion is manifest-based and two-phase.
