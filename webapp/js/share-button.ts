@@ -179,7 +179,9 @@ function renderShareDialog(): void {
     }
 
     const shareState = shareDialogState.shareState;
+    const assetRole = shareState?.asset?.role || '';
     const canManage = shareState?.permissions?.canManage === true;
+    const canViewMembers = assetRole !== 'viewer';
     const ownerUserId = shareState?.asset?.ownerUserId || '';
     const ownerEmail = shareState?.asset?.ownerEmail || null;
     const ownershipTransfer = shareState?.ownershipTransfer || null;
@@ -285,12 +287,19 @@ function renderShareDialog(): void {
                         <section class="share-dialog-section">
                             <div class="share-dialog-section-header">
                                 <h3>Your access</h3>
-                                <p>You can view the current membership list, but only the owner can change access.</p>
+                                <p>${
+                                    canViewMembers
+                                        ? 'You can view the current membership list, but only the owner can change access.'
+                                        : 'The owner manages access for this font.'
+                                }</p>
                             </div>
                         </section>
                     `
                     }
 
+                    ${
+                        canViewMembers
+                            ? `
                     <section class="share-dialog-section">
                         <div class="share-dialog-section-header">
                             <h3>People with access</h3>
@@ -300,7 +309,13 @@ function renderShareDialog(): void {
                             ${shareState.members.length ? shareState.members.map((member) => renderMemberRow(member, canManage, ownerUserId)).join('') : '<li class="share-dialog-empty">No members found.</li>'}
                         </ul>
                     </section>
+                    `
+                            : ''
+                    }
 
+                    ${
+                        canManage
+                            ? `
                     <section class="share-dialog-section">
                         <div class="share-dialog-section-header">
                             <h3>Pending invites</h3>
@@ -310,6 +325,9 @@ function renderShareDialog(): void {
                             ${shareState.invitations.length ? shareState.invitations.map((invitation) => renderInvitationRow(invitation, canManage)).join('') : '<li class="share-dialog-empty">No pending invites.</li>'}
                         </ul>
                     </section>
+                    `
+                            : ''
+                    }
                 `
                         : ''
                 }
