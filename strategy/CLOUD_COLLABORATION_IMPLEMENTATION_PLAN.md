@@ -34,8 +34,8 @@ What exists today:
 2. Membership and invitation tables in the website schema.
 3. One Durable Object room per asset.
 4. Yjs update journaling in DO SQLite.
-5. One operational checkpoint object per room in R2 at
-   `font-assets/{assetId}/current.yjs`.
+5. Immutable operational checkpoint objects plus a current manifest pointer in
+   R2 at `font-assets/{assetId}/operational/manifests/current.json`.
 6. Local collaboration workflow and tests.
 7. Room tokens and website sessions that are currently unsigned base64 JSON.
 
@@ -332,19 +332,19 @@ short recovery window.
 
 ### Tasks
 
-- [ ] Write candidate checkpoint objects to immutable R2 keys.
+- [x] Write candidate checkpoint objects to immutable R2 keys.
 - [x] Validate candidate checkpoints before promotion.
 - [x] Write a checkpoint manifest only after successful validation.
 - [x] Promote the current manifest pointer only after manifest write succeeds.
 - [x] Prune journal rows only after current manifest promotion succeeds.
-- [ ] Retain at least `current + previous 2` operational checkpoints.
-- [ ] Protect the current manifest target from cleanup.
-- [ ] Add cleanup logic for superseded operational checkpoints beyond retention.
-- [ ] Add recovery fallback logic from current checkpoint to previous
+- [x] Retain at least `current + previous 2` operational checkpoints.
+- [x] Protect the current manifest target from cleanup.
+- [x] Add cleanup logic for superseded operational checkpoints beyond retention.
+- [x] Add recovery fallback logic from current checkpoint to previous
       checkpoints.
-- [ ] Add tests for fallback to previous checkpoints.
-- [ ] Add tests for missing current checkpoint manifest behavior.
-- [ ] Add tests for checkpoint promotion race safety.
+- [x] Add tests for fallback to previous checkpoints.
+- [x] Add tests for missing current checkpoint manifest behavior.
+- [x] Add tests for checkpoint promotion race safety.
 
 ## Phase 10: Access Epoch And Live Revocation
 
@@ -353,15 +353,15 @@ not just future token issuance.
 
 ### Tasks
 
-- [ ] Add `access_epoch` or equivalent revision field to the asset model.
-- [ ] Include the access revision in room tokens.
-- [ ] Increment access revision on member changes.
-- [ ] Increment access revision on ownership transfer acceptance.
-- [ ] Reject stale access-revision tokens during room auth.
-- [ ] Add room-control path or equivalent mechanism to close stale sockets.
-- [ ] Re-authenticate clients cleanly after access changes.
-- [ ] Add tests for token rejection on stale access revision.
-- [ ] Add tests for member removal affecting active room access.
+- [x] Add `access_epoch` or equivalent revision field to the asset model.
+- [x] Include the access revision in room tokens.
+- [x] Increment access revision on member changes.
+- [x] Increment access revision on ownership transfer acceptance.
+- [x] Reject stale access-revision tokens during room auth.
+- [x] Add room-control path or equivalent mechanism to close stale sockets.
+- [x] Re-authenticate clients cleanly after access changes.
+- [x] Add tests for token rejection on stale access revision.
+- [x] Add tests for member removal affecting active room access.
 
 ## Phase 11: Sharing UI And Viewer Behavior
 
@@ -450,9 +450,9 @@ Minimum gate for shipping integrity hardening:
 
 - [x] Runtime validation never blocks live sync and blocks destructive prune
       when candidate snapshots are malformed.
-- [ ] Current plus previous operational checkpoints are retained.
-- [ ] Recovery fallback from a prior checkpoint works.
-- [ ] Checkpoint promotion is manifest-based and two-phase.
+- [x] Current plus previous operational checkpoints are retained.
+- [x] Recovery fallback from a prior checkpoint works.
+- [x] Checkpoint promotion is manifest-based and two-phase.
 - [ ] Alerts exist for checkpoint and validation failures.
 
 ## Future Follow-Up After This Plan
