@@ -662,13 +662,43 @@ async function installEditingFontCompileTracker(page: Page): Promise<void> {
 
         testWindow.__editingFontCompiledCount = 0;
         testWindow.__lastEditingFontCompiledRevision = -1;
+        testWindow.__editingFontCompileEvents = [];
         window.addEventListener('editingFontCompiled', (event) => {
+            const detail = (event as CustomEvent)?.detail || {};
             testWindow.__editingFontCompiledCount += 1;
             testWindow.__lastEditingFontCompiledRevision = Number(
-                (event as CustomEvent)?.detail?.revision ?? -1
+                detail?.fontRevisionKey ?? -1
             );
+            testWindow.__editingFontCompileEvents.push({
+                compilationMode:
+                    typeof detail?.compilationMode === 'string'
+                        ? detail.compilationMode
+                        : null,
+                changeSource:
+                    typeof detail?.changeSource === 'string'
+                        ? detail.changeSource
+                        : null,
+                editType:
+                    typeof detail?.editType === 'string'
+                        ? detail.editType
+                        : null,
+                fontRevisionKey:
+                    detail?.fontRevisionKey === undefined ||
+                    detail?.fontRevisionKey === null
+                        ? null
+                        : String(detail.fontRevisionKey)
+            });
         });
         testWindow.__editingFontCompileTrackerInstalled = true;
+    });
+}
+
+async function resetEditingFontCompileTracker(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const testWindow = window as any;
+        testWindow.__editingFontCompiledCount = 0;
+        testWindow.__lastEditingFontCompiledRevision = -1;
+        testWindow.__editingFontCompileEvents = [];
     });
 }
 
@@ -706,22 +736,21 @@ async function createInvitationFromShareDialog(
     email: string,
     role: 'editor' | 'viewer'
 ): Promise<string> {
-    await openShareDialog(page);
-
-    await page
-        .locator('.share-dialog-invite-form input[name="email"]')
-        .fill(email);
-    await page
-        .locator('.share-dialog-invite-form select[name="role"]')
-        .selectOption(role);
-    await page.getByRole('button', { name: 'Send invite' }).click();
-
-    const linkInput = page.locator('.share-dialog-link-input');
-    await expect(linkInput).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('.share-dialog-banner-success')).toContainText(
-        `Invitation sent to ${email}.`
+    const result = await page.evaluate(
+        async ({ nextEmail, nextRole }) => {
+            return await (window as any).cloudPlugin.inviteUser(
+                nextEmail,
+                nextRole
+            );
+        },
+        {
+            nextEmail: email,
+            nextRole: role
+        }
     );
-    return await linkInput.inputValue();
+
+    expect(result?.inviteUrl).toBeTruthy();
+    return String(result.inviteUrl);
 }
 
 async function createOwnershipTransferFromShareDialog(
@@ -844,6 +873,20 @@ async function getEditingFontCompileTracker(page: Page): Promise<{
         count: (window as any).__editingFontCompiledCount ?? 0,
         revision: (window as any).__lastEditingFontCompiledRevision ?? -1
     }));
+}
+
+async function getEditingFontCompileEvents(page: Page): Promise<
+    Array<{
+        compilationMode: string | null;
+        changeSource: string | null;
+        editType: string | null;
+        fontRevisionKey: string | null;
+    }>
+> {
+    return page.evaluate(() => {
+        const events = (window as any).__editingFontCompileEvents;
+        return Array.isArray(events) ? [...events] : [];
+    });
 }
 
 async function waitForEditingFontCompileEvent(
@@ -2114,6 +2157,200 @@ test.describe('Local cloud collaboration', () => {
 
         const afterOwner = await getPrimaryNodePosition(ownerPage);
         expect(afterOwner).toEqual(mutation.after);
+
+        await ownerContext.close();
+        await editorContext.close();
+    });
+
+    test('remote cloud outline edits stay on the editing fast path', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const sharedEmail = `fast-path-${Date.now()}@counterpunch.test`;
+        const sourceContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const targetContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const sourcePage = await sourceContext.newPage();
+        const targetPage = await targetContext.newPage();
+
+        await sourcePage.goto('/?test=true');
+        await waitForCanvasReady(sourcePage);
+        await bootstrapCloudSession(sourcePage, sharedEmail);
+        await loadCloudTestFont(sourcePage);
+        await waitForCloudFontModelReady(sourcePage);
+
+        const assetId = await sourcePage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Fast Path ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(sourcePage);
+        await waitForAuthenticatedCloudSession(sourcePage);
+        await focusEditorGlyph(sourcePage, 'A');
+
+        await targetPage.goto('/?test=true');
+        await waitForCanvasReady(targetPage);
+        await bootstrapCloudSession(targetPage, sharedEmail);
+        await targetPage.evaluate(async (nextAssetId) => {
+            await (window as any).cloudPlugin.openAsset(nextAssetId);
+        }, assetId);
+        await waitForFontLoaded(targetPage);
+        await waitForCloudConnected(targetPage);
+        await waitForAuthenticatedCloudSession(targetPage);
+        await focusEditorGlyph(targetPage, 'A');
+
+        await installEditingFontCompileTracker(sourcePage);
+        await installEditingFontCompileTracker(targetPage);
+        await resetEditingFontCompileTracker(sourcePage);
+        await resetEditingFontCompileTracker(targetPage);
+
+        const mutation = await movePrimaryNode(targetPage, 11, 5);
+        await waitForPrimaryNodePosition(sourcePage, mutation.after);
+        await waitForEditingFontCompileEvent(sourcePage, 0);
+        await waitForEditingFontCompileEvent(targetPage, 0);
+        await sourcePage.waitForTimeout(1200);
+        await targetPage.waitForTimeout(1200);
+
+        const sourceCompileEvents =
+            await getEditingFontCompileEvents(sourcePage);
+        const targetCompileEvents =
+            await getEditingFontCompileEvents(targetPage);
+
+        expect(sourceCompileEvents.length).toBeGreaterThan(0);
+        expect(targetCompileEvents.length).toBeGreaterThan(0);
+
+        expect(
+            sourceCompileEvents[0]?.compilationMode,
+            `Source compile events: ${JSON.stringify(sourceCompileEvents)}`
+        ).toBe('outline-only');
+        expect(
+            sourceCompileEvents[0]?.editType,
+            `Source compile events: ${JSON.stringify(sourceCompileEvents)}`
+        ).toBe('outline');
+        expect(
+            sourceCompileEvents[0]?.changeSource,
+            `Source compile events: ${JSON.stringify(sourceCompileEvents)}`
+        ).not.toBe('remote-change');
+        expect(
+            sourceCompileEvents.some(
+                (event) => event.compilationMode === 'full'
+            ),
+            `Source compile events: ${JSON.stringify(sourceCompileEvents)}`
+        ).toBe(false);
+
+        expect(
+            targetCompileEvents.some(
+                (event) => event.compilationMode === 'outline-only'
+            ),
+            `Target compile events: ${JSON.stringify(targetCompileEvents)}`
+        ).toBe(true);
+        expect(
+            targetCompileEvents[0]?.compilationMode,
+            `Target compile events: ${JSON.stringify(targetCompileEvents)}`
+        ).not.toBe('full');
+
+        await sourceContext.close();
+        await targetContext.close();
+    });
+
+    test('multi-user cloud outline edits stay on the editing fast path', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const ownerEmail = `owner-fast-path-${Date.now()}@counterpunch.test`;
+        const editorEmail = `editor-fast-path-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const editorContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+        const editorPage = await editorContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+        await loadCloudTestFont(ownerPage);
+        await waitForCloudFontModelReady(ownerPage);
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Multi User Fast Path ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+        await focusEditorGlyph(ownerPage, 'A');
+
+        await editorPage.goto('/?test=true');
+        await waitForCanvasReady(editorPage);
+        await bootstrapCloudSession(editorPage, editorEmail);
+
+        const inviteUrl = await createInvitationFromShareDialog(
+            ownerPage,
+            editorEmail,
+            'editor'
+        );
+
+        await acceptInvitationAndOpenEditor(editorPage, inviteUrl);
+        await focusEditorGlyph(editorPage, 'A');
+
+        await installEditingFontCompileTracker(ownerPage);
+        await installEditingFontCompileTracker(editorPage);
+        await resetEditingFontCompileTracker(ownerPage);
+        await resetEditingFontCompileTracker(editorPage);
+
+        const mutation = await movePrimaryNode(editorPage, 11, 5);
+        await waitForPrimaryNodePosition(ownerPage, mutation.after);
+        await waitForEditingFontCompileEvent(ownerPage, 0);
+        await waitForEditingFontCompileEvent(editorPage, 0);
+        await ownerPage.waitForTimeout(1200);
+        await editorPage.waitForTimeout(1200);
+
+        const ownerCompileEvents = await getEditingFontCompileEvents(ownerPage);
+        const editorCompileEvents =
+            await getEditingFontCompileEvents(editorPage);
+
+        expect(ownerCompileEvents.length).toBeGreaterThan(0);
+        expect(editorCompileEvents.length).toBeGreaterThan(0);
+
+        expect(
+            ownerCompileEvents[0]?.compilationMode,
+            `Owner compile events: ${JSON.stringify(ownerCompileEvents)}`
+        ).toBe('outline-only');
+        expect(
+            ownerCompileEvents[0]?.editType,
+            `Owner compile events: ${JSON.stringify(ownerCompileEvents)}`
+        ).toBe('outline');
+        expect(
+            ownerCompileEvents[0]?.changeSource,
+            `Owner compile events: ${JSON.stringify(ownerCompileEvents)}`
+        ).not.toBe('remote-change');
+        expect(
+            ownerCompileEvents.some(
+                (event) => event.compilationMode === 'full'
+            ),
+            `Owner compile events: ${JSON.stringify(ownerCompileEvents)}`
+        ).toBe(false);
+
+        expect(
+            editorCompileEvents.some(
+                (event) => event.compilationMode === 'outline-only'
+            ),
+            `Editor compile events: ${JSON.stringify(editorCompileEvents)}`
+        ).toBe(true);
+        expect(
+            editorCompileEvents[0]?.compilationMode,
+            `Editor compile events: ${JSON.stringify(editorCompileEvents)}`
+        ).not.toBe('full');
 
         await ownerContext.close();
         await editorContext.close();
