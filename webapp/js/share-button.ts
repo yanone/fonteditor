@@ -25,6 +25,7 @@ let shareDialogOverlay: HTMLDivElement | null = null;
 let shareDialogDocumentListenerAttached = false;
 
 type ShareRole = 'editor' | 'viewer';
+type PreviousOwnerPolicy = ShareRole | 'remove';
 
 type ShareDialogState = {
     isOpen: boolean;
@@ -36,7 +37,7 @@ type ShareDialogState = {
     inviteEmail: string;
     inviteRole: ShareRole;
     transferEmail: string;
-    previousOwnerRole: ShareRole;
+    previousOwnerRole: PreviousOwnerPolicy;
     latestInviteUrl: string | null;
     latestTransferUrl: string | null;
 };
@@ -85,6 +86,15 @@ function formatRole(role: string | null | undefined): string {
         return 'Unknown';
     }
     return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+function formatPreviousOwnerPolicy(
+    policy: PreviousOwnerPolicy | null | undefined
+): string {
+    if (policy === 'remove') {
+        return 'Removed entirely';
+    }
+    return `Kept as ${formatRole(policy)}`;
 }
 
 function renderMemberRow(
@@ -152,7 +162,7 @@ function renderOwnershipTransferCard(
             <div class="share-dialog-banner-copy">
                 <strong>Pending transfer to ${escapeHtml(ownershipTransfer.email)}</strong>
                 <div class="share-dialog-banner-detail">
-                    You will keep ${escapeHtml(formatRole(ownershipTransfer.previousOwnerRole))} access
+                    ${escapeHtml(formatPreviousOwnerPolicy(ownershipTransfer.previousOwnerRole))}
                     ${ownershipTransfer.targetUserEmail ? ` · Matches ${escapeHtml(ownershipTransfer.targetUserEmail)}` : ''}
                     · Requested ${escapeHtml(formatTimestamp(ownershipTransfer.createdAt))}
                     ${ownershipTransfer.expiresAt ? ` · Expires ${escapeHtml(formatTimestamp(ownershipTransfer.expiresAt))}` : ''}
@@ -257,7 +267,7 @@ function renderShareDialog(): void {
                         <section class="share-dialog-section">
                             <div class="share-dialog-section-header">
                                 <h3>Transfer ownership</h3>
-                                <p>Send a transfer request to another email. If they accept, you keep the selected fallback role.</p>
+                                <p>Send a transfer request to another email. If they accept, you keep the selected access or are removed entirely.</p>
                             </div>
                             ${ownershipTransfer ? renderOwnershipTransferCard(ownershipTransfer) : '<div class="share-dialog-banner share-dialog-banner-info"><div class="share-dialog-banner-copy"><strong>No pending transfer</strong><div class="share-dialog-banner-detail">Ownership stays unchanged until someone accepts a transfer request.</div></div></div>'}
                             <form class="share-dialog-transfer-form">
@@ -265,6 +275,7 @@ function renderShareDialog(): void {
                                 <select class="share-dialog-select" name="previousOwnerRole" ${shareDialogState.isSubmitting ? 'disabled' : ''}>
                                     <option value="editor" ${shareDialogState.previousOwnerRole === 'editor' ? 'selected' : ''}>Keep me as editor</option>
                                     <option value="viewer" ${shareDialogState.previousOwnerRole === 'viewer' ? 'selected' : ''}>Keep me as viewer</option>
+                                    <option value="remove" ${shareDialogState.previousOwnerRole === 'remove' ? 'selected' : ''}>Remove me entirely</option>
                                 </select>
                                 <button type="submit" class="share-dialog-primary-button" ${shareDialogState.isSubmitting ? 'disabled' : ''}>${shareDialogState.isSubmitting ? 'Sending…' : ownershipTransfer ? 'Replace transfer' : 'Request transfer'}</button>
                             </form>
@@ -539,7 +550,7 @@ async function handleTransferSubmit(form: HTMLFormElement): Promise<void> {
     const email = String(formData.get('email') || '').trim();
     const previousOwnerRole = String(
         formData.get('previousOwnerRole') || 'editor'
-    ) as ShareRole;
+    ) as PreviousOwnerPolicy;
     if (!email) {
         shareDialogState.error =
             'Enter an email address to request an ownership transfer.';

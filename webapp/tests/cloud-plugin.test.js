@@ -453,7 +453,7 @@ describe('CloudPlugin sharing APIs', () => {
                         email: 'new-owner@example.com',
                         targetUserId: 'user-3',
                         targetUserEmail: 'new-owner@example.com',
-                        previousOwnerRole: 'viewer',
+                        previousOwnerRole: 'remove',
                         sourceOwnerUserId: 'user-1',
                         sourceOwnerEmail: 'owner@example.com',
                         createdAt: 1,
@@ -469,7 +469,7 @@ describe('CloudPlugin sharing APIs', () => {
 
         const result = await plugin.createOwnershipTransfer(
             'new-owner@example.com',
-            'viewer'
+            'remove'
         );
         await plugin.cancelOwnershipTransfer();
 
@@ -484,7 +484,7 @@ describe('CloudPlugin sharing APIs', () => {
                 method: 'POST',
                 body: JSON.stringify({
                     email: 'new-owner@example.com',
-                    previousOwnerRole: 'viewer'
+                    previousOwnerRole: 'remove'
                 })
             })
         );

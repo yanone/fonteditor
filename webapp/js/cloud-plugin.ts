@@ -544,7 +544,7 @@ export interface CloudOwnershipTransfer {
     email: string;
     targetUserId: string | null;
     targetUserEmail: string | null;
-    previousOwnerRole: 'editor' | 'viewer';
+    previousOwnerRole: 'editor' | 'viewer' | 'remove';
     sourceOwnerUserId: string;
     sourceOwnerEmail: string | null;
     createdAt: number;
@@ -1092,7 +1092,7 @@ export class CloudPlugin extends FilesystemPlugin {
 
     async createOwnershipTransfer(
         email: string,
-        previousOwnerRole: 'editor' | 'viewer',
+        previousOwnerRole: 'editor' | 'viewer' | 'remove',
         assetId?: string
     ): Promise<{
         ownershipTransfer: CloudOwnershipTransfer;
