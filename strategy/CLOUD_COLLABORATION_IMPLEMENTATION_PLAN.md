@@ -450,15 +450,31 @@ new safety features.
 
 ### Tasks
 
-- [ ] Coalesce alarm scheduling to avoid unnecessary storage writes.
-- [ ] Avoid rescheduling alarms when an earlier suitable alarm already exists.
-- [ ] Keep debug endpoints non-polling and admin-only.
-- [ ] Keep D1 out of the high-frequency live update path.
-- [ ] Keep R2 Standard storage for current operational checkpoints.
-- [ ] Add lifecycle cleanup rules for temporary, quarantine, and migration
+### Already Satisfied
+
+- [x] Keep debug endpoints non-polling and admin-only.
+- [x] Keep D1 out of the high-frequency live update path.
+- [x] Prune superseded operational checkpoint objects while protecting the
+      retained generations and current manifest target.
+
+### Worker Scheduling
+
+- [x] Coalesce checkpoint alarm scheduling to avoid unnecessary storage writes.
+- [x] Skip alarm reschedules when the existing alarm already fires early
+      enough.
+
+### Storage And Lifecycle Policy
+
+- [x] Keep current operational checkpoints in R2 Standard storage.
+- [x] Add lifecycle cleanup rules for temporary, quarantine, and migration
       objects.
-- [ ] Add retention cleanup for superseded operational checkpoints.
-- [ ] Add policy hooks for future plan-based snapshot retention windows.
+
+### Retention Hooks
+
+- [x] Route checkpoint retention policy through entitlement or policy helpers
+      instead of hard-coded cleanup assumptions.
+- [x] Add future plan-based snapshot retention windows without reopening the
+      checkpoint cleanup algorithm.
 
 ## Execution Order
 
@@ -483,13 +499,13 @@ Recommended implementation order:
 
 Minimum gate for shipping sharing:
 
-- [ ] Signed website sessions are live.
-- [ ] Signed room tokens are live.
-- [ ] Room runtime enforces owner/editor/viewer.
-- [ ] Invitation flow works end to end.
-- [ ] Viewer mode is server-enforced.
+- [x] Signed website sessions are live.
+- [x] Signed room tokens are live.
+- [x] Room runtime enforces owner/editor/viewer.
+- [x] Invitation flow works end to end.
+- [x] Viewer mode is server-enforced.
 - [x] Ownership transfer is implemented and quota-aware.
-- [ ] Debug endpoints are locked down.
+- [x] Debug endpoints are locked down.
 
 Minimum gate for shipping integrity hardening:
 
