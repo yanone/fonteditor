@@ -12,6 +12,15 @@ type AuthUser = {
 
 type AuthSubscription = {
     isAdvanced?: boolean;
+    canUseAssistant?: boolean;
+    canUseAgent?: boolean;
+    productId?: string | null;
+    [key: string]: unknown;
+};
+
+type AuthCapabilities = {
+    canUseAssistant?: boolean;
+    canUseAgent?: boolean;
     [key: string]: unknown;
 };
 
@@ -145,11 +154,19 @@ class AuthManager {
                 const data = (await response.json()) as {
                     user: AuthUser;
                     subscription: AuthSubscription;
+                    capabilities?: AuthCapabilities;
                     credits: AuthCredits;
                 };
                 console.log('[Auth] API response data:', data);
                 this.user = data.user;
-                this.subscription = data.subscription;
+                this.subscription = data.subscription
+                    ? {
+                          ...data.subscription,
+                          ...data.capabilities
+                      }
+                    : data.capabilities
+                      ? { ...data.capabilities }
+                      : null;
                 this.credits = data.credits;
                 console.log('[Auth] User authenticated:', this.user.email);
                 console.log('[Auth] Subscription:', this.subscription);
@@ -397,9 +414,9 @@ class AuthManager {
 
             // Display email and subscription status
             let statusText = user.email ?? '';
-            if (subscription && subscription.isAdvanced) {
+            if (subscription?.isAdvanced) {
                 statusText += ' • Advanced';
-            } else if (subscription) {
+            } else if (subscription?.productId) {
                 statusText += ' • Basic';
             } else {
                 statusText += ' • No subscription';
@@ -414,7 +431,7 @@ class AuthManager {
                         ? ' • Overage enabled'
                         : '';
                     creditsEl.textContent = `€${euros} credits remaining${overageText}`;
-                } else if (subscription && subscription.isAdvanced) {
+                } else if (subscription?.isAdvanced) {
                     creditsEl.textContent = 'Loading credits...';
                 } else {
                     creditsEl.textContent = '';

@@ -310,6 +310,10 @@ class AIAssistant {
         this.updateAuthUI();
     }
 
+    canUseAssistant() {
+        return this.subscription?.canUseAssistant === true;
+    }
+
     updateAuthUI() {
         const chatContainer = document.getElementById('ai-chat-container');
         const loginContainer = document.getElementById('ai-login-container');
@@ -324,7 +328,7 @@ class AIAssistant {
             chatContainer.style.display = 'none';
             loginContainer.style.display = 'flex';
             subscriptionContainer.style.display = 'none';
-        } else if (!this.subscription || !this.subscription.isAdvanced) {
+        } else if (!this.canUseAssistant()) {
             // Logged in but no Advanced subscription - show upgrade message
             chatContainer.style.display = 'none';
             loginContainer.style.display = 'none';
@@ -1936,10 +1940,10 @@ ${errorTraceback}
         }
 
         // Check subscription
-        if (!this.subscription || !this.subscription.isAdvanced) {
+        if (!this.canUseAssistant()) {
             if (
                 confirm(
-                    'You need an Advanced subscription to use the AI assistant. Subscribe now?'
+                    'AI assistant access is not available for this account. Open pricing anyway?'
                 )
             ) {
                 window.open(`${this.websiteURL}/pricing`, '_blank');

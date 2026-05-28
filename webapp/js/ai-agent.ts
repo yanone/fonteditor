@@ -71,6 +71,10 @@ class AIAgent {
         this.checkAuthenticationStatus();
     }
 
+    canUseAgent() {
+        return this.subscription?.canUseAgent === true;
+    }
+
     getWebsiteURL() {
         return resolveWebsiteURL();
     }
@@ -115,7 +119,7 @@ class AIAgent {
             chatContainer.style.display = 'none';
             loginContainer.style.display = 'flex';
             subscriptionContainer.style.display = 'none';
-        } else if (!this.subscription || !this.subscription.isAdvanced) {
+        } else if (!this.canUseAgent()) {
             chatContainer.style.display = 'none';
             loginContainer.style.display = 'none';
             subscriptionContainer.style.display = 'flex';

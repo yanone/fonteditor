@@ -20,6 +20,10 @@ type ChatSessionResponse = {
     messages: Array<{ role: string; content: string }>;
 };
 
+type LoadChatSessionOptions = {
+    suppressAlert?: boolean;
+};
+
 class ChatSessionManager {
     aiAssistant: any;
     currentChatId: string | null;
@@ -321,7 +325,10 @@ class ChatSessionManager {
     /**
      * Load a chat session from history
      */
-    async loadChatSession(chatId: string): Promise<void> {
+    async loadChatSession(
+        chatId: string,
+        options: LoadChatSessionOptions = {}
+    ): Promise<boolean> {
         try {
             const sessionToken = window.authManager
                 ? window.authManager.getSessionToken()
@@ -456,11 +463,15 @@ class ChatSessionManager {
                 }
                 console.log(`[ChatSession] Loaded chat: ${chatId}`);
             }
+            return true;
         } catch (error) {
             const message =
                 error instanceof Error ? error.message : String(error);
             console.error('[ChatSession] Failed to load chat session:', error);
-            alert(`Failed to load chat: ${message}`);
+            if (!options.suppressAlert) {
+                alert(`Failed to load chat: ${message}`);
+            }
+            return false;
         }
     }
 
@@ -475,20 +486,20 @@ class ChatSessionManager {
             if (savedChatId) {
                 // Try to load the saved chat
                 console.log(`[ChatSession] Loading saved chat: ${savedChatId}`);
-                try {
-                    await this.loadChatSession(savedChatId);
+                const loaded = await this.loadChatSession(savedChatId, {
+                    suppressAlert: true
+                });
+                if (loaded) {
                     return; // Successfully loaded saved chat
-                } catch (error) {
-                    const message =
-                        error instanceof Error ? error.message : String(error);
-                    console.log(
-                        '[ChatSession] Saved chat not available, falling back to last chat:',
-                        message
-                    );
-                    // Clear invalid chat ID from localStorage
-                    localStorage.removeItem('ai_last_chat_id');
-                    // Continue to load chronologically last chat
                 }
+
+                console.log(
+                    '[ChatSession] Saved chat not available, falling back to last chat:',
+                    savedChatId
+                );
+                // Clear invalid chat ID from localStorage
+                localStorage.removeItem('ai_last_chat_id');
+                // Continue to load chronologically last chat
             }
 
             // Fall back to loading chronologically last chat from API
