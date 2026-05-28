@@ -51,13 +51,20 @@ class AuthManager {
     credits: AuthCredits | null;
     sessionToken: string | null = null;
     private localCloudBootstrapPromise: Promise<AuthUser | null> | null = null;
+    private initialAuthBootstrapPromise: Promise<void> | null = null;
 
     constructor() {
         this.websiteURL = this.getWebsiteURL();
         this.user = null;
         this.subscription = null;
         this.credits = null;
-        this.checkURLForSessionToken();
+        this.initialAuthBootstrapPromise = this.checkURLForSessionToken()
+            .catch((error) => {
+                console.error('[Auth] URL auth bootstrap failed:', error);
+            })
+            .finally(() => {
+                this.initialAuthBootstrapPromise = null;
+            });
 
         this.checkAuthStatus();
 
@@ -73,9 +80,44 @@ class AuthManager {
     /**
      * Check URL for session token passed from login redirect
      */
-    checkURLForSessionToken() {
+    async checkURLForSessionToken(): Promise<void> {
         const urlParams = new URLSearchParams(window.location.search);
+        const handoffCode = urlParams.get('handoff');
         const sessionToken = urlParams.get('session');
+
+        if (handoffCode) {
+            console.log('[Auth] Auth handoff code found in URL');
+            try {
+                const response = await fetch(
+                    `${this.websiteURL}/api/auth/exchange-handoff`,
+                    {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ code: handoffCode })
+                    }
+                );
+
+                if (!response.ok) {
+                    const body = await response.text().catch(() => '');
+                    throw new Error(
+                        `auth handoff exchange failed: ${response.status} ${body}`
+                    );
+                }
+
+                const data = (await response.json()) as {
+                    sessionToken?: string;
+                };
+                if (typeof data.sessionToken === 'string') {
+                    this.storeEditorSessionToken(data.sessionToken);
+                }
+            } finally {
+                urlParams.delete('handoff');
+                urlParams.delete('session');
+                this.replaceUrlAuthParams(urlParams);
+            }
+            return;
+        }
 
         if (sessionToken) {
             console.log(
@@ -83,14 +125,7 @@ class AuthManager {
                 sessionToken.substring(0, 20) + '...'
             );
 
-            // Store token in cookie for this domain
-            // Use Secure only on HTTPS, otherwise it will fail
-            const isSecure = window.location.protocol === 'https:';
-            const secureFlag = isSecure ? 'Secure; ' : '';
-            const cookieString = `editor_session=${sessionToken}; ${secureFlag}SameSite=Lax; Max-Age=2592000; Path=/`;
-
-            document.cookie = cookieString;
-            this.sessionToken = sessionToken;
+            this.storeEditorSessionToken(sessionToken);
 
             console.log('[Auth] Cookie set, verifying...');
             const verification = this.getSessionToken();
@@ -101,14 +136,32 @@ class AuthManager {
 
             // Clean up URL
             urlParams.delete('session');
-            const newURL =
-                window.location.pathname +
-                (urlParams.toString() ? '?' + urlParams.toString() : '') +
-                window.location.hash;
-            window.history.replaceState({}, '', newURL);
+            this.replaceUrlAuthParams(urlParams);
         } else {
             console.log('[Auth] No session token in URL');
         }
+    }
+
+    private replaceUrlAuthParams(urlParams: URLSearchParams): void {
+        const newURL =
+            window.location.pathname +
+            (urlParams.toString() ? '?' + urlParams.toString() : '') +
+            window.location.hash;
+        window.history.replaceState({}, '', newURL);
+    }
+
+    private storeEditorSessionToken(sessionToken: string): void {
+        const isLocalHost =
+            window.location.hostname === 'localhost' ||
+            window.location.hostname === '127.0.0.1';
+        const secureFlag =
+            window.location.protocol === 'https:' && !isLocalHost
+                ? 'Secure; '
+                : '';
+        const cookieString = `editor_session=${sessionToken}; ${secureFlag}SameSite=Lax; Max-Age=2592000; Path=/`;
+
+        document.cookie = cookieString;
+        this.sessionToken = sessionToken;
     }
 
     getWebsiteURL(): string {
@@ -123,6 +176,10 @@ class AuthManager {
      * Check current authentication status with the website
      */
     async checkAuthStatus(): Promise<AuthUser | null> {
+        if (this.initialAuthBootstrapPromise) {
+            await this.initialAuthBootstrapPromise;
+        }
+
         try {
             // Use already-set session token or read from cookie
             const sessionToken = this.sessionToken || this.getSessionToken();
@@ -282,18 +339,7 @@ class AuthManager {
 
             const data = (await response.json()) as LocalCloudBootstrapResponse;
 
-            const isLocalHost =
-                window.location.hostname === 'localhost' ||
-                window.location.hostname === '127.0.0.1';
-            const secureFlag =
-                window.location.protocol === 'https:' && !isLocalHost
-                    ? 'Secure; '
-                    : '';
-            document.cookie =
-                `editor_session=${data.sessionToken}; ${secureFlag}` +
-                'SameSite=Lax; Max-Age=2592000; Path=/';
-
-            this.sessionToken = data.sessionToken;
+            this.storeEditorSessionToken(data.sessionToken);
 
             return await this.checkAuthStatus();
         })();

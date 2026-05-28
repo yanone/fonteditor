@@ -754,6 +754,15 @@ export class CloudAdapter implements FileSystemAdapter {
                         CLIENT_RECONNECT_CLOSE_CODE,
                         'server-error'
                     );
+                } else if (
+                    detail === 'Access epoch is stale' ||
+                    detail === 'Write access requires owner or editor role'
+                ) {
+                    this._setStatus('error', detail);
+                    this._ws?.close(
+                        CLIENT_RECONNECT_CLOSE_CODE,
+                        'server-access-change'
+                    );
                 }
                 break;
             }

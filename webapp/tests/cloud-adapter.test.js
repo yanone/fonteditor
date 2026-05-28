@@ -775,4 +775,60 @@ describe('CloudAdapter durability failures', () => {
         });
         expect(close).toHaveBeenCalledWith(4000, 'server-error');
     });
+
+    it('forces a reconnect when the room reports stale access', () => {
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const close = jest.fn();
+        adapter._ws = {
+            readyState: 1,
+            close
+        };
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'error',
+                message: 'Access epoch is stale'
+            })
+        );
+
+        expect(statuses).toContainEqual({
+            status: 'error',
+            detail: 'Access epoch is stale'
+        });
+        expect(close).toHaveBeenCalledWith(4000, 'server-access-change');
+    });
+
+    it('forces a reconnect when the room revokes write access', () => {
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const close = jest.fn();
+        adapter._ws = {
+            readyState: 1,
+            close
+        };
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'error',
+                message: 'Write access requires owner or editor role'
+            })
+        );
+
+        expect(statuses).toContainEqual({
+            status: 'error',
+            detail: 'Write access requires owner or editor role'
+        });
+        expect(close).toHaveBeenCalledWith(4000, 'server-access-change');
+    });
 });

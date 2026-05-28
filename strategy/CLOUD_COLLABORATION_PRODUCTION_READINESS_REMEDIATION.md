@@ -77,21 +77,21 @@ Use explicit environment-scoped origin policy.
 
 ### Implementation Checklist
 
-- [ ] Add a shared origin normalization helper in the website, or a small local
+- [x] Add a shared origin normalization helper in the website, or a small local
       helper near `_middleware.js`, that accepts localhost only in local/dev
       mode.
-- [ ] Replace the unconditional localhost allowance in
+- [x] Replace the unconditional localhost allowance in
       `../website/functions/_middleware.js` with the environment-gated helper.
-- [ ] Replace the unconditional localhost allowance in
+- [x] Replace the unconditional localhost allowance in
       `../collab/collab/src/index.js` with the same rule.
-- [ ] Add a production default deny behavior for unknown origins: no
+- [x] Add a production default deny behavior for unknown origins: no
       `Access-Control-Allow-Origin`, no `Access-Control-Allow-Credentials`, and
       no useful preflight grant.
 - [ ] Keep local worktree support by setting `LOCAL_DEV=true` in local wrangler
       state and local Playwright helpers.
-- [ ] Remove or reduce auth-token prefix logging in middleware so production
+- [x] Remove or reduce auth-token prefix logging in middleware so production
       logs do not contain reusable token material.
-- [ ] Confirm website session cookies include `HttpOnly`, `Secure`, and an
+- [x] Confirm website session cookies include `HttpOnly`, `Secure`, and an
       intentionally chosen `SameSite` value.
 - [ ] If cross-site editor handoff still requires `SameSite=None`, document why
       and ensure it is paired with strict origin checks.
@@ -104,14 +104,14 @@ Use explicit environment-scoped origin policy.
       `https://editor.counterpunch.space`.
 - [ ] Add website middleware tests: local/dev accepts localhost worktree
       origins.
-- [ ] Add room-worker tests: production rejects localhost websocket origins.
-- [ ] Add room-worker tests: local/dev accepts localhost websocket origins.
+- [x] Add room-worker tests: production rejects localhost websocket origins.
+- [x] Add room-worker tests: local/dev accepts localhost websocket origins.
 - [ ] Add a staging smoke test that calls a credentialed website endpoint from
       an unlisted origin and verifies that the browser cannot read the response.
 
 ### Done When
 
-- [ ] Production has no credentialed localhost CORS path.
+- [x] Production has no credentialed localhost CORS path.
 - [ ] Local Playwright collaboration tests still work without hard-coded
       production exceptions.
 - [ ] The policy is documented in deployment configuration.
@@ -153,40 +153,40 @@ Stage 2 removes session tokens from URLs entirely:
 
 ### Implementation Checklist
 
-- [ ] Add `isAllowedAuthRedirect(returnTo, request, env)`.
-- [ ] Allow only same-origin relative paths by default.
-- [ ] Allow editor origins only from a configured allowlist.
-- [ ] Reject protocol-relative URLs, invalid URLs, non-HTTP(S) schemes, and
+- [x] Add `isAllowedAuthRedirect(returnTo, request, env)`.
+- [x] Allow only same-origin relative paths by default.
+- [x] Allow editor origins only from a configured allowlist.
+- [x] Reject protocol-relative URLs, invalid URLs, non-HTTP(S) schemes, and
       origins outside the allowlist.
-- [ ] Store a normalized redirect target, not the raw input.
-- [ ] Update `request-login.js` to validate before inserting `auth_tokens`.
-- [ ] Update `verify.js` to revalidate stored `return_to` before redirecting.
-- [ ] Add `auth_handoff_tokens` or equivalent D1 table for one-time editor
+- [x] Store a normalized redirect target, not the raw input.
+- [x] Update `request-login.js` to validate before inserting `auth_tokens`.
+- [x] Update `verify.js` to revalidate stored `return_to` before redirecting.
+- [x] Add `auth_handoff_tokens` or equivalent D1 table for one-time editor
       handoff codes.
-- [ ] Add a `POST /api/auth/exchange-handoff` endpoint that checks origin,
+- [x] Add a `POST /api/auth/exchange-handoff` endpoint that checks origin,
       expiry, target origin, and used state before returning a session token.
-- [ ] Update the editor to consume handoff codes rather than `?session=`.
+- [x] Update the editor to consume handoff codes rather than `?session=`.
 - [ ] Remove session-token query logging and scrub any existing debug logs that
       print redirect URLs with tokens.
 - [ ] Add cleanup for expired handoff tokens.
 
 ### Test Checklist
 
-- [ ] Unit test that arbitrary `https://evil.example` return targets are
+- [x] Unit test that arbitrary `https://evil.example` return targets are
       rejected or coerced.
 - [ ] Unit test that `javascript:`, `data:`, and protocol-relative redirect
       values are rejected.
 - [ ] Unit test that configured editor origins are accepted.
-- [ ] Unit test that `verify.js` refuses an invalid stored `return_to`, even if
+- [x] Unit test that `verify.js` refuses an invalid stored `return_to`, even if
       it somehow reached D1.
-- [ ] Unit test that a handoff code can be exchanged once.
-- [ ] Unit test that a handoff code cannot be exchanged from the wrong origin.
+- [x] Unit test that a handoff code can be exchanged once.
+- [x] Unit test that a handoff code cannot be exchanged from the wrong origin.
 - [ ] Playwright test for website login to editor using the handoff-code flow.
 
 ### Done When
 
-- [ ] No fresh session token is ever appended to an arbitrary URL.
-- [ ] No production code path requires a reusable session token in a query
+- [x] No fresh session token is ever appended to an arbitrary URL.
+- [x] No production code path requires a reusable session token in a query
       string.
 - [ ] The editor login flow still works for production, preview, and local dev.
 
@@ -222,32 +222,32 @@ Make access epoch propagation durable and observable.
 
 ### Implementation Checklist
 
-- [ ] Add an `asset_access_epoch_notifications` table with `id`, `asset_id`,
+- [x] Add an `asset_access_epoch_notifications` table with `id`, `asset_id`,
       `access_epoch`, `reason`, `status`, `attempt_count`, `last_error`,
       `created_at`, `updated_at`, and `next_attempt_at`.
-- [ ] Wrap membership mutation and notification enqueue in one D1 batch or
+- [x] Wrap membership mutation and notification enqueue in one D1 batch or
       transaction-equivalent flow.
-- [ ] Change `notifyRoomAccessEpoch` from best-effort side effect to a delivery
+- [x] Change `notifyRoomAccessEpoch` from best-effort side effect to a delivery
       function that records success/failure against the notification row.
-- [ ] Add a retry worker path. Options: a scheduled Worker, a website admin
+- [x] Add a retry worker path. Options: a scheduled Worker, a website admin
       repair endpoint, or a queue-style Durable Object for access notifications.
 - [ ] Make role demotion and removal return an explicit warning or pending
       state if the DO could not be reached immediately.
 - [ ] Ensure `/room-token` always issues tokens with the latest D1
       `access_epoch`.
-- [ ] Teach the editor to close or reconnect when it receives stale-access or
+- [x] Teach the editor to close or reconnect when it receives stale-access or
       role-change errors.
 - [ ] Add room status fields for current access epoch and last access-control
       notification time.
-- [ ] Add admin tooling to replay pending access epoch notifications.
+- [x] Add admin tooling to replay pending access epoch notifications.
 
 ### Test Checklist
 
-- [ ] Website unit test: member removal enqueues access notification in the same
+- [x] Website unit test: member removal enqueues access notification in the same
       flow as the membership delete.
-- [ ] Website unit test: role demotion enqueues notification.
-- [ ] Website unit test: invitation acceptance enqueues notification.
-- [ ] Room-worker unit test: control request advances epoch and closes stale
+- [x] Website unit test: role demotion enqueues notification.
+- [x] Website unit test: invitation acceptance enqueues notification.
+- [x] Room-worker unit test: control request advances epoch and closes stale
       editor sockets.
 - [ ] Integration test: if initial notify fails, retry later closes the stale
       socket.
@@ -291,19 +291,19 @@ Bound chunk upload state at every layer.
 
 ### Implementation Checklist
 
-- [ ] Add constants such as `MAX_SYNC_UPLOAD_CHUNKS`,
+- [x] Add constants such as `MAX_SYNC_UPLOAD_CHUNKS`,
       `MAX_SYNC_UPLOAD_BYTES`, `MAX_SYNC_CHUNK_BASE64_BYTES`, and
       `SYNC_CHUNK_TTL_MS`.
-- [ ] Extend `_clientChunks` state to include `createdAt`, `updatedAt`, and
+- [x] Extend `_clientChunks` state to include `createdAt`, `updatedAt`, and
       `totalBytes`.
-- [ ] Reject `sync-chunk` from viewers before decoding and storing the chunk.
-- [ ] Reject chunk descriptors whose `totalChunks` exceeds the max.
-- [ ] Reject individual base64 frames above the configured max.
-- [ ] Track decoded bytes as chunks arrive and reject once the total exceeds the
+- [x] Reject `sync-chunk` from viewers before decoding and storing the chunk.
+- [x] Reject chunk descriptors whose `totalChunks` exceeds the max.
+- [x] Reject individual base64 frames above the configured max.
+- [x] Track decoded bytes as chunks arrive and reject once the total exceeds the
       max.
-- [ ] Clear pending chunks for the client in `webSocketClose` and
+- [x] Clear pending chunks for the client in `webSocketClose` and
       `webSocketError`.
-- [ ] Clear stale pending chunks opportunistically before accepting a new chunk.
+- [x] Clear stale pending chunks opportunistically before accepting a new chunk.
 - [ ] Add operational event counters for chunk-limit rejection and chunk-timeout
       cleanup.
 - [ ] Document the configured limits in the room-worker README or strategy
@@ -311,12 +311,12 @@ Bound chunk upload state at every layer.
 
 ### Test Checklist
 
-- [ ] Unit test: viewer `sync-chunk` is rejected and closed.
-- [ ] Unit test: excessive `totalChunks` is rejected.
-- [ ] Unit test: excessive accumulated bytes are rejected.
-- [ ] Unit test: close clears `_clientChunks` for that client.
-- [ ] Unit test: error clears `_clientChunks` for that client.
-- [ ] Unit test: stale chunk state is expired before accepting more chunks.
+- [x] Unit test: viewer `sync-chunk` is rejected and closed.
+- [x] Unit test: excessive `totalChunks` is rejected.
+- [x] Unit test: excessive accumulated bytes are rejected.
+- [x] Unit test: close clears `_clientChunks` for that client.
+- [x] Unit test: error clears `_clientChunks` for that client.
+- [x] Unit test: stale chunk state is expired before accepting more chunks.
 - [ ] Load test: repeated malicious chunk attempts do not grow DO memory
       without bound.
 
@@ -359,22 +359,22 @@ Yjs state.
 
 - [ ] Define the minimum collaboration history required for a fresh client to
       render useful history UI.
-- [ ] Add retention settings such as `MAX_MUTATION_HISTORY_ENVELOPES` and
+- [x] Add retention settings such as `MAX_MUTATION_HISTORY_ENVELOPES` and
       `MAX_MUTATION_HISTORY_BYTES`.
-- [ ] Trim `_mutationBatchHistory` after every append.
+- [x] Trim `_mutationBatchHistory` after every append.
 - [ ] Store `firstRetainedLogId`, `lastRetainedLogId`, and truncation metadata
       in mutation-history snapshots.
-- [ ] Change `sync-response` to send only the retained history tail.
+- [x] Change `sync-response` to send only the retained history tail.
 - [ ] If the editor needs older history, add an explicit paginated history API
       rather than expanding the bootstrap frame.
-- [ ] Ensure checkpoint promotion writes bounded mutation history.
+- [x] Ensure checkpoint promotion writes bounded mutation history.
 - [ ] Ensure checkpoint fallback/reload handles truncated history metadata.
 - [ ] Add room status metrics for retained history count and bytes.
 
 ### Test Checklist
 
-- [ ] Unit test: history is trimmed by envelope count.
-- [ ] Unit test: history is trimmed by byte budget.
+- [x] Unit test: history is trimmed by envelope count.
+- [x] Unit test: history is trimmed by byte budget.
 - [ ] Unit test: sync response never exceeds the configured metadata byte
       budget.
 - [ ] Unit test: checkpoint snapshot stores truncation metadata.

@@ -49,4 +49,46 @@ describe('AuthManager.checkAuthStatus', () => {
         expect(authManager.sessionToken).toBeNull();
         expect(authManager.isAuthenticated()).toBe(false);
     });
+
+    it('exchanges URL handoff codes before checking auth status', async () => {
+        const replaceStateSpy = jest.spyOn(window.history, 'replaceState');
+        window.history.replaceState({}, '', '/?handoff=one-time-code');
+        global.fetch = jest
+            .fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ sessionToken: 'signed-editor-token' })
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    user: { email: 'bootstrap@counterpunch.test' },
+                    subscription: null,
+                    credits: null
+                })
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    user: { email: 'bootstrap@counterpunch.test' },
+                    subscription: null,
+                    credits: null
+                })
+            });
+
+        require('../js/auth-manager');
+
+        const authManager = window.authManager;
+        await authManager.checkAuthStatus();
+
+        expect(global.fetch.mock.calls[0][0]).toBe(
+            'https://counterpunch.space/api/auth/exchange-handoff'
+        );
+        expect(document.cookie).toContain('editor_session=signed-editor-token');
+        expect(replaceStateSpy).toHaveBeenCalled();
+        expect(window.location.search).toBe('');
+    });
 });
