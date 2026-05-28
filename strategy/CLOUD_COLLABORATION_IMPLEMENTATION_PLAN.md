@@ -383,22 +383,65 @@ keeping restore out of scope.
 ## Phase 12: Audit Trail And Observability
 
 Goal: make all access and integrity-sensitive actions auditable and operationally
-visible.
+visible with one event taxonomy, a small derived metrics surface, and alerting
+that does not add writes to the live collaboration hot path.
+
+Scope note: this phase should normalize and operationalize events that already
+exist in parts of the system. It should not introduce per-update logging,
+user-facing audit browsing, or any D1 write in the high-frequency live update
+path.
 
 ### Tasks
 
-- [ ] Define audit event names for sharing, ownership, auth, and checkpoint
+#### Event Schema And Taxonomy
+
+- [x] Define one canonical event envelope with stable core fields such as
+      `eventName`, `timestamp`, `service`, `assetId`, `roomId`, `actorUserId`,
+      `targetUserId`, `requestId`, `outcome`, `errorCode`, and typed `details`.
+- [x] Freeze audit event names for sharing, ownership, auth, and checkpoint
       flows.
-- [ ] Record invite lifecycle audit events.
-- [ ] Record ownership transfer audit events.
-- [ ] Record room-auth failure events.
-- [ ] Record checkpoint candidate, validation, promotion, and prune events.
-- [ ] Add metrics for checkpoint age, dirty journal size, and checkpoint
-      failures.
-- [ ] Add metrics for room load failures and reconnect loops.
-- [ ] Add alerts for repeated validation failures.
-- [ ] Add alerts for repeated checkpoint failures.
-- [ ] Add alerts for storage-full conditions.
+- [x] Define stable reason and error-code vocabularies for auth rejection,
+      invitation failure, transfer failure, validation failure, and storage
+      failure.
+
+#### Event Emitters
+
+- [x] Record invite lifecycle audit events at API success and failure
+      boundaries.
+- [x] Record ownership transfer audit events at create, cancel, accept,
+      decline, and quota-rejection boundaries.
+- [x] Record room-auth failure events with explicit reject reasons and asset or
+      room identifiers.
+- [x] Record checkpoint candidate, validation, degraded-persistence entry,
+      promotion, and prune events.
+- [x] Reuse the existing validation-failure operational event path rather than
+      creating a second parallel channel for the same failure.
+
+#### Metrics
+
+- [x] Derive counters from the event stream for invitation failures, transfer
+      failures, auth rejections, validation failures, and checkpoint failures.
+- [x] Add gauges for checkpoint age, dirty journal size, and rooms currently in
+      degraded persistence.
+- [x] Add metrics for room load failures and reconnect loops.
+- [x] Document the source, cadence, and aggregation owner for every Phase 12
+      metric.
+
+#### Alerts And Runbooks
+
+- [x] Add alerts for repeated validation failures on the same asset or room.
+- [x] Add alerts for repeated checkpoint failures or prolonged degraded
+      persistence.
+- [x] Add alerts for storage-full or quota-exhausted conditions that block
+      checkpoint writes.
+- [x] Attach a short operator runbook or response note to each alert.
+
+#### Guardrails And Tests
+
+- [x] Keep audit and metrics emission out of the high-frequency live update
+      path.
+- [x] Prefer transition-based emission over per-update logging or polling.
+- [x] Add focused tests for the alert-driving event and metric paths.
 
 ## Phase 13: Cost Controls And Retention Cleanup
 
@@ -455,7 +498,7 @@ Minimum gate for shipping integrity hardening:
 - [x] Current plus previous operational checkpoints are retained.
 - [x] Recovery fallback from a prior checkpoint works.
 - [x] Checkpoint promotion is manifest-based and two-phase.
-- [ ] Alerts exist for checkpoint and validation failures.
+- [x] Alerts exist for checkpoint and validation failures.
 
 ## Future Follow-Up After This Plan
 
