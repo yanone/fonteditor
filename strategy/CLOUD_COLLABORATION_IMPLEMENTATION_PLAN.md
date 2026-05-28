@@ -304,26 +304,26 @@ the unpruned journal so users can continue editing toward a repair.
 
 ### Tasks
 
-- [ ] Define the validation boundary on reconstructed candidate font payloads,
+- [x] Define the validation boundary on reconstructed candidate font payloads,
       not on individual live sync updates.
-- [ ] Make runtime validation non-blocking for live collaboration and required
+- [x] Make runtime validation non-blocking for live collaboration and required
       only for checkpoint promotion and destructive prune.
-- [ ] Choose one authoritative runtime parser boundary shared with the editor
-      pipeline, rather than TypeScript-only shape checks.
-- [ ] Validate a reconstructed candidate font payload after candidate checkpoint
+- [x] Use a collab-local Rust validator boundary for now, with a planned later
+      swap to a babelfont-rs validator once one exists upstream.
+- [x] Validate a reconstructed candidate font payload after candidate checkpoint
       write and before promotion.
-- [ ] Add semantic invariants that go beyond raw JSON parse and TypeScript shape
+- [x] Add semantic invariants that go beyond raw JSON parse and TypeScript shape
       validation.
-- [ ] Enter degraded persistence mode on validation failure instead of blocking
+- [x] Enter degraded persistence mode on validation failure instead of blocking
       live sync.
-- [ ] Keep journal rows intact on validation failure.
-- [ ] Preserve the prior known-good operational checkpoint on validation
+- [x] Keep journal rows intact on validation failure.
+- [x] Preserve the prior known-good operational checkpoint on validation
       failure.
-- [ ] Surface degraded persistence status to connected clients so repair can be
+- [x] Surface degraded persistence status to connected clients so repair can be
       guided in the UI later.
-- [ ] Record validation failures as audit or operational events.
-- [ ] Add tests for validation failure preserving logs and prior checkpoints.
-- [ ] Add tests for validation success allowing later promotion and prune.
+- [x] Record validation failures as audit or operational events.
+- [x] Add tests for validation failure preserving logs and prior checkpoints.
+- [x] Add tests for validation success allowing later promotion and prune.
 
 ## Phase 9: Two-Phase Checkpoint Promotion And Retention
 
@@ -333,10 +333,10 @@ short recovery window.
 ### Tasks
 
 - [ ] Write candidate checkpoint objects to immutable R2 keys.
-- [ ] Validate candidate checkpoints before promotion.
-- [ ] Write a checkpoint manifest only after successful validation.
-- [ ] Promote the current manifest pointer only after manifest write succeeds.
-- [ ] Prune journal rows only after current manifest promotion succeeds.
+- [x] Validate candidate checkpoints before promotion.
+- [x] Write a checkpoint manifest only after successful validation.
+- [x] Promote the current manifest pointer only after manifest write succeeds.
+- [x] Prune journal rows only after current manifest promotion succeeds.
 - [ ] Retain at least `current + previous 2` operational checkpoints.
 - [ ] Protect the current manifest target from cleanup.
 - [ ] Add cleanup logic for superseded operational checkpoints beyond retention.
@@ -448,7 +448,7 @@ Minimum gate for shipping sharing:
 
 Minimum gate for shipping integrity hardening:
 
-- [ ] Runtime validation never blocks live sync and blocks destructive prune
+- [x] Runtime validation never blocks live sync and blocks destructive prune
       when candidate snapshots are malformed.
 - [ ] Current plus previous operational checkpoints are retained.
 - [ ] Recovery fallback from a prior checkpoint works.
