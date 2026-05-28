@@ -539,6 +539,18 @@ export interface CloudAssetInvitation {
     resendCount: number;
 }
 
+export interface CloudOwnershipTransfer {
+    id: string;
+    email: string;
+    targetUserId: string | null;
+    targetUserEmail: string | null;
+    previousOwnerRole: 'editor' | 'viewer';
+    sourceOwnerUserId: string;
+    sourceOwnerEmail: string | null;
+    createdAt: number;
+    expiresAt: number | null;
+}
+
 export interface CloudShareState {
     asset: CloudAsset & {
         ownerEmail?: string | null;
@@ -549,6 +561,7 @@ export interface CloudShareState {
     };
     members: CloudAssetMember[];
     invitations: CloudAssetInvitation[];
+    ownershipTransfer: CloudOwnershipTransfer | null;
 }
 
 export class CloudPlugin extends FilesystemPlugin {
@@ -1075,6 +1088,85 @@ export class CloudPlugin extends FilesystemPlugin {
             invitation: data.invitation,
             ...(data.inviteUrl ? { inviteUrl: data.inviteUrl } : {})
         };
+    }
+
+    async createOwnershipTransfer(
+        email: string,
+        previousOwnerRole: 'editor' | 'viewer',
+        assetId?: string
+    ): Promise<{
+        ownershipTransfer: CloudOwnershipTransfer;
+        transferUrl?: string;
+    }> {
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
+        if (!user) {
+            throw new Error('Authentication required');
+        }
+
+        const resolvedAssetId = this._resolveShareAssetId(assetId);
+        const resp = await fetch(
+            `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(resolvedAssetId)}/ownership-transfer`,
+            {
+                method: 'POST',
+                credentials: 'include',
+                headers: getCloudRequestHeaders({
+                    'Content-Type': 'application/json'
+                }),
+                body: JSON.stringify({ email, previousOwnerRole })
+            }
+        );
+
+        const data = (await resp.json().catch(() => ({}))) as {
+            error?: string;
+            ownershipTransfer?: CloudOwnershipTransfer;
+            transferUrl?: string;
+        };
+        if (!resp.ok) {
+            throw new Error(
+                data.error || 'Failed to create ownership transfer'
+            );
+        }
+
+        if (!data.ownershipTransfer) {
+            throw new Error(
+                'Ownership transfer response missing transfer data'
+            );
+        }
+
+        return {
+            ownershipTransfer: data.ownershipTransfer,
+            ...(data.transferUrl ? { transferUrl: data.transferUrl } : {})
+        };
+    }
+
+    async cancelOwnershipTransfer(assetId?: string): Promise<void> {
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
+        if (!user) {
+            throw new Error('Authentication required');
+        }
+
+        const resolvedAssetId = this._resolveShareAssetId(assetId);
+        const resp = await fetch(
+            `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(resolvedAssetId)}/ownership-transfer`,
+            {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: getCloudRequestHeaders()
+            }
+        );
+
+        const data = (await resp.json().catch(() => ({}))) as {
+            error?: string;
+        };
+        if (!resp.ok) {
+            throw new Error(
+                data.error || 'Failed to cancel ownership transfer'
+            );
+        }
     }
 
     async revokeInvitation(

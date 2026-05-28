@@ -6,6 +6,7 @@ import 'tippy.js/dist/tippy.css';
 import type {
     CloudAssetInvitation,
     CloudAssetMember,
+    CloudOwnershipTransfer,
     CloudPlugin,
     CloudShareState
 } from './cloud-plugin';
@@ -34,7 +35,10 @@ type ShareDialogState = {
     shareState: CloudShareState | null;
     inviteEmail: string;
     inviteRole: ShareRole;
+    transferEmail: string;
+    previousOwnerRole: ShareRole;
     latestInviteUrl: string | null;
+    latestTransferUrl: string | null;
 };
 
 let shareDialogState: ShareDialogState = {
@@ -46,7 +50,10 @@ let shareDialogState: ShareDialogState = {
     shareState: null,
     inviteEmail: '',
     inviteRole: 'editor',
-    latestInviteUrl: null
+    transferEmail: '',
+    previousOwnerRole: 'editor',
+    latestInviteUrl: null,
+    latestTransferUrl: null
 };
 
 function getCloudPlugin(): CloudPlugin | null {
@@ -137,6 +144,25 @@ function renderInvitationRow(
     `;
 }
 
+function renderOwnershipTransferCard(
+    ownershipTransfer: CloudOwnershipTransfer
+): string {
+    return `
+        <div class="share-dialog-banner share-dialog-banner-info">
+            <div class="share-dialog-banner-copy">
+                <strong>Pending transfer to ${escapeHtml(ownershipTransfer.email)}</strong>
+                <div class="share-dialog-banner-detail">
+                    You will keep ${escapeHtml(formatRole(ownershipTransfer.previousOwnerRole))} access
+                    ${ownershipTransfer.targetUserEmail ? ` · Matches ${escapeHtml(ownershipTransfer.targetUserEmail)}` : ''}
+                    · Requested ${escapeHtml(formatTimestamp(ownershipTransfer.createdAt))}
+                    ${ownershipTransfer.expiresAt ? ` · Expires ${escapeHtml(formatTimestamp(ownershipTransfer.expiresAt))}` : ''}
+                </div>
+            </div>
+            <button type="button" class="share-dialog-danger-button" data-share-dialog-action="cancel-transfer">Cancel</button>
+        </div>
+    `;
+}
+
 function renderShareDialog(): void {
     if (!shareDialogOverlay) {
         return;
@@ -146,7 +172,9 @@ function renderShareDialog(): void {
     const canManage = shareState?.permissions?.canManage === true;
     const ownerUserId = shareState?.asset?.ownerUserId || '';
     const ownerEmail = shareState?.asset?.ownerEmail || null;
+    const ownershipTransfer = shareState?.ownershipTransfer || null;
     const title = shareState?.asset?.name || 'Share Font';
+    const showDevelopmentLinks = window.isDevelopment?.() ?? false;
 
     shareDialogOverlay.innerHTML = `
         <div class="share-dialog-backdrop" data-share-dialog-action="close"></div>
@@ -168,7 +196,7 @@ function renderShareDialog(): void {
                 ${shareDialogState.error ? `<div class="share-dialog-banner share-dialog-banner-error">${escapeHtml(shareDialogState.error)}</div>` : ''}
                 ${shareDialogState.notice ? `<div class="share-dialog-banner share-dialog-banner-success">${escapeHtml(shareDialogState.notice)}</div>` : ''}
                 ${
-                    shareDialogState.latestInviteUrl
+                    showDevelopmentLinks && shareDialogState.latestInviteUrl
                         ? `
                     <div class="share-dialog-banner share-dialog-banner-info">
                         <div class="share-dialog-banner-copy">
@@ -177,6 +205,20 @@ function renderShareDialog(): void {
                             <input class="share-dialog-input share-dialog-link-input" type="text" readonly value="${escapeHtml(shareDialogState.latestInviteUrl)}" />
                         </div>
                         <button type="button" class="share-dialog-secondary-button" data-share-dialog-action="copy-latest-link">Copy link</button>
+                    </div>
+                `
+                        : ''
+                }
+                ${
+                    showDevelopmentLinks && shareDialogState.latestTransferUrl
+                        ? `
+                    <div class="share-dialog-banner share-dialog-banner-info">
+                        <div class="share-dialog-banner-copy">
+                            <strong>Latest transfer link</strong>
+                            <div class="share-dialog-banner-detail">Use this to review the ownership transfer locally if email delivery is stubbed.</div>
+                            <input class="share-dialog-input share-dialog-link-input" type="text" readonly value="${escapeHtml(shareDialogState.latestTransferUrl)}" />
+                        </div>
+                        <button type="button" class="share-dialog-secondary-button" data-share-dialog-action="copy-latest-transfer-link">Copy link</button>
                     </div>
                 `
                         : ''
@@ -209,6 +251,22 @@ function renderShareDialog(): void {
                                     <option value="viewer" ${shareDialogState.inviteRole === 'viewer' ? 'selected' : ''}>Viewer</option>
                                 </select>
                                 <button type="submit" class="share-dialog-primary-button" ${shareDialogState.isSubmitting ? 'disabled' : ''}>${shareDialogState.isSubmitting ? 'Sending…' : 'Send invite'}</button>
+                            </form>
+                        </section>
+
+                        <section class="share-dialog-section">
+                            <div class="share-dialog-section-header">
+                                <h3>Transfer ownership</h3>
+                                <p>Send a transfer request to another email. If they accept, you keep the selected fallback role.</p>
+                            </div>
+                            ${ownershipTransfer ? renderOwnershipTransferCard(ownershipTransfer) : '<div class="share-dialog-banner share-dialog-banner-info"><div class="share-dialog-banner-copy"><strong>No pending transfer</strong><div class="share-dialog-banner-detail">Ownership stays unchanged until someone accepts a transfer request.</div></div></div>'}
+                            <form class="share-dialog-transfer-form">
+                                <input class="share-dialog-input" type="email" name="email" placeholder="new-owner@example.com" value="${escapeHtml(shareDialogState.transferEmail)}" ${shareDialogState.isSubmitting ? 'disabled' : ''} required />
+                                <select class="share-dialog-select" name="previousOwnerRole" ${shareDialogState.isSubmitting ? 'disabled' : ''}>
+                                    <option value="editor" ${shareDialogState.previousOwnerRole === 'editor' ? 'selected' : ''}>Keep me as editor</option>
+                                    <option value="viewer" ${shareDialogState.previousOwnerRole === 'viewer' ? 'selected' : ''}>Keep me as viewer</option>
+                                </select>
+                                <button type="submit" class="share-dialog-primary-button" ${shareDialogState.isSubmitting ? 'disabled' : ''}>${shareDialogState.isSubmitting ? 'Sending…' : ownershipTransfer ? 'Replace transfer' : 'Request transfer'}</button>
                             </form>
                         </section>
                     `
@@ -263,6 +321,16 @@ function renderShareDialog(): void {
         });
     }
 
+    const transferForm = shareDialogOverlay.querySelector(
+        '.share-dialog-transfer-form'
+    ) as HTMLFormElement | null;
+    if (transferForm) {
+        transferForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            void handleTransferSubmit(transferForm);
+        });
+    }
+
     shareDialogOverlay
         .querySelectorAll('.share-dialog-role-form')
         .forEach((formElement) => {
@@ -299,10 +367,27 @@ function renderShareDialog(): void {
                             renderShareDialog();
                         }
                         break;
+                    case 'copy-latest-transfer-link':
+                        if (shareDialogState.latestTransferUrl) {
+                            const success = await copyToClipboard(
+                                shareDialogState.latestTransferUrl
+                            );
+                            shareDialogState.notice = success
+                                ? 'Transfer link copied to clipboard.'
+                                : 'Failed to copy transfer link.';
+                            shareDialogState.error = success
+                                ? null
+                                : 'Clipboard access failed.';
+                            renderShareDialog();
+                        }
+                        break;
                     case 'revoke-invite':
                         await handleRevokeInvitation(
                             target.dataset.invitationId || ''
                         );
+                        break;
+                    case 'cancel-transfer':
+                        await handleCancelOwnershipTransfer();
                         break;
                     case 'remove-member':
                         await handleRemoveMember(target.dataset.userId || '');
@@ -349,7 +434,10 @@ function openShareDialog(): void {
         shareState: null,
         inviteEmail: '',
         inviteRole: 'editor',
-        latestInviteUrl: null
+        transferEmail: '',
+        previousOwnerRole: 'editor',
+        latestInviteUrl: null,
+        latestTransferUrl: null
     };
     shareDialogOverlay?.classList.add('visible');
     document.body.classList.add('share-dialog-open');
@@ -365,6 +453,7 @@ function closeShareDialog(): void {
 
 async function refreshShareDialogState(options?: {
     preserveInviteUrl?: boolean;
+    preserveTransferUrl?: boolean;
     notice?: string | null;
 }): Promise<void> {
     const cloudPlugin = getCloudPlugin();
@@ -389,6 +478,9 @@ async function refreshShareDialogState(options?: {
         shareDialogState.error = null;
         if (!options?.preserveInviteUrl) {
             shareDialogState.latestInviteUrl = null;
+        }
+        if (!options?.preserveTransferUrl) {
+            shareDialogState.latestTransferUrl = null;
         }
     } catch (error) {
         shareDialogState.isLoading = false;
@@ -429,6 +521,88 @@ async function handleInviteSubmit(form: HTMLFormElement): Promise<void> {
         await refreshShareDialogState({
             preserveInviteUrl: true,
             notice: `Invitation sent to ${email}.`
+        });
+    } catch (error) {
+        shareDialogState.isSubmitting = false;
+        shareDialogState.error = (error as Error).message;
+        renderShareDialog();
+    }
+}
+
+async function handleTransferSubmit(form: HTMLFormElement): Promise<void> {
+    const cloudPlugin = getCloudPlugin();
+    if (!cloudPlugin) {
+        return;
+    }
+
+    const formData = new FormData(form);
+    const email = String(formData.get('email') || '').trim();
+    const previousOwnerRole = String(
+        formData.get('previousOwnerRole') || 'editor'
+    ) as ShareRole;
+    if (!email) {
+        shareDialogState.error =
+            'Enter an email address to request an ownership transfer.';
+        renderShareDialog();
+        return;
+    }
+
+    if (
+        shareDialogState.shareState?.ownershipTransfer &&
+        !confirm(
+            'A pending ownership transfer already exists. Creating a new transfer will cancel it. Continue?'
+        )
+    ) {
+        return;
+    }
+
+    shareDialogState.transferEmail = email;
+    shareDialogState.previousOwnerRole = previousOwnerRole;
+    shareDialogState.isSubmitting = true;
+    shareDialogState.error = null;
+    shareDialogState.notice = null;
+    renderShareDialog();
+
+    try {
+        const result = await cloudPlugin.createOwnershipTransfer(
+            email,
+            previousOwnerRole
+        );
+        shareDialogState.transferEmail = '';
+        shareDialogState.previousOwnerRole = 'editor';
+        shareDialogState.latestTransferUrl = result.transferUrl || null;
+        shareDialogState.isSubmitting = false;
+        await refreshShareDialogState({
+            preserveInviteUrl: true,
+            preserveTransferUrl: true,
+            notice: `Ownership transfer requested for ${email}.`
+        });
+    } catch (error) {
+        shareDialogState.isSubmitting = false;
+        shareDialogState.error = (error as Error).message;
+        renderShareDialog();
+    }
+}
+
+async function handleCancelOwnershipTransfer(): Promise<void> {
+    if (!confirm('Cancel the pending ownership transfer?')) {
+        return;
+    }
+
+    const cloudPlugin = getCloudPlugin();
+    if (!cloudPlugin) {
+        return;
+    }
+
+    shareDialogState.isSubmitting = true;
+    shareDialogState.error = null;
+    renderShareDialog();
+    try {
+        await cloudPlugin.cancelOwnershipTransfer();
+        shareDialogState.isSubmitting = false;
+        await refreshShareDialogState({
+            preserveInviteUrl: true,
+            notice: 'Ownership transfer canceled.'
         });
     } catch (error) {
         shareDialogState.isSubmitting = false;

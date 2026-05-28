@@ -387,7 +387,8 @@ describe('CloudPlugin sharing APIs', () => {
                 },
                 permissions: { canManage: true },
                 members: [],
-                invitations: []
+                invitations: [],
+                ownershipTransfer: null
             })
         });
 
@@ -439,6 +440,58 @@ describe('CloudPlugin sharing APIs', () => {
                     role: 'viewer'
                 })
             })
+        );
+    });
+
+    test('creates and cancels ownership transfers for the current cloud asset', async () => {
+        global.fetch
+            .mockResolvedValueOnce({
+                ok: true,
+                json: jest.fn().mockResolvedValue({
+                    ownershipTransfer: {
+                        id: 'transfer-1',
+                        email: 'new-owner@example.com',
+                        targetUserId: 'user-3',
+                        targetUserEmail: 'new-owner@example.com',
+                        previousOwnerRole: 'viewer',
+                        sourceOwnerUserId: 'user-1',
+                        sourceOwnerEmail: 'owner@example.com',
+                        createdAt: 1,
+                        expiresAt: 2
+                    },
+                    transferUrl: 'http://localhost:8788/transfer?token=secret'
+                })
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: jest.fn().mockResolvedValue({ success: true })
+            });
+
+        const result = await plugin.createOwnershipTransfer(
+            'new-owner@example.com',
+            'viewer'
+        );
+        await plugin.cancelOwnershipTransfer();
+
+        expect(result.ownershipTransfer.id).toBe('transfer-1');
+        expect(result.transferUrl).toBe(
+            'http://localhost:8788/transfer?token=secret'
+        );
+        expect(global.fetch).toHaveBeenNthCalledWith(
+            1,
+            'http://localhost:8788/api/cloud/assets/asset-1/ownership-transfer',
+            expect.objectContaining({
+                method: 'POST',
+                body: JSON.stringify({
+                    email: 'new-owner@example.com',
+                    previousOwnerRole: 'viewer'
+                })
+            })
+        );
+        expect(global.fetch).toHaveBeenNthCalledWith(
+            2,
+            'http://localhost:8788/api/cloud/assets/asset-1/ownership-transfer',
+            expect.objectContaining({ method: 'DELETE' })
         );
     });
 
