@@ -279,17 +279,17 @@ also out of scope now and should wait for later restore design.
 
 ### Tasks
 
-- [ ] Replace the single overwrite-in-place checkpoint model with immutable
+- [x] Replace the single overwrite-in-place checkpoint model with immutable
       checkpoint objects.
-- [ ] Add a current checkpoint manifest pointer in R2.
-- [ ] Add a manifest format with asset id, room version, log id, schema
+- [x] Add a current checkpoint manifest pointer in R2.
+- [x] Add a manifest format with asset id, room version, log id, schema
       versions, hash, byte length, and validation state.
-- [ ] Keep operational checkpoint objects distinct from future named snapshots.
-- [ ] Define R2 key layout for operational checkpoints, manifests, and future
+- [x] Keep operational checkpoint objects distinct from future named snapshots.
+- [x] Define R2 key layout for operational checkpoints, manifests, and future
       retained versions.
-- [ ] Reserve future retained-version objects for later website metadata
+- [x] Reserve future retained-version objects for later website metadata
       without implementing that metadata layer yet.
-- [ ] Keep current operational retention separate from future user-facing
+- [x] Keep current operational retention separate from future user-facing
       retained versions.
 
 ## Phase 8: Runtime Babelfont Validation Before Destructive Cleanup
