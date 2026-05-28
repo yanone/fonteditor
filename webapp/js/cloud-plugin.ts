@@ -25,6 +25,40 @@ import { resolveWebsiteURL } from './website-url';
 
 const console = new Logger('CloudPlugin');
 
+export type CloudAssetRole = 'owner' | 'editor' | 'viewer';
+
+function decodeBase64UrlJson<T>(value: string): T | null {
+    try {
+        const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = normalized.padEnd(
+            Math.ceil(normalized.length / 4) * 4,
+            '='
+        );
+        const decoded = atob(padded);
+        return JSON.parse(decoded) as T;
+    } catch {
+        return null;
+    }
+}
+
+function extractRoleFromRoomToken(token: string): CloudAssetRole | null {
+    const parts = String(token || '').split('.');
+    if (parts.length !== 3) {
+        return null;
+    }
+
+    const payload = decodeBase64UrlJson<{ role?: string }>(parts[1]);
+    if (
+        payload?.role === 'owner' ||
+        payload?.role === 'editor' ||
+        payload?.role === 'viewer'
+    ) {
+        return payload.role;
+    }
+
+    return null;
+}
+
 function normalizeCloudComponentTransform(
     transform: unknown
 ): Record<string, unknown> {
@@ -504,7 +538,7 @@ async function waitForCloudFontJson(
 export interface CloudAsset {
     id: string;
     name: string;
-    role: string;
+    role: CloudAssetRole;
     ownerUserId: string;
     createdAt: number;
     updatedAt: number;
@@ -520,7 +554,7 @@ export interface CloudEligibility {
 export interface CloudAssetMember {
     userId: string;
     email: string;
-    role: string;
+    role: CloudAssetRole;
     invitedByUserId: string | null;
     invitedByEmail: string | null;
     createdAt: number;
@@ -530,7 +564,7 @@ export interface CloudAssetMember {
 export interface CloudAssetInvitation {
     id: string;
     email: string;
-    role: string;
+    role: 'editor' | 'viewer';
     targetUserId: string | null;
     targetUserEmail: string | null;
     createdAt: number;
@@ -596,12 +630,40 @@ export class CloudPlugin extends FilesystemPlugin {
         super(stubAdapter);
     }
 
+    private _getCloudAdapter(): CloudAdapter {
+        return this.getAdapter() as CloudAdapter;
+    }
+
+    private _cacheAssetRole(
+        assetId: string,
+        role: CloudAssetRole | null | undefined
+    ): void {
+        this._getCloudAdapter().cacheAssetRole(assetId, role);
+        window.dispatchEvent(
+            new CustomEvent('cloudAssetRoleChanged', {
+                detail: { assetId, role: role ?? null }
+            })
+        );
+    }
+
     private get _websiteBaseUrl(): string {
         return window.authManager?.websiteURL || resolveWebsiteURL();
     }
 
     getAssetConnectionStatus(assetId: string): CloudConnectionStatus {
         return this._connectionStatusByAssetId.get(assetId) ?? 'disconnected';
+    }
+
+    getCachedAssetRole(assetId: string): CloudAssetRole | null {
+        return this._getCloudAdapter().getCachedAssetRole(assetId);
+    }
+
+    getCurrentAssetRole(): CloudAssetRole | null {
+        const assetId = this.getCurrentAssetIdForSharing();
+        if (!assetId) {
+            return null;
+        }
+        return this.getCachedAssetRole(assetId);
     }
 
     hasConnectionProblem(assetId: string): boolean {
@@ -985,6 +1047,9 @@ export class CloudPlugin extends FilesystemPlugin {
             throw new Error(`Failed to list cloud assets: ${resp.status}`);
         }
         const data = (await resp.json()) as { assets: CloudAsset[] };
+        for (const asset of data.assets ?? []) {
+            this._cacheAssetRole(asset.id, asset.role);
+        }
         return data.assets;
     }
 
@@ -1040,7 +1105,9 @@ export class CloudPlugin extends FilesystemPlugin {
             );
         }
 
-        return (await resp.json()) as CloudShareState;
+        const shareState = (await resp.json()) as CloudShareState;
+        this._cacheAssetRole(resolvedAssetId, shareState.asset.role);
+        return shareState;
     }
 
     async inviteUser(
@@ -1740,6 +1807,7 @@ export class CloudPlugin extends FilesystemPlugin {
         if (!data.token || !data.roomUrl) {
             throw new Error('room-token response missing token or roomUrl');
         }
+        this._cacheAssetRole(assetId, extractRoleFromRoomToken(data.token));
         return data;
     }
 }

@@ -696,6 +696,9 @@ class FontManager {
         window.addEventListener('cloudConnectionStatusChanged', () => {
             void this.updateDirtyIndicator();
         });
+        window.addEventListener('cloudAssetRoleChanged', () => {
+            this.updateFontDisplay();
+        });
     }
     init() {
         this.fontDisplay = document.getElementById('current-font-display');
@@ -1003,6 +1006,9 @@ class FontManager {
         if (!this.fontIconElement || !this.fontNameElement) return;
 
         const shareButton = document.getElementById('share-btn');
+        const cloudAccessRoleBadge = document.getElementById(
+            'cloud-access-role-badge'
+        );
         const roleLabel = window.windowRole?.getRoleLabel() ?? 'Main';
         const roleBadge = this.ensureWindowRoleBadge();
 
@@ -1020,6 +1026,16 @@ class FontManager {
             }
             if (shareButton) {
                 shareButton.classList.remove('visible');
+                shareButton.setAttribute('title', 'Invite people');
+            }
+            if (cloudAccessRoleBadge) {
+                cloudAccessRoleBadge.classList.remove(
+                    'visible',
+                    'role-editor',
+                    'role-viewer'
+                );
+                cloudAccessRoleBadge.innerHTML = '';
+                cloudAccessRoleBadge.removeAttribute('title');
             }
         } else {
             // Display current font
@@ -1032,8 +1048,49 @@ class FontManager {
                 if (this.fontDisplay) {
                     this.fontDisplay.title = `${currentFont.path} (${sourceName}) — ${roleLabel}`;
                 }
-                if (shareButton) {
-                    shareButton.classList.add('visible');
+                if (cloudAccessRoleBadge) {
+                    const cloudRole = currentFont.isCloudBacked()
+                        ? (window.cloudPlugin?.getCurrentAssetRole?.() ?? null)
+                        : null;
+                    if (shareButton) {
+                        const shouldShowShareButton =
+                            !currentFont.isCloudBacked() ||
+                            cloudRole === 'owner';
+                        shareButton.classList.toggle(
+                            'visible',
+                            shouldShowShareButton
+                        );
+                        shareButton.setAttribute(
+                            'title',
+                            currentFont.isCloudBacked()
+                                ? 'Invite people'
+                                : 'Manage access'
+                        );
+                    }
+                    if (cloudRole === 'editor' || cloudRole === 'viewer') {
+                        cloudAccessRoleBadge.classList.add('visible');
+                        cloudAccessRoleBadge.classList.remove(
+                            cloudRole === 'editor'
+                                ? 'role-viewer'
+                                : 'role-editor'
+                        );
+                        cloudAccessRoleBadge.classList.add(`role-${cloudRole}`);
+                        cloudAccessRoleBadge.innerHTML = `<span class="material-symbols-outlined">${cloudRole === 'editor' ? 'edit' : 'visibility'}</span>`;
+                        cloudAccessRoleBadge.setAttribute(
+                            'title',
+                            cloudRole === 'editor'
+                                ? 'Editor access. You can modify this shared font.'
+                                : 'Viewer access. You can inspect but not change this shared font.'
+                        );
+                    } else {
+                        cloudAccessRoleBadge.classList.remove(
+                            'visible',
+                            'role-editor',
+                            'role-viewer'
+                        );
+                        cloudAccessRoleBadge.innerHTML = '';
+                        cloudAccessRoleBadge.removeAttribute('title');
+                    }
                 }
             }
         }

@@ -35,6 +35,45 @@ describe('CloudAdapter room worker defaults', () => {
             window.isDevelopment = originalIsDevelopment;
         }
     });
+
+    it('exposes cloud roles in scanDirectory results', async () => {
+        const originalFetch = global.fetch;
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space'
+        });
+
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                assets: [
+                    {
+                        id: 'asset-editor',
+                        name: 'Editor Font',
+                        updatedAt: 1,
+                        role: 'editor'
+                    },
+                    {
+                        id: 'asset-owner',
+                        name: 'Owner Font',
+                        updatedAt: 2,
+                        role: 'owner'
+                    }
+                ]
+            })
+        });
+
+        try {
+            const items = await adapter.scanDirectory('/');
+            expect(items['Editor Font.babelfont']).toMatchObject({
+                path: 'cloud://asset-editor',
+                cloudRole: 'editor'
+            });
+            expect(adapter.getCachedAssetRole('asset-owner')).toBe('owner');
+        } finally {
+            global.fetch = originalFetch;
+        }
+    });
 });
 
 describe('normalizeCloudRoomWebSocketUrl', () => {

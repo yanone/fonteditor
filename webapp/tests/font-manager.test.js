@@ -1877,6 +1877,136 @@ describe('FontManager editing subset inclusion', () => {
     });
 });
 
+describe('FontManager share button visibility', () => {
+    let originalOpenedFonts;
+    let originalCurrentFontId;
+    let originalFontDisplay;
+    let originalFontIconElement;
+    let originalFontNameElement;
+    let originalFontRoleBadgeElement;
+    let originalCloudPlugin;
+    let originalWindowRole;
+
+    function mountDisplayDom() {
+        document.body.innerHTML = `
+            <div id="current-font-display" class="current-font-display">
+                <span class="font-icon"></span>
+                <span class="font-name"></span>
+            </div>
+            <button id="share-btn" class="share-button" title="Invite people">
+                <span class="material-symbols-outlined">group_add</span>
+            </button>
+            <span id="cloud-access-role-badge" class="cloud-access-role-badge" aria-hidden="true"></span>
+        `;
+
+        fontManager.fontDisplay = document.getElementById(
+            'current-font-display'
+        );
+        fontManager.fontIconElement =
+            fontManager.fontDisplay.querySelector('.font-icon');
+        fontManager.fontNameElement =
+            fontManager.fontDisplay.querySelector('.font-name');
+        fontManager.fontRoleBadgeElement = null;
+    }
+
+    function setCurrentFont({
+        isCloudBacked = true,
+        role = 'owner',
+        path = '/cloud/TestFont.babelfont'
+    } = {}) {
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    name: 'TestFont',
+                    path,
+                    sourcePlugin: {
+                        getIcon: () => '<span>cloud</span>',
+                        getName: () => 'Cloud'
+                    },
+                    isCloudBacked: () => isCloudBacked
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        window.cloudPlugin = {
+            getCurrentAssetRole: jest.fn(() => role)
+        };
+    }
+
+    beforeEach(() => {
+        originalOpenedFonts = fontManager.openedFonts;
+        originalCurrentFontId = fontManager.currentFontId;
+        originalFontDisplay = fontManager.fontDisplay;
+        originalFontIconElement = fontManager.fontIconElement;
+        originalFontNameElement = fontManager.fontNameElement;
+        originalFontRoleBadgeElement = fontManager.fontRoleBadgeElement;
+        originalCloudPlugin = window.cloudPlugin;
+        originalWindowRole = window.windowRole;
+
+        window.windowRole = {
+            getRoleLabel: () => 'Main',
+            getTitleSuffix: () => '(Main)',
+            isMainWindow: () => true
+        };
+
+        mountDisplayDom();
+    });
+
+    afterEach(() => {
+        fontManager.openedFonts = originalOpenedFonts;
+        fontManager.currentFontId = originalCurrentFontId;
+        fontManager.fontDisplay = originalFontDisplay;
+        fontManager.fontIconElement = originalFontIconElement;
+        fontManager.fontNameElement = originalFontNameElement;
+        fontManager.fontRoleBadgeElement = originalFontRoleBadgeElement;
+        window.cloudPlugin = originalCloudPlugin;
+        window.windowRole = originalWindowRole;
+        document.body.innerHTML = '';
+    });
+
+    test.each([
+        ['editor', 'role-editor', 'edit'],
+        ['viewer', 'role-viewer', 'visibility']
+    ])(
+        'hides the share button for cloud %s access',
+        (role, expectedRoleClass, expectedIcon) => {
+            setCurrentFont({ role });
+
+            fontManager.updateFontDisplay();
+
+            const shareButton = document.getElementById('share-btn');
+            const cloudAccessRoleBadge = document.getElementById(
+                'cloud-access-role-badge'
+            );
+
+            expect(shareButton.classList.contains('visible')).toBe(false);
+            expect(cloudAccessRoleBadge.classList.contains('visible')).toBe(
+                true
+            );
+            expect(
+                cloudAccessRoleBadge.classList.contains(expectedRoleClass)
+            ).toBe(true);
+            expect(cloudAccessRoleBadge.innerHTML).toContain(expectedIcon);
+        }
+    );
+
+    test('shows an icon-only share button for cloud owners', () => {
+        setCurrentFont({ role: 'owner' });
+
+        fontManager.updateFontDisplay();
+
+        const shareButton = document.getElementById('share-btn');
+        const cloudAccessRoleBadge = document.getElementById(
+            'cloud-access-role-badge'
+        );
+
+        expect(shareButton.classList.contains('visible')).toBe(true);
+        expect(shareButton.textContent.trim()).toBe('group_add');
+        expect(cloudAccessRoleBadge.classList.contains('visible')).toBe(false);
+    });
+});
+
 describe('FontManager loadFont', () => {
     let originalOpenedFonts;
     let originalCurrentFontId;

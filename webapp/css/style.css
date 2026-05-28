@@ -676,12 +676,13 @@ kbd + kbd {
 }
 
 .share-button {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
+    background: var(--background-secondary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-primary);
     cursor: pointer;
     padding: 0;
     width: 32px;
+    min-width: 32px;
     height: 32px;
     display: flex;
     align-items: center;
@@ -698,17 +699,43 @@ kbd + kbd {
 }
 
 .share-button:hover {
-    background: var(--input-bg);
+    background: var(--background-hover);
     color: var(--text-primary);
 }
 
 .share-button.share-button-active {
-    background: var(--input-bg);
+    background: var(--background-hover);
     color: var(--text-primary);
 }
 
 .share-button .material-symbols-outlined {
-    font-size: 24px;
+    font-size: 18px;
+}
+
+.cloud-access-role-badge {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    color: var(--background-primary);
+}
+
+.cloud-access-role-badge.visible {
+    display: inline-flex;
+}
+
+.cloud-access-role-badge .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.cloud-access-role-badge.role-editor {
+    background: var(--accent-cyan);
+}
+
+.cloud-access-role-badge.role-viewer {
+    background: var(--accent-orange);
 }
 
 .container {
@@ -3559,6 +3586,14 @@ kbd + kbd {
 
 .file-item .file-name {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.file-item .file-name-text {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3572,6 +3607,29 @@ kbd + kbd {
 
 .file-item.font-source .file-type-icon {
     color: var(--view-files);
+}
+
+.file-cloud-role-badge {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    color: var(--background-primary);
+}
+
+.file-cloud-role-badge .material-symbols-outlined {
+    font-size: 12px;
+}
+
+.file-cloud-role-badge.role-editor {
+    background: var(--accent-cyan);
+}
+
+.file-cloud-role-badge.role-viewer {
+    background: var(--accent-orange);
 }
 
 /* Inline rename input */
@@ -4851,11 +4909,6 @@ kbd + kbd {
 .agent-message-agent h2 { font-size: 13px; }
 .agent-message-agent h3 { font-size: 12px; }
 
-/* Per-round text container — each streaming round gets its own */
-.agent-round-text {
-    /* inherits all styling from parent .agent-message-agent */
-}
-
 /* Per-round usage metrics (dev mode only) */
 .agent-round-metrics {
     font-size: 10px;
@@ -4866,6 +4919,7 @@ kbd + kbd {
 }
 
 /* Tool-call line — sits between round-text containers in chronological order */
+.agent-tool-call-line {
     font-size: 10px;
     color: var(--text-tertiary);
     font-style: italic;

@@ -12,6 +12,8 @@ const mockYDocToJson = jest.fn();
 
 jest.mock('../js/cloud-adapter', () => ({
     CloudAdapter: jest.fn().mockImplementation((options = {}) => ({
+        cacheAssetRole: jest.fn(),
+        getCachedAssetRole: jest.fn().mockReturnValue(null),
         connectDirect: jest.fn(async (...args) => {
             mockConnectDirect(...args);
             if (typeof options.onConnectionStatus === 'function') {

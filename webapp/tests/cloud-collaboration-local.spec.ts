@@ -698,9 +698,6 @@ async function waitForCloudFontModelReady(page: Page): Promise<void> {
 
 async function openShareDialog(page: Page): Promise<void> {
     await page.locator('#share-btn').click();
-    await page
-        .locator('.plugin-menu-item', { hasText: 'Invite People' })
-        .click();
     await expect(page.locator('.share-dialog')).toBeVisible();
 }
 

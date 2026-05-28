@@ -65,6 +65,8 @@ type CloudDeleteResponse = {
     error?: string;
 };
 
+type CloudAssetRole = 'owner' | 'editor' | 'viewer';
+
 function getCloudRequestHeaders(
     extraHeaders: Record<string, string> = {}
 ): Record<string, string> {
@@ -285,6 +287,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _fontModelReadyHandler: ((e: Event) => void) | null = null;
     private _destroyed = false;
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private _assetRoles = new Map<string, CloudAssetRole>();
     private _hasSynced = false;
     private _pendingOutboundPackets: CloudOutboundUpdatePacket[] = [];
     private _outboundFlushScheduled = false;
@@ -1218,23 +1221,44 @@ export class CloudAdapter implements FileSystemAdapter {
                     id: string;
                     name: string;
                     updatedAt: number;
+                    role?: CloudAssetRole;
                 }>;
             };
             const items: Record<string, FileInfo> = {};
+            this._assetRoles.clear();
             for (const asset of data.assets ?? []) {
+                if (asset.role) {
+                    this._assetRoles.set(asset.id, asset.role);
+                }
                 const displayName = asset.name.endsWith('.babelfont')
                     ? asset.name
                     : `${asset.name}.babelfont`;
                 items[displayName] = {
                     path: `cloud://${asset.id}`,
                     is_dir: false,
-                    mtime: new Date(asset.updatedAt).toISOString()
+                    mtime: new Date(asset.updatedAt).toISOString(),
+                    ...(asset.role ? { cloudRole: asset.role } : {})
                 };
             }
             return items;
         } catch {
             return {};
         }
+    }
+
+    getCachedAssetRole(assetId: string): CloudAssetRole | null {
+        return this._assetRoles.get(assetId) ?? null;
+    }
+
+    cacheAssetRole(assetId: string, role: CloudAssetRole | null | undefined) {
+        if (!assetId) {
+            return;
+        }
+        if (!role) {
+            this._assetRoles.delete(assetId);
+            return;
+        }
+        this._assetRoles.set(assetId, role);
     }
 
     async readFile(_path: string): Promise<string | Uint8Array> {

@@ -2739,6 +2739,17 @@ async function uploadFiles(
         }
     }
 }
+
+function getCloudRoleBadgeMarkup(role: FileInfo['cloudRole']): string {
+    if (role === 'editor') {
+        return `<span class="file-cloud-role-badge role-editor" title="Editor access"><span class="material-symbols-outlined">edit</span></span>`;
+    }
+    if (role === 'viewer') {
+        return `<span class="file-cloud-role-badge role-viewer" title="Viewer access"><span class="material-symbols-outlined">visibility</span></span>`;
+    }
+    return '';
+}
+
 async function buildFileTree(rootPath = '/') {
     const items = await scanDirectory(rootPath);
     let html = '';
@@ -2802,9 +2813,10 @@ async function buildFileTree(rootPath = '/') {
             currentFontPath &&
             currentFontPath.startsWith(data.path + '/');
         const fontPathClass = isInFontPath ? 'in-font-path' : '';
+        const cloudRoleBadge = getCloudRoleBadgeMarkup(data.cloudRole);
 
         html += `<div class="file-item ${fileClass} ${fontSourceClass} ${currentFontClass} ${fontPathClass}" data-path="${data.path}" data-name="${name}" data-is-dir="${data.is_dir}" data-is-font="${isFontFile}">
-            <span class="file-name">${icon} ${name}</span>${sizeText}
+            <span class="file-name"><span class="file-name-text">${icon} ${name}</span>${cloudRoleBadge}</span>${sizeText}
         </div>`;
     }
 

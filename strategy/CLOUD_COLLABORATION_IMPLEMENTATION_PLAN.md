@@ -365,18 +365,20 @@ not just future token issuance.
 
 ## Phase 11: Sharing UI And Viewer Behavior
 
-Goal: implement the user-facing sharing workflow now while keeping restore out
-of scope.
+Goal: ship the user-facing sharing workflow and role-aware access UI now while
+keeping restore out of scope.
 
 ### Tasks
 
-- [ ] Add owner-facing member management UI.
-- [ ] Add viewer-visible read-only role indication.
-- [ ] Disable editing affordances in viewer mode.
-- [ ] Ensure the server remains the source of truth for read-only enforcement.
-- [ ] Surface invitation acceptance and pending membership states in the UI.
-- [ ] Add error handling for revoked or expired invitations.
-- [ ] Add error handling for write-forbidden viewer state.
+- [x] Keep owner-facing member management in the access dialog UI.
+- [x] Replace the legacy share menu with a direct access entry point.
+- [x] Add editor/viewer role indication in the top bar and cloud file browser.
+- [x] Hide the invite control for viewers and editors while keeping the owner
+      control compact.
+- [x] Keep the server as the source of truth for viewer write enforcement.
+- [x] Surface invitation acceptance and pending membership states in the UI.
+- [x] Add error handling for revoked, expired, and write-forbidden share
+      states.
 
 ## Phase 12: Audit Trail And Observability
 

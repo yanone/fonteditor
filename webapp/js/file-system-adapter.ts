@@ -13,6 +13,7 @@ export interface FileInfo {
     size?: number;
     mtime: string;
     handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
+    cloudRole?: 'owner' | 'editor' | 'viewer';
 }
 
 export interface FileSystemAdapter {
