@@ -696,16 +696,20 @@ async function waitForCloudFontModelReady(page: Page): Promise<void> {
     );
 }
 
-async function createInvitationFromShareDialog(
-    page: Page,
-    email: string,
-    role: 'editor' | 'viewer'
-): Promise<string> {
+async function openShareDialog(page: Page): Promise<void> {
     await page.locator('#share-btn').click();
     await page
         .locator('.plugin-menu-item', { hasText: 'Invite People' })
         .click();
     await expect(page.locator('.share-dialog')).toBeVisible();
+}
+
+async function createInvitationFromShareDialog(
+    page: Page,
+    email: string,
+    role: 'editor' | 'viewer'
+): Promise<string> {
+    await openShareDialog(page);
 
     await page
         .locator('.share-dialog-invite-form input[name="email"]')
@@ -719,6 +723,33 @@ async function createInvitationFromShareDialog(
     await expect(linkInput).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.share-dialog-banner-success')).toContainText(
         `Invitation sent to ${email}.`
+    );
+    return await linkInput.inputValue();
+}
+
+async function createOwnershipTransferFromShareDialog(
+    page: Page,
+    email: string,
+    previousOwnerRole: 'editor' | 'viewer' | 'remove'
+): Promise<string> {
+    await openShareDialog(page);
+
+    await page
+        .locator('.share-dialog-transfer-form input[name="email"]')
+        .fill(email);
+    await page
+        .locator('.share-dialog-transfer-form select[name="previousOwnerRole"]')
+        .selectOption(previousOwnerRole);
+    await page
+        .getByRole('button', { name: /Request transfer|Replace transfer/ })
+        .click();
+
+    const linkInput = page
+        .locator('.share-dialog-banner', { hasText: 'Latest transfer link' })
+        .locator('.share-dialog-link-input');
+    await expect(linkInput).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.share-dialog-banner-success')).toContainText(
+        `Ownership transfer requested for ${email}.`
     );
     return await linkInput.inputValue();
 }
@@ -739,6 +770,73 @@ async function acceptInvitationAndOpenEditor(
     await waitForCloudFontModelReady(page);
     await waitForCloudConnected(page);
     await waitForAuthenticatedCloudSession(page);
+}
+
+async function acceptOwnershipTransferAndOpenEditor(
+    page: Page,
+    transferUrl: string
+): Promise<void> {
+    await page.goto(transferUrl);
+    await page.getByRole('button', { name: 'Accept transfer' }).click();
+    await expect(
+        page.getByRole('link', { name: 'Open in editor' })
+    ).toBeVisible({ timeout: 15000 });
+    await page.getByRole('link', { name: 'Open in editor' }).click();
+    await waitForCanvasReady(page);
+    await waitForCloudFontModelReady(page);
+    await waitForCloudConnected(page);
+    await waitForAuthenticatedCloudSession(page);
+}
+
+async function tryOpenCloudAsset(
+    page: Page,
+    assetId: string
+): Promise<{ ok: boolean; message: string | null }> {
+    return page.evaluate(async (nextAssetId) => {
+        try {
+            await (window as any).cloudPlugin.openAsset(nextAssetId);
+            return { ok: true, message: null };
+        } catch (error) {
+            return {
+                ok: false,
+                message: error instanceof Error ? error.message : String(error)
+            };
+        }
+    }, assetId);
+}
+
+async function getCloudShareState(
+    page: Page,
+    assetId?: string
+): Promise<{
+    asset: {
+        id: string;
+        role: 'owner' | 'editor' | 'viewer';
+        ownerUserId: string;
+        ownerEmail: string | null;
+    };
+    permissions: {
+        canManage: boolean;
+    };
+    members: Array<{
+        userId: string;
+        email: string;
+        role: 'owner' | 'editor' | 'viewer';
+    }>;
+    invitations: Array<{
+        id: string;
+        email: string;
+        role: 'editor' | 'viewer';
+    }>;
+    ownershipTransfer: {
+        id: string;
+        email: string;
+        previousOwnerRole: 'editor' | 'viewer' | 'remove';
+    } | null;
+}> {
+    return page.evaluate(async (nextAssetId) => {
+        return await (window as any).cloudPlugin.getShareState(nextAssetId);
+    }, assetId);
 }
 
 async function getEditingFontCompileTracker(page: Page): Promise<{
@@ -2088,6 +2186,164 @@ test.describe('Local cloud collaboration', () => {
 
         await ownerContext.close();
         await viewerContext.close();
+    });
+
+    test('transfers ownership end to end and removes the previous owner when requested', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const ownerEmail = `owner-transfer-${Date.now()}@counterpunch.test`;
+        const newOwnerEmail = `new-owner-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const newOwnerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const formerOwnerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+        const newOwnerPage = await newOwnerContext.newPage();
+        const formerOwnerPage = await formerOwnerContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+        await loadCloudTestFont(ownerPage);
+        await waitForCloudFontModelReady(ownerPage);
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Ownership Transfer ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+
+        await newOwnerPage.goto('/?test=true');
+        await waitForCanvasReady(newOwnerPage);
+        await bootstrapCloudSession(newOwnerPage, newOwnerEmail);
+
+        const transferUrl = await createOwnershipTransferFromShareDialog(
+            ownerPage,
+            newOwnerEmail,
+            'remove'
+        );
+
+        await acceptOwnershipTransferAndOpenEditor(newOwnerPage, transferUrl);
+        const newOwnerShareState = await getCloudShareState(newOwnerPage);
+        expect(newOwnerShareState.asset.role).toBe('owner');
+        expect(newOwnerShareState.permissions.canManage).toBe(true);
+        expect(newOwnerShareState.members).toEqual([
+            expect.objectContaining({
+                email: newOwnerEmail,
+                role: 'owner'
+            })
+        ]);
+
+        await formerOwnerPage.goto('/?test=true');
+        await waitForCanvasReady(formerOwnerPage);
+        await bootstrapCloudSession(formerOwnerPage, ownerEmail);
+        const formerOwnerOpen = await tryOpenCloudAsset(
+            formerOwnerPage,
+            assetId
+        );
+        expect(formerOwnerOpen.ok).toBe(false);
+
+        await ownerContext.close();
+        await newOwnerContext.close();
+        await formerOwnerContext.close();
+    });
+
+    test('gives the new owner management controls after transfer and limits the former owner to viewer access', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const ownerEmail = `owner-transfer-viewer-${Date.now()}@counterpunch.test`;
+        const newOwnerEmail = `new-owner-viewer-${Date.now()}@counterpunch.test`;
+        const invitedViewerEmail = `transfer-viewer-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const newOwnerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const formerOwnerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+        const newOwnerPage = await newOwnerContext.newPage();
+        const formerOwnerPage = await formerOwnerContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+        await loadCloudTestFont(ownerPage);
+        await waitForCloudFontModelReady(ownerPage);
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Ownership Capabilities ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+
+        await newOwnerPage.goto('/?test=true');
+        await waitForCanvasReady(newOwnerPage);
+        await bootstrapCloudSession(newOwnerPage, newOwnerEmail);
+
+        const transferUrl = await createOwnershipTransferFromShareDialog(
+            ownerPage,
+            newOwnerEmail,
+            'viewer'
+        );
+
+        await acceptOwnershipTransferAndOpenEditor(newOwnerPage, transferUrl);
+        const newOwnerShareState = await getCloudShareState(newOwnerPage);
+        expect(newOwnerShareState.asset.role).toBe('owner');
+        expect(newOwnerShareState.permissions.canManage).toBe(true);
+        expect(
+            newOwnerShareState.members.map((member) => ({
+                email: member.email,
+                role: member.role
+            }))
+        ).toEqual(
+            expect.arrayContaining([
+                { email: newOwnerEmail, role: 'owner' },
+                { email: ownerEmail, role: 'viewer' }
+            ])
+        );
+
+        const inviteUrl = await createInvitationFromShareDialog(
+            newOwnerPage,
+            invitedViewerEmail,
+            'viewer'
+        );
+        expect(inviteUrl).toContain('/invite?token=');
+
+        await formerOwnerPage.goto('/?test=true');
+        await waitForCanvasReady(formerOwnerPage);
+        await bootstrapCloudSession(formerOwnerPage, ownerEmail);
+
+        const formerOwnerShareState = await getCloudShareState(
+            formerOwnerPage,
+            assetId
+        );
+        expect(formerOwnerShareState.asset.role).toBe('viewer');
+        expect(formerOwnerShareState.permissions.canManage).toBe(false);
+        expect(formerOwnerShareState.members).toHaveLength(0);
+        expect(formerOwnerShareState.invitations).toHaveLength(0);
+        expect(formerOwnerShareState.ownershipTransfer).toBeNull();
+
+        await ownerContext.close();
+        await newOwnerContext.close();
+        await formerOwnerContext.close();
     });
 
     test('supports linked-window sync and cloud sync simultaneously', async ({

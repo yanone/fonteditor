@@ -191,51 +191,51 @@ explicit acceptance and quota checks.
 
 ### Data Model Tasks
 
-- [ ] Add a `font_asset_ownership_transfers` table.
-- [ ] Store source owner, target email, target user id, token hash, status, and
+- [x] Add a `font_asset_ownership_transfers` table.
+- [x] Store source owner, target email, target user id, token hash, status, and
       timestamps.
-- [ ] Store the policy for the previous owner's role after transfer.
-- [ ] Add indexes for lookup by asset, token, and status.
+- [x] Store the policy for the previous owner's role after transfer.
+- [x] Add indexes for lookup by asset, token, and status.
 
 ### API Tasks
 
-- [ ] Add endpoint to create an ownership transfer request.
-- [ ] Add endpoint to inspect a transfer by token.
-- [ ] Add endpoint to accept a transfer.
-- [ ] Add endpoint to decline a transfer.
-- [ ] Add endpoint to cancel a pending transfer.
+- [x] Add endpoint to create an ownership transfer request.
+- [x] Add endpoint to inspect a transfer by token.
+- [x] Add endpoint to accept a transfer.
+- [x] Add endpoint to decline a transfer.
+- [x] Add endpoint to cancel a pending transfer.
 
 ### Behavior Tasks
 
-- [ ] Restrict transfer creation to the current owner.
-- [ ] Require the target email to be normalized and stored securely.
-- [ ] Cancel or supersede existing pending transfers for the same asset.
-- [ ] Require acceptance by an authenticated user whose email matches the
+- [x] Restrict transfer creation to the current owner.
+- [x] Require the target email to be normalized and stored securely.
+- [x] Cancel or supersede existing pending transfers for the same asset.
+- [x] Require acceptance by an authenticated user whose email matches the
       transfer target email.
-- [ ] Re-check that the accepting user can own the asset at acceptance time.
-- [ ] Update `font_assets.owner_user_id` only inside a transaction-safe flow.
-- [ ] Promote the accepting user to `owner` membership.
-- [ ] Demote the previous owner to the selected fallback role.
-- [ ] Ensure the target user has a folder entry for the asset.
-- [ ] Increment the asset access epoch on successful transfer.
-- [ ] Add audit events for transfer create, accept, decline, and cancel.
+- [x] Re-check that the accepting user can own the asset at acceptance time.
+- [x] Update `font_assets.owner_user_id` only inside a transaction-safe flow.
+- [x] Promote the accepting user to `owner` membership.
+- [x] Demote the previous owner to the selected fallback role.
+- [x] Ensure the target user has a folder entry for the asset.
+- [x] Increment the asset access epoch on successful transfer.
+- [x] Add audit events for transfer create, accept, decline, and cancel.
 
 ### UI Tasks
 
-- [ ] Add owner-only ownership transfer controls.
-- [ ] Let the owner choose the previous owner's fallback role after transfer.
-- [ ] Show pending transfer state and cancellation control.
-- [ ] Add transfer acceptance page in the website.
-- [ ] Add transfer email template.
+- [x] Add owner-only ownership transfer controls.
+- [x] Let the owner choose the previous owner's fallback role after transfer.
+- [x] Show pending transfer state and cancellation control.
+- [x] Add transfer acceptance page in the website.
+- [x] Add transfer email template.
 
 ### Test Tasks
 
-- [ ] Add API tests for transfer creation.
-- [ ] Add API tests for transfer cancellation.
-- [ ] Add API tests for transfer acceptance.
-- [ ] Add API tests for transfer decline.
-- [ ] Add end-to-end test for successful transfer.
-- [ ] Add end-to-end test for post-transfer owner capabilities.
+- [x] Add API tests for transfer creation.
+- [x] Add API tests for transfer cancellation.
+- [x] Add API tests for transfer acceptance.
+- [x] Add API tests for transfer decline.
+- [x] Add end-to-end test for successful transfer.
+- [x] Add end-to-end test for post-transfer owner capabilities.
 
 ## Phase 6: Quota And Subscription Policy Preparation
 
@@ -416,7 +416,7 @@ Minimum gate for shipping sharing:
 - [ ] Room runtime enforces owner/editor/viewer.
 - [ ] Invitation flow works end to end.
 - [ ] Viewer mode is server-enforced.
-- [ ] Ownership transfer is implemented and quota-aware.
+- [x] Ownership transfer is implemented and quota-aware.
 - [ ] Debug endpoints are locked down.
 
 Minimum gate for shipping integrity hardening:
