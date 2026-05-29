@@ -1578,6 +1578,7 @@ export class CloudPlugin extends FilesystemPlugin {
             nextWsUrl: string,
             options?: {
                 suppressSyncComplete?: boolean;
+                reportConnectionStatus?: boolean;
             }
         ): Promise<CloudAdapter> => {
             let resolveConnected!: () => void;
@@ -1598,7 +1599,9 @@ export class CloudPlugin extends FilesystemPlugin {
                     console.log(
                         `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
                     );
-                    this._updateConnectionStatus(assetId, status, detail);
+                    if (options?.reportConnectionStatus !== false) {
+                        this._updateConnectionStatus(assetId, status, detail);
+                    }
                     if (status === 'connected') resolveConnected();
                     if (status === 'error') {
                         rejectConnected(
@@ -1627,7 +1630,10 @@ export class CloudPlugin extends FilesystemPlugin {
             tempBridge,
             token,
             wsUrl,
-            { suppressSyncComplete: true }
+            {
+                suppressSyncComplete: true,
+                reportConnectionStatus: false
+            }
         );
 
         // Extract babelfont JSON from the synced Yjs document.
@@ -1801,7 +1807,10 @@ export class CloudPlugin extends FilesystemPlugin {
         this._disconnectCurrent();
 
         const connectAndWaitForSync = async (
-            bridgeToConnect: PatchSyncEngine
+            bridgeToConnect: PatchSyncEngine,
+            options?: {
+                reportConnectionStatus?: boolean;
+            }
         ): Promise<CloudAdapter> => {
             let resolveConnected!: () => void;
             let rejectConnected!: (err: Error) => void;
@@ -1820,7 +1829,9 @@ export class CloudPlugin extends FilesystemPlugin {
                     console.log(
                         `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
                     );
-                    this._updateConnectionStatus(assetId, status, detail);
+                    if (options?.reportConnectionStatus !== false) {
+                        this._updateConnectionStatus(assetId, status, detail);
+                    }
                     if (status === 'connected') resolveConnected();
                     if (status === 'error') {
                         rejectConnected(
@@ -1848,7 +1859,9 @@ export class CloudPlugin extends FilesystemPlugin {
             seedFontJson as Record<string, ReturnType<typeof JSON.parse>>
         );
 
-        const seedAdapter = await connectAndWaitForSync(seedBridge);
+        const seedAdapter = await connectAndWaitForSync(seedBridge, {
+            reportConnectionStatus: false
+        });
         seedAdapter.disconnect();
 
         await this._openAssetInternal(assetId, { awaitLiveBridge: false });

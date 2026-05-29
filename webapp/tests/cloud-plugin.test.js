@@ -416,6 +416,75 @@ describe('CloudPlugin.openAsset', () => {
         await expect(plugin.saveAs('Save Source')).resolves.toBe('asset-save');
     });
 
+    test('saveAs does not mark the cloud asset as connection-dirty before the live room attaches', async () => {
+        mockConnectDirectStatusQueue = [
+            [{ status: 'connected' }],
+            [{ status: 'connected' }],
+            []
+        ];
+
+        window.glyphCanvas = {
+            initialFontLoaded: true
+        };
+        window.currentFontModel = {
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        {
+                            id: 'L0',
+                            shapes: [{}, {}],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ]
+        };
+        window.fontManager = {
+            currentFont: {
+                name: 'Save Source',
+                path: '/user/Save Source.babelfont',
+                babelfontJson: JSON.stringify(defaultCloudFontJson),
+                babelfontData: defaultCloudFontJson,
+                fontModel: window.currentFontModel,
+                syncJsonFromModel: jest.fn()
+            },
+            editingFont: new Uint8Array([1])
+        };
+        window.patchSyncEngine = {
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: jest.fn().mockResolvedValue({
+                asset: {
+                    id: 'asset-save',
+                    name: 'Save Source',
+                    role: 'owner',
+                    ownerUserId: 'user-1',
+                    createdAt: 1,
+                    updatedAt: 1
+                }
+            }),
+            text: jest.fn().mockResolvedValue('')
+        });
+
+        window.dispatchEvent = jest.fn((event) => {
+            if (event.type === 'fontLoaded') {
+                window.fontManager.currentFont.path = event.detail?.path;
+                window.fontManager.currentFont.sourcePlugin = plugin;
+            }
+            return true;
+        });
+
+        await expect(plugin.saveAs('Save Source')).resolves.toBe('asset-save');
+
+        expect(plugin.hasConnectionProblem('asset-save')).toBe(false);
+    });
+
     test('background live bridge timeouts retry silently after the font is already open', async () => {
         window.fontManager = {
             currentFont: {
