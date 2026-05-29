@@ -14,6 +14,7 @@ export interface FileInfo {
     mtime: string;
     handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
     cloudRole?: 'owner' | 'editor' | 'viewer';
+    cloudConnectedPeers?: number;
 }
 
 export interface FileSystemAdapter {

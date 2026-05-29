@@ -5,7 +5,7 @@
  * Exposed as window.cloudPlugin; window.cloudDebug kept for dev testing.
  */
 
-import { FilesystemPlugin } from './filesystem-plugins';
+import { FilesystemPlugin, pluginRegistry } from './filesystem-plugins';
 import type {
     FileContextAction,
     FileContextTarget,
@@ -24,6 +24,8 @@ import { Logger } from './logger';
 import { resolveWebsiteURL } from './website-url';
 
 const console = new Logger('CloudPlugin');
+const CLOUD_ASSET_DELETED_MESSAGE = 'Cloud asset was deleted';
+const CLOUD_ASSET_LOCALIZED_EVENT = 'cloudAssetLocalizedToMemory';
 
 export type CloudAssetRole = 'owner' | 'editor' | 'viewer';
 
@@ -519,6 +521,41 @@ async function waitForCloudSaveBridge(
     });
 }
 
+async function waitForCloudFontReady(
+    expectedPath: string,
+    timeoutMs = 30000
+): Promise<void> {
+    return await new Promise((resolve, reject) => {
+        const currentPath = String(
+            (window as any).fontManager?.currentFont?.path || ''
+        ).trim();
+        if (currentPath === expectedPath) {
+            resolve();
+            return;
+        }
+
+        const timeoutId = window.setTimeout(() => {
+            window.removeEventListener('fontReady', onFontReady);
+            reject(
+                new Error(`Timed out waiting for fontReady for ${expectedPath}`)
+            );
+        }, timeoutMs);
+
+        const onFontReady = (event: Event) => {
+            const detail = (event as CustomEvent<{ path?: string }>).detail;
+            if (detail?.path !== expectedPath) {
+                return;
+            }
+
+            window.clearTimeout(timeoutId);
+            window.removeEventListener('fontReady', onFontReady);
+            resolve();
+        };
+
+        window.addEventListener('fontReady', onFontReady);
+    });
+}
+
 /**
  * Wait for the initial synced document to contain font data.
  * Some cloud rooms connect before their persisted snapshot has been applied.
@@ -567,6 +604,7 @@ export interface CloudAsset {
     ownerUserId: string;
     createdAt: number;
     updatedAt: number;
+    connectedPeers?: number;
 }
 
 export interface CloudEligibility {
@@ -642,6 +680,71 @@ export class CloudPlugin extends FilesystemPlugin {
     private _connectedAssetIds = new Set<string>();
     private _lastAlertedConnectionErrorByAssetId = new Map<string, string>();
     private _availabilityErrorMessage: string | null = null;
+
+    private _getDeletedAssetRecoveryPath(): string {
+        const currentFont = window.fontManager?.currentFont;
+        const rawName = String(currentFont?.name || '').trim();
+        const sanitizedBaseName = (rawName || 'Recovered Cloud Font')
+            .replace(/[\\/:*?"<>|]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const fileName = sanitizedBaseName.endsWith('.babelfont')
+            ? sanitizedBaseName
+            : `${sanitizedBaseName}.babelfont`;
+        return `/user/${fileName}`;
+    }
+
+    handleDeletedAsset(assetId: string, detail?: string): void {
+        const currentFont = window.fontManager?.currentFont;
+        const memoryPlugin = pluginRegistry.get('memory');
+        const currentAssetId = this.getCurrentAssetIdForSharing();
+        if (
+            !currentFont ||
+            currentFont.sourcePlugin?.getId?.() !== 'cloud' ||
+            !memoryPlugin ||
+            currentAssetId !== assetId
+        ) {
+            return;
+        }
+
+        const recoveryPath = this._getDeletedAssetRecoveryPath();
+        currentFont.sourcePlugin = memoryPlugin;
+        currentFont.path = recoveryPath;
+        currentFont.fileHandle = undefined;
+        currentFont.directoryHandle = undefined;
+        currentFont.hasUnsavedChanges = true;
+
+        this._disconnectCurrent();
+        this._connectionStatusByAssetId.delete(assetId);
+
+        void window.fontManager?.updateFontDisplay?.();
+        void window.fontManager?.updateDirtyIndicator?.();
+        window.saveButton?.updateButtonState?.();
+        window.dispatchEvent(
+            new CustomEvent(CLOUD_ASSET_LOCALIZED_EVENT, {
+                detail: {
+                    assetId,
+                    path: recoveryPath,
+                    message: detail ?? CLOUD_ASSET_DELETED_MESSAGE
+                }
+            })
+        );
+
+        const alertMessage =
+            detail === CLOUD_ASSET_DELETED_MESSAGE
+                ? 'Cloud asset was deleted. The open font was kept locally in Memory with unsaved changes.'
+                : `Cloud connection error: ${detail ?? CLOUD_ASSET_DELETED_MESSAGE}`;
+        if (
+            this._lastAlertedConnectionErrorByAssetId.get(assetId) !==
+            alertMessage
+        ) {
+            this._lastAlertedConnectionErrorByAssetId.set(
+                assetId,
+                alertMessage
+            );
+            alert(alertMessage);
+        }
+    }
 
     constructor(
         options: Omit<CloudAdapterOptions, 'assetId'> & {
@@ -721,6 +824,8 @@ export class CloudPlugin extends FilesystemPlugin {
         }
         if (status !== 'error') {
             this._lastAlertedConnectionErrorByAssetId.delete(assetId);
+        } else if (detail === CLOUD_ASSET_DELETED_MESSAGE) {
+            this.handleDeletedAsset(assetId, detail);
         } else if (
             assetId === this._activeAssetId &&
             !window.windowRole?.isLinkedWindow?.()
@@ -785,6 +890,14 @@ export class CloudPlugin extends FilesystemPlugin {
                 state.assetId,
                 this._relayedConnectionStatus
             );
+        }
+
+        if (
+            state.assetId &&
+            this._relayedConnectionStatus === 'error' &&
+            state.detail === CLOUD_ASSET_DELETED_MESSAGE
+        ) {
+            this.handleDeletedAsset(state.assetId, state.detail);
         }
 
         window.dispatchEvent(
@@ -1402,7 +1515,12 @@ export class CloudPlugin extends FilesystemPlugin {
         }
     }
 
-    private async _openAssetInternal(assetId: string): Promise<void> {
+    private async _openAssetInternal(
+        assetId: string,
+        options?: {
+            awaitLiveBridge?: boolean;
+        }
+    ): Promise<void> {
         const user = await this._ensureCloudUser({
             allowLoginRedirect: true
         });
@@ -1580,6 +1698,20 @@ export class CloudPlugin extends FilesystemPlugin {
             })
         );
 
+        if (options?.awaitLiveBridge === false) {
+            void bridgeReadyPromise.catch((error) => {
+                const message =
+                    error instanceof Error ? error.message : String(error);
+                console.error(
+                    '[CloudPlugin]',
+                    'Background cloud bridge bootstrap failed:',
+                    error
+                );
+                this._updateConnectionStatus(assetId, 'error', message);
+            });
+            return;
+        }
+
         await bridgeReadyPromise;
     }
 
@@ -1690,7 +1822,8 @@ export class CloudPlugin extends FilesystemPlugin {
         const seedAdapter = await connectAndWaitForSync(seedBridge);
         seedAdapter.disconnect();
 
-        await this._openAssetInternal(assetId);
+        await this._openAssetInternal(assetId, { awaitLiveBridge: false });
+        await waitForCloudFontReady(`cloud://${assetId}`);
         return assetId;
     }
 

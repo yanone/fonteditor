@@ -9,6 +9,7 @@ jest.mock('../js/logger', () => ({
 const mockConnectDirect = jest.fn().mockResolvedValue();
 const mockRebindToCurrentBridge = jest.fn();
 const mockYDocToJson = jest.fn();
+const { TextEncoder } = require('util');
 
 jest.mock('../js/cloud-adapter', () => ({
     CloudAdapter: jest.fn().mockImplementation((options = {}) => ({
@@ -52,6 +53,7 @@ jest.mock('../js/patch-sync-engine', () => ({
                     }
                 }
             },
+            initFromJson: jest.fn(),
             getFullState: jest.fn(() => mockBridgeState),
             getChangeLog: jest.fn(() => [
                 {
@@ -155,6 +157,7 @@ describe('CloudPlugin.openAsset', () => {
     let originalAddEventListener;
     let originalRemoveEventListener;
     let originalFetch;
+    let originalTextEncoder;
     let dispatchSpy;
     let eventListeners;
 
@@ -173,6 +176,7 @@ describe('CloudPlugin.openAsset', () => {
         originalAddEventListener = window.addEventListener;
         originalRemoveEventListener = window.removeEventListener;
         originalFetch = global.fetch;
+        originalTextEncoder = global.TextEncoder;
 
         window.authManager = {
             websiteURL: 'http://localhost:8788',
@@ -184,6 +188,7 @@ describe('CloudPlugin.openAsset', () => {
 
         window.changeBridge = undefined;
         global.fetch = jest.fn();
+        global.TextEncoder = TextEncoder;
         eventListeners = new Map();
 
         window.setTimeout = jest.fn(() => 1);
@@ -231,6 +236,7 @@ describe('CloudPlugin.openAsset', () => {
         window.addEventListener = originalAddEventListener;
         window.removeEventListener = originalRemoveEventListener;
         global.fetch = originalFetch;
+        global.TextEncoder = originalTextEncoder;
         delete window.__pendingCloudBridgeBootstrapState;
         delete window.patchSyncEngine;
     });
@@ -339,6 +345,67 @@ describe('CloudPlugin.openAsset', () => {
         expect(mockConnectDirect).toHaveBeenCalledTimes(2);
     });
 
+    test('saveAs resolves after fontReady without waiting for live bridge bootstrap', async () => {
+        window.glyphCanvas = {
+            initialFontLoaded: true
+        };
+        window.currentFontModel = {
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        {
+                            id: 'L0',
+                            shapes: [{}, {}],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ]
+        };
+        window.fontManager = {
+            currentFont: {
+                name: 'Save Source',
+                path: '/user/Save Source.babelfont',
+                babelfontJson: JSON.stringify(defaultCloudFontJson),
+                babelfontData: defaultCloudFontJson,
+                fontModel: window.currentFontModel,
+                syncJsonFromModel: jest.fn()
+            },
+            editingFont: new Uint8Array([1])
+        };
+        window.patchSyncEngine = {
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: jest.fn().mockResolvedValue({
+                asset: {
+                    id: 'asset-save',
+                    name: 'Save Source',
+                    role: 'owner',
+                    ownerUserId: 'user-1',
+                    createdAt: 1,
+                    updatedAt: 1
+                }
+            }),
+            text: jest.fn().mockResolvedValue('')
+        });
+
+        window.dispatchEvent = jest.fn((event) => {
+            if (event.type === 'fontLoaded') {
+                window.fontManager.currentFont.path = event.detail?.path;
+                window.fontManager.currentFont.sourcePlugin = plugin;
+            }
+            return true;
+        });
+
+        await expect(plugin.saveAs('Save Source')).resolves.toBe('asset-save');
+    });
+
     test('alerts once for active cloud runtime errors and re-alerts after recovery', () => {
         plugin._activeAssetId = 'asset-1';
 
@@ -366,6 +433,55 @@ describe('CloudPlugin.openAsset', () => {
         );
 
         expect(window.alert).toHaveBeenCalledTimes(2);
+    });
+
+    test('moves a deleted active cloud asset into local memory with unsaved changes', () => {
+        const disconnect = jest.fn();
+        plugin._cloudAdapter = {
+            disconnect,
+            status: 'connected'
+        };
+        plugin._activeAssetId = 'asset-1';
+
+        const updateFontDisplay = jest.fn();
+        const updateDirtyIndicator = jest.fn();
+        const currentFont = {
+            path: 'cloud://asset-1',
+            name: 'Deleted Shared Font',
+            sourcePlugin: {
+                getId: jest.fn(() => 'cloud')
+            },
+            fileHandle: 'handle',
+            directoryHandle: 'dir',
+            hasUnsavedChanges: false
+        };
+        window.fontManager = {
+            currentFont,
+            updateFontDisplay,
+            updateDirtyIndicator
+        };
+        window.saveButton = {
+            updateButtonState: jest.fn()
+        };
+
+        plugin._updateConnectionStatus(
+            'asset-1',
+            'error',
+            'Cloud asset was deleted'
+        );
+
+        expect(disconnect).toHaveBeenCalledTimes(1);
+        expect(currentFont.sourcePlugin?.getId?.()).toBe('memory');
+        expect(currentFont.path).toBe('/user/Deleted Shared Font.babelfont');
+        expect(currentFont.fileHandle).toBeUndefined();
+        expect(currentFont.directoryHandle).toBeUndefined();
+        expect(currentFont.hasUnsavedChanges).toBe(true);
+        expect(updateFontDisplay).toHaveBeenCalled();
+        expect(updateDirtyIndicator).toHaveBeenCalled();
+        expect(window.saveButton.updateButtonState).toHaveBeenCalled();
+        expect(window.alert).toHaveBeenCalledWith(
+            'Cloud asset was deleted. The open font was kept locally in Memory with unsaved changes.'
+        );
     });
 });
 

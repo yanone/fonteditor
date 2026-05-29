@@ -57,7 +57,8 @@ describe('CloudAdapter room worker defaults', () => {
                         id: 'asset-owner',
                         name: 'Owner Font',
                         updatedAt: 2,
-                        role: 'owner'
+                        role: 'owner',
+                        connectedPeers: 3
                     }
                 ]
             })
@@ -68,6 +69,11 @@ describe('CloudAdapter room worker defaults', () => {
             expect(items['Editor Font.babelfont']).toMatchObject({
                 path: 'cloud://asset-editor',
                 cloudRole: 'editor'
+            });
+            expect(items['Owner Font.babelfont']).toMatchObject({
+                path: 'cloud://asset-owner',
+                cloudRole: 'owner',
+                cloudConnectedPeers: 3
             });
             expect(adapter.getCachedAssetRole('asset-owner')).toBe('owner');
         } finally {

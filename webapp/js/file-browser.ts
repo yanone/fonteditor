@@ -2509,6 +2509,12 @@ async function deleteItem(itemPath: string, itemName: string, isDir: boolean) {
 
     try {
         await fileSystemCache.activeAdapter.deleteItem(itemPath, isDir);
+        if (fileSystemCache.currentPlugin.getId() === 'cloud' && !isDir) {
+            const assetId = itemPath.replace(/^cloud:\/\//, '').trim();
+            if (assetId) {
+                window.cloudPlugin?.handleDeletedAsset?.(assetId);
+            }
+        }
         console.log('[FileBrowser]', `Deleted: ${itemPath}`);
         await refreshFileSystem();
     } catch (error: unknown) {
@@ -2756,6 +2762,19 @@ function getCloudRoleBadgeMarkup(role: FileInfo['cloudRole']): string {
     return '';
 }
 
+function getCloudConnectedPeersMarkup(
+    role: FileInfo['cloudRole'],
+    connectedPeers: FileInfo['cloudConnectedPeers']
+): string {
+    if (role !== 'owner' || typeof connectedPeers !== 'number') {
+        return '';
+    }
+
+    const label =
+        connectedPeers === 1 ? '1 connected' : `${connectedPeers} connected`;
+    return `<span class="file-cloud-presence-badge" title="${label}"><span class="material-symbols-outlined">group</span><span class="file-cloud-presence-count">${connectedPeers}</span></span>`;
+}
+
 async function buildFileTree(rootPath = '/') {
     const items = await scanDirectory(rootPath);
     let html = '';
@@ -2820,9 +2839,13 @@ async function buildFileTree(rootPath = '/') {
             currentFontPath.startsWith(data.path + '/');
         const fontPathClass = isInFontPath ? 'in-font-path' : '';
         const cloudRoleBadge = getCloudRoleBadgeMarkup(data.cloudRole);
+        const cloudConnectedPeers = getCloudConnectedPeersMarkup(
+            data.cloudRole,
+            data.cloudConnectedPeers
+        );
 
         html += `<div class="file-item ${fileClass} ${fontSourceClass} ${currentFontClass} ${fontPathClass}" data-path="${data.path}" data-name="${name}" data-is-dir="${data.is_dir}" data-is-font="${isFontFile}">
-            <span class="file-name"><span class="file-name-text">${icon} ${name}</span>${cloudRoleBadge}</span>${sizeText}
+            <span class="file-name"><span class="file-name-text">${icon} ${name}</span>${cloudConnectedPeers}${cloudRoleBadge}</span>${sizeText}
         </div>`;
     }
 
@@ -3998,6 +4021,17 @@ window.addEventListener('fontReady', async () => {
 
 window.addEventListener('fontReady', async () => {
     updateHomeButtonVisibility();
+});
+
+window.addEventListener('cloudAssetLocalizedToMemory', async () => {
+    syncEditorFileStateFromCurrentFont();
+    updateCurrentFontHighlightInFileTree();
+
+    if (fileSystemCache.currentPlugin.getId() === 'cloud') {
+        await switchContext('memory');
+    } else {
+        updateFileDialogFooter();
+    }
 });
 
 // Listen for plugin title bar redraw event

@@ -1363,6 +1363,7 @@ export class CloudAdapter implements FileSystemAdapter {
                     name: string;
                     updatedAt: number;
                     role?: CloudAssetRole;
+                    connectedPeers?: number;
                 }>;
             };
             const items: Record<string, FileInfo> = {};
@@ -1378,7 +1379,10 @@ export class CloudAdapter implements FileSystemAdapter {
                     path: `cloud://${asset.id}`,
                     is_dir: false,
                     mtime: new Date(asset.updatedAt).toISOString(),
-                    ...(asset.role ? { cloudRole: asset.role } : {})
+                    ...(asset.role ? { cloudRole: asset.role } : {}),
+                    ...(typeof asset.connectedPeers === 'number'
+                        ? { cloudConnectedPeers: asset.connectedPeers }
+                        : {})
                 };
             }
             return items;

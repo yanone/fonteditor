@@ -3632,6 +3632,28 @@ kbd + kbd {
     background: var(--accent-orange);
 }
 
+.file-cloud-presence-badge {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    height: 20px;
+    border-radius: 999px;
+    background: var(--background-tertiary);
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1;
+}
+
+.file-cloud-presence-badge .material-symbols-outlined {
+    font-size: 12px;
+}
+
+.file-cloud-presence-count {
+    font-variant-numeric: tabular-nums;
+}
+
 /* Inline rename input */
 .file-rename-input {
     flex: 1;
