@@ -787,6 +787,35 @@ export class CloudPlugin extends FilesystemPlugin {
         return this._getCloudAdapter().getCachedAssetRole(assetId);
     }
 
+    private _isCurrentFontOpenForAsset(assetId: string): boolean {
+        const currentPath = String(window.fontManager?.currentFont?.path || '');
+        return currentPath === assetId || currentPath === `cloud://${assetId}`;
+    }
+
+    private _handleBackgroundBridgeBootstrapFailure(
+        assetId: string,
+        error: unknown
+    ): void {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(
+            '[CloudPlugin]',
+            'Background cloud bridge bootstrap failed:',
+            error
+        );
+
+        if (
+            this._isCurrentFontOpenForAsset(assetId) &&
+            (message === 'cloud sync timed out' ||
+                message === 'cloud bridge bootstrap timed out')
+        ) {
+            this._updateConnectionStatus(assetId, 'connecting', message);
+            void this.connectToRoom(assetId);
+            return;
+        }
+
+        this._updateConnectionStatus(assetId, 'error', message);
+    }
+
     getCurrentAssetRole(): CloudAssetRole | null {
         const assetId = this.getCurrentAssetIdForSharing();
         if (!assetId) {
@@ -1700,14 +1729,7 @@ export class CloudPlugin extends FilesystemPlugin {
 
         if (options?.awaitLiveBridge === false) {
             void bridgeReadyPromise.catch((error) => {
-                const message =
-                    error instanceof Error ? error.message : String(error);
-                console.error(
-                    '[CloudPlugin]',
-                    'Background cloud bridge bootstrap failed:',
-                    error
-                );
-                this._updateConnectionStatus(assetId, 'error', message);
+                this._handleBackgroundBridgeBootstrapFailure(assetId, error);
             });
             return;
         }

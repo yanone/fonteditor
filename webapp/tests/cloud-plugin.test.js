@@ -10,6 +10,7 @@ const mockConnectDirect = jest.fn().mockResolvedValue();
 const mockRebindToCurrentBridge = jest.fn();
 const mockYDocToJson = jest.fn();
 const { TextEncoder } = require('util');
+let mockConnectDirectStatusQueue = [];
 
 jest.mock('../js/cloud-adapter', () => ({
     CloudAdapter: jest.fn().mockImplementation((options = {}) => ({
@@ -17,8 +18,16 @@ jest.mock('../js/cloud-adapter', () => ({
         getCachedAssetRole: jest.fn().mockReturnValue(null),
         connectDirect: jest.fn(async (...args) => {
             mockConnectDirect(...args);
+            const queuedStatuses = mockConnectDirectStatusQueue.length
+                ? mockConnectDirectStatusQueue.shift()
+                : [{ status: 'connected' }];
             if (typeof options.onConnectionStatus === 'function') {
-                options.onConnectionStatus('connected');
+                for (const statusEntry of queuedStatuses) {
+                    options.onConnectionStatus(
+                        statusEntry.status,
+                        statusEntry.detail
+                    );
+                }
             }
         }),
         rebindToCurrentBridge: mockRebindToCurrentBridge,
@@ -163,6 +172,7 @@ describe('CloudPlugin.openAsset', () => {
 
     beforeEach(() => {
         mockConnectDirect.mockClear();
+        mockConnectDirectStatusQueue = [];
         mockRebindToCurrentBridge.mockClear();
         mockYDocToJson.mockReset();
         mockYDocToJson.mockReturnValue(defaultCloudFontJson);
@@ -404,6 +414,27 @@ describe('CloudPlugin.openAsset', () => {
         });
 
         await expect(plugin.saveAs('Save Source')).resolves.toBe('asset-save');
+    });
+
+    test('background live bridge timeouts retry silently after the font is already open', async () => {
+        window.fontManager = {
+            currentFont: {
+                path: 'cloud://asset-save'
+            }
+        };
+        const connectToRoomSpy = jest
+            .spyOn(plugin, 'connectToRoom')
+            .mockResolvedValue();
+
+        plugin._handleBackgroundBridgeBootstrapFailure(
+            'asset-save',
+            new Error('cloud sync timed out')
+        );
+
+        expect(window.alert).not.toHaveBeenCalled();
+        expect(connectToRoomSpy).toHaveBeenCalledWith('asset-save');
+
+        connectToRoomSpy.mockRestore();
     });
 
     test('alerts once for active cloud runtime errors and re-alerts after recovery', () => {
