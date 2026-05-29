@@ -152,7 +152,7 @@ async function terminateProcesses(children: ManagedProcess[]): Promise<void> {
         children.map(
             ({ child }) =>
                 new Promise<void>((resolve) => {
-                    if (child.exitCode !== null || child.killed) {
+                    if (child.exitCode !== null || child.signalCode !== null) {
                         resolve();
                         return;
                     }
@@ -161,7 +161,10 @@ async function terminateProcesses(children: ManagedProcess[]): Promise<void> {
                     child.kill('SIGTERM');
 
                     setTimeout(() => {
-                        if (child.exitCode === null && !child.killed) {
+                        if (
+                            child.exitCode === null &&
+                            child.signalCode === null
+                        ) {
                             child.kill('SIGKILL');
                         }
                     }, 5000);
