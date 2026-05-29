@@ -2508,17 +2508,35 @@ async function deleteItem(itemPath: string, itemName: string, isDir: boolean) {
     if (!confirm(confirmMsg)) return;
 
     try {
-        await fileSystemCache.activeAdapter.deleteItem(itemPath, isDir);
-        if (fileSystemCache.currentPlugin.getId() === 'cloud' && !isDir) {
-            const assetId = itemPath.replace(/^cloud:\/\//, '').trim();
-            if (assetId) {
-                window.cloudPlugin?.handleDeletedAsset?.(assetId, undefined, {
-                    suppressAlert: true
-                });
+        await withFileDialogBusy(
+            {
+                message: isDir
+                    ? `Deleting folder ${itemName}...`
+                    : `Deleting file ${itemName}...`,
+                actionLabel: 'Deleting...',
+                useLoadingCursor: true
+            },
+            async () => {
+                await fileSystemCache.activeAdapter.deleteItem(itemPath, isDir);
+                if (
+                    fileSystemCache.currentPlugin.getId() === 'cloud' &&
+                    !isDir
+                ) {
+                    const assetId = itemPath.replace(/^cloud:\/\//, '').trim();
+                    if (assetId) {
+                        window.cloudPlugin?.handleDeletedAsset?.(
+                            assetId,
+                            undefined,
+                            {
+                                suppressAlert: true
+                            }
+                        );
+                    }
+                }
+                console.log('[FileBrowser]', `Deleted: ${itemPath}`);
+                await refreshFileSystem();
             }
-        }
-        console.log('[FileBrowser]', `Deleted: ${itemPath}`);
-        await refreshFileSystem();
+        );
     } catch (error: unknown) {
         console.error('[FileBrowser]', 'Error deleting item:', error);
         alert(`Error deleting item: ${getErrorMessage(error)}`);
