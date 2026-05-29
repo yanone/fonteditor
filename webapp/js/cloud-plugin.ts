@@ -694,7 +694,13 @@ export class CloudPlugin extends FilesystemPlugin {
         return `/user/${fileName}`;
     }
 
-    handleDeletedAsset(assetId: string, detail?: string): void {
+    handleDeletedAsset(
+        assetId: string,
+        detail?: string,
+        options?: {
+            suppressAlert?: boolean;
+        }
+    ): void {
         const currentFont = window.fontManager?.currentFont;
         const memoryPlugin = pluginRegistry.get('memory');
         const currentAssetId = this.getCurrentAssetIdForSharing();
@@ -735,8 +741,9 @@ export class CloudPlugin extends FilesystemPlugin {
                 ? 'Cloud asset was deleted. The open font was kept locally in Memory with unsaved changes.'
                 : `Cloud connection error: ${detail ?? CLOUD_ASSET_DELETED_MESSAGE}`;
         if (
+            !options?.suppressAlert &&
             this._lastAlertedConnectionErrorByAssetId.get(assetId) !==
-            alertMessage
+                alertMessage
         ) {
             this._lastAlertedConnectionErrorByAssetId.set(
                 assetId,
@@ -1992,6 +1999,20 @@ export class CloudPlugin extends FilesystemPlugin {
         return `Cloud storage could not be reached: ${message}`;
     }
 
+    private _normalizeRoomTokenErrorMessage(
+        assetId: string,
+        message: string
+    ): string {
+        if (
+            this._isCurrentFontOpenForAsset(assetId) &&
+            /room-token request failed: 404/i.test(message)
+        ) {
+            return CLOUD_ASSET_DELETED_MESSAGE;
+        }
+
+        return message;
+    }
+
     private async _fetchRoomToken(
         assetId: string
     ): Promise<{ token: string; roomUrl: string }> {
@@ -2006,7 +2027,10 @@ export class CloudPlugin extends FilesystemPlugin {
         if (!resp.ok) {
             const body = await resp.text().catch(() => '');
             throw new Error(
-                `room-token request failed: ${resp.status} ${body}`
+                this._normalizeRoomTokenErrorMessage(
+                    assetId,
+                    `room-token request failed: ${resp.status} ${body}`
+                )
             );
         }
         const data = (await resp.json()) as { token: string; roomUrl: string };

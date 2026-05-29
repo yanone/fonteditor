@@ -2512,7 +2512,9 @@ async function deleteItem(itemPath: string, itemName: string, isDir: boolean) {
         if (fileSystemCache.currentPlugin.getId() === 'cloud' && !isDir) {
             const assetId = itemPath.replace(/^cloud:\/\//, '').trim();
             if (assetId) {
-                window.cloudPlugin?.handleDeletedAsset?.(assetId);
+                window.cloudPlugin?.handleDeletedAsset?.(assetId, undefined, {
+                    suppressAlert: true
+                });
             }
         }
         console.log('[FileBrowser]', `Deleted: ${itemPath}`);

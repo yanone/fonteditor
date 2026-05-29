@@ -538,6 +538,58 @@ describe('CloudPlugin.openAsset', () => {
             'Cloud asset was deleted. The open font was kept locally in Memory with unsaved changes.'
         );
     });
+
+    test('suppresses the local delete alert when requested explicitly', () => {
+        const disconnect = jest.fn();
+        plugin._cloudAdapter = {
+            disconnect,
+            status: 'connected'
+        };
+        plugin._activeAssetId = 'asset-1';
+
+        window.fontManager = {
+            currentFont: {
+                path: 'cloud://asset-1',
+                name: 'Deleted Shared Font',
+                sourcePlugin: {
+                    getId: jest.fn(() => 'cloud')
+                },
+                hasUnsavedChanges: false
+            },
+            updateFontDisplay: jest.fn(),
+            updateDirtyIndicator: jest.fn()
+        };
+        window.saveButton = {
+            updateButtonState: jest.fn()
+        };
+
+        plugin.handleDeletedAsset('asset-1', undefined, {
+            suppressAlert: true
+        });
+
+        expect(window.alert).not.toHaveBeenCalled();
+    });
+
+    test('maps deleted room-token reconnect failures back to deleted asset handling', async () => {
+        window.fontManager = {
+            currentFont: {
+                path: 'cloud://asset-1',
+                sourcePlugin: {
+                    getId: jest.fn(() => 'cloud')
+                }
+            }
+        };
+
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: false,
+            status: 404,
+            text: jest.fn().mockResolvedValue('{"error":"Not found"}')
+        });
+
+        await expect(
+            CloudPlugin.prototype._fetchRoomToken.call(plugin, 'asset-1')
+        ).rejects.toThrow('Cloud asset was deleted');
+    });
 });
 
 describe('CloudPlugin sharing APIs', () => {
