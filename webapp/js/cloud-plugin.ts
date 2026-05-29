@@ -671,6 +671,7 @@ export class CloudPlugin extends FilesystemPlugin {
     private _relayedAssetId: string | null = null;
     private _relayedConnectionStatus: CloudConnectionStatus = 'disconnected';
     private _relayedConnectionDetail: string | undefined;
+    private _relayedPendingSyncCount = 0;
     private _eligibility: CloudEligibility | null = null;
     private _pendingOpenAsset: {
         assetId: string;
@@ -682,6 +683,7 @@ export class CloudPlugin extends FilesystemPlugin {
         CloudConnectionStatus
     >();
     private _connectionDetailByAssetId = new Map<string, string>();
+    private _pendingSyncCountByAssetId = new Map<string, number>();
     private _connectionTraceByAssetId = new Map<
         string,
         Array<{
@@ -805,6 +807,21 @@ export class CloudPlugin extends FilesystemPlugin {
 
     getAssetConnectionDetail(assetId: string): string | undefined {
         return this._connectionDetailByAssetId.get(assetId);
+    }
+
+    getAssetPendingSyncCount(assetId: string): number {
+        if (
+            window.windowRole?.isLinkedWindow() &&
+            assetId === this._relayedAssetId
+        ) {
+            return this._relayedPendingSyncCount;
+        }
+
+        if (this._activeAssetId === assetId && this._cloudAdapter) {
+            return this._cloudAdapter.pendingSyncCount;
+        }
+
+        return this._pendingSyncCountByAssetId.get(assetId) ?? 0;
     }
 
     getConnectionTrace(assetId: string): Array<{
@@ -941,13 +958,46 @@ export class CloudPlugin extends FilesystemPlugin {
             window.windowSync?.broadcastCloudConnectionStatus?.({
                 assetId,
                 status,
+                pendingSyncCount: this.getAssetPendingSyncCount(assetId),
                 ...(detail ? { detail } : {})
             });
         }
 
         window.dispatchEvent(
             new CustomEvent('cloudConnectionStatusChanged', {
-                detail: { assetId, status, detail }
+                detail: {
+                    assetId,
+                    status,
+                    detail,
+                    pendingSyncCount: this.getAssetPendingSyncCount(assetId)
+                }
+            })
+        );
+    }
+
+    private _updatePendingSyncCount(assetId: string, count: number): void {
+        this._pendingSyncCountByAssetId.set(assetId, Math.max(0, count));
+
+        const status = this.getAssetConnectionStatus(assetId);
+        const detail = this.getAssetConnectionDetail(assetId);
+
+        if (window.windowRole?.isMainWindow()) {
+            window.windowSync?.broadcastCloudConnectionStatus?.({
+                assetId,
+                status,
+                pendingSyncCount: this.getAssetPendingSyncCount(assetId),
+                ...(detail ? { detail } : {})
+            });
+        }
+
+        window.dispatchEvent(
+            new CustomEvent('cloudConnectionStatusChanged', {
+                detail: {
+                    assetId,
+                    status,
+                    detail,
+                    pendingSyncCount: this.getAssetPendingSyncCount(assetId)
+                }
             })
         );
     }
@@ -956,10 +1006,18 @@ export class CloudPlugin extends FilesystemPlugin {
         assetId: string | null;
         status: CloudConnectionStatus;
         detail?: string;
+        pendingSyncCount?: number;
     } {
         return {
             assetId: this._activeAssetId,
             status: this.connectionStatus,
+            ...(this._activeAssetId
+                ? {
+                      pendingSyncCount: this.getAssetPendingSyncCount(
+                          this._activeAssetId
+                      )
+                  }
+                : {}),
             ...(this._cloudAdapter?.status === 'error' && this._activeAssetId
                 ? { detail: undefined }
                 : {})
@@ -970,6 +1028,7 @@ export class CloudPlugin extends FilesystemPlugin {
         assetId: string | null;
         status: string;
         detail?: string;
+        pendingSyncCount?: number;
     }): void {
         if (window.windowRole?.isMainWindow()) {
             return;
@@ -978,11 +1037,19 @@ export class CloudPlugin extends FilesystemPlugin {
         this._relayedAssetId = state.assetId;
         this._relayedConnectionStatus = state.status as CloudConnectionStatus;
         this._relayedConnectionDetail = state.detail;
+        this._relayedPendingSyncCount = Math.max(
+            0,
+            Number(state.pendingSyncCount ?? 0)
+        );
 
         if (state.assetId) {
             this._connectionStatusByAssetId.set(
                 state.assetId,
                 this._relayedConnectionStatus
+            );
+            this._pendingSyncCountByAssetId.set(
+                state.assetId,
+                this._relayedPendingSyncCount
             );
         }
 
@@ -999,7 +1066,8 @@ export class CloudPlugin extends FilesystemPlugin {
                 detail: {
                     assetId: state.assetId,
                     status: this._relayedConnectionStatus,
-                    detail: state.detail
+                    detail: state.detail,
+                    pendingSyncCount: this._relayedPendingSyncCount
                 }
             })
         );
@@ -1673,6 +1741,9 @@ export class CloudPlugin extends FilesystemPlugin {
                             new Error(detail ?? 'cloud connection error')
                         );
                     }
+                },
+                onPendingSyncCountChange: (count: number) => {
+                    this._updatePendingSyncCount(assetId, count);
                 }
             });
 
@@ -1903,6 +1974,9 @@ export class CloudPlugin extends FilesystemPlugin {
                             new Error(detail ?? 'cloud connection error')
                         );
                     }
+                },
+                onPendingSyncCountChange: (count: number) => {
+                    this._updatePendingSyncCount(assetId, count);
                 }
             });
 
@@ -1958,6 +2032,9 @@ export class CloudPlugin extends FilesystemPlugin {
                     `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
                 );
                 this._updateConnectionStatus(assetId, status, detail);
+            },
+            onPendingSyncCountChange: (count: number) => {
+                this._updatePendingSyncCount(assetId, count);
             }
         });
 
@@ -1993,6 +2070,9 @@ export class CloudPlugin extends FilesystemPlugin {
                     `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
                 );
                 this._updateConnectionStatus(assetId, status, detail);
+            },
+            onPendingSyncCountChange: (count: number) => {
+                this._updatePendingSyncCount(assetId, count);
             }
         });
 
@@ -2028,6 +2108,7 @@ export class CloudPlugin extends FilesystemPlugin {
     private _disconnectCurrent(): void {
         this._cloudAdapter?.disconnect();
         if (this._activeAssetId) {
+            this._updatePendingSyncCount(this._activeAssetId, 0);
             this._updateConnectionStatus(this._activeAssetId, 'disconnected');
         }
         this._cloudAdapter = null;
@@ -2036,6 +2117,7 @@ export class CloudPlugin extends FilesystemPlugin {
             this._relayedAssetId = null;
             this._relayedConnectionStatus = 'disconnected';
             this._relayedConnectionDetail = undefined;
+            this._relayedPendingSyncCount = 0;
         }
     }
 
@@ -2048,6 +2130,9 @@ export class CloudPlugin extends FilesystemPlugin {
         const detail = activeAssetId
             ? this.getAssetConnectionDetail(activeAssetId)
             : undefined;
+        const pendingSyncCount = activeAssetId
+            ? this.getAssetPendingSyncCount(activeAssetId)
+            : 0;
         const trace = activeAssetId
             ? this.getConnectionTrace(activeAssetId).slice(-12)
             : [];
@@ -2072,6 +2157,7 @@ export class CloudPlugin extends FilesystemPlugin {
             `cloudBacked: ${currentFont?.isCloudBacked?.() ? 'yes' : 'no'}`,
             `connectionStatus: ${status}`,
             ...(detail ? [`connectionDetail: ${detail}`] : []),
+            `pendingSyncCount: ${pendingSyncCount}`,
             `connectedAssetIds: ${connectedAssetIds.length ? connectedAssetIds.join(', ') : 'none'}`,
             `lastOutboundSeq: ${outboundSeq ?? 'none'}`,
             `lastInboundCount: ${inboundCount ?? 'none'}`,

@@ -777,9 +777,11 @@ class FontManager {
             };
         }
 
+        const pendingSyncCount =
+            window.cloudPlugin?.getAssetPendingSyncCount?.(assetId) ?? 0;
         const hasConnectionProblem =
             window.cloudPlugin?.hasConnectionProblem?.(assetId) ?? false;
-        if (!hasConnectionProblem) {
+        if (!hasConnectionProblem && pendingSyncCount < 1) {
             return {
                 visible: false,
                 title: '',
@@ -790,7 +792,7 @@ class FontManager {
         }
 
         const status = window.cloudPlugin?.getAssetConnectionStatus?.(assetId);
-        if (!status || status === 'connected') {
+        if (!status) {
             return {
                 visible: false,
                 title: '',
@@ -837,12 +839,30 @@ class FontManager {
                             fallbackReason: 'Cloud connection error'
                         };
 
+        const pendingLabel =
+            pendingSyncCount > 0 ? `${pendingSyncCount} pending` : '';
+        const connectedPendingPresentation =
+            pendingSyncCount > 0 && status === 'connected'
+                ? {
+                      label: pendingLabel,
+                      icon: 'cloud_upload',
+                      tone: 'warning' as const,
+                      fallbackReason: `${pendingSyncCount} cloud edit${pendingSyncCount === 1 ? '' : 's'} waiting for durable sync`
+                  }
+                : null;
+        const effectivePresentation =
+            connectedPendingPresentation ?? presentation;
+
         return {
-            visible: true,
-            title: `Cloud status: ${detail || presentation.fallbackReason}`,
-            label: presentation.label,
-            icon: presentation.icon,
-            tone: presentation.tone
+            visible:
+                Boolean(connectedPendingPresentation) || hasConnectionProblem,
+            title: `Cloud status: ${detail || effectivePresentation.fallbackReason}`,
+            label:
+                pendingSyncCount > 0 && !connectedPendingPresentation
+                    ? `${effectivePresentation.label} · ${pendingLabel}`
+                    : effectivePresentation.label,
+            icon: effectivePresentation.icon,
+            tone: effectivePresentation.tone
         };
     }
 

@@ -6,8 +6,87 @@ const { createLogEntry } = require('../js/change-log');
 const {
     createCollaborationMessageEnvelopesFromChangeLogEntries,
     createCollaborationMessageEnvelopeFromChangeLogEntries,
-    createCollaborationMessageEnvelope
+    createCollaborationMessageEnvelope,
+    collaborationMessageKey
 } = require('../js/collaboration-message.ts');
+
+function createIndexedDbMock(seedRecords = []) {
+    const records = new Map(
+        seedRecords.map((record) => [
+            `${record.assetId}:${record.clientTransactionId}`,
+            {
+                key: `${record.assetId}:${record.clientTransactionId}`,
+                ...record
+            }
+        ])
+    );
+
+    const store = {
+        indexNames: {
+            contains: jest.fn(() => true)
+        },
+        createIndex: jest.fn(),
+        index: jest.fn(() => ({
+            getAll: jest.fn((assetId) => {
+                const request = {
+                    result: Array.from(records.values()).filter(
+                        (record) => record.assetId === assetId
+                    ),
+                    onsuccess: null,
+                    onerror: null
+                };
+                queueMicrotask(() => request.onsuccess?.());
+                return request;
+            })
+        })),
+        put: jest.fn((value) => {
+            records.set(value.key, value);
+        }),
+        delete: jest.fn((key) => {
+            records.delete(key);
+        })
+    };
+
+    const db = {
+        objectStoreNames: {
+            contains: jest.fn((name) => name === 'pending-transactions')
+        },
+        createObjectStore: jest.fn(() => store),
+        transaction: jest.fn(() => {
+            const transaction = {
+                objectStore: jest.fn(() => store),
+                oncomplete: null,
+                onerror: null,
+                onabort: null,
+                error: null
+            };
+            queueMicrotask(() => transaction.oncomplete?.());
+            return transaction;
+        }),
+        close: jest.fn()
+    };
+
+    return {
+        records,
+        open: jest.fn(() => {
+            const request = {
+                result: db,
+                transaction: {
+                    objectStore: jest.fn(() => store)
+                },
+                onupgradeneeded: null,
+                onsuccess: null,
+                onerror: null,
+                error: null
+            };
+            queueMicrotask(() => {
+                request.onupgradeneeded?.();
+                request.onsuccess?.();
+            });
+            return request;
+        })
+    };
+}
 
 describe('CloudAdapter room worker defaults', () => {
     it('defaults to localhost in development', () => {
@@ -358,6 +437,9 @@ describe('CloudAdapter outbound updates', () => {
         expect(sentFrames).toHaveLength(1);
         expect(sentFrames[0].type).toBe('update');
         expect(sentFrames[0].clientId).toBe('client-1');
+        expect(sentFrames[0].clientTransactionId).toBe(
+            collaborationMessageKey(collaborationMessage)
+        );
         expect(sentFrames[0].seq).toBe(1);
         expect(sentFrames[0].collaborationMessages).toHaveLength(1);
         expect(sentFrames[0].collaborationMessages[0]).toEqual(
@@ -425,6 +507,8 @@ describe('CloudAdapter outbound updates', () => {
             expect.objectContaining({
                 type: 'update-chunk',
                 clientId: 'client-1',
+                clientTransactionId:
+                    collaborationMessageKey(collaborationMessage),
                 seq: 1,
                 chunkIndex: 0,
                 totalChunks: 2
@@ -434,6 +518,8 @@ describe('CloudAdapter outbound updates', () => {
             expect.objectContaining({
                 type: 'update',
                 clientId: 'client-1',
+                clientTransactionId:
+                    collaborationMessageKey(collaborationMessage),
                 seq: 1,
                 chunkIndex: 1,
                 totalChunks: 2,
@@ -664,6 +750,76 @@ describe('CloudAdapter outbound updates', () => {
                 ]
             })
         );
+    });
+
+    it('rehydrates persisted durable outbox entries into the bridge before reconnect sync', async () => {
+        const originalIndexedDb = global.indexedDB;
+        const changeLogEntries = [
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'client-1',
+                windowRoleLabel: 'main',
+                transactionLabel: 'Recovered edit',
+                transactionId: 5,
+                op: 'set',
+                undoScope: 'glyph',
+                path: 'glyphs.A:name',
+                oldValue: 'A',
+                newValue: 'A.alt',
+                workerReplayTargets: []
+            })
+        ];
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                changeLogEntries,
+                {
+                    localSequence: 5,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            );
+        const durableUpdate = new Uint8Array([7, 8, 9]);
+        const indexedDb = createIndexedDbMock([
+            {
+                assetId: 'asset-123',
+                clientTransactionId:
+                    collaborationMessageKey(collaborationMessage),
+                updateBase64: Buffer.from(durableUpdate).toString('base64'),
+                collaborationMessage,
+                createdAt: 123
+            }
+        ]);
+        global.indexedDB = indexedDb;
+
+        const pendingCounts = [];
+        const applyRemoteUpdate = jest.fn();
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onPendingSyncCountChange: (count) => pendingCounts.push(count)
+        });
+        adapter._bridge = {
+            getCollaborationLog: jest.fn(() => []),
+            applyRemoteUpdate,
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        try {
+            await adapter._restorePersistentOutboxIntoBridge();
+
+            expect(applyRemoteUpdate).toHaveBeenCalledWith(
+                durableUpdate,
+                undefined,
+                [collaborationMessage]
+            );
+            expect(adapter.pendingSyncCount).toBe(1);
+            expect(pendingCounts[pendingCounts.length - 1]).toBe(1);
+            expect(adapter._pendingDurabilityMessages).toEqual([
+                collaborationMessage
+            ]);
+        } finally {
+            global.indexedDB = originalIndexedDb;
+        }
     });
 
     it('retires only the matching pending envelope identity during bootstrap reconciliation', () => {

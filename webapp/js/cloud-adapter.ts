@@ -10,8 +10,10 @@
  *   { type: 'sync-complete', update: string [, chunkIndex, totalChunks] }   ← base64(diff for server, last or only chunk)
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks }       ← preceding chunk(s) for large diff
  *   { type: 'update-chunk',  update: string, clientId: string, seq: number,
+ *                            clientTransactionId?: string,
  *                            chunkIndex, totalChunks }                       ← preceding chunk(s) for large live edits
  *   { type: 'update',        update: string, clientId: string, seq: number,
+ *                            clientTransactionId?: string,
  *                            collaborationMessages?: CollaborationMessageEnvelope[]
  *                            [, chunkIndex, totalChunks] }                   ← last or only chunk
  *
@@ -23,8 +25,10 @@
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks, direction: 'response' }
  *   { type: 'ack',           seq: -1, durable: boolean, phase: 'sync-complete' }
  *   { type: 'update-chunk',  update: string, clientId: string, seq: number,
+ *                            clientTransactionId?: string,
  *                            chunkIndex, totalChunks }                       ← preceding chunk(s) for large live edits
  *   { type: 'update',        update: string, clientId: string, seq: number,
+ *                            clientTransactionId?: string,
  *                            collaborationMessages?: CollaborationMessageEnvelope[]
  *                            [, chunkIndex, totalChunks] }                   ← last or only chunk
  *   { type: 'ack',           seq: number, durable: boolean }
@@ -166,6 +170,7 @@ export type CloudAdapterOptions = {
         status: CloudConnectionStatus,
         detail?: string
     ) => void;
+    onPendingSyncCountChange?: (count: number) => void;
 };
 
 type CloudLiveUpdateMessage = {
@@ -182,14 +187,189 @@ type CloudChunkAccumulator = {
 type CloudOutboundUpdatePacket = {
     update: Uint8Array;
     collaborationMessage?: CollaborationMessageEnvelope;
+    clientTransactionId?: string;
+};
+
+type CloudDurableOutboxRecord = {
+    assetId: string;
+    clientTransactionId: string;
+    updateBase64: string;
+    collaborationMessage: CollaborationMessageEnvelope;
+    createdAt: number;
 };
 
 type CloudVisibleRebaselineTargets = {
     editingFontRecompiled: boolean;
+    textPreviewReshaped: boolean;
     canvasRefreshed: boolean;
     overviewRefreshed: boolean;
     fontInfoRefreshed: boolean;
 };
+
+const CLOUD_OUTBOX_DB_NAME = 'counterpunch-cloud-outbox';
+const CLOUD_OUTBOX_DB_VERSION = 1;
+const CLOUD_OUTBOX_STORE_NAME = 'pending-transactions';
+const CLOUD_OUTBOX_ASSET_ID_INDEX = 'by-asset-id';
+
+function canUseIndexedDb(): boolean {
+    return typeof indexedDB !== 'undefined';
+}
+
+function openCloudOutboxDatabase(): Promise<IDBDatabase | null> {
+    if (!canUseIndexedDb()) {
+        return Promise.resolve(null);
+    }
+
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(
+            CLOUD_OUTBOX_DB_NAME,
+            CLOUD_OUTBOX_DB_VERSION
+        );
+
+        request.onupgradeneeded = () => {
+            const db = request.result;
+            const store = db.objectStoreNames.contains(CLOUD_OUTBOX_STORE_NAME)
+                ? request.transaction?.objectStore(CLOUD_OUTBOX_STORE_NAME)
+                : db.createObjectStore(CLOUD_OUTBOX_STORE_NAME, {
+                      keyPath: 'key'
+                  });
+            if (
+                store &&
+                !store.indexNames.contains(CLOUD_OUTBOX_ASSET_ID_INDEX)
+            ) {
+                store.createIndex(CLOUD_OUTBOX_ASSET_ID_INDEX, 'assetId', {
+                    unique: false
+                });
+            }
+        };
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function loadCloudOutboxRecords(
+    assetId: string
+): Promise<CloudDurableOutboxRecord[]> {
+    const db = await openCloudOutboxDatabase();
+    if (!db) {
+        return [];
+    }
+
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(CLOUD_OUTBOX_STORE_NAME, 'readonly');
+        const store = transaction.objectStore(CLOUD_OUTBOX_STORE_NAME);
+        const request = store
+            .index(CLOUD_OUTBOX_ASSET_ID_INDEX)
+            .getAll(assetId);
+
+        request.onsuccess = () => {
+            const records = Array.isArray(request.result)
+                ? request.result.map((record) => ({
+                      assetId: String(record.assetId ?? ''),
+                      clientTransactionId: String(
+                          record.clientTransactionId ?? ''
+                      ),
+                      updateBase64: String(record.updateBase64 ?? ''),
+                      collaborationMessage:
+                          record.collaborationMessage as CollaborationMessageEnvelope,
+                      createdAt: Number(record.createdAt ?? 0)
+                  }))
+                : [];
+            resolve(
+                records.filter(
+                    (record) =>
+                        record.assetId === assetId &&
+                        !!record.clientTransactionId &&
+                        !!record.updateBase64 &&
+                        !!record.collaborationMessage
+                )
+            );
+        };
+        request.onerror = () => reject(request.error);
+        transaction.oncomplete = () => db.close();
+    });
+}
+
+async function putCloudOutboxRecord(
+    record: CloudDurableOutboxRecord
+): Promise<void> {
+    const db = await openCloudOutboxDatabase();
+    if (!db) {
+        return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(
+            CLOUD_OUTBOX_STORE_NAME,
+            'readwrite'
+        );
+        const store = transaction.objectStore(CLOUD_OUTBOX_STORE_NAME);
+        store.put({
+            key: `${record.assetId}:${record.clientTransactionId}`,
+            ...record
+        });
+        transaction.oncomplete = () => {
+            db.close();
+            resolve();
+        };
+        transaction.onerror = () => {
+            db.close();
+            reject(transaction.error);
+        };
+        transaction.onabort = () => {
+            db.close();
+            reject(transaction.error);
+        };
+    });
+}
+
+async function deleteCloudOutboxRecords(
+    assetId: string,
+    clientTransactionIds: string[]
+): Promise<void> {
+    if (!clientTransactionIds.length) {
+        return;
+    }
+
+    const db = await openCloudOutboxDatabase();
+    if (!db) {
+        return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(
+            CLOUD_OUTBOX_STORE_NAME,
+            'readwrite'
+        );
+        const store = transaction.objectStore(CLOUD_OUTBOX_STORE_NAME);
+        for (const clientTransactionId of clientTransactionIds) {
+            store.delete(`${assetId}:${clientTransactionId}`);
+        }
+        transaction.oncomplete = () => {
+            db.close();
+            resolve();
+        };
+        transaction.onerror = () => {
+            db.close();
+            reject(transaction.error);
+        };
+        transaction.onabort = () => {
+            db.close();
+            reject(transaction.error);
+        };
+    });
+}
+
+function getCloudClientTransactionId(
+    collaborationMessage?: CollaborationMessageEnvelope | null
+): string | null {
+    if (!collaborationMessage) {
+        return null;
+    }
+
+    return collaborationMessageKey(collaborationMessage);
+}
 
 function dedupeCollaborationMessages(
     envelopes: CollaborationMessageEnvelope[]
@@ -306,6 +486,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _onConnectionStatus:
         | ((status: CloudConnectionStatus, detail?: string) => void)
         | null;
+    private _onPendingSyncCountChange: ((count: number) => void) | null;
     private _suppressSyncComplete: boolean;
 
     private _bridge: PatchSyncEngine | null = null;
@@ -324,8 +505,9 @@ export class CloudAdapter implements FileSystemAdapter {
     private _pendingOutboundPackets: CloudOutboundUpdatePacket[] = [];
     private _outboundFlushScheduled = false;
     private _outboundBroadcastEntryCounts = new Map<number, number>();
-    private _outboundPendingMessageKeys = new Map<number, string[]>();
+    private _outboundPendingTransactionIds = new Map<number, string[]>();
     private _pendingDurabilityMessages: CollaborationMessageEnvelope[] = [];
+    private _durableOutboxEntries = new Map<string, CloudDurableOutboxRecord>();
     private _pendingInboundUpdates: CloudLiveUpdateMessage[] = [];
     private _inboundFlushScheduled = false;
     private _resyncRequestedAfterNoopUpdate = false;
@@ -349,6 +531,8 @@ export class CloudAdapter implements FileSystemAdapter {
             options.roomWorkerBaseUrl ?? getDefaultRoomWorkerUrl();
         this._suppressSyncComplete = options.suppressSyncComplete ?? false;
         this._onConnectionStatus = options.onConnectionStatus ?? null;
+        this._onPendingSyncCountChange =
+            options.onPendingSyncCountChange ?? null;
     }
 
     get status(): CloudConnectionStatus {
@@ -357,6 +541,10 @@ export class CloudAdapter implements FileSystemAdapter {
 
     get assetId(): string {
         return this._assetId;
+    }
+
+    get pendingSyncCount(): number {
+        return this._durableOutboxEntries.size;
     }
 
     // ── Public API ───────────────────────────────────────────────
@@ -373,6 +561,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialSyncDurable = false;
         this._visibleRebaselinePromise = null;
         this._bridge = bridge;
+        await this._restorePersistentOutboxIntoBridge();
         this._registerOutboundHook();
         this._subscribeFontModelReady();
         this._setStatus('connecting');
@@ -399,6 +588,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialSyncDurable = false;
         this._visibleRebaselinePromise = null;
         this._bridge = bridge;
+        await this._restorePersistentOutboxIntoBridge();
         this._registerOutboundHook();
         this._subscribeFontModelReady();
         this._setStatus('connecting');
@@ -417,6 +607,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._bridge = null;
         this._pendingOutboundPackets = [];
         this._outboundFlushScheduled = false;
+        this._outboundPendingTransactionIds.clear();
         this._pendingInboundUpdates = [];
         this._inboundFlushScheduled = false;
         this._initialServerStateApplied = false;
@@ -431,22 +622,7 @@ export class CloudAdapter implements FileSystemAdapter {
         update: Uint8Array,
         collaborationMessage?: CollaborationMessageEnvelope | null
     ): void {
-        if (!update.length) {
-            return;
-        }
-
-        this._pendingOutboundPackets.push({
-            update,
-            ...(collaborationMessage ? { collaborationMessage } : undefined)
-        });
-        if (collaborationMessage) {
-            this._enqueuePendingDurabilityMessages([collaborationMessage]);
-        }
-        if (this._outboundFlushScheduled) {
-            return;
-        }
-        this._outboundFlushScheduled = true;
-        queueMicrotask(() => this._flushPendingOutboundUpdates());
+        this._enqueueOutboundPacket(update, collaborationMessage);
     }
 
     // ── Bridge tracking ──────────────────────────────────────────
@@ -522,6 +698,156 @@ export class CloudAdapter implements FileSystemAdapter {
             );
             this._fontModelReadyHandler = null;
         }
+    }
+
+    private _enqueueOutboundPacket(
+        update: Uint8Array,
+        collaborationMessage?: CollaborationMessageEnvelope | null
+    ): void {
+        if (!update.length) {
+            return;
+        }
+
+        const clientTransactionId =
+            getCloudClientTransactionId(collaborationMessage);
+        const packet: CloudOutboundUpdatePacket = {
+            update,
+            ...(collaborationMessage ? { collaborationMessage } : undefined),
+            ...(clientTransactionId ? { clientTransactionId } : undefined)
+        };
+
+        this._pendingOutboundPackets.push(packet);
+        if (collaborationMessage) {
+            this._enqueuePendingDurabilityMessages([collaborationMessage]);
+            void this._persistDurableOutboxPacket(packet);
+        }
+        if (this._outboundFlushScheduled) {
+            return;
+        }
+        this._outboundFlushScheduled = true;
+        queueMicrotask(() => this._flushPendingOutboundUpdates());
+    }
+
+    private async _persistDurableOutboxPacket(
+        packet: CloudOutboundUpdatePacket
+    ): Promise<void> {
+        if (!packet.collaborationMessage || !packet.clientTransactionId) {
+            return;
+        }
+
+        if (this._durableOutboxEntries.has(packet.clientTransactionId)) {
+            return;
+        }
+
+        const record: CloudDurableOutboxRecord = {
+            assetId: this._assetId,
+            clientTransactionId: packet.clientTransactionId,
+            updateBase64: u8ToBase64(packet.update),
+            collaborationMessage: packet.collaborationMessage,
+            createdAt: Date.now()
+        };
+        this._durableOutboxEntries.set(packet.clientTransactionId, record);
+        this._emitPendingSyncCountChange();
+
+        try {
+            await putCloudOutboxRecord(record);
+        } catch (error) {
+            console.warn(
+                'CloudAdapter: failed to persist cloud outbox entry:',
+                error
+            );
+        }
+    }
+
+    private async _restorePersistentOutboxIntoBridge(): Promise<void> {
+        const records = await loadCloudOutboxRecords(this._assetId).catch(
+            (error) => {
+                console.warn(
+                    'CloudAdapter: failed to load persistent cloud outbox:',
+                    error
+                );
+                return [] as CloudDurableOutboxRecord[];
+            }
+        );
+
+        if (!records.length) {
+            this._emitPendingSyncCountChange();
+            return;
+        }
+
+        for (const record of records) {
+            this._durableOutboxEntries.set(record.clientTransactionId, record);
+        }
+
+        this._enqueuePendingDurabilityMessages(
+            records.map((record) => record.collaborationMessage)
+        );
+
+        const bridge = this._bridge as
+            | (PatchSyncEngine & {
+                  getCollaborationLog?: () => Array<{ id?: string }>;
+              })
+            | null;
+        const existingCollaborationIds = new Set(
+            bridge
+                ?.getCollaborationLog?.()
+                ?.map((item) => item.id)
+                .filter((item): item is string => typeof item === 'string') ??
+                []
+        );
+
+        for (const record of records) {
+            if (existingCollaborationIds.has(record.clientTransactionId)) {
+                continue;
+            }
+
+            try {
+                bridge?.applyRemoteUpdate(
+                    base64ToU8(record.updateBase64),
+                    undefined,
+                    [record.collaborationMessage]
+                );
+                existingCollaborationIds.add(record.clientTransactionId);
+            } catch (error) {
+                console.warn(
+                    'CloudAdapter: failed to rehydrate persistent outbox entry:',
+                    error,
+                    record.clientTransactionId
+                );
+            }
+        }
+
+        this._emitPendingSyncCountChange();
+    }
+
+    private _emitPendingSyncCountChange(): void {
+        this._onPendingSyncCountChange?.(this.pendingSyncCount);
+    }
+
+    private _dropDurableTransactions(clientTransactionIds: string[]): void {
+        if (!clientTransactionIds.length) {
+            return;
+        }
+
+        const durableTransactionIds = new Set(clientTransactionIds);
+        this._pendingDurabilityMessages =
+            this._pendingDurabilityMessages.filter(
+                (message) =>
+                    !durableTransactionIds.has(collaborationMessageKey(message))
+            );
+        for (const clientTransactionId of durableTransactionIds) {
+            this._durableOutboxEntries.delete(clientTransactionId);
+        }
+        this._emitPendingSyncCountChange();
+        void deleteCloudOutboxRecords(
+            this._assetId,
+            clientTransactionIds
+        ).catch((error) => {
+            console.warn(
+                'CloudAdapter: failed to prune cloud outbox entries:',
+                error
+            );
+        });
     }
 
     // ── WebSocket lifecycle ───────────────────────────────────────
@@ -904,6 +1230,7 @@ export class CloudAdapter implements FileSystemAdapter {
 
         const refreshed: CloudVisibleRebaselineTargets = {
             editingFontRecompiled: false,
+            textPreviewReshaped: false,
             canvasRefreshed: false,
             overviewRefreshed: false,
             fontInfoRefreshed: false
@@ -915,6 +1242,16 @@ export class CloudAdapter implements FileSystemAdapter {
             ) {
                 await window.fontManager.recompileEditingFont();
                 refreshed.editingFontRecompiled = true;
+            }
+
+            const textRunEditor = window.glyphCanvas?.textRunEditor as
+                | {
+                      shapeText?: (skipRender?: boolean) => void;
+                  }
+                | undefined;
+            if (typeof textRunEditor?.shapeText === 'function') {
+                textRunEditor.shapeText();
+                refreshed.textPreviewReshaped = true;
             }
 
             if (typeof window.syncRustCacheAndRefreshCanvas === 'function') {
@@ -1209,18 +1546,7 @@ export class CloudAdapter implements FileSystemAdapter {
             update: Uint8Array,
             collaborationMessage?: CollaborationMessageEnvelope | null
         ): void => {
-            this._pendingOutboundPackets.push({
-                update,
-                ...(collaborationMessage ? { collaborationMessage } : undefined)
-            });
-            if (collaborationMessage) {
-                this._enqueuePendingDurabilityMessages([collaborationMessage]);
-            }
-            if (this._outboundFlushScheduled) {
-                return;
-            }
-            this._outboundFlushScheduled = true;
-            queueMicrotask(() => this._flushPendingOutboundUpdates());
+            this._enqueueOutboundPacket(update, collaborationMessage);
         };
 
         this._bridge.onLocalUpdate(sendUpdate);
@@ -1258,9 +1584,9 @@ export class CloudAdapter implements FileSystemAdapter {
                 (count, message) => count + message.changes.length,
                 0
             );
-            const pendingMessageKeys = collaborationMessages.map((message) =>
-                collaborationMessageKey(message)
-            );
+            const pendingTransactionIds = packet.clientTransactionId
+                ? [packet.clientTransactionId]
+                : [];
 
             if (broadcastEntryCount > 0) {
                 this._outboundBroadcastEntryCounts.set(
@@ -1268,8 +1594,11 @@ export class CloudAdapter implements FileSystemAdapter {
                     broadcastEntryCount
                 );
             }
-            if (pendingMessageKeys.length) {
-                this._outboundPendingMessageKeys.set(seq, pendingMessageKeys);
+            if (pendingTransactionIds.length) {
+                this._outboundPendingTransactionIds.set(
+                    seq,
+                    pendingTransactionIds
+                );
             }
 
             (
@@ -1300,6 +1629,9 @@ export class CloudAdapter implements FileSystemAdapter {
                     clientId: this._clientId ?? '',
                     seq
                 };
+                if (packet.clientTransactionId) {
+                    frame.clientTransactionId = packet.clientTransactionId;
+                }
                 if (totalChunks > 1) {
                     frame.chunkIndex = chunkIndex;
                     frame.totalChunks = totalChunks;
@@ -1316,20 +1648,10 @@ export class CloudAdapter implements FileSystemAdapter {
         const broadcastEntryCount =
             this._outboundBroadcastEntryCounts.get(seq) ?? 0;
         this._outboundBroadcastEntryCounts.delete(seq);
-        const pendingMessageKeys =
-            this._outboundPendingMessageKeys.get(seq) ?? [];
-        this._outboundPendingMessageKeys.delete(seq);
-
-        if (pendingMessageKeys.length) {
-            const durableMessageKeys = new Set(pendingMessageKeys);
-            this._pendingDurabilityMessages =
-                this._pendingDurabilityMessages.filter(
-                    (message) =>
-                        !durableMessageKeys.has(
-                            collaborationMessageKey(message)
-                        )
-                );
-        }
+        const pendingTransactionIds =
+            this._outboundPendingTransactionIds.get(seq) ?? [];
+        this._outboundPendingTransactionIds.delete(seq);
+        this._dropDurableTransactions(pendingTransactionIds);
 
         this._bridge?.advanceBroadcastLogCursor(broadcastEntryCount);
     }
@@ -1362,11 +1684,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 collaborationMessageKey(message)
             )
         );
-        this._pendingDurabilityMessages =
-            this._pendingDurabilityMessages.filter(
-                (message) =>
-                    !durableTransactions.has(collaborationMessageKey(message))
-            );
+        this._dropDurableTransactions(Array.from(durableTransactions));
     }
 
     private _queueInboundUpdate(msg: CloudLiveUpdateMessage): void {

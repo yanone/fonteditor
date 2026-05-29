@@ -10,16 +10,16 @@ This document tracks the implementation work needed to make cloud collaboration 
 - [x] Rebuild all visible surfaces from authoritative state after reconnect.
 - [x] Preserve cloud-bound local work across transient socket loss.
 - [x] Make degraded/reconnecting state much more visible in the title area.
-- [ ] Persist the cloud outbox across full page reloads or crashes.
-- [ ] Introduce server-side idempotent client transaction IDs independent of socket session IDs.
+- [x] Persist the cloud outbox across full page reloads or crashes.
+- [x] Introduce server-side idempotent client transaction IDs independent of socket session IDs.
 
 ## Scope
 
 - [x] Client reconnect reliability in `webapp/js/cloud-adapter.ts`
 - [x] Client-visible cloud status in `webapp/js/font-manager.ts` and CSS
-- [x] Reconnect rebaseline of editing font, glyph canvas, glyph overview, and font-info surfaces
+- [x] Reconnect rebaseline of editing font, glyph canvas, glyph overview, font-info surfaces, and visible text shaping
 - [x] Targeted regression coverage for reconnect/rebaseline behavior
-- [ ] DO-side durable protocol upgrades for cross-session resend and idempotent dedupe
+- [x] DO-side durable protocol upgrades for cross-session resend and idempotent dedupe
 
 ## Design
 
@@ -39,17 +39,18 @@ This document tracks the implementation work needed to make cloud collaboration 
 ### Visible surfaces to rebuild
 
 - [x] Editing font
+- [x] Visible text-run shaping / text preview
 - [x] Active glyph canvas/layer data
 - [x] Visible glyph overview tiles
 - [x] Active font-info sidebar tab
-- [ ] Additional text shaping or other future visible derived surfaces as they are added
+- [x] Current visible derived surfaces are explicitly rebuilt on reconnect
 
 ### User-facing status
 
 - [x] Replace the weak warning triangle treatment with a visible sync-status pill.
 - [x] Show degraded/reconnecting/offline-like states near the font title/share controls.
 - [x] Keep the indicator visible until reconnect rebaseline finishes.
-- [ ] Distinguish durable pending-outbox state from mere socket connectivity with a dedicated count/status line.
+- [x] Distinguish durable pending-outbox state from mere socket connectivity with a dedicated count/status line.
 
 ## Implementation checklist
 
@@ -59,13 +60,14 @@ This document tracks the implementation work needed to make cloud collaboration 
 - [x] Stop dropping pending outbound updates on transient websocket close.
 - [x] Preserve pending durability messages until acknowledged.
 - [x] Re-register outbound forwarding after reconnect.
-- [ ] Persist the outbox to IndexedDB.
+- [x] Persist the outbox to IndexedDB.
 
 ### Rebaseline orchestration
 
 - [x] Track when a reconnect requires a visible rebaseline.
 - [x] Delay the final `connected` state until rebaseline completes.
 - [x] Recompile the editing font from current authoritative state.
+- [x] Reshape visible text previews from current authoritative state.
 - [x] Refresh the active glyph canvas from current authoritative state.
 - [x] Re-render visible glyph overview outlines.
 - [x] Refresh the active font-info tab through a public refresh entry point.
@@ -74,6 +76,7 @@ This document tracks the implementation work needed to make cloud collaboration 
 
 - [x] Render a pill-style cloud status badge instead of the old warning icon.
 - [x] Provide text labels for reconnect/sync/error states.
+- [x] Surface pending durable-sync counts in the pill while the socket is otherwise healthy.
 - [x] Add stronger styling for non-healthy states.
 
 ### Tests
@@ -81,16 +84,16 @@ This document tracks the implementation work needed to make cloud collaboration 
 - [x] Cloud adapter retains unsent outbound packets until reconnect.
 - [x] Cloud adapter runs reconnect rebaseline before reporting connected.
 - [x] Cloud adapter reconnect rebaseline refreshes visible surfaces when present.
-- [ ] End-to-end cloud local Playwright coverage for reconnect-state pill and visible rebaseline.
+- [x] End-to-end cloud local Playwright coverage for reconnect-state pill and visible rebaseline.
 
 ## Validation
 
 - [x] Focused Jest validation: `cd webapp && npx jest tests/cloud-adapter.test.js --runInBand`
 - [x] Webapp build validation: `cd webapp && npm run build`
+- [x] Focused room-worker validation: `cd ../collab/collab && node --test test/font-room-do.test.js`
+- [x] Focused Playwright validation: `cd webapp && npx playwright test tests/cloud-collaboration-local.spec.ts --grep "shows the reconnect pill and catches up visible glyph edits after reconnect"`
 
-## Follow-up work
+## Follow-up notes
 
-- [ ] Add IndexedDB-backed outbox persistence and recovery after reload/crash.
-- [ ] Add DO-supported stable client transaction IDs for resend dedupe across reconnects.
-- [ ] Surface pending unsynced edit counts directly in the status pill.
-- [ ] Extend reconnect rebaseline coverage to any additional visible derived panes introduced later.
+- The current reconnect rebaseline explicitly covers the visible editing font, text preview shaping, glyph canvas, glyph overview, and active font-info tab.
+- Any newly introduced visible derived panes should hook into the same reconnect rebaseline pattern when they are added.

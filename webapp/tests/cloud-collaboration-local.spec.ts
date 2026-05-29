@@ -1822,6 +1822,84 @@ test.describe('Local cloud collaboration', () => {
         await context.close();
     });
 
+    test('shows the reconnect pill and catches up visible glyph edits after reconnect', async ({
+        browser
+    }) => {
+        const ownerEmail = `reconnect-owner-${Date.now()}@counterpunch.test`;
+        const editorEmail = `reconnect-editor-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const editorContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+        const editorPage = await editorContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+
+        await loadCloudTestFont(ownerPage);
+        await waitForFontLoaded(ownerPage);
+        await focusEditorGlyph(ownerPage, 'A');
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Reconnect ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+
+        await editorPage.goto('/?test=true');
+        await waitForCanvasReady(editorPage);
+        await bootstrapCloudSession(editorPage, editorEmail);
+
+        const inviteUrl = await createInvitationFromShareDialog(
+            ownerPage,
+            editorEmail,
+            'editor'
+        );
+
+        await acceptInvitationAndOpenEditor(editorPage, inviteUrl);
+        await focusEditorGlyph(editorPage, 'A');
+
+        const beforeOwner = await getPrimaryNodePosition(ownerPage);
+        const beforeEditor = await getPrimaryNodePosition(editorPage);
+        expect(beforeEditor).toEqual(beforeOwner);
+
+        await editorPage.evaluate(() => {
+            (window as any).cloudPlugin._cloudAdapter._ws.close(
+                4000,
+                'playwright-reconnect'
+            );
+        });
+
+        const warningBadge = editorPage.locator(
+            '.cloud-connection-warning-badge'
+        );
+        await expect(warningBadge).toContainText('Reconnecting', {
+            timeout: 15000
+        });
+
+        const mutation = await movePrimaryNode(ownerPage, 19, 8);
+
+        await waitForCloudConnected(editorPage);
+        await expect(warningBadge).toBeHidden({ timeout: 15000 });
+
+        await expect
+            .poll(async () => await getPrimaryNodePosition(editorPage), {
+                timeout: 20000
+            })
+            .toEqual(mutation.after);
+
+        await ownerContext.close();
+        await editorContext.close();
+    });
+
     test('propagates a live glyph edit between two cloud-connected pages', async ({
         browser
     }) => {

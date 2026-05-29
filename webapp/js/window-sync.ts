@@ -25,6 +25,7 @@ type CloudConnectionRelayState = {
     assetId: string | null;
     status: string;
     detail?: string;
+    pendingSyncCount?: number;
 };
 
 // ── Protocol message types ──────────────────────────────────────────

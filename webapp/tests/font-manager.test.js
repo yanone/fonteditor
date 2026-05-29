@@ -1933,7 +1933,8 @@ describe('FontManager share button visibility', () => {
             getCurrentAssetRole: jest.fn(() => role),
             getAssetConnectionStatus: jest.fn(() => 'connected'),
             getAssetConnectionDetail: jest.fn(() => undefined),
-            hasConnectionProblem: jest.fn(() => false)
+            hasConnectionProblem: jest.fn(() => false),
+            getAssetPendingSyncCount: jest.fn(() => 0)
         };
     }
 
@@ -2030,9 +2031,9 @@ describe('FontManager share button visibility', () => {
         expect(warningBadge.classList.contains('visible')).toBe(true);
         expect(warningBadge.hidden).toBe(false);
         expect(warningBadge.getAttribute('title')).toBe(
-            'Cloud connection unstable: Access epoch is stale'
+            'Cloud status: Access epoch is stale'
         );
-        expect(warningBadge.innerHTML).toContain('warning');
+        expect(warningBadge.textContent).toContain('Reconnecting');
     });
 
     test('hides the connection warning badge while the cloud room is stable', () => {
@@ -2064,6 +2065,24 @@ describe('FontManager share button visibility', () => {
         expect(warningBadge.classList.contains('visible')).toBe(false);
         expect(warningBadge.hidden).toBe(true);
         expect(warningBadge.getAttribute('title')).toBeNull();
+    });
+
+    test('shows a pending durable sync count while the cloud socket remains connected', () => {
+        setCurrentFont({ role: 'owner', path: 'cloud://asset-1' });
+        window.cloudPlugin.getAssetPendingSyncCount.mockReturnValue(3);
+
+        fontManager.updateFontDisplay();
+
+        const warningBadge = document.querySelector(
+            '.cloud-connection-warning-badge'
+        );
+
+        expect(warningBadge.classList.contains('visible')).toBe(true);
+        expect(warningBadge.hidden).toBe(false);
+        expect(warningBadge.getAttribute('title')).toBe(
+            'Cloud status: 3 cloud edits waiting for durable sync'
+        );
+        expect(warningBadge.textContent).toContain('3 pending');
     });
 
     test('cloud-backed fonts no longer use the dirty indicator for connection problems', async () => {
