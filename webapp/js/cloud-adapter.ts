@@ -147,6 +147,7 @@ async function parseRequiredJsonResponse<T>(
  */
 const SYNC_CHUNK_SIZE = 750_000;
 const CLIENT_RECONNECT_CLOSE_CODE = 4000;
+const AUTHENTICATION_TIMEOUT_MS = 10000;
 
 export type CloudConnectionStatus =
     | 'disconnected'
@@ -310,6 +311,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _fontModelReadyHandler: ((e: Event) => void) | null = null;
     private _destroyed = false;
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private _authenticationTimer: ReturnType<typeof setTimeout> | null = null;
     private _assetRoles = new Map<string, CloudAssetRole>();
     private _hasSynced = false;
     private _pendingOutboundPackets: CloudOutboundUpdatePacket[] = [];
@@ -395,6 +397,7 @@ export class CloudAdapter implements FileSystemAdapter {
     disconnect(): void {
         this._destroyed = true;
         this._clearReconnectTimer();
+        this._clearAuthenticationTimeout();
         this._unsubscribeFontModelReady();
         this._localUpdateUnsubscribe?.();
         this._localUpdateUnsubscribe = null;
@@ -544,6 +547,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 if (this._ws !== ws) return;
                 this._setStatus('authenticating');
                 ws.send(JSON.stringify({ type: 'auth', token }));
+                this._armAuthenticationTimeout(ws);
             };
 
             ws.onmessage = (event: MessageEvent) => {
@@ -565,6 +569,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 console.log(
                     `CloudAdapter: closed (${event.code}: ${event.reason})`
                 );
+                this._clearAuthenticationTimeout();
                 this._clientId = null;
                 this._hasSynced = false;
                 this._incomingResponseChunks = null;
@@ -606,6 +611,7 @@ export class CloudAdapter implements FileSystemAdapter {
 
         switch (msg.type) {
             case 'auth-ok':
+                this._clearAuthenticationTimeout();
                 this._clientId = String(msg.clientId ?? '');
                 console.log(`CloudAdapter: authenticated as ${this._clientId}`);
                 this._setStatus('syncing');
@@ -627,6 +633,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 break;
 
             case 'auth-error':
+                this._clearAuthenticationTimeout();
                 console.error(
                     `CloudAdapter: auth error: ${String(msg.message ?? '')}`
                 );
@@ -1333,6 +1340,31 @@ export class CloudAdapter implements FileSystemAdapter {
     private _setStatus(status: CloudConnectionStatus, detail?: string): void {
         this._status = status;
         this._onConnectionStatus?.(status, detail);
+    }
+
+    private _armAuthenticationTimeout(ws: WebSocket): void {
+        this._clearAuthenticationTimeout();
+        this._authenticationTimer = setTimeout(() => {
+            if (
+                this._destroyed ||
+                this._ws !== ws ||
+                this._status !== 'authenticating'
+            ) {
+                return;
+            }
+
+            const detail = 'Cloud room authentication timed out';
+            console.warn(`CloudAdapter: ${detail}`);
+            this._setStatus('connecting', detail);
+            ws.close(CLIENT_RECONNECT_CLOSE_CODE, 'auth-timeout');
+        }, AUTHENTICATION_TIMEOUT_MS);
+    }
+
+    private _clearAuthenticationTimeout(): void {
+        if (this._authenticationTimer !== null) {
+            clearTimeout(this._authenticationTimer);
+            this._authenticationTimer = null;
+        }
     }
 
     private _scheduleReconnect(): void {

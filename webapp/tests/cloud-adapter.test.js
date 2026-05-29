@@ -1003,6 +1003,69 @@ describe('CloudAdapter durability failures', () => {
         expect(close).toHaveBeenCalledWith(4000, 'server-access-change');
     });
 
+    it('reconnects when authentication stalls after the socket opens', async () => {
+        jest.useFakeTimers();
+
+        const statuses = [];
+        const originalWebSocket = global.WebSocket;
+        let socket;
+
+        class FakeWebSocket {
+            constructor(_url) {
+                this.readyState = 1;
+                this.send = jest.fn();
+                this.close = jest.fn((code, reason) => {
+                    this.readyState = 3;
+                    this.onclose?.({ code, reason });
+                });
+                socket = this;
+            }
+        }
+
+        global.WebSocket = FakeWebSocket;
+
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            await adapter.connectDirect(
+                {
+                    onLocalUpdate: jest.fn(),
+                    offLocalUpdate: jest.fn()
+                },
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+
+            socket.onopen();
+            jest.advanceTimersByTime(10000);
+
+            expect(socket.send).toHaveBeenCalledWith(
+                JSON.stringify({ type: 'auth', token: 'room-token' })
+            );
+            expect(statuses).toContainEqual({
+                status: 'connecting',
+                detail: 'Cloud room authentication timed out'
+            });
+            expect(socket.close).toHaveBeenCalledWith(4000, 'auth-timeout');
+            expect(scheduleReconnect).toHaveBeenCalled();
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            global.WebSocket = originalWebSocket;
+            jest.useRealTimers();
+        }
+    });
+
     it('forces a reconnect when the room revokes write access', () => {
         const statuses = [];
         const adapter = new CloudAdapter({
