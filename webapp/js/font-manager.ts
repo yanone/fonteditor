@@ -1057,8 +1057,8 @@ class FontManager {
                     if (shareButton) {
                         const shouldShowShareButton =
                             isAuthenticated &&
-                            (!currentFont.isCloudBacked() ||
-                                cloudRole === 'owner');
+                            currentFont.isCloudBacked() &&
+                            cloudRole === 'owner';
                         shareButton.classList.toggle(
                             'visible',
                             shouldShowShareButton
