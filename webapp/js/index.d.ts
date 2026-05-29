@@ -463,6 +463,7 @@ declare global {
         // From font-info.ts
         fontInfoManager: {
             updateEditorTheme: (theme: 'light' | 'dark') => void;
+            refreshVisibleContentForExternalSync: () => void;
             getHistoryScopeTarget: () => {
                 type: 'prefix' | 'class' | 'feature';
                 key: string;

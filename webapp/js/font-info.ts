@@ -8906,6 +8906,10 @@ class FontInfoManager {
             this.featuresEditor.setTheme(aceTheme);
         }
     }
+
+    refreshVisibleContentForExternalSync() {
+        this.onFontModelSynced();
+    }
 }
 
 // Create singleton instance

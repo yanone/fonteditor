@@ -184,6 +184,13 @@ type CloudOutboundUpdatePacket = {
     collaborationMessage?: CollaborationMessageEnvelope;
 };
 
+type CloudVisibleRebaselineTargets = {
+    editingFontRecompiled: boolean;
+    canvasRefreshed: boolean;
+    overviewRefreshed: boolean;
+    fontInfoRefreshed: boolean;
+};
+
 function dedupeCollaborationMessages(
     envelopes: CollaborationMessageEnvelope[]
 ): CollaborationMessageEnvelope[] {
@@ -324,6 +331,8 @@ export class CloudAdapter implements FileSystemAdapter {
     private _resyncRequestedAfterNoopUpdate = false;
     private _initialServerStateApplied = false;
     private _initialSyncDurable = false;
+    private _needsVisibleRebaseline = false;
+    private _visibleRebaselinePromise: Promise<void> | null = null;
     /** Accumulates incoming sync-response chunks from the server. */
     private _incomingResponseChunks: CloudChunkAccumulator | null = null;
     /** Accumulates incoming chunked live updates from the server. */
@@ -362,6 +371,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._incomingLiveUpdateChunks.clear();
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
+        this._visibleRebaselinePromise = null;
         this._bridge = bridge;
         this._registerOutboundHook();
         this._subscribeFontModelReady();
@@ -387,6 +397,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._incomingLiveUpdateChunks.clear();
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
+        this._visibleRebaselinePromise = null;
         this._bridge = bridge;
         this._registerOutboundHook();
         this._subscribeFontModelReady();
@@ -410,6 +421,8 @@ export class CloudAdapter implements FileSystemAdapter {
         this._inboundFlushScheduled = false;
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
+        this._needsVisibleRebaseline = false;
+        this._visibleRebaselinePromise = null;
         this._incomingLiveUpdateChunks.clear();
         this._setStatus('disconnected');
     }
@@ -571,11 +584,11 @@ export class CloudAdapter implements FileSystemAdapter {
                 );
                 this._clearAuthenticationTimeout();
                 this._clientId = null;
+                this._markVisibleRebaselineNeeded();
                 this._hasSynced = false;
                 this._incomingResponseChunks = null;
                 this._initialServerStateApplied = false;
                 this._initialSyncDurable = false;
-                this._pendingOutboundPackets = [];
                 this._outboundFlushScheduled = false;
                 this._pendingInboundUpdates = [];
                 this._inboundFlushScheduled = false;
@@ -617,6 +630,12 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._setStatus('syncing');
                 this._initialServerStateApplied = false;
                 this._initialSyncDurable = false;
+                if (this._pendingOutboundPackets.length > 0) {
+                    // The upcoming sync-request/sync-complete diff will carry
+                    // the authoritative missing state, so stale pre-reconnect
+                    // live packets should not be replayed ad hoc afterwards.
+                    this._pendingOutboundPackets = [];
+                }
                 if (!this._hasSynced) {
                     // Phase 1 of Yjs two-phase sync: send our state vector so
                     // the server can compute exactly what we're missing.
@@ -693,7 +712,7 @@ export class CloudAdapter implements FileSystemAdapter {
                     this._registerOutboundHook();
                     this._initialSyncDurable =
                         !this._sendSyncComplete(serverSV);
-                    this._maybeMarkInitialSyncConnected();
+                    void this._maybeMarkInitialSyncConnected().catch(() => {});
                 }
                 break;
             }
@@ -716,7 +735,9 @@ export class CloudAdapter implements FileSystemAdapter {
                         );
                         this._incomingResponseChunks = null;
                         this._applyServerState(combined);
-                        this._maybeMarkInitialSyncConnected();
+                        void this._maybeMarkInitialSyncConnected().catch(
+                            () => {}
+                        );
                     }
                 }
                 break;
@@ -767,7 +788,7 @@ export class CloudAdapter implements FileSystemAdapter {
                     }
 
                     this._initialSyncDurable = true;
-                    this._maybeMarkInitialSyncConnected();
+                    void this._maybeMarkInitialSyncConnected().catch(() => {});
                     return;
                 }
 
@@ -843,14 +864,108 @@ export class CloudAdapter implements FileSystemAdapter {
         }
     }
 
-    private _maybeMarkInitialSyncConnected(): void {
+    private async _maybeMarkInitialSyncConnected(): Promise<void> {
         if (
             this._hasSynced &&
             this._initialServerStateApplied &&
             this._initialSyncDurable
         ) {
+            if (this._needsVisibleRebaseline) {
+                if (!this._visibleRebaselinePromise) {
+                    this._setStatus(
+                        'syncing',
+                        'Rebuilding visible state after reconnect'
+                    );
+                    this._visibleRebaselinePromise =
+                        this._runVisibleReconnectRebaseline().finally(() => {
+                            this._visibleRebaselinePromise = null;
+                        });
+                }
+                await this._visibleRebaselinePromise;
+            }
             this._setStatus('connected');
         }
+    }
+
+    private _markVisibleRebaselineNeeded(): void {
+        if (
+            this._hasSynced ||
+            this._status === 'connected' ||
+            this._status === 'syncing'
+        ) {
+            this._needsVisibleRebaseline = true;
+        }
+    }
+
+    private async _runVisibleReconnectRebaseline(): Promise<void> {
+        if (!this._needsVisibleRebaseline) {
+            return;
+        }
+
+        const refreshed: CloudVisibleRebaselineTargets = {
+            editingFontRecompiled: false,
+            canvasRefreshed: false,
+            overviewRefreshed: false,
+            fontInfoRefreshed: false
+        };
+
+        try {
+            if (
+                typeof window.fontManager?.recompileEditingFont === 'function'
+            ) {
+                await window.fontManager.recompileEditingFont();
+                refreshed.editingFontRecompiled = true;
+            }
+
+            if (typeof window.syncRustCacheAndRefreshCanvas === 'function') {
+                await window.syncRustCacheAndRefreshCanvas(
+                    undefined,
+                    undefined,
+                    {
+                        allowSelectedLayerFallback: true
+                    }
+                );
+                refreshed.canvasRefreshed = true;
+            }
+
+            const glyphOverview = window.glyphOverviewInstance as
+                | {
+                      renderGlyphOutlines?: (
+                          location?: Record<string, number>
+                      ) => Promise<void>;
+                      syncActiveGlyphFocus?: () => void;
+                      currentLocation?: Record<string, number>;
+                  }
+                | null
+                | undefined;
+            if (typeof glyphOverview?.renderGlyphOutlines === 'function') {
+                await glyphOverview.renderGlyphOutlines(
+                    glyphOverview.currentLocation ?? {}
+                );
+                glyphOverview.syncActiveGlyphFocus?.();
+                refreshed.overviewRefreshed = true;
+            }
+
+            if (
+                typeof window.fontInfoManager
+                    ?.refreshVisibleContentForExternalSync === 'function'
+            ) {
+                window.fontInfoManager.refreshVisibleContentForExternalSync();
+                refreshed.fontInfoRefreshed = true;
+            }
+        } catch (error) {
+            const detail =
+                error instanceof Error ? error.message : String(error);
+            console.warn(
+                'CloudAdapter: reconnect visible rebaseline failed:',
+                error,
+                refreshed
+            );
+            this._setStatus('error', `Reconnect refresh failed: ${detail}`);
+            throw error;
+        }
+
+        this._needsVisibleRebaseline = false;
     }
 
     /** Apply an incremental update broadcast from a peer. */
@@ -1125,7 +1240,6 @@ export class CloudAdapter implements FileSystemAdapter {
             this._ws.readyState !== WebSocket.OPEN ||
             !this._bridge
         ) {
-            this._pendingOutboundPackets = [];
             return;
         }
 

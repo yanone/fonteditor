@@ -487,6 +487,25 @@ describe('CloudAdapter outbound updates', () => {
         expect(adapter._incomingLiveUpdateChunks.size).toBe(0);
     });
 
+    it('retains pending outbound packets when the websocket is unavailable', () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const packet = {
+            update: new Uint8Array([1, 2, 3]),
+            collaborationMessage: null
+        };
+
+        adapter._bridge = {
+            advanceBroadcastLogCursor: jest.fn()
+        };
+        adapter._pendingOutboundPackets = [packet];
+        adapter._outboundFlushScheduled = true;
+
+        adapter._flushPendingOutboundUpdates();
+
+        expect(adapter._pendingOutboundPackets).toEqual([packet]);
+        expect(adapter._outboundFlushScheduled).toBe(false);
+    });
+
     it('advances the broadcast cursor when an incremental update is durably acked', async () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
         const localUpdate = new Uint8Array([1, 2, 3, 4]);
@@ -1063,6 +1082,77 @@ describe('CloudAdapter durability failures', () => {
             adapter.disconnect();
             global.WebSocket = originalWebSocket;
             jest.useRealTimers();
+        }
+    });
+
+    it('runs reconnect visible rebaseline before reporting connected', async () => {
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+
+        const originalFontManager = window.fontManager;
+        const originalRefreshCanvas = window.syncRustCacheAndRefreshCanvas;
+        const originalGlyphOverview = window.glyphOverviewInstance;
+        const originalFontInfoManager = window.fontInfoManager;
+
+        window.fontManager = {
+            recompileEditingFont: jest.fn().mockResolvedValue(false)
+        };
+        window.syncRustCacheAndRefreshCanvas = jest.fn().mockResolvedValue();
+        window.glyphOverviewInstance = {
+            currentLocation: { wght: 400 },
+            renderGlyphOutlines: jest.fn().mockResolvedValue(),
+            syncActiveGlyphFocus: jest.fn()
+        };
+        window.fontInfoManager = {
+            refreshVisibleContentForExternalSync: jest.fn()
+        };
+
+        adapter._hasSynced = true;
+        adapter._initialServerStateApplied = true;
+        adapter._initialSyncDurable = true;
+        adapter._needsVisibleRebaseline = true;
+
+        try {
+            await adapter._maybeMarkInitialSyncConnected();
+
+            expect(statuses).toEqual([
+                {
+                    status: 'syncing',
+                    detail: 'Rebuilding visible state after reconnect'
+                },
+                {
+                    status: 'connected',
+                    detail: undefined
+                }
+            ]);
+            expect(window.fontManager.recompileEditingFont).toHaveBeenCalled();
+            expect(window.syncRustCacheAndRefreshCanvas).toHaveBeenCalledWith(
+                undefined,
+                undefined,
+                {
+                    allowSelectedLayerFallback: true
+                }
+            );
+            expect(
+                window.glyphOverviewInstance.renderGlyphOutlines
+            ).toHaveBeenCalledWith({ wght: 400 });
+            expect(
+                window.glyphOverviewInstance.syncActiveGlyphFocus
+            ).toHaveBeenCalled();
+            expect(
+                window.fontInfoManager.refreshVisibleContentForExternalSync
+            ).toHaveBeenCalled();
+            expect(adapter._needsVisibleRebaseline).toBe(false);
+        } finally {
+            window.fontManager = originalFontManager;
+            window.syncRustCacheAndRefreshCanvas = originalRefreshCanvas;
+            window.glyphOverviewInstance = originalGlyphOverview;
+            window.fontInfoManager = originalFontInfoManager;
         }
     });
 

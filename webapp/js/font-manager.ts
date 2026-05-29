@@ -727,10 +727,11 @@ class FontManager {
 
         badge = document.createElement('span');
         badge.className = 'cloud-connection-warning-badge';
-        badge.setAttribute('aria-hidden', 'true');
+        badge.setAttribute('role', 'status');
+        badge.setAttribute('aria-live', 'polite');
         badge.hidden = true;
         badge.innerHTML =
-            '<span class="material-symbols-outlined">warning</span>';
+            '<span class="material-symbols-outlined">cloud_off</span><span class="cloud-connection-warning-text">Reconnecting</span>';
 
         const shareButton = document.getElementById('share-btn');
         const cloudAccessRoleBadge = document.getElementById(
@@ -751,42 +752,97 @@ class FontManager {
     private getCloudConnectionWarningState(font: OpenedFont | null): {
         visible: boolean;
         title: string;
+        label: string;
+        icon: string;
+        tone: 'warning' | 'error';
     } {
         if (!font?.isCloudBacked()) {
-            return { visible: false, title: '' };
+            return {
+                visible: false,
+                title: '',
+                label: '',
+                icon: 'cloud',
+                tone: 'warning'
+            };
         }
 
         const assetId = this.normalizeCloudAssetId(font);
         if (!assetId) {
-            return { visible: false, title: '' };
+            return {
+                visible: false,
+                title: '',
+                label: '',
+                icon: 'cloud',
+                tone: 'warning'
+            };
         }
 
         const hasConnectionProblem =
             window.cloudPlugin?.hasConnectionProblem?.(assetId) ?? false;
         if (!hasConnectionProblem) {
-            return { visible: false, title: '' };
+            return {
+                visible: false,
+                title: '',
+                label: '',
+                icon: 'cloud',
+                tone: 'warning'
+            };
         }
 
         const status = window.cloudPlugin?.getAssetConnectionStatus?.(assetId);
         if (!status || status === 'connected') {
-            return { visible: false, title: '' };
+            return {
+                visible: false,
+                title: '',
+                label: '',
+                icon: 'cloud',
+                tone: 'warning'
+            };
         }
 
         const detail = window.cloudPlugin?.getAssetConnectionDetail?.(assetId);
-        const fallbackReason =
+        const presentation =
             status === 'connecting'
-                ? 'Reconnecting to the cloud room'
+                ? {
+                      label: 'Reconnecting',
+                      icon: 'cloud_off',
+                      tone: 'warning' as const,
+                      fallbackReason: 'Reconnecting to the cloud room'
+                  }
                 : status === 'authenticating'
-                  ? 'Authenticating cloud room access'
+                  ? {
+                        label: 'Authenticating',
+                        icon: 'cloud_sync',
+                        tone: 'warning' as const,
+                        fallbackReason: 'Authenticating cloud room access'
+                    }
                   : status === 'syncing'
-                    ? 'Syncing cloud room state'
+                    ? {
+                          label: 'Resyncing',
+                          icon: 'sync',
+                          tone: 'warning' as const,
+                          fallbackReason: 'Syncing cloud room state'
+                      }
                     : status === 'disconnected'
-                      ? 'Cloud room is disconnected'
-                      : 'Cloud connection error';
+                      ? {
+                            label: 'Offline',
+                            icon: 'cloud_off',
+                            tone: 'warning' as const,
+                            fallbackReason: 'Cloud room is disconnected'
+                        }
+                      : {
+                            label: 'Sync error',
+                            icon: 'sync_problem',
+                            tone: 'error' as const,
+                            fallbackReason: 'Cloud connection error'
+                        };
 
         return {
             visible: true,
-            title: `Cloud connection unstable: ${detail || fallbackReason}`
+            title: `Cloud status: ${detail || presentation.fallbackReason}`,
+            label: presentation.label,
+            icon: presentation.icon,
+            tone: presentation.tone
         };
     }
 
@@ -1132,12 +1188,34 @@ class FontManager {
                         'visible',
                         warningState.visible
                     );
+                    cloudConnectionWarningBadge.classList.toggle(
+                        'tone-error',
+                        warningState.visible && warningState.tone === 'error'
+                    );
+                    cloudConnectionWarningBadge.classList.toggle(
+                        'tone-warning',
+                        warningState.visible && warningState.tone === 'warning'
+                    );
                     if (warningState.visible) {
                         cloudConnectionWarningBadge.hidden = false;
                         cloudConnectionWarningBadge.setAttribute(
                             'title',
                             warningState.title
                         );
+                        const iconElement =
+                            cloudConnectionWarningBadge.querySelector(
+                                '.material-symbols-outlined'
+                            );
+                        const textElement =
+                            cloudConnectionWarningBadge.querySelector(
+                                '.cloud-connection-warning-text'
+                            );
+                        if (iconElement) {
+                            iconElement.textContent = warningState.icon;
+                        }
+                        if (textElement) {
+                            textElement.textContent = warningState.label;
+                        }
                     } else {
                         cloudConnectionWarningBadge.hidden = true;
                         cloudConnectionWarningBadge.removeAttribute('title');
