@@ -80,6 +80,63 @@ test.describe('Open Dialog UI', () => {
         expect(currentFontPathAfter).toBe(currentFontPathBefore);
     });
 
+    test('cloud save as closes the dialog even if the refresh fails', async ({
+        page
+    }) => {
+        await page.evaluate(async () => {
+            await (window as any).showFontFileDialog?.({ mode: 'open' });
+        });
+
+        const dialog = page.locator('#font-file-dialog');
+        await dialog.waitFor({ state: 'visible' });
+        await dialog
+            .locator('.file-item[data-name="Fustat.glyphs"]')
+            .dblclick();
+
+        await waitForFontLoaded(page);
+        await waitForOpenSessionReady(page, 'Fustat.glyphs');
+
+        await page.evaluate(async () => {
+            await (window as any).switchContext?.('cloud');
+
+            const cloudPlugin = (window as any).cloudPlugin;
+            const currentFont = (window as any).fontManager?.currentFont;
+            const originalHandleSaveAs =
+                cloudPlugin.handleSaveAs.bind(cloudPlugin);
+            const adapter = cloudPlugin.getAdapter();
+            const originalScanDirectory = adapter.scanDirectory.bind(adapter);
+
+            cloudPlugin.handleSaveAs = async () => {
+                if (currentFont) {
+                    currentFont.path = 'cloud://mock-saved-asset';
+                    currentFont.sourcePlugin = cloudPlugin;
+                    currentFont.hasUnsavedChanges = false;
+                }
+                return true;
+            };
+
+            adapter.scanDirectory = async () => {
+                throw new Error('synthetic refresh failure');
+            };
+
+            await (window as any).showFontFileDialog?.({ mode: 'save-as' });
+
+            (window as any).__restoreCloudSaveAsDialogTest = () => {
+                cloudPlugin.handleSaveAs = originalHandleSaveAs;
+                adapter.scanDirectory = originalScanDirectory;
+            };
+        });
+        await dialog.waitFor({ state: 'visible' });
+        await dialog.locator('#file-dialog-save-name').fill('Cloud Save Close');
+        await dialog.locator('#file-dialog-confirm-btn').click();
+        await expect(dialog).toBeHidden();
+
+        await page.evaluate(() => {
+            (window as any).__restoreCloudSaveAsDialogTest?.();
+            delete (window as any).__restoreCloudSaveAsDialogTest;
+        });
+    });
+
     test('plugin switch clears stale selection and disables open', async ({
         page
     }) => {

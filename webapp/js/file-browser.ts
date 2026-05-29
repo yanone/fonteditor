@@ -1876,8 +1876,14 @@ async function saveCurrentFontAsToPath(): Promise<void> {
                     );
                 if (handled) {
                     syncEditorFileStateFromCurrentFont();
-                    await refreshFileSystem();
                     closeFontFileDialog();
+                    void refreshFileSystem().catch((error) => {
+                        console.error(
+                            '[FileBrowser]',
+                            'Cloud Save As succeeded but dialog refresh failed:',
+                            error
+                        );
+                    });
                 }
                 return;
             }
