@@ -316,6 +316,119 @@ describe('CloudAdapter outbound updates', () => {
         );
     });
 
+    it('chunks oversized incremental updates into update-chunk frames', async () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const localUpdate = new Uint8Array(750_001).fill(7);
+        const sentFrames = [];
+        let localUpdateHandler = null;
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                [
+                    createLogEntry({
+                        timestamp: 1,
+                        windowId: 'client-1',
+                        windowRoleLabel: 'main',
+                        transactionLabel: 'Chunked Drag',
+                        transactionId: 1,
+                        op: 'set',
+                        undoScope: 'layer',
+                        path: 'glyphs.A:layers.L0.width',
+                        oldValue: 600,
+                        newValue: 700,
+                        workerReplayTargets: []
+                    })
+                ],
+                {
+                    localSequence: 1,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            );
+
+        adapter._bridge = {
+            onLocalUpdate: (handler) => {
+                localUpdateHandler = handler;
+            },
+            offLocalUpdate: jest.fn(),
+            advanceBroadcastLogCursor: jest.fn()
+        };
+        adapter._ws = {
+            readyState: 1,
+            send: (payload) => sentFrames.push(JSON.parse(payload))
+        };
+        adapter._clientId = 'client-1';
+
+        adapter._registerOutboundHook();
+        localUpdateHandler(localUpdate, collaborationMessage);
+        await Promise.resolve();
+
+        expect(sentFrames).toHaveLength(2);
+        expect(sentFrames[0]).toEqual(
+            expect.objectContaining({
+                type: 'update-chunk',
+                clientId: 'client-1',
+                seq: 1,
+                chunkIndex: 0,
+                totalChunks: 2
+            })
+        );
+        expect(sentFrames[1]).toEqual(
+            expect.objectContaining({
+                type: 'update',
+                clientId: 'client-1',
+                seq: 1,
+                chunkIndex: 1,
+                totalChunks: 2,
+                collaborationMessages: [
+                    expect.objectContaining({
+                        transactionId: collaborationMessage.transactionId,
+                        label: collaborationMessage.label
+                    })
+                ]
+            })
+        );
+    });
+
+    it('reassembles chunked inbound live updates before queueing them', () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const update = new Uint8Array([1, 2, 3, 4, 5]);
+        const queued = [];
+
+        adapter._queueInboundUpdate = jest.fn((message) =>
+            queued.push(message)
+        );
+        adapter._clientId = 'client-1';
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'update-chunk',
+                update: Buffer.from(update.slice(0, 2)).toString('base64'),
+                clientId: 'peer-1',
+                seq: 4,
+                chunkIndex: 0,
+                totalChunks: 2
+            })
+        );
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'update',
+                update: Buffer.from(update.slice(2)).toString('base64'),
+                clientId: 'peer-1',
+                seq: 4,
+                chunkIndex: 1,
+                totalChunks: 2,
+                collaborationMessages: [{ transactionId: 'tx-4' }]
+            })
+        );
+
+        expect(queued).toHaveLength(1);
+        expect(Array.from(queued[0].update)).toEqual(Array.from(update));
+        expect(queued[0].collaborationMessages).toEqual([
+            { transactionId: 'tx-4' }
+        ]);
+        expect(adapter._incomingLiveUpdateChunks.size).toBe(0);
+    });
+
     it('advances the broadcast cursor when an incremental update is durably acked', async () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
         const localUpdate = new Uint8Array([1, 2, 3, 4]);
@@ -772,6 +885,34 @@ describe('CloudAdapter durability failures', () => {
         expect(statuses).toContainEqual({
             status: 'error',
             detail: 'Sync update not durable'
+        });
+        expect(close).toHaveBeenCalledWith(4000, 'server-error');
+    });
+
+    it('marks the connection errored and closes on generic room errors', () => {
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const close = jest.fn();
+        adapter._ws = {
+            readyState: 1,
+            close
+        };
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'error',
+                message: 'Sync upload exceeds byte limit'
+            })
+        );
+
+        expect(statuses).toContainEqual({
+            status: 'error',
+            detail: 'Sync upload exceeds byte limit'
         });
         expect(close).toHaveBeenCalledWith(4000, 'server-error');
     });

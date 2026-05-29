@@ -9,8 +9,11 @@
  *   { type: 'sync-request',  stateVector: string }   ← base64(Y.encodeStateVector)
  *   { type: 'sync-complete', update: string [, chunkIndex, totalChunks] }   ← base64(diff for server, last or only chunk)
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks }       ← preceding chunk(s) for large diff
+ *   { type: 'update-chunk',  update: string, clientId: string, seq: number,
+ *                            chunkIndex, totalChunks }                       ← preceding chunk(s) for large live edits
  *   { type: 'update',        update: string, clientId: string, seq: number,
- *                            collaborationMessages?: CollaborationMessageEnvelope[] }
+ *                            collaborationMessages?: CollaborationMessageEnvelope[]
+ *                            [, chunkIndex, totalChunks] }                   ← last or only chunk
  *
  * Server → Client:
  *   { type: 'auth-ok',       clientId: string }
@@ -19,8 +22,11 @@
  *                            collaborationMessageHistory?: CollaborationMessageEnvelope[] [, chunked: true, totalChunks] }
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks, direction: 'response' }
  *   { type: 'ack',           seq: -1, durable: boolean, phase: 'sync-complete' }
+ *   { type: 'update-chunk',  update: string, clientId: string, seq: number,
+ *                            chunkIndex, totalChunks }                       ← preceding chunk(s) for large live edits
  *   { type: 'update',        update: string, clientId: string, seq: number,
- *                            collaborationMessages?: CollaborationMessageEnvelope[] }
+ *                            collaborationMessages?: CollaborationMessageEnvelope[]
+ *                            [, chunkIndex, totalChunks] }                   ← last or only chunk
  *   { type: 'ack',           seq: number, durable: boolean }
  *   { type: 'error',         message: string }
  *
@@ -166,6 +172,12 @@ type CloudLiveUpdateMessage = {
     collaborationMessages?: CollaborationMessageEnvelope[];
 };
 
+type CloudChunkAccumulator = {
+    chunks: (Uint8Array | undefined)[];
+    received: number;
+    total: number;
+};
+
 type CloudOutboundUpdatePacket = {
     update: Uint8Array;
     collaborationMessage?: CollaborationMessageEnvelope;
@@ -260,6 +272,17 @@ function base64ToU8(b64: string): Uint8Array {
     return u8;
 }
 
+function getLiveUpdateChunkKey(
+    clientId: string | null | undefined,
+    seq: number | null | undefined
+): string | null {
+    if (!clientId || typeof seq !== 'number' || !Number.isFinite(seq)) {
+        return null;
+    }
+
+    return `${clientId}:${seq}`;
+}
+
 // ── CloudAdapter ─────────────────────────────────────────────────────────────
 
 /**
@@ -300,11 +323,12 @@ export class CloudAdapter implements FileSystemAdapter {
     private _initialServerStateApplied = false;
     private _initialSyncDurable = false;
     /** Accumulates incoming sync-response chunks from the server. */
-    private _incomingResponseChunks: {
-        chunks: (Uint8Array | undefined)[];
-        received: number;
-        total: number;
-    } | null = null;
+    private _incomingResponseChunks: CloudChunkAccumulator | null = null;
+    /** Accumulates incoming chunked live updates from the server. */
+    private _incomingLiveUpdateChunks = new Map<
+        string,
+        CloudChunkAccumulator
+    >();
 
     constructor(options: CloudAdapterOptions) {
         this._assetId = options.assetId;
@@ -333,6 +357,7 @@ export class CloudAdapter implements FileSystemAdapter {
         }
         this._hasSynced = false;
         this._incomingResponseChunks = null;
+        this._incomingLiveUpdateChunks.clear();
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
         this._bridge = bridge;
@@ -357,6 +382,7 @@ export class CloudAdapter implements FileSystemAdapter {
         }
         this._hasSynced = false;
         this._incomingResponseChunks = null;
+        this._incomingLiveUpdateChunks.clear();
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
         this._bridge = bridge;
@@ -381,6 +407,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._inboundFlushScheduled = false;
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
+        this._incomingLiveUpdateChunks.clear();
         this._setStatus('disconnected');
     }
 
@@ -688,6 +715,11 @@ export class CloudAdapter implements FileSystemAdapter {
                 break;
             }
 
+            case 'update-chunk': {
+                this._accumulateIncomingLiveUpdateChunk(msg);
+                break;
+            }
+
             case 'update':
                 if (typeof msg.update === 'string') {
                     if (
@@ -698,8 +730,13 @@ export class CloudAdapter implements FileSystemAdapter {
                         break;
                     }
 
+                    const update = this._consumeIncomingLiveUpdate(msg);
+                    if (!update) {
+                        break;
+                    }
+
                     this._queueInboundUpdate({
-                        update: base64ToU8(msg.update),
+                        update,
                         collaborationMessages: Array.isArray(
                             msg.collaborationMessages
                         )
@@ -744,17 +781,6 @@ export class CloudAdapter implements FileSystemAdapter {
                 const detail = String(msg.message ?? 'server error');
                 console.warn(`CloudAdapter: server error: ${detail}`);
                 if (
-                    detail === 'Sync update not durable' ||
-                    detail === 'Invalid Yjs update' ||
-                    detail === 'Room state failed to load' ||
-                    detail === 'Room id unavailable'
-                ) {
-                    this._setStatus('error', detail);
-                    this._ws?.close(
-                        CLIENT_RECONNECT_CLOSE_CODE,
-                        'server-error'
-                    );
-                } else if (
                     detail === 'Access epoch is stale' ||
                     detail === 'Write access requires owner or editor role'
                 ) {
@@ -762,6 +788,12 @@ export class CloudAdapter implements FileSystemAdapter {
                     this._ws?.close(
                         CLIENT_RECONNECT_CLOSE_CODE,
                         'server-access-change'
+                    );
+                } else {
+                    this._setStatus('error', detail);
+                    this._ws?.close(
+                        CLIENT_RECONNECT_CLOSE_CODE,
+                        'server-error'
                     );
                 }
                 break;
@@ -947,6 +979,94 @@ export class CloudAdapter implements FileSystemAdapter {
         return result;
     }
 
+    private _accumulateIncomingLiveUpdateChunk(
+        msg: Record<string, unknown>
+    ): void {
+        const chunkKey = getLiveUpdateChunkKey(
+            typeof msg.clientId === 'string' ? msg.clientId : null,
+            typeof msg.seq === 'number' ? msg.seq : null
+        );
+        if (
+            !chunkKey ||
+            typeof msg.update !== 'string' ||
+            !Number.isInteger(msg.chunkIndex) ||
+            !Number.isInteger(msg.totalChunks) ||
+            (msg.totalChunks as number) <= 1 ||
+            (msg.chunkIndex as number) < 0 ||
+            (msg.chunkIndex as number) >= (msg.totalChunks as number)
+        ) {
+            return;
+        }
+
+        let state = this._incomingLiveUpdateChunks.get(chunkKey);
+        if (!state) {
+            state = {
+                chunks: new Array(msg.totalChunks as number),
+                received: 0,
+                total: msg.totalChunks as number
+            };
+            this._incomingLiveUpdateChunks.set(chunkKey, state);
+        }
+
+        const chunkIndex = msg.chunkIndex as number;
+        if (!state.chunks[chunkIndex]) {
+            state.received++;
+        }
+        state.chunks[chunkIndex] = base64ToU8(msg.update);
+    }
+
+    private _consumeIncomingLiveUpdate(
+        msg: Record<string, unknown>
+    ): Uint8Array | null {
+        if (typeof msg.update !== 'string') {
+            return null;
+        }
+
+        if (
+            !Number.isInteger(msg.chunkIndex) ||
+            !Number.isInteger(msg.totalChunks) ||
+            (msg.totalChunks as number) <= 1 ||
+            (msg.chunkIndex as number) < 0 ||
+            (msg.chunkIndex as number) >= (msg.totalChunks as number)
+        ) {
+            return base64ToU8(msg.update);
+        }
+
+        const chunkKey = getLiveUpdateChunkKey(
+            typeof msg.clientId === 'string' ? msg.clientId : null,
+            typeof msg.seq === 'number' ? msg.seq : null
+        );
+        if (!chunkKey) {
+            return null;
+        }
+
+        let state = this._incomingLiveUpdateChunks.get(chunkKey);
+        if (!state) {
+            state = {
+                chunks: new Array(msg.totalChunks as number),
+                received: 0,
+                total: msg.totalChunks as number
+            };
+        }
+
+        const chunkIndex = msg.chunkIndex as number;
+        if (!state.chunks[chunkIndex]) {
+            state.received++;
+        }
+        state.chunks[chunkIndex] = base64ToU8(msg.update);
+
+        if (
+            state.received !== state.total ||
+            state.chunks.some((chunk) => !chunk)
+        ) {
+            this._incomingLiveUpdateChunks.set(chunkKey, state);
+            return null;
+        }
+
+        this._incomingLiveUpdateChunks.delete(chunkKey);
+        return this._mergeChunks(state.chunks as Uint8Array[]);
+    }
+
     /**
      * Register a listener that forwards each local Yjs update to the room
      * server. Safe to call multiple times — the guard on
@@ -1002,7 +1122,6 @@ export class CloudAdapter implements FileSystemAdapter {
 
         for (const packet of packets) {
             const seq = ++this._seq;
-            const updateBase64 = u8ToBase64(packet.update);
             const collaborationMessages = packet.collaborationMessage
                 ? [packet.collaborationMessage]
                 : [];
@@ -1029,7 +1148,7 @@ export class CloudAdapter implements FileSystemAdapter {
                     __lastCloudOutboundUpdateBase64?: string;
                     __lastCloudOutboundUpdateSeq?: number;
                 }
-            ).__lastCloudOutboundUpdateBase64 = updateBase64;
+            ).__lastCloudOutboundUpdateBase64 = u8ToBase64(packet.update);
             (
                 window as Window & {
                     __lastCloudOutboundUpdateBase64?: string;
@@ -1037,17 +1156,30 @@ export class CloudAdapter implements FileSystemAdapter {
                 }
             ).__lastCloudOutboundUpdateSeq = seq;
 
-            this._ws.send(
-                JSON.stringify({
-                    type: 'update',
-                    update: updateBase64,
-                    clientId: this._clientId ?? '',
-                    seq,
-                    collaborationMessages: collaborationMessages.length
-                        ? collaborationMessages
-                        : undefined
-                })
+            const totalChunks = Math.ceil(
+                packet.update.length / SYNC_CHUNK_SIZE
             );
+            for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+                const isLast = chunkIndex === totalChunks - 1;
+                const chunk = packet.update.slice(
+                    chunkIndex * SYNC_CHUNK_SIZE,
+                    (chunkIndex + 1) * SYNC_CHUNK_SIZE
+                );
+                const frame: Record<string, unknown> = {
+                    type: isLast ? 'update' : 'update-chunk',
+                    update: u8ToBase64(chunk),
+                    clientId: this._clientId ?? '',
+                    seq
+                };
+                if (totalChunks > 1) {
+                    frame.chunkIndex = chunkIndex;
+                    frame.totalChunks = totalChunks;
+                }
+                if (isLast && collaborationMessages.length) {
+                    frame.collaborationMessages = collaborationMessages;
+                }
+                this._ws.send(JSON.stringify(frame));
+            }
         }
     }
 

@@ -148,6 +148,7 @@ const { CloudPlugin } = require('../js/cloud-plugin');
 describe('CloudPlugin.openAsset', () => {
     let plugin;
     let originalAuthManager;
+    let originalAlert;
     let originalDispatchEvent;
     let originalSetTimeout;
     let originalClearTimeout;
@@ -165,6 +166,7 @@ describe('CloudPlugin.openAsset', () => {
         mockLatestTempBridge = null;
 
         originalAuthManager = window.authManager;
+        originalAlert = window.alert;
         originalDispatchEvent = window.dispatchEvent;
         originalSetTimeout = window.setTimeout;
         originalClearTimeout = window.clearTimeout;
@@ -178,6 +180,7 @@ describe('CloudPlugin.openAsset', () => {
             checkAuthStatus: jest.fn().mockResolvedValue({ id: 'user-1' }),
             getSessionToken: jest.fn().mockReturnValue('token')
         };
+        window.alert = jest.fn();
 
         window.changeBridge = undefined;
         global.fetch = jest.fn();
@@ -221,6 +224,7 @@ describe('CloudPlugin.openAsset', () => {
 
     afterEach(() => {
         window.authManager = originalAuthManager;
+        window.alert = originalAlert;
         window.dispatchEvent = originalDispatchEvent;
         window.setTimeout = originalSetTimeout;
         window.clearTimeout = originalClearTimeout;
@@ -333,6 +337,35 @@ describe('CloudPlugin.openAsset', () => {
 
         expect(plugin._fetchRoomToken).toHaveBeenCalledTimes(2);
         expect(mockConnectDirect).toHaveBeenCalledTimes(2);
+    });
+
+    test('alerts once for active cloud runtime errors and re-alerts after recovery', () => {
+        plugin._activeAssetId = 'asset-1';
+
+        plugin._updateConnectionStatus(
+            'asset-1',
+            'error',
+            'Sync upload exceeds byte limit'
+        );
+        plugin._updateConnectionStatus(
+            'asset-1',
+            'error',
+            'Sync upload exceeds byte limit'
+        );
+
+        expect(window.alert).toHaveBeenCalledTimes(1);
+        expect(window.alert).toHaveBeenCalledWith(
+            'Cloud connection error: Sync upload exceeds byte limit'
+        );
+
+        plugin._updateConnectionStatus('asset-1', 'connected');
+        plugin._updateConnectionStatus(
+            'asset-1',
+            'error',
+            'Sync upload exceeds byte limit'
+        );
+
+        expect(window.alert).toHaveBeenCalledTimes(2);
     });
 });
 

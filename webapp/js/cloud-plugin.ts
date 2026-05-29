@@ -388,6 +388,31 @@ function getCloudFontContentScore(
     return score;
 }
 
+const CLOUD_TRANSFER_TIMEOUT_FLOOR_MS = 5 * 60_000;
+const CLOUD_TRANSFER_TIMEOUT_CHUNK_BYTES = 750_000;
+const CLOUD_TRANSFER_TIMEOUT_PER_CHUNK_MS = 15_000;
+
+function estimateCloudTransferTimeoutMs(
+    approximateByteLength?: number | null
+): number {
+    if (
+        typeof approximateByteLength !== 'number' ||
+        !Number.isFinite(approximateByteLength) ||
+        approximateByteLength <= 0
+    ) {
+        return CLOUD_TRANSFER_TIMEOUT_FLOOR_MS;
+    }
+
+    const estimatedChunkCount = Math.max(
+        1,
+        Math.ceil(approximateByteLength / CLOUD_TRANSFER_TIMEOUT_CHUNK_BYTES)
+    );
+    return Math.max(
+        CLOUD_TRANSFER_TIMEOUT_FLOOR_MS,
+        estimatedChunkCount * CLOUD_TRANSFER_TIMEOUT_PER_CHUNK_MS
+    );
+}
+
 async function waitForCloudSaveSeedFontJson(
     timeoutMs = 15000
 ): Promise<Record<string, unknown>> {
@@ -615,6 +640,7 @@ export class CloudPlugin extends FilesystemPlugin {
         CloudConnectionStatus
     >();
     private _connectedAssetIds = new Set<string>();
+    private _lastAlertedConnectionErrorByAssetId = new Map<string, string>();
     private _availabilityErrorMessage: string | null = null;
 
     constructor(
@@ -692,6 +718,24 @@ export class CloudPlugin extends FilesystemPlugin {
         this._connectionStatusByAssetId.set(assetId, status);
         if (status === 'connected') {
             this._connectedAssetIds.add(assetId);
+        }
+        if (status !== 'error') {
+            this._lastAlertedConnectionErrorByAssetId.delete(assetId);
+        } else if (
+            assetId === this._activeAssetId &&
+            !window.windowRole?.isLinkedWindow?.()
+        ) {
+            const alertMessage = detail ?? 'Cloud connection error';
+            if (
+                this._lastAlertedConnectionErrorByAssetId.get(assetId) !==
+                alertMessage
+            ) {
+                this._lastAlertedConnectionErrorByAssetId.set(
+                    assetId,
+                    alertMessage
+                );
+                alert(`Cloud connection error: ${alertMessage}`);
+            }
         }
 
         if (window.windowRole?.isMainWindow()) {
@@ -1413,7 +1457,10 @@ export class CloudPlugin extends FilesystemPlugin {
             await adapter.connectDirect(bridgeToConnect, nextToken, nextWsUrl);
 
             const timeout = new Promise<never>((_, rej) =>
-                setTimeout(() => rej(new Error('cloud sync timed out')), 30_000)
+                setTimeout(
+                    () => rej(new Error('cloud sync timed out')),
+                    estimateCloudTransferTimeoutMs()
+                )
             );
             await Promise.race([connectedPromise, timeout]);
 
@@ -1559,6 +1606,9 @@ export class CloudPlugin extends FilesystemPlugin {
             await waitForCloudSaveSeedFontJson()
         );
         validateCloudExportForFontOpen(seedFontJson, 'save');
+        const estimatedSaveBytes = new TextEncoder().encode(
+            JSON.stringify(seedFontJson)
+        ).length;
 
         await waitForCloudSaveBridge();
 
@@ -1622,7 +1672,10 @@ export class CloudPlugin extends FilesystemPlugin {
             await adapter.connectDirect(bridgeToConnect, token, wsUrl);
 
             const timeout = new Promise<never>((_, rej) =>
-                setTimeout(() => rej(new Error('cloud save timed out')), 30_000)
+                setTimeout(
+                    () => rej(new Error('cloud save timed out')),
+                    estimateCloudTransferTimeoutMs(estimatedSaveBytes)
+                )
             );
             await Promise.race([connectedPromise, timeout]);
 
@@ -1640,8 +1693,6 @@ export class CloudPlugin extends FilesystemPlugin {
         await this._openAssetInternal(assetId);
         return assetId;
     }
-
-    // ── Dev helpers ──────────────────────────────────────────────
 
     /**
      * Connect to a cloud room for the currently open font.
