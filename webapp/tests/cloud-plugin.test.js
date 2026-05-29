@@ -435,6 +435,30 @@ describe('CloudPlugin.openAsset', () => {
         expect(window.alert).toHaveBeenCalledTimes(2);
     });
 
+    test('does not alert for transient stale access epoch reconnects', () => {
+        plugin._activeAssetId = 'asset-1';
+
+        plugin._updateConnectionStatus(
+            'asset-1',
+            'connecting',
+            'Access epoch is stale'
+        );
+
+        expect(window.alert).not.toHaveBeenCalled();
+    });
+
+    test('does not alert for transient websocket reconnects', () => {
+        plugin._activeAssetId = 'asset-1';
+
+        plugin._updateConnectionStatus(
+            'asset-1',
+            'connecting',
+            'WebSocket error (wss://rooms.example.com/room/asset-1)'
+        );
+
+        expect(window.alert).not.toHaveBeenCalled();
+    });
+
     test('moves a deleted active cloud asset into local memory with unsaved changes', () => {
         const disconnect = jest.fn();
         plugin._cloudAdapter = {

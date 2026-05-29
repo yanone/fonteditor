@@ -555,7 +555,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 if (this._ws !== ws) return;
                 console.warn('CloudAdapter: WebSocket error');
                 this._setStatus(
-                    'error',
+                    'connecting',
                     `WebSocket error (${normalizedWsUrl})`
                 );
             };
@@ -780,8 +780,16 @@ export class CloudAdapter implements FileSystemAdapter {
             case 'error': {
                 const detail = String(msg.message ?? 'server error');
                 console.warn(`CloudAdapter: server error: ${detail}`);
-                if (
-                    detail === 'Access epoch is stale' ||
+                if (detail === 'Access epoch is stale') {
+                    // Access-epoch bumps are expected during membership changes.
+                    // Reconnect with a fresh room token without surfacing a user
+                    // error unless the subsequent token fetch actually fails.
+                    this._setStatus('connecting', detail);
+                    this._ws?.close(
+                        CLIENT_RECONNECT_CLOSE_CODE,
+                        'server-access-change'
+                    );
+                } else if (
                     detail === 'Write access requires owner or editor role'
                 ) {
                     this._setStatus('error', detail);

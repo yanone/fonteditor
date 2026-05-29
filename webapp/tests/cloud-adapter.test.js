@@ -112,6 +112,51 @@ describe('normalizeCloudRoomWebSocketUrl', () => {
 });
 
 describe('CloudAdapter outbound updates', () => {
+    it('treats transient websocket transport errors as reconnecting', async () => {
+        const statuses = [];
+        const originalWebSocket = global.WebSocket;
+        let socket;
+
+        class FakeWebSocket {
+            constructor(_url) {
+                this.readyState = 1;
+                socket = this;
+            }
+
+            close() {}
+        }
+
+        global.WebSocket = FakeWebSocket;
+
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+
+        try {
+            await adapter.connectDirect(
+                {
+                    onLocalUpdate: jest.fn(),
+                    offLocalUpdate: jest.fn()
+                },
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+
+            socket.onerror();
+
+            expect(statuses).toContainEqual({
+                status: 'connecting',
+                detail: 'WebSocket error (wss://rooms.example.com/room/asset-123)'
+            });
+        } finally {
+            global.WebSocket = originalWebSocket;
+        }
+    });
+
     it('connect uses the room-token response room url', async () => {
         const originalFetch = global.fetch;
         const openWebSocket = jest.fn().mockResolvedValue(undefined);
@@ -923,7 +968,7 @@ describe('CloudAdapter durability failures', () => {
         expect(close).toHaveBeenCalledWith(4000, 'server-error');
     });
 
-    it('forces a reconnect when the room reports stale access', () => {
+    it('reconnects without surfacing an error when the room reports stale access', () => {
         const statuses = [];
         const adapter = new CloudAdapter({
             assetId: 'asset-123',
@@ -945,7 +990,7 @@ describe('CloudAdapter durability failures', () => {
         );
 
         expect(statuses).toContainEqual({
-            status: 'error',
+            status: 'connecting',
             detail: 'Access epoch is stale'
         });
         expect(close).toHaveBeenCalledWith(4000, 'server-access-change');
