@@ -1052,9 +1052,12 @@ class FontManager {
                     const cloudRole = currentFont.isCloudBacked()
                         ? (window.cloudPlugin?.getCurrentAssetRole?.() ?? null)
                         : null;
+                    const isAuthenticated =
+                        window.authManager?.isAuthenticated?.() === true;
                     if (shareButton) {
                         const shouldShowShareButton =
-                            !currentFont.isCloudBacked() ||
+                            isAuthenticated &&
+                            currentFont.isCloudBacked() &&
                             cloudRole === 'owner';
                         shareButton.classList.toggle(
                             'visible',

@@ -19,15 +19,15 @@
         "gitnexus": {
             "command": "node_modules/.bin/gitnexus",
             "args": ["mcp"]
-        },
-        "counterpunch": {
-            "type": "stdio",
-            "command": "node",
-            "args": ["webapp/scripts/counterpunch-mcp-server.mjs"],
-            "env": {
-                "COUNTERPUNCH_MCP_URL": "https://localhost:8000",
-                "COUNTERPUNCH_MCP_HEADLESS": "false"
-            }
         }
+        // "counterpunch": {
+        //     "type": "stdio",
+        //     "command": "node",
+        //     "args": ["webapp/scripts/counterpunch-mcp-server.mjs"],
+        //     "env": {
+        //         "COUNTERPUNCH_MCP_URL": "https://localhost:8000",
+        //         "COUNTERPUNCH_MCP_HEADLESS": "false"
+        //     }
+        // }
     }
 }

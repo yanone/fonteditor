@@ -95,7 +95,7 @@ export async function terminateProcesses(children) {
         children.filter(Boolean).map(
             (child) =>
                 new Promise((resolve) => {
-                    if (child.exitCode !== null || child.killed) {
+                    if (child.exitCode !== null || child.signalCode !== null) {
                         resolve();
                         return;
                     }
@@ -104,7 +104,10 @@ export async function terminateProcesses(children) {
                     child.kill("SIGTERM");
 
                     setTimeout(() => {
-                        if (child.exitCode === null && !child.killed) {
+                        if (
+                            child.exitCode === null &&
+                            child.signalCode === null
+                        ) {
                             child.kill("SIGKILL");
                         }
                     }, 5000);
