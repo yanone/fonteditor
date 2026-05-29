@@ -137,6 +137,23 @@ function getWindowMenuItems(): ToolbarMenuItem[] {
     ];
 }
 
+function getDeveloperMenuItems(): ToolbarMenuItem[] {
+    return [
+        {
+            label: 'Copy Cloud Debug Snapshot',
+            icon: 'content_copy',
+            action: async () => {
+                if (!window.cloudPlugin) {
+                    alert('Cloud plugin is not available.');
+                    return;
+                }
+
+                await window.cloudPlugin.copyCloudDebugSnapshot();
+            }
+        }
+    ];
+}
+
 function createToolbarMenu(
     buttonId: string,
     backdropClassName: string,
@@ -234,6 +251,11 @@ function initToolbarMenus(): void {
         'toolbar-window-menu-btn',
         'toolbar-window-menu-backdrop',
         getWindowMenuItems
+    );
+    createToolbarMenu(
+        'toolbar-developer-menu-btn',
+        'toolbar-developer-menu-backdrop',
+        getDeveloperMenuItems
     );
     installGlobalShortcuts();
 

@@ -115,6 +115,10 @@ function getCloudRequestHeaders(
     return headers;
 }
 
+function formatCloudDebugTimestamp(timestamp: number): string {
+    return new Date(timestamp).toISOString();
+}
+
 function canonicalizeCloudExportFontJson(
     fontJson: Record<string, unknown>
 ): Record<string, unknown> {
@@ -811,6 +815,22 @@ export class CloudPlugin extends FilesystemPlugin {
         return [...(this._connectionTraceByAssetId.get(assetId) ?? [])];
     }
 
+    getCloudDebugSnapshot(): string {
+        return this._buildCloudDebugSnapshot();
+    }
+
+    async copyCloudDebugSnapshot(): Promise<void> {
+        try {
+            await navigator.clipboard.writeText(this.getCloudDebugSnapshot());
+        } catch (error) {
+            console.error('Failed to copy cloud debug snapshot:', error);
+            alert(
+                'Clipboard access failed while copying cloud debug snapshot.'
+            );
+            throw error;
+        }
+    }
+
     getCachedAssetRole(assetId: string): CloudAssetRole | null {
         return this._getCloudAdapter().getCachedAssetRole(assetId);
     }
@@ -1215,6 +1235,13 @@ export class CloudPlugin extends FilesystemPlugin {
                             `Failed to save to cloud: ${(err as Error).message}`
                         );
                     }
+                }
+            },
+            {
+                label: 'Copy Cloud Debug Snapshot',
+                icon: 'content_copy',
+                action: async () => {
+                    await this.copyCloudDebugSnapshot();
                 }
             }
         ];
@@ -2010,6 +2037,52 @@ export class CloudPlugin extends FilesystemPlugin {
             this._relayedConnectionStatus = 'disconnected';
             this._relayedConnectionDetail = undefined;
         }
+    }
+
+    private _buildCloudDebugSnapshot(): string {
+        const currentFont = window.fontManager?.currentFont;
+        const activeAssetId = this.activeAssetId;
+        const status = activeAssetId
+            ? this.getAssetConnectionStatus(activeAssetId)
+            : this.connectionStatus;
+        const detail = activeAssetId
+            ? this.getAssetConnectionDetail(activeAssetId)
+            : undefined;
+        const trace = activeAssetId
+            ? this.getConnectionTrace(activeAssetId).slice(-12)
+            : [];
+        const roleLabel = window.windowRole?.getRoleLabel?.() ?? 'Main';
+        const connectedAssetIds = [...this._connectedAssetIds].sort();
+        const outboundSeq = (
+            window as Window & {
+                __lastCloudOutboundUpdateSeq?: number;
+            }
+        ).__lastCloudOutboundUpdateSeq;
+        const inboundCount = (
+            window as Window & {
+                __lastCloudInboundUpdateCount?: number;
+            }
+        ).__lastCloudInboundUpdateCount;
+
+        return [
+            `capturedAt: ${formatCloudDebugTimestamp(Date.now())}`,
+            `windowRole: ${roleLabel}`,
+            `activeAssetId: ${activeAssetId ?? 'none'}`,
+            `fontPath: ${String(currentFont?.path || 'none')}`,
+            `cloudBacked: ${currentFont?.isCloudBacked?.() ? 'yes' : 'no'}`,
+            `connectionStatus: ${status}`,
+            ...(detail ? [`connectionDetail: ${detail}`] : []),
+            `connectedAssetIds: ${connectedAssetIds.length ? connectedAssetIds.join(', ') : 'none'}`,
+            `lastOutboundSeq: ${outboundSeq ?? 'none'}`,
+            `lastInboundCount: ${inboundCount ?? 'none'}`,
+            'trace:',
+            ...(trace.length
+                ? trace.map(
+                      (entry) =>
+                          `- ${formatCloudDebugTimestamp(entry.timestamp)} ${entry.status}${entry.detail ? ` | ${entry.detail}` : ''}`
+                  )
+                : ['- none'])
+        ].join('\n');
     }
 
     private async _ensureCloudUser(options?: {
