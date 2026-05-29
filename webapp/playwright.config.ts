@@ -1,4 +1,10 @@
+/// <reference types="node" />
+
 import { defineConfig, devices } from '@playwright/test';
+
+const { getWorktreeAppUrl } = require('./scripts/worktree-config.cjs');
+
+const LOCAL_APP_URL = getWorktreeAppUrl();
 
 /**
  * Playwright Configuration for Context Font Editor
@@ -44,9 +50,7 @@ export default defineConfig({
         headless: true,
 
         // Base URL for navigation
-        baseURL: process.env.CI
-            ? 'http://localhost:9000'
-            : 'https://localhost:8001',
+        baseURL: process.env.CI ? 'http://localhost:9000' : LOCAL_APP_URL,
 
         // Collect trace when retrying the failed test
         trace: 'on-first-retry',
@@ -89,11 +93,8 @@ export default defineConfig({
                     // Force clean browser context (no user data)
                     chromiumSandbox: true
                 },
-                // Ensure isolated context
-                contextOptions: {
-                    clearCookies: true,
-                    clearCache: true
-                }
+                // Each Playwright test gets a fresh browser context.
+                contextOptions: {}
             }
         }
 
@@ -109,9 +110,7 @@ export default defineConfig({
     // Run your local dev server before starting the tests
     webServer: {
         command: process.env.CI ? 'npm run serve:ci' : 'npm run serve',
-        url: process.env.CI
-            ? 'http://localhost:9000'
-            : 'https://localhost:8001',
+        url: process.env.CI ? 'http://localhost:9000' : LOCAL_APP_URL,
         reuseExistingServer: !process.env.CI,
         gracefulShutdown: {
             signal: 'SIGTERM',

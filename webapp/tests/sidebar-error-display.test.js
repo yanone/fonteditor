@@ -1,3 +1,5 @@
+const { getWorktreeAppUrl } = require('../scripts/worktree-config.cjs');
+
 describe('SidebarErrorDisplay copy report button', () => {
     let sidebarErrorDisplay;
     let buildErrorReportPayload;
@@ -33,7 +35,7 @@ describe('SidebarErrorDisplay copy report button', () => {
             runtimeContext: {
                 readyState: 'complete'
             },
-            url: 'https://localhost:8000',
+            url: getWorktreeAppUrl(),
             userAgent: 'Jest'
         });
 

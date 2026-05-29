@@ -1,10 +1,14 @@
+/// <reference types="node" />
+
 import baseConfig from './playwright.config';
+
+const { getWorktreeAppUrl } = require('./scripts/worktree-config.cjs');
 
 export default {
     ...baseConfig,
     use: {
         ...baseConfig.use,
-        baseURL: 'https://localhost:8000'
+        baseURL: getWorktreeAppUrl()
     },
     webServer: undefined
 };

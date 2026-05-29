@@ -1,4 +1,5 @@
 import { chromium } from '@playwright/test';
+import worktreeConfig from '../worktree-config.cjs';
 
 import {
     copyFile,
@@ -12,7 +13,8 @@ import {
 } from './tutorial-utils.mjs';
 
 const VIEWPORT = { width: 1920, height: 1080 };
-const TUTORIAL_URL = 'https://localhost:8000/?test=true';
+const { getWorktreeAppUrl } = worktreeConfig;
+const TUTORIAL_URL = getWorktreeAppUrl('/?test=true');
 
 const cursorState = {
     x: 0,

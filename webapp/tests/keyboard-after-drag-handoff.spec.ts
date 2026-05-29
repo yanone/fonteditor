@@ -38,9 +38,6 @@ import {
  * Canvas equality is checked via base64 data URL so we detect visual
  * regressions without relying on golden snapshot files.
  */
-
-const PORT = 8001;
-
 async function captureCanvas(page: any): Promise<string> {
     return page.evaluate(() => {
         const canvas = (window as any).glyphCanvas?.canvas as HTMLCanvasElement;

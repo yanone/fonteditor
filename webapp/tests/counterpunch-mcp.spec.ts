@@ -1,9 +1,13 @@
+/// <reference types="node" />
+
 import { test, expect } from '@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
+const { getWorktreeAppUrl } = require('../scripts/worktree-config.cjs');
+
 const APP_URL = process.env.CI
     ? 'http://localhost:9000/?test=true'
-    : 'https://localhost:8000/?test=true';
+    : getWorktreeAppUrl('/?test=true');
 
 class StdioMcpClient {
     private readonly child: ChildProcessWithoutNullStreams;
