@@ -2011,6 +2011,7 @@ describe('FontManager share button visibility', () => {
 
     test('shows a connection warning badge next to the owner invite button while cloud sync is unstable', () => {
         setCurrentFont({ role: 'owner', path: 'cloud://asset-1' });
+        window.cloudPlugin.hasConnectionProblem.mockReturnValue(true);
         window.cloudPlugin.getAssetConnectionStatus.mockReturnValue(
             'connecting'
         );
@@ -2027,6 +2028,7 @@ describe('FontManager share button visibility', () => {
 
         expect(shareButton.classList.contains('visible')).toBe(true);
         expect(warningBadge.classList.contains('visible')).toBe(true);
+        expect(warningBadge.hidden).toBe(false);
         expect(warningBadge.getAttribute('title')).toBe(
             'Cloud connection unstable: Access epoch is stale'
         );
@@ -2043,6 +2045,25 @@ describe('FontManager share button visibility', () => {
         );
 
         expect(warningBadge.classList.contains('visible')).toBe(false);
+        expect(warningBadge.hidden).toBe(true);
+    });
+
+    test('does not show the connection warning badge during initial cloud authentication before any real connection problem exists', () => {
+        setCurrentFont({ role: 'owner', path: 'cloud://asset-1' });
+        window.cloudPlugin.getAssetConnectionStatus.mockReturnValue(
+            'authenticating'
+        );
+        window.cloudPlugin.hasConnectionProblem.mockReturnValue(false);
+
+        fontManager.updateFontDisplay();
+
+        const warningBadge = document.querySelector(
+            '.cloud-connection-warning-badge'
+        );
+
+        expect(warningBadge.classList.contains('visible')).toBe(false);
+        expect(warningBadge.hidden).toBe(true);
+        expect(warningBadge.getAttribute('title')).toBeNull();
     });
 
     test('cloud-backed fonts no longer use the dirty indicator for connection problems', async () => {

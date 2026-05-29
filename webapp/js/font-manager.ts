@@ -728,6 +728,7 @@ class FontManager {
         badge = document.createElement('span');
         badge.className = 'cloud-connection-warning-badge';
         badge.setAttribute('aria-hidden', 'true');
+        badge.hidden = true;
         badge.innerHTML =
             '<span class="material-symbols-outlined">warning</span>';
 
@@ -757,6 +758,12 @@ class FontManager {
 
         const assetId = this.normalizeCloudAssetId(font);
         if (!assetId) {
+            return { visible: false, title: '' };
+        }
+
+        const hasConnectionProblem =
+            window.cloudPlugin?.hasConnectionProblem?.(assetId) ?? false;
+        if (!hasConnectionProblem) {
             return { visible: false, title: '' };
         }
 
@@ -1095,6 +1102,7 @@ class FontManager {
             }
             if (cloudConnectionWarningBadge) {
                 cloudConnectionWarningBadge.classList.remove('visible');
+                cloudConnectionWarningBadge.hidden = true;
                 cloudConnectionWarningBadge.removeAttribute('title');
             }
             if (cloudAccessRoleBadge) {
@@ -1125,11 +1133,13 @@ class FontManager {
                         warningState.visible
                     );
                     if (warningState.visible) {
+                        cloudConnectionWarningBadge.hidden = false;
                         cloudConnectionWarningBadge.setAttribute(
                             'title',
                             warningState.title
                         );
                     } else {
+                        cloudConnectionWarningBadge.hidden = true;
                         cloudConnectionWarningBadge.removeAttribute('title');
                     }
                 }
