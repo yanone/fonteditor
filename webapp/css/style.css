@@ -712,6 +712,23 @@ kbd + kbd {
     font-size: 18px;
 }
 
+.cloud-connection-warning-badge {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    color: var(--status-warning);
+}
+
+.cloud-connection-warning-badge.visible {
+    display: inline-flex;
+}
+
+.cloud-connection-warning-badge .material-symbols-outlined {
+    font-size: 18px;
+}
+
 .cloud-access-role-badge {
     display: none;
     align-items: center;

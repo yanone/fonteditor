@@ -677,6 +677,7 @@ export class CloudPlugin extends FilesystemPlugin {
         string,
         CloudConnectionStatus
     >();
+    private _connectionDetailByAssetId = new Map<string, string>();
     private _connectedAssetIds = new Set<string>();
     private _lastAlertedConnectionErrorByAssetId = new Map<string, string>();
     private _availabilityErrorMessage: string | null = null;
@@ -790,6 +791,10 @@ export class CloudPlugin extends FilesystemPlugin {
         return this._connectionStatusByAssetId.get(assetId) ?? 'disconnected';
     }
 
+    getAssetConnectionDetail(assetId: string): string | undefined {
+        return this._connectionDetailByAssetId.get(assetId);
+    }
+
     getCachedAssetRole(assetId: string): CloudAssetRole | null {
         return this._getCloudAdapter().getCachedAssetRole(assetId);
     }
@@ -855,6 +860,11 @@ export class CloudPlugin extends FilesystemPlugin {
         detail?: string
     ): void {
         this._connectionStatusByAssetId.set(assetId, status);
+        if (detail) {
+            this._connectionDetailByAssetId.set(assetId, detail);
+        } else {
+            this._connectionDetailByAssetId.delete(assetId);
+        }
         if (status === 'connected') {
             this._connectedAssetIds.add(assetId);
         }
@@ -2032,6 +2042,7 @@ export class CloudPlugin extends FilesystemPlugin {
         const url = `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(assetId)}/room-token`;
         const resp = await fetch(url, {
             method: 'POST',
+            cache: 'no-store',
             credentials: 'include',
             headers: getCloudRequestHeaders({
                 'Content-Type': 'application/json'

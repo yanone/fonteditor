@@ -189,6 +189,13 @@ describe('CloudAdapter outbound updates', () => {
                 'room-token',
                 'wss://fonts-room.fonteditor.workers.dev/room/asset-123'
             );
+            expect(global.fetch).toHaveBeenCalledWith(
+                'https://counterpunch.space/api/cloud/assets/asset-123/room-token',
+                expect.objectContaining({
+                    method: 'POST',
+                    cache: 'no-store'
+                })
+            );
         } finally {
             global.fetch = originalFetch;
         }

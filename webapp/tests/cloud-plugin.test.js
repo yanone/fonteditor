@@ -659,6 +659,31 @@ describe('CloudPlugin.openAsset', () => {
             CloudPlugin.prototype._fetchRoomToken.call(plugin, 'asset-1')
         ).rejects.toThrow('Cloud asset was deleted');
     });
+
+    test('requests fresh room tokens without using the browser cache', async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: jest.fn().mockResolvedValue({
+                token: 'room-token',
+                roomUrl: 'ws://localhost:8787/room/asset-1'
+            })
+        });
+
+        await expect(
+            CloudPlugin.prototype._fetchRoomToken.call(plugin, 'asset-1')
+        ).resolves.toEqual({
+            token: 'room-token',
+            roomUrl: 'ws://localhost:8787/room/asset-1'
+        });
+
+        expect(global.fetch).toHaveBeenCalledWith(
+            'http://localhost:8788/api/cloud/assets/asset-1/room-token',
+            expect.objectContaining({
+                method: 'POST',
+                cache: 'no-store'
+            })
+        );
+    });
 });
 
 describe('CloudPlugin sharing APIs', () => {

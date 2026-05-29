@@ -1930,7 +1930,10 @@ describe('FontManager share button visibility', () => {
         ]);
         fontManager.currentFontId = 'test-font';
         window.cloudPlugin = {
-            getCurrentAssetRole: jest.fn(() => role)
+            getCurrentAssetRole: jest.fn(() => role),
+            getAssetConnectionStatus: jest.fn(() => 'connected'),
+            getAssetConnectionDetail: jest.fn(() => undefined),
+            hasConnectionProblem: jest.fn(() => false)
         };
     }
 
@@ -2004,6 +2007,60 @@ describe('FontManager share button visibility', () => {
         expect(shareButton.classList.contains('visible')).toBe(true);
         expect(shareButton.textContent.trim()).toBe('group_add');
         expect(cloudAccessRoleBadge.classList.contains('visible')).toBe(false);
+    });
+
+    test('shows a connection warning badge next to the owner invite button while cloud sync is unstable', () => {
+        setCurrentFont({ role: 'owner', path: 'cloud://asset-1' });
+        window.cloudPlugin.getAssetConnectionStatus.mockReturnValue(
+            'connecting'
+        );
+        window.cloudPlugin.getAssetConnectionDetail.mockReturnValue(
+            'Access epoch is stale'
+        );
+
+        fontManager.updateFontDisplay();
+
+        const warningBadge = document.querySelector(
+            '.cloud-connection-warning-badge'
+        );
+        const shareButton = document.getElementById('share-btn');
+
+        expect(shareButton.classList.contains('visible')).toBe(true);
+        expect(warningBadge.classList.contains('visible')).toBe(true);
+        expect(warningBadge.getAttribute('title')).toBe(
+            'Cloud connection unstable: Access epoch is stale'
+        );
+        expect(warningBadge.innerHTML).toContain('warning');
+    });
+
+    test('hides the connection warning badge while the cloud room is stable', () => {
+        setCurrentFont({ role: 'editor', path: 'cloud://asset-1' });
+
+        fontManager.updateFontDisplay();
+
+        const warningBadge = document.querySelector(
+            '.cloud-connection-warning-badge'
+        );
+
+        expect(warningBadge.classList.contains('visible')).toBe(false);
+    });
+
+    test('cloud-backed fonts no longer use the dirty indicator for connection problems', async () => {
+        setCurrentFont({ role: 'owner', path: 'cloud://asset-1' });
+        fontManager.dirtyIndicator = document.createElement('span');
+        window.cloudPlugin.hasConnectionProblem.mockReturnValue(true);
+
+        await fontManager.updateDirtyIndicator();
+
+        expect(fontManager.shouldShowDirtyState(fontManager.currentFont)).toBe(
+            false
+        );
+        expect(fontManager.dirtyIndicator.classList.contains('visible')).toBe(
+            false
+        );
+        expect(fontManager.dirtyIndicator.title).toBe(
+            'Cloud fonts save continuously'
+        );
     });
 });
 

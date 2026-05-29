@@ -694,6 +694,7 @@ class FontManager {
         this.workerYjsSendQueue = Promise.resolve();
 
         window.addEventListener('cloudConnectionStatusChanged', () => {
+            this.updateFontDisplay();
             void this.updateDirtyIndicator();
         });
         window.addEventListener('cloudAssetRoleChanged', () => {
@@ -709,6 +710,77 @@ class FontManager {
         this.fontRoleBadgeElement =
             this.fontDisplay?.querySelector('.font-window-role-badge') || null;
         this.dirtyIndicator = document.getElementById('file-dirty-indicator');
+    }
+
+    private ensureCloudConnectionWarningBadge(): HTMLElement | null {
+        const container = this.fontDisplay?.parentElement;
+        if (!container) {
+            return null;
+        }
+
+        let badge = container.querySelector(
+            '.cloud-connection-warning-badge'
+        ) as HTMLElement | null;
+        if (badge) {
+            return badge;
+        }
+
+        badge = document.createElement('span');
+        badge.className = 'cloud-connection-warning-badge';
+        badge.setAttribute('aria-hidden', 'true');
+        badge.innerHTML =
+            '<span class="material-symbols-outlined">warning</span>';
+
+        const shareButton = document.getElementById('share-btn');
+        const cloudAccessRoleBadge = document.getElementById(
+            'cloud-access-role-badge'
+        );
+
+        if (shareButton) {
+            container.insertBefore(badge, shareButton);
+        } else if (cloudAccessRoleBadge) {
+            container.insertBefore(badge, cloudAccessRoleBadge);
+        } else {
+            container.appendChild(badge);
+        }
+
+        return badge;
+    }
+
+    private getCloudConnectionWarningState(font: OpenedFont | null): {
+        visible: boolean;
+        title: string;
+    } {
+        if (!font?.isCloudBacked()) {
+            return { visible: false, title: '' };
+        }
+
+        const assetId = this.normalizeCloudAssetId(font);
+        if (!assetId) {
+            return { visible: false, title: '' };
+        }
+
+        const status = window.cloudPlugin?.getAssetConnectionStatus?.(assetId);
+        if (!status || status === 'connected') {
+            return { visible: false, title: '' };
+        }
+
+        const detail = window.cloudPlugin?.getAssetConnectionDetail?.(assetId);
+        const fallbackReason =
+            status === 'connecting'
+                ? 'Reconnecting to the cloud room'
+                : status === 'authenticating'
+                  ? 'Authenticating cloud room access'
+                  : status === 'syncing'
+                    ? 'Syncing cloud room state'
+                    : status === 'disconnected'
+                      ? 'Cloud room is disconnected'
+                      : 'Cloud connection error';
+
+        return {
+            visible: true,
+            title: `Cloud connection unstable: ${detail || fallbackReason}`
+        };
     }
 
     setEditingCompileContext(
@@ -980,16 +1052,7 @@ class FontManager {
             return false;
         }
 
-        if (!font.isCloudBacked()) {
-            return font.hasUnsavedChanges;
-        }
-
-        const assetId = this.normalizeCloudAssetId(font);
-        if (!assetId) {
-            return false;
-        }
-
-        return !!window.cloudPlugin?.hasConnectionProblem?.(assetId);
+        return !font.isCloudBacked() && font.hasUnsavedChanges;
     }
 
     hasAnyDirtyState(): boolean {
@@ -1009,6 +1072,8 @@ class FontManager {
         const cloudAccessRoleBadge = document.getElementById(
             'cloud-access-role-badge'
         );
+        const cloudConnectionWarningBadge =
+            this.ensureCloudConnectionWarningBadge();
         const roleLabel = window.windowRole?.getRoleLabel() ?? 'Main';
         const roleBadge = this.ensureWindowRoleBadge();
 
@@ -1027,6 +1092,10 @@ class FontManager {
             if (shareButton) {
                 shareButton.classList.remove('visible');
                 shareButton.setAttribute('title', 'Invite people');
+            }
+            if (cloudConnectionWarningBadge) {
+                cloudConnectionWarningBadge.classList.remove('visible');
+                cloudConnectionWarningBadge.removeAttribute('title');
             }
             if (cloudAccessRoleBadge) {
                 cloudAccessRoleBadge.classList.remove(
@@ -1047,6 +1116,22 @@ class FontManager {
                 this.fontNameElement.textContent = currentFont.name;
                 if (this.fontDisplay) {
                     this.fontDisplay.title = `${currentFont.path} (${sourceName}) — ${roleLabel}`;
+                }
+                if (cloudConnectionWarningBadge) {
+                    const warningState =
+                        this.getCloudConnectionWarningState(currentFont);
+                    cloudConnectionWarningBadge.classList.toggle(
+                        'visible',
+                        warningState.visible
+                    );
+                    if (warningState.visible) {
+                        cloudConnectionWarningBadge.setAttribute(
+                            'title',
+                            warningState.title
+                        );
+                    } else {
+                        cloudConnectionWarningBadge.removeAttribute('title');
+                    }
                 }
                 if (cloudAccessRoleBadge) {
                     const cloudRole = currentFont.isCloudBacked()
@@ -1107,9 +1192,7 @@ class FontManager {
             this.shouldShowDirtyState(this.currentFont);
 
         if (this.currentFont?.isCloudBacked()) {
-            this.dirtyIndicator!.title = shouldShowIndicator
-                ? 'Cloud connection dropped; local edits may not be persisted yet'
-                : 'Cloud room is connected and persisted';
+            this.dirtyIndicator!.title = 'Cloud fonts save continuously';
         } else {
             this.dirtyIndicator!.title = 'File has unsaved changes';
         }

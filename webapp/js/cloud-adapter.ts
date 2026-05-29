@@ -1304,6 +1304,7 @@ export class CloudAdapter implements FileSystemAdapter {
         const url = `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(this._assetId)}/room-token`;
         const resp = await fetch(url, {
             method: 'POST',
+            cache: 'no-store',
             credentials: 'include',
             headers: getCloudRequestHeaders({
                 'Content-Type': 'application/json'
