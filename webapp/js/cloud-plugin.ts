@@ -678,6 +678,14 @@ export class CloudPlugin extends FilesystemPlugin {
         CloudConnectionStatus
     >();
     private _connectionDetailByAssetId = new Map<string, string>();
+    private _connectionTraceByAssetId = new Map<
+        string,
+        Array<{
+            timestamp: number;
+            status: CloudConnectionStatus;
+            detail?: string;
+        }>
+    >();
     private _connectedAssetIds = new Set<string>();
     private _lastAlertedConnectionErrorByAssetId = new Map<string, string>();
     private _availabilityErrorMessage: string | null = null;
@@ -795,6 +803,14 @@ export class CloudPlugin extends FilesystemPlugin {
         return this._connectionDetailByAssetId.get(assetId);
     }
 
+    getConnectionTrace(assetId: string): Array<{
+        timestamp: number;
+        status: CloudConnectionStatus;
+        detail?: string;
+    }> {
+        return [...(this._connectionTraceByAssetId.get(assetId) ?? [])];
+    }
+
     getCachedAssetRole(assetId: string): CloudAssetRole | null {
         return this._getCloudAdapter().getCachedAssetRole(assetId);
     }
@@ -865,6 +881,18 @@ export class CloudPlugin extends FilesystemPlugin {
         } else {
             this._connectionDetailByAssetId.delete(assetId);
         }
+        this._connectionTraceByAssetId.set(
+            assetId,
+            [
+                ...(this._connectionTraceByAssetId.get(assetId) ?? []),
+                {
+                    timestamp: Date.now(),
+                    status,
+                    ...(detail ? { detail } : {})
+                }
+            ].slice(-50)
+        );
+
         if (status === 'connected') {
             this._connectedAssetIds.add(assetId);
         }

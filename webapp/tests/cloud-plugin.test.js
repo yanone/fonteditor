@@ -559,6 +559,25 @@ describe('CloudPlugin.openAsset', () => {
         expect(window.alert).not.toHaveBeenCalled();
     });
 
+    test('records a bounded connection trace for live reconnect debugging', () => {
+        plugin._updateConnectionStatus('asset-1', 'connected');
+        plugin._updateConnectionStatus(
+            'asset-1',
+            'connecting',
+            'Access epoch is stale'
+        );
+        plugin._updateConnectionStatus('asset-1', 'authenticating');
+
+        expect(plugin.getConnectionTrace('asset-1')).toEqual([
+            expect.objectContaining({ status: 'connected' }),
+            expect.objectContaining({
+                status: 'connecting',
+                detail: 'Access epoch is stale'
+            }),
+            expect.objectContaining({ status: 'authenticating' })
+        ]);
+    });
+
     test('moves a deleted active cloud asset into local memory with unsaved changes', () => {
         const disconnect = jest.fn();
         plugin._cloudAdapter = {

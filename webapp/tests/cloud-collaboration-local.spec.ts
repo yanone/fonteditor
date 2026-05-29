@@ -2155,7 +2155,7 @@ test.describe('Local cloud collaboration', () => {
         await targetContext.close();
     });
 
-    test('accepts an editor invite and allows live edits from the invited account', async ({
+    test('accepts an editor invite and allows live edits in both directions', async ({
         browser
     }) => {
         test.setTimeout(240000);
@@ -2209,6 +2209,12 @@ test.describe('Local cloud collaboration', () => {
 
         const afterOwner = await getPrimaryNodePosition(ownerPage);
         expect(afterOwner).toEqual(mutation.after);
+
+        const ownerMutation = await movePrimaryNode(ownerPage, -9, -7);
+        await waitForPrimaryNodePosition(editorPage, ownerMutation.after);
+
+        const afterEditor = await getPrimaryNodePosition(editorPage);
+        expect(afterEditor).toEqual(ownerMutation.after);
 
         await ownerContext.close();
         await editorContext.close();
