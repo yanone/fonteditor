@@ -93,16 +93,16 @@ Use explicit environment-scoped origin policy.
       logs do not contain reusable token material.
 - [x] Confirm website session cookies include `HttpOnly`, `Secure`, and an
       intentionally chosen `SameSite` value.
-- [ ] If cross-site editor handoff still requires `SameSite=None`, document why
+- [x] If cross-site editor handoff still requires `SameSite=None`, document why
       and ensure it is paired with strict origin checks.
 
 ### Test Checklist
 
-- [ ] Add website middleware tests: production rejects
+- [x] Add website middleware tests: production rejects
       `http://localhost:9999` as a credentialed origin.
-- [ ] Add website middleware tests: production accepts
+- [x] Add website middleware tests: production accepts
       `https://editor.counterpunch.space`.
-- [ ] Add website middleware tests: local/dev accepts localhost worktree
+- [x] Add website middleware tests: local/dev accepts localhost worktree
       origins.
 - [x] Add room-worker tests: production rejects localhost websocket origins.
 - [x] Add room-worker tests: local/dev accepts localhost websocket origins.
@@ -114,7 +114,7 @@ Use explicit environment-scoped origin policy.
 - [x] Production has no credentialed localhost CORS path.
 - [x] Local Playwright collaboration tests still work without hard-coded
       production exceptions.
-- [ ] The policy is documented in deployment configuration.
+- [x] The policy is documented in deployment configuration.
 
 ## Issue 2: Magic-Link `returnTo` Can Leak Session Tokens Cross-Origin
 
@@ -166,22 +166,22 @@ Stage 2 removes session tokens from URLs entirely:
 - [x] Add a `POST /api/auth/exchange-handoff` endpoint that checks origin,
       expiry, target origin, and used state before returning a session token.
 - [x] Update the editor to consume handoff codes rather than `?session=`.
-- [ ] Remove session-token query logging and scrub any existing debug logs that
+- [x] Remove session-token query logging and scrub any existing debug logs that
       print redirect URLs with tokens.
-- [ ] Add cleanup for expired handoff tokens.
+- [x] Add cleanup for expired handoff tokens.
 
 ### Test Checklist
 
 - [x] Unit test that arbitrary `https://evil.example` return targets are
       rejected or coerced.
-- [ ] Unit test that `javascript:`, `data:`, and protocol-relative redirect
+- [x] Unit test that `javascript:`, `data:`, and protocol-relative redirect
       values are rejected.
-- [ ] Unit test that configured editor origins are accepted.
+- [x] Unit test that configured editor origins are accepted.
 - [x] Unit test that `verify.js` refuses an invalid stored `return_to`, even if
       it somehow reached D1.
 - [x] Unit test that a handoff code can be exchanged once.
 - [x] Unit test that a handoff code cannot be exchanged from the wrong origin.
-- [ ] Playwright test for website login to editor using the handoff-code flow.
+- [x] Playwright test for website login to editor using the handoff-code flow.
 
 ### Done When
 
@@ -231,9 +231,9 @@ Make access epoch propagation durable and observable.
       function that records success/failure against the notification row.
 - [x] Add a retry worker path. Options: a scheduled Worker, a website admin
       repair endpoint, or a queue-style Durable Object for access notifications.
-- [ ] Make role demotion and removal return an explicit warning or pending
+- [x] Make role demotion and removal return an explicit warning or pending
       state if the DO could not be reached immediately.
-- [ ] Ensure `/room-token` always issues tokens with the latest D1
+- [x] Ensure `/room-token` always issues tokens with the latest D1
       `access_epoch`.
 - [x] Teach the editor to close or reconnect when it receives stale-access or
       role-change errors.
@@ -249,7 +249,7 @@ Make access epoch propagation durable and observable.
 - [x] Website unit test: invitation acceptance enqueues notification.
 - [x] Room-worker unit test: control request advances epoch and closes stale
       editor sockets.
-- [ ] Integration test: if initial notify fails, retry later closes the stale
+- [x] Integration test: if initial notify fails, retry later closes the stale
       socket.
 - [x] Playwright test: removed editor cannot continue editing in an already-open
       browser context.
@@ -258,7 +258,7 @@ Make access epoch propagation durable and observable.
 
 ### Done When
 
-- [ ] A failed transient room-control call cannot silently leave a removed
+- [x] A failed transient room-control call cannot silently leave a removed
       editor with long-lived write access.
 - [ ] Pending epoch notifications are visible to operators.
 - [x] Stale access cleanup is covered by tests at API, room-worker, and browser
@@ -304,9 +304,9 @@ Bound chunk upload state at every layer.
 - [x] Clear pending chunks for the client in `webSocketClose` and
       `webSocketError`.
 - [x] Clear stale pending chunks opportunistically before accepting a new chunk.
-- [ ] Add operational event counters for chunk-limit rejection and chunk-timeout
+- [x] Add operational event counters for chunk-limit rejection and chunk-timeout
       cleanup.
-- [ ] Document the configured limits in the room-worker README or strategy
+- [x] Document the configured limits in the room-worker README or strategy
       comments.
 
 ### Test Checklist
@@ -317,15 +317,15 @@ Bound chunk upload state at every layer.
 - [x] Unit test: close clears `_clientChunks` for that client.
 - [x] Unit test: error clears `_clientChunks` for that client.
 - [x] Unit test: stale chunk state is expired before accepting more chunks.
-- [ ] Load test: repeated malicious chunk attempts do not grow DO memory
+- [x] Load test: repeated malicious chunk attempts do not grow DO memory
       without bound.
 
 ### Done When
 
-- [ ] The room has a documented maximum memory footprint for partial sync
+- [x] The room has a documented maximum memory footprint for partial sync
       uploads.
-- [ ] All client-controlled chunk buffers have cleanup paths.
-- [ ] Chunk abuse shows up in operational metrics.
+- [x] All client-controlled chunk buffers have cleanup paths.
+- [x] Chunk abuse shows up in operational metrics.
 
 ## Issue 5: Mutation History Grows Without Bound And Is Sent In Bootstrap
 
@@ -362,30 +362,30 @@ Yjs state.
 - [x] Add retention settings such as `MAX_MUTATION_HISTORY_ENVELOPES` and
       `MAX_MUTATION_HISTORY_BYTES`.
 - [x] Trim `_mutationBatchHistory` after every append.
-- [ ] Store `firstRetainedLogId`, `lastRetainedLogId`, and truncation metadata
+- [x] Store `firstRetainedLogId`, `lastRetainedLogId`, and truncation metadata
       in mutation-history snapshots.
 - [x] Change `sync-response` to send only the retained history tail.
 - [ ] If the editor needs older history, add an explicit paginated history API
       rather than expanding the bootstrap frame.
 - [x] Ensure checkpoint promotion writes bounded mutation history.
-- [ ] Ensure checkpoint fallback/reload handles truncated history metadata.
+- [x] Ensure checkpoint fallback/reload handles truncated history metadata.
 - [x] Add room status metrics for retained history count and bytes.
 
 ### Test Checklist
 
 - [x] Unit test: history is trimmed by envelope count.
 - [x] Unit test: history is trimmed by byte budget.
-- [ ] Unit test: sync response never exceeds the configured metadata byte
+- [x] Unit test: sync response never exceeds the configured metadata byte
       budget.
-- [ ] Unit test: checkpoint snapshot stores truncation metadata.
-- [ ] Unit test: reload from checkpoint preserves only the retained window.
+- [x] Unit test: checkpoint snapshot stores truncation metadata.
+- [x] Unit test: reload from checkpoint preserves only the retained window.
 - [ ] Playwright test: long edit sequence still lets a new collaborator join.
 - [ ] Load test: bootstrap time stays within budget after thousands of edits.
 
 ### Done When
 
-- [ ] Room bootstrap payload size is bounded independently of room age.
-- [ ] Long-lived rooms do not repeatedly write unbounded metadata to R2.
+- [x] Room bootstrap payload size is bounded independently of room age.
+- [x] Long-lived rooms do not repeatedly write unbounded metadata to R2.
 - [ ] The UI degrades gracefully when older advisory history is truncated.
 
 ## Issue 6: Invite, Audit, And Membership Persistence Is Not Fully Atomic
@@ -447,13 +447,13 @@ external effects replayable.
 - [x] Unit test: invitation remains visible if email delivery fails.
 - [x] Unit test: invitation creation response is deterministic if audit insert
       fails after the invite insert.
-- [ ] Unit test: duplicate invite create retries do not send duplicate active
+- [x] Unit test: duplicate invite create retries do not send duplicate active
       invitations for the same email/asset.
 - [x] Unit test: email outbox retry is idempotent.
 - [x] Unit test: access notification outbox retry is idempotent.
-- [ ] Integration test: member removal with initial room-control failure is
+- [x] Integration test: member removal with initial room-control failure is
       repaired by retry and closes stale sockets.
-- [ ] Migration test: stale local D1 state receives all new columns on startup.
+- [x] Migration test: stale local D1 state receives all new columns on startup.
 
 ### Done When
 
@@ -549,13 +549,13 @@ Current enforced local edit-burst budget:
 
 ### Security Gates
 
-- [ ] Production credentialed CORS accepts only configured production/preview
+- [x] Production credentialed CORS accepts only configured production/preview
       origins.
-- [ ] Localhost origins are accepted only in local/dev mode.
-- [ ] Login redirect targets are allowlisted.
-- [ ] Session tokens are not sent to arbitrary URLs.
-- [ ] Session cookies are `HttpOnly` unless there is a documented exception.
-- [ ] Room tokens remain short-lived, signed, audience-bound, and asset-bound.
+- [x] Localhost origins are accepted only in local/dev mode.
+- [x] Login redirect targets are allowlisted.
+- [x] Session tokens are not sent to arbitrary URLs.
+- [x] Session cookies are `HttpOnly` unless there is a documented exception.
+- [x] Room tokens remain short-lived, signed, audience-bound, and asset-bound.
 - [x] Debug room endpoints require authenticated admin/service access.
 - [x] Removed and demoted editors lose write access without a manual reload.
 
@@ -567,14 +567,14 @@ Current enforced local edit-burst budget:
 - [x] Checkpoint promotion cannot delete updates that arrive during promotion.
 - [x] Current manifest fallback works when the latest checkpoint target is
       missing.
-- [ ] Mutation history is bounded and checkpoint reload handles truncation.
+- [x] Mutation history is bounded and checkpoint reload handles truncation.
 - [ ] Invite/member/audit/email/room-notification flows are unambiguous and
       repairable.
 
 ### CPU And Cost Gates
 
 - [ ] Per-update DO metrics are recorded in staging.
-- [ ] Bootstrap metadata bytes are bounded.
+- [x] Bootstrap metadata bytes are bounded.
 - [x] Partial sync uploads have explicit memory limits.
 - [x] Room update fanout is linear only in authenticated peer count.
 - [x] Room status/debug responses do not include raw font or Yjs payloads by
@@ -586,11 +586,11 @@ Current enforced local edit-burst budget:
 
 - [x] `cd ../collab/collab && npm test`
 - [x] `cd ../website && npm test`
-- [ ] `cd webapp && npm run test:ci`
+- [x] `cd webapp && npm run test:ci`
 - [x] Invited-editor Playwright collaboration test.
 - [x] Invited-viewer read-only Playwright collaboration test.
 - [x] Removed-editor stale-socket Playwright test.
-- [ ] Long-lived-room bootstrap Playwright or node integration test.
+- [x] Long-lived-room bootstrap Playwright or node integration test.
 - [ ] Staging smoke test with production-like secrets and origin allowlists.
 
 ## Final Ship Rule
