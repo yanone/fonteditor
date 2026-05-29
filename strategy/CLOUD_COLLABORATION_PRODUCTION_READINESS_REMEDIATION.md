@@ -112,7 +112,7 @@ Use explicit environment-scoped origin policy.
 ### Done When
 
 - [x] Production has no credentialed localhost CORS path.
-- [ ] Local Playwright collaboration tests still work without hard-coded
+- [x] Local Playwright collaboration tests still work without hard-coded
       production exceptions.
 - [ ] The policy is documented in deployment configuration.
 
@@ -237,7 +237,7 @@ Make access epoch propagation durable and observable.
       `access_epoch`.
 - [x] Teach the editor to close or reconnect when it receives stale-access or
       role-change errors.
-- [ ] Add room status fields for current access epoch and last access-control
+- [x] Add room status fields for current access epoch and last access-control
       notification time.
 - [x] Add admin tooling to replay pending access epoch notifications.
 
@@ -251,9 +251,9 @@ Make access epoch propagation durable and observable.
       editor sockets.
 - [ ] Integration test: if initial notify fails, retry later closes the stale
       socket.
-- [ ] Playwright test: removed editor cannot continue editing in an already-open
+- [x] Playwright test: removed editor cannot continue editing in an already-open
       browser context.
-- [ ] Playwright test: editor demoted to viewer loses write access without a
+- [x] Playwright test: editor demoted to viewer loses write access without a
       manual reload.
 
 ### Done When
@@ -261,7 +261,7 @@ Make access epoch propagation durable and observable.
 - [ ] A failed transient room-control call cannot silently leave a removed
       editor with long-lived write access.
 - [ ] Pending epoch notifications are visible to operators.
-- [ ] Stale access cleanup is covered by tests at API, room-worker, and browser
+- [x] Stale access cleanup is covered by tests at API, room-worker, and browser
       levels.
 
 ## Issue 4: DO Sync Chunk Handling Has No Explicit Resource Bounds
@@ -369,7 +369,7 @@ Yjs state.
       rather than expanding the bootstrap frame.
 - [x] Ensure checkpoint promotion writes bounded mutation history.
 - [ ] Ensure checkpoint fallback/reload handles truncated history metadata.
-- [ ] Add room status metrics for retained history count and bytes.
+- [x] Add room status metrics for retained history count and bytes.
 
 ### Test Checklist
 
@@ -426,31 +426,31 @@ external effects replayable.
 
 ### Implementation Checklist
 
-- [ ] Add a durable outbox table for email events, or extend the invitation
+- [x] Add a durable outbox table for email events, or extend the invitation
       table with a clear `email_delivery_status` state machine.
 - [ ] Insert invitation and audit state in one batch where possible.
-- [ ] If audit insert fails, return a deterministic response that includes the
+- [x] If audit insert fails, return a deterministic response that includes the
       created invitation rather than surfacing a generic fetch failure.
-- [ ] Move email delivery to an outbox processor, retry endpoint, or scheduled
+- [x] Move email delivery to an outbox processor, retry endpoint, or scheduled
       worker.
-- [ ] Store delivery attempts and last error for support visibility.
+- [x] Store delivery attempts and last error for support visibility.
 - [ ] For acceptance/member/transfer flows, batch membership table updates,
       folder entries, access epoch bump, audit event, and notification enqueue.
 - [ ] Make all externally visible side effects idempotent by stable operation
       id.
 - [ ] Add repair tooling to replay incomplete audit/email/room-notification
       outbox entries.
-- [ ] Ensure local schema bootstrap includes all new outbox columns and indexes.
+- [x] Ensure local schema bootstrap includes all new outbox columns and indexes.
 
 ### Test Checklist
 
-- [ ] Unit test: invitation remains visible if email delivery fails.
-- [ ] Unit test: invitation creation response is deterministic if audit insert
+- [x] Unit test: invitation remains visible if email delivery fails.
+- [x] Unit test: invitation creation response is deterministic if audit insert
       fails after the invite insert.
 - [ ] Unit test: duplicate invite create retries do not send duplicate active
       invitations for the same email/asset.
-- [ ] Unit test: email outbox retry is idempotent.
-- [ ] Unit test: access notification outbox retry is idempotent.
+- [x] Unit test: email outbox retry is idempotent.
+- [x] Unit test: access notification outbox retry is idempotent.
 - [ ] Integration test: member removal with initial room-control failure is
       repaired by retry and closes stale sockets.
 - [ ] Migration test: stale local D1 state receives all new columns on startup.
@@ -492,28 +492,35 @@ Add lightweight server-side observability with strict budgets.
 
 ### Implementation Checklist
 
-- [ ] Add per-message timing around auth, sync-request, sync-complete, update,
+- [x] Add per-message timing around auth, sync-request, sync-complete, update,
       checkpoint, and room-control paths.
-- [ ] Track counters for update bytes in, update bytes out, peers fanned out,
+- [x] Track counters for update bytes in, update bytes out, peers fanned out,
       journal rows written, and R2 bytes written.
-- [ ] Track bootstrap metadata bytes separately from Yjs update bytes.
-- [ ] Add rolling max/average fields to room status.
-- [ ] Keep metrics payloads small and free of font content.
-- [ ] Add a local Playwright or node harness that performs a fixed multi-user
+- [x] Track bootstrap metadata bytes separately from Yjs update bytes.
+- [x] Add rolling max/average fields to room status.
+- [x] Keep metrics payloads small and free of font content.
+- [x] Add a local Playwright or node harness that performs a fixed multi-user
       edit burst and records room status before/after.
 - [ ] Define initial budgets for staging, then tighten with real production
       data.
 
+Current enforced local edit-burst budget:
+
+1. A fixed authenticated two-peer burst of 5 updates must keep
+   `update.metadataBytesTotal === 0` for plain outline edits.
+2. That same burst must keep `update.bytesOutTotal < 10_000` in the room
+   status runtime metrics.
+
 ### Test Checklist
 
-- [ ] Unit test: room status includes timing and byte metrics without raw update
+- [x] Unit test: room status includes timing and byte metrics without raw update
       payloads.
-- [ ] Unit test: fanout count increments exactly by authenticated peer count.
-- [ ] Integration test: fixed edit burst stays below an update-byte and
+- [x] Unit test: fanout count increments exactly by authenticated peer count.
+- [x] Integration test: fixed edit burst stays below an update-byte and
       metadata-byte budget.
 - [ ] Staging test: room-worker CPU time and subrequest counts are reported for
       a real invited-editor session.
-- [ ] Alert test: reconnect loop and checkpoint failure alerts fire when
+- [x] Alert test: reconnect loop and checkpoint failure alerts fire when
       thresholds are exceeded.
 
 ### Done When
@@ -549,16 +556,16 @@ Add lightweight server-side observability with strict budgets.
 - [ ] Session tokens are not sent to arbitrary URLs.
 - [ ] Session cookies are `HttpOnly` unless there is a documented exception.
 - [ ] Room tokens remain short-lived, signed, audience-bound, and asset-bound.
-- [ ] Debug room endpoints require authenticated admin/service access.
-- [ ] Removed and demoted editors lose write access without a manual reload.
+- [x] Debug room endpoints require authenticated admin/service access.
+- [x] Removed and demoted editors lose write access without a manual reload.
 
 ### Persistence Gates
 
-- [ ] Every live update is journaled before broadcast.
-- [ ] Duplicate updates are idempotently acknowledged without replay.
-- [ ] Checkpoint validation failure preserves journal rows.
-- [ ] Checkpoint promotion cannot delete updates that arrive during promotion.
-- [ ] Current manifest fallback works when the latest checkpoint target is
+- [x] Every live update is journaled before broadcast.
+- [x] Duplicate updates are idempotently acknowledged without replay.
+- [x] Checkpoint validation failure preserves journal rows.
+- [x] Checkpoint promotion cannot delete updates that arrive during promotion.
+- [x] Current manifest fallback works when the latest checkpoint target is
       missing.
 - [ ] Mutation history is bounded and checkpoint reload handles truncation.
 - [ ] Invite/member/audit/email/room-notification flows are unambiguous and
@@ -568,21 +575,21 @@ Add lightweight server-side observability with strict budgets.
 
 - [ ] Per-update DO metrics are recorded in staging.
 - [ ] Bootstrap metadata bytes are bounded.
-- [ ] Partial sync uploads have explicit memory limits.
-- [ ] Room update fanout is linear only in authenticated peer count.
-- [ ] Room status/debug responses do not include raw font or Yjs payloads by
+- [x] Partial sync uploads have explicit memory limits.
+- [x] Room update fanout is linear only in authenticated peer count.
+- [x] Room status/debug responses do not include raw font or Yjs payloads by
       default.
 - [ ] Local and staging edit-burst runs stay within agreed latency and CPU
       budgets.
 
 ### Test Gates
 
-- [ ] `cd ../collab/collab && npm test`
-- [ ] `cd ../website && npm test`
+- [x] `cd ../collab/collab && npm test`
+- [x] `cd ../website && npm test`
 - [ ] `cd webapp && npm run test:ci`
-- [ ] Invited-editor Playwright collaboration test.
-- [ ] Invited-viewer read-only Playwright collaboration test.
-- [ ] Removed-editor stale-socket Playwright test.
+- [x] Invited-editor Playwright collaboration test.
+- [x] Invited-viewer read-only Playwright collaboration test.
+- [x] Removed-editor stale-socket Playwright test.
 - [ ] Long-lived-room bootstrap Playwright or node integration test.
 - [ ] Staging smoke test with production-like secrets and origin allowlists.
 

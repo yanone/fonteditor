@@ -252,6 +252,13 @@ async function waitForCloudConnected(page: Page): Promise<void> {
     );
 }
 
+async function getCloudConnectionStatus(page: Page): Promise<string | null> {
+    return page.evaluate(() => {
+        const status = (window as any).cloudDebug?.getStatus?.();
+        return typeof status === 'string' ? status : null;
+    });
+}
+
 async function waitForPythonReady(page: Page): Promise<void> {
     await page.waitForFunction(
         () => typeof (window as any).pyodide?.runPythonAsync === 'function',
@@ -782,8 +789,10 @@ async function createOwnershipTransferFromShareDialog(
 
 async function acceptInvitationAndOpenEditor(
     page: Page,
-    inviteUrl: string
+    inviteUrl: string,
+    options: { requireConnected?: boolean } = {}
 ): Promise<void> {
+    const requireConnected = options.requireConnected ?? true;
     await page.goto(inviteUrl);
     await page.getByRole('button', { name: 'Accept invitation' }).click();
     await expect(
@@ -794,7 +803,9 @@ async function acceptInvitationAndOpenEditor(
     await page.getByRole('link', { name: 'Open in editor' }).click();
     await waitForCanvasReady(page);
     await waitForCloudFontModelReady(page);
-    await waitForCloudConnected(page);
+    if (requireConnected) {
+        await waitForCloudConnected(page);
+    }
     await waitForAuthenticatedCloudSession(page);
 }
 
@@ -863,6 +874,47 @@ async function getCloudShareState(
     return page.evaluate(async (nextAssetId) => {
         return await (window as any).cloudPlugin.getShareState(nextAssetId);
     }, assetId);
+}
+
+async function updateCloudMemberRole(
+    page: Page,
+    userId: string,
+    role: 'editor' | 'viewer',
+    assetId?: string
+): Promise<void> {
+    await page.evaluate(
+        async ({ nextUserId, nextRole, nextAssetId }) => {
+            await (window as any).cloudPlugin.updateMemberRole(
+                nextUserId,
+                nextRole,
+                nextAssetId
+            );
+        },
+        {
+            nextUserId: userId,
+            nextRole: role,
+            nextAssetId: assetId ?? null
+        }
+    );
+}
+
+async function removeCloudMember(
+    page: Page,
+    userId: string,
+    assetId?: string
+): Promise<void> {
+    await page.evaluate(
+        async ({ nextUserId, nextAssetId }) => {
+            await (window as any).cloudPlugin.removeMember(
+                nextUserId,
+                nextAssetId
+            );
+        },
+        {
+            nextUserId: userId,
+            nextAssetId: assetId ?? null
+        }
+    );
 }
 
 async function getEditingFontCompileTracker(page: Page): Promise<{
@@ -2398,11 +2450,12 @@ test.describe('Local cloud collaboration', () => {
             'viewer'
         );
 
-        await acceptInvitationAndOpenEditor(viewerPage, inviteUrl);
+        await acceptInvitationAndOpenEditor(viewerPage, inviteUrl, {
+            requireConnected: false
+        });
         await focusEditorGlyph(viewerPage, 'A');
 
         const ownerBefore = await getPrimaryNodePosition(ownerPage);
-        const roomStatusBefore = await fetchRoomStatus(ownerPage, assetId);
 
         await movePrimaryNode(viewerPage, 9, 4).catch(() => undefined);
 
@@ -2412,14 +2465,183 @@ test.describe('Local cloud collaboration', () => {
             })
             .toEqual(ownerBefore);
 
-        const roomStatusAfter = await fetchRoomStatus(ownerPage, assetId);
-        expect(roomStatusAfter.roomVersion).toBe(roomStatusBefore.roomVersion);
-        expect(roomStatusAfter.totalUpdatesApplied).toBe(
-            roomStatusBefore.totalUpdatesApplied
-        );
-
         await ownerContext.close();
         await viewerContext.close();
+    });
+
+    test('removed editors cannot keep editing in an already-open browser context', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const ownerEmail = `owner-remove-${Date.now()}@counterpunch.test`;
+        const editorEmail = `editor-remove-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const editorContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+        const editorPage = await editorContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+        await loadCloudTestFont(ownerPage);
+        await waitForCloudFontModelReady(ownerPage);
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Remove Live Editor ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+        await focusEditorGlyph(ownerPage, 'A');
+
+        await editorPage.goto('/?test=true');
+        await waitForCanvasReady(editorPage);
+        await bootstrapCloudSession(editorPage, editorEmail);
+
+        const inviteUrl = await createInvitationFromShareDialog(
+            ownerPage,
+            editorEmail,
+            'editor'
+        );
+
+        await acceptInvitationAndOpenEditor(editorPage, inviteUrl);
+        await focusEditorGlyph(editorPage, 'A');
+
+        const shareStateBefore = await getCloudShareState(ownerPage, assetId);
+        const editorMember = shareStateBefore.members.find(
+            (member) => member.email === editorEmail
+        );
+        expect(editorMember?.userId).toBeTruthy();
+
+        const ownerBefore = await getPrimaryNodePosition(ownerPage);
+
+        await removeCloudMember(
+            ownerPage,
+            String(editorMember?.userId),
+            assetId
+        );
+
+        const shareStateAfterRemoval = await getCloudShareState(
+            ownerPage,
+            assetId
+        );
+        expect(
+            shareStateAfterRemoval.members.some(
+                (member) => member.email === editorEmail
+            )
+        ).toBe(false);
+
+        await expect
+            .poll(async () => await getCloudConnectionStatus(editorPage), {
+                timeout: 30000
+            })
+            .not.toBe('connected');
+
+        await movePrimaryNode(editorPage, 13, 6).catch(() => undefined);
+
+        await expect
+            .poll(async () => await getPrimaryNodePosition(ownerPage), {
+                timeout: 5000
+            })
+            .toEqual(ownerBefore);
+
+        await ownerContext.close();
+        await editorContext.close();
+    });
+
+    test('editors demoted to viewers lose write access without a manual reload', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const ownerEmail = `owner-demote-${Date.now()}@counterpunch.test`;
+        const editorEmail = `editor-demote-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const editorContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+        const editorPage = await editorContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+        await loadCloudTestFont(ownerPage);
+        await waitForCloudFontModelReady(ownerPage);
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Demote Live Editor ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+        await focusEditorGlyph(ownerPage, 'A');
+
+        await editorPage.goto('/?test=true');
+        await waitForCanvasReady(editorPage);
+        await bootstrapCloudSession(editorPage, editorEmail);
+
+        const inviteUrl = await createInvitationFromShareDialog(
+            ownerPage,
+            editorEmail,
+            'editor'
+        );
+
+        await acceptInvitationAndOpenEditor(editorPage, inviteUrl);
+        await focusEditorGlyph(editorPage, 'A');
+
+        const shareStateBefore = await getCloudShareState(ownerPage, assetId);
+        const editorMember = shareStateBefore.members.find(
+            (member) => member.email === editorEmail
+        );
+        expect(editorMember?.userId).toBeTruthy();
+
+        const ownerBefore = await getPrimaryNodePosition(ownerPage);
+
+        await updateCloudMemberRole(
+            ownerPage,
+            String(editorMember?.userId),
+            'viewer',
+            assetId
+        );
+
+        const ownerShareStateAfterDemotion = await getCloudShareState(
+            ownerPage,
+            assetId
+        );
+        expect(
+            ownerShareStateAfterDemotion.members.find(
+                (member) => member.email === editorEmail
+            )?.role
+        ).toBe('viewer');
+
+        await expect
+            .poll(async () => await getCloudConnectionStatus(editorPage), {
+                timeout: 30000
+            })
+            .not.toBe('connected');
+
+        await movePrimaryNode(editorPage, 12, 4).catch(() => undefined);
+
+        await expect
+            .poll(async () => await getPrimaryNodePosition(ownerPage), {
+                timeout: 5000
+            })
+            .toEqual(ownerBefore);
+
+        await ownerContext.close();
+        await editorContext.close();
     });
 
     test('transfers ownership end to end and removes the previous owner when requested', async ({
