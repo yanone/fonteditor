@@ -1053,7 +1053,7 @@ class FontManager {
                         ? (window.cloudPlugin?.getCurrentAssetRole?.() ?? null)
                         : null;
                     const isAuthenticated =
-                        window.authManager?.isAuthenticated?.() === true;
+                        window.authManager?.isAuthenticated?.() !== false;
                     if (shareButton) {
                         const shouldShowShareButton =
                             isAuthenticated &&
