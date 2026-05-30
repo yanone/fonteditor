@@ -371,7 +371,7 @@ describe('CloudPlugin.openAsset', () => {
         expect(mockConnectDirect).toHaveBeenCalledTimes(2);
     });
 
-    test('saveAs resolves after the seeded upload and attaches the current font to the cloud room', async () => {
+    test('saveAs seeds and attaches the current live bridge without a second reconnect', async () => {
         window.glyphCanvas = {
             initialFontLoaded: true
         };
@@ -437,10 +437,11 @@ describe('CloudPlugin.openAsset', () => {
         expect(plugin.activeAssetId).toBe('asset-save');
         expect(plugin.getAssetConnectionStatus('asset-save')).toBe('connected');
         expect(mockConnectDirect).toHaveBeenCalledTimes(1);
-        expect(mockConnect).toHaveBeenCalledTimes(1);
+        expect(mockConnectDirect.mock.calls[0][0]).toBe(window.patchSyncEngine);
+        expect(mockConnect).not.toHaveBeenCalled();
     });
 
-    test('saveAs still resolves and signals connection trouble when the live attach fails', async () => {
+    test('saveAs rejects when the direct live-room attach fails', async () => {
         window.glyphCanvas = {
             initialFontLoaded: true
         };
@@ -475,12 +476,9 @@ describe('CloudPlugin.openAsset', () => {
             offLocalUpdate: jest.fn()
         };
 
-        const connectToRoomSpy = jest
-            .spyOn(plugin, 'connectToRoom')
-            .mockRejectedValue(new Error('cloud sync timed out'));
-        const backgroundFailureSpy = jest
-            .spyOn(plugin, '_handleBackgroundBridgeBootstrapFailure')
-            .mockImplementation(() => {});
+        mockConnectDirectStatusQueue = [
+            [{ status: 'error', detail: 'cloud sync timed out' }]
+        ];
 
         global.fetch = jest.fn().mockResolvedValue({
             ok: true,
@@ -497,22 +495,17 @@ describe('CloudPlugin.openAsset', () => {
             text: jest.fn().mockResolvedValue('')
         });
 
-        await expect(plugin.saveAs('Save Source')).resolves.toBe('asset-save');
-        await Promise.resolve();
+        await expect(plugin.saveAs('Save Source')).rejects.toThrow(
+            'cloud sync timed out'
+        );
 
-        expect(connectToRoomSpy).toHaveBeenCalledWith('asset-save');
-        expect(backgroundFailureSpy).toHaveBeenCalledWith(
-            'asset-save',
-            expect.any(Error)
+        expect(plugin.activeAssetId).toBeNull();
+        expect(window.fontManager.currentFont.path).toBe(
+            '/user/Save Source.babelfont'
         );
     });
 
-    test('saveAs shows a connection problem until the live room attaches', async () => {
-        mockConnectDirectStatusQueue = [
-            [{ status: 'connected' }],
-            [{ status: 'connecting' }]
-        ];
-
+    test('saveAs returns only after the direct live-room attach reaches connected', async () => {
         window.glyphCanvas = {
             initialFontLoaded: true
         };
@@ -573,10 +566,100 @@ describe('CloudPlugin.openAsset', () => {
         await expect(plugin.saveAs('Save Source')).resolves.toBe('asset-save');
 
         expect(plugin.activeAssetId).toBe('asset-save');
-        expect(plugin.getAssetConnectionStatus('asset-save')).toBe(
-            'connecting'
+        expect(plugin.getAssetConnectionStatus('asset-save')).toBe('connected');
+        expect(plugin.hasConnectionProblem('asset-save')).toBe(false);
+        expect(mockConnectDirect).toHaveBeenCalledTimes(1);
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    test('saveAs attaches the latest live bridge if patchSyncEngine is replaced mid-flight', async () => {
+        window.glyphCanvas = {
+            initialFontLoaded: true
+        };
+        window.currentFontModel = {
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        {
+                            id: 'L0',
+                            shapes: [{}, {}],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ]
+        };
+        window.fontManager = {
+            currentFont: {
+                name: 'Save Source',
+                path: '/user/Save Source.babelfont',
+                babelfontJson: JSON.stringify(defaultCloudFontJson),
+                babelfontData: defaultCloudFontJson,
+                fontModel: window.currentFontModel,
+                syncJsonFromModel: jest.fn()
+            },
+            editingFont: new Uint8Array([1])
+        };
+
+        const originalBridge = {
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn(),
+            fontMap: { __mock: true }
+        };
+        const replacementBridge = {
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn(),
+            fontMap: { __mock: true }
+        };
+        window.patchSyncEngine = originalBridge;
+
+        let resolveRoomToken = null;
+        plugin._fetchRoomToken = jest.fn(
+            () =>
+                new Promise((resolve) => {
+                    resolveRoomToken = resolve;
+                })
         );
-        expect(plugin.hasConnectionProblem('asset-save')).toBe(true);
+
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: jest.fn().mockResolvedValue({
+                asset: {
+                    id: 'asset-save',
+                    name: 'Save Source',
+                    role: 'owner',
+                    ownerUserId: 'user-1',
+                    createdAt: 1,
+                    updatedAt: 1
+                }
+            }),
+            text: jest.fn().mockResolvedValue('')
+        });
+
+        const savePromise = plugin.saveAs('Save Source');
+        for (
+            let attempt = 0;
+            attempt < 10 && typeof resolveRoomToken !== 'function';
+            attempt++
+        ) {
+            await Promise.resolve();
+        }
+
+        expect(typeof resolveRoomToken).toBe('function');
+
+        window.patchSyncEngine = replacementBridge;
+        resolveRoomToken({
+            token: 'room-token',
+            roomUrl: 'ws://localhost:8787/room/asset-save'
+        });
+
+        await expect(savePromise).resolves.toBe('asset-save');
+
+        expect(mockConnectDirect).toHaveBeenCalledTimes(1);
+        expect(mockConnectDirect.mock.calls[0][0]).toBe(replacementBridge);
+        expect(mockConnectDirect.mock.calls[0][0]).not.toBe(originalBridge);
     });
 
     test('flags an open cloud font as a connection problem when no adapter is attached', () => {

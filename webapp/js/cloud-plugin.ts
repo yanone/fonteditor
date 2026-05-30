@@ -1839,8 +1839,8 @@ export class CloudPlugin extends FilesystemPlugin {
 
     /**
      * Mark the currently open local font as the just-created cloud asset.
-     * The room has already been seeded at this point; the live socket may still
-     * be connecting, so the title bar must reflect the cloud asset immediately.
+     * Save As now seeds the room with the live bridge directly, so this runs
+     * only after the owner is already attached to the new room.
      */
     private _finalizeCurrentFontAsSavedCloudAsset(assetId: string): void {
         const currentFont = (window as any).fontManager?.currentFont;
@@ -1868,8 +1868,9 @@ export class CloudPlugin extends FilesystemPlugin {
      * Flow:
      *  1. Create a new asset via POST /api/cloud/assets.
      *  2. Fetch room token for the new asset.
-     *  3. Connect the adapter to the current bridge.
-     *     The auto-sync protocol seeds the empty DO with the current font state.
+     *  3. Connect the current live bridge to the new room.
+     *     The auto-sync protocol seeds the empty DO and attaches the owner in
+     *     the same handshake, so Save As does not need a second bridge handoff.
      */
     async saveAs(name: string): Promise<string> {
         const user = await this._ensureCloudUser({
@@ -1886,8 +1887,6 @@ export class CloudPlugin extends FilesystemPlugin {
         const estimatedSaveBytes = new TextEncoder().encode(
             JSON.stringify(seedFontJson)
         ).length;
-
-        await waitForCloudSaveBridge();
 
         const resp = await fetch(`${this._websiteBaseUrl}/api/cloud/assets`, {
             method: 'POST',
@@ -1967,21 +1966,20 @@ export class CloudPlugin extends FilesystemPlugin {
             return adapter;
         };
 
-        const seedBridge = new PatchSyncEngine(`cloud-save-seed-${assetId}`);
-        seedBridge.initFromJson(
-            seedFontJson as Record<string, ReturnType<typeof JSON.parse>>
-        );
+        this._disconnectCurrent();
+        const liveBridge = await waitForCloudSaveBridge();
+        assertCloudBridgeStateCanBeSaved(liveBridge);
 
-        const seedAdapter = await connectAndWaitForSync(seedBridge, {
-            reportConnectionStatus: false
-        });
-        seedAdapter.disconnect();
+        try {
+            this._cloudAdapter = await connectAndWaitForSync(liveBridge);
+        } catch (error) {
+            this._disconnectCurrent();
+            throw error;
+        }
 
+        this._activeAssetId = assetId;
         this._cacheAssetRole(assetId, asset.role);
         this._finalizeCurrentFontAsSavedCloudAsset(assetId);
-        void this.connectToRoom(assetId).catch((error) => {
-            this._handleBackgroundBridgeBootstrapFailure(assetId, error);
-        });
 
         return assetId;
     }
