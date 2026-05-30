@@ -2067,6 +2067,189 @@ describe('CloudAdapter durability failures', () => {
         }
     });
 
+    it('sends heartbeat pings and clears in-flight state on pong', () => {
+        jest.useFakeTimers();
+
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const socket = {
+            readyState: 1,
+            send: jest.fn(),
+            close: jest.fn()
+        };
+
+        adapter._ws = socket;
+        adapter._clientId = 'client-1';
+
+        try {
+            adapter._setStatus('connected');
+
+            jest.advanceTimersByTime(20000);
+
+            expect(socket.send).toHaveBeenCalledTimes(1);
+            const ping = JSON.parse(socket.send.mock.calls[0][0]);
+            expect(ping).toMatchObject({ type: 'ping' });
+            expect(typeof ping.sentAt).toBe('number');
+
+            jest.advanceTimersByTime(1000);
+            expect(adapter.getConnectionHealth().heartbeatInFlightMs).toBe(
+                1000
+            );
+
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'pong',
+                    sentAt: ping.sentAt,
+                    serverTime: Date.now()
+                })
+            );
+
+            expect(
+                adapter.getConnectionHealth().heartbeatInFlightMs
+            ).toBeNull();
+            expect(adapter.getConnectionHealth().lastHeartbeatAckAt).toBe(
+                Date.now()
+            );
+        } finally {
+            adapter.disconnect();
+            jest.useRealTimers();
+        }
+    });
+
+    it('treats any inbound websocket message as heartbeat liveness', async () => {
+        jest.useFakeTimers();
+
+        const originalWebSocket = global.WebSocket;
+        const originalFontCompilation = window.fontCompilation;
+        let socket;
+
+        class FakeWebSocket {
+            static OPEN = 1;
+
+            constructor(_url) {
+                this.readyState = 1;
+                this.send = jest.fn();
+                this.close = jest.fn();
+                socket = this;
+            }
+        }
+
+        global.WebSocket = FakeWebSocket;
+        window.fontCompilation = undefined;
+
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space'
+        });
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            await adapter.connectDirect(
+                {
+                    encodeBridgeStateVector: () => new Uint8Array(),
+                    encodeStateDiff: () => new Uint8Array(),
+                    onLocalUpdate: jest.fn(),
+                    offLocalUpdate: jest.fn(),
+                    advanceBroadcastLogCursor: jest.fn()
+                },
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+
+            socket.onopen();
+            socket.onmessage({
+                data: JSON.stringify({ type: 'auth-ok', clientId: 'client-1' })
+            });
+            socket.onmessage({
+                data: JSON.stringify({
+                    type: 'sync-response',
+                    update: '',
+                    serverStateVector: ''
+                })
+            });
+            await Promise.resolve();
+
+            expect(adapter.status).toBe('connected');
+
+            jest.advanceTimersByTime(20000);
+            expect(adapter.getConnectionHealth().heartbeatInFlightMs).toBe(0);
+
+            jest.advanceTimersByTime(1000);
+            socket.onmessage({
+                data: JSON.stringify({ type: 'ack', seq: 123, durable: true })
+            });
+
+            expect(
+                adapter.getConnectionHealth().heartbeatInFlightMs
+            ).toBeNull();
+
+            jest.advanceTimersByTime(49999);
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            window.fontCompilation = originalFontCompilation;
+            global.WebSocket = originalWebSocket;
+            jest.useRealTimers();
+        }
+    });
+
+    it('reconnects when heartbeat replies stop on a connected socket', () => {
+        jest.useFakeTimers();
+
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const socket = {
+            readyState: 1,
+            send: jest.fn(),
+            close: jest.fn()
+        };
+
+        adapter._ws = socket;
+        adapter._clientId = 'client-1';
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            adapter._setStatus('connected');
+
+            jest.advanceTimersByTime(69999);
+
+            expect(socket.send).toHaveBeenCalledTimes(3);
+            expect(socket.close).not.toHaveBeenCalled();
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+
+            jest.advanceTimersByTime(1);
+
+            expect(statuses).toContainEqual({
+                status: 'connecting',
+                detail: 'Cloud connection heartbeat timed out'
+            });
+            expect(socket.close).toHaveBeenCalledWith(
+                4000,
+                'heartbeat-timeout'
+            );
+            expect(scheduleReconnect).toHaveBeenCalledTimes(1);
+            expect(adapter.status).toBe('connecting');
+            expect(adapter.getConnectionHealth().livenessTimeoutCount).toBe(1);
+            expect(adapter.getConnectionHealth().lastReconnectReason).toBe(
+                'heartbeat-timeout'
+            );
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            jest.useRealTimers();
+        }
+    });
+
     it('reconnects when initial sync-complete durability stalls in syncing', () => {
         jest.useFakeTimers();
 

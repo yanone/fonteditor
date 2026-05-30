@@ -2144,6 +2144,10 @@ export class CloudPlugin extends FilesystemPlugin {
             typeof fontCompilation?.hasWorkerCacheDocument === 'function'
                 ? fontCompilation.hasWorkerCacheDocument()
                 : undefined;
+        const connectionHealth =
+            activeAssetId && this._cloudAdapter?.assetId === activeAssetId
+                ? this._cloudAdapter.getConnectionHealth()
+                : null;
 
         return [
             `capturedAt: ${formatCloudDebugTimestamp(Date.now())}`,
@@ -2162,6 +2166,13 @@ export class CloudPlugin extends FilesystemPlugin {
             `connectedAssetIds: ${connectedAssetIds.length ? connectedAssetIds.join(', ') : 'none'}`,
             `lastOutboundSeq: ${outboundSeq ?? 'none'}`,
             `lastInboundCount: ${inboundCount ?? 'none'}`,
+            `wsReadyState: ${connectionHealth?.wsReadyState ?? 'none'}`,
+            `lastInboundAgeMs: ${connectionHealth?.lastInboundAgeMs ?? 'none'}`,
+            `lastHeartbeatSentAt: ${connectionHealth?.lastHeartbeatSentAt ?? 'none'}`,
+            `lastHeartbeatAckAt: ${connectionHealth?.lastHeartbeatAckAt ?? 'none'}`,
+            `heartbeatInFlightMs: ${connectionHealth?.heartbeatInFlightMs ?? 'none'}`,
+            `livenessTimeoutCount: ${connectionHealth?.livenessTimeoutCount ?? 'none'}`,
+            `lastReconnectReason: ${connectionHealth?.lastReconnectReason ?? 'none'}`,
             'trace:',
             ...(trace.length
                 ? trace.map(
