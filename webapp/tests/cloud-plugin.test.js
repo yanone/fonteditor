@@ -355,7 +355,7 @@ describe('CloudPlugin.openAsset', () => {
         expect(mockConnectDirect).toHaveBeenCalledTimes(2);
     });
 
-    test('saveAs resolves after fontReady without waiting for live bridge bootstrap', async () => {
+    test('saveAs resolves after the seeded upload without waiting for background reopen', async () => {
         window.glyphCanvas = {
             initialFontLoaded: true
         };
@@ -390,6 +390,8 @@ describe('CloudPlugin.openAsset', () => {
             offLocalUpdate: jest.fn()
         };
 
+        jest.spyOn(plugin, '_openAssetInternal').mockResolvedValue(undefined);
+
         global.fetch = jest.fn().mockResolvedValue({
             ok: true,
             json: jest.fn().mockResolvedValue({
@@ -414,6 +416,75 @@ describe('CloudPlugin.openAsset', () => {
         });
 
         await expect(plugin.saveAs('Save Source')).resolves.toBe('asset-save');
+    });
+
+    test('saveAs still resolves when the background reopen times out', async () => {
+        window.glyphCanvas = {
+            initialFontLoaded: true
+        };
+        window.currentFontModel = {
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        {
+                            id: 'L0',
+                            shapes: [{}, {}],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ]
+        };
+        window.fontManager = {
+            currentFont: {
+                name: 'Save Source',
+                path: '/user/Save Source.babelfont',
+                babelfontJson: JSON.stringify(defaultCloudFontJson),
+                babelfontData: defaultCloudFontJson,
+                fontModel: window.currentFontModel,
+                syncJsonFromModel: jest.fn()
+            },
+            editingFont: new Uint8Array([1])
+        };
+        window.patchSyncEngine = {
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        const openAssetInternalSpy = jest
+            .spyOn(plugin, '_openAssetInternal')
+            .mockRejectedValue(new Error('cloud sync timed out'));
+        const backgroundFailureSpy = jest
+            .spyOn(plugin, '_handleBackgroundBridgeBootstrapFailure')
+            .mockImplementation(() => {});
+
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: jest.fn().mockResolvedValue({
+                asset: {
+                    id: 'asset-save',
+                    name: 'Save Source',
+                    role: 'owner',
+                    ownerUserId: 'user-1',
+                    createdAt: 1,
+                    updatedAt: 1
+                }
+            }),
+            text: jest.fn().mockResolvedValue('')
+        });
+
+        await expect(plugin.saveAs('Save Source')).resolves.toBe('asset-save');
+        await Promise.resolve();
+
+        expect(openAssetInternalSpy).toHaveBeenCalledWith('asset-save', {
+            awaitLiveBridge: false
+        });
+        expect(backgroundFailureSpy).toHaveBeenCalledWith(
+            'asset-save',
+            expect.any(Error)
+        );
     });
 
     test('saveAs does not mark the cloud asset as connection-dirty before the live room attaches', async () => {

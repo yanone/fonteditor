@@ -1295,6 +1295,19 @@ async function deleteCloudAsset(page: Page, assetId: string): Promise<void> {
     }, assetId);
 }
 
+async function deleteOwnedCloudAssets(page: Page): Promise<void> {
+    const ownedAssetIds = await page.evaluate(async () => {
+        const assets = await (window as any).cloudPlugin.getAssets();
+        return (Array.isArray(assets) ? assets : [])
+            .filter((asset) => asset?.role === 'owner' && asset?.id)
+            .map((asset) => String(asset.id));
+    });
+
+    for (const assetId of ownedAssetIds) {
+        await deleteCloudAsset(page, assetId);
+    }
+}
+
 async function getEditingFontCompileTracker(page: Page): Promise<{
     count: number;
     revision: number;
@@ -2154,6 +2167,11 @@ test.describe('Local cloud collaboration', () => {
 
         await page.goto('/?test=true');
         await waitForCanvasReady(page);
+        await bootstrapCloudSession(
+            page,
+            `save-smoke-${Date.now()}@counterpunch.test`
+        );
+        await deleteOwnedCloudAssets(page);
 
         await loadCloudTestFont(page);
         await waitForFontLoaded(page);

@@ -525,41 +525,6 @@ async function waitForCloudSaveBridge(
     });
 }
 
-async function waitForCloudFontReady(
-    expectedPath: string,
-    timeoutMs = 30000
-): Promise<void> {
-    return await new Promise((resolve, reject) => {
-        const currentPath = String(
-            (window as any).fontManager?.currentFont?.path || ''
-        ).trim();
-        if (currentPath === expectedPath) {
-            resolve();
-            return;
-        }
-
-        const timeoutId = window.setTimeout(() => {
-            window.removeEventListener('fontReady', onFontReady);
-            reject(
-                new Error(`Timed out waiting for fontReady for ${expectedPath}`)
-            );
-        }, timeoutMs);
-
-        const onFontReady = (event: Event) => {
-            const detail = (event as CustomEvent<{ path?: string }>).detail;
-            if (detail?.path !== expectedPath) {
-                return;
-            }
-
-            window.clearTimeout(timeoutId);
-            window.removeEventListener('fontReady', onFontReady);
-            resolve();
-        };
-
-        window.addEventListener('fontReady', onFontReady);
-    });
-}
-
 /**
  * Wait for the initial synced document to contain font data.
  * Some cloud rooms connect before their persisted snapshot has been applied.
@@ -2003,8 +1968,12 @@ export class CloudPlugin extends FilesystemPlugin {
         });
         seedAdapter.disconnect();
 
-        await this._openAssetInternal(assetId, { awaitLiveBridge: false });
-        await waitForCloudFontReady(`cloud://${assetId}`);
+        void this._openAssetInternal(assetId, { awaitLiveBridge: false }).catch(
+            (error) => {
+                this._handleBackgroundBridgeBootstrapFailure(assetId, error);
+            }
+        );
+
         return assetId;
     }
 
