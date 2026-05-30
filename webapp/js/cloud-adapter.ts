@@ -519,6 +519,8 @@ export class CloudAdapter implements FileSystemAdapter {
     private _pendingDurabilityMessages: CollaborationMessageEnvelope[] = [];
     private _durableOutboxEntries = new Map<string, CloudDurableOutboxRecord>();
     private _pendingSyncCompleteTransactionIds: string[] = [];
+    private _pendingSyncCompleteOutboundPackets =
+        new Set<CloudOutboundUpdatePacket>();
     private _pendingSyncCompleteBroadcastEntryCount = 0;
     private _pendingInboundUpdates: CloudLiveUpdateMessage[] = [];
     private _inboundFlushScheduled = false;
@@ -953,6 +955,11 @@ export class CloudAdapter implements FileSystemAdapter {
         }
 
         const durableTransactionIds = new Set(clientTransactionIds);
+        this._pendingOutboundPackets = this._pendingOutboundPackets.filter(
+            (packet) =>
+                !packet.clientTransactionId ||
+                !durableTransactionIds.has(packet.clientTransactionId)
+        );
         this._pendingDurabilityMessages =
             this._pendingDurabilityMessages.filter(
                 (message) =>
@@ -971,6 +978,16 @@ export class CloudAdapter implements FileSystemAdapter {
                 error
             );
         });
+    }
+
+    private _dropSyncCompleteCoveredOutboundPackets(): void {
+        if (this._pendingSyncCompleteOutboundPackets.size === 0) {
+            return;
+        }
+
+        this._pendingOutboundPackets = this._pendingOutboundPackets.filter(
+            (packet) => !this._pendingSyncCompleteOutboundPackets.has(packet)
+        );
     }
 
     // ── WebSocket lifecycle ───────────────────────────────────────
@@ -1087,12 +1104,6 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._armInitialSyncTimeout();
                 this._initialServerStateApplied = false;
                 this._initialSyncDurable = false;
-                if (this._pendingOutboundPackets.length > 0) {
-                    // The upcoming sync-request/sync-complete diff will carry
-                    // the authoritative missing state, so stale pre-reconnect
-                    // live packets should not be replayed ad hoc afterwards.
-                    this._pendingOutboundPackets = [];
-                }
                 if (!this._hasSynced) {
                     // Phase 1 of Yjs two-phase sync: send our state vector so
                     // the server can compute exactly what we're missing.
@@ -1257,8 +1268,9 @@ export class CloudAdapter implements FileSystemAdapter {
                                 this._pendingSyncCompleteBroadcastEntryCount
                             );
                         }
-                        this._clearPendingSyncCompleteTracking();
                     }
+                    this._dropSyncCompleteCoveredOutboundPackets();
+                    this._clearPendingSyncCompleteTracking();
                     void this._maybeMarkInitialSyncConnected().catch(() => {});
                     return;
                 }
@@ -1385,6 +1397,17 @@ export class CloudAdapter implements FileSystemAdapter {
         };
 
         try {
+            if (typeof window.syncRustCacheAndRefreshCanvas === 'function') {
+                await window.syncRustCacheAndRefreshCanvas(
+                    undefined,
+                    undefined,
+                    {
+                        allowSelectedLayerFallback: true
+                    }
+                );
+                refreshed.canvasRefreshed = true;
+            }
+
             if (
                 typeof window.fontManager?.recompileEditingFont === 'function'
             ) {
@@ -1400,17 +1423,6 @@ export class CloudAdapter implements FileSystemAdapter {
             if (typeof textRunEditor?.shapeText === 'function') {
                 textRunEditor.shapeText();
                 refreshed.textPreviewReshaped = true;
-            }
-
-            if (typeof window.syncRustCacheAndRefreshCanvas === 'function') {
-                await window.syncRustCacheAndRefreshCanvas(
-                    undefined,
-                    undefined,
-                    {
-                        allowSelectedLayerFallback: true
-                    }
-                );
-                refreshed.canvasRefreshed = true;
             }
 
             const glyphOverview = window.glyphOverviewInstance as
@@ -1545,6 +1557,9 @@ export class CloudAdapter implements FileSystemAdapter {
             this._enqueuePendingDurabilityMessages(collaborationMessages);
             const pendingCollaborationMessages = dedupeCollaborationMessages(
                 this._pendingDurabilityMessages
+            );
+            this._pendingSyncCompleteOutboundPackets = new Set(
+                this._pendingOutboundPackets
             );
             this._pendingSyncCompleteTransactionIds =
                 pendingCollaborationMessages
@@ -1961,6 +1976,7 @@ export class CloudAdapter implements FileSystemAdapter {
 
     private _clearPendingSyncCompleteTracking(): void {
         this._pendingSyncCompleteTransactionIds = [];
+        this._pendingSyncCompleteOutboundPackets.clear();
         this._pendingSyncCompleteBroadcastEntryCount = 0;
     }
 

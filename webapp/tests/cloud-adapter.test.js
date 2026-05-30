@@ -425,7 +425,8 @@ describe('CloudAdapter outbound updates', () => {
         };
         adapter._ws = {
             readyState: 1,
-            send: (payload) => sentFrames.push(JSON.parse(payload))
+            send: (payload) => sentFrames.push(JSON.parse(payload)),
+            close: jest.fn()
         };
         adapter._clientId = 'client-1';
 
@@ -590,6 +591,131 @@ describe('CloudAdapter outbound updates', () => {
 
         expect(adapter._pendingOutboundPackets).toEqual([packet]);
         expect(adapter._outboundFlushScheduled).toBe(false);
+    });
+
+    it('retains queued outbound commits through auth and drops them after sync-complete durability', () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const sentFrames = [];
+        const localUpdate = new Uint8Array([1, 2, 3, 4]);
+        const changeLogEntries = [
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'client-1',
+                windowRoleLabel: 'main',
+                transactionLabel: 'Queued offline edit',
+                transactionId: 2,
+                op: 'set',
+                undoScope: 'glyph',
+                path: 'glyphs.B:name',
+                oldValue: 'B',
+                newValue: 'B.alt',
+                workerReplayTargets: []
+            })
+        ];
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                changeLogEntries,
+                {
+                    localSequence: 2,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            );
+        const clientTransactionId =
+            collaborationMessageKey(collaborationMessage);
+        const metadataLessCoveredPacket = {
+            update: new Uint8Array([5, 6, 7])
+        };
+        const metadataLessLatePacket = {
+            update: new Uint8Array([8, 9, 10])
+        };
+
+        adapter._bridge = {
+            encodeBridgeStateVector: jest.fn(() => new Uint8Array([7])),
+            mergeImportedChangeLog: jest.fn(),
+            mergeImportedCollaborationMessages: jest.fn(),
+            applyFullState: jest.fn(),
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn(),
+            encodeStateDiff: jest.fn(() => new Uint8Array([9, 9, 9])),
+            getNewChangeLogEntries: jest.fn(() => []),
+            advanceBroadcastLogCursor: jest.fn(),
+            windowId: 'client-1'
+        };
+        adapter._ws = {
+            readyState: 1,
+            send: (payload) => sentFrames.push(JSON.parse(payload)),
+            close: jest.fn()
+        };
+        adapter._pendingOutboundPackets = [
+            {
+                update: localUpdate,
+                collaborationMessage,
+                clientTransactionId
+            },
+            metadataLessCoveredPacket
+        ];
+        adapter._pendingDurabilityMessages = [collaborationMessage];
+        adapter._durableOutboxEntries.set(clientTransactionId, {
+            assetId: 'asset-123',
+            clientTransactionId,
+            updateBase64: Buffer.from(localUpdate).toString('base64'),
+            collaborationMessage,
+            createdAt: 1
+        });
+
+        try {
+            adapter._handleMessage(
+                JSON.stringify({ type: 'auth-ok', clientId: 'client-1' })
+            );
+
+            expect(adapter._pendingOutboundPackets).toHaveLength(2);
+
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'sync-response',
+                    update: '',
+                    serverStateVector: Buffer.from([8, 9, 10]).toString(
+                        'base64'
+                    ),
+                    collaborationMessageHistory: []
+                })
+            );
+
+            expect(adapter._pendingOutboundPackets).toHaveLength(2);
+            expect(sentFrames[sentFrames.length - 1]).toEqual(
+                expect.objectContaining({
+                    type: 'sync-complete',
+                    collaborationMessages: [
+                        expect.objectContaining({
+                            transactionId: collaborationMessage.transactionId,
+                            label: 'Queued offline edit'
+                        })
+                    ]
+                })
+            );
+
+            adapter._pendingOutboundPackets.push(metadataLessLatePacket);
+
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'ack',
+                    seq: -1,
+                    durable: true,
+                    phase: 'sync-complete'
+                })
+            );
+
+            expect(adapter._pendingOutboundPackets).toEqual([
+                metadataLessLatePacket
+            ]);
+            expect(adapter.pendingSyncCount).toBe(0);
+            expect(
+                adapter._bridge.advanceBroadcastLogCursor
+            ).toHaveBeenCalledWith(1);
+        } finally {
+            adapter.disconnect();
+        }
     });
 
     it('advances the broadcast cursor when an incremental update is durably acked', async () => {
@@ -1744,11 +1870,17 @@ describe('CloudAdapter durability failures', () => {
         const originalRefreshCanvas = window.syncRustCacheAndRefreshCanvas;
         const originalGlyphOverview = window.glyphOverviewInstance;
         const originalFontInfoManager = window.fontInfoManager;
+        const callOrder = [];
 
         window.fontManager = {
-            recompileEditingFont: jest.fn().mockResolvedValue(false)
+            recompileEditingFont: jest.fn(async () => {
+                callOrder.push('compile');
+                return false;
+            })
         };
-        window.syncRustCacheAndRefreshCanvas = jest.fn().mockResolvedValue();
+        window.syncRustCacheAndRefreshCanvas = jest.fn(async () => {
+            callOrder.push('sync-cache');
+        });
         window.glyphOverviewInstance = {
             currentLocation: { wght: 400 },
             renderGlyphOutlines: jest.fn().mockResolvedValue(),
@@ -1784,6 +1916,7 @@ describe('CloudAdapter durability failures', () => {
                     allowSelectedLayerFallback: true
                 }
             );
+            expect(callOrder.slice(0, 2)).toEqual(['sync-cache', 'compile']);
             expect(
                 window.glyphOverviewInstance.renderGlyphOutlines
             ).toHaveBeenCalledWith({ wght: 400 });
