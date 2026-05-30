@@ -36,8 +36,8 @@ type CommittedCompilingEditType = EditingCompileContext['editType'];
 function waitForEditingFontRevision(
     targetRevision: number,
     timeoutMs: number = 4000
-): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
         let settled = false;
         let timeoutId: number | null = null;
 
@@ -54,7 +54,7 @@ function waitForEditingFontRevision(
             }
             settled = true;
             cleanup();
-            resolve();
+            resolve(true);
         };
 
         const handler = (event: Event) => {
@@ -74,11 +74,7 @@ function waitForEditingFontRevision(
             }
             settled = true;
             cleanup();
-            reject(
-                new Error(
-                    `Timed out waiting for editing font revision ${targetRevision}`
-                )
-            );
+            resolve(false);
         };
 
         timeoutId = window.setTimeout(fail, timeoutMs);
@@ -181,7 +177,42 @@ export async function processCommittedEdit(
     }
 
     if (completionPromise) {
-        await completionPromise;
+        const completed = await completionPromise;
+        if (!completed) {
+            console.warn(
+                `Timed out waiting for editing font revision ${targetRevision}; retrying committed compile with a fresh revision.`
+            );
+
+            let retryRevision = fm.currentFont.compileRequestVersion;
+            if (retryRevision <= targetRevision) {
+                fm.forceFullEditingCacheRefresh = true;
+                fm.currentFont.requestRecompileWithoutDataChange({
+                    compileContext
+                });
+                fm.clearEditingCompileContext?.();
+                retryRevision = fm.currentFont.compileRequestVersion;
+                window.autoCompileManager?.checkAndSchedule?.();
+            }
+
+            const retryCompletionPromise =
+                waitForEditingFontRevision(retryRevision);
+
+            if (canForceTrigger) {
+                fm.forceFullEditingCacheRefresh = true;
+                try {
+                    await window.autoCompileManager.forceTrigger();
+                } catch {
+                    // Compile errors are reported through normal error handling.
+                }
+            }
+
+            const retryCompleted = await retryCompletionPromise;
+            if (!retryCompleted) {
+                throw new Error(
+                    `Timed out waiting for editing font revision ${retryRevision} after committed retry`
+                );
+            }
+        }
     }
 
     // Arm the deferred full-compile timer for local fast-path edit types.

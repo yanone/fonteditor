@@ -261,7 +261,53 @@ describe('CompiledEditFunnel', () => {
             expect(settled).toBe(true);
         });
 
-        test('waitForCompletion rejects when the requested revision never compiles', async () => {
+        test('waitForCompletion retries with a fresh revision when the requested revision never compiles', async () => {
+            jest.useFakeTimers();
+            window.fontManager.currentFont.requestRecompileWithoutDataChange.mockImplementation(
+                () => {
+                    window.fontManager.currentFont.compileRequestVersion += 1;
+                    window.fontManager.currentFont.needsRecompile = true;
+                }
+            );
+            let forceTriggerCallCount = 0;
+            window.autoCompileManager.forceTrigger.mockImplementation(
+                async () => {
+                    forceTriggerCallCount += 1;
+                    if (forceTriggerCallCount === 2) {
+                        window.dispatchEvent(
+                            new CustomEvent('editingFontCompiled', {
+                                detail: { fontRevisionKey: '12' }
+                            })
+                        );
+                    }
+                }
+            );
+
+            const processPromise = process('keyboard-outline', 'outline', {
+                forceTrigger: true,
+                waitForCompletion: true
+            });
+
+            await Promise.resolve();
+            jest.advanceTimersByTime(4000);
+
+            await expect(processPromise).resolves.toBeUndefined();
+            expect(window.fontManager.currentFont.needsRecompile).toBe(true);
+            expect(
+                window.fontManager.currentFont.requestRecompileWithoutDataChange
+            ).toHaveBeenCalledTimes(2);
+            expect(
+                window.autoCompileManager.checkAndSchedule
+            ).toHaveBeenCalledTimes(2);
+            expect(
+                window.autoCompileManager.forceTrigger
+            ).toHaveBeenCalledTimes(2);
+            expect(window.fontManager.currentFont.compileRequestVersion).toBe(
+                12
+            );
+        });
+
+        test('waitForCompletion still rejects after a timed-out committed retry', async () => {
             jest.useFakeTimers();
             window.fontManager.currentFont.requestRecompileWithoutDataChange.mockImplementation(
                 () => {
@@ -276,9 +322,11 @@ describe('CompiledEditFunnel', () => {
 
             await Promise.resolve();
             jest.advanceTimersByTime(4000);
+            await Promise.resolve();
+            jest.advanceTimersByTime(4000);
 
             await expect(processPromise).rejects.toThrow(
-                'Timed out waiting for editing font revision 11'
+                'Timed out waiting for editing font revision 12 after committed retry'
             );
         });
     });
