@@ -1399,6 +1399,179 @@ describe('CloudAdapter durability failures', () => {
         }
     });
 
+    it('keeps a socket alive while inbound traffic proves the connection is still active', async () => {
+        jest.useFakeTimers();
+
+        const statuses = [];
+        let localUpdateHandler = null;
+        const localUpdate = new Uint8Array([1, 2, 3, 4]);
+        const changeLogEntries = [
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'client-1',
+                windowRoleLabel: 'main',
+                transactionLabel: 'Live edit',
+                transactionId: 7,
+                op: 'set',
+                undoScope: 'glyph',
+                path: 'glyphs.D:name',
+                oldValue: 'D',
+                newValue: 'D.alt',
+                workerReplayTargets: []
+            })
+        ];
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                changeLogEntries,
+                {
+                    localSequence: 7,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            );
+        const socket = {
+            readyState: 1,
+            send: jest.fn(),
+            close: jest.fn()
+        };
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+
+        adapter._bridge = {
+            onLocalUpdate: (handler) => {
+                localUpdateHandler = handler;
+            },
+            offLocalUpdate: jest.fn(),
+            advanceBroadcastLogCursor: jest.fn(),
+            getFullState: jest.fn()
+        };
+        adapter._ws = socket;
+        adapter._clientId = 'client-1';
+        adapter._status = 'connected';
+        adapter._hasSynced = true;
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            adapter._registerOutboundHook();
+            localUpdateHandler(localUpdate, collaborationMessage);
+            await Promise.resolve();
+
+            jest.advanceTimersByTime(5000);
+            adapter._lastInboundMessageAt = Date.now();
+
+            jest.advanceTimersByTime(4999);
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+            expect(socket.close).not.toHaveBeenCalled();
+
+            jest.advanceTimersByTime(1);
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+            expect(socket.close).not.toHaveBeenCalled();
+
+            jest.advanceTimersByTime(4999);
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+            expect(socket.close).not.toHaveBeenCalled();
+
+            jest.advanceTimersByTime(1);
+            expect(statuses).toContainEqual({
+                status: 'connecting',
+                detail: 'Cloud update acknowledgement timed out'
+            });
+            expect(socket.close).toHaveBeenCalledWith(4000, 'ack-timeout');
+            expect(scheduleReconnect).toHaveBeenCalledTimes(1);
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            jest.useRealTimers();
+        }
+    });
+
+    it('still forces reconnect when an unacked live update exceeds the hard wait cap', async () => {
+        jest.useFakeTimers();
+
+        let localUpdateHandler = null;
+        const localUpdate = new Uint8Array([1, 2, 3, 4]);
+        const changeLogEntries = [
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'client-1',
+                windowRoleLabel: 'main',
+                transactionLabel: 'Live edit',
+                transactionId: 8,
+                op: 'set',
+                undoScope: 'glyph',
+                path: 'glyphs.E:name',
+                oldValue: 'E',
+                newValue: 'E.alt',
+                workerReplayTargets: []
+            })
+        ];
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                changeLogEntries,
+                {
+                    localSequence: 8,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            );
+        const socket = {
+            readyState: 1,
+            send: jest.fn(),
+            close: jest.fn()
+        };
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+
+        adapter._bridge = {
+            onLocalUpdate: (handler) => {
+                localUpdateHandler = handler;
+            },
+            offLocalUpdate: jest.fn(),
+            advanceBroadcastLogCursor: jest.fn(),
+            getFullState: jest.fn()
+        };
+        adapter._ws = socket;
+        adapter._clientId = 'client-1';
+        adapter._status = 'connected';
+        adapter._hasSynced = true;
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            adapter._registerOutboundHook();
+            localUpdateHandler(localUpdate, collaborationMessage);
+            await Promise.resolve();
+
+            jest.advanceTimersByTime(9000);
+            adapter._lastInboundMessageAt = Date.now();
+
+            jest.advanceTimersByTime(9000);
+            adapter._lastInboundMessageAt = Date.now();
+
+            jest.advanceTimersByTime(9000);
+            adapter._lastInboundMessageAt = Date.now();
+
+            jest.advanceTimersByTime(2999);
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+
+            jest.advanceTimersByTime(1);
+            expect(socket.close).toHaveBeenCalledWith(4000, 'ack-timeout');
+            expect(scheduleReconnect).toHaveBeenCalledTimes(1);
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            jest.useRealTimers();
+        }
+    });
+
     it('reconnects when initial sync-complete durability stalls in syncing', () => {
         jest.useFakeTimers();
 

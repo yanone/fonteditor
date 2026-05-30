@@ -154,6 +154,7 @@ const SYNC_CHUNK_SIZE = 750_000;
 const CLIENT_RECONNECT_CLOSE_CODE = 4000;
 const AUTHENTICATION_TIMEOUT_MS = 10000;
 const OUTBOUND_ACK_TIMEOUT_MS = 10000;
+const OUTBOUND_ACK_MAX_WAIT_MS = 30000;
 const INITIAL_SYNC_TIMEOUT_MS = 10000;
 
 export type CloudConnectionStatus =
@@ -505,6 +506,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _authenticationTimer: ReturnType<typeof setTimeout> | null = null;
     private _outboundAckTimer: ReturnType<typeof setTimeout> | null = null;
     private _initialSyncTimer: ReturnType<typeof setTimeout> | null = null;
+    private _lastInboundMessageAt = 0;
     private _assetRoles = new Map<string, CloudAssetRole>();
     private _hasSynced = false;
     private _pendingOutboundPackets: CloudOutboundUpdatePacket[] = [];
@@ -567,6 +569,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._incomingLiveUpdateChunks.clear();
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
+        this._lastInboundMessageAt = 0;
         this._visibleRebaselinePromise = null;
         this._clearInitialSyncTimeout();
         this._bridge = bridge;
@@ -595,6 +598,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._incomingLiveUpdateChunks.clear();
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
+        this._lastInboundMessageAt = 0;
         this._visibleRebaselinePromise = null;
         this._clearInitialSyncTimeout();
         this._bridge = bridge;
@@ -625,6 +629,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._inboundFlushScheduled = false;
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
+        this._lastInboundMessageAt = 0;
         this._needsVisibleRebaseline = false;
         this._visibleRebaselinePromise = null;
         this._incomingLiveUpdateChunks.clear();
@@ -904,6 +909,7 @@ export class CloudAdapter implements FileSystemAdapter {
 
             ws.onmessage = (event: MessageEvent) => {
                 if (this._ws !== ws) return;
+                this._lastInboundMessageAt = Date.now();
                 this._handleMessage(event.data as string);
             };
 
@@ -925,6 +931,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._clientId = null;
                 this._markVisibleRebaselineNeeded();
                 this._hasSynced = false;
+                this._lastInboundMessageAt = 0;
                 this._incomingResponseChunks = null;
                 this._initialServerStateApplied = false;
                 this._initialSyncDurable = false;
@@ -1852,7 +1859,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._pendingSyncCompleteBroadcastEntryCount = 0;
     }
 
-    private _armOutboundAckTimeout(): void {
+    private _armOutboundAckTimeout(delayOverrideMs?: number): void {
         this._clearOutboundAckTimeout();
         const oldestPendingEntry = this._outboundAckSentAtBySeq
             .entries()
@@ -1864,7 +1871,7 @@ export class CloudAdapter implements FileSystemAdapter {
         const [seq, sentAt] = oldestPendingEntry as [number, number];
         const delayMs = Math.max(
             0,
-            OUTBOUND_ACK_TIMEOUT_MS - (Date.now() - sentAt)
+            delayOverrideMs ?? OUTBOUND_ACK_TIMEOUT_MS - (Date.now() - sentAt)
         );
         this._outboundAckTimer = setTimeout(() => {
             this._outboundAckTimer = null;
@@ -1927,6 +1934,30 @@ export class CloudAdapter implements FileSystemAdapter {
             (this._status !== 'connected' && this._status !== 'syncing')
         ) {
             this._armOutboundAckTimeout();
+            return;
+        }
+
+        const sentAt = this._outboundAckSentAtBySeq.get(seq);
+        if (typeof sentAt !== 'number') {
+            this._armOutboundAckTimeout();
+            return;
+        }
+
+        const ackAgeMs = Date.now() - sentAt;
+        const inboundActivitySeen = this._lastInboundMessageAt > sentAt;
+        const inboundQuietMs = inboundActivitySeen
+            ? Date.now() - this._lastInboundMessageAt
+            : Number.POSITIVE_INFINITY;
+        if (
+            inboundActivitySeen &&
+            inboundQuietMs < OUTBOUND_ACK_TIMEOUT_MS &&
+            ackAgeMs < OUTBOUND_ACK_MAX_WAIT_MS
+        ) {
+            const nextCheckDelayMs = Math.min(
+                OUTBOUND_ACK_TIMEOUT_MS - inboundQuietMs,
+                OUTBOUND_ACK_MAX_WAIT_MS - ackAgeMs
+            );
+            this._armOutboundAckTimeout(nextCheckDelayMs);
             return;
         }
 
