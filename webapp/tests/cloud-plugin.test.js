@@ -182,6 +182,7 @@ describe('CloudPlugin.openAsset', () => {
     let originalRemoveEventListener;
     let originalFetch;
     let originalTextEncoder;
+    let originalWindowRole;
     let dispatchSpy;
     let eventListeners;
 
@@ -203,6 +204,7 @@ describe('CloudPlugin.openAsset', () => {
         originalRemoveEventListener = window.removeEventListener;
         originalFetch = global.fetch;
         originalTextEncoder = global.TextEncoder;
+        originalWindowRole = window.windowRole;
 
         window.authManager = {
             websiteURL: 'http://localhost:8788',
@@ -263,6 +265,7 @@ describe('CloudPlugin.openAsset', () => {
         window.removeEventListener = originalRemoveEventListener;
         global.fetch = originalFetch;
         global.TextEncoder = originalTextEncoder;
+        window.windowRole = originalWindowRole;
         delete window.__pendingCloudBridgeBootstrapState;
         delete window.patchSyncEngine;
     });
@@ -676,6 +679,50 @@ describe('CloudPlugin.openAsset', () => {
         expect(plugin.hasConnectionProblem('asset-save')).toBe(true);
     });
 
+    test('stores relayed connection detail for passive titlebar and debug status', () => {
+        window.windowRole = {
+            isMainWindow: () => false,
+            isLinkedWindow: () => true
+        };
+
+        plugin.applyRelayedConnectionState({
+            assetId: 'asset-1',
+            status: 'disconnected',
+            detail: 'Browser is offline',
+            pendingSyncCount: 0
+        });
+
+        expect(plugin.getAssetConnectionStatus('asset-1')).toBe('disconnected');
+        expect(plugin.getAssetConnectionDetail('asset-1')).toBe(
+            'Browser is offline'
+        );
+
+        plugin.applyRelayedConnectionState({
+            assetId: 'asset-1',
+            status: 'connected',
+            pendingSyncCount: 0
+        });
+
+        expect(plugin.getAssetConnectionDetail('asset-1')).toBeUndefined();
+    });
+
+    test('includes stored connection detail in full-state relay snapshots', () => {
+        plugin._activeAssetId = 'asset-1';
+
+        plugin._updateConnectionStatus(
+            'asset-1',
+            'disconnected',
+            'Browser is offline'
+        );
+
+        expect(plugin.getRelayConnectionState()).toMatchObject({
+            assetId: 'asset-1',
+            status: 'disconnected',
+            detail: 'Browser is offline',
+            pendingSyncCount: 0
+        });
+    });
+
     test('background live bridge timeouts retry silently after the font is already open', async () => {
         window.fontManager = {
             currentFont: {
@@ -697,7 +744,7 @@ describe('CloudPlugin.openAsset', () => {
         connectToRoomSpy.mockRestore();
     });
 
-    test('alerts once for active cloud runtime errors and re-alerts after recovery', () => {
+    test('uses the titlebar status badge instead of alerts for active cloud runtime errors', () => {
         plugin._activeAssetId = 'asset-1';
 
         plugin._updateConnectionStatus(
@@ -711,9 +758,10 @@ describe('CloudPlugin.openAsset', () => {
             'Sync upload exceeds byte limit'
         );
 
-        expect(window.alert).toHaveBeenCalledTimes(1);
-        expect(window.alert).toHaveBeenCalledWith(
-            'Cloud connection error: Sync upload exceeds byte limit'
+        expect(window.alert).not.toHaveBeenCalled();
+        expect(plugin.getAssetConnectionStatus('asset-1')).toBe('error');
+        expect(plugin.getAssetConnectionDetail('asset-1')).toBe(
+            'Sync upload exceeds byte limit'
         );
 
         plugin._updateConnectionStatus('asset-1', 'connected');
@@ -723,7 +771,7 @@ describe('CloudPlugin.openAsset', () => {
             'Sync upload exceeds byte limit'
         );
 
-        expect(window.alert).toHaveBeenCalledTimes(2);
+        expect(window.alert).not.toHaveBeenCalled();
     });
 
     test('does not alert for transient stale access epoch reconnects', () => {

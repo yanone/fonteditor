@@ -1392,6 +1392,7 @@ describe('CloudAdapter durability failures', () => {
             expect(adapter._outboundPendingTransactionIds.size).toBe(0);
             expect(adapter._outboundAckSentAtBySeq.size).toBe(0);
             expect(adapter._ws).toBeNull();
+            expect(adapter._hasSynced).toBe(false);
         } finally {
             scheduleReconnect.mockRestore();
             adapter.disconnect();
@@ -1614,10 +1615,119 @@ describe('CloudAdapter durability failures', () => {
             expect(adapter._ws).toBeNull();
             expect(adapter._initialServerStateApplied).toBe(false);
             expect(adapter._initialSyncDurable).toBe(false);
+            expect(adapter._hasSynced).toBe(false);
         } finally {
             scheduleReconnect.mockRestore();
             adapter.disconnect();
             jest.useRealTimers();
+        }
+    });
+
+    it('resets bootstrap state when authentication timeout bypasses the close event', async () => {
+        jest.useFakeTimers();
+
+        const originalWebSocket = global.WebSocket;
+        let socket;
+
+        class FakeWebSocket {
+            constructor(_url) {
+                this.readyState = 1;
+                this.send = jest.fn();
+                this.close = jest.fn(() => {
+                    this.readyState = 2;
+                });
+                socket = this;
+            }
+        }
+
+        global.WebSocket = FakeWebSocket;
+
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space'
+        });
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            await adapter.connectDirect(
+                {
+                    onLocalUpdate: jest.fn(),
+                    offLocalUpdate: jest.fn()
+                },
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+
+            adapter._hasSynced = true;
+            socket.onopen();
+            jest.advanceTimersByTime(10000);
+
+            expect(adapter._ws).toBeNull();
+            expect(adapter._hasSynced).toBe(false);
+            expect(scheduleReconnect).toHaveBeenCalledTimes(1);
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            global.WebSocket = originalWebSocket;
+            jest.useRealTimers();
+        }
+    });
+
+    it('marks the active room offline and reconnects on browser network events', () => {
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const socket = {
+            readyState: 1,
+            close: jest.fn()
+        };
+        const openWebSocket = jest
+            .spyOn(adapter, '_openWebSocket')
+            .mockResolvedValue();
+
+        adapter._bridge = {
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+        adapter._directConnection = {
+            token: 'room-token',
+            roomUrl: 'wss://rooms.example.com/room/asset-123'
+        };
+        adapter._ws = socket;
+        adapter._status = 'connected';
+        adapter._hasSynced = true;
+
+        try {
+            adapter._subscribeBrowserNetworkEvents();
+            window.dispatchEvent(new Event('offline'));
+
+            expect(statuses).toContainEqual({
+                status: 'disconnected',
+                detail: 'Browser is offline'
+            });
+            expect(socket.close).toHaveBeenCalledWith(4000, 'browser-offline');
+            expect(adapter._ws).toBeNull();
+            expect(adapter._hasSynced).toBe(false);
+
+            window.dispatchEvent(new Event('online'));
+
+            expect(statuses).toContainEqual({
+                status: 'connecting',
+                detail: 'Browser is online; reconnecting'
+            });
+            expect(openWebSocket).toHaveBeenCalledWith(
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+        } finally {
+            openWebSocket.mockRestore();
+            adapter.disconnect();
         }
     });
 

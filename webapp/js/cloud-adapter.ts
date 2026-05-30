@@ -501,6 +501,8 @@ export class CloudAdapter implements FileSystemAdapter {
     private _localUpdateUnsubscribe: (() => void) | null = null;
     /** Bound `fontModelReady` listener — kept so we can remove it on disconnect. */
     private _fontModelReadyHandler: ((e: Event) => void) | null = null;
+    private _browserOfflineHandler: (() => void) | null = null;
+    private _browserOnlineHandler: (() => void) | null = null;
     private _destroyed = false;
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private _authenticationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -532,6 +534,7 @@ export class CloudAdapter implements FileSystemAdapter {
         string,
         CloudChunkAccumulator
     >();
+    private _directConnection: { token: string; roomUrl: string } | null = null;
 
     constructor(options: CloudAdapterOptions) {
         this._assetId = options.assetId;
@@ -573,9 +576,15 @@ export class CloudAdapter implements FileSystemAdapter {
         this._visibleRebaselinePromise = null;
         this._clearInitialSyncTimeout();
         this._bridge = bridge;
+        this._directConnection = null;
         await this._restorePersistentOutboxIntoBridge();
         this._registerOutboundHook();
         this._subscribeFontModelReady();
+        this._subscribeBrowserNetworkEvents();
+        if (this._isBrowserOffline()) {
+            this._setStatus('disconnected', 'Browser is offline');
+            return;
+        }
         this._setStatus('connecting');
         await this._connectWebSocket();
     }
@@ -602,9 +611,15 @@ export class CloudAdapter implements FileSystemAdapter {
         this._visibleRebaselinePromise = null;
         this._clearInitialSyncTimeout();
         this._bridge = bridge;
+        this._directConnection = { token, roomUrl };
         await this._restorePersistentOutboxIntoBridge();
         this._registerOutboundHook();
         this._subscribeFontModelReady();
+        this._subscribeBrowserNetworkEvents();
+        if (this._isBrowserOffline()) {
+            this._setStatus('disconnected', 'Browser is offline');
+            return;
+        }
         this._setStatus('connecting');
         await this._openWebSocket(token, roomUrl);
     }
@@ -617,11 +632,13 @@ export class CloudAdapter implements FileSystemAdapter {
         this._resetLiveAckTracking();
         this._clearPendingSyncCompleteTracking();
         this._unsubscribeFontModelReady();
+        this._unsubscribeBrowserNetworkEvents();
         this._localUpdateUnsubscribe?.();
         this._localUpdateUnsubscribe = null;
         this._ws?.close(1000, 'disconnect');
         this._ws = null;
         this._bridge = null;
+        this._directConnection = null;
         this._pendingOutboundPackets = [];
         this._outboundFlushScheduled = false;
         this._outboundPendingTransactionIds.clear();
@@ -715,6 +732,94 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._fontModelReadyHandler
             );
             this._fontModelReadyHandler = null;
+        }
+    }
+
+    private _subscribeBrowserNetworkEvents(): void {
+        if (this._browserOfflineHandler || typeof window === 'undefined') {
+            return;
+        }
+        this._browserOfflineHandler = () => this._handleBrowserOffline();
+        this._browserOnlineHandler = () => this._handleBrowserOnline();
+        window.addEventListener('offline', this._browserOfflineHandler);
+        window.addEventListener('online', this._browserOnlineHandler);
+    }
+
+    private _unsubscribeBrowserNetworkEvents(): void {
+        if (this._browserOfflineHandler) {
+            window.removeEventListener('offline', this._browserOfflineHandler);
+            this._browserOfflineHandler = null;
+        }
+        if (this._browserOnlineHandler) {
+            window.removeEventListener('online', this._browserOnlineHandler);
+            this._browserOnlineHandler = null;
+        }
+    }
+
+    private _isBrowserOffline(): boolean {
+        return typeof navigator !== 'undefined' && navigator.onLine === false;
+    }
+
+    private _resetBootstrapStateForReconnect(): void {
+        this._hasSynced = false;
+        this._incomingResponseChunks = null;
+        this._initialServerStateApplied = false;
+        this._initialSyncDurable = false;
+        this._lastInboundMessageAt = 0;
+    }
+
+    private _handleBrowserOffline(): void {
+        if (this._destroyed) {
+            return;
+        }
+
+        const detail = 'Browser is offline';
+        this._clearReconnectTimer();
+        this._clearAuthenticationTimeout();
+        this._clearInitialSyncTimeout();
+        this._clearOutboundAckTimeout();
+        this._resetLiveAckTracking();
+        this._clearPendingSyncCompleteTracking();
+        this._markVisibleRebaselineNeeded();
+        this._resetBootstrapStateForReconnect();
+        this._pendingInboundUpdates = [];
+        this._inboundFlushScheduled = false;
+
+        const ws = this._ws;
+        if (ws) {
+            this._ws = null;
+            this._clientId = null;
+            ws.close(CLIENT_RECONNECT_CLOSE_CODE, 'browser-offline');
+        }
+        this._setStatus('disconnected', detail);
+    }
+
+    private _handleBrowserOnline(): void {
+        if (this._destroyed || !this._bridge) {
+            return;
+        }
+
+        const detail = 'Browser is online; reconnecting';
+        this._clearReconnectTimer();
+        this._markVisibleRebaselineNeeded();
+        this._resetBootstrapStateForReconnect();
+        this._setStatus('connecting', detail);
+
+        const ws = this._ws;
+        if (ws) {
+            this._ws = null;
+            this._clientId = null;
+            ws.close(CLIENT_RECONNECT_CLOSE_CODE, 'browser-online');
+        }
+
+        const directConnection = this._directConnection;
+        if (directConnection) {
+            void this._openWebSocket(
+                directConnection.token,
+                directConnection.roomUrl
+            );
+        } else {
+            void this._connectWebSocket();
         }
     }
 
@@ -1914,9 +2019,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._clearInitialSyncTimeout();
         this._setStatus('connecting', detail);
         this._markVisibleRebaselineNeeded();
-        this._incomingResponseChunks = null;
-        this._initialServerStateApplied = false;
-        this._initialSyncDurable = false;
+        this._resetBootstrapStateForReconnect();
 
         const ws = this._ws;
         if (ws) {
@@ -1968,9 +2071,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._resetLiveAckTracking();
         this._setStatus('connecting', detail);
         this._markVisibleRebaselineNeeded();
-        this._incomingResponseChunks = null;
-        this._initialServerStateApplied = false;
-        this._initialSyncDurable = false;
+        this._resetBootstrapStateForReconnect();
         this._pendingInboundUpdates = [];
         this._inboundFlushScheduled = false;
 
@@ -1997,6 +2098,8 @@ export class CloudAdapter implements FileSystemAdapter {
             const detail = 'Cloud room authentication timed out';
             console.warn(`CloudAdapter: ${detail}`);
             this._setStatus('connecting', detail);
+            this._markVisibleRebaselineNeeded();
+            this._resetBootstrapStateForReconnect();
             if (this._ws === ws) {
                 // Do not wait for a possibly delayed close event before retrying.
                 // Once auth has stalled, this socket is no longer the active path.

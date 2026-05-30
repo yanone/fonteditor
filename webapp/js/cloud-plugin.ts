@@ -906,21 +906,6 @@ export class CloudPlugin extends FilesystemPlugin {
             this._lastAlertedConnectionErrorByAssetId.delete(assetId);
         } else if (detail === CLOUD_ASSET_DELETED_MESSAGE) {
             this.handleDeletedAsset(assetId, detail);
-        } else if (
-            assetId === this._activeAssetId &&
-            !window.windowRole?.isLinkedWindow?.()
-        ) {
-            const alertMessage = detail ?? 'Cloud connection error';
-            if (
-                this._lastAlertedConnectionErrorByAssetId.get(assetId) !==
-                alertMessage
-            ) {
-                this._lastAlertedConnectionErrorByAssetId.set(
-                    assetId,
-                    alertMessage
-                );
-                alert(`Cloud connection error: ${alertMessage}`);
-            }
         }
 
         if (window.windowRole?.isMainWindow()) {
@@ -977,6 +962,9 @@ export class CloudPlugin extends FilesystemPlugin {
         detail?: string;
         pendingSyncCount?: number;
     } {
+        const detail = this._activeAssetId
+            ? this.getAssetConnectionDetail(this._activeAssetId)
+            : undefined;
         return {
             assetId: this._activeAssetId,
             status: this.connectionStatus,
@@ -987,9 +975,7 @@ export class CloudPlugin extends FilesystemPlugin {
                       )
                   }
                 : {}),
-            ...(this._cloudAdapter?.status === 'error' && this._activeAssetId
-                ? { detail: undefined }
-                : {})
+            ...(detail ? { detail } : {})
         };
     }
 
@@ -1016,6 +1002,14 @@ export class CloudPlugin extends FilesystemPlugin {
                 state.assetId,
                 this._relayedConnectionStatus
             );
+            if (state.detail) {
+                this._connectionDetailByAssetId.set(
+                    state.assetId,
+                    state.detail
+                );
+            } else {
+                this._connectionDetailByAssetId.delete(state.assetId);
+            }
             this._pendingSyncCountByAssetId.set(
                 state.assetId,
                 this._relayedPendingSyncCount
