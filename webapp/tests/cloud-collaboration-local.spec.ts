@@ -259,6 +259,376 @@ async function getCloudConnectionStatus(page: Page): Promise<string | null> {
     });
 }
 
+async function openCloudAssetInPage(
+    page: Page,
+    assetId: string,
+    email?: string
+): Promise<void> {
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+    if (email) {
+        await bootstrapCloudSession(page, email);
+    }
+    await page.evaluate(async (nextAssetId) => {
+        await (window as any).cloudPlugin.openAsset(nextAssetId);
+    }, assetId);
+    await waitForFontLoaded(page);
+    await waitForCloudConnected(page);
+    await waitForAuthenticatedCloudSession(page);
+}
+
+async function getCloudPendingSyncCount(
+    page: Page,
+    assetId: string
+): Promise<number> {
+    return page.evaluate((nextAssetId) => {
+        return window.cloudPlugin?.getAssetPendingSyncCount?.(nextAssetId) ?? 0;
+    }, assetId);
+}
+
+async function getPersistedCloudOutboxCount(
+    page: Page,
+    assetId: string
+): Promise<number> {
+    return page.evaluate(async (nextAssetId) => {
+        return await new Promise<number>((resolve, reject) => {
+            const request = indexedDB.open('counterpunch-cloud-outbox', 1);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                const db = request.result;
+                const transaction = db.transaction(
+                    'pending-transactions',
+                    'readonly'
+                );
+                const store = transaction.objectStore('pending-transactions');
+                const getAllRequest = store
+                    .index('by-asset-id')
+                    .getAll(nextAssetId);
+
+                getAllRequest.onerror = () => {
+                    db.close();
+                    reject(getAllRequest.error);
+                };
+                getAllRequest.onsuccess = () => {
+                    const records = Array.isArray(getAllRequest.result)
+                        ? getAllRequest.result
+                        : [];
+                    db.close();
+                    resolve(records.length);
+                };
+            };
+        });
+    }, assetId);
+}
+
+async function resendPersistedCloudOutboxRecordOverFreshSocket(
+    page: Page,
+    assetId: string,
+    websiteBaseUrl?: string | null
+): Promise<{ durable: boolean; seq: number | null }> {
+    return page.evaluate(
+        async ({ nextAssetId, nextWebsiteBaseUrl }) => {
+            const getFirstOutboxRecord = () =>
+                new Promise<{
+                    clientTransactionId: string;
+                    updateBase64: string;
+                    collaborationMessage: Record<string, unknown>;
+                } | null>((resolve, reject) => {
+                    const request = indexedDB.open(
+                        'counterpunch-cloud-outbox',
+                        1
+                    );
+
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => {
+                        const db = request.result;
+                        const transaction = db.transaction(
+                            'pending-transactions',
+                            'readonly'
+                        );
+                        const store = transaction.objectStore(
+                            'pending-transactions'
+                        );
+                        const getAllRequest = store
+                            .index('by-asset-id')
+                            .getAll(nextAssetId);
+
+                        getAllRequest.onerror = () => {
+                            db.close();
+                            reject(getAllRequest.error);
+                        };
+                        getAllRequest.onsuccess = () => {
+                            const record = Array.isArray(getAllRequest.result)
+                                ? (getAllRequest.result[0] ?? null)
+                                : null;
+                            db.close();
+                            resolve(
+                                record
+                                    ? {
+                                          clientTransactionId: String(
+                                              record.clientTransactionId ?? ''
+                                          ),
+                                          updateBase64: String(
+                                              record.updateBase64 ?? ''
+                                          ),
+                                          collaborationMessage:
+                                              record.collaborationMessage ??
+                                              null
+                                      }
+                                    : null
+                            );
+                        };
+                    };
+                });
+
+            const record = await getFirstOutboxRecord();
+            if (!record?.clientTransactionId || !record?.updateBase64) {
+                throw new Error(
+                    'No persisted cloud outbox record is available'
+                );
+            }
+
+            const normalizeRoomUrl = (rawRoomUrl: string) => {
+                if (/^wss?:\/\//i.test(rawRoomUrl)) {
+                    return rawRoomUrl;
+                }
+                if (/^https?:\/\//i.test(rawRoomUrl)) {
+                    return rawRoomUrl.replace(/^http/i, 'ws');
+                }
+                if (rawRoomUrl.startsWith('/')) {
+                    const normalized = new URL(
+                        rawRoomUrl,
+                        window.location.origin
+                    );
+                    normalized.protocol =
+                        normalized.protocol === 'https:' ? 'wss:' : 'ws:';
+                    return normalized.toString();
+                }
+                return `ws://${rawRoomUrl}`;
+            };
+
+            const adapter = (window as any).cloudPlugin?._cloudAdapter ?? null;
+            const sessionToken = (
+                window as any
+            ).authManager?.getSessionToken?.();
+            const roomTokenResponse =
+                adapter && typeof adapter._fetchRoomToken === 'function'
+                    ? await adapter._fetchRoomToken()
+                    : await (async () => {
+                          if (!sessionToken) {
+                              throw new Error(
+                                  'No authenticated session token for duplicate resend'
+                              );
+                          }
+                          const response = await fetch(
+                              `${String(nextWebsiteBaseUrl || window.location.origin).replace(/\/$/, '')}/api/cloud/assets/${encodeURIComponent(nextAssetId)}/room-token`,
+                              {
+                                  method: 'POST',
+                                  headers: {
+                                      Authorization: `Bearer ${sessionToken}`
+                                  }
+                              }
+                          );
+                          if (!response.ok) {
+                              throw new Error(
+                                  `room-token request failed: ${response.status}`
+                              );
+                          }
+                          return await response.json();
+                      })();
+            const { token, roomUrl } = roomTokenResponse;
+            const wsUrl = normalizeRoomUrl(String(roomUrl ?? ''));
+
+            return await new Promise<{ durable: boolean; seq: number | null }>(
+                (resolve, reject) => {
+                    const ws = new WebSocket(wsUrl);
+                    const timeoutId = window.setTimeout(() => {
+                        try {
+                            ws.close();
+                        } catch {
+                            // Ignore close failures on timeout cleanup.
+                        }
+                        reject(
+                            new Error(
+                                'Timed out waiting for duplicate resend ack'
+                            )
+                        );
+                    }, 15000);
+
+                    ws.onopen = () => {
+                        ws.send(JSON.stringify({ type: 'auth', token }));
+                    };
+
+                    ws.onerror = () => {
+                        window.clearTimeout(timeoutId);
+                        reject(new Error('Duplicate resend websocket errored'));
+                    };
+
+                    ws.onmessage = (event) => {
+                        const message = JSON.parse(String(event.data ?? '{}'));
+                        if (message?.type === 'auth-ok') {
+                            ws.send(
+                                JSON.stringify({
+                                    type: 'update',
+                                    update: record.updateBase64,
+                                    clientId: String(message.clientId ?? ''),
+                                    clientTransactionId:
+                                        record.clientTransactionId,
+                                    seq: 1,
+                                    collaborationMessages: [
+                                        record.collaborationMessage
+                                    ]
+                                })
+                            );
+                            return;
+                        }
+
+                        if (message?.type === 'ack') {
+                            window.clearTimeout(timeoutId);
+                            try {
+                                ws.close();
+                            } catch {
+                                // Ignore close failures after ack.
+                            }
+                            resolve({
+                                durable: Boolean(message.durable),
+                                seq:
+                                    typeof message.seq === 'number'
+                                        ? message.seq
+                                        : null
+                            });
+                        }
+                    };
+                }
+            );
+        },
+        { nextAssetId: assetId, nextWebsiteBaseUrl: websiteBaseUrl ?? null }
+    );
+}
+
+async function getCloudInboundUpdateCount(page: Page): Promise<number> {
+    return page.evaluate(() => {
+        return (
+            (
+                window as Window & {
+                    __lastCloudInboundUpdateCount?: number;
+                }
+            ).__lastCloudInboundUpdateCount ?? 0
+        );
+    });
+}
+
+async function installDropNextDurableAckHook(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const testWindow = window as any;
+        const adapter = testWindow.cloudPlugin?._cloudAdapter ?? null;
+        if (!adapter || typeof adapter._handleMessage !== 'function') {
+            throw new Error('Cloud adapter is not ready for durable-ack hook');
+        }
+        if (testWindow.__dropNextDurableAckHookInstalled) {
+            testWindow.__dropNextDurableAckRemaining = 1;
+            testWindow.__droppedDurableAckCount = 0;
+            return;
+        }
+
+        const originalHandleMessage = adapter._handleMessage.bind(adapter);
+        testWindow.__dropNextDurableAckHookInstalled = true;
+        testWindow.__dropNextDurableAckRemaining = 1;
+        testWindow.__droppedDurableAckCount = 0;
+
+        adapter._handleMessage = (payload: string) => {
+            try {
+                const message = JSON.parse(payload);
+                if (
+                    testWindow.__dropNextDurableAckRemaining > 0 &&
+                    message?.type === 'ack' &&
+                    message?.durable === true &&
+                    typeof message?.seq === 'number' &&
+                    message.seq >= 0
+                ) {
+                    testWindow.__dropNextDurableAckRemaining -= 1;
+                    testWindow.__droppedDurableAckCount += 1;
+                    return;
+                }
+            } catch {
+                // Ignore unparsable payloads and let the adapter handle them.
+            }
+
+            return originalHandleMessage(payload);
+        };
+    });
+}
+
+async function installCloseSocketAfterNextDurableSyncComplete(
+    page: Page
+): Promise<void> {
+    await page.evaluate(() => {
+        const testWindow = window as any;
+        const previousSend = WebSocket.prototype.send.bind(WebSocket.prototype);
+
+        if (testWindow.__closeSocketAfterNextDurableSyncCompleteInstalled) {
+            testWindow.__closeSocketAfterNextDurableSyncCompleteTriggered = false;
+            return;
+        }
+
+        testWindow.__closeSocketAfterNextDurableSyncCompleteInstalled = true;
+        testWindow.__closeSocketAfterNextDurableSyncCompleteTriggered = false;
+
+        WebSocket.prototype.send = function (
+            data: string | ArrayBufferLike | Blob | ArrayBufferView
+        ) {
+            let closeAfterSend = false;
+            if (
+                !testWindow.__closeSocketAfterNextDurableSyncCompleteTriggered &&
+                typeof data === 'string'
+            ) {
+                try {
+                    const message = JSON.parse(data);
+                    if (
+                        message?.type === 'sync-complete' &&
+                        Array.isArray(message?.collaborationMessages) &&
+                        message.collaborationMessages.length > 0
+                    ) {
+                        closeAfterSend = true;
+                        testWindow.__closeSocketAfterNextDurableSyncCompleteTriggered = true;
+                    }
+                } catch {
+                    // Ignore non-JSON payloads.
+                }
+            }
+
+            previousSend.call(this, data);
+
+            if (closeAfterSend) {
+                queueMicrotask(() => {
+                    try {
+                        this.close(4101, 'playwright-drop-durable-ack');
+                    } catch {
+                        // Ignore close failures on already-closed sockets.
+                    }
+                });
+            }
+        };
+    });
+}
+
+async function waitForDurableSyncBadge(
+    page: Page,
+    expectedCount: number
+): Promise<void> {
+    const warningBadge = page.locator('.cloud-connection-warning-badge');
+    await expect(warningBadge).toBeVisible({ timeout: 15000 });
+    await expect(warningBadge).toContainText(`${expectedCount} pending`, {
+        timeout: 15000
+    });
+    await expect(warningBadge).toHaveAttribute(
+        'title',
+        `Cloud status: ${expectedCount} cloud edit${expectedCount === 1 ? '' : 's'} waiting for durable sync`,
+        { timeout: 15000 }
+    );
+}
+
 async function waitForPythonReady(page: Page): Promise<void> {
     await page.waitForFunction(
         () => typeof (window as any).pyodide?.runPythonAsync === 'function',
@@ -1155,8 +1525,16 @@ async function waitForPrimaryNodePosition(
 
 async function fetchRoomStatus(page: Page, assetId: string) {
     return page.evaluate(async (nextAssetId) => {
+        const sessionToken = (window as any).authManager?.getSessionToken?.();
         const response = await fetch(
-            `http://localhost:8787/room/${encodeURIComponent(nextAssetId)}/status`
+            `http://localhost:8787/room/${encodeURIComponent(nextAssetId)}/status`,
+            {
+                headers: sessionToken
+                    ? {
+                          Authorization: `Bearer ${sessionToken}`
+                      }
+                    : undefined
+            }
         );
         if (!response.ok) {
             throw new Error(`status request failed: ${response.status}`);
@@ -1898,6 +2276,274 @@ test.describe('Local cloud collaboration', () => {
 
         await ownerContext.close();
         await editorContext.close();
+    });
+
+    test('recovers a persisted cloud outbox edit after a page restart', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const ownerEmail = `restart-owner-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const observerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+        const observerPage = await observerContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+
+        await loadCloudTestFont(ownerPage);
+        await waitForFontLoaded(ownerPage);
+        await focusEditorGlyph(ownerPage, 'A');
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Restart Recovery ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+
+        await openCloudAssetInPage(observerPage, assetId, ownerEmail);
+        await focusEditorGlyph(observerPage, 'A');
+
+        await installDropNextDurableAckHook(ownerPage);
+
+        const mutation = await movePrimaryNode(ownerPage, 29, 12);
+
+        await expect
+            .poll(async () => await getCloudConnectionStatus(ownerPage), {
+                timeout: 15000
+            })
+            .toBe('connected');
+        await expect
+            .poll(
+                async () => await getCloudPendingSyncCount(ownerPage, assetId),
+                {
+                    timeout: 15000
+                }
+            )
+            .toBe(1);
+
+        await expect
+            .poll(
+                async () =>
+                    await getPersistedCloudOutboxCount(ownerPage, assetId),
+                { timeout: 15000 }
+            )
+            .toBe(1);
+
+        await expect
+            .poll(async () => await getPrimaryNodePosition(observerPage), {
+                timeout: 20000
+            })
+            .toEqual(mutation.after);
+
+        await ownerPage.close();
+
+        const recoveryPage = await ownerContext.newPage();
+        await openCloudAssetInPage(recoveryPage, assetId, ownerEmail);
+        await focusEditorGlyph(recoveryPage, 'A');
+
+        await expect
+            .poll(
+                async () =>
+                    await getCloudPendingSyncCount(recoveryPage, assetId),
+                { timeout: 20000 }
+            )
+            .toBe(0);
+
+        await expect
+            .poll(async () => await getPrimaryNodePosition(observerPage), {
+                timeout: 20000
+            })
+            .toEqual(mutation.after);
+
+        expect(await getPrimaryNodePosition(recoveryPage)).toEqual(
+            mutation.after
+        );
+
+        await ownerContext.close();
+        await observerContext.close();
+    });
+
+    test('dedupes a resent persisted cloud edit from a fresh websocket session', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const ownerEmail = `resend-owner-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const observerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+        const observerPage = await observerContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+
+        await loadCloudTestFont(ownerPage);
+        await waitForFontLoaded(ownerPage);
+        await focusEditorGlyph(ownerPage, 'A');
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Durable Dedupe ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+
+        await openCloudAssetInPage(observerPage, assetId, ownerEmail);
+        await focusEditorGlyph(observerPage, 'A');
+
+        await installDropNextDurableAckHook(ownerPage);
+
+        const mutation = await movePrimaryNode(ownerPage, 33, 15);
+
+        await expect
+            .poll(async () => await getCloudConnectionStatus(ownerPage), {
+                timeout: 15000
+            })
+            .toBe('connected');
+        await expect
+            .poll(
+                async () => await getCloudPendingSyncCount(ownerPage, assetId),
+                {
+                    timeout: 15000
+                }
+            )
+            .toBe(1);
+
+        await expect
+            .poll(
+                async () =>
+                    await getPersistedCloudOutboxCount(ownerPage, assetId),
+                { timeout: 15000 }
+            )
+            .toBe(1);
+
+        await expect
+            .poll(async () => await getPrimaryNodePosition(observerPage), {
+                timeout: 20000
+            })
+            .toEqual(mutation.after);
+
+        const inboundCountAfterLiveMutation =
+            await getCloudInboundUpdateCount(observerPage);
+        const websiteBaseUrl = await ownerPage.evaluate(() => {
+            return (
+                (window as any).cloudPlugin?._cloudAdapter?._websiteBaseUrl ??
+                null
+            );
+        });
+
+        await ownerPage.close();
+
+        const duplicateSenderPage = await ownerContext.newPage();
+        await duplicateSenderPage.goto('/?test=true');
+        await waitForCanvasReady(duplicateSenderPage);
+        await bootstrapCloudSession(duplicateSenderPage, ownerEmail);
+
+        const duplicateAck =
+            await resendPersistedCloudOutboxRecordOverFreshSocket(
+                duplicateSenderPage,
+                assetId,
+                websiteBaseUrl
+            );
+
+        expect(duplicateAck).toEqual({ durable: true, seq: 1 });
+        expect(await getCloudInboundUpdateCount(observerPage)).toBe(
+            inboundCountAfterLiveMutation
+        );
+
+        await duplicateSenderPage.close();
+
+        await ownerContext.close();
+        await observerContext.close();
+    });
+
+    test('shows a connected pending-sync pill until the durable ack is recovered on restart', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const ownerEmail = `pending-owner-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+
+        await loadCloudTestFont(ownerPage);
+        await waitForFontLoaded(ownerPage);
+        await focusEditorGlyph(ownerPage, 'A');
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Pending Pill ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+        await installDropNextDurableAckHook(ownerPage);
+
+        const mutation = await movePrimaryNode(ownerPage, 11, 4);
+
+        await expect
+            .poll(async () => await getCloudConnectionStatus(ownerPage), {
+                timeout: 15000
+            })
+            .toBe('connected');
+        await expect
+            .poll(
+                async () => await getCloudPendingSyncCount(ownerPage, assetId)
+            )
+            .toBe(1);
+        await waitForDurableSyncBadge(ownerPage, 1);
+
+        const warningBadge = ownerPage.locator(
+            '.cloud-connection-warning-badge'
+        );
+        await expect(warningBadge).not.toContainText('Reconnecting');
+
+        await ownerPage.close();
+
+        const reopenedPage = await ownerContext.newPage();
+        await openCloudAssetInPage(reopenedPage, assetId, ownerEmail);
+        await focusEditorGlyph(reopenedPage, 'A');
+
+        await expect
+            .poll(
+                async () =>
+                    await getCloudPendingSyncCount(reopenedPage, assetId),
+                { timeout: 20000 }
+            )
+            .toBe(0);
+        await expect(
+            reopenedPage.locator('.cloud-connection-warning-badge')
+        ).toBeHidden({ timeout: 15000 });
+
+        expect(await getPrimaryNodePosition(reopenedPage)).toEqual(
+            mutation.after
+        );
+
+        await ownerContext.close();
     });
 
     test('propagates a live glyph edit between two cloud-connected pages', async ({

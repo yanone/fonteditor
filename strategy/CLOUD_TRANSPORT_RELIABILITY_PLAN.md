@@ -85,6 +85,9 @@ This document tracks the implementation work needed to make cloud collaboration 
 - [x] Cloud adapter runs reconnect rebaseline before reporting connected.
 - [x] Cloud adapter reconnect rebaseline refreshes visible surfaces when present.
 - [x] End-to-end cloud local Playwright coverage for reconnect-state pill and visible rebaseline.
+- [x] End-to-end cloud local Playwright coverage for crash/restart outbox recovery.
+- [x] End-to-end cloud local Playwright coverage for fresh-session duplicate resend dedupe.
+- [x] End-to-end cloud local Playwright coverage for connected pending durable-sync pill recovery.
 
 ## Validation
 
@@ -92,6 +95,10 @@ This document tracks the implementation work needed to make cloud collaboration 
 - [x] Webapp build validation: `cd webapp && npm run build`
 - [x] Focused room-worker validation: `cd ../collab/collab && node --test test/font-room-do.test.js`
 - [x] Focused Playwright validation: `cd webapp && npx playwright test tests/cloud-collaboration-local.spec.ts --grep "shows the reconnect pill and catches up visible glyph edits after reconnect"`
+
+## Additional validation
+
+- [x] Focused Playwright validation: `cd webapp && npx playwright test tests/cloud-collaboration-local.spec.ts --grep "recovers a persisted cloud outbox edit after a page restart|dedupes a resent persisted cloud edit from a fresh websocket session|shows a connected pending-sync pill until the durable ack is recovered on restart"`
 
 ## Follow-up notes
 
