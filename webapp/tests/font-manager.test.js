@@ -1966,6 +1966,7 @@ describe('FontManager share button visibility', () => {
         fontManager.fontRoleBadgeElement = originalFontRoleBadgeElement;
         window.cloudPlugin = originalCloudPlugin;
         window.windowRole = originalWindowRole;
+        jest.useRealTimers();
         document.body.innerHTML = '';
     });
 
@@ -2089,6 +2090,7 @@ describe('FontManager share button visibility', () => {
     });
 
     test('shows a pending durable sync count while the cloud socket remains connected', () => {
+        jest.useFakeTimers();
         setCurrentFont({ role: 'owner', path: 'cloud://asset-1' });
         window.cloudPlugin.getAssetPendingSyncCount.mockReturnValue(3);
 
@@ -2098,12 +2100,37 @@ describe('FontManager share button visibility', () => {
             '.cloud-connection-warning-badge'
         );
 
+        expect(warningBadge.classList.contains('visible')).toBe(false);
+        expect(warningBadge.hidden).toBe(true);
+
+        jest.advanceTimersByTime(1000);
+
         expect(warningBadge.classList.contains('visible')).toBe(true);
         expect(warningBadge.hidden).toBe(false);
         expect(warningBadge.getAttribute('title')).toBe(
             'Cloud status: 3 cloud edits waiting for durable sync'
         );
         expect(warningBadge.textContent).toContain('3 pending');
+    });
+
+    test('does not show the pending durable sync count if it clears before the 1s delay', () => {
+        jest.useFakeTimers();
+        setCurrentFont({ role: 'owner', path: 'cloud://asset-1' });
+        window.cloudPlugin.getAssetPendingSyncCount.mockReturnValue(1);
+
+        fontManager.updateFontDisplay();
+
+        const warningBadge = document.querySelector(
+            '.cloud-connection-warning-badge'
+        );
+
+        jest.advanceTimersByTime(500);
+        window.cloudPlugin.getAssetPendingSyncCount.mockReturnValue(0);
+        fontManager.updateFontDisplay();
+        jest.advanceTimersByTime(1000);
+
+        expect(warningBadge.classList.contains('visible')).toBe(false);
+        expect(warningBadge.hidden).toBe(true);
     });
 
     test('cloud-backed fonts no longer use the dirty indicator for connection problems', async () => {

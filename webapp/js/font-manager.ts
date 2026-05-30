@@ -629,6 +629,9 @@ class FontManager {
     >;
     private workerCacheYDoc: Y.Doc | null;
     private workerYjsSendQueue: Promise<unknown>;
+    private pendingCloudBadgeVisibleAtByAssetId: Map<string, number>;
+    private pendingCloudBadgeDelayTimer: ReturnType<typeof setTimeout> | null;
+    private pendingCloudBadgeDelayAssetId: string | null;
 
     /**
      * Memoizes the result of validateBabelfontJsonForRust.
@@ -692,6 +695,9 @@ class FontManager {
         this.editingCompileContextsByRevision = new Map();
         this.workerCacheYDoc = null;
         this.workerYjsSendQueue = Promise.resolve();
+        this.pendingCloudBadgeVisibleAtByAssetId = new Map();
+        this.pendingCloudBadgeDelayTimer = null;
+        this.pendingCloudBadgeDelayAssetId = null;
 
         window.addEventListener('cloudConnectionStatusChanged', () => {
             this.updateFontDisplay();
@@ -747,6 +753,78 @@ class FontManager {
         }
 
         return badge;
+    }
+
+    /**
+     * Delay the connected pending-sync pill so brief durable-ack latency does
+     * not flicker the titlebar badge during normal cloud transmissions.
+     */
+    private shouldShowDelayedPendingCloudBadge(
+        assetId: string,
+        pendingSyncCount: number,
+        status: string | undefined,
+        hasConnectionProblem: boolean
+    ): boolean {
+        if (
+            pendingSyncCount < 1 ||
+            status !== 'connected' ||
+            hasConnectionProblem
+        ) {
+            this.pendingCloudBadgeVisibleAtByAssetId.delete(assetId);
+            if (this.pendingCloudBadgeDelayAssetId === assetId) {
+                this.clearPendingCloudBadgeDelayTimer();
+            }
+            return false;
+        }
+
+        const delayMs = 1000;
+        const now = Date.now();
+        let visibleAt = this.pendingCloudBadgeVisibleAtByAssetId.get(assetId);
+        if (visibleAt === undefined) {
+            visibleAt = now + delayMs;
+            this.pendingCloudBadgeVisibleAtByAssetId.set(assetId, visibleAt);
+        }
+
+        if (now >= visibleAt) {
+            if (this.pendingCloudBadgeDelayAssetId === assetId) {
+                this.clearPendingCloudBadgeDelayTimer();
+            }
+            return true;
+        }
+
+        this.armPendingCloudBadgeDelayTimer(assetId, visibleAt - now);
+        return false;
+    }
+
+    private armPendingCloudBadgeDelayTimer(
+        assetId: string,
+        delayMs: number
+    ): void {
+        if (
+            this.pendingCloudBadgeDelayTimer !== null &&
+            this.pendingCloudBadgeDelayAssetId === assetId
+        ) {
+            return;
+        }
+
+        this.clearPendingCloudBadgeDelayTimer();
+        this.pendingCloudBadgeDelayAssetId = assetId;
+        this.pendingCloudBadgeDelayTimer = setTimeout(
+            () => {
+                this.pendingCloudBadgeDelayTimer = null;
+                this.pendingCloudBadgeDelayAssetId = null;
+                this.updateFontDisplay();
+            },
+            Math.max(0, delayMs)
+        );
+    }
+
+    private clearPendingCloudBadgeDelayTimer(): void {
+        if (this.pendingCloudBadgeDelayTimer !== null) {
+            clearTimeout(this.pendingCloudBadgeDelayTimer);
+            this.pendingCloudBadgeDelayTimer = null;
+        }
+        this.pendingCloudBadgeDelayAssetId = null;
     }
 
     private getCloudConnectionWarningState(font: OpenedFont | null): {
@@ -842,7 +920,12 @@ class FontManager {
         const pendingLabel =
             pendingSyncCount > 0 ? `${pendingSyncCount} pending` : '';
         const connectedPendingPresentation =
-            pendingSyncCount > 0 && status === 'connected'
+            this.shouldShowDelayedPendingCloudBadge(
+                assetId,
+                pendingSyncCount,
+                status,
+                hasConnectionProblem
+            )
                 ? {
                       label: pendingLabel,
                       icon: 'cloud_upload',
