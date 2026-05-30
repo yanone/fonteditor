@@ -1287,6 +1287,14 @@ async function removeCloudMember(
     );
 }
 
+async function deleteCloudAsset(page: Page, assetId: string): Promise<void> {
+    await page.evaluate(async (nextAssetId) => {
+        await (window as any).cloudPlugin
+            .getAdapter()
+            .deleteItem(`cloud://${nextAssetId}`, false);
+    }, assetId);
+}
+
 async function getEditingFontCompileTracker(page: Page): Promise<{
     count: number;
     revision: number;
@@ -3281,6 +3289,123 @@ test.describe('Local cloud collaboration', () => {
                 timeout: 5000
             })
             .toEqual(ownerBefore);
+
+        await ownerContext.close();
+        await editorContext.close();
+    });
+
+    test('deleting an asset notifies an invited editor and localizes the open font', async ({
+        browser
+    }) => {
+        test.setTimeout(240000);
+        const ownerEmail = `owner-delete-${Date.now()}@counterpunch.test`;
+        const editorEmail = `editor-delete-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const editorContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+        const editorPage = await editorContext.newPage();
+
+        ownerPage.on('dialog', (dialog) => {
+            void dialog.dismiss().catch(() => undefined);
+        });
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+        await loadCloudTestFont(ownerPage);
+        await waitForCloudFontModelReady(ownerPage);
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Delete Shared Asset ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+
+        await editorPage.goto('/?test=true');
+        await waitForCanvasReady(editorPage);
+        await bootstrapCloudSession(editorPage, editorEmail);
+
+        const inviteUrl = await createInvitationFromShareDialog(
+            ownerPage,
+            editorEmail,
+            'editor'
+        );
+
+        await acceptInvitationAndOpenEditor(editorPage, inviteUrl);
+
+        await editorPage.evaluate(() => {
+            (window as any).__lastCloudAssetLocalizedDetail = null;
+            window.addEventListener(
+                'cloudAssetLocalizedToMemory',
+                (event) => {
+                    (window as any).__lastCloudAssetLocalizedDetail = (
+                        event as CustomEvent
+                    ).detail;
+                },
+                { once: true }
+            );
+        });
+
+        const editorDialogPromise = new Promise<string>((resolve) => {
+            editorPage.once('dialog', (dialog) => {
+                const message = dialog.message();
+                void dialog.dismiss().catch(() => undefined);
+                resolve(message);
+            });
+        });
+
+        await deleteCloudAsset(ownerPage, assetId);
+
+        await expect
+            .poll(async () => await getCloudConnectionStatus(editorPage), {
+                timeout: 30000
+            })
+            .not.toBe('connected');
+
+        await expect
+            .poll(
+                async () =>
+                    await editorPage.evaluate(() => {
+                        const currentFont = (window as any).fontManager
+                            ?.currentFont;
+                        const sourcePluginId =
+                            currentFont?.sourcePlugin?.getId?.();
+                        const localizedDetail = (window as any)
+                            .__lastCloudAssetLocalizedDetail;
+                        return {
+                            sourcePluginId:
+                                typeof sourcePluginId === 'string'
+                                    ? sourcePluginId
+                                    : null,
+                            hasUnsavedChanges: Boolean(
+                                currentFont?.hasUnsavedChanges
+                            ),
+                            localizedMessage:
+                                localizedDetail &&
+                                typeof localizedDetail.message === 'string'
+                                    ? localizedDetail.message
+                                    : null
+                        };
+                    }),
+                { timeout: 30000 }
+            )
+            .toEqual({
+                sourcePluginId: 'memory',
+                hasUnsavedChanges: true,
+                localizedMessage: 'Cloud asset was deleted'
+            });
+
+        await expect(editorDialogPromise).resolves.toBe(
+            'Cloud asset was deleted. The open font was kept locally in Memory with unsaved changes.'
+        );
 
         await ownerContext.close();
         await editorContext.close();

@@ -60,6 +60,7 @@ const console = new Logger('CloudAdapter');
 const DEFAULT_PRODUCTION_ROOM_WORKER_URL =
     'https://fonts-room.fonteditor.workers.dev';
 const DEFAULT_LOCAL_ROOM_WORKER_URL = 'ws://localhost:8787';
+const CLOUD_ASSET_DELETED_MESSAGE = 'Cloud asset was deleted';
 
 function getDefaultRoomWorkerUrl(): string {
     return isProduction()
@@ -920,6 +921,10 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._inboundFlushScheduled = false;
                 this._localUpdateUnsubscribe?.();
                 this._localUpdateUnsubscribe = null;
+                if (event.reason === 'asset-deleted') {
+                    this._setStatus('error', CLOUD_ASSET_DELETED_MESSAGE);
+                    return;
+                }
                 if (event.code === 4001) {
                     this._setStatus('error', 'Authentication failed');
                     return;
@@ -1151,6 +1156,8 @@ export class CloudAdapter implements FileSystemAdapter {
                         CLIENT_RECONNECT_CLOSE_CODE,
                         'server-access-change'
                     );
+                } else if (detail === CLOUD_ASSET_DELETED_MESSAGE) {
+                    this._setStatus('error', detail);
                 } else {
                     this._setStatus('error', detail);
                     this._ws?.close(
