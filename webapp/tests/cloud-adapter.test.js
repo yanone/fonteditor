@@ -1241,6 +1241,69 @@ describe('CloudAdapter durability failures', () => {
         }
     });
 
+    it('reconnects promptly even if auth-timeout close is delayed', async () => {
+        jest.useFakeTimers();
+
+        const statuses = [];
+        const originalWebSocket = global.WebSocket;
+        let socket;
+
+        class FakeWebSocket {
+            constructor(_url) {
+                this.readyState = 1;
+                this.send = jest.fn();
+                this.close = jest.fn(() => {
+                    this.readyState = 2;
+                });
+                socket = this;
+            }
+        }
+
+        global.WebSocket = FakeWebSocket;
+
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            await adapter.connectDirect(
+                {
+                    onLocalUpdate: jest.fn(),
+                    offLocalUpdate: jest.fn()
+                },
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+
+            socket.onopen();
+            jest.advanceTimersByTime(10000);
+
+            expect(statuses).toContainEqual({
+                status: 'connecting',
+                detail: 'Cloud room authentication timed out'
+            });
+            expect(socket.close).toHaveBeenCalledWith(4000, 'auth-timeout');
+            expect(scheduleReconnect).toHaveBeenCalledTimes(1);
+            expect(adapter._ws).toBeNull();
+
+            socket.onclose?.({ code: 4000, reason: 'auth-timeout' });
+            expect(scheduleReconnect).toHaveBeenCalledTimes(1);
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            global.WebSocket = originalWebSocket;
+            jest.useRealTimers();
+        }
+    });
+
     it('runs reconnect visible rebaseline before reporting connected', async () => {
         const statuses = [];
         const adapter = new CloudAdapter({

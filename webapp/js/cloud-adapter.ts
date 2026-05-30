@@ -1795,7 +1795,14 @@ export class CloudAdapter implements FileSystemAdapter {
             const detail = 'Cloud room authentication timed out';
             console.warn(`CloudAdapter: ${detail}`);
             this._setStatus('connecting', detail);
+            if (this._ws === ws) {
+                // Do not wait for a possibly delayed close event before retrying.
+                // Once auth has stalled, this socket is no longer the active path.
+                this._ws = null;
+                this._clientId = null;
+            }
             ws.close(CLIENT_RECONNECT_CLOSE_CODE, 'auth-timeout');
+            this._scheduleReconnect();
         }, AUTHENTICATION_TIMEOUT_MS);
     }
 
