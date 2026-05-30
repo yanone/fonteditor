@@ -154,6 +154,7 @@ const SYNC_CHUNK_SIZE = 750_000;
 const CLIENT_RECONNECT_CLOSE_CODE = 4000;
 const AUTHENTICATION_TIMEOUT_MS = 10000;
 const OUTBOUND_ACK_TIMEOUT_MS = 10000;
+const INITIAL_SYNC_TIMEOUT_MS = 10000;
 
 export type CloudConnectionStatus =
     | 'disconnected'
@@ -503,6 +504,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private _authenticationTimer: ReturnType<typeof setTimeout> | null = null;
     private _outboundAckTimer: ReturnType<typeof setTimeout> | null = null;
+    private _initialSyncTimer: ReturnType<typeof setTimeout> | null = null;
     private _assetRoles = new Map<string, CloudAssetRole>();
     private _hasSynced = false;
     private _pendingOutboundPackets: CloudOutboundUpdatePacket[] = [];
@@ -566,6 +568,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
         this._visibleRebaselinePromise = null;
+        this._clearInitialSyncTimeout();
         this._bridge = bridge;
         await this._restorePersistentOutboxIntoBridge();
         this._registerOutboundHook();
@@ -593,6 +596,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
         this._visibleRebaselinePromise = null;
+        this._clearInitialSyncTimeout();
         this._bridge = bridge;
         await this._restorePersistentOutboxIntoBridge();
         this._registerOutboundHook();
@@ -605,6 +609,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._destroyed = true;
         this._clearReconnectTimer();
         this._clearAuthenticationTimeout();
+        this._clearInitialSyncTimeout();
         this._resetLiveAckTracking();
         this._clearPendingSyncCompleteTracking();
         this._unsubscribeFontModelReady();
@@ -963,9 +968,11 @@ export class CloudAdapter implements FileSystemAdapter {
         switch (msg.type) {
             case 'auth-ok':
                 this._clearAuthenticationTimeout();
+                this._clearInitialSyncTimeout();
                 this._clientId = String(msg.clientId ?? '');
                 console.log(`CloudAdapter: authenticated as ${this._clientId}`);
                 this._setStatus('syncing');
+                this._armInitialSyncTimeout();
                 this._initialServerStateApplied = false;
                 this._initialSyncDurable = false;
                 if (this._pendingOutboundPackets.length > 0) {
@@ -1020,6 +1027,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 }
 
                 if (msg.chunked) {
+                    this._armInitialSyncTimeout();
                     // Server state is large — arriving in subsequent sync-chunk
                     // messages. Register outbound hook and start sync-complete
                     // immediately (we already have the serverStateVector).
@@ -1035,6 +1043,7 @@ export class CloudAdapter implements FileSystemAdapter {
                     this._initialSyncDurable =
                         !this._sendSyncComplete(serverSV);
                 } else {
+                    this._armInitialSyncTimeout();
                     // Small response — apply inline.
                     if (
                         typeof msg.update === 'string' &&
@@ -1062,6 +1071,7 @@ export class CloudAdapter implements FileSystemAdapter {
                     this._incomingResponseChunks &&
                     typeof msg.update === 'string'
                 ) {
+                    this._armInitialSyncTimeout();
                     const state = this._incomingResponseChunks;
                     state.chunks[msg.chunkIndex as number] = base64ToU8(
                         msg.update as string
@@ -1221,6 +1231,7 @@ export class CloudAdapter implements FileSystemAdapter {
             this._initialServerStateApplied &&
             this._initialSyncDurable
         ) {
+            this._clearInitialSyncTimeout();
             if (this._needsVisibleRebaseline) {
                 if (!this._visibleRebaselinePromise) {
                     this._setStatus(
@@ -1821,6 +1832,21 @@ export class CloudAdapter implements FileSystemAdapter {
         this._outboundAckSentAtBySeq.clear();
     }
 
+    private _armInitialSyncTimeout(): void {
+        this._clearInitialSyncTimeout();
+        this._initialSyncTimer = setTimeout(() => {
+            this._initialSyncTimer = null;
+            this._handleInitialSyncTimeout();
+        }, INITIAL_SYNC_TIMEOUT_MS);
+    }
+
+    private _clearInitialSyncTimeout(): void {
+        if (this._initialSyncTimer !== null) {
+            clearTimeout(this._initialSyncTimer);
+            this._initialSyncTimer = null;
+        }
+    }
+
     private _clearPendingSyncCompleteTracking(): void {
         this._pendingSyncCompleteTransactionIds = [];
         this._pendingSyncCompleteBroadcastEntryCount = 0;
@@ -1855,6 +1881,43 @@ export class CloudAdapter implements FileSystemAdapter {
             clearTimeout(this._outboundAckTimer);
             this._outboundAckTimer = null;
         }
+    }
+
+    private _handleInitialSyncTimeout(): void {
+        if (
+            this._destroyed ||
+            this._status !== 'syncing' ||
+            !this._ws ||
+            this._ws.readyState !== WebSocket.OPEN
+        ) {
+            return;
+        }
+
+        if (
+            this._hasSynced &&
+            this._initialServerStateApplied &&
+            this._initialSyncDurable
+        ) {
+            return;
+        }
+
+        const detail = 'Cloud initial sync timed out';
+        console.warn(`CloudAdapter: ${detail}`);
+        this._clearAuthenticationTimeout();
+        this._clearInitialSyncTimeout();
+        this._setStatus('connecting', detail);
+        this._markVisibleRebaselineNeeded();
+        this._incomingResponseChunks = null;
+        this._initialServerStateApplied = false;
+        this._initialSyncDurable = false;
+
+        const ws = this._ws;
+        if (ws) {
+            this._ws = null;
+            this._clientId = null;
+            ws.close(CLIENT_RECONNECT_CLOSE_CODE, 'sync-timeout');
+        }
+        this._scheduleReconnect();
     }
 
     private _handleOutboundAckTimeout(seq: number): void {

@@ -1399,6 +1399,55 @@ describe('CloudAdapter durability failures', () => {
         }
     });
 
+    it('reconnects when initial sync-complete durability stalls in syncing', () => {
+        jest.useFakeTimers();
+
+        const statuses = [];
+
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const socket = {
+            readyState: 1,
+            close: jest.fn()
+        };
+
+        adapter._ws = socket;
+        adapter._status = 'syncing';
+        adapter._hasSynced = true;
+        adapter._initialServerStateApplied = true;
+        adapter._initialSyncDurable = false;
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            adapter._armInitialSyncTimeout();
+
+            expect(adapter.status).toBe('syncing');
+
+            jest.advanceTimersByTime(10000);
+
+            expect(statuses).toContainEqual({
+                status: 'connecting',
+                detail: 'Cloud initial sync timed out'
+            });
+            expect(socket.close).toHaveBeenCalledWith(4000, 'sync-timeout');
+            expect(scheduleReconnect).toHaveBeenCalledTimes(1);
+            expect(adapter._ws).toBeNull();
+            expect(adapter._initialServerStateApplied).toBe(false);
+            expect(adapter._initialSyncDurable).toBe(false);
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            jest.useRealTimers();
+        }
+    });
+
     it('runs reconnect visible rebaseline before reporting connected', async () => {
         const statuses = [];
         const adapter = new CloudAdapter({
