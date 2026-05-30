@@ -51,6 +51,7 @@ This document tracks the implementation work needed to make cloud collaboration 
 - [x] Show degraded/reconnecting/offline-like states near the font title/share controls.
 - [x] Keep the indicator visible until reconnect rebaseline finishes.
 - [x] Distinguish durable pending-outbox state from mere socket connectivity with a dedicated count/status line.
+- [x] Treat cloud-backed-but-unattached fonts as unhealthy so a saved cloud font cannot silently sit disconnected.
 
 ## Implementation checklist
 
@@ -61,6 +62,7 @@ This document tracks the implementation work needed to make cloud collaboration 
 - [x] Preserve pending durability messages until acknowledged.
 - [x] Re-register outbound forwarding after reconnect.
 - [x] Persist the outbox to IndexedDB.
+- [x] After Save As seeding succeeds, finalize the current owner window as the active cloud asset and attach its live bridge immediately.
 
 ### Rebaseline orchestration
 
@@ -88,6 +90,41 @@ This document tracks the implementation work needed to make cloud collaboration 
 - [x] End-to-end cloud local Playwright coverage for crash/restart outbox recovery.
 - [x] End-to-end cloud local Playwright coverage for fresh-session duplicate resend dedupe.
 - [x] End-to-end cloud local Playwright coverage for connected pending durable-sync pill recovery.
+- [x] Unit coverage for Save As returning after durable seeding while the live room attach continues in the background.
+- [x] Unit coverage for cloud-backed but disconnected title-bar signaling.
+
+## Reliability Hardening Plan
+
+### Connection state invariants
+
+- [x] A cloud-backed current font must always have a resolvable asset id.
+- [x] A cloud-backed current font whose live adapter is missing, disconnected, connecting, authenticating, syncing, or errored must show visible title-bar status.
+- [x] Successful Save As seeding must immediately set the current font path, source plugin, role cache, and active asset id before returning to the UI.
+- [ ] Add a periodic invariant check that repairs or loudly reports `cloudBacked=yes` with no active room attachment.
+- [ ] Include the active adapter asset id, websocket phase, last auth/token fetch time, last close code/reason, and room token epoch in the debug snapshot.
+
+### Post-save attach
+
+- [x] Do not reopen the saved cloud asset as a required success condition; the upload is complete when seeding reaches durable cloud sync.
+- [x] Start the owner window's live bridge connection immediately after seeding.
+- [x] Keep the visible status in a non-healthy state until that live bridge reaches `connected`.
+- [ ] Add Playwright coverage for Save As returning before live attach completes while the title bar shows the connecting/offline state.
+- [ ] Add a retry budget and terminal error state for post-save live attach failures, with a manual reconnect affordance.
+
+### Access epoch and invitation changes
+
+- [x] Treat stale access epochs as expected reconnect boundaries, not user-facing fatal errors.
+- [x] Fetch fresh room tokens without browser cache reuse.
+- [x] Rebaseline visible state before reporting connected after reconnect.
+- [ ] Verify owner windows stay attached and reconnect after invite acceptance, role changes, member removal, and ownership transfer acceptance in a single multi-user Playwright matrix.
+- [ ] Surface repeated access-epoch reconnect loops as an explicit warning instead of silently retrying forever.
+
+### Server and observability
+
+- [x] Room-control delivery is durable for access-epoch changes and asset deletion.
+- [ ] Expose room status fields needed by the editor to distinguish no peers, stale epoch, auth failure, and persistence degradation.
+- [ ] Add a one-click user-facing cloud debug export that includes editor state, room status, and recent connection transitions for the active asset.
+- [ ] Add production probes for Save As seed sync, owner/editor fanout, invitation acceptance reconnect, and room-control delivery.
 
 ## Validation
 

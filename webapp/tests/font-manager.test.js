@@ -2036,6 +2036,27 @@ describe('FontManager share button visibility', () => {
         expect(warningBadge.textContent).toContain('Reconnecting');
     });
 
+    test('shows a connection warning badge for a cloud-backed font with no live adapter attached', () => {
+        setCurrentFont({ role: 'owner', path: 'asset-1' });
+        window.cloudPlugin.hasConnectionProblem.mockReturnValue(true);
+        window.cloudPlugin.getAssetConnectionStatus.mockReturnValue(
+            'disconnected'
+        );
+
+        fontManager.updateFontDisplay();
+
+        const warningBadge = document.querySelector(
+            '.cloud-connection-warning-badge'
+        );
+
+        expect(warningBadge.classList.contains('visible')).toBe(true);
+        expect(warningBadge.hidden).toBe(false);
+        expect(warningBadge.getAttribute('title')).toBe(
+            'Cloud status: Cloud room is disconnected'
+        );
+        expect(warningBadge.textContent).toContain('Offline');
+    });
+
     test('hides the connection warning badge while the cloud room is stable', () => {
         setCurrentFont({ role: 'editor', path: 'cloud://asset-1' });
 

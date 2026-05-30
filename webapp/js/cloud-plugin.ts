@@ -866,7 +866,11 @@ export class CloudPlugin extends FilesystemPlugin {
             status === 'syncing' ||
             status === 'disconnected'
         ) {
-            return this._connectedAssetIds.has(assetId);
+            return (
+                this._connectedAssetIds.has(assetId) ||
+                this._activeAssetId === assetId ||
+                this._isCurrentFontOpenForAsset(assetId)
+            );
         }
 
         return false;
@@ -1110,27 +1114,7 @@ export class CloudPlugin extends FilesystemPlugin {
 
     async handleSaveAs(name: string): Promise<boolean> {
         try {
-            const assetId = await this.saveAs(name);
-            const currentFont = (window as any).fontManager?.currentFont;
-            if (currentFont) {
-                // Use the bare assetId as the path so createFileUri produces
-                // cloud:///assetId (no double-slash from a leading slash).
-                currentFont.path = assetId;
-                currentFont.sourcePlugin = this;
-                currentFont.fileHandle = undefined;
-                currentFont.directoryHandle = undefined;
-                currentFont.needsRecompile = false;
-                currentFont.hasUnsavedChanges = false;
-            }
-            if ((window as any).fontManager?.updateFontDisplay) {
-                await (window as any).fontManager.updateFontDisplay();
-            }
-            if ((window as any).fontManager?.updateDirtyIndicator) {
-                await (window as any).fontManager.updateDirtyIndicator();
-            }
-            if ((window as any).saveButton?.updateButtonState) {
-                (window as any).saveButton.updateButtonState();
-            }
+            await this.saveAs(name);
             return true;
         } catch (err) {
             alert(`Failed to save to cloud: ${(err as Error).message}`);
@@ -1854,6 +1838,31 @@ export class CloudPlugin extends FilesystemPlugin {
     // ── Saving a font to the cloud ───────────────────────────────
 
     /**
+     * Mark the currently open local font as the just-created cloud asset.
+     * The room has already been seeded at this point; the live socket may still
+     * be connecting, so the title bar must reflect the cloud asset immediately.
+     */
+    private _finalizeCurrentFontAsSavedCloudAsset(assetId: string): void {
+        const currentFont = (window as any).fontManager?.currentFont;
+        if (!currentFont) {
+            return;
+        }
+
+        // Use the bare assetId as the path so createFileUri produces
+        // cloud:///assetId (no double-slash from a leading slash).
+        currentFont.path = assetId;
+        currentFont.sourcePlugin = this;
+        currentFont.fileHandle = undefined;
+        currentFont.directoryHandle = undefined;
+        currentFont.needsRecompile = false;
+        currentFont.hasUnsavedChanges = false;
+
+        void (window as any).fontManager?.updateFontDisplay?.();
+        void (window as any).fontManager?.updateDirtyIndicator?.();
+        (window as any).saveButton?.updateButtonState?.();
+    }
+
+    /**
      * Save the current font as a new cloud asset with the given name.
      *
      * Flow:
@@ -1968,11 +1977,11 @@ export class CloudPlugin extends FilesystemPlugin {
         });
         seedAdapter.disconnect();
 
-        void this._openAssetInternal(assetId, { awaitLiveBridge: false }).catch(
-            (error) => {
-                this._handleBackgroundBridgeBootstrapFailure(assetId, error);
-            }
-        );
+        this._cacheAssetRole(assetId, asset.role);
+        this._finalizeCurrentFontAsSavedCloudAsset(assetId);
+        void this.connectToRoom(assetId).catch((error) => {
+            this._handleBackgroundBridgeBootstrapFailure(assetId, error);
+        });
 
         return assetId;
     }
@@ -1983,12 +1992,18 @@ export class CloudPlugin extends FilesystemPlugin {
      */
     async connectToRoom(assetId: string): Promise<void> {
         const bridge = window.patchSyncEngine;
+        this._disconnectCurrent();
+        this._activeAssetId = assetId;
+
         if (!bridge) {
             console.error('No patchSyncEngine available — load a font first');
+            this._updateConnectionStatus(
+                assetId,
+                'error',
+                'Cloud bridge not ready'
+            );
             return;
         }
-
-        this._disconnectCurrent();
 
         this._cloudAdapter = new CloudAdapter({
             assetId,
@@ -2021,12 +2036,18 @@ export class CloudPlugin extends FilesystemPlugin {
         roomUrl: string
     ): Promise<void> {
         const bridge = window.patchSyncEngine;
+        this._disconnectCurrent();
+        this._activeAssetId = assetId;
+
         if (!bridge) {
             console.error('No patchSyncEngine available — load a font first');
+            this._updateConnectionStatus(
+                assetId,
+                'error',
+                'Cloud bridge not ready'
+            );
             return;
         }
-
-        this._disconnectCurrent();
 
         this._cloudAdapter = new CloudAdapter({
             assetId,

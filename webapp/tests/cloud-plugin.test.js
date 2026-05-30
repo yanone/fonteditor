@@ -7,6 +7,7 @@ jest.mock('../js/logger', () => ({
 }));
 
 const mockConnectDirect = jest.fn().mockResolvedValue();
+const mockConnect = jest.fn().mockResolvedValue();
 const mockRebindToCurrentBridge = jest.fn();
 const mockYDocToJson = jest.fn();
 const { TextEncoder } = require('util');
@@ -18,6 +19,20 @@ jest.mock('../js/cloud-adapter', () => ({
         getCachedAssetRole: jest.fn().mockReturnValue(null),
         connectDirect: jest.fn(async (...args) => {
             mockConnectDirect(...args);
+            const queuedStatuses = mockConnectDirectStatusQueue.length
+                ? mockConnectDirectStatusQueue.shift()
+                : [{ status: 'connected' }];
+            if (typeof options.onConnectionStatus === 'function') {
+                for (const statusEntry of queuedStatuses) {
+                    options.onConnectionStatus(
+                        statusEntry.status,
+                        statusEntry.detail
+                    );
+                }
+            }
+        }),
+        connect: jest.fn(async (...args) => {
+            mockConnect(...args);
             const queuedStatuses = mockConnectDirectStatusQueue.length
                 ? mockConnectDirectStatusQueue.shift()
                 : [{ status: 'connected' }];
@@ -172,6 +187,7 @@ describe('CloudPlugin.openAsset', () => {
 
     beforeEach(() => {
         mockConnectDirect.mockClear();
+        mockConnect.mockClear();
         mockConnectDirectStatusQueue = [];
         mockRebindToCurrentBridge.mockClear();
         mockYDocToJson.mockReset();
@@ -355,7 +371,7 @@ describe('CloudPlugin.openAsset', () => {
         expect(mockConnectDirect).toHaveBeenCalledTimes(2);
     });
 
-    test('saveAs resolves after the seeded upload without waiting for background reopen', async () => {
+    test('saveAs resolves after the seeded upload and attaches the current font to the cloud room', async () => {
         window.glyphCanvas = {
             initialFontLoaded: true
         };
@@ -389,8 +405,6 @@ describe('CloudPlugin.openAsset', () => {
             onLocalUpdate: jest.fn(),
             offLocalUpdate: jest.fn()
         };
-
-        jest.spyOn(plugin, '_openAssetInternal').mockResolvedValue(undefined);
 
         global.fetch = jest.fn().mockResolvedValue({
             ok: true,
@@ -416,9 +430,17 @@ describe('CloudPlugin.openAsset', () => {
         });
 
         await expect(plugin.saveAs('Save Source')).resolves.toBe('asset-save');
+
+        expect(window.fontManager.currentFont.path).toBe('asset-save');
+        expect(window.fontManager.currentFont.sourcePlugin).toBe(plugin);
+        expect(window.fontManager.currentFont.hasUnsavedChanges).toBe(false);
+        expect(plugin.activeAssetId).toBe('asset-save');
+        expect(plugin.getAssetConnectionStatus('asset-save')).toBe('connected');
+        expect(mockConnectDirect).toHaveBeenCalledTimes(1);
+        expect(mockConnect).toHaveBeenCalledTimes(1);
     });
 
-    test('saveAs still resolves when the background reopen times out', async () => {
+    test('saveAs still resolves and signals connection trouble when the live attach fails', async () => {
         window.glyphCanvas = {
             initialFontLoaded: true
         };
@@ -453,8 +475,8 @@ describe('CloudPlugin.openAsset', () => {
             offLocalUpdate: jest.fn()
         };
 
-        const openAssetInternalSpy = jest
-            .spyOn(plugin, '_openAssetInternal')
+        const connectToRoomSpy = jest
+            .spyOn(plugin, 'connectToRoom')
             .mockRejectedValue(new Error('cloud sync timed out'));
         const backgroundFailureSpy = jest
             .spyOn(plugin, '_handleBackgroundBridgeBootstrapFailure')
@@ -478,20 +500,17 @@ describe('CloudPlugin.openAsset', () => {
         await expect(plugin.saveAs('Save Source')).resolves.toBe('asset-save');
         await Promise.resolve();
 
-        expect(openAssetInternalSpy).toHaveBeenCalledWith('asset-save', {
-            awaitLiveBridge: false
-        });
+        expect(connectToRoomSpy).toHaveBeenCalledWith('asset-save');
         expect(backgroundFailureSpy).toHaveBeenCalledWith(
             'asset-save',
             expect.any(Error)
         );
     });
 
-    test('saveAs does not mark the cloud asset as connection-dirty before the live room attaches', async () => {
+    test('saveAs shows a connection problem until the live room attaches', async () => {
         mockConnectDirectStatusQueue = [
             [{ status: 'connected' }],
-            [{ status: 'connected' }],
-            []
+            [{ status: 'connecting' }]
         ];
 
         window.glyphCanvas = {
@@ -553,7 +572,25 @@ describe('CloudPlugin.openAsset', () => {
 
         await expect(plugin.saveAs('Save Source')).resolves.toBe('asset-save');
 
-        expect(plugin.hasConnectionProblem('asset-save')).toBe(false);
+        expect(plugin.activeAssetId).toBe('asset-save');
+        expect(plugin.getAssetConnectionStatus('asset-save')).toBe(
+            'connecting'
+        );
+        expect(plugin.hasConnectionProblem('asset-save')).toBe(true);
+    });
+
+    test('flags an open cloud font as a connection problem when no adapter is attached', () => {
+        window.fontManager = {
+            currentFont: {
+                path: 'asset-save',
+                sourcePlugin: plugin
+            }
+        };
+
+        expect(plugin.getAssetConnectionStatus('asset-save')).toBe(
+            'disconnected'
+        );
+        expect(plugin.hasConnectionProblem('asset-save')).toBe(true);
     });
 
     test('background live bridge timeouts retry silently after the font is already open', async () => {
