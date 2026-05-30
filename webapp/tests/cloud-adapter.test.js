@@ -385,6 +385,374 @@ describe('CloudAdapter outbound updates', () => {
         );
     });
 
+    it('rebuilds the Rust worker bridge state before reporting sync-response connected', async () => {
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const serverUpdate = new Uint8Array([1, 2, 3]);
+        const serverStateVector = new Uint8Array([4, 5, 6]);
+        const workerSeedState = new Uint8Array([7, 8, 9]);
+        let resolveWorkerSeed;
+        const workerSeedPromise = new Promise((resolve) => {
+            resolveWorkerSeed = resolve;
+        });
+        const originalFontCompilation = window.fontCompilation;
+        const originalFontManager = window.fontManager;
+
+        try {
+            window.fontCompilation = {
+                isInitialized: true,
+                seedWorkerYDocFromState: jest.fn(() => workerSeedPromise),
+                setWorkerCacheDocumentReady: jest.fn(),
+                hasWorkerCacheDocument: jest.fn(() => false)
+            };
+            window.fontManager = {
+                recordFullFontCrossing: jest.fn(),
+                replaceWorkerYjsMirrorFromState: jest.fn()
+            };
+
+            const bridge = {
+                mergeImportedChangeLog: jest.fn(),
+                mergeImportedCollaborationMessages: jest.fn(),
+                applyFullState: jest.fn(),
+                encodeBridgeState: jest.fn(() => workerSeedState),
+                onLocalUpdate: jest.fn(),
+                offLocalUpdate: jest.fn()
+            };
+
+            adapter._bridge = bridge;
+            adapter._registerOutboundHook = jest.fn();
+            adapter._sendSyncComplete = jest.fn(() => false);
+
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'sync-response',
+                    update: Buffer.from(serverUpdate).toString('base64'),
+                    serverStateVector:
+                        Buffer.from(serverStateVector).toString('base64'),
+                    collaborationMessageHistory: []
+                })
+            );
+
+            expect(bridge.applyFullState).toHaveBeenCalledWith(serverUpdate);
+            expect(bridge.encodeBridgeState).toHaveBeenCalledTimes(1);
+            expect(
+                window.fontManager.recordFullFontCrossing
+            ).toHaveBeenCalledTimes(1);
+            expect(
+                window.fontManager.replaceWorkerYjsMirrorFromState
+            ).toHaveBeenCalledWith(workerSeedState);
+            expect(
+                window.fontCompilation.seedWorkerYDocFromState
+            ).toHaveBeenCalledWith(workerSeedState);
+            expect(statuses).not.toContainEqual({
+                status: 'connected',
+                detail: undefined
+            });
+
+            resolveWorkerSeed();
+            await workerSeedPromise;
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(statuses).toContainEqual({
+                status: 'connected',
+                detail: undefined
+            });
+        } finally {
+            window.fontCompilation = originalFontCompilation;
+            window.fontManager = originalFontManager;
+        }
+    });
+
+    it('rebuilds the Rust worker bridge state for no-diff sync-response before connected', async () => {
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const serverStateVector = new Uint8Array([4, 5, 6]);
+        const workerSeedState = new Uint8Array([7, 8, 9]);
+        let resolveWorkerSeed;
+        const workerSeedPromise = new Promise((resolve) => {
+            resolveWorkerSeed = resolve;
+        });
+        const originalFontCompilation = window.fontCompilation;
+        const originalFontManager = window.fontManager;
+
+        try {
+            window.fontCompilation = {
+                isInitialized: true,
+                seedWorkerYDocFromState: jest.fn(() => workerSeedPromise),
+                setWorkerCacheDocumentReady: jest.fn(),
+                hasWorkerCacheDocument: jest.fn(() => false)
+            };
+            window.fontManager = {
+                recordFullFontCrossing: jest.fn(),
+                replaceWorkerYjsMirrorFromState: jest.fn()
+            };
+
+            const bridge = {
+                mergeImportedChangeLog: jest.fn(),
+                mergeImportedCollaborationMessages: jest.fn(),
+                applyFullState: jest.fn(),
+                encodeBridgeState: jest.fn(() => workerSeedState),
+                onLocalUpdate: jest.fn(),
+                offLocalUpdate: jest.fn()
+            };
+
+            adapter._bridge = bridge;
+            adapter._registerOutboundHook = jest.fn();
+            adapter._sendSyncComplete = jest.fn(() => false);
+
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'sync-response',
+                    serverStateVector:
+                        Buffer.from(serverStateVector).toString('base64'),
+                    collaborationMessageHistory: []
+                })
+            );
+
+            expect(bridge.applyFullState).not.toHaveBeenCalled();
+            expect(bridge.encodeBridgeState).toHaveBeenCalledTimes(1);
+            expect(
+                window.fontCompilation.seedWorkerYDocFromState
+            ).toHaveBeenCalledWith(workerSeedState);
+            expect(statuses).not.toContainEqual({
+                status: 'connected',
+                detail: undefined
+            });
+
+            resolveWorkerSeed();
+            await workerSeedPromise;
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(statuses).toContainEqual({
+                status: 'connected',
+                detail: undefined
+            });
+        } finally {
+            window.fontCompilation = originalFontCompilation;
+            window.fontManager = originalFontManager;
+        }
+    });
+
+    it('ignores stale worker bridge sync completions from superseded sync generations', async () => {
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const serverUpdate = new Uint8Array([1, 2, 3]);
+        const serverStateVector = new Uint8Array([4, 5, 6]);
+        const workerSeedStates = [
+            new Uint8Array([7, 8, 9]),
+            new Uint8Array([10, 11, 12])
+        ];
+        const workerSeedDeferreds = [];
+        const originalFontCompilation = window.fontCompilation;
+        const originalFontManager = window.fontManager;
+
+        try {
+            window.fontCompilation = {
+                isInitialized: true,
+                seedWorkerYDocFromState: jest.fn(() => {
+                    let resolveWorkerSeed;
+                    const workerSeedPromise = new Promise((resolve) => {
+                        resolveWorkerSeed = resolve;
+                    });
+                    workerSeedDeferreds.push({
+                        promise: workerSeedPromise,
+                        resolve: resolveWorkerSeed
+                    });
+                    return workerSeedPromise;
+                }),
+                setWorkerCacheDocumentReady: jest.fn(),
+                hasWorkerCacheDocument: jest.fn(() => false)
+            };
+            window.fontManager = {
+                recordFullFontCrossing: jest.fn(),
+                replaceWorkerYjsMirrorFromState: jest.fn()
+            };
+
+            const bridge = {
+                mergeImportedChangeLog: jest.fn(),
+                mergeImportedCollaborationMessages: jest.fn(),
+                applyFullState: jest.fn(),
+                encodeBridgeState: jest
+                    .fn()
+                    .mockReturnValueOnce(workerSeedStates[0])
+                    .mockReturnValueOnce(workerSeedStates[1]),
+                onLocalUpdate: jest.fn(),
+                offLocalUpdate: jest.fn()
+            };
+
+            adapter._bridge = bridge;
+            adapter._registerOutboundHook = jest.fn();
+            adapter._sendSyncComplete = jest.fn(() => false);
+
+            const syncResponse = JSON.stringify({
+                type: 'sync-response',
+                update: Buffer.from(serverUpdate).toString('base64'),
+                serverStateVector:
+                    Buffer.from(serverStateVector).toString('base64'),
+                collaborationMessageHistory: []
+            });
+
+            adapter._handleMessage(syncResponse);
+            expect(workerSeedDeferreds).toHaveLength(1);
+            adapter._resetBootstrapStateForReconnect();
+            adapter._handleMessage(syncResponse);
+            expect(workerSeedDeferreds).toHaveLength(2);
+
+            workerSeedDeferreds[0].resolve();
+            await workerSeedDeferreds[0].promise;
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(statuses).not.toContainEqual({
+                status: 'connected',
+                detail: undefined
+            });
+
+            workerSeedDeferreds[1].resolve();
+            await workerSeedDeferreds[1].promise;
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(statuses).toContainEqual({
+                status: 'connected',
+                detail: undefined
+            });
+        } finally {
+            window.fontCompilation = originalFontCompilation;
+            window.fontManager = originalFontManager;
+        }
+    });
+
+    it('recovers the current worker bridge state when a superseded seed rejects late', async () => {
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const serverUpdate = new Uint8Array([1, 2, 3]);
+        const serverStateVector = new Uint8Array([4, 5, 6]);
+        const workerSeedStates = [
+            new Uint8Array([7, 8, 9]),
+            new Uint8Array([10, 11, 12]),
+            new Uint8Array([13, 14, 15])
+        ];
+        const workerSeedDeferreds = [];
+        let workerCacheReady = false;
+        const originalFontCompilation = window.fontCompilation;
+        const originalFontManager = window.fontManager;
+
+        try {
+            window.fontCompilation = {
+                isInitialized: true,
+                seedWorkerYDocFromState: jest.fn(() => {
+                    workerCacheReady = false;
+                    let resolveWorkerSeed;
+                    let rejectWorkerSeed;
+                    const workerSeedPromise = new Promise((resolve, reject) => {
+                        resolveWorkerSeed = () => {
+                            workerCacheReady = true;
+                            resolve();
+                        };
+                        rejectWorkerSeed = () => {
+                            workerCacheReady = false;
+                            reject(new Error('stale seed failed'));
+                        };
+                    });
+                    workerSeedDeferreds.push({
+                        promise: workerSeedPromise,
+                        reject: rejectWorkerSeed,
+                        resolve: resolveWorkerSeed
+                    });
+                    return workerSeedPromise;
+                }),
+                setWorkerCacheDocumentReady: jest.fn((isReady) => {
+                    workerCacheReady = isReady;
+                }),
+                hasWorkerCacheDocument: jest.fn(() => workerCacheReady)
+            };
+            window.fontManager = {
+                recordFullFontCrossing: jest.fn(),
+                replaceWorkerYjsMirrorFromState: jest.fn()
+            };
+
+            const bridge = {
+                mergeImportedChangeLog: jest.fn(),
+                mergeImportedCollaborationMessages: jest.fn(),
+                applyFullState: jest.fn(),
+                encodeBridgeState: jest
+                    .fn()
+                    .mockReturnValueOnce(workerSeedStates[0])
+                    .mockReturnValueOnce(workerSeedStates[1])
+                    .mockReturnValueOnce(workerSeedStates[2]),
+                onLocalUpdate: jest.fn(),
+                offLocalUpdate: jest.fn()
+            };
+
+            adapter._bridge = bridge;
+            adapter._registerOutboundHook = jest.fn();
+            adapter._sendSyncComplete = jest.fn(() => false);
+
+            const syncResponse = JSON.stringify({
+                type: 'sync-response',
+                update: Buffer.from(serverUpdate).toString('base64'),
+                serverStateVector:
+                    Buffer.from(serverStateVector).toString('base64'),
+                collaborationMessageHistory: []
+            });
+
+            adapter._handleMessage(syncResponse);
+            adapter._resetBootstrapStateForReconnect();
+            adapter._handleMessage(syncResponse);
+
+            workerSeedDeferreds[1].resolve();
+            workerSeedDeferreds[0].reject();
+            await Promise.allSettled([
+                workerSeedDeferreds[0].promise,
+                workerSeedDeferreds[1].promise
+            ]);
+            for (let flushCount = 0; flushCount < 5; flushCount++) {
+                await Promise.resolve();
+            }
+
+            expect(
+                window.fontCompilation.seedWorkerYDocFromState
+            ).toHaveBeenCalledTimes(3);
+            expect(statuses).not.toContainEqual({
+                status: 'error',
+                detail: 'Cloud worker rebaseline failed'
+            });
+
+            workerSeedDeferreds[2].resolve();
+            await workerSeedDeferreds[2].promise;
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(adapter.status).toBe('connected');
+            expect(window.fontCompilation.hasWorkerCacheDocument()).toBe(true);
+        } finally {
+            window.fontCompilation = originalFontCompilation;
+            window.fontManager = originalFontManager;
+        }
+    });
+
     it('sends incremental updates without re-encoding full state', async () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
         const localUpdate = new Uint8Array([1, 2, 3, 4]);

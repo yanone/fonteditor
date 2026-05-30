@@ -2104,7 +2104,14 @@ export class CloudPlugin extends FilesystemPlugin {
     }
 
     private _buildCloudDebugSnapshot(): string {
+        const fontManager = window.fontManager as
+            | (typeof window.fontManager & {
+                  workerCacheUpdatePromise?: Promise<unknown> | null;
+                  pendingBabelfontJsonSyncAfterDrag?: boolean;
+              })
+            | undefined;
         const currentFont = window.fontManager?.currentFont;
+        const fontCompilation = window.fontCompilation;
         const activeAssetId = this.activeAssetId;
         const status = activeAssetId
             ? this.getAssetConnectionStatus(activeAssetId)
@@ -2133,6 +2140,10 @@ export class CloudPlugin extends FilesystemPlugin {
                 __lastCloudInboundUpdateCount?: number;
             }
         ).__lastCloudInboundUpdateCount;
+        const workerCacheReady =
+            typeof fontCompilation?.hasWorkerCacheDocument === 'function'
+                ? fontCompilation.hasWorkerCacheDocument()
+                : undefined;
 
         return [
             `capturedAt: ${formatCloudDebugTimestamp(Date.now())}`,
@@ -2140,6 +2151,11 @@ export class CloudPlugin extends FilesystemPlugin {
             `activeAssetId: ${activeAssetId ?? 'none'}`,
             `fontPath: ${String(currentFont?.path || 'none')}`,
             `cloudBacked: ${currentFont?.isCloudBacked?.() ? 'yes' : 'no'}`,
+            `fontChangeVersion: ${currentFont?.changeVersion ?? 'none'}`,
+            `compileRequestVersion: ${currentFont?.compileRequestVersion ?? 'none'}`,
+            `workerCacheReady: ${workerCacheReady === undefined ? 'unknown' : workerCacheReady ? 'yes' : 'no'}`,
+            `workerCacheUpdatePending: ${fontManager?.workerCacheUpdatePromise ? 'yes' : 'no'}`,
+            `pendingBabelfontJsonSyncAfterDrag: ${fontManager?.pendingBabelfontJsonSyncAfterDrag ? 'yes' : 'no'}`,
             `connectionStatus: ${status}`,
             ...(detail ? [`connectionDetail: ${detail}`] : []),
             `pendingSyncCount: ${pendingSyncCount}`,

@@ -529,6 +529,8 @@ export class CloudAdapter implements FileSystemAdapter {
     private _initialSyncDurable = false;
     private _needsVisibleRebaseline = false;
     private _visibleRebaselinePromise: Promise<void> | null = null;
+    private _workerBridgeSyncPromise: Promise<void> | null = null;
+    private _syncGeneration = 0;
     /** Accumulates incoming sync-response chunks from the server. */
     private _incomingResponseChunks: CloudChunkAccumulator | null = null;
     /** Accumulates incoming chunked live updates from the server. */
@@ -576,6 +578,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialSyncDurable = false;
         this._lastInboundMessageAt = 0;
         this._visibleRebaselinePromise = null;
+        this._resetWorkerBridgeSyncState();
         this._clearInitialSyncTimeout();
         this._bridge = bridge;
         this._directConnection = null;
@@ -611,6 +614,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialSyncDurable = false;
         this._lastInboundMessageAt = 0;
         this._visibleRebaselinePromise = null;
+        this._resetWorkerBridgeSyncState();
         this._clearInitialSyncTimeout();
         this._bridge = bridge;
         this._directConnection = { token, roomUrl };
@@ -651,6 +655,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._lastInboundMessageAt = 0;
         this._needsVisibleRebaseline = false;
         this._visibleRebaselinePromise = null;
+        this._resetWorkerBridgeSyncState();
         this._incomingLiveUpdateChunks.clear();
         this._setStatus('disconnected');
     }
@@ -768,6 +773,12 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
         this._lastInboundMessageAt = 0;
+        this._resetWorkerBridgeSyncState();
+    }
+
+    private _resetWorkerBridgeSyncState(): void {
+        this._syncGeneration++;
+        this._workerBridgeSyncPromise = null;
     }
 
     private _handleBrowserOffline(): void {
@@ -1057,6 +1068,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._incomingResponseChunks = null;
                 this._initialServerStateApplied = false;
                 this._initialSyncDurable = false;
+                this._resetWorkerBridgeSyncState();
                 this._outboundFlushScheduled = false;
                 this._pendingInboundUpdates = [];
                 this._inboundFlushScheduled = false;
@@ -1176,7 +1188,7 @@ export class CloudAdapter implements FileSystemAdapter {
                             base64ToU8(msg.update as string)
                         );
                     } else {
-                        this._initialServerStateApplied = true;
+                        this._applyServerState(new Uint8Array());
                     }
                     this._hasSynced = true;
                     this._registerOutboundHook();
@@ -1333,6 +1345,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _applyServerState(update: Uint8Array): void {
         if (update.length === 0) {
             this._resyncRequestedAfterNoopUpdate = false;
+            if (!this._scheduleWorkerBridgeSyncAfterServerState()) return;
             this._initialServerStateApplied = true;
             return;
         }
@@ -1340,6 +1353,7 @@ export class CloudAdapter implements FileSystemAdapter {
         try {
             this._bridge.applyFullState(update);
             this._resyncRequestedAfterNoopUpdate = false;
+            if (!this._scheduleWorkerBridgeSyncAfterServerState()) return;
             this._initialServerStateApplied = true;
             console.log(
                 `CloudAdapter: applied server state (${update.length} bytes)`
@@ -1349,13 +1363,137 @@ export class CloudAdapter implements FileSystemAdapter {
         }
     }
 
-    private async _maybeMarkInitialSyncConnected(): Promise<void> {
+    private _scheduleWorkerBridgeSyncAfterServerState(): boolean {
+        const syncGeneration = ++this._syncGeneration;
+        const fontCompilation = window.fontCompilation;
+        if (!fontCompilation?.isInitialized) {
+            this._workerBridgeSyncPromise = null;
+            return true;
+        }
+
+        const bridge = this._bridge;
+        const fontManager = window.fontManager as
+            | (typeof window.fontManager & {
+                  buildWorkerSeedYjsState?: () => Uint8Array | null;
+                  recordFullFontCrossing?: () => void;
+                  replaceWorkerYjsMirrorFromState?: (
+                      state: Uint8Array | ArrayBufferLike | null | undefined
+                  ) => void;
+              })
+            | undefined;
+        const seedState =
+            bridge?.encodeBridgeState?.() ??
+            fontManager?.buildWorkerSeedYjsState?.();
+        if (!seedState?.length) {
+            if (this._syncGeneration === syncGeneration) {
+                fontCompilation.setWorkerCacheDocumentReady?.(false);
+            }
+            this._workerBridgeSyncPromise = null;
+            this._setStatus('error', 'Cloud worker rebaseline failed');
+            console.warn(
+                'Unable to rebuild Rust worker state after cloud server sync: missing bridge Yjs state'
+            );
+            return false;
+        }
+
+        fontManager?.recordFullFontCrossing?.();
+        fontManager?.replaceWorkerYjsMirrorFromState?.(seedState);
+
+        const syncPromise = (async () => {
+            if (typeof fontCompilation.seedWorkerYDocFromState === 'function') {
+                await fontCompilation.seedWorkerYDocFromState(seedState);
+                return;
+            }
+
+            await fontCompilation.sendMessage({
+                type: 'seedYdoc',
+                state: seedState
+            });
+        })().catch((error) => {
+            if (this._syncGeneration !== syncGeneration) {
+                this._scheduleCurrentWorkerBridgeSyncRecovery();
+            } else {
+                fontCompilation.setWorkerCacheDocumentReady?.(false);
+                this._setStatus('error', 'Cloud worker rebaseline failed');
+            }
+            console.warn(
+                'Failed to rebuild Rust worker state after cloud server sync',
+                error
+            );
+            throw error;
+        });
+
+        this._workerBridgeSyncPromise = syncPromise;
+        void syncPromise
+            .catch(() => undefined)
+            .finally(() => {
+                if (
+                    this._workerBridgeSyncPromise === syncPromise &&
+                    this._syncGeneration === syncGeneration
+                ) {
+                    this._workerBridgeSyncPromise = null;
+                }
+            });
+        return true;
+    }
+
+    private _scheduleCurrentWorkerBridgeSyncRecovery(): void {
         if (
+            this._destroyed ||
+            !this._bridge ||
+            !this._hasSynced ||
+            !this._initialServerStateApplied ||
+            !window.fontCompilation?.isInitialized
+        ) {
+            return;
+        }
+
+        const currentWorkerBridgeSyncPromise = this._workerBridgeSyncPromise;
+        if (currentWorkerBridgeSyncPromise) {
+            void currentWorkerBridgeSyncPromise
+                .catch(() => undefined)
+                .finally(() => {
+                    if (
+                        this._workerBridgeSyncPromise !==
+                        currentWorkerBridgeSyncPromise
+                    ) {
+                        this._scheduleCurrentWorkerBridgeSyncRecovery();
+                    }
+                });
+            return;
+        }
+
+        if (window.fontCompilation.hasWorkerCacheDocument?.()) {
+            return;
+        }
+
+        console.warn(
+            'Retrying current Rust worker state after stale cloud worker rebaseline failure'
+        );
+        if (this._scheduleWorkerBridgeSyncAfterServerState()) {
+            void this._maybeMarkInitialSyncConnected().catch(() => {});
+        }
+    }
+
+    private _canMarkInitialSyncConnected(syncGeneration: number): boolean {
+        return (
+            !this._destroyed &&
+            this._syncGeneration === syncGeneration &&
             this._hasSynced &&
             this._initialServerStateApplied &&
             this._initialSyncDurable
-        ) {
+        );
+    }
+
+    private async _maybeMarkInitialSyncConnected(): Promise<void> {
+        const syncGeneration = this._syncGeneration;
+        if (this._canMarkInitialSyncConnected(syncGeneration)) {
             this._clearInitialSyncTimeout();
+            const workerBridgeSyncPromise = this._workerBridgeSyncPromise;
+            if (workerBridgeSyncPromise) {
+                await workerBridgeSyncPromise;
+            }
+            if (!this._canMarkInitialSyncConnected(syncGeneration)) return;
             if (this._needsVisibleRebaseline) {
                 if (!this._visibleRebaselinePromise) {
                     this._setStatus(
@@ -1369,6 +1507,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 }
                 await this._visibleRebaselinePromise;
             }
+            if (!this._canMarkInitialSyncConnected(syncGeneration)) return;
             this._setStatus('connected');
         }
     }

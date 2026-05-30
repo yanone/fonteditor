@@ -817,6 +817,42 @@ describe('CloudPlugin.openAsset', () => {
         ]);
     });
 
+    test('includes compile and worker-cache state in the cloud debug snapshot', () => {
+        const originalFontManager = window.fontManager;
+        const originalFontCompilation = window.fontCompilation;
+
+        try {
+            plugin._activeAssetId = 'asset-1';
+            plugin._updateConnectionStatus('asset-1', 'connected');
+            window.fontManager = {
+                currentFont: {
+                    path: 'cloud://asset-1',
+                    changeVersion: 12,
+                    compileRequestVersion: 13,
+                    isCloudBacked: jest.fn(() => true)
+                },
+                workerCacheUpdatePromise: Promise.resolve(),
+                pendingBabelfontJsonSyncAfterDrag: true
+            };
+            window.fontCompilation = {
+                hasWorkerCacheDocument: jest.fn(() => false)
+            };
+
+            const snapshot = plugin._buildCloudDebugSnapshot();
+
+            expect(snapshot).toContain('fontChangeVersion: 12');
+            expect(snapshot).toContain('compileRequestVersion: 13');
+            expect(snapshot).toContain('workerCacheReady: no');
+            expect(snapshot).toContain('workerCacheUpdatePending: yes');
+            expect(snapshot).toContain(
+                'pendingBabelfontJsonSyncAfterDrag: yes'
+            );
+        } finally {
+            window.fontManager = originalFontManager;
+            window.fontCompilation = originalFontCompilation;
+        }
+    });
+
     test('moves a deleted active cloud asset into local memory with unsaved changes', () => {
         const disconnect = jest.fn();
         plugin._cloudAdapter = {
