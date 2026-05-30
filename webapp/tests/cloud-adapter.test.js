@@ -750,6 +750,18 @@ describe('CloudAdapter outbound updates', () => {
                 ]
             })
         );
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'ack',
+                seq: -1,
+                durable: true,
+                phase: 'sync-complete'
+            })
+        );
+
+        expect(adapter._pendingDurabilityMessages).toEqual([]);
+        expect(adapter.pendingSyncCount).toBe(0);
+        expect(bridge.advanceBroadcastLogCursor).toHaveBeenCalledWith(1);
     });
 
     it('rehydrates persisted durable outbox entries into the bridge before reconnect sync', async () => {
@@ -1300,6 +1312,89 @@ describe('CloudAdapter durability failures', () => {
             scheduleReconnect.mockRestore();
             adapter.disconnect();
             global.WebSocket = originalWebSocket;
+            jest.useRealTimers();
+        }
+    });
+
+    it('reconnects when a live update stays unacked on a connected socket', async () => {
+        jest.useFakeTimers();
+
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const localUpdate = new Uint8Array([1, 2, 3, 4]);
+        let localUpdateHandler = null;
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                [
+                    createLogEntry({
+                        timestamp: 1,
+                        windowId: 'client-1',
+                        windowRoleLabel: 'main',
+                        transactionLabel: 'Live edit',
+                        transactionId: 7,
+                        op: 'set',
+                        undoScope: 'glyph',
+                        path: 'glyphs.A:name',
+                        oldValue: 'A',
+                        newValue: 'A.alt',
+                        workerReplayTargets: []
+                    })
+                ],
+                {
+                    localSequence: 7,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            );
+        const socket = {
+            readyState: 1,
+            send: jest.fn(),
+            close: jest.fn()
+        };
+
+        adapter._bridge = {
+            onLocalUpdate: (handler) => {
+                localUpdateHandler = handler;
+            },
+            offLocalUpdate: jest.fn(),
+            advanceBroadcastLogCursor: jest.fn(),
+            getFullState: jest.fn()
+        };
+        adapter._ws = socket;
+        adapter._clientId = 'client-1';
+        adapter._status = 'connected';
+        adapter._hasSynced = true;
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            adapter._registerOutboundHook();
+            localUpdateHandler(localUpdate, collaborationMessage);
+            await Promise.resolve();
+
+            expect(adapter.pendingSyncCount).toBe(1);
+
+            jest.advanceTimersByTime(10000);
+
+            expect(statuses).toContainEqual({
+                status: 'connecting',
+                detail: 'Cloud update acknowledgement timed out'
+            });
+            expect(socket.close).toHaveBeenCalledWith(4000, 'ack-timeout');
+            expect(scheduleReconnect).toHaveBeenCalledTimes(1);
+            expect(adapter._outboundPendingTransactionIds.size).toBe(0);
+            expect(adapter._outboundAckSentAtBySeq.size).toBe(0);
+            expect(adapter._ws).toBeNull();
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
             jest.useRealTimers();
         }
     });

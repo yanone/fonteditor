@@ -153,6 +153,7 @@ async function parseRequiredJsonResponse<T>(
 const SYNC_CHUNK_SIZE = 750_000;
 const CLIENT_RECONNECT_CLOSE_CODE = 4000;
 const AUTHENTICATION_TIMEOUT_MS = 10000;
+const OUTBOUND_ACK_TIMEOUT_MS = 10000;
 
 export type CloudConnectionStatus =
     | 'disconnected'
@@ -501,14 +502,18 @@ export class CloudAdapter implements FileSystemAdapter {
     private _destroyed = false;
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private _authenticationTimer: ReturnType<typeof setTimeout> | null = null;
+    private _outboundAckTimer: ReturnType<typeof setTimeout> | null = null;
     private _assetRoles = new Map<string, CloudAssetRole>();
     private _hasSynced = false;
     private _pendingOutboundPackets: CloudOutboundUpdatePacket[] = [];
     private _outboundFlushScheduled = false;
     private _outboundBroadcastEntryCounts = new Map<number, number>();
     private _outboundPendingTransactionIds = new Map<number, string[]>();
+    private _outboundAckSentAtBySeq = new Map<number, number>();
     private _pendingDurabilityMessages: CollaborationMessageEnvelope[] = [];
     private _durableOutboxEntries = new Map<string, CloudDurableOutboxRecord>();
+    private _pendingSyncCompleteTransactionIds: string[] = [];
+    private _pendingSyncCompleteBroadcastEntryCount = 0;
     private _pendingInboundUpdates: CloudLiveUpdateMessage[] = [];
     private _inboundFlushScheduled = false;
     private _resyncRequestedAfterNoopUpdate = false;
@@ -600,6 +605,8 @@ export class CloudAdapter implements FileSystemAdapter {
         this._destroyed = true;
         this._clearReconnectTimer();
         this._clearAuthenticationTimeout();
+        this._resetLiveAckTracking();
+        this._clearPendingSyncCompleteTracking();
         this._unsubscribeFontModelReady();
         this._localUpdateUnsubscribe?.();
         this._localUpdateUnsubscribe = null;
@@ -1119,6 +1126,17 @@ export class CloudAdapter implements FileSystemAdapter {
                     }
 
                     this._initialSyncDurable = true;
+                    if (this._pendingSyncCompleteTransactionIds.length > 0) {
+                        this._dropDurableTransactions(
+                            this._pendingSyncCompleteTransactionIds
+                        );
+                        if (this._pendingSyncCompleteBroadcastEntryCount > 0) {
+                            this._bridge?.advanceBroadcastLogCursor(
+                                this._pendingSyncCompleteBroadcastEntryCount
+                            );
+                        }
+                        this._clearPendingSyncCompleteTracking();
+                    }
                     void this._maybeMarkInitialSyncConnected().catch(() => {});
                     return;
                 }
@@ -1405,6 +1423,17 @@ export class CloudAdapter implements FileSystemAdapter {
             const pendingCollaborationMessages = dedupeCollaborationMessages(
                 this._pendingDurabilityMessages
             );
+            this._pendingSyncCompleteTransactionIds =
+                pendingCollaborationMessages
+                    .map((message) => collaborationMessageKey(message))
+                    .filter(
+                        (value): value is string => typeof value === 'string'
+                    );
+            this._pendingSyncCompleteBroadcastEntryCount =
+                pendingCollaborationMessages.reduce(
+                    (count, message) => count + message.changes.length,
+                    0
+                );
 
             const totalChunks = Math.ceil(diff.length / SYNC_CHUNK_SIZE);
             console.log(
@@ -1606,6 +1635,8 @@ export class CloudAdapter implements FileSystemAdapter {
                     seq,
                     pendingTransactionIds
                 );
+                this._outboundAckSentAtBySeq.set(seq, Date.now());
+                this._armOutboundAckTimeout();
             }
 
             (
@@ -1658,7 +1689,9 @@ export class CloudAdapter implements FileSystemAdapter {
         const pendingTransactionIds =
             this._outboundPendingTransactionIds.get(seq) ?? [];
         this._outboundPendingTransactionIds.delete(seq);
+        this._outboundAckSentAtBySeq.delete(seq);
         this._dropDurableTransactions(pendingTransactionIds);
+        this._armOutboundAckTimeout();
 
         this._bridge?.advanceBroadcastLogCursor(broadcastEntryCount);
     }
@@ -1779,6 +1812,81 @@ export class CloudAdapter implements FileSystemAdapter {
     private _setStatus(status: CloudConnectionStatus, detail?: string): void {
         this._status = status;
         this._onConnectionStatus?.(status, detail);
+    }
+
+    private _resetLiveAckTracking(): void {
+        this._clearOutboundAckTimeout();
+        this._outboundBroadcastEntryCounts.clear();
+        this._outboundPendingTransactionIds.clear();
+        this._outboundAckSentAtBySeq.clear();
+    }
+
+    private _clearPendingSyncCompleteTracking(): void {
+        this._pendingSyncCompleteTransactionIds = [];
+        this._pendingSyncCompleteBroadcastEntryCount = 0;
+    }
+
+    private _armOutboundAckTimeout(): void {
+        this._clearOutboundAckTimeout();
+        const oldestPendingEntry = this._outboundAckSentAtBySeq
+            .entries()
+            .next().value;
+        if (!oldestPendingEntry) {
+            return;
+        }
+
+        const [seq, sentAt] = oldestPendingEntry as [number, number];
+        const delayMs = Math.max(
+            0,
+            OUTBOUND_ACK_TIMEOUT_MS - (Date.now() - sentAt)
+        );
+        this._outboundAckTimer = setTimeout(() => {
+            this._outboundAckTimer = null;
+            if (!this._outboundAckSentAtBySeq.has(seq)) {
+                this._armOutboundAckTimeout();
+                return;
+            }
+            this._handleOutboundAckTimeout(seq);
+        }, delayMs);
+    }
+
+    private _clearOutboundAckTimeout(): void {
+        if (this._outboundAckTimer !== null) {
+            clearTimeout(this._outboundAckTimer);
+            this._outboundAckTimer = null;
+        }
+    }
+
+    private _handleOutboundAckTimeout(seq: number): void {
+        if (
+            this._destroyed ||
+            !this._outboundAckSentAtBySeq.has(seq) ||
+            (this._status !== 'connected' && this._status !== 'syncing')
+        ) {
+            this._armOutboundAckTimeout();
+            return;
+        }
+
+        const detail = 'Cloud update acknowledgement timed out';
+        console.warn(`CloudAdapter: ${detail}`);
+        this._clearAuthenticationTimeout();
+        this._clearOutboundAckTimeout();
+        this._resetLiveAckTracking();
+        this._setStatus('connecting', detail);
+        this._markVisibleRebaselineNeeded();
+        this._incomingResponseChunks = null;
+        this._initialServerStateApplied = false;
+        this._initialSyncDurable = false;
+        this._pendingInboundUpdates = [];
+        this._inboundFlushScheduled = false;
+
+        const ws = this._ws;
+        if (ws) {
+            this._ws = null;
+            this._clientId = null;
+            ws.close(CLIENT_RECONNECT_CLOSE_CODE, 'ack-timeout');
+        }
+        this._scheduleReconnect();
     }
 
     private _armAuthenticationTimeout(ws: WebSocket): void {

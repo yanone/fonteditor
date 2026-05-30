@@ -2125,7 +2125,10 @@ export class CloudPlugin extends FilesystemPlugin {
             ? this.getConnectionTrace(activeAssetId).slice(-12)
             : [];
         const roleLabel = window.windowRole?.getRoleLabel?.() ?? 'Main';
-        const connectedAssetIds = [...this._connectedAssetIds].sort();
+        const connectedAssetIds = [...this._connectionStatusByAssetId.entries()]
+            .filter(([, connectionStatus]) => connectionStatus === 'connected')
+            .map(([assetId]) => assetId)
+            .sort();
         const outboundSeq = (
             window as Window & {
                 __lastCloudOutboundUpdateSeq?: number;
