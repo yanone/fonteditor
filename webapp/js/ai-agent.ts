@@ -44,6 +44,7 @@ class AIAgent {
     subscription: any;
     isStreaming: boolean;
     abortController: AbortController | null;
+    _reconnectAttempts: number;
     messages: Array<{ role: string; content: string }>;
     conversationMessages: Array<any>;
     roundUsage: UsageMetrics[];
@@ -61,6 +62,7 @@ class AIAgent {
         this.subscription = null;
         this.isStreaming = false;
         this.abortController = null;
+        this._reconnectAttempts = 0;
         this.messages = [];
         this.conversationMessages = [];
         this.roundUsage = [];
@@ -1910,7 +1912,8 @@ if '_agent_original_stdout' in dir():
     async streamRound(
         messages: any[],
         onChunk: (text: string) => void,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        previousGenerationIds?: string[]
     ): Promise<any> {
         const sessionToken = window.authManager?.getSessionToken();
         const headers: Record<string, string> = {
@@ -1918,24 +1921,42 @@ if '_agent_original_stdout' in dir():
         };
         if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
 
-        const response = await fetch(`${this.getWebsiteURL()}/api/ai/agent`, {
-            method: 'POST',
-            credentials: 'include',
-            headers,
-            signal,
-            body: JSON.stringify({
-                messages,
-                tools: AGENT_TOOLS,
-                systemPrompt: AGENT_SYSTEM_PROMPT,
-                stream: true
-            })
-        });
+        const body: Record<string, any> = {
+            messages,
+            tools: AGENT_TOOLS,
+            systemPrompt: AGENT_SYSTEM_PROMPT,
+            stream: true
+        };
+        if (previousGenerationIds && previousGenerationIds.length > 0) {
+            body.previousGenerationIds = previousGenerationIds;
+        }
+
+        let response: Response;
+        try {
+            response = await fetch(`${this.getWebsiteURL()}/api/ai/agent`, {
+                method: 'POST',
+                credentials: 'include',
+                headers,
+                signal,
+                body: JSON.stringify(body)
+            });
+        } catch (err: any) {
+            // Re-throw AbortError so the caller's stop-button handler works
+            if (err.name === 'AbortError') throw err;
+            return {
+                text: '',
+                toolCalls: null,
+                done: false,
+                connectionDropped: true,
+                dropError: err.message || 'Network request failed'
+            };
+        }
 
         if (!response.ok) {
-            const err = await response
+            const errBody = await response
                 .json()
                 .catch(() => ({ error: 'Request failed' }));
-            throw new Error(err.error || `HTTP ${response.status}`);
+            throw new Error(errBody.error || `HTTP ${response.status}`);
         }
 
         const reader = response.body?.getReader();
@@ -1945,9 +1966,27 @@ if '_agent_original_stdout' in dir():
         let buf = '';
         let streamedText = '';
         let toolCalls: any[] | null = null;
+        let generationId: string | null = null;
 
         while (true) {
-            const { done, value } = await reader.read();
+            let readResult;
+            try {
+                readResult = await reader.read();
+            } catch (err: any) {
+                // Re-throw AbortError so the caller's stop-button handler works
+                if (err.name === 'AbortError') throw err;
+                // Connection dropped mid-stream — return partial text
+                // so the caller can rehydrate and continue
+                return {
+                    text: streamedText,
+                    toolCalls,
+                    done: false,
+                    connectionDropped: true,
+                    dropError: err.message || 'Connection lost',
+                    generationId
+                };
+            }
+            const { done, value } = readResult;
             if (done) break;
             buf += decoder.decode(value, { stream: true });
             const lines = buf.split('\n');
@@ -1959,6 +1998,10 @@ if '_agent_original_stdout' in dir():
                 const data = t.slice(6);
                 try {
                     const parsed = JSON.parse(data);
+                    // Capture OpenRouter generationId from every event
+                    if (parsed.generationId) {
+                        generationId = parsed.generationId;
+                    }
                     if (parsed.type === 'chunk' && parsed.content) {
                         streamedText += parsed.content;
                         onChunk(parsed.content);
@@ -1972,6 +2015,8 @@ if '_agent_original_stdout' in dir():
                             text: streamedText,
                             toolCalls,
                             usage: parsed.usage,
+                            generationId: generationId || parsed.generationId,
+                            cumulativeUsage: parsed.cumulativeUsage,
                             done: true
                         };
                     } else if (parsed.type === 'error') {
@@ -1982,7 +2027,7 @@ if '_agent_original_stdout' in dir():
                 }
             }
         }
-        return { text: streamedText, toolCalls, done: false };
+        return { text: streamedText, toolCalls, done: false, generationId };
     }
 
     // ── Main entry: streaming multi-round loop ──
@@ -2011,6 +2056,8 @@ if '_agent_original_stdout' in dir():
         this.abortController = abortController;
         const signal = abortController.signal;
         let roundTexts: string[] = [];
+        // Track generationIds across retry legs for cumulative cost reporting
+        const previousGenerationIds: string[] = [];
 
         try {
             let messageDiv: HTMLDivElement | null = null;
@@ -2059,13 +2106,51 @@ if '_agent_original_stdout' in dir():
                         }
                         this.scrollToBottomIfNear();
                     },
-                    signal
+                    signal,
+                    previousGenerationIds.length > 0
+                        ? [...previousGenerationIds]
+                        : undefined
                 );
 
+                // Successful round — reset reconnect counter and clear
+                // previous generation IDs (their cost has now been captured
+                // in cumulativeUsage or they're no longer relevant)
+                this._reconnectAttempts = 0;
+
                 // ── Track usage for this round ──
+                // On retry legs, the backend returns cumulativeUsage which
+                // is the total across ALL prior dropped legs + current leg.
+                // We compute the delta (dropped legs = cumulative - current)
+                // and accumulate that separately, then accumulate the current
+                // leg normally. This avoids double-counting while capturing
+                // the costs of legs whose SSE never completed.
                 const roundUsage = result.usage;
-                if (roundUsage) {
-                    this.roundUsage.push(roundUsage);
+                if (result.cumulativeUsage && roundUsage) {
+                    const droppedPrompt =
+                        (result.cumulativeUsage.prompt_tokens || 0) -
+                        (roundUsage.prompt_tokens || 0);
+                    const droppedCompletion =
+                        (result.cumulativeUsage.completion_tokens || 0) -
+                        (roundUsage.completion_tokens || 0);
+                    const droppedCost =
+                        (result.cumulativeUsage.total_cost || 0) -
+                        (roundUsage.total_cost || 0);
+                    if (droppedPrompt > 0 || droppedCompletion > 0) {
+                        this.accumulateSessionTotals({
+                            prompt_tokens: droppedPrompt,
+                            completion_tokens: droppedCompletion,
+                            total_tokens: droppedPrompt + droppedCompletion,
+                            cached_tokens:
+                                (result.cumulativeUsage.cached_tokens || 0) -
+                                (roundUsage.cached_tokens || 0),
+                            total_cost: droppedCost
+                        });
+                    }
+                    this.accumulateSessionTotals(roundUsage);
+                    // Clear previous gen IDs — their costs are now captured
+                    // in sessionTotals via the delta above
+                    previousGenerationIds.length = 0;
+                } else if (roundUsage) {
                     this.accumulateSessionTotals(roundUsage);
                 }
 
@@ -2091,6 +2176,64 @@ if '_agent_original_stdout' in dir():
                 }
 
                 this.updateSessionMetricsBar();
+
+                // ── Connection dropped mid-stream — auto-retry in-place ──
+                if (result.connectionDropped) {
+                    const partialText =
+                        roundTexts.filter(Boolean).join(' ').trim() ||
+                        result.text ||
+                        '';
+                    if (partialText) {
+                        conversationMessages.push({
+                            role: 'assistant',
+                            content: partialText
+                        });
+                        this.conversationMessages = conversationMessages;
+                    }
+                    // Save the generationId from the dropped leg so the retry
+                    // request includes it — the backend will query OpenRouter's
+                    // generation API to include its usage in cumulativeUsage
+                    if (result.generationId) {
+                        previousGenerationIds.push(result.generationId);
+                    }
+                    if (!this._reconnectAttempts) this._reconnectAttempts = 0;
+                    this._reconnectAttempts++;
+                    if (this._reconnectAttempts <= 3) {
+                        const reconnMsg = document.createElement('div');
+                        reconnMsg.className = 'agent-connection-dropped';
+                        reconnMsg.textContent = `🔄 Reconnecting... (attempt ${this._reconnectAttempts}/3)`;
+                        const appendTarget: HTMLElement | null =
+                            bodyDiv || this.messagesContainer;
+                        if (appendTarget) appendTarget.appendChild(reconnMsg);
+                        // Back off: 500ms, 1s, 1.5s
+                        await new Promise((r) =>
+                            setTimeout(r, 500 * this._reconnectAttempts)
+                        );
+                        // Remove the notice before retry so the seam is seamless
+                        reconnMsg.remove();
+                        // Retry SAME round into SAME shell —
+                        // conversationMessages now ends with the partial
+                        // assistant response, so the model picks up from
+                        // where it left off
+                        currentRoundIndex--; // undo the increment
+                        continue;
+                    }
+                    // Max retries exhausted — give up
+                    const exhaustedMsg = document.createElement('div');
+                    exhaustedMsg.className = 'agent-connection-dropped';
+                    exhaustedMsg.textContent =
+                        '⚠️ Connection lost after 3 retries. Type "continue" to resume.';
+                    const appendTarget: HTMLElement | null =
+                        bodyDiv || this.messagesContainer;
+                    if (appendTarget) appendTarget.appendChild(exhaustedMsg);
+                    this.hideStreamIndicator();
+                    this.isStreaming = false;
+                    if (this.sendButton)
+                        (this.sendButton as HTMLButtonElement).disabled = false;
+                    if (this.promptInput) this.promptInput.focus();
+                    this.scrollToBottomIfNear();
+                    return;
+                }
 
                 if (result.toolCalls && result.toolCalls.length > 0) {
                     // Ensure the agent message container exists even when the model
@@ -2353,10 +2496,6 @@ if '_agent_original_stdout' in dir():
     updateSessionMetricsBar(): void {
         const bar = document.getElementById('agent-session-metrics');
         if (!bar) return;
-        if (!window.isDevelopment?.()) {
-            bar.style.display = 'none';
-            return;
-        }
         const s = this.sessionTotals;
         const hasData =
             s.prompt_tokens != null ||
@@ -2376,6 +2515,7 @@ if '_agent_original_stdout' in dir():
         this.conversationMessages = [];
         this.roundUsage = [];
         this.sessionTotals = {};
+        this._reconnectAttempts = 0;
         this.isStreaming = false;
         if (this.promptInput) {
             this.promptInput.value = '';
