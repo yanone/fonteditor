@@ -144,9 +144,8 @@
                     // Update CSS
                     const css = document.getElementById('local-css');
                     if (css) css.href = 'css/style.css?v=' + version;
-                    const fileDialogCss = document.getElementById(
-                        'file-dialog-css'
-                    );
+                    const fileDialogCss =
+                        document.getElementById('file-dialog-css');
                     if (fileDialogCss) {
                         fileDialogCss.href = 'css/file-dialog.css?v=' + version;
                     }
@@ -191,7 +190,16 @@
                             const versionSpan =
                                 document.getElementById('app-version');
                             if (versionSpan) {
-                                versionSpan.textContent = match[1];
+                                const version = match[1];
+                                const isPreview = version.includes('preview');
+                                // Store full version in data attribute
+                                versionSpan.dataset.version = version;
+                                if (isPreview) {
+                                    versionSpan.textContent = 'Preview';
+                                    versionSpan.title = version;
+                                } else {
+                                    versionSpan.textContent = version;
+                                }
                             }
                         }
                     })
@@ -279,14 +287,6 @@
                     <span style="opacity: 0.4"
                         >Alpha <span id="app-version"></span
                     ></span>
-                    <button
-                        id="update-app-btn"
-                        class="update-button"
-                        style="display: none"
-                        title="New version available - click to reload"
-                    >
-                        <span class="material-symbols-outlined">autorenew</span>
-                    </button>
                 </h1>
                 <div class="toolbar-menu-bar" id="toolbar-menu-bar">
                     <button
@@ -351,7 +351,11 @@
                     >
                         <span class="material-symbols-outlined">group_add</span>
                     </button>
-                    <span id="cloud-access-role-badge" class="cloud-access-role-badge" aria-hidden="true"></span>
+                    <span
+                        id="cloud-access-role-badge"
+                        class="cloud-access-role-badge"
+                        aria-hidden="true"
+                    ></span>
                 </div>
                 <button
                     id="fullscreen-btn"
@@ -725,7 +729,8 @@
                                             class="agent-stop-button"
                                             title="Stop generating"
                                         >
-                                            <span class="material-symbols-outlined"
+                                            <span
+                                                class="material-symbols-outlined"
                                                 >stop</span
                                             >
                                         </button>
@@ -1160,7 +1165,10 @@
                         <span class="material-symbols-outlined">close</span>
                     </button>
                 </div>
-                <div class="file-dialog-plugin-tabs" id="file-dialog-plugin-tabs">
+                <div
+                    class="file-dialog-plugin-tabs"
+                    id="file-dialog-plugin-tabs"
+                >
                     <!-- Context tabs generated dynamically by file-browser.ts -->
                 </div>
                 <div class="info-popup-content file-dialog-shell-content">
@@ -1194,8 +1202,8 @@
                                 >
                                 <h2>Open Folder</h2>
                                 <p>
-                                    Select a folder from your computer to
-                                    browse and edit fonts directly.
+                                    Select a folder from your computer to browse
+                                    and edit fonts directly.
                                 </p>
                                 <button
                                     class="open-folder-button"
@@ -1237,7 +1245,10 @@
                     </div>
                 </div>
                 <div class="file-dialog-footer" id="file-dialog-footer">
-                    <div class="file-dialog-selection" id="file-dialog-selection">
+                    <div
+                        class="file-dialog-selection"
+                        id="file-dialog-selection"
+                    >
                         No file selected.
                     </div>
                     <div
@@ -1245,7 +1256,9 @@
                         id="file-dialog-save-fields"
                         style="display: none"
                     >
-                        <label class="file-dialog-save-label" for="file-dialog-save-name"
+                        <label
+                            class="file-dialog-save-label"
+                            for="file-dialog-save-name"
                             >File name</label
                         >
                         <input
@@ -2012,46 +2025,17 @@
                                         '[PWA] 🔄 New version available:',
                                         newVersion
                                     );
-                                    // Show update button
-                                    const updateBtn =
-                                        document.getElementById(
-                                            'update-app-btn'
-                                        );
-                                    if (updateBtn) {
-                                        updateBtn.style.display = 'inline-flex';
-                                        updateBtn.onclick = () => {
-                                            window.location.reload();
-                                        };
-
-                                        // Update button title with version and link
-                                        const releaseUrl = `https://github.com/yanone/context/releases/tag/${newVersion}`;
-                                        updateBtn.title = `New version ${newVersion} available - click to reload`;
-
-                                        // Add release notes link
-                                        let releaseLink =
-                                            document.getElementById(
-                                                'release-notes-link'
-                                            );
-                                        if (!releaseLink) {
-                                            releaseLink =
-                                                document.createElement('a');
-                                            releaseLink.id =
-                                                'release-notes-link';
-                                            releaseLink.className =
-                                                'release-notes-link';
-                                            releaseLink.target = '_blank';
-                                            releaseLink.rel =
-                                                'noopener noreferrer';
-                                            updateBtn.parentNode.insertBefore(
-                                                releaseLink,
-                                                updateBtn.nextSibling
-                                            );
-                                        }
-                                        releaseLink.href = releaseUrl;
-                                        releaseLink.textContent = `Release notes`;
-                                        releaseLink.style.display =
-                                            'inline-flex';
-                                    }
+                                    window.__pendingUpdate = {
+                                        version: newVersion,
+                                        isPreview:
+                                            newVersion.includes('preview')
+                                    };
+                                    document.dispatchEvent(
+                                        new CustomEvent(
+                                            'counterpunch:update-available',
+                                            { detail: window.__pendingUpdate }
+                                        )
+                                    );
                                 }
                             }
                         );
@@ -2063,27 +2047,26 @@
                                 console.log(
                                     '[PWA] 🔄 New service worker activated'
                                 );
-                                // Show update button
-                                const updateBtn =
-                                    document.getElementById('update-app-btn');
-                                if (
-                                    updateBtn &&
-                                    updateBtn.style.display !== 'inline-flex'
-                                ) {
-                                    updateBtn.style.display = 'inline-flex';
-                                    updateBtn.onclick = () => {
-                                        window.location.reload();
-                                    };
-                                    // Try to get version from the app-version span
+                                // If there's no update already pending, set one
+                                if (!window.__pendingUpdate) {
                                     const versionSpan =
                                         document.getElementById('app-version');
-                                    if (
-                                        versionSpan &&
-                                        versionSpan.textContent
-                                    ) {
-                                        const releaseUrl = `https://github.com/yanone/context/releases/tag/${versionSpan.textContent}`;
-                                        updateBtn.title = `New version available - click to reload`;
-                                    }
+                                    const version =
+                                        versionSpan?.dataset?.version ||
+                                        versionSpan?.textContent ||
+                                        'unknown';
+                                    window.__pendingUpdate = {
+                                        version,
+                                        isPreview: version.includes('preview')
+                                    };
+                                    document.dispatchEvent(
+                                        new CustomEvent(
+                                            'counterpunch:update-available',
+                                            {
+                                                detail: window.__pendingUpdate
+                                            }
+                                        )
+                                    );
                                 }
                             }
                         );

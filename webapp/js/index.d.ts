@@ -117,6 +117,10 @@ declare global {
 
         // Build metadata
         EDITOR_VERSION: string | null;
+        __pendingUpdate: {
+            version: string;
+            isPreview: boolean;
+        } | null;
         BUILD_HASH_FULL: string | null;
         BUILD_HASH_SHORT: string | null;
         WORKTREE_NAME: string;

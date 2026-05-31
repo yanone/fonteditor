@@ -12,6 +12,7 @@ import {
     triggerRedo,
     triggerUndo
 } from './window-buttons';
+import { getPendingUpdate } from './update-manager';
 
 const console = new Logger('ToolbarMenus');
 
@@ -20,6 +21,7 @@ type ToolbarMenuItem = {
     icon: string;
     shortcut?: string;
     disabled?: boolean;
+    separator?: boolean;
     action: () => Promise<void>;
 };
 
@@ -32,14 +34,27 @@ function escapeHtml(text: string): string {
 function createMenuHtml(items: ToolbarMenuItem[]): string {
     const renderedItems = items
         .map((item) => {
+            if (item.separator) {
+                return '<div class="plugin-menu-separator"></div>';
+            }
+
             const disabledClass = item.disabled ? ' disabled' : '';
             const renderedShortcut = item.shortcut
                 ? `<span class="plugin-menu-shortcut">${escapeHtml(item.shortcut)}</span>`
                 : '';
 
+            // The update item gets a dot indicator instead of a material icon
+            let iconHtml: string;
+            if (item.icon === 'update-dot') {
+                iconHtml =
+                    '<span class="material-symbols-outlined menu-update-dot-indicator"></span>';
+            } else {
+                iconHtml = `<span class="material-symbols-outlined">${escapeHtml(item.icon)}</span>`;
+            }
+
             return `
                 <div class="plugin-menu-item toolbar-menu-item${disabledClass}" data-label="${escapeHtml(item.label)}">
-                    <span class="material-symbols-outlined">${escapeHtml(item.icon)}</span>
+                    ${iconHtml}
                     <span>${escapeHtml(item.label)}</span>
                     ${renderedShortcut}
                 </div>
@@ -73,8 +88,43 @@ function setupHandlers(
 
 function getFileMenuItems(): ToolbarMenuItem[] {
     const saveButton = window.saveButton;
+    const pending = getPendingUpdate();
 
-    return [
+    const items: ToolbarMenuItem[] = [];
+
+    if (pending) {
+        items.push({
+            label: `Update to ${pending.version}`,
+            icon: 'update-dot',
+            action: async () => {
+                window.location.reload();
+            }
+        });
+
+        // Changelog only for non-preview versions
+        if (!pending.isPreview) {
+            items.push({
+                label: 'Changelog',
+                icon: 'open_in_new',
+                action: async () => {
+                    window.open(
+                        `https://github.com/yanone/context/releases/tag/${pending.version}`,
+                        '_blank'
+                    );
+                }
+            });
+        }
+
+        // Separator between update items and regular file items
+        items.push({
+            label: '',
+            icon: '',
+            separator: true,
+            action: async () => {}
+        });
+    }
+
+    items.push(
         {
             label: 'Open…',
             icon: 'folder_open',
@@ -101,7 +151,9 @@ function getFileMenuItems(): ToolbarMenuItem[] {
                 await window.showFontFileDialog?.({ mode: 'save-as' });
             }
         }
-    ];
+    );
+
+    return items;
 }
 
 function getEditMenuItems(): ToolbarMenuItem[] {
@@ -258,6 +310,25 @@ function initToolbarMenus(): void {
         getDeveloperMenuItems
     );
     installGlobalShortcuts();
+
+    // Listen for update-available events to toggle orange dot on File button
+    document.addEventListener('counterpunch:update-available', () => {
+        const fileBtn = document.getElementById('toolbar-file-menu-btn');
+        if (!fileBtn) {
+            return;
+        }
+        if (getPendingUpdate()) {
+            fileBtn.classList.add('has-update');
+        } else {
+            fileBtn.classList.remove('has-update');
+        }
+    });
+
+    // Check on init in case update was set before this module loaded
+    const fileBtn = document.getElementById('toolbar-file-menu-btn');
+    if (fileBtn && getPendingUpdate()) {
+        fileBtn.classList.add('has-update');
+    }
 
     console.log('[ToolbarMenus] Toolbar menus initialized');
 }

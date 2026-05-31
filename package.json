@@ -8,7 +8,11 @@
         "test:collab:local": "node scripts/test-collab-local.mjs",
         "generate-api-docs": "node generate-api-docs.mjs",
         "generate-event-docs": "node generate-js-event-docs.mjs",
-        "generate-docs": "npm run generate-api-docs && npm run generate-event-docs"
+        "generate-docs": "npm run generate-api-docs && npm run generate-event-docs",
+        "prepare": "husky"
+    },
+    "lint-staged": {
+        "webapp/**/*.{js,json,css,md,html,ts}": "prettier --write"
     },
     "dependencies": {
         "typescript": "^5.0.0"
@@ -16,6 +20,9 @@
     "devDependencies": {
         "chrome-devtools-mcp": "^0.21.0",
         "gitnexus": "^1.6.3",
+        "husky": "^9.1.7",
+        "lint-staged": "^17.0.6",
+        "prettier": "^3.8.3",
         "webpack-cli": "^7.0.2"
     }
 }

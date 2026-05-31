@@ -62,9 +62,6 @@
         "webpack-cli": "^6.0.1",
         "webpack-dev-server": "^5.2.2"
     },
-    "lint-staged": {
-        "*.{js,json,css,md,html,ts}": "prettier --write"
-    },
     "dependencies": {
         "@simoncozens/fonttypes": "^1.0.0",
         "bezier-js": "^6.1.4",
