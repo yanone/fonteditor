@@ -522,16 +522,16 @@ always be rebuilt from R2 checkpoints).
 
 ## Implementation priorities (tentative)
 
-| Priority | Proposal | Effort | Impact |
-|----------|----------|--------|--------|
-| 1 | **P1**: Remove app heartbeat / use auto-response | Small | Reduces wake-ups, cuts cost |
-| 2 | **P6**: Stop chain-scheduling alarms | Small | Lets DO hibernate between checkpoints |
-| 3 | **P3**: Move validation out of DO | Small | Eliminates the blocking bottleneck |
-| 4 | **P5**: R2 direct seeding | Medium | Makes initial font upload fast and reliable |
-| 5 | **P2**: R2 checkpoint download for cold-start sync | Medium | Makes reconnect fast and reliable |
-| 6 | **P4**: Two-phase checkpoint validation | Medium | Prevents blocking during checkpoints |
-| 7 | **P7**: `setWebSocketAutoResponse` | Small | Belt-and-suspenders for zero-wake keepalive |
-| 8 | **P8**: Narrow DO role to live-relay only | Large | Architectural reframe |
+| Priority | Proposal | Effort | Impact | Status |
+|----------|----------|--------|--------|--------|
+| 1 | **P1**: Remove app heartbeat / use auto-response | Small | Reduces wake-ups, cuts cost | ✅ Done |
+| 2 | **P6**: Stop chain-scheduling alarms | Small | Lets DO hibernate between checkpoints | ✅ Done |
+| 3 | **P3**: Move validation out of DO | Small | Eliminates the blocking bottleneck | ✅ Done (deleted) |
+| 4 | **P5**: R2 direct seeding | Medium | Makes initial font upload fast and reliable | ❌ Pending |
+| 5 | **P2**: R2 checkpoint download for cold-start sync | Medium | Makes reconnect fast and reliable | ❌ Pending |
+| 6 | **P4**: Two-phase checkpoint validation | Medium | Prevents blocking during checkpoints | ❌ Pending |
+| 7 | **P7**: `setWebSocketAutoResponse` | Small | Belt-and-suspenders for zero-wake keepalive | ❌ Pending |
+| 8 | **P8**: Narrow DO role to live-relay only | Large | Architectural reframe | ❌ Pending |
 
 ---
 

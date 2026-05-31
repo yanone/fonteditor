@@ -156,8 +156,6 @@ const AUTHENTICATION_TIMEOUT_MS = 10000;
 const OUTBOUND_ACK_TIMEOUT_MS = 10000;
 const OUTBOUND_ACK_MAX_WAIT_MS = 30000;
 const INITIAL_SYNC_TIMEOUT_MS = 10000;
-const HEARTBEAT_INTERVAL_MS = 20000;
-const HEARTBEAT_TIMEOUT_MS = 50000;
 
 export type CloudConnectionStatus =
     | 'disconnected'
@@ -183,9 +181,6 @@ export type CloudConnectionHealth = {
     wsReadyState: number | null;
     lastInboundMessageAt: number;
     lastInboundAgeMs: number | null;
-    lastHeartbeatSentAt: number;
-    lastHeartbeatAckAt: number;
-    heartbeatInFlightMs: number | null;
     livenessTimeoutCount: number;
     lastReconnectReason: string | null;
 };
@@ -521,11 +516,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _authenticationTimer: ReturnType<typeof setTimeout> | null = null;
     private _outboundAckTimer: ReturnType<typeof setTimeout> | null = null;
     private _initialSyncTimer: ReturnType<typeof setTimeout> | null = null;
-    private _heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
     private _lastInboundMessageAt = 0;
-    private _lastHeartbeatSentAt = 0;
-    private _pendingHeartbeatSentAt = 0;
-    private _lastHeartbeatAckAt = 0;
     private _livenessTimeoutCount = 0;
     private _lastReconnectReason: string | null = null;
     private _assetRoles = new Map<string, CloudAssetRole>();
@@ -591,11 +582,6 @@ export class CloudAdapter implements FileSystemAdapter {
             lastInboundAgeMs: this._lastInboundMessageAt
                 ? now - this._lastInboundMessageAt
                 : null,
-            lastHeartbeatSentAt: this._lastHeartbeatSentAt,
-            lastHeartbeatAckAt: this._lastHeartbeatAckAt,
-            heartbeatInFlightMs: this._pendingHeartbeatSentAt
-                ? now - this._pendingHeartbeatSentAt
-                : null,
             livenessTimeoutCount: this._livenessTimeoutCount,
             lastReconnectReason: this._lastReconnectReason
         };
@@ -614,7 +600,6 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
         this._lastInboundMessageAt = 0;
-        this._resetHeartbeatState();
         this._visibleRebaselinePromise = null;
         this._resetWorkerBridgeSyncState();
         this._clearInitialSyncTimeout();
@@ -651,7 +636,6 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
         this._lastInboundMessageAt = 0;
-        this._resetHeartbeatState();
         this._visibleRebaselinePromise = null;
         this._resetWorkerBridgeSyncState();
         this._clearInitialSyncTimeout();
@@ -674,7 +658,6 @@ export class CloudAdapter implements FileSystemAdapter {
         this._clearReconnectTimer();
         this._clearAuthenticationTimeout();
         this._clearInitialSyncTimeout();
-        this._resetHeartbeatState();
         this._resetLiveAckTracking();
         this._clearPendingSyncCompleteTracking();
         this._unsubscribeFontModelReady();
@@ -813,7 +796,6 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
         this._lastInboundMessageAt = 0;
-        this._resetHeartbeatState();
         this._resetWorkerBridgeSyncState();
     }
 
@@ -831,7 +813,6 @@ export class CloudAdapter implements FileSystemAdapter {
         this._clearReconnectTimer();
         this._clearAuthenticationTimeout();
         this._clearInitialSyncTimeout();
-        this._resetHeartbeatState();
         this._clearOutboundAckTimeout();
         this._resetLiveAckTracking();
         this._clearPendingSyncCompleteTracking();
@@ -857,7 +838,6 @@ export class CloudAdapter implements FileSystemAdapter {
         const detail = 'Browser is online; reconnecting';
         this._lastReconnectReason = 'browser-online';
         this._clearReconnectTimer();
-        this._resetHeartbeatState();
         this._markVisibleRebaselineNeeded();
         this._resetBootstrapStateForReconnect();
         this._setStatus('connecting', detail);
@@ -1106,7 +1086,6 @@ export class CloudAdapter implements FileSystemAdapter {
                     `CloudAdapter: closed (${event.code}: ${event.reason})`
                 );
                 this._clearAuthenticationTimeout();
-                this._resetHeartbeatState();
                 this._clientId = null;
                 this._markVisibleRebaselineNeeded();
                 this._hasSynced = false;
@@ -1278,11 +1257,6 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._accumulateIncomingLiveUpdateChunk(msg);
                 break;
             }
-
-            case 'pong':
-                this._lastHeartbeatAckAt = Date.now();
-                this._pendingHeartbeatSentAt = 0;
-                break;
 
             case 'update':
                 if (typeof msg.update === 'string') {
@@ -2141,136 +2115,11 @@ export class CloudAdapter implements FileSystemAdapter {
 
     private _setStatus(status: CloudConnectionStatus, detail?: string): void {
         this._status = status;
-        if (status === 'connected') {
-            this._startHeartbeat();
-        } else {
-            this._clearHeartbeatTimer();
-        }
         this._onConnectionStatus?.(status, detail);
     }
 
     private _recordInboundMessage(): void {
         this._lastInboundMessageAt = Date.now();
-        this._pendingHeartbeatSentAt = 0;
-    }
-
-    private _startHeartbeat(): void {
-        this._clearHeartbeatTimer();
-        if (
-            !this._ws ||
-            this._ws.readyState !== WebSocket.OPEN ||
-            !this._clientId ||
-            this._destroyed
-        ) {
-            return;
-        }
-
-        this._armHeartbeatTimer(HEARTBEAT_INTERVAL_MS);
-    }
-
-    private _armHeartbeatTimer(delayMs: number): void {
-        this._clearHeartbeatTimer();
-        this._heartbeatTimer = setTimeout(
-            () => {
-                this._heartbeatTimer = null;
-                this._sendHeartbeatOrReconnect();
-            },
-            Math.max(0, delayMs)
-        );
-    }
-
-    private _clearHeartbeatTimer(): void {
-        if (this._heartbeatTimer !== null) {
-            clearTimeout(this._heartbeatTimer);
-            this._heartbeatTimer = null;
-        }
-    }
-
-    private _resetHeartbeatState(): void {
-        this._clearHeartbeatTimer();
-        this._lastHeartbeatSentAt = 0;
-        this._pendingHeartbeatSentAt = 0;
-        this._lastHeartbeatAckAt = 0;
-    }
-
-    private _nextHeartbeatDelay(now: number): number {
-        if (!this._pendingHeartbeatSentAt) {
-            return HEARTBEAT_INTERVAL_MS;
-        }
-
-        return Math.min(
-            HEARTBEAT_INTERVAL_MS,
-            Math.max(
-                0,
-                HEARTBEAT_TIMEOUT_MS - (now - this._pendingHeartbeatSentAt)
-            )
-        );
-    }
-
-    private _sendHeartbeatOrReconnect(): void {
-        if (
-            this._destroyed ||
-            this._status !== 'connected' ||
-            !this._ws ||
-            this._ws.readyState !== WebSocket.OPEN ||
-            !this._clientId
-        ) {
-            return;
-        }
-
-        const now = Date.now();
-        if (
-            this._pendingHeartbeatSentAt &&
-            now - this._pendingHeartbeatSentAt >= HEARTBEAT_TIMEOUT_MS
-        ) {
-            this._handleHeartbeatTimeout();
-            return;
-        }
-
-        try {
-            this._ws.send(
-                JSON.stringify({
-                    type: 'ping',
-                    sentAt: now
-                })
-            );
-            this._lastHeartbeatSentAt = now;
-            if (!this._pendingHeartbeatSentAt) {
-                this._pendingHeartbeatSentAt = now;
-            }
-        } catch (error) {
-            console.warn('CloudAdapter: heartbeat send failed:', error);
-            this._handleHeartbeatTimeout();
-            return;
-        }
-
-        this._armHeartbeatTimer(this._nextHeartbeatDelay(now));
-    }
-
-    private _handleHeartbeatTimeout(): void {
-        if (this._destroyed || this._status !== 'connected' || !this._ws) {
-            return;
-        }
-
-        const detail = 'Cloud connection heartbeat timed out';
-        console.warn(`CloudAdapter: ${detail}`);
-        this._livenessTimeoutCount += 1;
-        this._lastReconnectReason = 'heartbeat-timeout';
-        this._clearAuthenticationTimeout();
-        this._clearInitialSyncTimeout();
-        this._resetHeartbeatState();
-        this._resetLiveAckTracking();
-        this._setStatus('connecting', detail);
-        this._markVisibleRebaselineNeeded();
-        this._resetBootstrapStateForReconnect();
-        this._pendingInboundUpdates = [];
-        this._inboundFlushScheduled = false;
-
-        const ws = this._ws;
-        this._ws = null;
-        this._clientId = null;
-        ws.close(CLIENT_RECONNECT_CLOSE_CODE, 'heartbeat-timeout');
-        this._scheduleReconnect();
     }
 
     private _resetLiveAckTracking(): void {
