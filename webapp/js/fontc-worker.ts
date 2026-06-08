@@ -2069,6 +2069,7 @@ self.onmessage = async (event) => {
 
         // Handle cache clear request (check BEFORE compilation)
         if (data.type === 'clearCache') {
+            const { id } = data;
             const clearCacheSpanId = timelineSpanStart(
                 'font.worker.clearCache'
             );
@@ -2084,6 +2085,7 @@ self.onmessage = async (event) => {
                 fontCacheEpoch = 0;
                 dragCompilesSinceStore = 0;
                 self.postMessage({
+                    id,
                     type: 'clearCache',
                     success: true
                 });
@@ -2092,6 +2094,7 @@ self.onmessage = async (event) => {
                 timelineMark('font.worker.clearCache.failed');
                 console.error('[Fontc Worker] Error clearing cache:', e);
                 self.postMessage({
+                    id,
                     type: 'clearCache',
                     error: e.toString()
                 });
