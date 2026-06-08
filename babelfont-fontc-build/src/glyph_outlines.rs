@@ -312,6 +312,14 @@ pub fn get_glyphs_outlines(
     } else {
         location_map
             .iter()
+            .filter(|(tag_str, _)| {
+                // Skip axes that don't exist in the current font — they would
+                // cause an AxisConversion error in normalize_location and are
+                // stale data from a previously loaded font.
+                Tag::from_str(tag_str)
+                    .ok()
+                    .map_or(false, |tag| font.axes.iter().any(|a| a.tag == tag))
+            })
             .map(|(tag_str, user_value)| {
                 let tag = Tag::from_str(tag_str)
                     .map_err(|e| JsValue::from_str(&format!("Invalid tag '{}': {}", tag_str, e)))?;
@@ -322,6 +330,7 @@ pub fn get_glyphs_outlines(
                         Err(_) => DesignCoord::new(*user_value),
                     }
                 } else {
+                    // Unreachable due to filter above, but keep as fallback
                     DesignCoord::new(*user_value)
                 };
 

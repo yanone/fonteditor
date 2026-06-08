@@ -2045,6 +2045,13 @@ class FontManager {
                 window.history.replaceState(null, '', url.toString());
             }
 
+            // Reset the state manager's cached location so the startup
+            // state restore doesn't re-apply the previous font's axis
+            // values to the new empty font (which has no axes).
+            if (window.stateManager) {
+                window.stateManager.editor_variation_location = {};
+            }
+
             // Use disk plugin (no file handle → Save redirects to Save As)
             const plugin =
                 window.pluginRegistry?.get('disk') ??

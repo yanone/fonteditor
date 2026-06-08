@@ -2530,6 +2530,9 @@ class GlyphCanvas {
         if (this.axesSection) {
             this.axesSection.replaceChildren();
         }
+        if (this.axesManager) {
+            this.axesManager.variationSettings = {};
+        }
         if (this.featuresManager?.featuresSection) {
             this.featuresManager.featuresSection.replaceChildren();
             this.featuresManager.featureAvailabilityInEditingSubset = {};
