@@ -87,6 +87,18 @@ class SaveButton {
             return;
         }
 
+        // Unsaved font with disk plugin but no file handle → redirect to Save As
+        const currentFont = window.fontManager?.currentFont;
+        if (
+            currentFont &&
+            !currentFont.fileHandle &&
+            !currentFont.isCloudBacked()
+        ) {
+            if (!this.hasFontOpen()) return;
+            await window.showFontFileDialog?.({ mode: 'save-as' });
+            return;
+        }
+
         if (!this.canSave()) {
             return;
         }
@@ -169,7 +181,9 @@ class SaveButton {
     }
 
     isDirty(): boolean {
-        return !!window.fontManager?.currentFont?.hasUnsavedChanges;
+        return !!window.fontManager?.hasUnsyncedChanges?.(
+            window.fontManager?.currentFont
+        );
     }
 
     canSave(): boolean {

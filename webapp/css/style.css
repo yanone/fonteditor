@@ -5137,6 +5137,17 @@ kbd + kbd {
 }
 
 /* Agent stream indicator (spinner + stop button) */
+.agent-connection-dropped {
+    padding: 8px 12px;
+    margin: 4px 0;
+    background: rgba(239, 65, 54, 0.08);
+    border: 1px solid rgba(239, 65, 54, 0.25);
+    border-radius: 6px;
+    color: var(--accent-magenta);
+    font-size: 0.85em;
+    text-align: center;
+}
+
 #agent-stream-indicator {
     display: flex;
     align-items: center;
@@ -5639,6 +5650,43 @@ kbd + kbd {
 
 .info-popup-content::-webkit-scrollbar-thumb:hover {
     background: var(--scrollbar-thumb-hover);
+}
+
+/* ── Confirm dialog (unsaved changes, etc.) ──────────────────────────────── */
+.confirm-dialog {
+    max-width: 420px;
+    width: 90%;
+}
+
+.confirm-dialog-content p {
+    margin: 0 0 20px 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-tertiary);
+}
+
+.confirm-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.confirm-dialog-btn {
+    font-size: 12px !important;
+    padding: 6px 14px !important;
+}
+
+.confirm-dialog-danger {
+    color: var(--accent-red) !important;
+    border-color: var(--accent-red) !important;
+}
+
+.confirm-dialog-danger:hover {
+    background-color: color-mix(
+        in srgb,
+        var(--accent-red) 12%,
+        transparent
+    ) !important;
 }
 
 /* Settings panel scrollbar */

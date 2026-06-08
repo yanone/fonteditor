@@ -2147,7 +2147,7 @@ describe('FontManager share button visibility', () => {
             false
         );
         expect(fontManager.dirtyIndicator.title).toBe(
-            'Cloud fonts save continuously'
+            'Cloud font — changes sync continuously'
         );
     });
 });
@@ -3385,6 +3385,147 @@ describe('FontManager worker seed export', () => {
         } finally {
             parseSpy.mockRestore();
         }
+    });
+});
+
+describe('FontManager handleNewFont', () => {
+    let originalOpenedFonts;
+    let originalCurrentFontId;
+    let originalCurrentFontModel;
+    let originalPluginRegistry;
+    let originalFontCompilationInitialized;
+    let originalLastStoredFontJson;
+    let sendMessageSpy;
+    let updateDirtyIndicatorSpy;
+    let intermediateFontData;
+
+    beforeAll(() => {
+        const fixturePath = path.join(
+            __dirname,
+            '..',
+            'examples',
+            'intermediate_layer_on_a.glyphs'
+        );
+        intermediateFontData = loadFontFile(fixturePath);
+    });
+
+    beforeEach(() => {
+        originalOpenedFonts = fontManager.openedFonts;
+        originalCurrentFontId = fontManager.currentFontId;
+        originalCurrentFontModel = window.currentFontModel;
+        originalPluginRegistry = window.pluginRegistry;
+        originalFontCompilationInitialized = fontCompilation.isInitialized;
+        originalLastStoredFontJson = fontCompilation.lastStoredFontJson;
+
+        // Provide a mock pluginRegistry so the disk plugin lookup works
+        window.pluginRegistry = {
+            get: (id) => {
+                if (id === 'disk') {
+                    return { getId: () => 'disk', getName: () => 'Disk' };
+                }
+                if (id === 'memory') {
+                    return { getId: () => 'memory', getName: () => 'Memory' };
+                }
+                return null;
+            }
+        };
+
+        fontCompilation.isInitialized = true;
+        sendMessageSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+        updateDirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+
+        // Load an existing font first to simulate having a font open
+        const fontData = cloneJson(intermediateFontData);
+        const fakeCurrentFont = {
+            babelfontJson: JSON.stringify(fontData),
+            babelfontData: fontData,
+            fontModel: Font.fromData(fontData),
+            name: 'Sukoon',
+            hasUnsavedChanges: false,
+            isCloudBacked: () => false,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(function () {
+                this.babelfontJson = this.fontModel.toJSONString();
+            })
+        };
+        fontManager.openedFonts = new Map([['test-font', fakeCurrentFont]]);
+        fontManager.currentFontId = 'test-font';
+        window.currentFontModel = fakeCurrentFont.fontModel;
+    });
+
+    afterEach(() => {
+        sendMessageSpy?.mockRestore();
+        updateDirtyIndicatorSpy?.mockRestore();
+        fontManager.openedFonts = originalOpenedFonts;
+        fontManager.currentFontId = originalCurrentFontId;
+        window.currentFontModel = originalCurrentFontModel;
+        window.pluginRegistry = originalPluginRegistry;
+        fontCompilation.isInitialized = originalFontCompilationInitialized;
+        fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
+        delete window.patchSyncEngine;
+    });
+
+    test('generates valid empty font JSON that can be parsed by Font.fromData', () => {
+        const json = fontManager.generateEmptyFontJson();
+        expect(typeof json).toBe('string');
+        const parsed = JSON.parse(json);
+        expect(parsed.upm).toBe(1000);
+        expect(parsed.names.family_name.dflt).toBe('Untitled');
+        expect(parsed.masters.length).toBe(1);
+        expect(typeof parsed.masters[0].name).toBe('object');
+        expect(parsed.masters[0].name.dflt).toBe('Default Master');
+        expect(parsed.masters[0].id).toBeTruthy();
+        expect(parsed.glyphs.length).toBe(1);
+        expect(parsed.glyphs[0].name).toBe('.notdef');
+        expect(parsed.glyphs[0].category).toBe('Unknown');
+        // exported defaults to true in Rust and is skipped from JSON when true
+        expect(parsed.features).toBeDefined();
+        expect(parsed.date).toBeTruthy();
+        expect(parsed.version).toEqual([1, 0]);
+
+        // Must be parseable by Font.fromData (the JS model)
+        const fontObj = Font.fromData(parsed);
+        expect(fontObj).toBeDefined();
+        expect(fontObj.names.family_name.dflt).toBe('Untitled');
+        expect(fontObj.glyphs[0].exported).toBe(true);
+    });
+
+    test('generateEmptyFontJson creates a valid font data structure for Font.fromData', () => {
+        const json = fontManager.generateEmptyFontJson();
+        expect(typeof json).toBe('string');
+        const parsed = JSON.parse(json);
+        expect(parsed.upm).toBe(1000);
+        expect(parsed.names.family_name.dflt).toBe('Untitled');
+        expect(parsed.masters.length).toBe(1);
+        expect(parsed.masters[0].name.dflt).toBe('Default Master');
+        expect(parsed.masters[0].metrics).toBeDefined();
+        expect(parsed.glyphs.length).toBe(1);
+        expect(parsed.glyphs[0].name).toBe('.notdef');
+        expect(parsed.glyphs[0].category).toBe('Unknown');
+        expect(parsed.glyphs[0].layers[0].width).toBe(600);
+        expect(parsed.masters[0].id).toBeTruthy();
+        expect(parsed.glyphs[0].layers[0].id).toBeTruthy();
+        // exported, shapes, anchors, guides, etc. have Rust defaults and
+        // are absent from the minimal JSON — Font.fromData fills in
+        const fontObj = Font.fromData(parsed);
+        expect(fontObj.glyphs[0].exported).toBe(true);
+        expect(parsed.date).toBeTruthy();
+        expect(parsed.version).toEqual([1, 0]);
+        expect(parsed.features).toBeDefined();
+    });
+
+    test('generateEmptyFontJson round-trips through Font.fromData', () => {
+        const json = fontManager.generateEmptyFontJson();
+        const parsed = JSON.parse(json);
+        const fontObj = Font.fromData(parsed);
+        expect(fontObj).toBeDefined();
+        expect(fontObj.names.family_name.dflt).toBe('Untitled');
+        expect(fontObj.masters[0].name.dflt).toBe('Default Master');
+        expect(fontObj.findGlyph('.notdef')).toBeDefined();
     });
 });
 

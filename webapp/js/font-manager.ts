@@ -716,6 +716,11 @@ class FontManager {
         this.fontRoleBadgeElement =
             this.fontDisplay?.querySelector('.font-window-role-badge') || null;
         this.dirtyIndicator = document.getElementById('file-dirty-indicator');
+
+        // Listen for cloud sync status changes to update dirty indicator
+        window.addEventListener('cloudConnectionStatusChanged', () => {
+            void this.updateDirtyIndicator();
+        });
     }
 
     private ensureCloudConnectionWarningBadge(): HTMLElement | null {
@@ -1218,7 +1223,22 @@ class FontManager {
             return false;
         }
 
-        return !font.isCloudBacked() && font.hasUnsavedChanges;
+        return this.hasUnsyncedChanges(font);
+    }
+
+    /**
+     * Check whether a font has unsynced changes.
+     *
+     * For non-cloud fonts this checks the `hasUnsavedChanges` flag.
+     * For cloud-backed fonts this checks the pending outgoing sync packet count.
+     */
+    hasUnsyncedChanges(font: OpenedFont | null): boolean {
+        if (!font) return false;
+        if (!font.isCloudBacked()) return !!font.hasUnsavedChanges;
+        const assetId = font.path.replace(/^cloud:\/\//, '');
+        return (
+            (window.cloudPlugin?.getAssetPendingSyncCount?.(assetId) ?? 0) > 0
+        );
     }
 
     hasAnyDirtyState(): boolean {
@@ -1383,7 +1403,13 @@ class FontManager {
             this.shouldShowDirtyState(this.currentFont);
 
         if (this.currentFont?.isCloudBacked()) {
-            this.dirtyIndicator!.title = 'Cloud fonts save continuously';
+            const assetId = this.currentFont.path.replace(/^cloud:\/\//, '');
+            const pendingCount =
+                window.cloudPlugin?.getAssetPendingSyncCount?.(assetId) ?? 0;
+            this.dirtyIndicator!.title =
+                pendingCount > 0
+                    ? `Syncing ${pendingCount} change${pendingCount !== 1 ? 's' : ''}…`
+                    : 'Cloud font — changes sync continuously';
         } else {
             this.dirtyIndicator!.title = 'File has unsaved changes';
         }
@@ -1852,6 +1878,195 @@ class FontManager {
                 }
             })
         );
+    }
+
+    /**
+     * Generate a minimal empty babelfont JSON string.
+     * One master, one .notdef glyph, no axes or instances.
+     */
+    private generateEmptyFontJson(): string {
+        // Build a minimal font from scratch.
+        // Rust babelfont::Font requires: upm, version, date, names, features, glyphs.
+        // Master requires: name, id, location, metrics, kerning.
+        // All other fields have #[serde(default)] so they are optional.
+        const masterId = crypto.randomUUID();
+        const layerId = crypto.randomUUID();
+        const fontData: any = {
+            upm: 1000,
+            version: [1, 0],
+            date: new Date().toISOString(),
+            names: {
+                family_name: { dflt: 'Untitled' }
+            },
+            features: {
+                classes: {},
+                prefixes: {},
+                features: []
+            },
+            // No axes — a static font with no axes and one master means the
+            // glyph rendering path uses the single master directly instead
+            // of trying to interpolate between nonexistent masters.
+            masters: [
+                {
+                    id: masterId,
+                    name: { dflt: 'Default Master' },
+                    location: {},
+                    metrics: {},
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: '.notdef',
+                    category: 'Unknown',
+                    exported: true,
+                    layers: [
+                        {
+                            id: layerId,
+                            width: 600,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: masterId
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+        return JSON.stringify(fontData);
+    }
+
+    private _newFontInProgress = false;
+
+    /**
+     * Handle the "New" file action.
+     *
+     * 1. Prompts to save/discard/cancel if the current font has unsynced changes.
+     * 2. Generates a minimal empty font and dispatches `fontLoaded`.
+     *
+     * Uses the same `fontLoaded` event the file browser dispatches when a user
+     * opens a font file, so the existing open-font pipeline handles all state
+     * reset, worker caching, compilation, canvas setup, and event dispatch.
+     *
+     * Uses a concurrency guard to prevent stacked invocations (e.g. rapid
+     * clicks on the menu item while a dialog is still open).
+     */
+    async handleNewFont(): Promise<void> {
+        console.log('[FontManager] handleNewFont ENTER', {
+            newFontInProgress: this._newFontInProgress
+        });
+        if (this._newFontInProgress) return;
+        this._newFontInProgress = true;
+        try {
+            const currentFont = this.currentFont;
+            console.log('[FontManager] handleNewFont', {
+                hasCurrentFont: !!currentFont
+            });
+
+            // Prompt if there are unsynced changes (works for cloud and non-cloud)
+            if (currentFont && this.hasUnsyncedChanges(currentFont)) {
+                console.log('[FontManager] handleNewFont: showing dialog');
+                const { showUnsavedChangesDialog } =
+                    await import('./ui/confirm-dialog');
+                const fontName = currentFont.name || 'Untitled';
+                const choice = await showUnsavedChangesDialog(fontName);
+                console.log(
+                    '[FontManager] handleNewFont: dialog choice',
+                    choice
+                );
+                if (choice === 'cancel') return;
+                if (choice === 'save') {
+                    if (
+                        !currentFont.fileHandle &&
+                        !currentFont.isCloudBacked()
+                    ) {
+                        await window.showFontFileDialog?.({
+                            mode: 'save-as'
+                        });
+                    } else {
+                        await window.saveButton?.handleSave?.();
+                    }
+                }
+            }
+
+            console.log('[FontManager] handleNewFont: clearing caches');
+            try {
+                await fontCompilation.sendMessage({ type: 'clearCache' });
+                console.log('[FontManager] handleNewFont: clearCache done');
+            } catch (e) {
+                console.warn(
+                    '[FontManager] handleNewFont: clearCache failed',
+                    e
+                );
+            }
+            try {
+                await fontCompilation.sendMessage({
+                    type: 'storeFontJson',
+                    babelfontJson: this.generateEmptyFontJson(),
+                    forceStore: true
+                });
+                console.log('[FontManager] handleNewFont: storeFontJson done');
+            } catch (e) {
+                console.warn(
+                    '[FontManager] handleNewFont: storeFontJson failed',
+                    e
+                );
+            }
+
+            // Reset all JS-side caches
+            if (window.windowSync) {
+                window.windowSync.destroy();
+                window.windowSync = undefined;
+            }
+            if (window.patchSyncEngine) {
+                window.patchSyncEngine.destroy();
+                window.patchSyncEngine = undefined;
+                window.changeBridge = undefined;
+            }
+            this.workerCacheYDoc = null;
+            this.currentText = '';
+            try {
+                localStorage.removeItem('glyphCanvasTextBuffer');
+            } catch {
+                // localStorage may not be available
+            }
+
+            // Clear stale URL params
+            if (window.history?.replaceState) {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('text');
+                url.searchParams.delete('cursor');
+                url.searchParams.delete('mode');
+                url.searchParams.delete('location');
+                url.searchParams.delete('features');
+                url.searchParams.delete('glyph_stack');
+                url.searchParams.delete('isInterpolating');
+                url.searchParams.delete('isAnimating');
+                window.history.replaceState(null, '', url.toString());
+            }
+
+            // Use disk plugin (no file handle → Save redirects to Save As)
+            const plugin =
+                window.pluginRegistry?.get('disk') ??
+                window.pluginRegistry?.get('memory');
+
+            // Dispatch fontLoaded — the existing open-font pipeline handles
+            // compilation singletons, storeFontJson, loadFont, fontModelReady,
+            // bridge init, compile editing font, etc.
+            const emptyFontJson = this.generateEmptyFontJson();
+
+            window.dispatchEvent(
+                new CustomEvent('fontLoaded', {
+                    detail: {
+                        path: 'untitled.babelfont',
+                        babelfontJson: emptyFontJson,
+                        sourcePlugin: plugin
+                    }
+                })
+            );
+        } finally {
+            this._newFontInProgress = false;
+        }
     }
 
     /**
@@ -3910,6 +4125,24 @@ class FontManager {
     /** Public accessor so window-sync can build a Rust-compatible seed state. */
     buildWorkerSeedYjsState(): Uint8Array | null {
         return this.buildWorkerYjsStateFromCurrentFont();
+    }
+
+    /**
+     * Build a Yjs binary state from a raw babelfont JSON string, without
+     * touching the current font or any bridge. Used to seed the worker's
+     * Y.Doc with the empty font before the normal pipeline runs.
+     */
+    private buildWorkerYjsStateFromJson(
+        babelfontJson: string
+    ): Uint8Array | null {
+        try {
+            const parsed = JSON.parse(babelfontJson) as Record<string, unknown>;
+            const yDoc = new Y.Doc();
+            jsonToYDoc(parsed, yDoc.getMap('font'));
+            return Y.encodeStateAsUpdate(yDoc);
+        } catch {
+            return null;
+        }
     }
 
     private bootstrapWorkerYjsMirrorFromCurrentFont(): boolean {
