@@ -2503,6 +2503,25 @@ class GlyphCanvas {
             this.textRunEditor.selectionStart = null;
             this.textRunEditor.selectionEnd = null;
             this.textRunEditor.skipRenderingDuringFeatureChange = false;
+
+            // Clear shaping state so the compile fallback chain doesn't feed
+            // stale glyph names from the previous font into a new empty font,
+            // which would cause a Rust panic. The text buffer and glyph name
+            // buffer are ephemeral shaping artifacts and must be invalidated
+            // when the font is replaced.
+            this.textRunEditor.textBuffer = '';
+            this.textRunEditor.glyphNameBuffer = [];
+            this.textRunEditor.shapedGlyphs = [];
+            this.textRunEditor.explicitGlyphTokens = [];
+            this.textRunEditor.intrinsicGlyphAdvances.clear();
+            this.textRunEditor.fontBlob = null;
+            this.textRunEditor.shapingFontBlob = null;
+            this.textRunEditor.hbFont = null;
+            this.textRunEditor.hbFace = null;
+            this.textRunEditor.hbBlob = null;
+            this.textRunEditor.shapingHbFont = null;
+            this.textRunEditor.shapingHbFace = null;
+            this.textRunEditor.shapingHbBlob = null;
         }
 
         if (this.propertiesSection) {
