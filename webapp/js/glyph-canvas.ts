@@ -317,38 +317,6 @@ function usesFlatKerningPairs(kerning: KerningContainer | undefined): boolean {
     );
 }
 
-function findAdjacentKerningClusters(
-    clusterMap: TextRunClusterInfo[] | undefined,
-    cursorPosition: number
-): {
-    firstCluster: TextRunClusterInfo | null;
-    secondCluster: TextRunClusterInfo | null;
-} {
-    if (!clusterMap || clusterMap.length === 0) {
-        return {
-            firstCluster: null,
-            secondCluster: null
-        };
-    }
-
-    let firstCluster: TextRunClusterInfo | null = null;
-    let secondCluster: TextRunClusterInfo | null = null;
-
-    for (const cluster of clusterMap) {
-        if (cluster.end === cursorPosition) {
-            firstCluster = cluster;
-        }
-        if (secondCluster === null && cluster.start === cursorPosition) {
-            secondCluster = cluster;
-        }
-    }
-
-    return {
-        firstCluster,
-        secondCluster
-    };
-}
-
 function collectKerningGroupMemberships(
     groups: Record<string, string[]> | undefined,
     glyphName: string | null
@@ -4907,13 +4875,13 @@ class GlyphCanvas {
     private getPreferredTextModeKerningSelection(
         master: Master | null,
         firstKeys: string[],
-        secondKeys: string[]
+        secondKeys: string[],
+        isRTL: boolean = false
     ): TextModeKerningSelection {
         const pickFallbackKey = (keys: string[]): string | null => {
-            const firstGroupKey = keys.find((key) => key.startsWith('@'));
-            return firstGroupKey || keys[0] || null;
+            const groupKey = keys.find((key) => key.startsWith('@'));
+            return groupKey ?? keys[0] ?? null;
         };
-
         const fallbackSelection = {
             firstKey: pickFallbackKey(firstKeys),
             secondKey: pickFallbackKey(secondKeys)
@@ -4923,7 +4891,9 @@ class GlyphCanvas {
             return fallbackSelection;
         }
 
-        const kerning = master.kerning as KerningContainer | undefined;
+        const kerning = (isRTL ? master.kerningRTL : master.kerning) as
+            | KerningContainer
+            | undefined;
         if (!kerning) {
             return fallbackSelection;
         }
@@ -4954,21 +4924,20 @@ class GlyphCanvas {
         master: Master | null,
         firstKeys: string[],
         secondKeys: string[],
-        currentSelection: TextModeKerningSelection
+        currentSelection: TextModeKerningSelection | null,
+        isRTL: boolean = false
     ): TextModeKerningSelection {
         const preferredSelection = this.getPreferredTextModeKerningSelection(
             master,
             firstKeys,
-            secondKeys
+            secondKeys,
+            isRTL
         );
 
-        if (!currentSelection.firstKey || !currentSelection.secondKey) {
-            return preferredSelection;
-        }
-
         if (
-            !firstKeys.includes(currentSelection.firstKey) ||
-            !secondKeys.includes(currentSelection.secondKey)
+            !currentSelection ||
+            !firstKeys.includes(currentSelection.firstKey ?? '') ||
+            !secondKeys.includes(currentSelection.secondKey ?? '')
         ) {
             return preferredSelection;
         }
@@ -4977,14 +4946,19 @@ class GlyphCanvas {
             return currentSelection;
         }
 
-        const kerning = master.kerning as KerningContainer | undefined;
-        const currentValue = kerning
-            ? getKerningPairValue(
-                  kerning,
-                  currentSelection.firstKey,
-                  currentSelection.secondKey
-              )
-            : null;
+        const kerning = (isRTL ? master.kerningRTL : master.kerning) as
+            | KerningContainer
+            | undefined;
+        const currentValue =
+            kerning &&
+            currentSelection.firstKey != null &&
+            currentSelection.secondKey != null
+                ? getKerningPairValue(
+                      kerning,
+                      currentSelection.firstKey,
+                      currentSelection.secondKey
+                  )
+                : null;
         const preferredValue =
             preferredSelection.firstKey &&
             preferredSelection.secondKey &&
@@ -5015,10 +4989,12 @@ class GlyphCanvas {
         master: Master | null,
         oppositeKeys: string[],
         selectedOppositeKey: string | null,
-        activeKey: string | null
+        activeKey: string | null,
+        isRTL: boolean = false
     ): TextModeKerningOperand[] {
-        const kerning =
-            (master?.kerning as KerningContainer | undefined) || undefined;
+        const kerning = (
+            master ? (isRTL ? master.kerningRTL : master.kerning) : undefined
+        ) as KerningContainer | undefined;
         const options = [
             {
                 side,
@@ -5114,10 +5090,25 @@ class GlyphCanvas {
             return defaultContext;
         }
 
-        const { firstCluster, secondCluster } = findAdjacentKerningClusters(
-            this.textRunEditor.clusterMap as TextRunClusterInfo[] | undefined,
-            this.textRunEditor.cursorPosition
-        );
+        const clusterMap = this.textRunEditor.clusterMap as
+            | TextRunClusterInfo[]
+            | undefined;
+        const cursorPosition = this.textRunEditor.cursorPosition;
+        let firstCluster: TextRunClusterInfo | null = null;
+        let secondCluster: TextRunClusterInfo | null = null;
+        if (clusterMap) {
+            for (const cluster of clusterMap) {
+                if (cluster.end === cursorPosition) {
+                    firstCluster = cluster;
+                }
+                if (
+                    secondCluster === null &&
+                    cluster.start === cursorPosition
+                ) {
+                    secondCluster = cluster;
+                }
+            }
+        }
         if (!firstCluster || !secondCluster) {
             this.syncTextModeKerningSelectionScope(null);
             return defaultContext;
@@ -5179,7 +5170,8 @@ class GlyphCanvas {
             master,
             firstKeys,
             secondKeys,
-            selection
+            selection,
+            firstCluster.isRTL
         );
 
         this.textModeKerningSelection = resolvedSelection;
@@ -5190,7 +5182,8 @@ class GlyphCanvas {
             master,
             secondKeys,
             resolvedSelection.secondKey,
-            resolvedSelection.firstKey
+            resolvedSelection.firstKey,
+            firstCluster.isRTL
         );
         const secondOptions = this.buildTextModeKerningOperands(
             'second',
@@ -5199,13 +5192,16 @@ class GlyphCanvas {
             master,
             firstKeys,
             resolvedSelection.firstKey,
-            resolvedSelection.secondKey
+            resolvedSelection.secondKey,
+            firstCluster.isRTL
         );
 
         const selectedValue =
             master && resolvedSelection.firstKey && resolvedSelection.secondKey
                 ? getKerningPairValue(
-                      master.kerning as KerningContainer | undefined,
+                      (firstCluster.isRTL
+                          ? master.kerningRTL
+                          : master.kerning) as KerningContainer | undefined,
                       resolvedSelection.firstKey,
                       resolvedSelection.secondKey
                   )
@@ -5293,13 +5289,16 @@ class GlyphCanvas {
         entry: TextModeKerningOverlayCacheEntry,
         master: Master
     ): void {
-        const kerning = master.kerning as KerningContainer | undefined;
+        const kerning = (entry.isRTL ? master.kerningRTL : master.kerning) as
+            | KerningContainer
+            | undefined;
         const metrics =
             (master.metrics as Record<string, number> | null) || null;
         const preferredSelection = this.getPreferredTextModeKerningSelection(
             master,
             entry.firstKeys,
-            entry.secondKeys
+            entry.secondKeys,
+            entry.isRTL
         );
 
         entry.resolvedFirstKey = preferredSelection.firstKey;

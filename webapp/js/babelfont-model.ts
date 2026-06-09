@@ -9730,8 +9730,10 @@ export class Master extends ArrayElementBase {
             return this._kerningRTLFlat;
         }
 
-        // Flatten nested RTL dict, stripping @MMK_R_ / @MMK_L_ prefixes.
-        // RTL convention: first key has @MMK_R_ prefix, second has @MMK_L_.
+        // Flatten nested RTL dict.
+        // Raw format: { @MMK_R_X: { @MMK_L_Y: value } }
+        // Strip prefixes in place: @MMK_R_X → @X (first), @MMK_L_Y → @Y (second)
+        // This matches the editor's (firstKey, secondKey) order for the pair.
         const flat: Record<string, Record<string, number>> = {};
         for (const [kern1, subtable] of Object.entries(raw)) {
             const firstKey = kern1.startsWith('@MMK_R_')
@@ -9759,6 +9761,7 @@ export class Master extends ArrayElementBase {
         }
 
         // Convert flat format back to nested @MMK_R_ / @MMK_L_ format.
+        // Reverse of getter: firstKey → @MMK_R_, secondKey → @MMK_L_
         const nested: Record<string, Record<string, number>> = {};
         for (const [flatKey, row] of Object.entries(value)) {
             const colonIdx = flatKey.indexOf(':');
@@ -9771,10 +9774,6 @@ export class Master extends ArrayElementBase {
             const mmkSecond = secondKey.startsWith('@')
                 ? '@MMK_L_' + secondKey.slice(1)
                 : secondKey;
-            if (!nested[mmkFirst]) {
-                nested[mmkFirst] = {};
-            }
-            nested[mmkFirst][mmkSecond] = row as unknown as number;
         }
 
         const masterId = this.id;

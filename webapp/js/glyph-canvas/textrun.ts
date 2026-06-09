@@ -2103,9 +2103,7 @@ export class TextRunEditor {
 
             try {
                 const name = get_glyph_name(shapingFontBlob, glyph.g);
-                if (name && name !== '.notdef') {
-                    names.push(name);
-                }
+                names.push(name || '.notdef');
             } catch (error) {
                 console.warn(
                     '[TextRun]',
