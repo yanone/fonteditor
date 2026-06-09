@@ -5856,6 +5856,11 @@ function emitOpenLifecycle(
 
 // Listen for font loaded events from file browser
 window.addEventListener('fontLoaded', async (event: Event) => {
+    // Disconnect any active cloud room before loading a new font, so edits to
+    // the incoming font don't leak into the previous font's cloud room, and
+    // remote updates from the old room don't contaminate the new font's Y.Doc.
+    window.cloudPlugin?.disconnectFromRoom?.();
+
     if (!(await fontCompilationReady())) {
         return;
     }

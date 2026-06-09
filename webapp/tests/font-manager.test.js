@@ -3395,6 +3395,7 @@ describe('FontManager handleNewFont', () => {
     let originalPluginRegistry;
     let originalFontCompilationInitialized;
     let originalLastStoredFontJson;
+    let originalCloudPlugin;
     let sendMessageSpy;
     let updateDirtyIndicatorSpy;
     let intermediateFontData;
@@ -3416,6 +3417,7 @@ describe('FontManager handleNewFont', () => {
         originalPluginRegistry = window.pluginRegistry;
         originalFontCompilationInitialized = fontCompilation.isInitialized;
         originalLastStoredFontJson = fontCompilation.lastStoredFontJson;
+        originalCloudPlugin = window.cloudPlugin;
 
         // Provide a mock pluginRegistry so the disk plugin lookup works
         window.pluginRegistry = {
@@ -3466,6 +3468,7 @@ describe('FontManager handleNewFont', () => {
         window.pluginRegistry = originalPluginRegistry;
         fontCompilation.isInitialized = originalFontCompilationInitialized;
         fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
+        window.cloudPlugin = originalCloudPlugin;
         delete window.patchSyncEngine;
     });
 
@@ -3546,6 +3549,61 @@ describe('FontManager handleNewFont', () => {
                     path: 'untitled.babelfont'
                 })
             );
+        } finally {
+            window.removeEventListener('fontLoaded', onFontLoaded);
+        }
+    });
+
+    test('handleNewFont disconnects the previous cloud room before listeners observe the new untitled font', async () => {
+        const fontData = cloneJson(intermediateFontData);
+        const fakeCurrentFont = {
+            babelfontJson: JSON.stringify(fontData),
+            babelfontData: fontData,
+            fontModel: Font.fromData(fontData),
+            name: 'Cloud Source',
+            path: 'cloud://asset-cloud-source',
+            hasUnsavedChanges: false,
+            isCloudBacked: () => true,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(function () {
+                this.babelfontJson = this.fontModel.toJSONString();
+            })
+        };
+        fontManager.openedFonts = new Map([['cloud-font', fakeCurrentFont]]);
+        fontManager.currentFontId = 'cloud-font';
+        window.currentFontModel = fakeCurrentFont.fontModel;
+
+        const disconnectSpy = jest.fn(() => {
+            window.cloudPlugin._activeAssetId = null;
+            window.cloudPlugin._cloudAdapter = null;
+        });
+        window.cloudPlugin = {
+            _activeAssetId: 'asset-cloud-source',
+            _cloudAdapter: { disconnect: jest.fn() },
+            disconnectFromRoom: disconnectSpy
+        };
+
+        const observedStates = [];
+        const onFontLoaded = (event) => {
+            observedStates.push({
+                path: event.detail?.path,
+                activeAssetId: window.cloudPlugin?._activeAssetId ?? null,
+                cloudAdapter: window.cloudPlugin?._cloudAdapter ?? null
+            });
+        };
+        window.addEventListener('fontLoaded', onFontLoaded);
+
+        try {
+            await fontManager.handleNewFont();
+
+            expect(disconnectSpy).toHaveBeenCalledTimes(1);
+            expect(observedStates).toEqual([
+                {
+                    path: 'untitled.babelfont',
+                    activeAssetId: null,
+                    cloudAdapter: null
+                }
+            ]);
         } finally {
             window.removeEventListener('fontLoaded', onFontLoaded);
         }
@@ -3698,5 +3756,119 @@ describe('FontCompilation worker cache readiness', () => {
 
         expect(resolve).toHaveBeenCalledWith(message.data);
         expect(reject).not.toHaveBeenCalled();
+    });
+});
+
+describe('Cloud disconnect on font switch', () => {
+    const { CloudAdapter } = require('../js/cloud-adapter.ts');
+    let originalCloudPlugin;
+    let originalFontCompilationInitialized;
+    let originalSendMessage;
+
+    beforeAll(() => {
+        originalCloudPlugin = window.cloudPlugin;
+        originalFontCompilationInitialized = fontCompilation.isInitialized;
+        originalSendMessage = fontCompilation.sendMessage;
+    });
+
+    beforeEach(() => {
+        fontCompilation.isInitialized = true;
+        fontCompilation.sendMessage = jest.fn().mockResolvedValue({});
+    });
+
+    afterEach(() => {
+        delete window.cloudPlugin;
+        delete window.patchSyncEngine;
+        fontCompilation.isInitialized = originalFontCompilationInitialized;
+        fontCompilation.sendMessage = originalSendMessage;
+    });
+
+    afterAll(() => {
+        window.cloudPlugin = originalCloudPlugin;
+    });
+
+    test('CloudAdapter.disconnect resets all internal state', () => {
+        const adapter = new CloudAdapter({ assetId: 'test-asset' });
+
+        // Simulate a connected adapter by setting internal fields directly
+        // (real connect() requires WebSocket + network which we don't have in Jest)
+        const mockBridge = {
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+        const mockWs = { close: jest.fn() };
+        const fontModelReadyHandler = jest.fn();
+        window.addEventListener('fontModelReady', fontModelReadyHandler);
+
+        adapter._destroyed = false;
+        adapter._bridge = mockBridge;
+        adapter._ws = mockWs;
+        adapter._localUpdateUnsubscribe = jest.fn();
+        adapter._fontModelReadyHandler = fontModelReadyHandler;
+        adapter._hasSynced = true;
+
+        // Call disconnect — this is what disconnectFromRoom → _disconnectCurrent → disconnect does
+        adapter.disconnect();
+
+        // Verify the adapter is fully torn down
+        expect(adapter._destroyed).toBe(true);
+        expect(adapter._bridge).toBeNull();
+        expect(adapter._ws).toBeNull();
+        expect(adapter._localUpdateUnsubscribe).toBeNull();
+        expect(adapter._directConnection).toBeNull();
+        expect(adapter._pendingOutboundPackets).toEqual([]);
+        expect(adapter._pendingInboundUpdates).toEqual([]);
+        expect(adapter._initialServerStateApplied).toBe(false);
+        expect(adapter.status).toBe('disconnected');
+        expect(mockWs.close).toHaveBeenCalledWith(1000, 'disconnect');
+    });
+
+    test('fontLoaded triggers disconnect on a real CloudAdapter', () => {
+        const adapter = new CloudAdapter({ assetId: 'test-asset' });
+
+        // Simulate connected state
+        adapter._destroyed = false;
+        adapter._bridge = {
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        // Simulate a registered fontModelReady handler
+        const fontModelReadyHandler = jest.fn();
+        adapter._fontModelReadyHandler = fontModelReadyHandler;
+        window.addEventListener('fontModelReady', fontModelReadyHandler);
+
+        // Set up cloudPlugin with the real disconnectFromRoom logic
+        window.cloudPlugin = {
+            _cloudAdapter: adapter,
+            _activeAssetId: 'test-asset',
+            _disconnectCurrent() {
+                this._cloudAdapter?.disconnect();
+                this._cloudAdapter = null;
+                this._activeAssetId = null;
+            },
+            disconnectFromRoom() {
+                this._disconnectCurrent();
+            }
+        };
+
+        // Dispatch fontLoaded — our handler calls disconnectFromRoom first
+        window.dispatchEvent(
+            new CustomEvent('fontLoaded', {
+                detail: {
+                    path: 'test.babelfont',
+                    babelfontJson: JSON.stringify({ upm: 1000 }),
+                    sourcePlugin: {
+                        getId: () => 'memory'
+                    }
+                }
+            })
+        );
+
+        // Verify the adapter was disconnected
+        expect(adapter._destroyed).toBe(true);
+        expect(adapter._bridge).toBeNull();
+        expect(window.cloudPlugin._cloudAdapter).toBeNull();
+        expect(window.cloudPlugin._activeAssetId).toBeNull();
     });
 });
