@@ -2818,19 +2818,15 @@ pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue>
         }
 
         "ufo" => {
-            let entries: HashMap<String, String> = serde_json::from_str(contents).map_err(|e| {
-                JsValue::from_str(&format!("Failed to parse .ufo entries JSON: {}", e))
-            })?;
-            babelfont::convertors::ufo::load_entries(path.clone(), &entries)
-                .map_err(|e| JsValue::from_str(&format!("Failed to load .ufo: {:?}", e)))?
+            return Err(JsValue::from_str(
+                "UFO loading not available in this build. Use .babelfont format instead.",
+            ));
         }
 
         "designspace" => {
-            let entries: HashMap<String, String> = serde_json::from_str(contents).map_err(|e| {
-                JsValue::from_str(&format!("Failed to parse .designspace entries JSON: {}", e))
-            })?;
-            babelfont::convertors::designspace::load_entries(path.clone(), &entries)
-                .map_err(|e| JsValue::from_str(&format!("Failed to load .designspace: {:?}", e)))?
+            return Err(JsValue::from_str(
+                "DesignSpace loading not available in this build. Use .babelfont format instead.",
+            ));
         }
 
         _ => {

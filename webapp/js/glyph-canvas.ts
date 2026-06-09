@@ -5646,9 +5646,19 @@ class GlyphCanvas {
         master: Master,
         firstKey: string,
         secondKey: string,
-        nextValue: number | null
+        nextValue: number | null,
+        isRTL: boolean = false
     ): void {
-        const kerning = master.kerning as KerningContainer | undefined;
+        const kerning = (isRTL ? master.kerningRTL : master.kerning) as
+            | KerningContainer
+            | undefined;
+        const setKerning = (value: KerningContainer) => {
+            if (isRTL) {
+                (master as any).kerningRTL = value;
+            } else {
+                master.kerning = value as unknown as Master['kerning'];
+            }
+        };
         const flatKey = getFlatKerningPairKey(firstKey, secondKey);
 
         if (!kerning || usesFlatKerningPairs(kerning)) {
@@ -5665,9 +5675,9 @@ class GlyphCanvas {
                 if (nextValue === null) {
                     return;
                 }
-                master.kerning = {
+                setKerning({
                     [flatKey]: nextValue
-                } as unknown as Master['kerning'];
+                } as unknown as Master['kerning']);
                 return;
             }
 
@@ -5714,11 +5724,11 @@ class GlyphCanvas {
             if (nextValue === null) {
                 return;
             }
-            master.kerning = {
+            setKerning({
                 [firstKey]: {
                     [secondKey]: nextValue
                 }
-            } as unknown as Master['kerning'];
+            } as unknown as Master['kerning']);
             return;
         }
 
@@ -5800,7 +5810,8 @@ class GlyphCanvas {
                 context.master,
                 context.selectedFirstKey,
                 context.selectedSecondKey,
-                nextValue
+                nextValue,
+                context.isRTL
             );
             this.patchTextModeKerningOverlayCachePair(
                 context.master,

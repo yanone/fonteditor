@@ -9708,6 +9708,91 @@ export class Master extends ArrayElementBase {
         recordAndMarkDirty(this, 'kerning', old, value);
     }
 
+    static readonly KEY_KERNING_RTL = 'com.schriftgestalt.Glyphs.kerningRTL';
+    private _kerningRTLFlat: Record<string, Record<string, number>> | null =
+        null;
+    private _kerningRTLCacheKey: string | null = null;
+
+    get kerningRTL(): Record<string, Record<string, number>> {
+        const font = this.parent() as any;
+        if (!font?.format_specific) return {};
+        const allRtl = font.format_specific[Master.KEY_KERNING_RTL] as
+            | Record<string, Record<string, Record<string, number>>>
+            | undefined;
+        if (!allRtl) return {};
+        const masterId = this.id;
+        const raw = allRtl[masterId];
+        if (!raw) return {};
+
+        // Cache key: JSON hash of raw data to detect changes
+        const cacheKey = JSON.stringify(raw);
+        if (this._kerningRTLCacheKey === cacheKey && this._kerningRTLFlat) {
+            return this._kerningRTLFlat;
+        }
+
+        // Flatten nested RTL dict, stripping @MMK_R_ / @MMK_L_ prefixes.
+        // RTL convention: first key has @MMK_R_ prefix, second has @MMK_L_.
+        const flat: Record<string, Record<string, number>> = {};
+        for (const [kern1, subtable] of Object.entries(raw)) {
+            const firstKey = kern1.startsWith('@MMK_R_')
+                ? '@' + kern1.slice(7)
+                : kern1;
+            for (const [kern2, value] of Object.entries(subtable)) {
+                const secondKey = kern2.startsWith('@MMK_L_')
+                    ? '@' + kern2.slice(7)
+                    : kern2;
+                const pairKey = `${firstKey}:${secondKey}`;
+                flat[pairKey] = value as unknown as Record<string, number>;
+            }
+        }
+
+        this._kerningRTLFlat = flat;
+        this._kerningRTLCacheKey = cacheKey;
+        return flat;
+    }
+
+    set kerningRTL(value: Record<string, Record<string, number>>) {
+        const font = this.parent() as any;
+        if (!font) return;
+        if (!font.format_specific) {
+            font.format_specific = {};
+        }
+
+        // Convert flat format back to nested @MMK_R_ / @MMK_L_ format.
+        const nested: Record<string, Record<string, number>> = {};
+        for (const [flatKey, row] of Object.entries(value)) {
+            const colonIdx = flatKey.indexOf(':');
+            if (colonIdx === -1) continue;
+            const firstKey = flatKey.slice(0, colonIdx);
+            const secondKey = flatKey.slice(colonIdx + 1);
+            const mmkFirst = firstKey.startsWith('@')
+                ? '@MMK_R_' + firstKey.slice(1)
+                : firstKey;
+            const mmkSecond = secondKey.startsWith('@')
+                ? '@MMK_L_' + secondKey.slice(1)
+                : secondKey;
+            if (!nested[mmkFirst]) {
+                nested[mmkFirst] = {};
+            }
+            nested[mmkFirst][mmkSecond] = row as unknown as number;
+        }
+
+        const masterId = this.id;
+        const allRtl =
+            (font.format_specific[Master.KEY_KERNING_RTL] as
+                | Record<string, Record<string, Record<string, number>>>
+                | undefined) ?? {};
+        const old = allRtl[masterId];
+        allRtl[masterId] = nested;
+        font.format_specific[Master.KEY_KERNING_RTL] = allRtl;
+
+        // Invalidate cache
+        this._kerningRTLFlat = null;
+        this._kerningRTLCacheKey = null;
+
+        recordAndMarkDirty(font, 'format_specific', old, nested);
+    }
+
     get custom_ot_values(): Unsafe[] | undefined {
         return getLiveMutableValue(
             this,
