@@ -402,6 +402,20 @@ async function initOverviewView() {
 }
 
 // Update glyph overview when font is loaded
+const queueOverviewTilesRefresh = (reason: string) => {
+    setTimeout(async () => {
+        if (!glyphOverviewInstance || !window.currentFontModel?.glyphs) {
+            return;
+        }
+
+        const glyphData = await updateOverviewTiles();
+        console.log(
+            '[OverviewView]',
+            `Updated glyph overview tiles (${glyphData.length}, reason: ${reason})`
+        );
+    }, 0);
+};
+
 const queueOverviewRefresh = (
     spanId: string,
     reason: string,
@@ -446,6 +460,10 @@ const queueOverviewRefresh = (
         }
     }, 100);
 };
+
+window.addEventListener('fontModelReady', () => {
+    queueOverviewTilesRefresh('fontModelReady');
+});
 
 window.addEventListener('fontReady', (event: Event) => {
     const detail =

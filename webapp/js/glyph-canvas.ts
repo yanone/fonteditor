@@ -49,6 +49,19 @@ import { getUndoRedoContext } from './undo-redo-context';
 let console: Logger = new Logger('GlyphCanvas');
 let latestOpenSessionId: string | null = null;
 
+function syncLatestOpenSessionId(event: Event): void {
+    const detail = (event as CustomEvent).detail;
+    latestOpenSessionId = detail?.openSessionId || null;
+}
+
+function syncLatestOpenSessionIdFromLifecycle(event: Event): void {
+    const detail = (event as CustomEvent).detail;
+    if (detail?.phase !== 'fontLoaded') {
+        return;
+    }
+    latestOpenSessionId = detail?.openSessionId || null;
+}
+
 function isPlainNumericInputValue(value: string): boolean {
     return /^[+-]?\d+(?:\.\d+)?$/.test(value.trim());
 }
@@ -2357,7 +2370,11 @@ class GlyphCanvas {
                 // Zoom to fit the entire text in the canvas only on initial load
                 if (!this.initialFontLoaded) {
                     const rect = this.canvas!.getBoundingClientRect();
-                    this.viewportManager!.zoomToFitText(
+                    const readyDetail = {
+                        openSessionId: latestOpenSessionId,
+                        source: 'initial-zoom-complete'
+                    };
+                    const initialZoom = this.viewportManager!.zoomToFitText(
                         this.textRunEditor!.shapedGlyphs,
                         rect,
                         this.render.bind(this),
@@ -2366,14 +2383,22 @@ class GlyphCanvas {
                             timelineMark('canvas.initialZoomComplete');
                             window.dispatchEvent(
                                 new CustomEvent('canvasInitialReady', {
-                                    detail: {
-                                        openSessionId: latestOpenSessionId,
-                                        source: 'initial-zoom-complete'
-                                    }
+                                    detail: readyDetail
                                 })
                             );
                         }
                     );
+                    if (initialZoom === undefined) {
+                        timelineMark('canvas.initialZoomComplete');
+                        window.dispatchEvent(
+                            new CustomEvent('canvasInitialReady', {
+                                detail: {
+                                    ...readyDetail,
+                                    source: 'initial-zoom-skipped-empty-text'
+                                }
+                            })
+                        );
+                    }
                     this.initialFontLoaded = true;
                 }
             });
@@ -8802,10 +8827,11 @@ if (typeof document !== 'undefined' && document.addEventListener) {
     });
 }
 
-window.addEventListener('fontReady', (event: Event) => {
-    const detail = (event as CustomEvent).detail;
-    latestOpenSessionId = detail?.openSessionId || null;
-});
+window.addEventListener(
+    'fontOpenLifecycle',
+    syncLatestOpenSessionIdFromLifecycle
+);
+window.addEventListener('fontReady', syncLatestOpenSessionId);
 
 // Event handlers stored to prevent duplicate listeners
 let editingFontCompiledHandler: ((e: Event) => void) | null = null;

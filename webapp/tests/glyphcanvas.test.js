@@ -3649,6 +3649,85 @@ describe('GlyphCanvas property panel metrics edits', () => {
         ).not.toHaveBeenCalled();
         expect(canvas.updatePropertiesUI).not.toHaveBeenCalled();
     });
+
+    test('setFont dispatches canvasInitialReady immediately when initial text shapes no glyphs', async () => {
+        const readyEvents = [];
+        const onCanvasInitialReady = (event) => readyEvents.push(event.detail);
+        window.addEventListener('canvasInitialReady', onCanvasInitialReady);
+
+        canvas.initialFontLoaded = false;
+        canvas.textRunEditor.setFont = jest.fn().mockResolvedValue({});
+        canvas.textRunEditor.rebuildEditingFontNameToGid = jest.fn();
+        canvas.textRunEditor.shapeText = jest.fn(() => {
+            canvas.textRunEditor.shapedGlyphs = [];
+        });
+        canvas.axesManager.updateAxesUI = jest.fn().mockResolvedValue();
+        canvas.updatePropertiesUI = jest.fn().mockResolvedValue();
+        canvas.selectMaster = jest.fn().mockResolvedValue();
+        canvas.viewportManager.zoomToFitText = jest.fn(() => undefined);
+
+        try {
+            await canvas.setFont(new Uint8Array([1, 2, 3]).buffer);
+
+            expect(canvas.viewportManager.zoomToFitText).toHaveBeenCalledTimes(
+                1
+            );
+            expect(readyEvents).toHaveLength(1);
+            expect(readyEvents[0]).toEqual(
+                expect.objectContaining({
+                    source: 'initial-zoom-skipped-empty-text'
+                })
+            );
+        } finally {
+            window.removeEventListener(
+                'canvasInitialReady',
+                onCanvasInitialReady
+            );
+        }
+    });
+
+    test('setFont tags canvasInitialReady with the current open-session id from fontOpenLifecycle', async () => {
+        const readyEvents = [];
+        const onCanvasInitialReady = (event) => readyEvents.push(event.detail);
+        window.addEventListener('canvasInitialReady', onCanvasInitialReady);
+
+        canvas.initialFontLoaded = false;
+        canvas.textRunEditor.setFont = jest.fn().mockResolvedValue({});
+        canvas.textRunEditor.rebuildEditingFontNameToGid = jest.fn();
+        canvas.textRunEditor.shapeText = jest.fn(() => {
+            canvas.textRunEditor.shapedGlyphs = [];
+        });
+        canvas.axesManager.updateAxesUI = jest.fn().mockResolvedValue();
+        canvas.updatePropertiesUI = jest.fn().mockResolvedValue();
+        canvas.selectMaster = jest.fn().mockResolvedValue();
+        canvas.viewportManager.zoomToFitText = jest.fn(() => undefined);
+
+        window.dispatchEvent(
+            new CustomEvent('fontOpenLifecycle', {
+                detail: {
+                    phase: 'fontLoaded',
+                    openSessionId: 'open-session-new-font'
+                }
+            })
+        );
+
+        try {
+            await canvas.setFont(new Uint8Array([1, 2, 3]).buffer);
+
+            expect(readyEvents).toHaveLength(1);
+            expect(readyEvents[0]).toEqual(
+                expect.objectContaining({
+                    openSessionId: 'open-session-new-font',
+                    source: 'initial-zoom-skipped-empty-text'
+                })
+            );
+        } finally {
+            window.removeEventListener(
+                'canvasInitialReady',
+                onCanvasInitialReady
+            );
+        }
+    });
 });
 
 // ==================== Hit Testing Tests ====================

@@ -1999,19 +1999,6 @@ class FontManager {
                     e
                 );
             }
-            try {
-                await fontCompilation.sendMessage({
-                    type: 'storeFontJson',
-                    babelfontJson: this.generateEmptyFontJson(),
-                    forceStore: true
-                });
-                console.log('[FontManager] handleNewFont: storeFontJson done');
-            } catch (e) {
-                console.warn(
-                    '[FontManager] handleNewFont: storeFontJson failed',
-                    e
-                );
-            }
 
             // Reset all JS-side caches
             if (window.windowSync) {
@@ -2058,8 +2045,8 @@ class FontManager {
                 window.pluginRegistry?.get('memory');
 
             // Dispatch fontLoaded — the existing open-font pipeline handles
-            // compilation singletons, storeFontJson, loadFont, fontModelReady,
-            // bridge init, compile editing font, etc.
+            // compilation singletons, loadFont, fontModelReady, bridge init,
+            // worker Yjs seed, compile editing font, etc.
             const emptyFontJson = this.generateEmptyFontJson();
 
             window.dispatchEvent(
@@ -5878,6 +5865,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
     let fullCompileDeferredTimer: number | null = null;
     let canvasReadyListener: ((event: Event) => void) | null = null;
     let startupReleased = false;
+    let startupInteractivityReleased = false;
     let startupFinalizeStarted = false;
     let canvasReady = false;
     let fontReadyDispatched = false;
@@ -5908,6 +5896,36 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
         fontReadyDispatched = true;
         emitOpenLifecycle(openSessionId, 'fontReadyDispatched');
+    };
+
+    const releaseStartupInteractivity = (
+        openSessionId: string,
+        reason: string
+    ) => {
+        if (startupInteractivityReleased) {
+            return;
+        }
+
+        startupInteractivityReleased = true;
+
+        window.autoCompileManager?.setStartupBlocked?.(false);
+        window.fullCompileManager?.setEnabled?.(true);
+
+        emitOpenLifecycle(openSessionId, 'startupInteractivityReleased', {
+            reason
+        });
+
+        endStartupInteractionLock();
+
+        window.dispatchEvent(
+            new CustomEvent('fontInteractiveReady', {
+                detail: {
+                    path: activeOpenSessionDetail?.path ?? null,
+                    openSessionId,
+                    openedAt: activeOpenSessionDetail?.openedAt ?? null
+                }
+            })
+        );
     };
 
     const finalizeStartupReadiness = async (openSessionId: string) => {
@@ -5961,8 +5979,10 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             fullCompileDeferredTimer = null;
         }
 
-        window.autoCompileManager?.setStartupBlocked?.(false);
-        window.fullCompileManager?.setEnabled?.(true);
+        if (!startupInteractivityReleased) {
+            window.autoCompileManager?.setStartupBlocked?.(false);
+            window.fullCompileManager?.setEnabled?.(true);
+        }
 
         if (scheduleFullCompile) {
             window.fullCompileManager?.scheduleCompilation?.(0);
@@ -5973,7 +5993,11 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             scheduleFullCompile
         });
 
-        endStartupInteractionLock();
+        if (!startupInteractivityReleased) {
+            endStartupInteractionLock();
+            startupInteractivityReleased = true;
+        }
+
         endLoadingCursor();
 
         timelineSpanEnd(openSessionSpanId);
@@ -6015,30 +6039,6 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         window.autoCompileManager?.setStartupBlocked?.(true);
         window.fullCompileManager?.setEnabled?.(false);
 
-        // Store font in worker's Rust instance for glyph operations
-        // This ensures the font is cached BEFORE fontReady fires
-        try {
-            fontManager?.recordFullFontCrossing?.();
-            const storeResult = await fontCompilation.sendMessage({
-                type: 'storeFontJson',
-                babelfontJson: detail.babelfontJson
-            });
-            if (storeResult.error) {
-                throw new Error(
-                    `Failed to cache font in worker: ${storeResult.error}`
-                );
-            }
-
-            emitOpenLifecycle(openSessionId, 'storeFontJsonComplete');
-        } catch (error) {
-            console.error(
-                '[FontManager]',
-                '❌ Failed to cache font in worker:',
-                error
-            );
-            throw error;
-        }
-
         // Load font into font manager
         await fontManager!.loadFont(
             detail.babelfontJson,
@@ -6052,6 +6052,8 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             openedAt
         });
 
+        releaseStartupInteractivity(openSessionId, 'font-model-ready');
+
         canvasReadyListener = (canvasEvent: Event) => {
             const canvasDetail = (canvasEvent as CustomEvent).detail;
             if (
@@ -6063,6 +6065,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
             canvasReady = true;
             emitOpenLifecycle(openSessionId, 'canvasInitialReady');
+            releaseStartupInteractivity(openSessionId, 'canvas-ready');
             void finalizeStartupReadiness(openSessionId);
         };
 

@@ -91,4 +91,35 @@ describe('OverviewView initial active glyph sync', () => {
         expect(renderGlyphOutlines).toHaveBeenCalledTimes(1);
         expect(syncActiveGlyphFocus).toHaveBeenCalledTimes(1);
     });
+
+    test('refreshes overview tiles on fontModelReady before fontReady', async () => {
+        require('../js/overview-view');
+
+        await flushOverviewInit();
+
+        updateGlyphs.mockClear();
+        renderGlyphOutlines.mockClear();
+
+        window.currentFontModel = {
+            glyphs: [{ name: '.notdef' }]
+        };
+
+        window.dispatchEvent(
+            new CustomEvent('fontModelReady', {
+                detail: {
+                    path: 'untitled.babelfont',
+                    babelfontData: {}
+                }
+            })
+        );
+
+        await jest.runAllTimersAsync();
+        await Promise.resolve();
+
+        expect(updateGlyphs).toHaveBeenCalledTimes(1);
+        expect(updateGlyphs).toHaveBeenCalledWith([
+            { id: '0', name: '.notdef' }
+        ]);
+        expect(renderGlyphOutlines).not.toHaveBeenCalled();
+    });
 });

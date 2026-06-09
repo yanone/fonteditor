@@ -838,8 +838,9 @@ class FontInfoManager {
             this.switchTab(savedTab);
         });
 
-        // Listen for font changes - use fontReady which fires after currentFontModel is set
-        window.addEventListener('fontReady', () => this.onFontLoaded());
+        // Listen for new font models immediately so stale content clears as
+        // soon as the replacement font is installed, not after startup gates.
+        window.addEventListener('fontModelReady', () => this.onFontLoaded());
         window.addEventListener('fontModelSync', () =>
             this.onFontModelSynced()
         );

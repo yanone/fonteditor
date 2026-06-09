@@ -9,12 +9,11 @@ tools:
         search,
         web,
         "chromedevtools/*",
-        "counterpunch/*",
         "github/*",
         "gitnexus/*",
         todo,
     ]
-model: "GPT-5.4"
+model: "GPT-5.4 mini"
 argument-hint: "Describe the change, risk area, regression, or validation target in the compilation pipeline, change bridge, Yjs sync, or undo flow."
 user-invocable: true
 agents: []

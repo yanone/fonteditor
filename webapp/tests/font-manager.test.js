@@ -3527,6 +3527,29 @@ describe('FontManager handleNewFont', () => {
         expect(fontObj.masters[0].name.dflt).toBe('Default Master');
         expect(fontObj.findGlyph('.notdef')).toBeDefined();
     });
+
+    test('handleNewFont clears worker cache but does not store full font JSON before dispatching fontLoaded', async () => {
+        const events = [];
+        const onFontLoaded = (event) => events.push(event.detail);
+        window.addEventListener('fontLoaded', onFontLoaded);
+
+        try {
+            await fontManager.handleNewFont();
+
+            expect(sendMessageSpy).toHaveBeenCalledWith({ type: 'clearCache' });
+            expect(sendMessageSpy).not.toHaveBeenCalledWith(
+                expect.objectContaining({ type: 'storeFontJson' })
+            );
+            expect(events).toHaveLength(1);
+            expect(events[0]).toEqual(
+                expect.objectContaining({
+                    path: 'untitled.babelfont'
+                })
+            );
+        } finally {
+            window.removeEventListener('fontLoaded', onFontLoaded);
+        }
+    });
 });
 
 describe('FontCompilation worker cache readiness', () => {
