@@ -1,45 +1,154 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const apply_preview_layer_overlay: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-export const apply_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const apply_preview_layer_overlay: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number, number];
+export const apply_yjs_update: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number, number];
 export const clear_font_cache: () => void;
 export const clear_preview_layer_overlay: () => void;
-export const compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
+export const compile_babelfont: (
+    a: number,
+    b: number,
+    c: any
+) => [number, number, number, number];
 export const compile_cached_font: (a: any) => [number, number, number, number];
-export const compile_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
-export const compile_debug_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
-export const compile_glyphs: (a: number, b: number) => [number, number, number, number];
-export const compile_preview_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
-export const dump_layer_state_json: (a: number, b: number) => [number, number, number, number];
-export const get_debug_cached_font_bytes: (a: number, b: number) => [number, number, number, number];
-export const get_glyphs_outlines: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
-export const get_layout_closure: (a: number, b: number) => [number, number, number, number];
-export const get_layout_closure_cached: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const compile_cached_font_from_last_layout_closure: (
+    a: any
+) => [number, number, number, number];
+export const compile_debug_cached_font_from_last_layout_closure: (
+    a: any
+) => [number, number, number, number];
+export const compile_glyphs: (
+    a: number,
+    b: number
+) => [number, number, number, number];
+export const compile_preview_cached_font_from_last_layout_closure: (
+    a: any
+) => [number, number, number, number];
+export const dump_layer_state_json: (
+    a: number,
+    b: number
+) => [number, number, number, number];
+export const get_debug_cached_font_bytes: (
+    a: number,
+    b: number
+) => [number, number, number, number];
+export const get_glyphs_outlines: (
+    a: number,
+    b: number,
+    c: number,
+    d: number,
+    e: number
+) => [number, number, number, number];
+export const get_layout_closure: (
+    a: number,
+    b: number
+) => [number, number, number, number];
+export const get_layout_closure_cached: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number, number];
 export const init: () => void;
 export const init_ydoc_from_state: (a: number, b: number) => [number, number];
-export const interpolate_glyph: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
-export const open_font_file: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-export const prime_debug_layout_closure_cache: (a: number, b: number) => [number, number, number];
-export const prime_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
-export const prime_preview_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const interpolate_glyph: (
+    a: number,
+    b: number,
+    c: number,
+    d: number,
+    e: number
+) => [number, number, number, number];
+export const open_font_file: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number, number];
+export const prime_debug_layout_closure_cache: (
+    a: number,
+    b: number
+) => [number, number, number];
+export const prime_layout_closure_cache: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number];
+export const prime_preview_layout_closure_cache: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number];
 export const seed_ydoc: (a: number, b: number) => [number, number];
 export const set_debug_font_cache_max_bytes: (a: number) => void;
 export const store_font: (a: number, b: number) => [number, number];
-export const validate_feature_source_with_full_filter_pipeline: (a: any) => [number, number];
+export const validate_feature_source_with_full_filter_pipeline: (
+    a: any
+) => [number, number];
 export const version: () => [number, number];
-export const run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-export const get_font_axes: (a: number, b: number) => [number, number, number, number];
-export const get_font_features: (a: number, b: number) => [number, number, number, number];
-export const get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
-export const get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
-export const get_glyph_order: (a: number, b: number) => [number, number, number, number];
-export const get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
-export const add_master_with_interpolated_layers_yjs: (a: number, b: number) => [number, number, number];
-export const reinterpolate_layer_yjs: (a: number, b: number, c: number, d: number) => [number, number, number];
-export const reinterpolate_master_layers_yjs: (a: number, b: number) => [number, number, number];
+export const get_font_axes: (
+    a: number,
+    b: number
+) => [number, number, number, number];
+export const get_font_features: (
+    a: number,
+    b: number
+) => [number, number, number, number];
+export const get_font_features_with_tables: (
+    a: number,
+    b: number
+) => [number, number, number, number];
+export const get_glyph_name: (
+    a: number,
+    b: number,
+    c: number
+) => [number, number, number, number];
+export const get_glyph_order: (
+    a: number,
+    b: number
+) => [number, number, number, number];
+export const get_stylistic_set_names: (
+    a: number,
+    b: number
+) => [number, number, number, number];
+export const run_fontspector: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number, number];
+export const add_master_with_interpolated_layers_yjs: (
+    a: number,
+    b: number
+) => [number, number, number];
+export const reinterpolate_layer_yjs: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number];
+export const reinterpolate_master_layers_yjs: (
+    a: number,
+    b: number
+) => [number, number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;
-export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_realloc: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => number;
 export const __wbindgen_exn_store: (a: number) => void;
 export const __externref_table_alloc: () => number;
 export const __wbindgen_externrefs: WebAssembly.Table;

@@ -8,14 +8,14 @@ crate-type = ["cdylib"]
 
 [dependencies]
 babelfont = { path = "../../babelfont-rs/babelfont", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
-fontc = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts", default-features = false }
-fontbe = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts", default-features = false }
-fontir = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts" }
+fontc = { git = "https://github.com/googlefonts/fontc", rev = "3518040e", default-features = false }
+fontbe = { git = "https://github.com/googlefonts/fontc", rev = "3518040e", default-features = false }
+fontir = { git = "https://github.com/googlefonts/fontc", rev = "3518040e" }
 fea-rs = "0.22.0"
 fea-rs-ast = "0.1.2"
 typeshare = "1.0"
 kurbo = "0.13"
-fontdrasil = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts" }
+fontdrasil = { git = "https://github.com/googlefonts/fontc", rev = "3518040e" }
 wasm-bindgen = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -24,9 +24,9 @@ yrs = "0.18"
 console_error_panic_hook = "0.1"
 tempfile = "3"
 js-sys = "0.3.83"
-write-fonts = "0.45"
-read-fonts = "0.37"
-skrifa = "0.28"
+write-fonts = { version = "0.48", features = ["read"] }
+read-fonts = "0.39"
+skrifa = "0.42"
 smol_str = "0.3"
 fontspector-checkapi = "1.4.0"
 fontspector-profile-opentype = "1.3.1"
