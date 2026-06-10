@@ -9709,11 +9709,10 @@ export class Master extends ArrayElementBase {
     }
 
     static readonly KEY_KERNING_RTL = 'com.schriftgestalt.Glyphs.kerningRTL';
-    private _kerningRTLFlat: Record<string, Record<string, number>> | null =
-        null;
+    private _kerningRTLFlat: Record<string, number> | null = null;
     private _kerningRTLCacheKey: string | null = null;
 
-    get kerningRTL(): Record<string, Record<string, number>> {
+    get kerningRTL(): Record<string, number> {
         const font = this.parent() as any;
         if (!font?.format_specific) return {};
         const allRtl = font.format_specific[Master.KEY_KERNING_RTL] as
@@ -9734,7 +9733,7 @@ export class Master extends ArrayElementBase {
         // Raw format: { @MMK_R_X: { @MMK_L_Y: value } }
         // Strip prefixes in place: @MMK_R_X → @X (first), @MMK_L_Y → @Y (second)
         // This matches the editor's (firstKey, secondKey) order for the pair.
-        const flat: Record<string, Record<string, number>> = {};
+        const flat: Record<string, number> = {};
         for (const [kern1, subtable] of Object.entries(raw)) {
             const firstKey = kern1.startsWith('@MMK_R_')
                 ? '@' + kern1.slice(7)
@@ -9744,7 +9743,7 @@ export class Master extends ArrayElementBase {
                     ? '@' + kern2.slice(7)
                     : kern2;
                 const pairKey = `${firstKey}:${secondKey}`;
-                flat[pairKey] = value as unknown as Record<string, number>;
+                flat[pairKey] = value;
             }
         }
 
@@ -9753,7 +9752,7 @@ export class Master extends ArrayElementBase {
         return flat;
     }
 
-    set kerningRTL(value: Record<string, Record<string, number>>) {
+    set kerningRTL(value: Record<string, number>) {
         const font = this.parent() as any;
         if (!font) return;
         if (!font.format_specific) {
@@ -9763,7 +9762,7 @@ export class Master extends ArrayElementBase {
         // Convert flat format back to nested @MMK_R_ / @MMK_L_ format.
         // Reverse of getter: firstKey → @MMK_R_, secondKey → @MMK_L_
         const nested: Record<string, Record<string, number>> = {};
-        for (const [flatKey, row] of Object.entries(value)) {
+        for (const [flatKey, numericValue] of Object.entries(value)) {
             const colonIdx = flatKey.indexOf(':');
             if (colonIdx === -1) continue;
             const firstKey = flatKey.slice(0, colonIdx);
@@ -9774,6 +9773,11 @@ export class Master extends ArrayElementBase {
             const mmkSecond = secondKey.startsWith('@')
                 ? '@MMK_L_' + secondKey.slice(1)
                 : secondKey;
+            if (typeof numericValue !== 'number') {
+                continue;
+            }
+            nested[mmkFirst] ??= {};
+            nested[mmkFirst][mmkSecond] = numericValue;
         }
 
         const masterId = this.id;
@@ -9781,15 +9785,22 @@ export class Master extends ArrayElementBase {
             (font.format_specific[Master.KEY_KERNING_RTL] as
                 | Record<string, Record<string, Record<string, number>>>
                 | undefined) ?? {};
-        const old = allRtl[masterId];
-        allRtl[masterId] = nested;
-        font.format_specific[Master.KEY_KERNING_RTL] = allRtl;
+        const nextAllRtl = { ...allRtl };
+        if (Object.keys(nested).length) {
+            nextAllRtl[masterId] = nested;
+            font.format_specific[Master.KEY_KERNING_RTL] = nextAllRtl;
+        } else {
+            delete nextAllRtl[masterId];
+            if (Object.keys(nextAllRtl).length) {
+                font.format_specific[Master.KEY_KERNING_RTL] = nextAllRtl;
+            } else {
+                delete font.format_specific[Master.KEY_KERNING_RTL];
+            }
+        }
 
         // Invalidate cache
         this._kerningRTLFlat = null;
         this._kerningRTLCacheKey = null;
-
-        recordAndMarkDirty(font, 'format_specific', old, nested);
     }
 
     get custom_ot_values(): Unsafe[] | undefined {

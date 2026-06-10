@@ -5660,6 +5660,20 @@ class GlyphCanvas {
         };
         const flatKey = getFlatKerningPairKey(firstKey, secondKey);
 
+        if (isRTL) {
+            const nextKerning =
+                kerning && !(kerning instanceof Map) ? { ...kerning } : {};
+
+            if (nextValue === null) {
+                delete nextKerning[flatKey];
+            } else {
+                nextKerning[flatKey] = nextValue;
+            }
+
+            setKerning(nextKerning as unknown as Master['kerning']);
+            return;
+        }
+
         if (!kerning || usesFlatKerningPairs(kerning)) {
             if (kerning instanceof Map) {
                 if (nextValue === null) {

@@ -117,7 +117,6 @@ describe('GlyphCanvas initialization', () => {
         const container = document.getElementById('test-container');
         expect(container.querySelector('canvas')).toBeTruthy();
     });
-
     test('should create property panel shell in container', () => {
         canvas = new GlyphCanvas('test-container');
         const container = document.getElementById('test-container');
@@ -3931,7 +3930,15 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             second_kern_groups: {},
             custom_ot_values: [],
             variation_sequences: [],
-            format_specific: {}
+            format_specific: {
+                'com.schriftgestalt.Glyphs.kerningRTL': {
+                    'master-1': {
+                        '@MMK_R_AFirst': {
+                            '@MMK_L_VSecond': -120
+                        }
+                    }
+                }
+            }
         });
 
         currentFontSpy = jest
@@ -10524,6 +10531,7 @@ describe('Text-mode kerning property panel', () => {
     let currentFontSpy;
     let currentFont;
     let fontModel;
+    let originalPatchSyncEngine;
 
     const makeKerningFont = () =>
         Font.fromData({
@@ -10666,6 +10674,7 @@ describe('Text-mode kerning property panel', () => {
             fontModel,
             markDirty: jest.fn()
         };
+        originalPatchSyncEngine = window.patchSyncEngine;
         currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue(currentFont);
@@ -10676,6 +10685,7 @@ describe('Text-mode kerning property panel', () => {
 
     afterEach(() => {
         currentFontSpy.mockRestore();
+        window.patchSyncEngine = originalPatchSyncEngine;
         canvas.destroy();
     });
 
@@ -10946,6 +10956,62 @@ describe('Text-mode kerning property panel', () => {
 
         expect(document.activeElement).toBe(canvas.canvas);
         expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-55);
+    });
+
+    test('committing an RTL kerning value records a bridge change and writes format_specific RTL data', async () => {
+        const recordChange = jest.fn();
+        window.patchSyncEngine = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            recordChange
+        };
+        setTextRunState({ rtl: true });
+        canvas.textModeKerningSelection = {
+            firstKey: '@AFirst',
+            secondKey: '@VSecond'
+        };
+
+        canvas.updatePropertyPanel();
+
+        const input = document.querySelector('.glyph-kerning-value-input');
+        input.focus();
+        input.value = '-55';
+        input.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+        await Promise.resolve();
+
+        expect(window.patchSyncEngine.beginTransaction).toHaveBeenCalledWith(
+            'Edit kerning pair'
+        );
+        expect(window.patchSyncEngine.endTransaction).toHaveBeenCalled();
+        expect(recordChange).toHaveBeenCalledWith(
+            [],
+            'format_specific',
+            expect.anything(),
+            {
+                'com.schriftgestalt.Glyphs.kerningRTL': {
+                    'master-1': {
+                        '@MMK_R_AFirst': {
+                            '@MMK_L_VSecond': -55
+                        }
+                    }
+                }
+            }
+        );
+        expect(fontModel.masters[0].kerningRTL['@AFirst:@VSecond']).toBe(-55);
+        expect(
+            fontModel.format_specific['com.schriftgestalt.Glyphs.kerningRTL']
+        ).toEqual({
+            'master-1': {
+                '@MMK_R_AFirst': {
+                    '@MMK_L_VSecond': -55
+                }
+            }
+        });
     });
 
     test('alt arrow keys nudge text-mode kerning with modifier scaling', async () => {
