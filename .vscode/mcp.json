@@ -9,25 +9,15 @@
             "args": ["-y", "@modelcontextprotocol/server-github"],
             "command": "npx"
         },
-        // "gortex": {
-        //     "args": ["mcp", "--index", ".", "--watch"],
-        //     "command": "gortex",
-        //     "env": {
-        //         "GORTEX_INDEX_WORKERS": "8"
-        //     }
-        // },
         "gitnexus": {
             "command": "node_modules/.bin/gitnexus",
             "args": ["mcp"]
+        },
+        "gortex": {
+            "args": ["mcp"],
+            "command": "gortex",
+            "env": {
+                "GORTEX_INDEX_WORKERS": "8"
+            }
         }
-        // "counterpunch": {
-        //     "type": "stdio",
-        //     "command": "node",
-        //     "args": ["webapp/scripts/counterpunch-mcp-server.mjs"],
-        //     "env": {
-        //         "COUNTERPUNCH_MCP_URL": "https://localhost:8000",
-        //         "COUNTERPUNCH_MCP_HEADLESS": "false"
-        //     }
-        // }
-    }
 }

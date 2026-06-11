@@ -1,0 +1,12 @@
+{
+    "$schema": "https://opencode.ai/config.json",
+    "mcp": {
+        "counterpunch": {
+            "type": "local",
+            "command": ["node", "webapp/scripts/counterpunch-mcp-server.mjs"],
+            "environment": {
+                "COUNTERPUNCH_MCP_URL": "https://localhost:8000",
+                "COUNTERPUNCH_MCP_HEADLESS": "false"
+            }
+        }
+    }
