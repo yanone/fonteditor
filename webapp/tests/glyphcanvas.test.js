@@ -9788,6 +9788,154 @@ describe('GlyphCanvas anchor movement', () => {
             rebuildSpy.mockRestore();
         }
     });
+
+    test('anchor commit serializes downstream recomposed layers before batched YDoc sync', () => {
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const currentFont = {
+            babelfontData: {
+                glyphs: [
+                    {
+                        name: 'a',
+                        layers: [{ id: 'layer-1', width: 500, anchors: [] }]
+                    },
+                    {
+                        name: 'adieresis',
+                        layers: [
+                            {
+                                id: 'layer-1',
+                                width: 600,
+                                anchors: [{ name: 'top', x: 120, y: 700 }],
+                                shapes: []
+                            }
+                        ]
+                    }
+                ]
+            },
+            fontModel: {
+                findGlyph: jest.fn((glyphName) => {
+                    if (glyphName === 'adieresis') {
+                        return {
+                            findLayerById: jest.fn((layerId) =>
+                                layerId === 'layer-1'
+                                    ? {
+                                          toJSON: jest.fn(() => ({
+                                              id: 'layer-1',
+                                              width: 610,
+                                              anchors: [
+                                                  {
+                                                      name: 'top',
+                                                      x: 140,
+                                                      y: 760
+                                                  }
+                                              ],
+                                              shapes: []
+                                          }))
+                                      }
+                                    : null
+                            )
+                        };
+                    }
+
+                    if (glyphName === 'a') {
+                        return {
+                            findLayerById: jest.fn((layerId) =>
+                                layerId === 'layer-1' ? { id: 'layer-1' } : null
+                            )
+                        };
+                    }
+
+                    return null;
+                })
+            }
+        };
+        const serializedDependentLayer = {
+            id: 'layer-1',
+            width: 610,
+            anchors: [{ name: 'top', x: 140, y: 760 }],
+            shapes: [],
+            format_specific: { serialized: true }
+        };
+        const serializeLayerSpy = jest
+            .spyOn(fontManager, 'serializeLayerForCommittedSync')
+            .mockImplementation((glyphName, layerId) => {
+                if (glyphName === 'adieresis' && layerId === 'layer-1') {
+                    return serializedDependentLayer;
+                }
+
+                return {
+                    id: layerId,
+                    width: 500,
+                    anchors: [],
+                    shapes: []
+                };
+            });
+        const syncLayersFromJson = jest.fn();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+
+        window.patchSyncEngine = {
+            syncLayersFromJson,
+            syncGlyphFromJson: jest.fn()
+        };
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'a' }
+        ]);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+
+        try {
+            canvas.outlineEditor._syncCurrentGlyphToYDoc(
+                'Drag anchor',
+                undefined,
+                undefined,
+                null,
+                [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ],
+                {
+                    editSource: 'mouse-drag-anchor',
+                    changeSource: 'mouse-drag-anchor',
+                    editType: 'anchor'
+                }
+            );
+
+            expect(serializeLayerSpy).toHaveBeenCalledWith(
+                'adieresis',
+                'layer-1',
+                expect.objectContaining({
+                    id: 'layer-1',
+                    width: 610,
+                    anchors: [{ name: 'top', x: 140, y: 760 }]
+                }),
+                { preserveExistingShapes: true }
+            );
+            expect(currentFont.babelfontData.glyphs[1].layers[0]).toBe(
+                serializedDependentLayer
+            );
+            expect(syncLayersFromJson).toHaveBeenCalledWith(
+                [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ],
+                'Drag anchor',
+                undefined,
+                undefined,
+                null,
+                [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ],
+                'mouse-drag-anchor',
+                'mouse-drag-anchor',
+                'anchor'
+            );
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            serializeLayerSpy.mockRestore();
+        }
+    });
 });
 
 describe('GlyphCanvas component movement', () => {

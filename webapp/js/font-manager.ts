@@ -5213,6 +5213,20 @@ class FontManager {
         };
     }
 
+    serializeLayerForCommittedSync(
+        glyphName: string,
+        layerId: string,
+        layerData: Babelfont.Layer,
+        options?: { preserveExistingShapes?: boolean }
+    ): Babelfont.Layer | null {
+        return this.serializeLayerForStorage(
+            glyphName,
+            layerId,
+            layerData,
+            options
+        );
+    }
+
     async saveLayerData(
         glyphName: string,
         layerId: string,

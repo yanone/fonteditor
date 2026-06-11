@@ -1037,6 +1037,50 @@ function collectReplayTargetsFromEntries(
     return normalizeWorkerReplayTargets(targets);
 }
 
+function collectDirectLayerTargetsFromEntryPaths(
+    entries: ChangeLogEntry[]
+): WorkerReplayTarget[] {
+    const targets: WorkerReplayTarget[] = [];
+
+    for (const entry of entries) {
+        const entryPath =
+            typeof entry.path === 'string' && entry.path.length > 0
+                ? getPathSegments(entry.path)
+                : [];
+        const glyphName = deriveGlyphName(entryPath);
+        const layerId = deriveLayerId(entryPath);
+        if (glyphName && layerId) {
+            targets.push({ glyphName, layerId });
+        }
+    }
+
+    return normalizeWorkerReplayTargets(targets);
+}
+
+function hasReplayTargetsOutsideDirectEntryPaths(
+    entries: ChangeLogEntry[]
+): boolean {
+    const replayTargets = collectReplayTargetsFromEntries(entries);
+    if (!replayTargets.length) {
+        return false;
+    }
+
+    const directLayerTargets = collectDirectLayerTargetsFromEntryPaths(entries);
+    if (!directLayerTargets.length) {
+        return false;
+    }
+
+    const directTargets = new Set(
+        directLayerTargets.map(
+            (target) => `${target.glyphName}::${target.layerId}`
+        )
+    );
+
+    return replayTargets.some(
+        (target) => !directTargets.has(`${target.glyphName}::${target.layerId}`)
+    );
+}
+
 function normalizeLayerDataForWorkerDriftCheck(layerData: unknown): string {
     if (!layerData) {
         return 'null';
@@ -2171,6 +2215,11 @@ export async function handleCommittedChangeRefresh(
             dependencies?.localUndoRedoContext
         );
 
+        const replayTargets = collectReplayTargetsFromEntries(entries);
+        const needsLocalReplayRefresh =
+            replayTargets.length > 0 &&
+            hasReplayTargetsOutsideDirectEntryPaths(entries);
+
         const awaitWorkerSync =
             dependencies?.awaitWorkerSync ??
             (() => fontCompilation.awaitWorkerDocumentSync());
@@ -2186,11 +2235,23 @@ export async function handleCommittedChangeRefresh(
             return;
         }
 
-        // Local committed packets rely on the authoritative incremental Yjs
-        // worker update already forwarded by setYjsWorkerCallback().
-        // awaitLocalCommittedWorkerCacheSettled() waits for that forwarded
-        // update and any chained local worker-cache updates before compile.
-        // Do not send a second replay-target refresh from the sender path.
+        // Local committed packets normally rely on the authoritative
+        // incremental Yjs worker update already forwarded by
+        // setYjsWorkerCallback(). When the packet carries replay targets that
+        // extend beyond the direct changed entry paths, run the targeted
+        // refresh once on the sender as well so downstream dependent glyphs
+        // (for example automatic composites affected by a base-glyph anchor
+        // move) are repainted from the committed worker state instead of
+        // snapping back until a later compile catches up.
+        if (needsLocalReplayRefresh) {
+            const queueCacheRefresh =
+                dependencies?.queueCacheRefresh ??
+                queueRustCacheAndRefreshCanvas;
+            await queueCacheRefresh(undefined, undefined, {
+                allowSelectedLayerFallback: false,
+                workerReplayTargets: replayTargets
+            });
+        }
 
         const { editType, changeSource } =
             localCompileContext ?? resolveLocalCommittedCompileContext(entries);

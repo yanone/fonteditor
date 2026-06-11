@@ -119,6 +119,82 @@ describe('handleRemoteChangeRefresh', () => {
         });
     });
 
+    test('locally refreshes downstream replay targets before compile when the committed packet extends beyond direct entry paths', async () => {
+        const refreshOrder = [];
+        const awaitWorkerSync = jest.fn(async () => {
+            refreshOrder.push('sync');
+            window.fontManager.lastChangeSource = 'keyboard-anchor';
+            window.fontManager.lastEditType = 'anchor';
+        });
+        const queueCacheRefresh = jest.fn(async () => {
+            refreshOrder.push('queue');
+        });
+        const requestCompile = jest.fn(async () => {
+            refreshOrder.push('compile');
+        });
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(
+                        () => new Set(['adieresis'])
+                    )
+                }
+            },
+            lastChangeSource: 'keyboard-anchor',
+            lastEditType: 'anchor'
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag anchor',
+                        path: 'glyphs.a.layers.master-regular.anchors.0.x',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'a',
+                                layerId: 'master-regular'
+                            },
+                            {
+                                glyphName: 'adieresis',
+                                layerId: 'master-regular'
+                            }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            delete window.fontManager;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
+            allowSelectedLayerFallback: false,
+            workerReplayTargets: [
+                {
+                    glyphName: 'a',
+                    layerId: 'master-regular'
+                },
+                {
+                    glyphName: 'adieresis',
+                    layerId: 'master-regular'
+                }
+            ]
+        });
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-anchor',
+            'anchor'
+        );
+        expect(refreshOrder).toEqual(['sync', 'queue', 'compile']);
+    });
+
     test('shows a sticky sidebar error for post-commit keyboard drift and skips compile', async () => {
         const awaitWorkerSync = jest.fn(async () => {});
         const requestCompile = jest.fn(async () => {});
@@ -709,12 +785,29 @@ describe('handleRemoteChangeRefresh', () => {
             resolveSecondCacheUpdate();
             await new Promise((resolve) => setTimeout(resolve, 0));
 
-            // Local GUI-complete layer packet: the Yjs worker callback already
-            // forwarded the update, so the post-commit skips the duplicate
-            // replay-target cache refresh and goes straight to compile.
-            expect(queueCacheRefresh).not.toHaveBeenCalled();
-            // requestCompile is called immediately after worker sync settles
-            // because we skip the cache refresh for GUI-complete packets.
+            // Direct local anchor packets that carry downstream replay targets
+            // refresh those dependents once on the sender after worker sync
+            // settles, so committed automatic composites repaint from the
+            // authoritative worker state before compile.
+            expect(queueCacheRefresh).toHaveBeenCalledWith(
+                undefined,
+                undefined,
+                {
+                    allowSelectedLayerFallback: false,
+                    workerReplayTargets: [
+                        {
+                            glyphName: 'a',
+                            layerId: 'master-regular'
+                        },
+                        {
+                            glyphName: 'adieresis',
+                            layerId: 'master-regular'
+                        }
+                    ]
+                }
+            );
+            // requestCompile is still deferred until worker sync and the
+            // targeted dependent refresh have completed.
             expect(requestCompile).toHaveBeenCalledTimes(1);
             // glyphChanged is also dispatched after compile request
             // (overview refresh from committed entries)
@@ -736,13 +829,14 @@ describe('handleRemoteChangeRefresh', () => {
             glyphName: 'a',
             glyphNames: ['a', 'adieresis']
         });
-        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(queueCacheRefresh).toHaveBeenCalledTimes(1);
         expect(refreshOrder).toEqual([
             'sync',
             'cache-1',
             'sync',
             'cache-2',
             'sync',
+            'queue',
             'compile'
         ]);
     });
@@ -977,7 +1071,7 @@ describe('handleRemoteChangeRefresh', () => {
         );
     });
 
-    test('local GUI commit with layer-scoped replay targets skips duplicate cache refresh after Yjs worker already forwarded', async () => {
+    test('local GUI commit with downstream replay targets refreshes dependents before compile', async () => {
         const awaitWorkerSync = jest.fn(async () => {});
         const requestCompile = jest.fn(async () => {});
         const queueCacheRefresh = jest.fn(async () => {});
@@ -1019,17 +1113,21 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        // The Yjs worker callback already forwarded the update to Rust.
-        // The local post-commit should NOT send a second refreshWorkerCacheForReplayTargets.
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
-        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
+            allowSelectedLayerFallback: false,
+            workerReplayTargets: [
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'B', layerId: 'layer-2' }
+            ]
+        });
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-outline',
             'outline'
         );
     });
 
-    test('local sidebearing-key commit with glyph metrics metadata skips duplicate cache refresh', async () => {
+    test('local sidebearing-key commit with downstream replay targets refreshes dependents before compile', async () => {
         const awaitWorkerSync = jest.fn(async () => {});
         const requestCompile = jest.fn(async () => {});
         const queueCacheRefresh = jest.fn(async () => {});
@@ -1077,7 +1175,10 @@ describe('handleRemoteChangeRefresh', () => {
         }
 
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
-        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
+            allowSelectedLayerFallback: false,
+            workerReplayTargets: replayTargets
+        });
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-outline',
             'outline'
