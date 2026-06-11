@@ -48,7 +48,7 @@ norad = { path = "../../norad" }
 fontspector-checkapi = { path = "vendor/fontspector-checkapi-local" }
 
 [patch."https://github.com/googlefonts/fontations"]
-font-types = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/cdd9351/font-types" }
-read-fonts = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/cdd9351/read-fonts" }
-write-fonts = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/cdd9351/write-fonts" }
-skrifa = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/cdd9351/skrifa" }
+font-types = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/4d690b5/font-types" }
+read-fonts = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/4d690b5/read-fonts" }
+write-fonts = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/4d690b5/write-fonts" }
+skrifa = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/4d690b5/skrifa" }
