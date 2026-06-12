@@ -2788,7 +2788,6 @@ class FontManager {
                 ) {
                     compilationMode = 'kerning-only';
                     optionOverrides = {
-                        skip_outlines: true,
                         produce_varc_table: false
                     };
                 } else if (isTextInputEdit) {

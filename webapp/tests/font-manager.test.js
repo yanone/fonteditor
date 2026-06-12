@@ -1456,10 +1456,12 @@ describe('FontManager editing subset inclusion', () => {
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
             compileSource: 'keyboard-kerning-value',
             optionOverrides: {
-                skip_outlines: true,
                 produce_varc_table: false
             }
         });
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_outlines');
         expect(
             compileEditingSpy.mock.calls[0][3].optionOverrides
         ).not.toHaveProperty('skip_kerning');
@@ -1477,10 +1479,18 @@ describe('FontManager editing subset inclusion', () => {
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
             compileSource: 'remote-kerning-groups',
             optionOverrides: {
-                skip_outlines: true,
                 produce_varc_table: false
             }
         });
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_outlines');
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_kerning');
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_features');
     });
 
     test('debounced post-interaction full compiles do not send incremental dirty-layer patches', async () => {
