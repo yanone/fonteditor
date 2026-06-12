@@ -1,7 +1,7 @@
 {
     "servers": {
         "chromeDevtools": {
-            "args": ["chrome-devtools-mcp", "--no-usage-statistics"],
+            "args": ["-y", "chrome-devtools-mcp@latest"],
             "command": "npx",
             "type": "stdio"
         },
@@ -20,4 +20,5 @@
                 "GORTEX_INDEX_WORKERS": "8"
             }
         }
+    }
 }
