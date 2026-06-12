@@ -10690,7 +10690,7 @@ describe('Text-mode kerning property panel', () => {
     let fontModel;
     let originalPatchSyncEngine;
 
-    const makeKerningFont = () =>
+    const makeKerningFont = ({ includeSecondMaster = false } = {}) =>
         Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -10711,7 +10711,27 @@ describe('Text-mode kerning property panel', () => {
                         'A:@VSecond': -40,
                         '@AFirst:@VSecond': -120
                     }
-                }
+                },
+                ...(includeSecondMaster
+                    ? [
+                          {
+                              id: 'master-2',
+                              name: { en: 'Bold' },
+                              location: {},
+                              guides: [],
+                              metrics: {
+                                  ascender: 800,
+                                  descender: -200,
+                                  WinDescent: 200
+                              },
+                              kerning: {
+                                  'A:@VSecond': -90,
+                                  '@AFirst:@VSecond': -140
+                              },
+                              kerning_rtl: {}
+                          }
+                      ]
+                    : [])
             ],
             glyphs: [
                 {
@@ -10729,7 +10749,22 @@ describe('Text-mode kerning property panel', () => {
                             shapes: [],
                             anchors: [],
                             guides: []
-                        }
+                        },
+                        ...(includeSecondMaster
+                            ? [
+                                  {
+                                      id: 'layer-A-master-2',
+                                      width: 500,
+                                      master: {
+                                          type: 'DefaultForMaster',
+                                          master: 'master-2'
+                                      },
+                                      shapes: [],
+                                      anchors: [],
+                                      guides: []
+                                  }
+                              ]
+                            : [])
                     ]
                 },
                 {
@@ -10747,7 +10782,22 @@ describe('Text-mode kerning property panel', () => {
                             shapes: [],
                             anchors: [],
                             guides: []
-                        }
+                        },
+                        ...(includeSecondMaster
+                            ? [
+                                  {
+                                      id: 'layer-V-master-2',
+                                      width: 500,
+                                      master: {
+                                          type: 'DefaultForMaster',
+                                          master: 'master-2'
+                                      },
+                                      shapes: [],
+                                      anchors: [],
+                                      guides: []
+                                  }
+                              ]
+                            : [])
                     ]
                 }
             ],
@@ -11271,6 +11321,32 @@ describe('Text-mode kerning property panel', () => {
         expect(
             document.querySelector('.glyph-kerning-value-input')?.value
         ).toBe('-70');
+    });
+
+    test('switching masters clears a stale kerning draft and shows the target master value', () => {
+        fontModel = makeKerningFont({ includeSecondMaster: true });
+        currentFont.fontModel = fontModel;
+
+        setTextRunState();
+
+        canvas.updatePropertyPanel();
+
+        const input = document.querySelector('.glyph-kerning-value-input');
+        input.value = '-55';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+
+        expect(canvas.textModeKerningDraftPairKey).toBe('A\u0000@VSecond');
+        expect(canvas.textModeKerningDraftScopeKey).toBe('master-1\u0000ltr');
+
+        canvas.applyTextModeKerningMasterChange('master-2');
+        canvas.updatePropertyPanel();
+
+        expect(canvas.textModeKerningDraftPairKey).toBeNull();
+        expect(canvas.textModeKerningDraftScopeKey).toBeNull();
+        expect(canvas.textModeKerningDraftValue).toBeNull();
+        expect(
+            document.querySelector('.glyph-kerning-value-input')?.value
+        ).toBe('-90');
     });
 
     test('shows active selection state on the chosen pill pair', () => {

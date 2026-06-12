@@ -549,6 +549,7 @@ class GlyphCanvas {
     textModeKerningSelectionPinned: boolean = false;
     textModeKerningSelectionScopeKey: string | null = null;
     textModeKerningDraftPairKey: string | null = null;
+    textModeKerningDraftScopeKey: string | null = null;
     textModeKerningDraftValue: string | null = null;
     textModeKerningOverlayCache: TextModeKerningOverlayCache | null = null;
 
@@ -636,6 +637,7 @@ class GlyphCanvas {
 
         if (
             this.textModeKerningDraftPairKey === null &&
+            this.textModeKerningDraftScopeKey === null &&
             this.textModeKerningDraftValue === null
         ) {
             if (this.outlineEditor.active || !this.propertyPanel) {
@@ -648,6 +650,7 @@ class GlyphCanvas {
         }
 
         this.textModeKerningDraftPairKey = null;
+        this.textModeKerningDraftScopeKey = null;
         this.textModeKerningDraftValue = null;
 
         if (this.outlineEditor.active || !this.propertyPanel) {
@@ -3353,7 +3356,7 @@ class GlyphCanvas {
         );
 
         // Store selected master ID
-        this.textRunEditor!.selectedMasterId = masterId;
+        this.applyTextModeKerningMasterChange(masterId);
 
         // Update master list UI
         this.updateMasterSelection();
@@ -3634,7 +3637,7 @@ class GlyphCanvas {
                 '[GlyphCanvas] Auto-selecting master:',
                 matchingMaster.id
             );
-            this.textRunEditor!.selectedMasterId = matchingMaster.id;
+            this.applyTextModeKerningMasterChange(matchingMaster.id);
             this.updateMasterSelection();
             this.updatePropertyPanel();
         } else if (
@@ -3642,7 +3645,7 @@ class GlyphCanvas {
             this.textRunEditor!.selectedMasterId !== null
         ) {
             console.log('[GlyphCanvas] Deselecting master (no match)');
-            this.textRunEditor!.selectedMasterId = null;
+            this.applyTextModeKerningMasterChange(null);
             this.updateMasterSelection();
             this.updatePropertyPanel();
         }
@@ -4822,6 +4825,40 @@ class GlyphCanvas {
         return this.textRunEditor.glyphNameBuffer[glyphIndex] || null;
     }
 
+    private clearTextModeKerningDraft(): void {
+        this.textModeKerningDraftPairKey = null;
+        this.textModeKerningDraftScopeKey = null;
+        this.textModeKerningDraftValue = null;
+    }
+
+    private getTextModeKerningDraftScopeKey(
+        masterId: string | null,
+        isRTL: boolean
+    ): string | null {
+        if (!masterId) {
+            return null;
+        }
+
+        return `${masterId}\u0000${isRTL ? 'rtl' : 'ltr'}`;
+    }
+
+    private applyTextModeKerningMasterChange(
+        nextMasterId: string | null
+    ): void {
+        if (!this.textRunEditor) {
+            return;
+        }
+
+        if (this.textRunEditor.selectedMasterId === nextMasterId) {
+            return;
+        }
+
+        this.textRunEditor.selectedMasterId = nextMasterId;
+        this.invalidateTextModeKerningOverlayCache();
+        this.textModeKerningSelectionPinned = false;
+        this.clearTextModeKerningDraft();
+    }
+
     private syncTextModeKerningSelection(
         firstKeys: string[],
         secondKeys: string[]
@@ -4856,8 +4893,7 @@ class GlyphCanvas {
                 ? getTextModeKerningPairKey(nextFirstKey, nextSecondKey)
                 : null;
         if (pairKey !== this.textModeKerningDraftPairKey) {
-            this.textModeKerningDraftPairKey = null;
-            this.textModeKerningDraftValue = null;
+            this.clearTextModeKerningDraft();
         }
 
         return this.textModeKerningSelection;
@@ -5809,6 +5845,11 @@ class GlyphCanvas {
         );
         if (currentValue === nextValue) {
             this.textModeKerningDraftPairKey = nextPairKey;
+            this.textModeKerningDraftScopeKey =
+                this.getTextModeKerningDraftScopeKey(
+                    context.master.id || null,
+                    context.isRTL
+                );
             this.textModeKerningDraftValue = trimmedValue;
             this.updatePropertyPanel();
             if (focusCanvas) {
@@ -5836,6 +5877,11 @@ class GlyphCanvas {
         }
 
         this.textModeKerningDraftPairKey = nextPairKey;
+        this.textModeKerningDraftScopeKey =
+            this.getTextModeKerningDraftScopeKey(
+                context.master.id || null,
+                context.isRTL
+            );
         this.textModeKerningDraftValue = trimmedValue;
         this.scheduleTextModeKerningCompile('kerning-property-panel');
         this.updatePropertyPanel();
@@ -6568,8 +6614,14 @@ class GlyphCanvas {
                 context.selectedFirstKey && context.selectedSecondKey
                     ? `${context.selectedFirstKey}\u0000${context.selectedSecondKey}`
                     : null;
+            const draftScopeKey = this.getTextModeKerningDraftScopeKey(
+                context.master?.id || null,
+                context.isRTL
+            );
             const initialValue =
-                pairKey && this.textModeKerningDraftPairKey === pairKey
+                pairKey &&
+                this.textModeKerningDraftPairKey === pairKey &&
+                this.textModeKerningDraftScopeKey === draftScopeKey
                     ? this.textModeKerningDraftValue || ''
                     : context.hasSelectedValue && context.selectedValue !== null
                       ? String(context.selectedValue)
@@ -6596,6 +6648,7 @@ class GlyphCanvas {
                     input.dataset.skipNextPropertyCommit = 'true';
                     if (pairKey) {
                         this.textModeKerningDraftPairKey = pairKey;
+                        this.textModeKerningDraftScopeKey = draftScopeKey;
                         this.textModeKerningDraftValue = String(nextValue);
                     }
                     await this.commitTextModeKerningValue(
@@ -6613,6 +6666,7 @@ class GlyphCanvas {
             input.addEventListener('input', () => {
                 if (pairKey) {
                     this.textModeKerningDraftPairKey = pairKey;
+                    this.textModeKerningDraftScopeKey = draftScopeKey;
                     this.textModeKerningDraftValue = input.value;
                 }
             });
@@ -6638,8 +6692,7 @@ class GlyphCanvas {
                 if (event.key === 'Escape') {
                     event.preventDefault();
                     event.stopPropagation();
-                    this.textModeKerningDraftPairKey = null;
-                    this.textModeKerningDraftValue = null;
+                    this.clearTextModeKerningDraft();
                     this.updatePropertyPanel();
                     return;
                 }
