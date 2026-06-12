@@ -17893,9 +17893,19 @@ export class OutlineEditor {
                     ) {
                         continue;
                     }
-                    // Replace the stored layer with a fresh JSON snapshot from
-                    // the font model so the bridge delta includes cascade changes.
-                    storedGlyph.layers[storedLayerIndex] = modelLayer.toJSON();
+                    const serializedLayer =
+                        fontManager.serializeLayerForCommittedSync(
+                            target.glyphName,
+                            target.layerId,
+                            modelLayer.toJSON(),
+                            compileMetadata?.editType === 'anchor'
+                                ? { preserveExistingShapes: true }
+                                : undefined
+                        );
+                    if (!serializedLayer) {
+                        continue;
+                    }
+                    storedGlyph.layers[storedLayerIndex] = serializedLayer;
                 }
             }
 

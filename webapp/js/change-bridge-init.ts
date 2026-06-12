@@ -1387,6 +1387,74 @@ function getActiveEditedGlyphName(): string | null {
  * refresh the outline editor canvas. Call after undo/redo/remote
  * changes so the Rust interpolation reads up-to-date layer data.
  */
+async function refreshRustWorkerCache(
+    rootGlyphName?: string,
+    editedGlyphName?: string,
+    options?: {
+        workerReplayTargets?: WorkerReplayTarget[];
+        allowSelectedLayerFallback?: boolean;
+    }
+): Promise<void> {
+    const gc = window.glyphCanvas;
+    const oe = gc?.outlineEditor;
+    const parsedStack = oe?.parseGlyphStack?.() || [];
+    const refreshRootGlyphName =
+        rootGlyphName ?? parsedStack[0]?.glyphName ?? undefined;
+    const selectedLayerId = oe?.selectedLayerId ?? undefined;
+
+    const currentFont = window.fontManager?.currentFont;
+    if (!currentFont || !fontCompilation?.isInitialized) {
+        return;
+    }
+
+    try {
+        let didStoreLayer = false;
+        const replayTargets = normalizeWorkerReplayTargets(
+            options?.workerReplayTargets
+        );
+        const allowSelectedLayerFallback =
+            options?.allowSelectedLayerFallback !== false;
+        if (
+            replayTargets.length > 0 &&
+            typeof window.fontManager?.refreshWorkerCacheForReplayTargets ===
+                'function'
+        ) {
+            didStoreLayer =
+                (await window.fontManager.refreshWorkerCacheForReplayTargets(
+                    replayTargets
+                )) === true;
+        }
+        if (!didStoreLayer && selectedLayerId && allowSelectedLayerFallback) {
+            const cacheTargets = new Set<string>();
+            if (refreshRootGlyphName) {
+                cacheTargets.add(refreshRootGlyphName);
+            }
+            if (editedGlyphName) {
+                cacheTargets.add(editedGlyphName);
+            }
+
+            if (cacheTargets.size > 0) {
+                didStoreLayer = true;
+                for (const glyphName of cacheTargets) {
+                    const stored =
+                        (await window.fontManager?.submitLayerToWorkerCache?.(
+                            glyphName,
+                            selectedLayerId
+                        )) === true;
+                    if (!stored) {
+                        didStoreLayer = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        await fontCompilation.awaitWorkerDocumentSync();
+    } catch {
+        // Non-fatal — the scheduled compile will update the cache later
+    }
+}
+
 export async function syncRustCacheAndRefreshCanvas(
     rootGlyphName?: string,
     editedGlyphName?: string,
@@ -1403,59 +1471,7 @@ export async function syncRustCacheAndRefreshCanvas(
         rootGlyphName ?? parsedStack[0]?.glyphName ?? undefined;
     let selectedLayerId = oe?.selectedLayerId ?? undefined;
 
-    const currentFont = window.fontManager?.currentFont;
-    if (currentFont && fontCompilation?.isInitialized) {
-        try {
-            let didStoreLayer = false;
-            const replayTargets = normalizeWorkerReplayTargets(
-                options?.workerReplayTargets
-            );
-            const allowSelectedLayerFallback =
-                options?.allowSelectedLayerFallback !== false;
-            if (
-                replayTargets.length > 0 &&
-                typeof window.fontManager
-                    ?.refreshWorkerCacheForReplayTargets === 'function'
-            ) {
-                didStoreLayer =
-                    (await window.fontManager.refreshWorkerCacheForReplayTargets(
-                        replayTargets
-                    )) === true;
-            }
-            if (
-                !didStoreLayer &&
-                selectedLayerId &&
-                allowSelectedLayerFallback
-            ) {
-                const cacheTargets = new Set<string>();
-                if (refreshRootGlyphName) {
-                    cacheTargets.add(refreshRootGlyphName);
-                }
-                if (editedGlyphName) {
-                    cacheTargets.add(editedGlyphName);
-                }
-
-                if (cacheTargets.size > 0) {
-                    didStoreLayer = true;
-                    for (const glyphName of cacheTargets) {
-                        const stored =
-                            (await window.fontManager?.submitLayerToWorkerCache?.(
-                                glyphName,
-                                selectedLayerId
-                            )) === true;
-                        if (!stored) {
-                            didStoreLayer = false;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            await fontCompilation.awaitWorkerDocumentSync();
-        } catch {
-            // Non-fatal — the scheduled compile will update the cache later
-        }
-    }
+    await refreshRustWorkerCache(rootGlyphName, editedGlyphName, options);
 
     if (gc) {
         // If a drag is in progress, loading layer data from the model would
@@ -2216,11 +2232,14 @@ export async function handleCommittedChangeRefresh(
 
         if (hasReplayTargetsBeyondDirectEntryPaths(entries)) {
             const replayTargets = collectReplayTargetsFromEntries(entries);
-            const queueCacheRefresh =
-                dependencies?.queueCacheRefresh ??
-                queueRustCacheAndRefreshCanvas;
+            // Local committed refresh already runs inside the bridge-owned
+            // serialized undo/redo path. Re-enqueuing onto bridgeSyncQueue
+            // here can deadlock the current undo/redo while it waits for the
+            // committed refresh to finish.
+            const refreshCache =
+                dependencies?.queueCacheRefresh ?? refreshRustWorkerCache;
 
-            await queueCacheRefresh(undefined, undefined, {
+            await refreshCache(undefined, undefined, {
                 allowSelectedLayerFallback: false,
                 workerReplayTargets: replayTargets
             });
