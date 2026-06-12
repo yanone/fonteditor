@@ -1940,16 +1940,18 @@ fn replace_masters_kerning_in_json(
             continue;
         };
 
-        match incoming_master.get("kerning").cloned() {
-            Some(kerning_value) => {
-                if existing_object.get("kerning") != Some(&kerning_value) {
-                    existing_object.insert("kerning".to_string(), kerning_value);
-                    changed = true;
+        for field_name in ["kerning", "kerning_rtl"] {
+            match incoming_master.get(field_name).cloned() {
+                Some(kerning_value) => {
+                    if existing_object.get(field_name) != Some(&kerning_value) {
+                        existing_object.insert(field_name.to_string(), kerning_value);
+                        changed = true;
+                    }
                 }
-            }
-            None => {
-                if existing_object.remove("kerning").is_some() {
-                    changed = true;
+                None => {
+                    if existing_object.remove(field_name).is_some() {
+                        changed = true;
+                    }
                 }
             }
         }
@@ -2055,11 +2057,6 @@ fn refresh_kerning_related_caches_from_ydoc<T: ReadTxn>(
     } else {
         None
     };
-    let format_specific_json = if refresh_master_kerning {
-        ydoc_get_top_level_json_with_txn("format_specific", txn)
-    } else {
-        None
-    };
     let first_kern_groups_json = if refresh_kern_groups {
         ydoc_get_top_level_json_with_txn("first_kern_groups", txn)
     } else {
@@ -2077,11 +2074,6 @@ fn refresh_kerning_related_caches_from_ydoc<T: ReadTxn>(
         if let Some(ref mut canonical) = *canonical_lock {
             if refresh_master_kerning {
                 replace_masters_kerning_in_json(canonical, masters_json.as_ref());
-                replace_top_level_json_entry(
-                    canonical,
-                    "format_specific",
-                    format_specific_json.clone(),
-                );
             }
             if refresh_kern_groups {
                 replace_top_level_json_entry(
@@ -2121,11 +2113,6 @@ fn refresh_kerning_related_caches_from_ydoc<T: ReadTxn>(
             if refresh_master_kerning {
                 subset_changed |=
                     replace_masters_kerning_in_json(subset_json, masters_json.as_ref());
-                subset_changed |= replace_top_level_json_entry(
-                    subset_json,
-                    "format_specific",
-                    format_specific_json.clone(),
-                );
             }
             if refresh_kern_groups {
                 subset_changed |= replace_top_level_json_entry(

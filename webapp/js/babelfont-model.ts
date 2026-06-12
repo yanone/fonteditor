@@ -9708,99 +9708,19 @@ export class Master extends ArrayElementBase {
         recordAndMarkDirty(this, 'kerning', old, value);
     }
 
-    static readonly KEY_KERNING_RTL = 'com.schriftgestalt.Glyphs.kerningRTL';
-    private _kerningRTLFlat: Record<string, number> | null = null;
-    private _kerningRTLCacheKey: string | null = null;
-
-    get kerningRTL(): Record<string, number> {
-        const font = this.parent() as any;
-        if (!font?.format_specific) return {};
-        const allRtl = font.format_specific[Master.KEY_KERNING_RTL] as
-            | Record<string, Record<string, Record<string, number>>>
-            | undefined;
-        if (!allRtl) return {};
-        const masterId = this.id;
-        const raw = allRtl[masterId];
-        if (!raw) return {};
-
-        // Cache key: JSON hash of raw data to detect changes
-        const cacheKey = JSON.stringify(raw);
-        if (this._kerningRTLCacheKey === cacheKey && this._kerningRTLFlat) {
-            return this._kerningRTLFlat;
-        }
-
-        // Flatten nested RTL dict.
-        // Raw format: { @MMK_R_X: { @MMK_L_Y: value } }
-        // Strip prefixes in place: @MMK_R_X → @X (first), @MMK_L_Y → @Y (second)
-        // This matches the editor's (firstKey, secondKey) order for the pair.
-        const flat: Record<string, number> = {};
-        for (const [kern1, subtable] of Object.entries(raw)) {
-            const firstKey = kern1.startsWith('@MMK_R_')
-                ? '@' + kern1.slice(7)
-                : kern1;
-            for (const [kern2, value] of Object.entries(subtable)) {
-                const secondKey = kern2.startsWith('@MMK_L_')
-                    ? '@' + kern2.slice(7)
-                    : kern2;
-                const pairKey = `${firstKey}:${secondKey}`;
-                flat[pairKey] = value;
-            }
-        }
-
-        this._kerningRTLFlat = flat;
-        this._kerningRTLCacheKey = cacheKey;
-        return flat;
+    get kerning_rtl(): Record<string, number> {
+        return getLiveMutableValue(
+            this,
+            'kerning_rtl',
+            this.data.kerning_rtl,
+            () => this.data.kerning_rtl
+        );
     }
 
-    set kerningRTL(value: Record<string, number>) {
-        const font = this.parent() as any;
-        if (!font) return;
-        if (!font.format_specific) {
-            font.format_specific = {};
-        }
-
-        // Convert flat format back to nested @MMK_R_ / @MMK_L_ format.
-        // Reverse of getter: firstKey → @MMK_R_, secondKey → @MMK_L_
-        const nested: Record<string, Record<string, number>> = {};
-        for (const [flatKey, numericValue] of Object.entries(value)) {
-            const colonIdx = flatKey.indexOf(':');
-            if (colonIdx === -1) continue;
-            const firstKey = flatKey.slice(0, colonIdx);
-            const secondKey = flatKey.slice(colonIdx + 1);
-            const mmkFirst = firstKey.startsWith('@')
-                ? '@MMK_R_' + firstKey.slice(1)
-                : firstKey;
-            const mmkSecond = secondKey.startsWith('@')
-                ? '@MMK_L_' + secondKey.slice(1)
-                : secondKey;
-            if (typeof numericValue !== 'number') {
-                continue;
-            }
-            nested[mmkFirst] ??= {};
-            nested[mmkFirst][mmkSecond] = numericValue;
-        }
-
-        const masterId = this.id;
-        const allRtl =
-            (font.format_specific[Master.KEY_KERNING_RTL] as
-                | Record<string, Record<string, Record<string, number>>>
-                | undefined) ?? {};
-        const nextAllRtl = { ...allRtl };
-        if (Object.keys(nested).length) {
-            nextAllRtl[masterId] = nested;
-            font.format_specific[Master.KEY_KERNING_RTL] = nextAllRtl;
-        } else {
-            delete nextAllRtl[masterId];
-            if (Object.keys(nextAllRtl).length) {
-                font.format_specific[Master.KEY_KERNING_RTL] = nextAllRtl;
-            } else {
-                delete font.format_specific[Master.KEY_KERNING_RTL];
-            }
-        }
-
-        // Invalidate cache
-        this._kerningRTLFlat = null;
-        this._kerningRTLCacheKey = null;
+    set kerning_rtl(value: Record<string, number>) {
+        const old = this.data.kerning_rtl;
+        this.data.kerning_rtl = value;
+        recordAndMarkDirty(this, 'kerning_rtl', old, value);
     }
 
     get custom_ot_values(): Unsafe[] | undefined {
@@ -10016,6 +9936,61 @@ export class Instance extends ArrayElementBase {
 /**
  * The main font class representing a complete font
  */
+function normalizeLegacyGlyphsRtlKerning(data: Babelfont.Font): Babelfont.Font {
+    const masters = Array.isArray(data.masters) ? data.masters : [];
+    const formatSpecific = data.format_specific as
+        | Record<string, unknown>
+        | undefined;
+    const rawRtl = formatSpecific?.['com.schriftgestalt.Glyphs.kerningRTL'] as
+        | Record<string, Record<string, Record<string, number>>>
+        | undefined;
+
+    for (const master of masters) {
+        if (!master.kerning_rtl) {
+            master.kerning_rtl = {} as any;
+        }
+    }
+
+    if (!rawRtl) {
+        return data;
+    }
+
+    for (const master of masters) {
+        const masterRawRtl = rawRtl[master.id || ''];
+        if (!masterRawRtl) {
+            continue;
+        }
+
+        const nextKerningRtl = {
+            ...((master.kerning_rtl as Record<string, number> | undefined) ||
+                {})
+        };
+
+        for (const [kern1, subtable] of Object.entries(masterRawRtl)) {
+            const firstKey = kern1.startsWith('@MMK_R_')
+                ? '@' + kern1.slice(7)
+                : kern1;
+            for (const [kern2, value] of Object.entries(subtable || {})) {
+                const secondKey = kern2.startsWith('@MMK_L_')
+                    ? '@' + kern2.slice(7)
+                    : kern2;
+                if (typeof value !== 'number') {
+                    continue;
+                }
+                nextKerningRtl[`${firstKey}:${secondKey}`] = value;
+            }
+        }
+
+        master.kerning_rtl = nextKerningRtl as any;
+    }
+
+    if (formatSpecific) {
+        delete formatSpecific['com.schriftgestalt.Glyphs.kerningRTL'];
+    }
+
+    return data;
+}
+
 export class Font extends ModelBase {
     private _glyphWrappers: Glyph[] | null = null;
     private _axisWrappers: Axis[] | null = null;
@@ -10032,7 +10007,7 @@ export class Font extends ModelBase {
     private _glyphNamesByLengthDesc: string[] | null = null;
 
     constructor(data: Babelfont.Font) {
-        super(data);
+        super(normalizeLegacyGlyphsRtlKerning(data));
     }
 
     get upm(): number {
@@ -11293,7 +11268,8 @@ export class Font extends ModelBase {
                 ? this.clonePlainValue(options.location)
                 : this.getNextMasterLocation(),
             metrics,
-            kerning: {} as any
+            kerning: {} as any,
+            kerning_rtl: {} as any
         };
     }
 

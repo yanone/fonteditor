@@ -1654,6 +1654,60 @@ describe('bridge Yjs worker callback', () => {
         );
     });
 
+    test('forwards RTL kerning-pair Yjs updates with non-glyph kerning hints', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+        const hasWorkerCacheDocumentSpy = jest
+            .spyOn(fullFontCompilation, 'hasWorkerCacheDocument')
+            .mockReturnValue(true);
+        const fullWorkerUpdateSpy = jest
+            .spyOn(fullFontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = {
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const bridge = initializeBridgeHarness();
+        workerSeedSpy.mockClear();
+        fullWorkerUpdateSpy.mockClear();
+
+        bridge._yjsWorkerCallback(new Uint8Array([4, 6]), [
+            {
+                path: 'masters.0.kerning_rtl.@AFirst:@VSecond',
+                transactionLabel: 'Edit kerning pair'
+            }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            [],
+            expect.objectContaining({
+                invalidateLayoutClosure: false,
+                nonGlyphChangeHints: ['kerning-value']
+            })
+        );
+        expect(hasWorkerCacheDocumentSpy).toHaveBeenCalled();
+        expect(fullWorkerUpdateSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: [],
+                nonGlyphChangeHints: ['kerning-value'],
+                invalidateLayoutClosure: false
+            })
+        );
+    });
+
     test('forwards kern-group Yjs updates with non-glyph kerning hints', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
         const workerSeedSpy = jest

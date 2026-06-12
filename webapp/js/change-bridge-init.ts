@@ -743,7 +743,7 @@ type NonGlyphChangeHint =
     | 'masters';
 
 function pathTouchesMasterKerning(path: string): boolean {
-    return /(^|\.)masters\.[^.]+\.kerning(\.|$)/.test(path);
+    return /(^|\.)masters\.[^.]+\.kerning(_rtl)?(\.|$)/.test(path);
 }
 
 function pathTouchesKerningGroups(path: string): boolean {
@@ -1035,6 +1035,34 @@ function collectReplayTargetsFromEntries(
         }
     }
     return normalizeWorkerReplayTargets(targets);
+}
+
+function hasReplayTargetsBeyondDirectEntryPaths(
+    entries: ChangeLogEntry[]
+): boolean {
+    const replayTargets = collectReplayTargetsFromEntries(entries);
+    if (!replayTargets.length) {
+        return false;
+    }
+
+    const directTargetKeys = new Set<string>();
+    for (const entry of entries) {
+        const entryPath =
+            typeof entry.path === 'string' && entry.path.length > 0
+                ? getPathSegments(entry.path)
+                : [];
+        const glyphName = deriveGlyphName(entryPath);
+        const layerId = deriveLayerId(entryPath);
+        if (!glyphName || !layerId) {
+            continue;
+        }
+        directTargetKeys.add(`${glyphName}@@${layerId}`);
+    }
+
+    return replayTargets.some(
+        (target) =>
+            !directTargetKeys.has(`${target.glyphName}@@${target.layerId}`)
+    );
 }
 
 function normalizeLayerDataForWorkerDriftCheck(layerData: unknown): string {
@@ -2186,11 +2214,24 @@ export async function handleCommittedChangeRefresh(
             return;
         }
 
+        if (hasReplayTargetsBeyondDirectEntryPaths(entries)) {
+            const replayTargets = collectReplayTargetsFromEntries(entries);
+            const queueCacheRefresh =
+                dependencies?.queueCacheRefresh ??
+                queueRustCacheAndRefreshCanvas;
+
+            await queueCacheRefresh(undefined, undefined, {
+                allowSelectedLayerFallback: false,
+                workerReplayTargets: replayTargets
+            });
+        }
+
         // Local committed packets rely on the authoritative incremental Yjs
         // worker update already forwarded by setYjsWorkerCallback().
         // awaitLocalCommittedWorkerCacheSettled() waits for that forwarded
         // update and any chained local worker-cache updates before compile.
-        // Do not send a second replay-target refresh from the sender path.
+        // Only queue an extra replay-target refresh when the committed packet
+        // carries downstream targets beyond the direct changed layer.
 
         const { editType, changeSource } =
             localCompileContext ?? resolveLocalCommittedCompileContext(entries);

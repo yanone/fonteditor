@@ -4891,7 +4891,7 @@ class GlyphCanvas {
             return fallbackSelection;
         }
 
-        const kerning = (isRTL ? master.kerningRTL : master.kerning) as
+        const kerning = (isRTL ? master.kerning_rtl : master.kerning) as
             | KerningContainer
             | undefined;
         if (!kerning) {
@@ -4946,7 +4946,7 @@ class GlyphCanvas {
             return currentSelection;
         }
 
-        const kerning = (isRTL ? master.kerningRTL : master.kerning) as
+        const kerning = (isRTL ? master.kerning_rtl : master.kerning) as
             | KerningContainer
             | undefined;
         const currentValue =
@@ -4993,7 +4993,7 @@ class GlyphCanvas {
         isRTL: boolean = false
     ): TextModeKerningOperand[] {
         const kerning = (
-            master ? (isRTL ? master.kerningRTL : master.kerning) : undefined
+            master ? (isRTL ? master.kerning_rtl : master.kerning) : undefined
         ) as KerningContainer | undefined;
         const options = [
             {
@@ -5200,7 +5200,7 @@ class GlyphCanvas {
             master && resolvedSelection.firstKey && resolvedSelection.secondKey
                 ? getKerningPairValue(
                       (firstCluster.isRTL
-                          ? master.kerningRTL
+                          ? master.kerning_rtl
                           : master.kerning) as KerningContainer | undefined,
                       resolvedSelection.firstKey,
                       resolvedSelection.secondKey
@@ -5289,7 +5289,7 @@ class GlyphCanvas {
         entry: TextModeKerningOverlayCacheEntry,
         master: Master
     ): void {
-        const kerning = (entry.isRTL ? master.kerningRTL : master.kerning) as
+        const kerning = (entry.isRTL ? master.kerning_rtl : master.kerning) as
             | KerningContainer
             | undefined;
         const metrics =
@@ -5648,12 +5648,12 @@ class GlyphCanvas {
         nextValue: number | null,
         isRTL: boolean = false
     ): void {
-        const kerning = (isRTL ? master.kerningRTL : master.kerning) as
+        const kerning = (isRTL ? master.kerning_rtl : master.kerning) as
             | KerningContainer
             | undefined;
         const setKerning = (value: KerningContainer) => {
             if (isRTL) {
-                (master as any).kerningRTL = value;
+                master.kerning_rtl = value as Record<string, number>;
             } else {
                 master.kerning = value as unknown as Master['kerning'];
             }

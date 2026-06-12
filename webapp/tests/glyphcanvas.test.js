@@ -3981,6 +3981,15 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.destroy();
     });
 
+    test('normalizes legacy format_specific RTL kerning into master kerning_rtl on load', () => {
+        const fontModel = fontManager.currentFont.fontModel;
+
+        expect(fontModel.masters[0].kerning_rtl['@AFirst:@VSecond']).toBe(-120);
+        expect(
+            fontModel.format_specific['com.schriftgestalt.Glyphs.kerningRTL']
+        ).toBeUndefined();
+    });
+
     test('detects hovered editable sidebearing handles', () => {
         const handle = canvas.outlineEditor.getVisibleSidebearingHandles()[0];
         canvas.outlineEditor.transformMouseToComponentSpace = jest.fn(() => ({
@@ -11106,7 +11115,7 @@ describe('Text-mode kerning property panel', () => {
         expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-55);
     });
 
-    test('committing an RTL kerning value records a bridge change and writes format_specific RTL data', async () => {
+    test('committing an RTL kerning value records a bridge change and writes native master RTL kerning data', async () => {
         const recordChange = jest.fn();
         window.patchSyncEngine = {
             beginTransaction: jest.fn(),
@@ -11137,29 +11146,17 @@ describe('Text-mode kerning property panel', () => {
         );
         expect(window.patchSyncEngine.endTransaction).toHaveBeenCalled();
         expect(recordChange).toHaveBeenCalledWith(
-            [],
-            'format_specific',
-            expect.anything(),
+            ['masters', 0],
+            'kerning_rtl',
+            {},
             {
-                'com.schriftgestalt.Glyphs.kerningRTL': {
-                    'master-1': {
-                        '@MMK_R_AFirst': {
-                            '@MMK_L_VSecond': -55
-                        }
-                    }
-                }
+                '@AFirst:@VSecond': -55
             }
         );
-        expect(fontModel.masters[0].kerningRTL['@AFirst:@VSecond']).toBe(-55);
+        expect(fontModel.masters[0].kerning_rtl['@AFirst:@VSecond']).toBe(-55);
         expect(
             fontModel.format_specific['com.schriftgestalt.Glyphs.kerningRTL']
-        ).toEqual({
-            'master-1': {
-                '@MMK_R_AFirst': {
-                    '@MMK_L_VSecond': -55
-                }
-            }
-        });
+        ).toBeUndefined();
     });
 
     test('alt arrow keys nudge text-mode kerning with modifier scaling', async () => {

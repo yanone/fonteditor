@@ -351,6 +351,8 @@ export namespace Babelfont {
          * groups is determined by position in the tuple.
          */
         kerning: Map<[string, string], number>;
+        /** RTL kerning for this master */
+        kerning_rtl: Record<string, number>;
         /** Custom OpenType values for this master */
         custom_ot_values?: CustomOTValues;
         /** Format-specific data */
