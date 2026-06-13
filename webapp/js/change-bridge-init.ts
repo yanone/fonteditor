@@ -2239,7 +2239,16 @@ export async function handleCommittedChangeRefresh(
             return;
         }
 
-        if (hasReplayTargetsBeyondDirectEntryPaths(entries)) {
+        // Undo/redo entries carry replay targets that document what the
+        // undo operation already changed in the font model and propagated
+        // to the worker via authoritative Yjs sync in
+        // awaitLocalCommittedWorkerCacheSettled above. Re-refreshing the
+        // worker cache for those targets is redundant — the worker already
+        // has the data for all downstream glyphs and layers.
+        if (
+            !isUndoRedoPacket &&
+            hasReplayTargetsBeyondDirectEntryPaths(entries)
+        ) {
             const replayTargets = collectReplayTargetsFromEntries(entries);
             // Local committed refresh already runs inside the bridge-owned
             // serialized undo/redo path. Re-enqueuing onto bridgeSyncQueue

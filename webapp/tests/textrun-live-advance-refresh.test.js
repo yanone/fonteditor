@@ -1348,11 +1348,9 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             expect(
                 originalWindow.autoCompileManager.checkAndSchedule
             ).toHaveBeenCalledTimes(1);
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
-                { glyphName: 'a', layerId: 'layer-1' },
-                { glyphName: 'adieresis', layerId: 'layer-1' }
-            ]);
+            // Undo/redo replay targets document what the authoritative Yjs sync
+            // already pushed to the worker — no separate cache refresh needed.
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -1484,11 +1482,9 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
-                { glyphName: 'a', layerId: 'layer-1' },
-                { glyphName: 'adieresis', layerId: 'layer-1' }
-            ]);
+            // Undo/redo replay targets document what the authoritative Yjs sync
+            // already pushed to the worker — no separate cache refresh needed.
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
