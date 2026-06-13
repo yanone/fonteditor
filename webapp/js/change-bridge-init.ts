@@ -1045,23 +1045,32 @@ function hasReplayTargetsBeyondDirectEntryPaths(
         return false;
     }
 
-    const directTargetKeys = new Set<string>();
+    // Collect both layer-specific keys (glyph@@layer) and glyph-level names
+    // (paths with no layer segment, like 'glyphs.A', which cover all layers).
+    const directLayerKeys = new Set<string>();
+    const directGlyphNames = new Set<string>();
     for (const entry of entries) {
         const entryPath =
             typeof entry.path === 'string' && entry.path.length > 0
                 ? getPathSegments(entry.path)
                 : [];
         const glyphName = deriveGlyphName(entryPath);
-        const layerId = deriveLayerId(entryPath);
-        if (!glyphName || !layerId) {
+        if (!glyphName) {
             continue;
         }
-        directTargetKeys.add(`${glyphName}@@${layerId}`);
+        const layerId = deriveLayerId(entryPath);
+        if (layerId) {
+            directLayerKeys.add(`${glyphName}@@${layerId}`);
+        } else {
+            // Glyph-level path matches any replay target for this glyph
+            directGlyphNames.add(glyphName);
+        }
     }
 
     return replayTargets.some(
         (target) =>
-            !directTargetKeys.has(`${target.glyphName}@@${target.layerId}`)
+            !directGlyphNames.has(target.glyphName) &&
+            !directLayerKeys.has(`${target.glyphName}@@${target.layerId}`)
     );
 }
 
