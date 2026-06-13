@@ -7655,6 +7655,14 @@ class GlyphCanvas {
 
     panToCursor(): void {
         // Pan viewport to show cursor with smooth animation
+        // Never pan to cursor in edit mode — the cursor position tracks the
+        // selected glyph's text-run position and has no relation to what the
+        // user is focusing on during outline editing. Spurious pans happen when
+        // shapeText dispatches cursormoved after a compile completes post-edit.
+        if (this.outlineEditor.active) {
+            return;
+        }
+
         if (this.isCursorVisible()) {
             return; // Cursor is already visible
         }
