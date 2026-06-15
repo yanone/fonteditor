@@ -1360,9 +1360,9 @@ dependencies = [
 
 [[package]]
 name = "glyphslib"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "060ee3f586f744606092509310bec33658833294a12f3d0fdc303ab48c6fda93"
+checksum = "c404051709b5a3632b1744c747d4a9987f851966ca64119610a378876d11eca6"
 dependencies = [
  "itertools 0.14.0",
  "openstep-plist",
@@ -3632,7 +3632,6 @@ dependencies = [
  "fea-rs-ast",
  "fontdrasil 0.4.0 (git+https://github.com/googlefonts/fontc?rev=3518040e)",
  "indexmap 2.13.0",
- "read-fonts 0.39.2",
  "skrifa 0.42.1",
  "smol_str",
 ]
