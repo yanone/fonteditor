@@ -1719,6 +1719,8 @@ export class TextRunEditor {
             '🔵 TextRunEditor.setFont() completed, textBuffer is now:',
             this.textBuffer
         );
+
+        this.rebuildEditingFontNameToGid();
     }
 
     setShapingFontBlob(fontData: Uint8Array): void {
@@ -1760,6 +1762,8 @@ export class TextRunEditor {
         ) {
             this.hbFont.setVariations(this.axesManager.variationSettings);
         }
+
+        this.rebuildEditingFontNameToGid();
     }
 
     private getActiveShapingFont(): any {
