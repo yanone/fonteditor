@@ -1894,7 +1894,8 @@ describe('Babelfont Object Model', () => {
                 )
             ).toEqual([
                 { 'com.schriftgestalt.Glyphs.alignment': 0 },
-                undefined
+                // alignment = -1 in the .glyphs source: explicitly disabled
+                { 'com.schriftgestalt.Glyphs.alignment': -1 }
             ]);
             expect(
                 layer.components.map((component) =>
