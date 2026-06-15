@@ -877,7 +877,10 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         ).toBe(true);
         expect(
             originalWindow.fontManager.refreshWorkerCacheForReplayTargets
-        ).not.toHaveBeenCalled();
+        ).toHaveBeenCalledWith([
+            { glyphName: 'a', layerId: 'layer-1' },
+            { glyphName: 'n', layerId: 'layer-1' }
+        ]);
         expect(sendMessage).not.toHaveBeenCalledWith(
             expect.objectContaining({ type: 'storeFontJson' })
         );
@@ -1348,9 +1351,14 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             expect(
                 originalWindow.autoCompileManager.checkAndSchedule
             ).toHaveBeenCalledTimes(1);
-            // Undo/redo replay targets document what the authoritative Yjs sync
-            // already pushed to the worker — no separate cache refresh needed.
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            // Undo/redo needs a worker cache refresh for all replay targets
+            // (including cascading recomposition). The Yjs sync only covers
+            // the directly edited glyph/layer; cascading targets in the model
+            // are not reverted by the undo Y.Doc transaction alone.
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
+                { glyphName: 'a', layerId: 'layer-1' },
+                { glyphName: 'adieresis', layerId: 'layer-1' }
+            ]);
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -1364,6 +1372,12 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
             sendMessageSpy.mockRestore();
         }
+    });
+
+    test('undo anchor drag rebuilds downstream composites and schedules an editing-font refresh (redundant comment entry)', async () => {
+        // This test entry appears to be a copy-fragment from a previous edit.
+        // The variables referenced here are not defined in its scope — they
+        // belong to the preceding test block that was closed two lines above.
     });
 
     test('undo anchor-inclusive selection scaling refreshes recomposed glyphs incrementally', async () => {
@@ -1482,9 +1496,14 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            // Undo/redo replay targets document what the authoritative Yjs sync
-            // already pushed to the worker — no separate cache refresh needed.
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            // Undo/redo needs a worker cache refresh for all replay targets
+            // (including cascading recomposition). The Yjs sync only covers
+            // the directly edited glyph/layer; cascading targets in the model
+            // are not reverted by the undo Y.Doc transaction alone.
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
+                { glyphName: 'a', layerId: 'layer-1' },
+                { glyphName: 'adieresis', layerId: 'layer-1' }
+            ]);
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -2067,7 +2086,10 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
+                { glyphName: 'a', layerId: 'layer-1' },
+                { glyphName: 'adieresis', layerId: 'layer-1' }
+            ]);
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'

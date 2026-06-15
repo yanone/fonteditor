@@ -2239,21 +2239,17 @@ export async function handleCommittedChangeRefresh(
             return;
         }
 
-        // Undo/redo entries carry replay targets that document what the
-        // undo operation already changed in the font model and propagated
-        // to the worker via authoritative Yjs sync in
-        // awaitLocalCommittedWorkerCacheSettled above. Re-refreshing the
-        // worker cache for those targets is redundant — the worker already
-        // has the data for all downstream glyphs and layers.
-        if (
-            !isUndoRedoPacket &&
-            hasReplayTargetsBeyondDirectEntryPaths(entries)
-        ) {
+        // Undo/redo replay the committed layer data back onto the Y.Doc, and
+        // the Yjs diff for those changes is forwarded to the worker. However,
+        // the JS-side font model (currentFont.fontModel) is only synced from
+        // the Y.Doc for the directly edited (target) glyph/layer, NOT for the
+        // cascading recomposition targets — those remain at post-edit state in
+        // the model. Subsequent compile steps (e.g. forceFullEditingCacheRefresh
+        // for undo/redo) can re-serialize the stale model data and overwrite the
+        // worker's correct pre-edit caches. An explicit refresh of all replay
+        // targets is needed so every affected layer gets the right cached data.
+        if (hasReplayTargetsBeyondDirectEntryPaths(entries)) {
             const replayTargets = collectReplayTargetsFromEntries(entries);
-            // Local committed refresh already runs inside the bridge-owned
-            // serialized undo/redo path. Re-enqueuing onto bridgeSyncQueue
-            // here can deadlock the current undo/redo while it waits for the
-            // committed refresh to finish.
             const refreshCache =
                 dependencies?.queueCacheRefresh ?? refreshRustWorkerCache;
 
