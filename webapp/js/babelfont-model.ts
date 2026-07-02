@@ -236,7 +236,8 @@ function getAutomaticComponentTransform(
 function isAutomaticAlignedComponent(component: Component): boolean {
     const value =
         getModelFormatSpecific(component)?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
-    return value === 0;
+    // -1 = manually positioned; undefined (omitted), 0, 1 = automatic
+    return value !== -1;
 }
 
 function isAutomaticSidebearingOverrideKey(value: string | undefined): boolean {

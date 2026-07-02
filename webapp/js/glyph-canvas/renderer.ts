@@ -1926,7 +1926,7 @@ export class GlyphCanvasRenderer {
                         isHovered,
                         shape.format_specific?.[
                             'com.schriftgestalt.Glyphs.alignment'
-                        ] === 0,
+                        ] !== -1,
                         !!isInterpolated,
                         invScale,
                         isDarkTheme
@@ -5183,7 +5183,7 @@ export class GlyphCanvasRenderer {
                 false,
                 shape.format_specific?.[
                     'com.schriftgestalt.Glyphs.alignment'
-                ] === 0,
+                ] !== -1,
                 false,
                 invScale,
                 isDarkTheme

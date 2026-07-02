@@ -4179,7 +4179,8 @@ class GlyphCanvas {
     private getComponentAutoAlignmentValue(component: Component): boolean {
         const value =
             component.format_specific?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
-        return value === 0;
+        // -1 = manually positioned; undefined (omitted), 0, 1 = automatic
+        return value !== -1;
     }
 
     private setComponentAutoAlignmentValue(
@@ -4194,7 +4195,7 @@ class GlyphCanvas {
         const formatSpecific = {
             ...(component.format_specific || {})
         } as Record<string, unknown>;
-        formatSpecific[GLYPHS_COMPONENT_ALIGNMENT_KEY] = enabled ? 0 : 1;
+        formatSpecific[GLYPHS_COMPONENT_ALIGNMENT_KEY] = enabled ? 0 : -1;
         component.format_specific = formatSpecific;
         return true;
     }
