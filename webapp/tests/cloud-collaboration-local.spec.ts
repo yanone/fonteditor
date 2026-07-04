@@ -457,7 +457,13 @@ async function resendPersistedCloudOutboxRecordOverFreshSocket(
                     }, 15000);
 
                     ws.onopen = () => {
-                        ws.send(JSON.stringify({ type: 'auth', token }));
+                        ws.send(
+                            JSON.stringify({
+                                type: 'auth',
+                                token,
+                                ydocSchemaVersion: 2
+                            })
+                        );
                     };
 
                     ws.onerror = () => {
@@ -1547,8 +1553,12 @@ async function waitForPrimaryNodePosition(
 async function fetchRoomStatus(page: Page, assetId: string) {
     return page.evaluate(async (nextAssetId) => {
         const sessionToken = (window as any).authManager?.getSessionToken?.();
+        const websiteBaseUrl = String(
+            (window as any).cloudPlugin?._cloudAdapter?._websiteBaseUrl ||
+                'http://localhost:8788'
+        ).replace(/\/$/, '');
         const response = await fetch(
-            `http://localhost:8787/room/${encodeURIComponent(nextAssetId)}/status`,
+            `${websiteBaseUrl}/api/dev/cloud/room-status/${encodeURIComponent(nextAssetId)}`,
             {
                 headers: sessionToken
                     ? {
@@ -1562,6 +1572,189 @@ async function fetchRoomStatus(page: Page, assetId: string) {
         }
         return await response.json();
     }, assetId);
+}
+
+async function postRoomStatusControl(
+    page: Page,
+    assetId: string,
+    body: Record<string, unknown>
+) {
+    return page.evaluate(
+        async ({ nextAssetId, nextBody }) => {
+            const sessionToken = (
+                window as any
+            ).authManager?.getSessionToken?.();
+            const websiteBaseUrl = String(
+                (window as any).cloudPlugin?._cloudAdapter?._websiteBaseUrl ||
+                    'http://localhost:8788'
+            ).replace(/\/$/, '');
+            const response = await fetch(
+                `${websiteBaseUrl}/api/dev/cloud/room-status/${encodeURIComponent(nextAssetId)}`,
+                {
+                    method: 'POST',
+                    headers: {
+                        ...(sessionToken
+                            ? {
+                                  Authorization: `Bearer ${sessionToken}`
+                              }
+                            : {}),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(nextBody)
+                }
+            );
+            const payload = await response.json().catch(() => null);
+            if (!response.ok) {
+                throw new Error(
+                    `room control request failed: ${response.status} ${JSON.stringify(payload)}`
+                );
+            }
+            return payload;
+        },
+        { nextAssetId: assetId, nextBody: body }
+    );
+}
+
+async function setRoomSchemaVersion(
+    page: Page,
+    assetId: string,
+    ydocSchemaVersion: number
+) {
+    return await postRoomStatusControl(page, assetId, {
+        action: 'debug-set-room-schema-version',
+        ydocSchemaVersion
+    });
+}
+
+async function authenticateRoomSocketWithSchemaVersion(
+    page: Page,
+    assetId: string,
+    ydocSchemaVersion: number
+): Promise<{
+    authMessage: Record<string, unknown> | null;
+    closeCode: number | null;
+    closeReason: string | null;
+}> {
+    return page.evaluate(
+        async ({ nextAssetId, nextSchemaVersion }) => {
+            const sessionToken =
+                (window as any).authManager?.getSessionToken?.() ?? null;
+            const websiteBaseUrl = String(
+                (window as any).cloudPlugin?._cloudAdapter?._websiteBaseUrl ||
+                    window.location.origin
+            ).replace(/\/$/, '');
+
+            const roomTokenResponse = await (async () => {
+                const response = await fetch(
+                    `${websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(nextAssetId)}/room-token`,
+                    {
+                        method: 'POST',
+                        headers: sessionToken
+                            ? {
+                                  Authorization: `Bearer ${sessionToken}`
+                              }
+                            : undefined
+                    }
+                );
+                if (!response.ok) {
+                    throw new Error(
+                        `room-token request failed: ${response.status}`
+                    );
+                }
+                return await response.json();
+            })();
+
+            const rawRoomUrl = String(roomTokenResponse?.roomUrl ?? '').trim();
+            if (!rawRoomUrl) {
+                throw new Error(
+                    'room-token response returned an empty roomUrl'
+                );
+            }
+
+            const wsUrl = (() => {
+                const normalized = /^wss?:\/\//i.test(rawRoomUrl)
+                    ? new URL(rawRoomUrl)
+                    : /^https?:\/\//i.test(rawRoomUrl)
+                      ? new URL(rawRoomUrl)
+                      : rawRoomUrl.startsWith('/')
+                        ? new URL(rawRoomUrl, websiteBaseUrl)
+                        : new URL(`https://${rawRoomUrl}`);
+                if (normalized.protocol === 'http:') {
+                    normalized.protocol = 'ws:';
+                } else if (normalized.protocol === 'https:') {
+                    normalized.protocol = 'wss:';
+                }
+                return normalized.toString();
+            })();
+
+            return await new Promise<{
+                authMessage: Record<string, unknown> | null;
+                closeCode: number | null;
+                closeReason: string | null;
+            }>((resolve, reject) => {
+                let authMessage: Record<string, unknown> | null = null;
+                const ws = new WebSocket(wsUrl);
+                const timeoutId = window.setTimeout(() => {
+                    try {
+                        ws.close();
+                    } catch {
+                        // Ignore close failures during timeout cleanup.
+                    }
+                    reject(
+                        new Error('Timed out waiting for room auth response')
+                    );
+                }, 15000);
+
+                ws.onopen = () => {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'auth',
+                            token: String(roomTokenResponse?.token ?? ''),
+                            ydocSchemaVersion: nextSchemaVersion
+                        })
+                    );
+                };
+
+                ws.onerror = () => {
+                    window.clearTimeout(timeoutId);
+                    reject(new Error('Room auth websocket errored'));
+                };
+
+                ws.onmessage = (event) => {
+                    const message = JSON.parse(
+                        String(event.data ?? '{}')
+                    ) as Record<string, unknown>;
+                    if (
+                        message?.type === 'auth-ok' ||
+                        message?.type === 'auth-error'
+                    ) {
+                        authMessage = message;
+                        if (message.type === 'auth-ok') {
+                            try {
+                                ws.close();
+                            } catch {
+                                // Ignore manual close failures after auth-ok.
+                            }
+                        }
+                    }
+                };
+
+                ws.onclose = (event) => {
+                    window.clearTimeout(timeoutId);
+                    resolve({
+                        authMessage,
+                        closeCode:
+                            typeof event.code === 'number' ? event.code : null,
+                        closeReason:
+                            typeof event.reason === 'string'
+                                ? event.reason
+                                : null
+                    });
+                };
+            });
+        },
+        { nextAssetId: assetId, nextSchemaVersion: ydocSchemaVersion }
+    );
 }
 
 async function getBridgeStateSha(page: Page): Promise<string | null> {
@@ -2578,9 +2771,11 @@ test.describe('Local cloud collaboration', () => {
         const context = await browser.newContext({ ignoreHTTPSErrors: true });
         const mainPage = await context.newPage();
         const linkedPage = await context.newPage();
+        const email = `playwright-live-${Date.now()}@counterpunch.test`;
 
         await mainPage.goto('/?test=true');
         await waitForCanvasReady(mainPage);
+        await bootstrapCloudSession(mainPage, email);
 
         await loadCloudTestFont(mainPage);
         await waitForFontLoaded(mainPage);
@@ -2594,12 +2789,9 @@ test.describe('Local cloud collaboration', () => {
 
         expect(assetId).toBeTruthy();
         await waitForCloudConnected(mainPage);
-        await mainPage.waitForFunction(
-            () => !!(window as any).authManager?.isAuthenticated?.(),
-            { timeout: 15000 }
-        );
         await linkedPage.goto('/?test=true');
         await waitForCanvasReady(linkedPage);
+        await bootstrapCloudSession(linkedPage, email);
         await linkedPage.evaluate(async (nextAssetId) => {
             await (window as any).cloudPlugin.openAsset(nextAssetId);
         }, assetId);
@@ -2607,10 +2799,6 @@ test.describe('Local cloud collaboration', () => {
         await waitForFontLoaded(linkedPage);
         await waitForCloudConnected(linkedPage);
         await focusEditorGlyph(linkedPage, 'A');
-        await linkedPage.waitForFunction(
-            () => !!(window as any).authManager?.isAuthenticated?.(),
-            { timeout: 15000 }
-        );
 
         const beforeMain = await getPrimaryNodePosition(mainPage);
         const beforeLinked = await getPrimaryNodePosition(linkedPage);
@@ -3223,6 +3411,180 @@ test.describe('Local cloud collaboration', () => {
 
         await ownerContext.close();
         await viewerContext.close();
+    });
+
+    test('rejects older room schema clients during websocket auth', async ({
+        browser
+    }) => {
+        const context = await browser.newContext({ ignoreHTTPSErrors: true });
+        const page = await context.newPage();
+
+        await page.goto('/?test=true');
+        await waitForCanvasReady(page);
+        await bootstrapCloudSession(
+            page,
+            `schema-old-${Date.now()}@counterpunch.test`
+        );
+        await loadCloudTestFont(page);
+        await waitForFontLoaded(page);
+
+        const assetId = await page.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Schema Old Client ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(page);
+        await waitForAuthenticatedCloudSession(page);
+
+        const roomStatus = await fetchRoomStatus(page, assetId);
+        const currentSchemaVersion = Number(
+            roomStatus?.storageState?.ydocSchemaVersion ?? 0
+        );
+        expect(currentSchemaVersion).toBeGreaterThan(0);
+
+        const authResult = await authenticateRoomSocketWithSchemaVersion(
+            page,
+            assetId,
+            currentSchemaVersion - 1
+        );
+
+        expect(authResult.authMessage).toMatchObject({
+            type: 'auth-error',
+            code: 'upgrade-required'
+        });
+        expect(String(authResult.authMessage?.message ?? '')).toMatch(
+            /update the editor|reload the editor/i
+        );
+        expect(authResult.closeCode).toBe(4009);
+        expect(authResult.closeReason).toBe('upgrade-required');
+
+        await context.close();
+    });
+
+    test('rejects newer room schema clients during websocket auth', async ({
+        browser
+    }) => {
+        const context = await browser.newContext({ ignoreHTTPSErrors: true });
+        const page = await context.newPage();
+
+        await page.goto('/?test=true');
+        await waitForCanvasReady(page);
+        await bootstrapCloudSession(
+            page,
+            `schema-new-${Date.now()}@counterpunch.test`
+        );
+        await loadCloudTestFont(page);
+        await waitForFontLoaded(page);
+
+        const assetId = await page.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Schema New Client ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(page);
+        await waitForAuthenticatedCloudSession(page);
+
+        const roomStatus = await fetchRoomStatus(page, assetId);
+        const currentSchemaVersion = Number(
+            roomStatus?.storageState?.ydocSchemaVersion ?? 0
+        );
+        expect(currentSchemaVersion).toBeGreaterThan(0);
+
+        const authResult = await authenticateRoomSocketWithSchemaVersion(
+            page,
+            assetId,
+            currentSchemaVersion + 1
+        );
+
+        expect(authResult.authMessage).toMatchObject({
+            type: 'auth-error',
+            code: 'server-upgrade-required'
+        });
+        expect(String(authResult.authMessage?.message ?? '')).toMatch(
+            /service is updating/i
+        );
+        expect(authResult.closeCode).toBe(4010);
+        expect(authResult.closeReason).toBe('server-upgrade-required');
+
+        await context.close();
+    });
+
+    test('upgrades a downgraded room schema, disconnects stale peers, and marks reseed required', async ({
+        browser
+    }) => {
+        const ownerEmail = `schema-upgrade-${Date.now()}@counterpunch.test`;
+        const ownerContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const ownerPage = await ownerContext.newPage();
+
+        await ownerPage.goto('/?test=true');
+        await waitForCanvasReady(ownerPage);
+        await bootstrapCloudSession(ownerPage, ownerEmail);
+        await loadCloudTestFont(ownerPage);
+        await waitForCloudFontModelReady(ownerPage);
+
+        const assetId = await ownerPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Schema Upgrade ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(ownerPage);
+        await waitForAuthenticatedCloudSession(ownerPage);
+        await focusEditorGlyph(ownerPage, 'A');
+
+        const roomStatusBefore = await fetchRoomStatus(ownerPage, assetId);
+        const currentSchemaVersion = Number(
+            roomStatusBefore?.storageState?.ydocSchemaVersion ?? 0
+        );
+        expect(currentSchemaVersion).toBeGreaterThan(0);
+
+        await setRoomSchemaVersion(
+            ownerPage,
+            assetId,
+            currentSchemaVersion - 1
+        );
+
+        await expect
+            .poll(async () => {
+                const status = await fetchRoomStatus(ownerPage, assetId);
+                return Number(status?.storageState?.ydocSchemaVersion ?? 0);
+            })
+            .toBe(currentSchemaVersion - 1);
+
+        const authResult = await authenticateRoomSocketWithSchemaVersion(
+            ownerPage,
+            assetId,
+            currentSchemaVersion
+        );
+
+        expect(authResult.authMessage).toMatchObject({
+            type: 'auth-ok',
+            roomSchemaVersion: currentSchemaVersion,
+            seedRequired: true
+        });
+
+        await expect
+            .poll(async () => await getCloudConnectionStatus(ownerPage), {
+                timeout: 30000
+            })
+            .not.toBe('connected');
+
+        const roomStatusAfter = await fetchRoomStatus(ownerPage, assetId);
+        expect(
+            Number(roomStatusAfter?.storageState?.ydocSchemaVersion ?? 0)
+        ).toBe(currentSchemaVersion);
+        expect(Number(roomStatusAfter?.connectedPeers ?? 0)).toBe(0);
+        expect(Number(roomStatusAfter?.mutationHistoryCount ?? 0)).toBe(0);
+        expect(Number(roomStatusAfter?.totalUpdatesApplied ?? 0)).toBe(0);
+
+        await ownerContext.close();
     });
 
     test('removed editors cannot keep editing in an already-open browser context', async ({

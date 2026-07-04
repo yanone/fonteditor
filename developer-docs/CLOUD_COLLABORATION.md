@@ -258,3 +258,100 @@ The local browser workflow that must stay green is:
 6. verify page B receives the remote Yjs apply and converges on the same model
 
 This workflow is covered by `webapp/tests/cloud-collaboration-local.spec.ts`.
+
+---
+
+## Room Schema Version Gate
+
+The live collaboration room must never accept mixed Y.Doc schema versions.
+
+This rule exists because the room's operational Y.Doc is allowed to be reset
+and reseeded, but steady-state collaboration assumes that every connected
+client, the Durable Object room state, and the editor's bridge all agree on the
+same structural layout.
+
+### Canonical vs operational state
+
+- The canonical cloud asset remains the durable source of truth.
+- The Durable Object room Y.Doc is operational sync state only.
+- Operational state may be discarded and rebuilt when the room schema changes.
+- Discarding operational state must remove both SQL pointers and any R2
+  operational checkpoint artifacts, otherwise an older checkpoint can be
+  rediscovered and resurrect stale room data.
+
+### Handshake contract
+
+Every room auth handshake now carries the editor's Y.Doc schema version.
+
+Client -> room:
+
+- `auth { token, ydocSchemaVersion }`
+
+Room -> client success:
+
+- `auth-ok { clientId, roomSchemaVersion, seedRequired }`
+
+Room -> client failure:
+
+- `auth-error { code: 'upgrade-required', message }`
+- `auth-error { code: 'server-upgrade-required', message }`
+
+Room -> connected clients during upgrade:
+
+- `room-closing { code: 'schema-upgrade-required', message }`
+
+### Required room behavior
+
+1. The Durable Object is authoritative for the room schema version.
+2. The room must persist its current schema version in `room_state`.
+3. Older clients must be rejected during auth with reload-required wording.
+4. A client that is newer than the room server implementation must receive a
+   service-updating message.
+5. If the room's persisted operational schema is older than the current server
+   schema, the room must:
+   clear the in-memory Y.Doc,
+   clear the persisted room-state pointers,
+   delete operational checkpoint artifacts in R2,
+   persist the new schema version,
+   eject already-authenticated peers, and
+   continue the new auth flow with `seedRequired: true`.
+6. If the room schema already matches, auth continues with
+   `seedRequired: false`.
+
+### Required client behavior
+
+1. The editor must send its schema version in every room auth message.
+2. The editor must require `roomSchemaVersion` in `auth-ok` and refuse to sync
+   if it does not match the local schema constant.
+3. `upgrade-required`, `server-upgrade-required`, and
+   `schema-upgrade-required` are terminal protocol conditions, not transient
+   reconnect conditions.
+4. Terminal schema failures must surface the provided user-facing message and
+   suppress reconnect loops.
+5. `seedRequired: true` does not need a special transport path. The editor can
+   continue with the normal two-phase Yjs sync:
+   the room replies from its empty Y.Doc,
+   the client receives an empty `sync-response`, and
+   `sync-complete` then seeds the room from the client's current bridge state.
+
+### Mixed-version policy
+
+- Old client + new room: reject the client and require reload.
+- New client + old room operational state: reset the room, eject peers, then
+  reseed from the new client.
+- New client + old server code: stop and show the service-updating message.
+- Existing peers connected to a room that is being upgraded: close them and
+  require rejoin.
+
+This is the cheapest safe policy because it avoids online schema translation,
+avoids mixed Y.Doc layouts in one room, and keeps the migration path limited to
+room reset plus client rejoin.
+
+### Validation expectations
+
+Changes to this protocol must keep all of the following green:
+
+- Durable Object auth and room-reset unit coverage in the collab repo.
+- Editor `cloud-adapter` unit coverage for auth payloads, terminal schema
+  failures, and schema-validated `auth-ok` handling.
+- The editor webpack build.

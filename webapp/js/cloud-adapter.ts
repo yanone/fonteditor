@@ -61,6 +61,13 @@ const DEFAULT_PRODUCTION_ROOM_WORKER_URL =
     'https://fonts-room.fonteditor.workers.dev';
 const DEFAULT_LOCAL_ROOM_WORKER_URL = 'ws://localhost:8787';
 const CLOUD_ASSET_DELETED_MESSAGE = 'Cloud asset was deleted';
+const YDOC_SCHEMA_VERSION = 2;
+const CLOUD_COLLAB_RELOAD_MESSAGE =
+    'Please reload the editor to continue collaborating.';
+const CLOUD_COLLAB_FORMAT_CHANGED_MESSAGE =
+    'The collaboration format changed. Please reload the editor to continue collaborating.';
+const CLOUD_COLLAB_SERVICE_UPDATING_MESSAGE =
+    'The collaboration service is updating. Please try again in a moment.';
 
 function getDefaultRoomWorkerUrl(): string {
     return isProduction()
@@ -549,6 +556,7 @@ export class CloudAdapter implements FileSystemAdapter {
         CloudChunkAccumulator
     >();
     private _directConnection: { token: string; roomUrl: string } | null = null;
+    private _terminalCloseDetail: string | null = null;
 
     constructor(options: CloudAdapterOptions) {
         this._assetId = options.assetId;
@@ -600,6 +608,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
         this._lastInboundMessageAt = 0;
+        this._terminalCloseDetail = null;
         this._visibleRebaselinePromise = null;
         this._resetWorkerBridgeSyncState();
         this._clearInitialSyncTimeout();
@@ -636,6 +645,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
         this._lastInboundMessageAt = 0;
+        this._terminalCloseDetail = null;
         this._visibleRebaselinePromise = null;
         this._resetWorkerBridgeSyncState();
         this._clearInitialSyncTimeout();
@@ -676,6 +686,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
         this._lastInboundMessageAt = 0;
+        this._terminalCloseDetail = null;
         this._needsVisibleRebaseline = false;
         this._visibleRebaselinePromise = null;
         this._resetWorkerBridgeSyncState();
@@ -1061,7 +1072,13 @@ export class CloudAdapter implements FileSystemAdapter {
             ws.onopen = () => {
                 if (this._ws !== ws) return;
                 this._setStatus('authenticating');
-                ws.send(JSON.stringify({ type: 'auth', token }));
+                ws.send(
+                    JSON.stringify({
+                        type: 'auth',
+                        token,
+                        ydocSchemaVersion: YDOC_SCHEMA_VERSION
+                    })
+                );
                 this._armAuthenticationTimeout(ws);
             };
 
@@ -1099,12 +1116,13 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._inboundFlushScheduled = false;
                 this._localUpdateUnsubscribe?.();
                 this._localUpdateUnsubscribe = null;
-                if (event.reason === 'asset-deleted') {
-                    this._setStatus('error', CLOUD_ASSET_DELETED_MESSAGE);
-                    return;
-                }
-                if (event.code === 4001) {
-                    this._setStatus('error', 'Authentication failed');
+                const terminalDetail = this._getTerminalCloseDetail(
+                    event.code,
+                    event.reason
+                );
+                if (terminalDetail) {
+                    this._terminalCloseDetail = null;
+                    this._setStatus('error', terminalDetail);
                     return;
                 }
                 if (!this._destroyed) {
@@ -1137,8 +1155,26 @@ export class CloudAdapter implements FileSystemAdapter {
             case 'auth-ok':
                 this._clearAuthenticationTimeout();
                 this._clearInitialSyncTimeout();
+                if (msg.roomSchemaVersion !== YDOC_SCHEMA_VERSION) {
+                    this._terminalCloseDetail =
+                        CLOUD_COLLAB_SERVICE_UPDATING_MESSAGE;
+                    this._setStatus(
+                        'error',
+                        CLOUD_COLLAB_SERVICE_UPDATING_MESSAGE
+                    );
+                    this._ws?.close(
+                        CLIENT_RECONNECT_CLOSE_CODE,
+                        'server-upgrade-required'
+                    );
+                    break;
+                }
                 this._clientId = String(msg.clientId ?? '');
                 console.log(`CloudAdapter: authenticated as ${this._clientId}`);
+                if (msg.seedRequired === true) {
+                    console.log(
+                        'CloudAdapter: room reseed required; continuing with local bridge bootstrap'
+                    );
+                }
                 this._setStatus('syncing');
                 this._armInitialSyncTimeout();
                 this._initialServerStateApplied = false;
@@ -1160,11 +1196,42 @@ export class CloudAdapter implements FileSystemAdapter {
 
             case 'auth-error':
                 this._clearAuthenticationTimeout();
-                console.error(
-                    `CloudAdapter: auth error: ${String(msg.message ?? '')}`
-                );
-                this._setStatus('error', String(msg.message ?? 'auth-error'));
+                {
+                    const detail = String(msg.message ?? 'auth-error');
+                    const code = String(msg.code ?? '');
+                    console.error(`CloudAdapter: auth error: ${detail}`);
+                    if (code === 'upgrade-required') {
+                        this._terminalCloseDetail = detail;
+                        this._setStatus('error', detail);
+                        this._ws?.close(
+                            CLIENT_RECONNECT_CLOSE_CODE,
+                            'upgrade-required'
+                        );
+                    } else if (code === 'server-upgrade-required') {
+                        this._terminalCloseDetail = detail;
+                        this._setStatus('error', detail);
+                        this._ws?.close(
+                            CLIENT_RECONNECT_CLOSE_CODE,
+                            'server-upgrade-required'
+                        );
+                    } else {
+                        this._setStatus('error', detail);
+                    }
+                }
                 break;
+
+            case 'room-closing': {
+                const detail = String(
+                    msg.message ?? CLOUD_COLLAB_FORMAT_CHANGED_MESSAGE
+                );
+                this._terminalCloseDetail = detail;
+                this._setStatus('error', detail);
+                this._ws?.close(
+                    CLIENT_RECONNECT_CLOSE_CODE,
+                    String(msg.code ?? 'room-closing')
+                );
+                break;
+            }
 
             case 'sync-response': {
                 this._resyncRequestedAfterNoopUpdate = false;
@@ -2305,6 +2372,32 @@ export class CloudAdapter implements FileSystemAdapter {
             clearTimeout(this._authenticationTimer);
             this._authenticationTimer = null;
         }
+    }
+
+    private _getTerminalCloseDetail(
+        code: number | undefined,
+        reason: string | undefined
+    ): string | null {
+        if (this._terminalCloseDetail) {
+            return this._terminalCloseDetail;
+        }
+        if (reason === 'asset-deleted') {
+            return CLOUD_ASSET_DELETED_MESSAGE;
+        }
+        if (code === 4001) {
+            return 'Authentication failed';
+        }
+        if (
+            code === 4009 ||
+            reason === 'upgrade-required' ||
+            reason === 'schema-upgrade-required'
+        ) {
+            return CLOUD_COLLAB_RELOAD_MESSAGE;
+        }
+        if (code === 4010 || reason === 'server-upgrade-required') {
+            return CLOUD_COLLAB_SERVICE_UPDATING_MESSAGE;
+        }
+        return null;
     }
 
     private _scheduleReconnect(): void {

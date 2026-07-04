@@ -10,6 +10,8 @@ const {
     collaborationMessageKey
 } = require('../js/collaboration-message.ts');
 
+const TEST_YDOC_SCHEMA_VERSION = 2;
+
 function createIndexedDbMock(seedRecords = []) {
     const records = new Map(
         seedRecords.map((record) => [
@@ -1034,7 +1036,12 @@ describe('CloudAdapter outbound updates', () => {
 
         try {
             adapter._handleMessage(
-                JSON.stringify({ type: 'auth-ok', clientId: 'client-1' })
+                JSON.stringify({
+                    type: 'auth-ok',
+                    clientId: 'client-1',
+                    roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION,
+                    seedRequired: true
+                })
             );
 
             expect(adapter._pendingOutboundPackets).toHaveLength(2);
@@ -1731,7 +1738,11 @@ describe('CloudAdapter durability failures', () => {
             jest.advanceTimersByTime(10000);
 
             expect(socket.send).toHaveBeenCalledWith(
-                JSON.stringify({ type: 'auth', token: 'room-token' })
+                JSON.stringify({
+                    type: 'auth',
+                    token: 'room-token',
+                    ydocSchemaVersion: TEST_YDOC_SCHEMA_VERSION
+                })
             );
             expect(statuses).toContainEqual({
                 status: 'connecting',
@@ -2378,6 +2389,262 @@ describe('CloudAdapter durability failures', () => {
                 status: 'error',
                 detail: 'Cloud asset was deleted'
             });
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            global.WebSocket = originalWebSocket;
+        }
+    });
+
+    it('stops reconnecting when the room requires a client reload', async () => {
+        const statuses = [];
+        const originalWebSocket = global.WebSocket;
+        let socket;
+
+        class FakeWebSocket {
+            constructor(_url) {
+                this.readyState = 1;
+                this.send = jest.fn();
+                this.close = jest.fn((code, reason) => {
+                    this.readyState = 3;
+                    this.onclose?.({ code, reason });
+                });
+                socket = this;
+            }
+        }
+
+        global.WebSocket = FakeWebSocket;
+
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            await adapter.connectDirect(
+                {
+                    onLocalUpdate: jest.fn(),
+                    offLocalUpdate: jest.fn()
+                },
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'auth-error',
+                    code: 'upgrade-required',
+                    message:
+                        'Please reload the editor to continue collaborating.'
+                })
+            );
+
+            expect(statuses).toContainEqual({
+                status: 'error',
+                detail: 'Please reload the editor to continue collaborating.'
+            });
+            expect(socket.close).toHaveBeenCalledWith(4000, 'upgrade-required');
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            global.WebSocket = originalWebSocket;
+        }
+    });
+
+    it('stops reconnecting when the collaboration service is updating', async () => {
+        const statuses = [];
+        const originalWebSocket = global.WebSocket;
+        let socket;
+
+        class FakeWebSocket {
+            constructor(_url) {
+                this.readyState = 1;
+                this.send = jest.fn();
+                this.close = jest.fn((code, reason) => {
+                    this.readyState = 3;
+                    this.onclose?.({ code, reason });
+                });
+                socket = this;
+            }
+        }
+
+        global.WebSocket = FakeWebSocket;
+
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            await adapter.connectDirect(
+                {
+                    onLocalUpdate: jest.fn(),
+                    offLocalUpdate: jest.fn()
+                },
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'auth-error',
+                    code: 'server-upgrade-required',
+                    message:
+                        'The collaboration service is updating. Please try again in a moment.'
+                })
+            );
+
+            expect(statuses).toContainEqual({
+                status: 'error',
+                detail: 'The collaboration service is updating. Please try again in a moment.'
+            });
+            expect(socket.close).toHaveBeenCalledWith(
+                4000,
+                'server-upgrade-required'
+            );
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            global.WebSocket = originalWebSocket;
+        }
+    });
+
+    it('stops reconnecting when the room closes for a schema upgrade', async () => {
+        const statuses = [];
+        const originalWebSocket = global.WebSocket;
+        let socket;
+
+        class FakeWebSocket {
+            constructor(_url) {
+                this.readyState = 1;
+                this.send = jest.fn();
+                this.close = jest.fn((code, reason) => {
+                    this.readyState = 3;
+                    this.onclose?.({ code, reason });
+                });
+                socket = this;
+            }
+        }
+
+        global.WebSocket = FakeWebSocket;
+
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            await adapter.connectDirect(
+                {
+                    onLocalUpdate: jest.fn(),
+                    offLocalUpdate: jest.fn()
+                },
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'room-closing',
+                    code: 'schema-upgrade-required',
+                    message:
+                        'The collaboration format changed. Please reload the editor to continue collaborating.'
+                })
+            );
+
+            expect(statuses).toContainEqual({
+                status: 'error',
+                detail: 'The collaboration format changed. Please reload the editor to continue collaborating.'
+            });
+            expect(socket.close).toHaveBeenCalledWith(
+                4000,
+                'schema-upgrade-required'
+            );
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            global.WebSocket = originalWebSocket;
+        }
+    });
+
+    it('rejects auth-ok responses that do not advertise the current room schema', async () => {
+        const statuses = [];
+        const originalWebSocket = global.WebSocket;
+        let socket;
+
+        class FakeWebSocket {
+            constructor(_url) {
+                this.readyState = 1;
+                this.send = jest.fn();
+                this.close = jest.fn((code, reason) => {
+                    this.readyState = 3;
+                    this.onclose?.({ code, reason });
+                });
+                socket = this;
+            }
+        }
+
+        global.WebSocket = FakeWebSocket;
+
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            await adapter.connectDirect(
+                {
+                    onLocalUpdate: jest.fn(),
+                    offLocalUpdate: jest.fn()
+                },
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+
+            adapter._handleMessage(
+                JSON.stringify({ type: 'auth-ok', clientId: 'client-1' })
+            );
+
+            expect(statuses).toContainEqual({
+                status: 'error',
+                detail: 'The collaboration service is updating. Please try again in a moment.'
+            });
+            expect(socket.close).toHaveBeenCalledWith(
+                4000,
+                'server-upgrade-required'
+            );
             expect(scheduleReconnect).not.toHaveBeenCalled();
         } finally {
             scheduleReconnect.mockRestore();
