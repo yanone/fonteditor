@@ -20,9 +20,9 @@ import {
     deleteJsonPath,
     getJsonPath,
     INDEXED_MAP_KEYS,
-    diffYArray
+    diffYArray,
+    applyIndexedMapArray as applyIndexedMapArrayToYMap
 } from './change-bridge-ydoc';
-import { generateStableId } from './babelfont-model';
 import {
     buildHistoryStackItems,
     type ChangeLogEntry,
@@ -3214,22 +3214,16 @@ export class PatchSyncEngine {
                 editSource: operation.editSource ?? null,
                 compileChangeSource: operation.compileChangeSource ?? null,
                 compileEditType: operation.compileEditType ?? null,
-                replayOldValue:
-                    operation.op !== 'set'
-                        ? undefined
-                        : cloneHistoryValue(
-                              operation.applyOldValue === undefined
-                                  ? operation.oldValue
-                                  : operation.applyOldValue
-                          ),
-                replayNewValue:
-                    operation.op !== 'set'
-                        ? undefined
-                        : cloneHistoryValue(
-                              operation.applyNewValue === undefined
-                                  ? operation.newValue
-                                  : operation.applyNewValue
-                          ),
+                replayOldValue: this._cloneReplayValue(
+                    operation.applyOldValue === undefined
+                        ? operation.oldValue
+                        : operation.applyOldValue
+                ),
+                replayNewValue: this._cloneReplayValue(
+                    operation.applyNewValue === undefined
+                        ? operation.newValue
+                        : operation.applyNewValue
+                ),
                 visualAnchorSide: operation.visualAnchorSide ?? null,
                 workerReplayTargets,
                 historyTargetType: operationHistoryTarget?.type ?? null,
@@ -4046,6 +4040,10 @@ export class PatchSyncEngine {
             return entry.replayOldValue ?? entry.oldValue;
         }
         return entry.replayNewValue ?? entry.newValue;
+    }
+
+    private _cloneReplayValue(value: unknown): unknown {
+        return value === undefined ? undefined : cloneHistoryValue(value);
     }
 
     private _canReplayHistoryItemDirectly(
@@ -5026,88 +5024,11 @@ export class PatchSyncEngine {
                         key === 'guides') &&
                     Array.isArray(value)
                 ) {
-                    this._applyIndexedMapArray(layerMap, key, value);
+                    applyIndexedMapArrayToYMap(layerMap, key, value);
                     continue;
                 }
 
                 this._replaceYMapEntry(layerMap, key, value);
-            }
-        }
-    }
-
-    /**
-     * Apply an array delta (e.g. `shapes`, `anchors`, `guides`) to the
-     * indexed-map structure (`*ById`+`*Order`) on a layer Y.Map.
-     * Each element is deep-merged by stable id; only changed elements
-     * produce Yjs operations.
-     */
-    private _applyIndexedMapArray(
-        layerMap: Y.Map<unknown>,
-        arrayKey: string,
-        nextArray: unknown[]
-    ): void {
-        const mapping = INDEXED_MAP_KEYS[arrayKey];
-        if (!mapping) return;
-        const byIdKey = mapping.byId;
-        const orderKey = mapping.order;
-
-        let byIdMap: Y.Map<unknown> | unknown = layerMap.get(byIdKey);
-        let orderArray: Y.Array<unknown> | unknown = layerMap.get(orderKey);
-
-        if (!(byIdMap instanceof Y.Map)) {
-            byIdMap = new Y.Map<unknown>();
-            layerMap.set(byIdKey, byIdMap);
-        }
-        if (!(orderArray instanceof Y.Array)) {
-            orderArray = new Y.Array<unknown>();
-            layerMap.set(orderKey, orderArray);
-        }
-
-        const byIdMapTyped = byIdMap as Y.Map<unknown>;
-        const orderArrayTyped = orderArray as Y.Array<unknown>;
-        const currentOrder: string[] = orderArrayTyped.toArray() as string[];
-        const nextIds: string[] = [];
-        const seenIds = new Set<string>();
-
-        for (const item of nextArray) {
-            const inner =
-                (item as any)?.Path ?? (item as any)?.Component ?? item;
-            const id =
-                (inner as any)?.id ?? (item as any)?.id ?? generateStableId();
-
-            nextIds.push(id);
-            seenIds.add(id);
-
-            const existing = byIdMapTyped.get(id);
-            if (existing instanceof Y.Map) {
-                // Deep-merge the element
-                this._replaceYMapContents(
-                    existing,
-                    inner as Record<string, unknown>
-                );
-            } else {
-                // New element
-                byIdMapTyped.set(id, toYType(inner));
-            }
-        }
-
-        // Remove ids no longer present
-        for (const oldId of currentOrder) {
-            if (!seenIds.has(oldId)) {
-                byIdMapTyped.delete(oldId);
-            }
-        }
-
-        // Update order array if it changed
-        const orderChanged =
-            currentOrder.length !== nextIds.length ||
-            currentOrder.some((id, idx) => id !== nextIds[idx]);
-        if (orderChanged) {
-            if (orderArrayTyped.length > 0) {
-                orderArrayTyped.delete(0, orderArrayTyped.length);
-            }
-            if (nextIds.length > 0) {
-                orderArrayTyped.insert(0, nextIds);
             }
         }
     }

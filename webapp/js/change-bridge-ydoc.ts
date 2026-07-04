@@ -245,7 +245,7 @@ export function applyLayerDelta(
  * on a Y.Map. Each element is deep-merged by stable id; only changed
  elements produce Yjs operations.
  */
-function applyIndexedMapArray(
+export function applyIndexedMapArray(
     layerMap: Y.Map<unknown>,
     arrayKey: string,
     nextArray: unknown[]
@@ -486,17 +486,17 @@ export function fromYType(value: unknown): unknown {
             const nodes: unknown[] = [];
             for (const nodeId of orderedIds) {
                 const nodeVal = nodesById.get(nodeId);
-                if (nodeVal !== undefined) {
-                    const nodeObj = fromYType(nodeVal) as Record<
-                        string,
-                        unknown
-                    >;
-                    // Ensure the id from the *ById key is present on the node
-                    if (nodeObj && typeof nodeObj === 'object' && !nodeObj.id) {
-                        nodeObj.id = nodeId;
-                    }
-                    nodes.push(nodeObj);
+                if (nodeVal === undefined) {
+                    throw new Error(
+                        `Indexed-map integrity error: nodeOrder references missing node id ${nodeId}.`
+                    );
                 }
+                const nodeObj = fromYType(nodeVal) as Record<string, unknown>;
+                // Ensure the id from the *ById key is present on the node
+                if (nodeObj && typeof nodeObj === 'object' && !nodeObj.id) {
+                    nodeObj.id = nodeId;
+                }
+                nodes.push(nodeObj);
             }
             obj.nodes = nodes;
             if (value.has('closed'))
@@ -583,13 +583,16 @@ function fromYLayerMap(layerMap: Y.Map<unknown>): Record<string, unknown> {
         const shapes: unknown[] = [];
         for (const shapeId of orderedIds) {
             const shapeVal = (shapesById as Y.Map<unknown>).get(shapeId);
-            if (shapeVal !== undefined) {
-                const shapeObj = fromYType(shapeVal) as Record<string, unknown>;
-                if (shapeObj && typeof shapeObj === 'object' && !shapeObj.id) {
-                    shapeObj.id = shapeId;
-                }
-                shapes.push(shapeObj);
+            if (shapeVal === undefined) {
+                throw new Error(
+                    `Indexed-map integrity error: shapeOrder references missing shape id ${shapeId}.`
+                );
             }
+            const shapeObj = fromYType(shapeVal) as Record<string, unknown>;
+            if (shapeObj && typeof shapeObj === 'object' && !shapeObj.id) {
+                shapeObj.id = shapeId;
+            }
+            shapes.push(shapeObj);
         }
         obj.shapes = shapes;
     }
@@ -605,20 +608,16 @@ function fromYLayerMap(layerMap: Y.Map<unknown>): Record<string, unknown> {
         const anchors: unknown[] = [];
         for (const anchorId of orderedIds) {
             const anchorVal = (anchorsById as Y.Map<unknown>).get(anchorId);
-            if (anchorVal !== undefined) {
-                const anchorObj = fromYType(anchorVal) as Record<
-                    string,
-                    unknown
-                >;
-                if (
-                    anchorObj &&
-                    typeof anchorObj === 'object' &&
-                    !anchorObj.id
-                ) {
-                    anchorObj.id = anchorId;
-                }
-                anchors.push(anchorObj);
+            if (anchorVal === undefined) {
+                throw new Error(
+                    `Indexed-map integrity error: anchorOrder references missing anchor id ${anchorId}.`
+                );
             }
+            const anchorObj = fromYType(anchorVal) as Record<string, unknown>;
+            if (anchorObj && typeof anchorObj === 'object' && !anchorObj.id) {
+                anchorObj.id = anchorId;
+            }
+            anchors.push(anchorObj);
         }
         obj.anchors = anchors;
     }
@@ -634,9 +633,12 @@ function fromYLayerMap(layerMap: Y.Map<unknown>): Record<string, unknown> {
         const guides: unknown[] = [];
         for (const guideId of orderedIds) {
             const guideVal = (guidesById as Y.Map<unknown>).get(guideId);
-            if (guideVal !== undefined) {
-                guides.push(fromYType(guideVal));
+            if (guideVal === undefined) {
+                throw new Error(
+                    `Indexed-map integrity error: guideOrder references missing guide id ${guideId}.`
+                );
             }
+            guides.push(fromYType(guideVal));
         }
         obj.guides = guides;
     }

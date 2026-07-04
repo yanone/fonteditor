@@ -5275,16 +5275,16 @@ export class OutlineEditor {
             return;
         }
 
-        if (!this.prepareCommittedStructuralOutlineChange()) {
-            return;
-        }
-
         // When skipGlyphSnapshot is true, the model ops have already
         // recorded granular id-based entries through the normal
         // recordChange → setYPath path (inside a caller-managed
         // transaction).  No whole-glyph snapshot via syncGlyphFromJson
-        // is needed — just prepare the compile pipeline and return.
+        // is needed.
         if (options.skipGlyphSnapshot) {
+            return;
+        }
+
+        if (!this.prepareCommittedStructuralOutlineChange()) {
             return;
         }
 
@@ -13537,6 +13537,10 @@ export class OutlineEditor {
                 linkedPath._addPoint(preview.segmentId, preview.t);
                 roundPathNodesToGrid(linkedPath);
             }
+
+            if (insertedNodeIndex !== null) {
+                this.prepareCommittedStructuralOutlineChange();
+            }
         } finally {
             if (_addPtBridge) _addPtBridge.endTransaction();
         }
@@ -14197,9 +14201,6 @@ export class OutlineEditor {
             (window as any).patchSyncEngine ?? (window as any).changeBridge;
 
         if (options.granularSync && bridge) {
-            if (!this.prepareCommittedStructuralOutlineChange()) {
-                return false;
-            }
             bridge.beginTransaction(label);
             try {
                 changed = mutate(activePath, 0);
@@ -14214,10 +14215,13 @@ export class OutlineEditor {
                         if (!linkedPath) continue;
                         mutate(linkedPath, layerIndex + 1);
                     }
+
+                    this.prepareCommittedStructuralOutlineChange();
                 }
             } finally {
                 bridge.endTransaction();
             }
+            if (!changed) return false;
         } else {
             // Legacy fallback: suppress recording + syncGlyphFromJson.
             // All callers now pass granularSync: true; this branch
@@ -15076,6 +15080,8 @@ export class OutlineEditor {
                 const linkedPath = linkedLayer.paths?.[pathIndex];
                 linkedPath?._openClosedPathAtNode(point.nodeIndex);
             }
+
+            this.prepareCommittedStructuralOutlineChange();
         } finally {
             if (_openBridge) _openBridge.endTransaction();
         }
@@ -15132,6 +15138,8 @@ export class OutlineEditor {
             for (const linkedLayer of linkedLayers) {
                 linkedLayer.splitOpenPathAtNode(pathIndex, point.nodeIndex);
             }
+
+            this.prepareCommittedStructuralOutlineChange();
         } finally {
             if (_splitBridge) _splitBridge.endTransaction();
         }
@@ -15256,6 +15264,10 @@ export class OutlineEditor {
                           )
                         : null;
                 }
+
+                if (result) {
+                    this.prepareCommittedStructuralOutlineChange();
+                }
             } finally {
                 if (_closeBridge && !options.reuseTransaction)
                     _closeBridge.endTransaction();
@@ -15376,6 +15388,8 @@ export class OutlineEditor {
                 const linkedPath = linkedLayer.paths?.[contourIndex];
                 linkedPath?._closeOpenPathByMerge();
             }
+
+            this.prepareCommittedStructuralOutlineChange();
         } finally {
             if (_mergeBridge && !reuseTransaction)
                 _mergeBridge.endTransaction();
@@ -16693,6 +16707,8 @@ export class OutlineEditor {
                 removeAnchorsByName(linkedLayer);
                 removeSelectedGuideFromLayer(linkedLayer);
             }
+
+            this.prepareCommittedStructuralOutlineChange();
         } finally {
             if (_delBridge) _delBridge.endTransaction();
         }

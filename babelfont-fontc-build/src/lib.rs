@@ -1689,11 +1689,16 @@ fn reconstruct_indexed_map_array(
         for id_val in &order_arr {
             let id = match id_val {
                 serde_json::Value::String(s) => s.clone(),
-                _ => continue,
+                _ => panic!(
+                    "indexed-map integrity error: {order_key} contains a non-string id"
+                ),
             };
-            if let Some(item) = by_id_map.get(&id) {
-                arr.push(item.clone());
-            }
+            let item = by_id_map.get(&id).unwrap_or_else(|| {
+                panic!(
+                    "indexed-map integrity error: {order_key} references missing id {id} in {by_id_key}"
+                )
+            });
+            arr.push(item.clone());
         }
         obj.insert(array_key.to_string(), serde_json::Value::Array(arr));
     }

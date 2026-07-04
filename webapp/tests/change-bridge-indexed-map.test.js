@@ -624,6 +624,24 @@ describe('fromYType round-trip', () => {
         const roundTrippedIds = shape.nodes.map((n) => n.id);
         expect(roundTrippedIds).toEqual(originalIds);
     });
+
+    test('fromYType rejects order entries that point at missing ids', () => {
+        const font = makeTestFont(3);
+        ensureStableIds(font);
+        const { fontMap } = setupYDoc(font);
+        const layerMap = getLayerMap(fontMap);
+        const shapesById = layerMap.get('shapesById');
+        let shapeMap = null;
+        shapesById.forEach((v) => {
+            shapeMap = v;
+        });
+
+        shapeMap.get('nodeOrder').push(['missing-node-id']);
+
+        expect(() => yDocToJson(fontMap)).toThrow(
+            /nodeOrder references missing node id missing-node-id/
+        );
+    });
 });
 
 describe('Undo produces granular deltas', () => {
@@ -680,6 +698,142 @@ describe('Undo produces granular deltas', () => {
         // And the value should be back
         const node0AfterUndo = nodesById.get(nodeId);
         expect(node0AfterUndo.get('x')).toBe(originalX);
+    });
+
+    test('node add direct replay stays granular through undo and redo', () => {
+        const {
+            PatchSyncEngine: ChangeBridge
+        } = require('../js/patch-sync-engine');
+        const font = makeTestFont(6);
+        ensureStableIds(font);
+
+        const bridge = new ChangeBridge();
+        bridge.initFromJson(font);
+
+        const layerMap = getLayerMap(bridge.fontMap);
+        const shapesById = layerMap.get('shapesById');
+        let shapeMap = null;
+        shapesById.forEach((v) => {
+            shapeMap = v;
+        });
+        const nodeOrder = shapeMap.get('nodeOrder');
+        const nodesById = shapeMap.get('nodesById');
+        const oldOrder = nodeOrder.toArray();
+        const newNode = {
+            id: generateStableId(),
+            x: 777,
+            y: 888,
+            nodetype: 'Line',
+            smooth: false
+        };
+        const newOrder = [...oldOrder, newNode.id];
+
+        bridge.beginTransaction('add node');
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0],
+            'nodeOrder',
+            oldOrder,
+            newOrder
+        );
+        bridge.recordAdd(
+            [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodesById',
+                newNode.id
+            ],
+            newNode
+        );
+        bridge.endTransaction();
+
+        expect(nodesById.get(newNode.id)).toBeDefined();
+        expect(nodeOrder.toArray()).toEqual(newOrder);
+
+        const beforeUndoSV = Y.encodeStateVector(bridge.yDoc);
+        bridge.undo();
+        const undoDelta = Y.encodeStateAsUpdate(bridge.yDoc, beforeUndoSV);
+
+        expect(undoDelta.length).toBeLessThan(500);
+        expect(nodesById.get(newNode.id)).toBeUndefined();
+        expect(nodeOrder.toArray()).toEqual(oldOrder);
+
+        const beforeRedoSV = Y.encodeStateVector(bridge.yDoc);
+        bridge.redo();
+        const redoDelta = Y.encodeStateAsUpdate(bridge.yDoc, beforeRedoSV);
+
+        expect(redoDelta.length).toBeLessThan(500);
+        expect(nodesById.get(newNode.id)).toBeDefined();
+        expect(nodeOrder.toArray()).toEqual(newOrder);
+    });
+
+    test('node remove direct replay stays granular through undo and redo', () => {
+        const {
+            PatchSyncEngine: ChangeBridge
+        } = require('../js/patch-sync-engine');
+        const font = makeTestFont(6);
+        ensureStableIds(font);
+
+        const bridge = new ChangeBridge();
+        bridge.initFromJson(font);
+
+        const layerMap = getLayerMap(bridge.fontMap);
+        const shapesById = layerMap.get('shapesById');
+        let shapeMap = null;
+        shapesById.forEach((v) => {
+            shapeMap = v;
+        });
+        const nodeOrder = shapeMap.get('nodeOrder');
+        const nodesById = shapeMap.get('nodesById');
+        const oldOrder = nodeOrder.toArray();
+        const removedNodeId = oldOrder[2];
+        const removedNodeMap = nodesById.get(removedNodeId);
+        const removedNode = fromYType(removedNodeMap);
+        const newOrder = oldOrder.filter((id) => id !== removedNodeId);
+
+        bridge.beginTransaction('remove node');
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0],
+            'nodeOrder',
+            oldOrder,
+            newOrder
+        );
+        bridge.recordRemove(
+            [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodesById',
+                removedNodeId
+            ],
+            removedNode
+        );
+        bridge.endTransaction();
+
+        expect(nodesById.get(removedNodeId)).toBeUndefined();
+        expect(nodeOrder.toArray()).toEqual(newOrder);
+
+        const beforeUndoSV = Y.encodeStateVector(bridge.yDoc);
+        bridge.undo();
+        const undoDelta = Y.encodeStateAsUpdate(bridge.yDoc, beforeUndoSV);
+
+        expect(undoDelta.length).toBeLessThan(500);
+        expect(nodesById.get(removedNodeId)).toBeDefined();
+        expect(nodeOrder.toArray()).toEqual(oldOrder);
+
+        const beforeRedoSV = Y.encodeStateVector(bridge.yDoc);
+        bridge.redo();
+        const redoDelta = Y.encodeStateAsUpdate(bridge.yDoc, beforeRedoSV);
+
+        expect(redoDelta.length).toBeLessThan(500);
+        expect(nodesById.get(removedNodeId)).toBeUndefined();
+        expect(nodeOrder.toArray()).toEqual(newOrder);
     });
 });
 
