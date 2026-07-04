@@ -5267,6 +5267,7 @@ export class OutlineEditor {
             reuseTransaction?: boolean;
             layerId?: string | null;
             layerTargets?: Array<{ glyphName: string; layerId: string }>;
+            skipGlyphSnapshot?: boolean;
         } = {}
     ): void {
         const bridge = window.patchSyncEngine;
@@ -5275,6 +5276,15 @@ export class OutlineEditor {
         }
 
         if (!this.prepareCommittedStructuralOutlineChange()) {
+            return;
+        }
+
+        // When skipGlyphSnapshot is true, the model ops have already
+        // recorded granular id-based entries through the normal
+        // recordChange → setYPath path (inside a caller-managed
+        // transaction).  No whole-glyph snapshot via syncGlyphFromJson
+        // is needed — just prepare the compile pipeline and return.
+        if (options.skipGlyphSnapshot) {
             return;
         }
 
@@ -13509,7 +13519,10 @@ export class OutlineEditor {
             }
         };
 
-        withSuppressedModelRecording(() => {
+        const _addPtBridge =
+            (window as any).patchSyncEngine ?? (window as any).changeBridge;
+        if (_addPtBridge) _addPtBridge.beginTransaction('Add point');
+        try {
             insertedNodeIndex = activePath._addPoint(
                 preview.segmentId,
                 preview.t
@@ -13524,13 +13537,15 @@ export class OutlineEditor {
                 linkedPath._addPoint(preview.segmentId, preview.t);
                 roundPathNodesToGrid(linkedPath);
             }
-        });
+        } finally {
+            if (_addPtBridge) _addPtBridge.endTransaction();
+        }
 
         this.syncStructuralGlyphChangeTransaction(
             'Add point',
             currentGlyphModel.name,
             new Set<string>([currentGlyphModel.name]),
-            { layerId: null }
+            { layerId: null, skipGlyphSnapshot: true }
         );
 
         if (insertedNodeIndex === null) {
@@ -14155,7 +14170,8 @@ export class OutlineEditor {
     private applyPathMutationAcrossLinkedLayers(
         pathIndex: number,
         label: string,
-        mutate: (path: any, layerIndex?: number) => boolean
+        mutate: (path: any, layerIndex?: number) => boolean,
+        options: { granularSync?: boolean } = {}
     ): boolean {
         const currentLayerModel = this.getCurrentLayerModel();
         const currentGlyphModel = this.getCurrentGlyphModel();
@@ -14177,42 +14193,62 @@ export class OutlineEditor {
             }))
         );
 
-        withSuppressedModelRecording(() => {
-            changed = mutate(activePath, 0);
-            if (!changed) {
-                return;
-            }
+        const bridge =
+            (window as any).patchSyncEngine ?? (window as any).changeBridge;
 
-            for (
-                let layerIndex = 0;
-                layerIndex < linkedLayers.length;
-                layerIndex++
-            ) {
-                const linkedLayer = linkedLayers[layerIndex];
-                const linkedPath = linkedLayer.paths?.[pathIndex];
-                if (!linkedPath) {
-                    continue;
+        if (options.granularSync && bridge) {
+            if (!this.prepareCommittedStructuralOutlineChange()) {
+                return false;
+            }
+            bridge.beginTransaction(label);
+            try {
+                changed = mutate(activePath, 0);
+                if (changed) {
+                    for (
+                        let layerIndex = 0;
+                        layerIndex < linkedLayers.length;
+                        layerIndex++
+                    ) {
+                        const linkedLayer = linkedLayers[layerIndex];
+                        const linkedPath = linkedLayer.paths?.[pathIndex];
+                        if (!linkedPath) continue;
+                        mutate(linkedPath, layerIndex + 1);
+                    }
                 }
-                mutate(linkedPath, layerIndex + 1);
+            } finally {
+                bridge.endTransaction();
             }
-        });
-
-        if (!changed) {
-            return false;
+        } else {
+            // Legacy fallback: suppress recording + syncGlyphFromJson.
+            // All callers now pass granularSync: true; this branch
+            // remains as a safety net for edge cases.
+            withSuppressedModelRecording(() => {
+                changed = mutate(activePath, 0);
+                if (!changed) return;
+                for (
+                    let layerIndex = 0;
+                    layerIndex < linkedLayers.length;
+                    layerIndex++
+                ) {
+                    const linkedLayer = linkedLayers[layerIndex];
+                    const linkedPath = linkedLayer.paths?.[pathIndex];
+                    if (!linkedPath) continue;
+                    mutate(linkedPath, layerIndex + 1);
+                }
+            });
+            if (!changed) return false;
+            this.syncStructuralGlyphChangeTransaction(
+                label,
+                currentGlyphModel.name,
+                new Set<string>([currentGlyphModel.name]),
+                {
+                    layerId: null,
+                    layerTargets: layerTargets.length ? layerTargets : undefined
+                }
+            );
         }
 
-        this.syncStructuralGlyphChangeTransaction(
-            label,
-            currentGlyphModel.name,
-            new Set<string>([currentGlyphModel.name]),
-            {
-                layerId: null,
-                layerTargets: layerTargets.length ? layerTargets : undefined
-            }
-        );
-
         this.syncCurrentExactLayerDataFromModel();
-
         this.performHitDetection(null);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
@@ -14227,7 +14263,6 @@ export class OutlineEditor {
                 })
             );
         }
-
         return true;
     }
 
@@ -14328,7 +14363,8 @@ export class OutlineEditor {
                 }
 
                 return path?._setStartNode?.(mappedNodeIndex) ?? false;
-            }
+            },
+            { granularSync: true }
         );
 
         if (!changed) {
@@ -14365,7 +14401,8 @@ export class OutlineEditor {
         const changed = this.applyPathMutationAcrossLinkedLayers(
             resolvedPathIndex,
             'Reverse path direction',
-            (path: any) => path?._reverseDirection?.() ?? false
+            (path: any) => path?._reverseDirection?.() ?? false,
+            { granularSync: true }
         );
 
         if (!changed) {
@@ -14979,7 +15016,7 @@ export class OutlineEditor {
             label,
             currentGlyphModel.name,
             new Set<string>([currentGlyphModel.name]),
-            { layerId: null }
+            { layerId: null, skipGlyphSnapshot: true }
         );
 
         this.syncCurrentExactLayerDataFromModel();
@@ -15026,17 +15063,22 @@ export class OutlineEditor {
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
         let changed = false;
 
-        withSuppressedModelRecording(() => {
+        const _openBridge =
+            (window as any).patchSyncEngine ?? (window as any).changeBridge;
+        if (_openBridge) _openBridge.beginTransaction('Open path');
+        try {
             changed = activePath._openClosedPathAtNode(point.nodeIndex);
             if (!changed) {
-                return;
+                return false;
             }
 
             for (const linkedLayer of linkedLayers) {
                 const linkedPath = linkedLayer.paths?.[pathIndex];
                 linkedPath?._openClosedPathAtNode(point.nodeIndex);
             }
-        });
+        } finally {
+            if (_openBridge) _openBridge.endTransaction();
+        }
 
         if (!changed) {
             return false;
@@ -15075,19 +15117,24 @@ export class OutlineEditor {
             insertedShapeIndex: number;
         } | null = null;
 
-        withSuppressedModelRecording(() => {
+        const _splitBridge =
+            (window as any).patchSyncEngine ?? (window as any).changeBridge;
+        if (_splitBridge) _splitBridge.beginTransaction('Split path');
+        try {
             splitResult = currentLayerModel.splitOpenPathAtNode(
                 pathIndex,
                 point.nodeIndex
             );
             if (!splitResult) {
-                return;
+                return false;
             }
 
             for (const linkedLayer of linkedLayers) {
                 linkedLayer.splitOpenPathAtNode(pathIndex, point.nodeIndex);
             }
-        });
+        } finally {
+            if (_splitBridge) _splitBridge.endTransaction();
+        }
 
         if (!splitResult) {
             return false;
@@ -15128,42 +15175,104 @@ export class OutlineEditor {
             closed: boolean;
         } | null = null;
 
-        withSuppressedModelRecording(() => {
-            let pendingPair: {
-                sourceEndpoint: OpenPathEndpointRef;
-                targetEndpoint: OpenPathEndpointRef;
-            } | null = {
-                sourceEndpoint,
-                targetEndpoint
-            };
+        if (options.pendingCommandEdit) {
+            // Deferred-commit flow: suppress recording during the edit;
+            // finalizePendingCommandPathEdit will sync on key release.
+            withSuppressedModelRecording(() => {
+                let pendingPair: {
+                    sourceEndpoint: OpenPathEndpointRef;
+                    targetEndpoint: OpenPathEndpointRef;
+                } | null = {
+                    sourceEndpoint,
+                    targetEndpoint
+                };
 
-            while (pendingPair) {
-                result = currentLayerModel.connectOpenPathEndpoints(
-                    pendingPair.sourceEndpoint.pathIndex,
-                    pendingPair.sourceEndpoint.edge,
-                    pendingPair.targetEndpoint.pathIndex,
-                    pendingPair.targetEndpoint.edge
-                );
-                if (!result) {
-                    return;
-                }
-
-                for (const linkedLayer of linkedLayers) {
-                    linkedLayer.connectOpenPathEndpoints(
+                while (pendingPair) {
+                    result = currentLayerModel.connectOpenPathEndpoints(
                         pendingPair.sourceEndpoint.pathIndex,
                         pendingPair.sourceEndpoint.edge,
                         pendingPair.targetEndpoint.pathIndex,
                         pendingPair.targetEndpoint.edge
                     );
-                }
+                    if (!result) {
+                        return;
+                    }
 
-                pendingPair = options.cascadeCoincidentConnections
-                    ? this.findCoincidentOpenPathEndpointPairInLayerModel(
-                          currentLayerModel
-                      )
-                    : null;
+                    for (const linkedLayer of linkedLayers) {
+                        linkedLayer.connectOpenPathEndpoints(
+                            pendingPair.sourceEndpoint.pathIndex,
+                            pendingPair.sourceEndpoint.edge,
+                            pendingPair.targetEndpoint.pathIndex,
+                            pendingPair.targetEndpoint.edge
+                        );
+                    }
+
+                    pendingPair = options.cascadeCoincidentConnections
+                        ? this.findCoincidentOpenPathEndpointPairInLayerModel(
+                              currentLayerModel
+                          )
+                        : null;
+                }
+            });
+        } else {
+            // Granular path: transaction + skipGlyphSnapshot
+            const _closeBridge =
+                (window as any).patchSyncEngine ?? (window as any).changeBridge;
+            const _closeLabel = options.changeLabel || 'Close path';
+            if (_closeBridge && !options.reuseTransaction)
+                _closeBridge.beginTransaction(_closeLabel);
+            try {
+                let pendingPair: {
+                    sourceEndpoint: OpenPathEndpointRef;
+                    targetEndpoint: OpenPathEndpointRef;
+                } | null = {
+                    sourceEndpoint,
+                    targetEndpoint
+                };
+
+                while (pendingPair) {
+                    result = currentLayerModel.connectOpenPathEndpoints(
+                        pendingPair.sourceEndpoint.pathIndex,
+                        pendingPair.sourceEndpoint.edge,
+                        pendingPair.targetEndpoint.pathIndex,
+                        pendingPair.targetEndpoint.edge
+                    );
+                    if (!result) {
+                        return false;
+                    }
+
+                    for (const linkedLayer of linkedLayers) {
+                        linkedLayer.connectOpenPathEndpoints(
+                            pendingPair.sourceEndpoint.pathIndex,
+                            pendingPair.sourceEndpoint.edge,
+                            pendingPair.targetEndpoint.pathIndex,
+                            pendingPair.targetEndpoint.edge
+                        );
+                    }
+
+                    pendingPair = options.cascadeCoincidentConnections
+                        ? this.findCoincidentOpenPathEndpointPairInLayerModel(
+                              currentLayerModel
+                          )
+                        : null;
+                }
+            } finally {
+                if (_closeBridge && !options.reuseTransaction)
+                    _closeBridge.endTransaction();
             }
-        });
+
+            this.syncStructuralGlyphChangeTransaction(
+                options.changeLabel ||
+                    (result?.closed ? 'Close path' : 'Connect path'),
+                currentGlyphModel.name,
+                new Set<string>([currentGlyphModel.name]),
+                {
+                    reuseTransaction: options.reuseTransaction,
+                    layerId: null,
+                    skipGlyphSnapshot: true
+                }
+            );
+        }
 
         if (!result) {
             return false;
@@ -15200,19 +15309,6 @@ export class OutlineEditor {
             this.getBoundingBoxCenterScreenPosition();
         const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
             currentGlyphModel.name
-        );
-
-        const changeLabel =
-            options.changeLabel ||
-            (finalizedResult.closed ? 'Close path' : 'Connect path');
-        this.syncStructuralGlyphChangeTransaction(
-            changeLabel,
-            currentGlyphModel.name,
-            affectedGlyphNames,
-            {
-                reuseTransaction: options.reuseTransaction,
-                layerId: null
-            }
         );
 
         this.refreshKeyedMetricsViewportAnchor(
@@ -15266,17 +15362,24 @@ export class OutlineEditor {
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
         let changed = false;
 
-        withSuppressedModelRecording(() => {
+        const _mergeBridge =
+            (window as any).patchSyncEngine ?? (window as any).changeBridge;
+        if (_mergeBridge && !reuseTransaction)
+            _mergeBridge.beginTransaction('Close path');
+        try {
             changed = activePath._closeOpenPathByMerge();
             if (!changed) {
-                return;
+                return false;
             }
 
             for (const linkedLayer of linkedLayers) {
                 const linkedPath = linkedLayer.paths?.[contourIndex];
                 linkedPath?._closeOpenPathByMerge();
             }
-        });
+        } finally {
+            if (_mergeBridge && !reuseTransaction)
+                _mergeBridge.endTransaction();
+        }
 
         if (!changed) {
             return false;
@@ -15292,7 +15395,7 @@ export class OutlineEditor {
             'Close path',
             currentGlyphModel.name,
             affectedGlyphNames,
-            { reuseTransaction, layerId: null }
+            { reuseTransaction, layerId: null, skipGlyphSnapshot: true }
         );
 
         this.refreshKeyedMetricsViewportAnchor(
@@ -16499,8 +16602,11 @@ export class OutlineEditor {
                 ? currentLayerModel.guides?.[selectedGuideHandle.index]?.name
                 : null;
 
-        // Perform deletions with suppressed model recording
-        withSuppressedModelRecording(() => {
+        // Perform deletions with granular recording inside a transaction
+        const _delBridge =
+            (window as any).patchSyncEngine ?? (window as any).changeBridge;
+        if (_delBridge) _delBridge.beginTransaction('Delete point(s)');
+        try {
             const deleteContourFromLayer = (layerModel: Layer): void => {
                 for (const pathIndex of contourIndicesDescending) {
                     const shape = layerModel.shapes?.[pathIndex];
@@ -16587,7 +16693,9 @@ export class OutlineEditor {
                 removeAnchorsByName(linkedLayer);
                 removeSelectedGuideFromLayer(linkedLayer);
             }
-        });
+        } finally {
+            if (_delBridge) _delBridge.endTransaction();
+        }
 
         const deletedPathGeometry = pointsByPath.size > 0;
         let affectedGlyphNames = new Set<string>(
@@ -16607,7 +16715,7 @@ export class OutlineEditor {
             'Delete point(s)',
             currentGlyphModel.name,
             affectedGlyphNames,
-            { layerId: null }
+            { layerId: null, skipGlyphSnapshot: true }
         );
 
         this.syncCurrentExactLayerDataFromModel();

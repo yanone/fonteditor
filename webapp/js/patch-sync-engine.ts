@@ -18,8 +18,11 @@ import {
     getYPath,
     setJsonPath,
     deleteJsonPath,
-    getJsonPath
+    getJsonPath,
+    INDEXED_MAP_KEYS,
+    diffYArray
 } from './change-bridge-ydoc';
+import { generateStableId } from './babelfont-model';
 import {
     buildHistoryStackItems,
     type ChangeLogEntry,
@@ -4054,32 +4057,39 @@ export class PatchSyncEngine {
         }
 
         return item.entries.every((entry) => {
-            if (entry.op !== 'set') {
-                return false;
-            }
+            // Direct replay supports 'set', 'add', and 'remove' ops.
+            // 'add' on undo → deleteYPath (no replay value needed).
+            // 'remove' on redo → deleteYPath (no replay value needed).
+            // 'set' always needs a replay value.
+            const needsReplayValue =
+                entry.op === 'set' ||
+                (entry.op === 'remove' && direction === 'undo') ||
+                (entry.op === 'add' && direction === 'redo');
 
-            const path = this._toYDocPath(this._parseEntryPath(entry.path));
-            const replayValue =
-                direction === 'undo'
-                    ? entry.replayOldValue
-                    : entry.replayNewValue;
+            if (needsReplayValue) {
+                const replayValue =
+                    direction === 'undo'
+                        ? entry.replayOldValue
+                        : entry.replayNewValue;
+                if (replayValue === undefined) {
+                    return false;
+                }
 
-            if (replayValue === undefined) {
-                return false;
-            }
+                const path = this._toYDocPath(this._parseEntryPath(entry.path));
 
-            if (this._isGlyphRootPath(path)) {
-                return !!replayValue && typeof replayValue === 'object';
-            }
+                if (this._isGlyphRootPath(path)) {
+                    return !!replayValue && typeof replayValue === 'object';
+                }
 
-            if (
-                path.length === 4 &&
-                path[0] === 'glyphs' &&
-                path[2] === 'layers' &&
-                typeof path[1] === 'string' &&
-                typeof path[3] === 'string'
-            ) {
-                return !!replayValue && typeof replayValue === 'object';
+                if (
+                    path.length === 4 &&
+                    path[0] === 'glyphs' &&
+                    path[2] === 'layers' &&
+                    typeof path[1] === 'string' &&
+                    typeof path[3] === 'string'
+                ) {
+                    return !!replayValue && typeof replayValue === 'object';
+                }
             }
 
             return true;
@@ -4093,28 +4103,16 @@ export class PatchSyncEngine {
     /**
      * Replace a Y.Array's contents without replacing the array object itself.
      * This keeps the shared container identity stable across windows.
+     *
+     * Uses LCS-based minimal diff (diffYArray) instead of full teardown
+     * to produce smaller Yjs deltas for length-changing edits to
+     * features.features, kern-group lists, and codepoints.
      */
     private _replaceYArrayContents(
         targetArray: Y.Array<unknown>,
         nextValues: unknown[]
     ): void {
-        const currentValues = targetArray.toArray();
-        if (currentValues.length === nextValues.length) {
-            for (let index = 0; index < nextValues.length; index++) {
-                this._replaceYArrayEntry(targetArray, index, nextValues[index]);
-            }
-            return;
-        }
-
-        if (targetArray.length > 0) {
-            targetArray.delete(0, targetArray.length);
-        }
-        if (nextValues.length > 0) {
-            targetArray.insert(
-                0,
-                nextValues.map((value) => toYType(value))
-            );
-        }
+        diffYArray(targetArray, nextValues);
     }
 
     private _replaceYArrayEntry(
@@ -5007,24 +5005,109 @@ export class PatchSyncEngine {
         // Apply each delta key to the Y.Map.
         for (const [key, value] of Object.entries(workingRecord)) {
             if (value === null || value === undefined) {
-                layerMap.delete(key);
+                // For indexed-map keys, delete the *ById+*Order keys
+                // so downstream readers see the data as absent (not
+                // empty), preserving merge semantics.
+                if (INDEXED_MAP_KEYS[key]) {
+                    const mapping = INDEXED_MAP_KEYS[key]!;
+                    layerMap.delete(mapping.byId);
+                    layerMap.delete(mapping.order);
+                } else {
+                    layerMap.delete(key);
+                }
             } else {
-                // Preserve the layer root map for layer-scoped undo, but
-                // replace array-backed visual subtrees atomically. Repeated
-                // in-place Y.Array rewrites here were observed to stay clean
-                // in JS while producing Rust-side Shape deserialization
-                // failures during incremental worker updates.
+                // Shapes/anchors/guides are stored as indexed-maps
+                // (shapesById+shapeOrder, etc.) in the Y.Doc. Apply the
+                // array delta element-by-element via deep-merge so only
+                // changed shapes/nodes produce Yjs operations.
                 if (
                     (key === 'shapes' ||
                         key === 'anchors' ||
                         key === 'guides') &&
                     Array.isArray(value)
                 ) {
-                    layerMap.set(key, toYType(value));
+                    this._applyIndexedMapArray(layerMap, key, value);
                     continue;
                 }
 
                 this._replaceYMapEntry(layerMap, key, value);
+            }
+        }
+    }
+
+    /**
+     * Apply an array delta (e.g. `shapes`, `anchors`, `guides`) to the
+     * indexed-map structure (`*ById`+`*Order`) on a layer Y.Map.
+     * Each element is deep-merged by stable id; only changed elements
+     * produce Yjs operations.
+     */
+    private _applyIndexedMapArray(
+        layerMap: Y.Map<unknown>,
+        arrayKey: string,
+        nextArray: unknown[]
+    ): void {
+        const mapping = INDEXED_MAP_KEYS[arrayKey];
+        if (!mapping) return;
+        const byIdKey = mapping.byId;
+        const orderKey = mapping.order;
+
+        let byIdMap: Y.Map<unknown> | unknown = layerMap.get(byIdKey);
+        let orderArray: Y.Array<unknown> | unknown = layerMap.get(orderKey);
+
+        if (!(byIdMap instanceof Y.Map)) {
+            byIdMap = new Y.Map<unknown>();
+            layerMap.set(byIdKey, byIdMap);
+        }
+        if (!(orderArray instanceof Y.Array)) {
+            orderArray = new Y.Array<unknown>();
+            layerMap.set(orderKey, orderArray);
+        }
+
+        const byIdMapTyped = byIdMap as Y.Map<unknown>;
+        const orderArrayTyped = orderArray as Y.Array<unknown>;
+        const currentOrder: string[] = orderArrayTyped.toArray() as string[];
+        const nextIds: string[] = [];
+        const seenIds = new Set<string>();
+
+        for (const item of nextArray) {
+            const inner =
+                (item as any)?.Path ?? (item as any)?.Component ?? item;
+            const id =
+                (inner as any)?.id ?? (item as any)?.id ?? generateStableId();
+
+            nextIds.push(id);
+            seenIds.add(id);
+
+            const existing = byIdMapTyped.get(id);
+            if (existing instanceof Y.Map) {
+                // Deep-merge the element
+                this._replaceYMapContents(
+                    existing,
+                    inner as Record<string, unknown>
+                );
+            } else {
+                // New element
+                byIdMapTyped.set(id, toYType(inner));
+            }
+        }
+
+        // Remove ids no longer present
+        for (const oldId of currentOrder) {
+            if (!seenIds.has(oldId)) {
+                byIdMapTyped.delete(oldId);
+            }
+        }
+
+        // Update order array if it changed
+        const orderChanged =
+            currentOrder.length !== nextIds.length ||
+            currentOrder.some((id, idx) => id !== nextIds[idx]);
+        if (orderChanged) {
+            if (orderArrayTyped.length > 0) {
+                orderArrayTyped.delete(0, orderArrayTyped.length);
+            }
+            if (nextIds.length > 0) {
+                orderArrayTyped.insert(0, nextIds);
             }
         }
     }

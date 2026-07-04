@@ -20,9 +20,15 @@ import {
     Font,
     Path,
     DecomposedAffineTransform,
-    withSuppressedModelRecording
+    withSuppressedModelRecording,
+    ensureStableIds
 } from './babelfont-model';
-import { jsonToYDoc, deleteYPath, setYPath } from './change-bridge-ydoc';
+import {
+    jsonToYDoc,
+    deleteYPath,
+    setYPath,
+    applyLayerDelta
+} from './change-bridge-ydoc';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
@@ -266,6 +272,10 @@ class OpenedFont {
     ) {
         this.babelfontJson = babelfontJson;
         this.babelfontData = JSON.parse(babelfontJson);
+        // Ensure every Node, Path, Component, Anchor, and Guide has a stable `id`
+        // for CRDT addressing (indexed-map Y.Doc schema). Must run before any
+        // Y.Doc or model initialization.
+        ensureStableIds(this.babelfontData);
         this.babelfontData.glyphs = this.babelfontData.glyphs || [];
         this.babelfontData.masters = this.babelfontData.masters || [];
         this.babelfontData.axes = this.babelfontData.axes || [];
@@ -2336,6 +2346,7 @@ class FontManager {
             }
 
             return {
+                ...(pathCandidate.id && { id: pathCandidate.id }),
                 nodes: pathCandidate.nodes,
                 closed: pathCandidate.closed,
                 ...(pathCandidate.format_specific && {
@@ -2353,6 +2364,7 @@ class FontManager {
                 componentCandidate.location
             );
             return {
+                ...(componentCandidate.id && { id: componentCandidate.id }),
                 reference: componentCandidate.reference,
                 transform: this.normalizeComponentTransformForRust(
                     componentCandidate.transform
@@ -3899,6 +3911,7 @@ class FontManager {
                 }
 
                 return {
+                    ...(pathCandidate.id && { id: pathCandidate.id }),
                     nodes: pathCandidate.nodes,
                     closed:
                         pathCandidate.closed === undefined
@@ -3923,6 +3936,7 @@ class FontManager {
                 }
 
                 return {
+                    ...(componentCandidate.id && { id: componentCandidate.id }),
                     reference: componentCandidate.reference,
                     transform: this.normalizeComponentTransformForRust(
                         componentCandidate.transform
@@ -3971,6 +3985,7 @@ class FontManager {
 
         const cleanAnchors = Array.isArray(layerData.anchors)
             ? layerData.anchors.map((anchor) => ({
+                  ...(anchor.id && { id: anchor.id }),
                   name: anchor.name,
                   x: anchor.x,
                   y: anchor.y,
@@ -3982,6 +3997,7 @@ class FontManager {
 
         const cleanGuides = Array.isArray(layerData.guides)
             ? layerData.guides.map((guide) => ({
+                  ...(guide.id && { id: guide.id }),
                   pos: {
                       x: guide.pos.x,
                       y: guide.pos.y,
@@ -4226,10 +4242,11 @@ class FontManager {
 
         yDoc.transact(() => {
             for (const update of updates) {
-                setYPath(
+                applyLayerDelta(
                     fontMap,
-                    ['glyphs', update.glyphName, 'layers', update.layerId],
-                    update.normalized
+                    update.glyphName,
+                    update.layerId,
+                    update.normalized as unknown as Record<string, unknown>
                 );
             }
         });
@@ -4319,10 +4336,11 @@ class FontManager {
             }
 
             for (const update of updates) {
-                setYPath(
+                applyLayerDelta(
                     fontMap,
-                    ['glyphs', update.glyphName, 'layers', update.layerId],
-                    update.normalized
+                    update.glyphName,
+                    update.layerId,
+                    update.normalized as unknown as Record<string, unknown>
                 );
                 changedGlyphs.add(update.glyphName);
             }

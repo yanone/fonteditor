@@ -9,9 +9,31 @@ import type { Babelfont } from './babelfont';
 declare module './babelfont' {
     namespace Babelfont {
         /**
+         * Stable identifier for CRDT addressing.
+         * Generated on load when absent; preserved across .babelfont round-trips.
+         */
+        export interface Node {
+            id?: string;
+        }
+
+        /**
+         * Stable identifier for CRDT addressing.
+         * Generated on load when absent; preserved across .babelfont round-trips.
+         */
+        export interface Path {
+            id?: string;
+        }
+
+        /**
          * Extended Component type with custom layerData property
          */
         export interface Component {
+            /**
+             * Stable identifier for CRDT addressing.
+             * Generated on load when absent; preserved across .babelfont round-trips.
+             */
+            id?: string;
+
             /**
              * Cached layer data for the component reference
              * Used for rendering and intersection calculations
@@ -23,6 +45,22 @@ declare module './babelfont' {
              * Persisted in format_specific as com.schriftgestalt.Glyphs.componentAnchor.
              */
             anchor?: string;
+        }
+
+        /**
+         * Stable identifier for CRDT addressing.
+         * Generated on load when absent; preserved across .babelfont round-trips.
+         */
+        export interface Anchor {
+            id?: string;
+        }
+
+        /**
+         * Stable identifier for CRDT addressing.
+         * Generated on load when absent; preserved across .babelfont round-trips.
+         */
+        export interface Guide {
+            id?: string;
         }
 
         /**

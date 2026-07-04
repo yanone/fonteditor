@@ -605,7 +605,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -696,7 +699,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -808,7 +814,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -943,7 +952,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -1132,7 +1144,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -1284,7 +1299,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -1348,7 +1366,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -1415,7 +1436,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -1494,7 +1518,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -1732,7 +1759,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -1903,7 +1933,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -2053,7 +2086,10 @@ describe('GlyphCanvas onMouseUp', () => {
             window.changeBridge = {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
-                syncGlyphFromJson: jest.fn()
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
@@ -3216,7 +3252,10 @@ describe('GlyphCanvas property panel metrics edits', () => {
             syncLayersFromJson: jest.fn(() => {
                 callOrder.push('sync-layers');
             }),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         window.changeBridge = patchSyncEngine;
         window.patchSyncEngine = patchSyncEngine;
@@ -3313,7 +3352,10 @@ describe('GlyphCanvas property panel metrics edits', () => {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
             syncLayersFromJson: jest.fn(),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         window.changeBridge = patchSyncEngine;
         window.patchSyncEngine = patchSyncEngine;
@@ -4753,6 +4795,9 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             beginTransaction: jest.fn(),
             recordChange: jest.fn(),
             syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn(),
             syncGlyphsFromJson: jest.fn(),
             endTransaction: jest.fn(),
             runWithoutRecording: (fn) => fn()
@@ -4801,10 +4846,9 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             expect(window.changeBridge.beginTransaction).toHaveBeenCalledTimes(
                 1
             );
-            expect(window.changeBridge.syncGlyphsFromJson).toHaveBeenCalledWith(
-                expect.arrayContaining(['A', 'B']),
-                'Delete point(s)'
-            );
+            expect(
+                window.changeBridge.syncGlyphsFromJson
+            ).not.toHaveBeenCalled();
             expect(
                 window.changeBridge.syncGlyphFromJson
             ).not.toHaveBeenCalled();
@@ -6449,6 +6493,9 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             beginTransaction: jest.fn(),
             recordChange: jest.fn(),
             syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn(),
             endTransaction: jest.fn()
         };
         window.currentFontModel = font;
@@ -6490,9 +6537,9 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(window.changeBridge.beginTransaction).toHaveBeenCalledTimes(
                 1
             );
-            expect(window.changeBridge.syncGlyphFromJson).toHaveBeenCalledTimes(
-                1
-            );
+            expect(
+                window.changeBridge.syncGlyphFromJson
+            ).not.toHaveBeenCalled();
             expect(window.changeBridge.endTransaction).toHaveBeenCalledTimes(1);
         } finally {
             window.changeBridge = previousChangeBridge;
@@ -6605,6 +6652,9 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             beginTransaction: jest.fn(),
             recordChange: jest.fn(),
             syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn(),
             endTransaction: jest.fn()
         };
         window.currentFontModel = font;
@@ -6760,6 +6810,9 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         window.changeBridge = {
             beginTransaction: jest.fn(),
             syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn(),
             endTransaction: jest.fn()
         };
         window.currentFontModel = font;
@@ -6811,9 +6864,9 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(window.changeBridge.beginTransaction).toHaveBeenCalledTimes(
                 1
             );
-            expect(window.changeBridge.syncGlyphFromJson).toHaveBeenCalledTimes(
-                1
-            );
+            expect(
+                window.changeBridge.syncGlyphFromJson
+            ).not.toHaveBeenCalled();
             expect(window.changeBridge.endTransaction).toHaveBeenCalledTimes(1);
         } finally {
             window.changeBridge = previousChangeBridge;
@@ -7184,7 +7237,10 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const bridge = {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const currentFont = {
             fontModel: font,
@@ -7266,11 +7322,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
 
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Split path');
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
-            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
-                'A',
-                'Split path'
-            ]);
+            expect(bridge.syncGlyphFromJson).not.toHaveBeenCalled();
             expect(bridge.endTransaction).toHaveBeenCalled();
             expect(
                 currentLayer.paths[0].nodes.map((node) => ({
@@ -7365,7 +7417,10 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const bridge = {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const currentFont = {
             fontModel: font,
@@ -7462,10 +7517,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
             expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
-            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
-                'A',
-                'Draw path'
-            ]);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(currentLayer.paths).toHaveLength(1);
             expect(linkedLayer.paths).toHaveLength(1);
@@ -7551,7 +7602,10 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const bridge = {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const currentFont = {
             fontModel: font,
@@ -7678,10 +7732,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(bridge.beginTransaction).toHaveBeenCalledTimes(1);
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
             expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
-            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
-                'A',
-                'Draw path'
-            ]);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(currentLayer.paths).toHaveLength(1);
             expect(linkedLayer.paths).toHaveLength(1);
@@ -7801,7 +7851,10 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const bridge = {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const currentFont = {
             fontModel: font,
@@ -7878,10 +7931,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
 
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
-            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
-                'A',
-                'Draw path'
-            ]);
             expect(
                 currentLayer.paths[0].nodes.map((node) => ({
                     x: node.x,
@@ -8000,7 +8049,10 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const bridge = {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const currentFont = {
             fontModel: font,
@@ -8076,10 +8128,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
             expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
-            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
-                'A',
-                'Draw path'
-            ]);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(fontManager.lastChangeSource).toBe('keyboard-outline');
             expect(fontManager.lastEditType).toBe('outline');
@@ -8193,7 +8241,10 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const bridge = {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const currentFont = {
             fontModel: font,
@@ -8260,10 +8311,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
             expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
-            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
-                'A',
-                'Draw path'
-            ]);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(currentLayer.paths[0].closed).toBe(true);
             expect(linkedLayer.paths[0].closed).toBe(true);
@@ -8363,7 +8410,10 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const bridge = {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const currentFont = {
             fontModel: font,
@@ -8439,10 +8489,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 'Convert line to curve'
             );
             expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
-            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
-                'A',
-                'Convert line to curve'
-            ]);
             expect(
                 currentLayer.paths[0].nodes.map((node) => node.nodetype)
             ).toEqual(['Move', 'OffCurve', 'OffCurve', 'Curve']);
@@ -8557,7 +8603,10 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const bridge = {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const currentFont = {
             fontModel: font,
@@ -8643,10 +8692,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
 
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
-            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
-                'A',
-                'Convert line to curve'
-            ]);
             expect(
                 currentLayer.paths[0].nodes.map((node) => node.nodetype)
             ).toContain('Curve');
@@ -8763,7 +8808,10 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const bridge = {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const currentFont = {
             fontModel: font,
@@ -8889,7 +8937,10 @@ describe('OutlineEditor structural outline compile scheduling', () => {
         window.changeBridge = {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         window.currentFontModel = font;
         window.autoCompileManager = {
@@ -9885,7 +9936,10 @@ describe('GlyphCanvas anchor movement', () => {
 
         window.patchSyncEngine = {
             syncLayersFromJson,
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         canvas.outlineEditor.selectedLayerId = 'layer-1';
         canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
@@ -12333,6 +12387,9 @@ describe('OutlineEditor exact selected layers', () => {
         const originalPatchSyncEngine = window.patchSyncEngine;
         const patchSyncEngine = {
             syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn(),
             recordAdd: jest.fn(),
             recordRemove: jest.fn(),
             recordChange: jest.fn()
@@ -12401,7 +12458,10 @@ describe('OutlineEditor exact selected layers', () => {
         };
         const originalPatchSyncEngine = window.patchSyncEngine;
         const patchSyncEngine = {
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
@@ -12456,7 +12516,10 @@ describe('OutlineEditor exact selected layers', () => {
         };
         const originalPatchSyncEngine = window.patchSyncEngine;
         const patchSyncEngine = {
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
@@ -12554,7 +12617,10 @@ describe('OutlineEditor exact selected layers', () => {
         };
         const originalPatchSyncEngine = window.patchSyncEngine;
         const patchSyncEngine = {
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
@@ -12676,7 +12742,10 @@ describe('OutlineEditor exact selected layers', () => {
         };
         const originalPatchSyncEngine = window.patchSyncEngine;
         const patchSyncEngine = {
-            syncGlyphFromJson: jest.fn()
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
         };
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
@@ -12860,6 +12929,9 @@ describe('OutlineEditor exact selected layers', () => {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
             syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn(),
             recordAdd: jest.fn(),
             recordRemove: jest.fn(),
             recordChange: jest.fn()
@@ -13463,6 +13535,9 @@ describe('OutlineEditor exact selected layers', () => {
         const originalPatchSyncEngine = window.patchSyncEngine;
         const patchSyncEngine = {
             syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn(),
             recordAdd: jest.fn(),
             recordRemove: jest.fn(),
             recordChange: jest.fn()

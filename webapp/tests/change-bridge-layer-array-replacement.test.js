@@ -56,8 +56,11 @@ function cloneJson(value) {
 }
 
 describe('ChangeBridge layer snapshot array replacement', () => {
-    test('preserves layer root identity while replacing visual arrays atomically', () => {
+    test('preserves layer root identity while deep-merging visual arrays by id', () => {
         const fontJson = makeLayerArrayReplacementFont();
+        // Ensure stable ids for indexed-map schema
+        const { ensureStableIds } = require('../js/babelfont-model');
+        ensureStableIds(fontJson);
         const bridge = new ChangeBridge();
         bridge.initFromJson(fontJson);
 
@@ -67,8 +70,9 @@ describe('ChangeBridge layer snapshot array replacement', () => {
         const layerMap = layersMap.get('L0');
 
         const initialLayerMap = layerMap;
-        const initialShapesArray = layerMap.get('shapes');
-        const initialAnchorsArray = layerMap.get('anchors');
+        // Indexed-map structure: shapesById+shapeOrder, not flat shapes
+        const initialShapesById = layerMap.get('shapesById');
+        const initialAnchorsById = layerMap.get('anchorsById');
 
         const updatedFontJson = cloneJson(fontJson);
         updatedFontJson.glyphs[0].layers[0].shapes[1].transform.translation = [
@@ -81,12 +85,11 @@ describe('ChangeBridge layer snapshot array replacement', () => {
             'Drag anchor'
         );
 
-        const afterFirstShapesArray = layerMap.get('shapes');
-        const afterFirstAnchorsArray = layerMap.get('anchors');
-
+        // Layer root identity preserved (deep-merge, not replace)
         expect(layerMap).toBe(initialLayerMap);
-        expect(afterFirstShapesArray).not.toBe(initialShapesArray);
-        expect(afterFirstAnchorsArray).not.toBe(initialAnchorsArray);
+        // shapesById/anchorsById identity preserved (deep-merged, not replaced)
+        expect(layerMap.get('shapesById')).toBe(initialShapesById);
+        expect(layerMap.get('anchorsById')).toBe(initialAnchorsById);
 
         const secondFontJson = cloneJson(updatedFontJson);
         secondFontJson.glyphs[0].layers[0].shapes[1].transform.translation = [
@@ -99,12 +102,7 @@ describe('ChangeBridge layer snapshot array replacement', () => {
             'Drag anchor'
         );
 
-        const afterSecondShapesArray = layerMap.get('shapes');
-        const afterSecondAnchorsArray = layerMap.get('anchors');
-
         expect(layerMap).toBe(initialLayerMap);
-        expect(afterSecondShapesArray).not.toBe(afterFirstShapesArray);
-        expect(afterSecondAnchorsArray).not.toBe(afterFirstAnchorsArray);
 
         const decoded = yDocToJson(bridge.fontMap);
         const glyph = decoded.glyphs.find((entry) => entry.name === 'oacute');

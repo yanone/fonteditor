@@ -2194,7 +2194,9 @@ describe('buildCascadingRecompositionOperations', () => {
                 path: ['glyphs', 'A', 'layers', 'layer-1'],
                 oldValue: expect.objectContaining({
                     width: 700,
-                    anchors: [{ name: 'top', x: 100, y: 700 }]
+                    anchors: [
+                        expect.objectContaining({ name: 'top', x: 100, y: 700 })
+                    ]
                 }),
                 newValue: expect.objectContaining({
                     id: 'layer-1',
@@ -2255,7 +2257,13 @@ describe('buildCascadingRecompositionOperations', () => {
             expect.objectContaining({
                 path: ['glyphs', 'A', 'layers', 'layer-1'],
                 oldValue: expect.objectContaining({
-                    anchors: [{ name: 'bottom', x: 100, y: 0 }]
+                    anchors: [
+                        expect.objectContaining({
+                            name: 'bottom',
+                            x: 100,
+                            y: 0
+                        })
+                    ]
                 }),
                 newValue: expect.objectContaining({
                     id: 'layer-1',

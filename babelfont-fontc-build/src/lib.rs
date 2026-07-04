@@ -1609,39 +1609,17 @@ fn yrs_value_to_json<T: ReadTxn>(value: yrs::types::Value, txn: &T) -> serde_jso
     }
 }
 
+/// Convert a Y.Map to a JSON value.
+///
+/// With the indexed-map schema, nodes/shapes/anchors/guides are stored
+/// as `*ById` (Y.Map keyed by stable id) + `*Order` (Y.Array of ids).
+/// The old numeric-key heuristic that converted numeric-keyed Y.Maps to
+/// JSON arrays is no longer needed and has been removed.
 fn yrs_map_to_json<T: ReadTxn>(map_ref: &yrs::MapRef, txn: &T) -> serde_json::Value {
     let entries: Vec<(String, serde_json::Value)> = map_ref
         .iter(txn)
         .map(|(k, v)| (k.to_string(), yrs_value_to_json(v, txn)))
         .collect();
-
-    let numeric_indices: Option<Vec<usize>> = if !entries.is_empty()
-        && entries.iter().all(|(key, _)| {
-            !key.is_empty()
-                && key.chars().all(|ch| ch.is_ascii_digit())
-                && key
-                    .parse::<usize>()
-                    .map(|idx| idx.to_string() == *key)
-                    .unwrap_or(false)
-        }) {
-        Some(
-            entries
-                .iter()
-                .map(|(key, _)| key.parse::<usize>().unwrap())
-                .collect(),
-        )
-    } else {
-        None
-    };
-
-    if let Some(indices) = numeric_indices {
-        let max_idx = indices.iter().copied().max().unwrap_or(0);
-        let mut arr = vec![serde_json::Value::Null; max_idx + 1];
-        for ((_, value), idx) in entries.into_iter().zip(indices.into_iter()) {
-            arr[idx] = value;
-        }
-        return serde_json::Value::Array(arr);
-    }
 
     let obj: serde_json::Map<String, serde_json::Value> = entries.into_iter().collect();
     serde_json::Value::Object(obj)
@@ -1671,17 +1649,57 @@ fn ydoc_layer_to_json<T: ReadTxn>(
             serde_json::Value::String(layer_id.to_string()),
         );
     }
+
+    // Reconstruct indexed-map structures back to flat arrays
+    // (shapesById+shapeOrder → shapes, etc.)
+    reconstruct_indexed_map_array(&mut layer_obj, "shapes", "shapesById", "shapeOrder");
+    reconstruct_indexed_map_array(&mut layer_obj, "anchors", "anchorsById", "anchorOrder");
+    reconstruct_indexed_map_array(&mut layer_obj, "guides", "guidesById", "guideOrder");
+
+    // For each shape, reconstruct nodes from nodesById+nodeOrder
     if let Some(serde_json::Value::Array(shapes)) = layer_obj.get_mut("shapes") {
         for shape in shapes.iter_mut() {
             let serde_json::Value::Object(ref mut obj) = shape else {
                 continue;
             };
+            // Reconstruct nodes from indexed-map
+            reconstruct_indexed_map_array(obj, "nodes", "nodesById", "nodeOrder");
             if obj.contains_key("nodes") && !obj.contains_key("closed") {
                 obj.insert("closed".to_string(), serde_json::Value::Bool(false));
             }
         }
     }
     serde_json::Value::Object(layer_obj)
+}
+
+/// Reconstruct a flat JSON array from an indexed-map structure
+/// (*ById + *Order → array). Removes the *ById and *Order keys.
+fn reconstruct_indexed_map_array(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    array_key: &str,
+    by_id_key: &str,
+    order_key: &str,
+) {
+    let by_id = obj.get(by_id_key).cloned();
+    let order = obj.get(order_key).cloned();
+    if let (Some(serde_json::Value::Object(by_id_map)), Some(serde_json::Value::Array(order_arr))) =
+        (by_id, order)
+    {
+        let mut arr = Vec::with_capacity(order_arr.len());
+        for id_val in &order_arr {
+            let id = match id_val {
+                serde_json::Value::String(s) => s.clone(),
+                _ => continue,
+            };
+            if let Some(item) = by_id_map.get(&id) {
+                arr.push(item.clone());
+            }
+        }
+        obj.insert(array_key.to_string(), serde_json::Value::Array(arr));
+    }
+    // Clean up indexed-map keys regardless
+    obj.remove(by_id_key);
+    obj.remove(order_key);
 }
 
 /// Convert a single glyph Y.Map to a babelfont glyph JSON object.
@@ -4314,20 +4332,6 @@ mod tests {
 
         assert_eq!(cache.len(), 1);
         assert!(cache.contains_key(&layout_closure_cache_key("1", "teh")));
-    }
-
-    #[test]
-    fn yrs_map_to_json_converts_numeric_key_maps_to_arrays() {
-        let doc = Doc::new();
-        let root = doc.get_or_insert_map("root");
-        let mut txn = doc.transact_mut();
-        let numeric_map = root.insert(&mut txn, "numeric", yrs::MapPrelim::<&str>::new());
-        numeric_map.insert(&mut txn, "0", "zero");
-        numeric_map.insert(&mut txn, "2", "two");
-
-        let value = yrs_map_to_json(&numeric_map, &txn);
-
-        assert_eq!(value, json!(["zero", null, "two"]));
     }
 
     #[test]

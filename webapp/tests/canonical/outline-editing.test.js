@@ -2765,9 +2765,9 @@ describe('Outline Editing canonical behavior', () => {
             expect(layer.paths[1].nodes.map((node) => node.x)).toEqual([
                 240, 200, 160
             ]);
-            expect(window.changeBridge.syncGlyphFromJson).toHaveBeenCalledTimes(
-                1
-            );
+            expect(
+                window.changeBridge.syncGlyphFromJson
+            ).not.toHaveBeenCalled();
         } finally {
             modelBinding.restore();
         }

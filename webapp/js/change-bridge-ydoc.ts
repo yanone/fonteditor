@@ -7,6 +7,7 @@
  */
 
 import * as Y from 'yjs';
+import { generateStableId } from './babelfont-model';
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -114,23 +115,241 @@ function createYContainerForNextSegment(
 }
 
 // ── JSON → Y.Doc ────────────────────────────────────────────────────
-// FULLJSON_UNNECESSARY (U4): Used by buildWorkerYjsStateFromCurrentFont
-// which parses full babelfontJson then rebuilds Y.Doc → binary Yjs state.
-// Should use bridge.encodeBridgeState() instead.
-// TODO(feature-code): We investigated malformed feature-code edits that passed
-// in tests but still showed no browser compile error. The live app proved the
-// JS model/Y.Doc and post-commit compile request were correct, but the Rust
-// worker still appeared to validate stale feature source after the Yjs update.
-// We did not land a fix; if this is revisited, start by proving what feature
-// code Rust sees after applyYjsUpdate instead of changing the commit funnel.
-// Linked site: font-compilation.ts U2/A3 keeps feature-code compiles on the
-// explicit full-JSON compile path as a workaround for this suspected stale Rust
-// feature-cache read. Remove both comments together only after cached full-font
-// feature validation produces the same inline errors without compileFromJson.
+
+/**
+ * Convert a layer object to a Y.Map with indexed-map structure for
+ * shapes, anchors, and guides. Each array becomes a `*ById` Y.Map
+ * (keyed by stable id) + a `*Order` Y.Array (holding ids in sequence).
+ */
+function layerToYMap(layerData: Record<string, unknown>): Y.Map<unknown> {
+    const map = new Y.Map<unknown>();
+
+    // Non-array fields: set directly via toYType
+    for (const [k, v] of Object.entries(layerData)) {
+        if (k === 'shapes' || k === 'anchors' || k === 'guides') {
+            continue; // handled below
+        }
+        map.set(k, toYType(v));
+    }
+
+    // shapes → shapesById + shapeOrder
+    if (Array.isArray(layerData.shapes)) {
+        const shapesById = new Y.Map<unknown>();
+        const shapeOrder = new Y.Array<unknown>();
+        for (const shape of layerData.shapes) {
+            // Reject wrapped shapes at ingress
+            if (
+                shape &&
+                typeof shape === 'object' &&
+                ('Path' in shape || 'Component' in shape)
+            ) {
+                throw new TypeError(
+                    'Wrapped shapes are not allowed before writing to Y.Doc.'
+                );
+            }
+            const inner = shape;
+            const shapeId = (inner as any)?.id ?? generateStableId();
+            (inner as any).id = shapeId;
+            shapesById.set(shapeId, toYType(inner));
+            shapeOrder.push([shapeId]);
+        }
+        map.set('shapesById', shapesById);
+        map.set('shapeOrder', shapeOrder);
+    }
+
+    // anchors → anchorsById + anchorOrder
+    if (Array.isArray(layerData.anchors)) {
+        const anchorsById = new Y.Map<unknown>();
+        const anchorOrder = new Y.Array<unknown>();
+        for (const anchor of layerData.anchors) {
+            const anchorId = (anchor as any)?.id ?? generateStableId();
+            (anchor as any).id = anchorId;
+            anchorsById.set(anchorId, toYType(anchor));
+            anchorOrder.push([anchorId]);
+        }
+        map.set('anchorsById', anchorsById);
+        map.set('anchorOrder', anchorOrder);
+    }
+
+    // guides → guidesById + guideOrder
+    if (Array.isArray(layerData.guides)) {
+        const guidesById = new Y.Map<unknown>();
+        const guideOrder = new Y.Array<unknown>();
+        for (const guide of layerData.guides) {
+            const guideId = (guide as any)?.id ?? generateStableId();
+            (guide as any).id = guideId;
+            guidesById.set(guideId, toYType(guide));
+            guideOrder.push([guideId]);
+        }
+        map.set('guidesById', guidesById);
+        map.set('guideOrder', guideOrder);
+    }
+
+    return map;
+}
+
+/**
+ * Deep-merge a flat layer JSON into an existing layer Y.Map in a Y.Doc.
+ * Handles indexed-map structure for shapes/anchors/guides (deep-merges
+ * each element by stable id, only changed leaves produce Yjs operations).
+ * Used by the worker cache path so undo/redo and receiver refresh produce
+ * granular deltas, not whole-layer replaces.
+ *
+ * If the layer Y.Map doesn't exist yet, creates it from the flat JSON.
+ */
+export function applyLayerDelta(
+    fontMap: Y.Map<unknown>,
+    glyphName: string,
+    layerId: string,
+    layerData: Record<string, unknown>
+): void {
+    const glyphsMap = fontMap.get('glyphs');
+    if (!isYMap(glyphsMap)) return;
+    const glyphMap = glyphsMap.get(glyphName);
+    if (!isYMap(glyphMap)) return;
+    let layersMap: Y.Map<unknown> | unknown = glyphMap.get('layers');
+    if (!isYMap(layersMap)) {
+        layersMap = new Y.Map<unknown>();
+        glyphMap.set('layers', layersMap);
+    }
+    const layersMapTyped = layersMap as Y.Map<unknown>;
+    let layerMap = layersMapTyped.get(layerId);
+    if (!isYMap(layerMap)) {
+        // Layer doesn't exist — create from flat JSON
+        layersMapTyped.set(layerId, layerToYMap(layerData));
+        return;
+    }
+
+    // Deep-merge each key
+    for (const [key, value] of Object.entries(layerData)) {
+        if (value === null || value === undefined) {
+            layerMap.delete(key);
+        } else if (
+            (key === 'shapes' || key === 'anchors' || key === 'guides') &&
+            Array.isArray(value)
+        ) {
+            applyIndexedMapArray(layerMap, key, value);
+        } else {
+            const existing = layerMap.get(key);
+            if (isYMap(existing) && isPlainObject(value)) {
+                mergeYMapContents(existing, value as Record<string, unknown>);
+            } else {
+                layerMap.set(key, toYType(value));
+            }
+        }
+    }
+}
+
+/**
+ * Deep-merge a flat array into the indexed-map structure (*ById+*Order)
+ * on a Y.Map. Each element is deep-merged by stable id; only changed
+ elements produce Yjs operations.
+ */
+function applyIndexedMapArray(
+    layerMap: Y.Map<unknown>,
+    arrayKey: string,
+    nextArray: unknown[]
+): void {
+    const byIdMap = ensureIndexedMap(layerMap, arrayKey);
+    if (!byIdMap) return;
+    const mapping = INDEXED_MAP_KEYS[arrayKey]!;
+    const orderArr = layerMap.get(mapping.order);
+    if (!isYArray(orderArr)) return;
+
+    const currentOrder: string[] = orderArr.toArray() as string[];
+    const nextIds: string[] = [];
+    const seenIds = new Set<string>();
+
+    for (const item of nextArray) {
+        // Reject wrapped shapes
+        if (
+            item &&
+            typeof item === 'object' &&
+            ('Path' in item || 'Component' in item)
+        ) {
+            throw new TypeError(
+                'Wrapped shapes are not allowed before writing to Y.Doc.'
+            );
+        }
+        const inner = item;
+        const id = (inner as any)?.id ?? generateStableId();
+        (inner as any).id = id;
+        nextIds.push(id);
+        seenIds.add(id);
+
+        const existing = byIdMap.get(id);
+        if (isYMap(existing)) {
+            mergeYMapContents(existing, inner as Record<string, unknown>);
+        } else {
+            byIdMap.set(id, toYType(inner));
+        }
+    }
+
+    // Remove ids no longer present
+    for (const oldId of currentOrder) {
+        if (!seenIds.has(oldId)) {
+            byIdMap.delete(oldId);
+        }
+    }
+
+    // Update order array if it changed
+    const orderChanged =
+        currentOrder.length !== nextIds.length ||
+        currentOrder.some((id, idx) => id !== nextIds[idx]);
+    if (orderChanged) {
+        if (orderArr.length > 0) {
+            orderArr.delete(0, orderArr.length);
+        }
+        if (nextIds.length > 0) {
+            orderArr.insert(0, nextIds);
+        }
+    }
+}
+
+/**
+ * Recursively deep-merge a plain object into an existing Y.Map.
+ * Preserves nested Y.Map/Y.Array containers where possible.
+ * Indexed-map aware: handles `nodes`/`shapes`/`anchors`/`guides` arrays
+ * via `applyIndexedMapArray` instead of replacing the *ById structure.
+ */
+function mergeYMapContents(
+    targetMap: Y.Map<unknown>,
+    nextRecord: Record<string, unknown>
+): void {
+    // Additive merge: only update keys present in nextRecord.
+    // Do NOT delete absent keys — the Y.Map may have infrastructure keys
+    // (kind, *ById, *Order) that aren't in the flat JSON.
+    for (const [key, value] of Object.entries(nextRecord)) {
+        const current = targetMap.get(key);
+        if (
+            (key === 'shapes' ||
+                key === 'anchors' ||
+                key === 'guides' ||
+                key === 'nodes') &&
+            Array.isArray(value)
+        ) {
+            // Indexed-map array — use applyIndexedMapArray
+            applyIndexedMapArray(targetMap, key, value);
+        } else if (isYMap(current) && isPlainObject(value)) {
+            mergeYMapContents(current, value as Record<string, unknown>);
+        } else {
+            // Only set if different (avoid spurious Yjs ops for same primitives)
+            const currentVal = targetMap.get(key);
+            if (currentVal !== value) {
+                targetMap.set(key, toYType(value));
+            }
+        }
+    }
+}
 
 /**
  * Convert a plain JS value into a Y.Map, Y.Array, or primitive suitable
  * for insertion into a Y.Doc.
+ *
+ * Babelfont-aware: Path objects (with `nodes`) get `nodesById`+`nodeOrder`
+ * indexed-map structure; Layer objects (with `shapes`) get `shapesById`+
+ * `shapeOrder`, `anchorsById`+`anchorOrder`, `guidesById`+`guideOrder`.
+ * This makes per-node/per-shape edits produce minimal Yjs deltas.
  */
 export function toYType(value: unknown): unknown {
     if (Array.isArray(value)) {
@@ -145,6 +364,50 @@ export function toYType(value: unknown): unknown {
             unknown
         >;
         const map = new Y.Map();
+
+        // Check if this is a Path (has nodes array) → indexed-map for nodes
+        if (
+            'nodes' in normalizedValue &&
+            Array.isArray(normalizedValue.nodes)
+        ) {
+            // Path shape: kind discriminator + indexed-map nodes
+            map.set('kind', 'Path');
+            const nodesById = new Y.Map<unknown>();
+            const nodeOrder = new Y.Array<unknown>();
+            for (const node of normalizedValue.nodes) {
+                const nodeId = (node as any)?.id ?? generateStableId();
+                (node as any).id = nodeId;
+                nodesById.set(nodeId, toYType(node));
+                nodeOrder.push([nodeId]);
+            }
+            map.set('nodesById', nodesById);
+            map.set('nodeOrder', nodeOrder);
+            if ('closed' in normalizedValue) {
+                map.set('closed', normalizedValue.closed);
+            }
+            if ('id' in normalizedValue) {
+                map.set('id', normalizedValue.id);
+            }
+            if (
+                'format_specific' in normalizedValue &&
+                normalizedValue.format_specific
+            ) {
+                map.set(
+                    'format_specific',
+                    toYType(normalizedValue.format_specific)
+                );
+            }
+            return map;
+        }
+
+        // Check if this is a Layer (has shapes array) → indexed-map for shapes/anchors/guides
+        if (
+            'shapes' in normalizedValue &&
+            Array.isArray(normalizedValue.shapes)
+        ) {
+            return layerToYMap(normalizedValue);
+        }
+
         for (const [k, v] of Object.entries(normalizedValue)) {
             map.set(k, toYType(v));
         }
@@ -205,12 +468,71 @@ export function jsonToYDoc(
 
 /**
  * Convert a Yjs shared type back into a plain JS value.
- * Y.Map and Y.Array identity is preserved exactly; numeric string keys
- * remain object keys so malformed array containers fail visibly.
+ * Reverses the indexed-map structure: `nodesById`+`nodeOrder` → `nodes` array,
+ * `shapesById`+`shapeOrder` → `shapes` array, etc.
  */
 export function fromYType(value: unknown): unknown {
     if (value instanceof Y.Map) {
         const obj: Record<string, unknown> = {};
+
+        // Check for indexed-map structure (nodesById + nodeOrder)
+        if (value.has('nodesById') && value.get('nodesById') instanceof Y.Map) {
+            const nodesById = value.get('nodesById') as Y.Map<unknown>;
+            const nodeOrder = value.get('nodeOrder');
+            const orderedIds: string[] =
+                nodeOrder instanceof Y.Array
+                    ? (nodeOrder.toArray() as string[])
+                    : [];
+            const nodes: unknown[] = [];
+            for (const nodeId of orderedIds) {
+                const nodeVal = nodesById.get(nodeId);
+                if (nodeVal !== undefined) {
+                    const nodeObj = fromYType(nodeVal) as Record<
+                        string,
+                        unknown
+                    >;
+                    // Ensure the id from the *ById key is present on the node
+                    if (nodeObj && typeof nodeObj === 'object' && !nodeObj.id) {
+                        nodeObj.id = nodeId;
+                    }
+                    nodes.push(nodeObj);
+                }
+            }
+            obj.nodes = nodes;
+            if (value.has('closed'))
+                obj.closed = fromYType(value.get('closed'));
+            if (value.has('id')) obj.id = fromYType(value.get('id'));
+            if (value.has('format_specific'))
+                obj.format_specific = fromYType(value.get('format_specific'));
+            // Include any other keys not part of the indexed-map structure
+            value.forEach((v: unknown, k: string) => {
+                if (
+                    k !== 'nodesById' &&
+                    k !== 'nodeOrder' &&
+                    k !== 'nodes' &&
+                    k !== 'closed' &&
+                    k !== 'id' &&
+                    k !== 'format_specific' &&
+                    k !== 'kind'
+                ) {
+                    obj[k] = fromYType(v);
+                }
+            });
+            return obj;
+        }
+
+        // Check for indexed-map structure (any *ById key indicates a layer)
+        if (
+            (value.has('shapesById') &&
+                value.get('shapesById') instanceof Y.Map) ||
+            (value.has('anchorsById') &&
+                value.get('anchorsById') instanceof Y.Map) ||
+            (value.has('guidesById') &&
+                value.get('guidesById') instanceof Y.Map)
+        ) {
+            return fromYLayerMap(value);
+        }
+
         value.forEach((v: unknown, k: string) => {
             obj[k] = fromYType(v);
         });
@@ -224,6 +546,102 @@ export function fromYType(value: unknown): unknown {
         return arr;
     }
     return value;
+}
+
+/**
+ * Reverse `layerToYMap`: read a layer Y.Map with indexed-map structure
+ * back into a flat layer object with `shapes`/`anchors`/`guides` arrays.
+ */
+function fromYLayerMap(layerMap: Y.Map<unknown>): Record<string, unknown> {
+    const obj: Record<string, unknown> = {};
+
+    // Non-indexed-map keys
+    layerMap.forEach((v: unknown, k: string) => {
+        if (
+            k !== 'shapesById' &&
+            k !== 'shapeOrder' &&
+            k !== 'anchorsById' &&
+            k !== 'anchorOrder' &&
+            k !== 'guidesById' &&
+            k !== 'guideOrder' &&
+            k !== 'shapes' &&
+            k !== 'anchors' &&
+            k !== 'guides'
+        ) {
+            obj[k] = fromYType(v);
+        }
+    });
+
+    // shapesById + shapeOrder → shapes array
+    const shapesById = layerMap.get('shapesById');
+    const shapeOrder = layerMap.get('shapeOrder');
+    if (shapesById instanceof Y.Map) {
+        const orderedIds: string[] =
+            shapeOrder instanceof Y.Array
+                ? (shapeOrder.toArray() as string[])
+                : [];
+        const shapes: unknown[] = [];
+        for (const shapeId of orderedIds) {
+            const shapeVal = (shapesById as Y.Map<unknown>).get(shapeId);
+            if (shapeVal !== undefined) {
+                const shapeObj = fromYType(shapeVal) as Record<string, unknown>;
+                if (shapeObj && typeof shapeObj === 'object' && !shapeObj.id) {
+                    shapeObj.id = shapeId;
+                }
+                shapes.push(shapeObj);
+            }
+        }
+        obj.shapes = shapes;
+    }
+
+    // anchorsById + anchorOrder → anchors array
+    const anchorsById = layerMap.get('anchorsById');
+    const anchorOrder = layerMap.get('anchorOrder');
+    if (anchorsById instanceof Y.Map) {
+        const orderedIds: string[] =
+            anchorOrder instanceof Y.Array
+                ? (anchorOrder.toArray() as string[])
+                : [];
+        const anchors: unknown[] = [];
+        for (const anchorId of orderedIds) {
+            const anchorVal = (anchorsById as Y.Map<unknown>).get(anchorId);
+            if (anchorVal !== undefined) {
+                const anchorObj = fromYType(anchorVal) as Record<
+                    string,
+                    unknown
+                >;
+                if (
+                    anchorObj &&
+                    typeof anchorObj === 'object' &&
+                    !anchorObj.id
+                ) {
+                    anchorObj.id = anchorId;
+                }
+                anchors.push(anchorObj);
+            }
+        }
+        obj.anchors = anchors;
+    }
+
+    // guidesById + guideOrder → guides array
+    const guidesById = layerMap.get('guidesById');
+    const guideOrder = layerMap.get('guideOrder');
+    if (guidesById instanceof Y.Map) {
+        const orderedIds: string[] =
+            guideOrder instanceof Y.Array
+                ? (guideOrder.toArray() as string[])
+                : [];
+        const guides: unknown[] = [];
+        for (const guideId of orderedIds) {
+            const guideVal = (guidesById as Y.Map<unknown>).get(guideId);
+            if (guideVal !== undefined) {
+                guides.push(fromYType(guideVal));
+            }
+        }
+        obj.guides = guides;
+    }
+
+    return obj;
 }
 
 /**
@@ -309,23 +727,374 @@ export function getYPath(
     path: (string | number)[]
 ): unknown {
     let current: unknown = root;
-    for (const seg of path) {
+    let i = 0;
+    while (i < path.length) {
+        const seg = path[i];
         if (current instanceof Y.Map) {
-            current = current.get(String(seg));
+            const segStr = String(seg);
+
+            // Check for indexed-map structure
+            if (
+                typeof seg === 'string' &&
+                INDEXED_MAP_KEYS[segStr] &&
+                getIndexedByIdMap(current, segStr)
+            ) {
+                const nextSeg = path[i + 1];
+                if (typeof nextSeg === 'number') {
+                    current = navigateIndexedMap(current, segStr, nextSeg);
+                    i += 2;
+                    if (current === null || current === undefined)
+                        return undefined;
+                    continue;
+                } else if (typeof nextSeg === 'string') {
+                    const byIdMap = getIndexedByIdMap(current, segStr)!;
+                    current = byIdMap.get(nextSeg);
+                    i += 2;
+                    if (current === undefined) return undefined;
+                    continue;
+                } else {
+                    // Terminal indexed-map key (no next segment):
+                    // reconstruct the array from *ById + *Order
+                    const mapping = INDEXED_MAP_KEYS[segStr]!;
+                    const byId = current.get(mapping.byId);
+                    const order = current.get(mapping.order);
+                    if (isYMap(byId) && isYArray(order)) {
+                        const ids = order.toArray() as string[];
+                        const result: unknown[] = [];
+                        for (const id of ids) {
+                            const entry = byId.get(id);
+                            if (entry !== undefined) {
+                                result.push(fromYType(entry));
+                            }
+                        }
+                        return result;
+                    }
+                }
+            }
+
+            current = current.get(segStr);
         } else if (current instanceof Y.Array) {
             current = current.get(Number(seg));
         } else {
             return undefined;
         }
         if (current === undefined) return undefined;
+        i += 1;
     }
     return current;
+}
+
+/**
+ * Mapping from array key names to their indexed-map counterparts.
+ * When a Y.Map has `shapesById`+`shapeOrder` instead of `shapes`, etc.
+ */
+const INDEXED_MAP_KEYS: Record<string, { byId: string; order: string }> = {
+    shapes: { byId: 'shapesById', order: 'shapeOrder' },
+    nodes: { byId: 'nodesById', order: 'nodeOrder' },
+    anchors: { byId: 'anchorsById', order: 'anchorOrder' },
+    guides: { byId: 'guidesById', order: 'guideOrder' }
+};
+
+export { INDEXED_MAP_KEYS };
+
+/**
+ * Reverse mapping from *Order key to array key.
+ * Used by `setYPath` to detect when a path targets an order array
+ * and apply a minimal diff instead of a full replace.
+ */
+const ORDER_KEYS: Record<string, string> = {
+    nodeOrder: 'nodes',
+    shapeOrder: 'shapes',
+    anchorOrder: 'anchors',
+    guideOrder: 'guides'
+};
+
+/**
+ * Apply a minimal diff to a `Y.Array<string>` order array.
+ *
+ * Computes the longest common subsequence (LCS) between the current
+ * and next order, then applies only the necessary delete+insert
+ * operations. This keeps Yjs deltas small for reorder operations
+ * (set start point, reverse direction) where only the id sequence
+ * changes — zero node-data writes.
+ *
+ * For a 20-node contour rotation, the delta is ~N id references
+ * instead of a whole-glyph snapshot.
+ */
+function diffYArrayOrder(
+    orderArr: Y.Array<unknown>,
+    nextOrder: string[]
+): void {
+    const currentOrder = orderArr.toArray() as string[];
+
+    // Fast path: identical
+    if (
+        currentOrder.length === nextOrder.length &&
+        currentOrder.every((id, idx) => id === nextOrder[idx])
+    ) {
+        return;
+    }
+
+    // Fast path: empty current → just insert
+    if (currentOrder.length === 0) {
+        if (nextOrder.length > 0) {
+            orderArr.insert(0, nextOrder);
+        }
+        return;
+    }
+
+    // Fast path: empty next → just delete all
+    if (nextOrder.length === 0) {
+        orderArr.delete(0, currentOrder.length);
+        return;
+    }
+
+    // Compute LCS DP table
+    const m = currentOrder.length;
+    const n = nextOrder.length;
+    const dp: Uint16Array[] = Array.from(
+        { length: m + 1 },
+        () => new Uint16Array(n + 1)
+    );
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (currentOrder[i - 1] === nextOrder[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+                dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+            }
+        }
+    }
+
+    // Backtrack: collect edit operations in forward order
+    type EditOp =
+        | { type: 'keep' }
+        | { type: 'delete' }
+        | { type: 'insert'; id: string };
+    const ops: EditOp[] = [];
+    let i = m;
+    let j = n;
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && currentOrder[i - 1] === nextOrder[j - 1]) {
+            ops.push({ type: 'keep' });
+            i--;
+            j--;
+        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+            ops.push({ type: 'insert', id: nextOrder[j - 1] });
+            j--;
+        } else {
+            ops.push({ type: 'delete' });
+            i--;
+        }
+    }
+    ops.reverse();
+
+    // Apply operations using a cursor into the Y.Array.
+    // - keep: advance cursor
+    // - delete: delete at cursor (next element shifts down, cursor stays)
+    // - insert: insert at cursor, advance cursor
+    let cursor = 0;
+    for (const op of ops) {
+        if (op.type === 'keep') {
+            cursor++;
+        } else if (op.type === 'delete') {
+            orderArr.delete(cursor, 1);
+        } else {
+            orderArr.insert(cursor, [op.id]);
+            cursor++;
+        }
+    }
+}
+
+/**
+ * Apply a minimal LCS-based diff to a generic `Y.Array`.
+ *
+ * Unlike `diffYArrayOrder` (which compares string ids), this function
+ * compares elements by JSON serialization, making it suitable for
+ * arrays of objects (e.g. `features.features` [tag, code] pairs) and
+ * arrays of primitives (e.g. `codepoints` numbers, kern-group names).
+ *
+ * Used by `_replaceYArrayContents` to avoid full teardown+rebuild
+ * when the array length changes.
+ */
+export function diffYArray(arr: Y.Array<unknown>, nextValues: unknown[]): void {
+    const current = arr.toArray();
+
+    // Fast path: identical
+    if (
+        current.length === nextValues.length &&
+        current.every(
+            (v, i) => JSON.stringify(v) === JSON.stringify(nextValues[i])
+        )
+    ) {
+        return;
+    }
+
+    // Fast path: empty current
+    if (current.length === 0) {
+        if (nextValues.length > 0) {
+            arr.insert(
+                0,
+                nextValues.map((v) => toYType(v))
+            );
+        }
+        return;
+    }
+
+    // Fast path: empty next
+    if (nextValues.length === 0) {
+        arr.delete(0, current.length);
+        return;
+    }
+
+    // Compute LCS using JSON-string comparison
+    const serialize = (v: unknown) => JSON.stringify(v);
+    const currentSer = current.map(serialize);
+    const nextSer = nextValues.map(serialize);
+
+    const m = currentSer.length;
+    const n = nextSer.length;
+    const dp: Uint16Array[] = Array.from(
+        { length: m + 1 },
+        () => new Uint16Array(n + 1)
+    );
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (currentSer[i - 1] === nextSer[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+                dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+            }
+        }
+    }
+
+    // Backtrack to collect edit operations
+    type EditOp =
+        | { type: 'keep' }
+        | { type: 'delete' }
+        | { type: 'insert'; value: unknown };
+    const ops: EditOp[] = [];
+    let i = m;
+    let j = n;
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && currentSer[i - 1] === nextSer[j - 1]) {
+            ops.push({ type: 'keep' });
+            i--;
+            j--;
+        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+            ops.push({ type: 'insert', value: nextValues[j - 1] });
+            j--;
+        } else {
+            ops.push({ type: 'delete' });
+            i--;
+        }
+    }
+    ops.reverse();
+
+    // Apply operations using a cursor
+    let cursor = 0;
+    for (const op of ops) {
+        if (op.type === 'keep') {
+            cursor++;
+        } else if (op.type === 'delete') {
+            arr.delete(cursor, 1);
+        } else {
+            arr.insert(cursor, [toYType(op.value)]);
+            cursor++;
+        }
+    }
+}
+
+/** Duck-type check for Y.Map (avoids instanceof issues across module boundaries) */
+function isYMap(v: unknown): v is Y.Map<unknown> {
+    return (
+        !!v &&
+        typeof (v as any).get === 'function' &&
+        typeof (v as any).forEach === 'function' &&
+        typeof (v as any).set === 'function'
+    );
+}
+
+/** Duck-type check for Y.Array */
+function isYArray(v: unknown): v is Y.Array<unknown> {
+    return (
+        !!v &&
+        typeof (v as any).get === 'function' &&
+        typeof (v as any).length === 'number' &&
+        typeof (v as any).push === 'function'
+    );
+}
+
+/**
+ * If `map` has an indexed-map structure for `arrayKey` (e.g. `shapesById`+
+ * `shapeOrder` when `arrayKey` is `shapes`), return the `*ById` Y.Map.
+ * Otherwise return null.
+ */
+function getIndexedByIdMap(
+    map: Y.Map<unknown>,
+    arrayKey: string
+): Y.Map<unknown> | null {
+    const mapping = INDEXED_MAP_KEYS[arrayKey];
+    if (!mapping) return null;
+    const byId = map.get(mapping.byId);
+    return isYMap(byId) ? byId : null;
+}
+
+/**
+ * Ensure `map` has the indexed-map structure for `arrayKey`.
+ * Creates `*ById` Y.Map and `*Order` Y.Array if they don't exist.
+ * Returns the `*ById` Y.Map.
+ */
+function ensureIndexedMap(
+    map: Y.Map<unknown>,
+    arrayKey: string
+): Y.Map<unknown> | null {
+    const mapping = INDEXED_MAP_KEYS[arrayKey];
+    if (!mapping) return null;
+    let byId = map.get(mapping.byId);
+    let order = map.get(mapping.order);
+    if (!isYMap(byId)) {
+        byId = new Y.Map<unknown>();
+        map.set(mapping.byId, byId);
+    }
+    if (!isYArray(order)) {
+        order = new Y.Array<unknown>();
+        map.set(mapping.order, order);
+    }
+    return byId as Y.Map<unknown>;
+}
+
+/**
+ * If `map` has an indexed-map structure for `arrayKey`, look up the id at
+ * `index` in the `*Order` Y.Array and return the corresponding Y.Map entry
+ * from `*ById`. Returns null if not an indexed-map or index out of range.
+ */
+function navigateIndexedMap(
+    map: Y.Map<unknown>,
+    arrayKey: string,
+    index: number
+): Y.Map<unknown> | null {
+    const mapping = INDEXED_MAP_KEYS[arrayKey];
+    if (!mapping) return null;
+    const byId = map.get(mapping.byId);
+    const order = map.get(mapping.order);
+    if (!isYMap(byId) || !isYArray(order)) return null;
+    if (index < 0 || index >= order.length) return null;
+    const id = order.get(index);
+    if (typeof id !== 'string') return null;
+    const entry = byId.get(id);
+    return isYMap(entry) ? entry : null;
 }
 
 /**
  * Set a value at a deep path in a Y.Doc tree.
  * Creates intermediate Y.Maps or Y.Arrays according to the next path segment.
  * The final segment determines where the value is written.
+ *
+ * Indexed-map aware: when a path segment is `shapes`/`nodes`/`anchors`/`guides`
+ * and the current Y.Map has the corresponding `*ById`+`*Order` structure,
+ * the next numeric segment is translated to an id via `*Order` and navigation
+ * continues through `*ById`.
  */
 export function setYPath(
     root: Y.Map<unknown>,
@@ -334,17 +1103,88 @@ export function setYPath(
 ): void {
     if (path.length === 0) return;
     let current: unknown = root;
+    let i = 0;
     // Navigate to the parent of the target
-    for (let i = 0; i < path.length - 1; i++) {
+    while (i < path.length - 1) {
         const seg = path[i];
         let next: unknown;
+
         if (current instanceof Y.Map) {
-            next = current.get(String(seg));
+            const segStr = String(seg);
+
+            // Check for indexed-map keys (shapes/nodes/anchors/guides)
+            // Always use the indexed-map structure for these keys,
+            // creating it if it doesn't exist yet.
+            if (typeof seg === 'string' && INDEXED_MAP_KEYS[segStr]) {
+                // Ensure the indexed-map structure exists
+                const byIdMap = ensureIndexedMap(current, segStr);
+                if (byIdMap) {
+                    // Next segment should be the index/id
+                    const nextSeg = path[i + 1];
+                    if (typeof nextSeg === 'number') {
+                        // Index-based access: translate via *Order
+                        next = navigateIndexedMap(current, segStr, nextSeg);
+                        if (next === undefined || next === null) {
+                            // Index out of range — need to create a new element.
+                            const mapping = INDEXED_MAP_KEYS[segStr]!;
+                            const orderArr = current.get(mapping.order);
+                            if (isYArray(orderArr)) {
+                                const insertIdx = Math.min(
+                                    nextSeg,
+                                    orderArr.length
+                                );
+                                // Check if this is a leaf (arrayKey+index is the last pair)
+                                const isLeaf = i + 2 >= path.length;
+                                if (isLeaf) {
+                                    // The value IS the element being added
+                                    const inner =
+                                        (value as any)?.Path ??
+                                        (value as any)?.Component ??
+                                        value;
+                                    const id =
+                                        (inner as any)?.id ??
+                                        generateStableId();
+                                    (inner as any).id = id;
+                                    byIdMap.set(id, toYType(inner));
+                                    orderArr.insert(insertIdx, [id]);
+                                    return; // value already written
+                                } else {
+                                    // Intermediate path — create an empty element
+                                    // and continue navigation through it
+                                    const newElement = new Y.Map<unknown>();
+                                    const newId = generateStableId();
+                                    byIdMap.set(newId, newElement);
+                                    orderArr.insert(insertIdx, [newId]);
+                                    current = newElement;
+                                    i += 2;
+                                    continue;
+                                }
+                            }
+                            return;
+                        }
+                        current = next; // move to the found element
+                        i += 2; // consume both segments
+                        continue;
+                    } else if (typeof nextSeg === 'string') {
+                        // Id-based access: navigate directly via *ById
+                        next = byIdMap.get(nextSeg);
+                        if (next === undefined) {
+                            return; // id not found
+                        }
+                        current = next;
+                        i += 2;
+                        continue;
+                    }
+                }
+            }
+
+            // Normal Y.Map navigation
+            next = current.get(segStr);
             if (next === undefined) {
                 const newContainer = createYContainerForNextSegment(
                     path[i + 1]
                 );
-                current.set(String(seg), newContainer);
+                current.set(segStr, newContainer);
                 next = newContainer;
             }
         } else if (current instanceof Y.Array) {
@@ -370,12 +1210,49 @@ export function setYPath(
             return; // Can't navigate further
         }
         current = next;
+        i += 1;
     }
 
     const lastSeg = path[path.length - 1];
+    const lastSegStr = String(lastSeg);
+
+    // Special case: when setting a *Order key (nodeOrder, shapeOrder,
+    // anchorOrder, guideOrder) on a Y.Map that already has the order
+    // array, apply a minimal LCS-based diff instead of replacing the
+    // whole Y.Array. This is the key to granular reorder operations
+    // (set start point, reverse direction) — the Yjs delta contains
+    // only the changed id references, not a full array replacement.
+    if (current instanceof Y.Map && lastSegStr in ORDER_KEYS) {
+        const existingOrder = current.get(lastSegStr);
+        if (isYArray(existingOrder)) {
+            const nextIds = Array.isArray(value)
+                ? (value as unknown[]).map(String)
+                : [];
+            diffYArrayOrder(existingOrder, nextIds);
+            return;
+        }
+        // No existing order array — create one from the value.
+        // Falls through to the generic set below.
+    }
+
+    // Special case: when setting an indexed-map array key (shapes,
+    // anchors, guides, nodes) as the terminal segment on a Y.Map,
+    // update the *ById+*Order structure instead of setting a flat
+    // key. This handles layer-level shape/anchor/guide replacements
+    // and path-level node replacements that arrive as whole-array
+    // set operations (e.g. from the lsb setter).
+    if (
+        current instanceof Y.Map &&
+        INDEXED_MAP_KEYS[lastSegStr] &&
+        Array.isArray(value)
+    ) {
+        applyIndexedMapArray(current, lastSegStr, value as unknown[]);
+        return;
+    }
+
     const yValue = toYType(value);
     if (current instanceof Y.Map) {
-        current.set(String(lastSeg), yValue);
+        current.set(lastSegStr, yValue);
     } else if (current instanceof Y.Array) {
         const idx = Number(lastSeg);
         if (idx === current.length) {
@@ -389,12 +1266,74 @@ export function setYPath(
 
 /**
  * Delete a key/index at a deep path in a Y.Doc tree.
+ * Indexed-map aware: when the path ends with `[arrayKey, index]`
+ * (e.g. `['shapes', 0]`), deletes from `*ById` + `*Order`.
  */
 export function deleteYPath(
     root: Y.Map<unknown>,
     path: (string | number)[]
 ): void {
     if (path.length === 0) return;
+
+    // Check if the last two segments are [indexedMapKey, index]
+    if (path.length >= 2) {
+        const secondLastSeg = path[path.length - 2];
+        const lastSeg = path[path.length - 1];
+        if (
+            typeof secondLastSeg === 'string' &&
+            INDEXED_MAP_KEYS[secondLastSeg] &&
+            typeof lastSeg === 'number'
+        ) {
+            // Indexed-map deletion: find parent, get id at index, delete from *ById + *Order
+            const parentPath = path.slice(0, -2);
+            const parent =
+                parentPath.length > 0 ? getYPath(root, parentPath) : root;
+            if (parent instanceof Y.Map) {
+                const mapping = INDEXED_MAP_KEYS[secondLastSeg]!;
+                const byId = parent.get(mapping.byId);
+                const order = parent.get(mapping.order);
+                if (byId instanceof Y.Map && order instanceof Y.Array) {
+                    const idx = lastSeg;
+                    if (idx < 0 || idx >= order.length) return;
+                    const id = order.get(idx);
+                    if (typeof id === 'string') {
+                        byId.delete(id);
+                    }
+                    order.delete(idx, 1);
+                    return;
+                }
+                // Indexed-map structure doesn't exist (e.g. Master.guides
+                // stored as flat Y.Array). Fall through to generic deletion.
+            }
+        }
+    }
+
+    // Terminal indexed-map key deletion: when the last segment is an
+    // indexed-map key (shapes/anchors/guides/nodes) and the parent
+    // Y.Map has the *ById+*Order structure, DELETE both keys so that
+    // downstream readers (fromYType, _syncJsonFromYDoc) see the data
+    // as absent (not empty). This preserves the merge semantics where
+    // a missing Y.Doc key means "keep the existing JSON value".
+    if (path.length >= 1) {
+        const lastSegStr = String(path[path.length - 1]);
+        if (INDEXED_MAP_KEYS[lastSegStr]) {
+            const parentPath = path.slice(0, -1);
+            const parent =
+                parentPath.length > 0 ? getYPath(root, parentPath) : root;
+            if (parent instanceof Y.Map) {
+                const mapping = INDEXED_MAP_KEYS[lastSegStr]!;
+                const byId = parent.get(mapping.byId);
+                const order = parent.get(mapping.order);
+                if (byId instanceof Y.Map && order instanceof Y.Array) {
+                    parent.delete(mapping.byId);
+                    parent.delete(mapping.order);
+                    return;
+                }
+                // No indexed-map structure — fall through to generic.
+            }
+        }
+    }
+
     const parent = path.length > 1 ? getYPath(root, path.slice(0, -1)) : root;
     const lastSeg = path[path.length - 1];
 

@@ -541,6 +541,7 @@ fn transform_nodes(nodes: &[Node], transform: &Affine) -> Vec<Node> {
             let point = Point::new(node.x, node.y);
             let transformed = *transform * point;
             Node {
+                id: node.id.clone(),
                 x: transformed.x,
                 y: transformed.y,
                 nodetype: node.nodetype,
