@@ -10157,12 +10157,17 @@ export class Master extends ArrayElementBase {
         this.data.kerning_rtl = value;
         // Sync back to format_specific so Rust preserves RTL kerning on
         // round-trip (Rust only reads format_specific, not this field).
+        // Suppressed: the format_specific write is a derived consequence
+        // of the kerning_rtl edit, not an independent user action, so it
+        // should not produce a separate change-log entry.
         const fontData = this.parent() as Babelfont.Font | null;
-        syncKerningRtlToFormatSpecific(
-            fontData || undefined,
-            this.data.id,
-            value
-        );
+        withSuppressedModelRecording(() => {
+            syncKerningRtlToFormatSpecific(
+                fontData || undefined,
+                this.data.id,
+                value
+            );
+        });
         recordAndMarkDirty(this, 'kerning_rtl', old, value);
     }
 

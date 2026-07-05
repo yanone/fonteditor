@@ -4027,9 +4027,12 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         const fontModel = fontManager.currentFont.fontModel;
 
         expect(fontModel.masters[0].kerning_rtl['@AFirst:@VSecond']).toBe(-120);
+        // The format_specific key is preserved (not deleted) so that Rust
+        // can read it on round-trip. The kerning_rtl field is a JS-only
+        // convenience that stays in sync with format_specific.
         expect(
             fontModel.format_specific['com.schriftgestalt.Glyphs.kerningRTL']
-        ).toBeUndefined();
+        ).toBeDefined();
     });
 
     test('detects hovered editable sidebearing handles', () => {
@@ -11258,9 +11261,16 @@ describe('Text-mode kerning property panel', () => {
             }
         );
         expect(fontModel.masters[0].kerning_rtl['@AFirst:@VSecond']).toBe(-55);
+        // The format_specific key is kept in sync (not deleted) so that
+        // Rust preserves RTL kerning on round-trip.
         expect(
             fontModel.format_specific['com.schriftgestalt.Glyphs.kerningRTL']
-        ).toBeUndefined();
+        ).toBeDefined();
+        expect(
+            fontModel.format_specific['com.schriftgestalt.Glyphs.kerningRTL'][
+                'master-1'
+            ]['@MMK_R_AFirst']['@MMK_L_VSecond']
+        ).toBe(-55);
     });
 
     test('alt arrow keys nudge text-mode kerning with modifier scaling', async () => {
