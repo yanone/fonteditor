@@ -11419,6 +11419,9 @@ describe('Text-mode kerning property panel', () => {
     });
 
     test('renders a single RTL ValueRecord field', () => {
+        fontModel.masters[0].kerning_rtl = {
+            '@AFirst:@VSecond': -120
+        };
         setTextRunState({ rtl: true });
         canvas.textModeKerningSelection = {
             firstKey: '@AFirst',

@@ -69,7 +69,7 @@ function makeComponent(reference, options = {}) {
         }
     } = options;
     const formatSpecific = {
-        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: auto ? 0 : 1
+        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: auto ? 0 : -1
     };
     if (anchor) {
         formatSpecific[GLYPHS_COMPONENT_ANCHOR_KEY] = anchor;
@@ -951,7 +951,7 @@ function setupCanvasForLayer(canvas, font, glyphName, layerId) {
 }
 
 describe('Automatic Glyph Composition canonical behavior', () => {
-    test('components without an explicit automatic-alignment flag stay manual', () => {
+    test('components with an explicit manual alignment flag stay manual', () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -994,11 +994,17 @@ describe('Automatic Glyph Composition canonical behavior', () => {
                             shapes: [
                                 {
                                     reference: 'dotaccentcomb',
-                                    transform: [1, 0, 0, 1, 0, 0]
+                                    transform: [1, 0, 0, 1, 0, 0],
+                                    format_specific: {
+                                        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: -1
+                                    }
                                 },
                                 {
                                     reference: 'dotaccentcomb',
-                                    transform: [1, 0, 0, 1, 120, 0]
+                                    transform: [1, 0, 0, 1, 120, 0],
+                                    format_specific: {
+                                        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: -1
+                                    }
                                 }
                             ],
                             anchors: [],

@@ -1236,7 +1236,7 @@ function buildComponentFont() {
         skew: [0, 0]
     });
     const manualComponentFormat = {
-        'com.schriftgestalt.Glyphs.alignment': 1
+        'com.schriftgestalt.Glyphs.alignment': -1
     };
 
     return {
