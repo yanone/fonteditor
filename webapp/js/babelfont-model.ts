@@ -10155,6 +10155,14 @@ export class Master extends ArrayElementBase {
     set kerning_rtl(value: Record<string, number>) {
         const old = this.data.kerning_rtl;
         this.data.kerning_rtl = value;
+        // Sync back to format_specific so Rust preserves RTL kerning on
+        // round-trip (Rust only reads format_specific, not this field).
+        const fontData = this.parent() as Babelfont.Font | null;
+        syncKerningRtlToFormatSpecific(
+            fontData || undefined,
+            this.data.id,
+            value
+        );
         recordAndMarkDirty(this, 'kerning_rtl', old, value);
     }
 
@@ -10368,6 +10376,87 @@ export class Instance extends ArrayElementBase {
     }
 }
 
+/** Key under which Glyphs.app stores RTL kerning in Font.format_specific. */
+const KEY_KERNING_RTL = 'com.schriftgestalt.Glyphs.kerningRTL';
+
+/**
+ * Convert a flat `kerning_rtl` map ("firstKey:secondKey" → value) back into
+ * the nested Glyphs.app structure expected by `format_specific[KEY_KERNING_RTL]`:
+ *
+ *   { [masterId]: { [firstRestored]: { [secondRestored]: value } } }
+ *
+ * Group keys (starting with `@`) are restored to the `@MMK_R_`/`@MMK_L_`
+ * prefix convention; plain glyph names are left as-is.
+ */
+function flatKerningRtlToNested(
+    flat: Record<string, number>,
+    masterId: string
+): Record<string, Record<string, Record<string, number>>> {
+    const nested: Record<string, Record<string, Record<string, number>>> = {};
+
+    for (const [flatKey, value] of Object.entries(flat)) {
+        const colonIdx = flatKey.indexOf(':');
+        if (colonIdx === -1) continue;
+        const firstRaw = flatKey.slice(0, colonIdx);
+        const secondRaw = flatKey.slice(colonIdx + 1);
+
+        // Restore @MMK_R_ / @MMK_L_ prefixes for group keys
+        const firstRestored = firstRaw.startsWith('@')
+            ? '@MMK_R_' + firstRaw.slice(1)
+            : firstRaw;
+        const secondRestored = secondRaw.startsWith('@')
+            ? '@MMK_L_' + secondRaw.slice(1)
+            : secondRaw;
+
+        if (!nested[masterId]) nested[masterId] = {};
+        if (!nested[masterId][firstRestored])
+            nested[masterId][firstRestored] = {};
+        nested[masterId][firstRestored][secondRestored] = value;
+    }
+
+    return nested;
+}
+
+/**
+ * Sync a master's flat `kerning_rtl` back into the parent font's
+ * `format_specific[KEY_KERNING_RTL]` so that Rust sees the data on
+ * round-trip. Called from the Master.kerning_rtl setter.
+ */
+function syncKerningRtlToFormatSpecific(
+    fontData: Babelfont.Font | undefined,
+    masterId: string,
+    flatRtl: Record<string, number>
+): void {
+    if (!fontData) return;
+
+    const fs = (fontData.format_specific ||
+        (fontData.format_specific = {})) as Record<string, unknown>;
+
+    if (Object.keys(flatRtl).length === 0) {
+        // Remove the master's entry if it exists; clean up empty containers
+        const existing = fs[KEY_KERNING_RTL] as
+            | Record<string, Record<string, Record<string, number>>>
+            | undefined;
+        if (existing) {
+            delete existing[masterId];
+            if (Object.keys(existing).length === 0) {
+                delete fs[KEY_KERNING_RTL];
+            }
+        }
+        return;
+    }
+
+    const nested = flatKerningRtlToNested(flatRtl, masterId);
+    const existing =
+        (fs[KEY_KERNING_RTL] as
+            | Record<string, Record<string, Record<string, number>>>
+            | undefined) || {};
+
+    // Replace this master's entry, preserving other masters
+    existing[masterId] = nested[masterId] || {};
+    fs[KEY_KERNING_RTL] = existing;
+}
+
 /**
  * The main font class representing a complete font
  */
@@ -10380,9 +10469,10 @@ function normalizeLegacyGlyphsRtlKerning(data: Babelfont.Font): Babelfont.Font {
         | Record<string, Record<string, Record<string, number>>>
         | undefined;
 
+    // Ensure every master has a kerning_rtl field (empty by default).
     for (const master of masters) {
         if (!master.kerning_rtl) {
-            master.kerning_rtl = {} as any;
+            master.kerning_rtl = {};
         }
     }
 
@@ -10390,6 +10480,14 @@ function normalizeLegacyGlyphsRtlKerning(data: Babelfont.Font): Babelfont.Font {
         return data;
     }
 
+    // Unpack the nested Glyphs.app RTL kerning structure into a flat
+    // "firstKey:secondKey" → value map on each master.
+    //
+    // IMPORTANT: We do NOT delete the format_specific key. It is the
+    // canonical source that Rust reads/writes. The kerning_rtl field is
+    // a JS-only convenience; the setter on Master keeps format_specific
+    // in sync on every edit so that round-trips through Rust preserve
+    // the data.
     for (const master of masters) {
         const masterRawRtl = rawRtl[master.id || ''];
         if (!masterRawRtl) {
@@ -10397,8 +10495,7 @@ function normalizeLegacyGlyphsRtlKerning(data: Babelfont.Font): Babelfont.Font {
         }
 
         const nextKerningRtl = {
-            ...((master.kerning_rtl as Record<string, number> | undefined) ||
-                {})
+            ...(master.kerning_rtl || {})
         };
 
         for (const [kern1, subtable] of Object.entries(masterRawRtl)) {
@@ -10416,11 +10513,7 @@ function normalizeLegacyGlyphsRtlKerning(data: Babelfont.Font): Babelfont.Font {
             }
         }
 
-        master.kerning_rtl = nextKerningRtl as any;
-    }
-
-    if (formatSpecific) {
-        delete formatSpecific['com.schriftgestalt.Glyphs.kerningRTL'];
+        master.kerning_rtl = nextKerningRtl;
     }
 
     return data;
@@ -11704,7 +11797,7 @@ export class Font extends ModelBase {
                 : this.getNextMasterLocation(),
             metrics,
             kerning: {} as any,
-            kerning_rtl: {} as any
+            kerning_rtl: {}
         };
     }
 

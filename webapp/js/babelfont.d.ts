@@ -3,17 +3,13 @@
 //
 // Type definitions for babelfont
 // Project: https://github.com/simoncozens/babelfont-rs
-// Definitions extracted from babelfont-ts@e465512
-// Updated: Anchor, Component, Guide, Node, Path now have optional `id` field
-// for stable CRDT addressing.
+// Definitions extracted from babelfont-ts@4f156e0
 
 export namespace Babelfont {
     /** A dictionary for internationalized strings. */
     export type I18NDictionary = Record<string, string>;
     /** An anchor point in a glyph */
     export interface Anchor {
-        /** Stable identifier for CRDT addressing (generated on load when absent) */
-        id?: string;
         /** X coordinate */
         x: number;
         /** Y coordinate */
@@ -72,8 +68,6 @@ export namespace Babelfont {
     }
     /** A component in a glyph */
     export interface Component {
-        /** Stable identifier for CRDT addressing (generated on load when absent) */
-        id?: string;
         /** The referenced glyph name */
         reference: string;
         /** The transformation applied to the component */
@@ -328,8 +322,6 @@ export namespace Babelfont {
     }
     /** A guideline in the font, whether at master or layer level */
     export interface Guide {
-        /** Stable identifier for CRDT addressing (generated on load when absent) */
-        id?: string;
         /** Position of the guideline */
         pos: Position;
         /** Optional name of the guideline */
@@ -359,8 +351,6 @@ export namespace Babelfont {
          * groups is determined by position in the tuple.
          */
         kerning: Map<[string, string], number>;
-        /** RTL kerning for this master */
-        kerning_rtl: Record<string, number>;
         /** Custom OpenType values for this master */
         custom_ot_values?: CustomOTValues;
         /** Format-specific data */
@@ -533,8 +523,6 @@ export namespace Babelfont {
     }
     /** A node in a glyph outline */
     export interface Node {
-        /** Stable identifier for CRDT addressing (generated on load when absent) */
-        id?: string;
         /** The x-coordinate of the node */
         x: number;
         /** The y-coordinate of the node */
@@ -548,8 +536,6 @@ export namespace Babelfont {
     }
     /** A path in a glyph */
     export interface Path {
-        /** Stable identifier for CRDT addressing (generated on load when absent) */
-        id?: string;
         /** A list of nodes in the path */
         nodes: Node[];
         /** Whether the path is closed */

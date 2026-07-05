@@ -64,6 +64,23 @@ declare module './babelfont' {
         }
 
         /**
+         * Extended Master type with RTL kerning.
+         */
+        export interface Master {
+            /**
+             * RTL kerning for this master, stored as a flat map of
+             * "firstKey:secondKey" → value.
+             *
+             * This is a JS-only convenience field. The canonical data lives in
+             * `Font.format_specific["com.schriftgestalt.Glyphs.kerningRTL"]`
+             * (nested per-master structure with @MMK_R_/@MMK_L_ prefixes).
+             * The getter/setter keep the two in sync so that edits survive
+             * round-trips through Rust, which only reads `format_specific`.
+             */
+            kerning_rtl?: Record<string, number>;
+        }
+
+        /**
          * Extended Layer type with custom properties
          */
         export interface Layer {
