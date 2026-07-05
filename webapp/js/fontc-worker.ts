@@ -24,6 +24,7 @@ import init, {
     reinterpolate_master_layers_yjs,
     clear_font_cache,
     open_font_file,
+    save_font_as_ufo_entries,
     get_glyphs_outlines,
     run_fontspector,
     set_debug_font_cache_max_bytes,
@@ -2297,6 +2298,36 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(dumpSpanId);
+            }
+            return;
+        }
+
+        // Handle save font as UFO entries request
+        if (data.type === 'saveUfoEntries') {
+            const saveSpanId = timelineSpanStart('font.worker.saveUfoEntries');
+            const { id, babelfontJson } = data;
+
+            try {
+                if (!initialized) {
+                    await initializeWasm();
+                }
+
+                const entriesJson = save_font_as_ufo_entries(babelfontJson);
+
+                self.postMessage({
+                    id,
+                    type: 'saveUfoEntries',
+                    entriesJson
+                });
+            } catch (e: any) {
+                console.error('[Fontc Worker] saveUfoEntries error:', e);
+                self.postMessage({
+                    id,
+                    type: 'saveUfoEntries',
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(saveSpanId);
             }
             return;
         }

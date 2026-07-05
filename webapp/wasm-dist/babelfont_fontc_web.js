@@ -974,6 +974,43 @@ export function run_fontspector(font_bytes, profile) {
 }
 
 /**
+ * Serialize a babelfont JSON string to a UFO file-tree as JSON.
+ *
+ * Input: a babelfont JSON string (as produced by `open_font_file`).
+ * Output: a JSON object `{ "relative/path": "file contents", ... }`
+ * representing the UFO directory structure.
+ *
+ * Only single-master fonts are supported (norad/UFO limitation).
+ * @param {string} babelfont_json
+ * @returns {string}
+ */
+export function save_font_as_ufo_entries(babelfont_json) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(
+            babelfont_json,
+            wasm.__wbindgen_malloc,
+            wasm.__wbindgen_realloc
+        );
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.save_font_as_ufo_entries(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0;
+            len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Seed the Rust Y.Doc from a full Yjs binary state (v1 encoding) without
  * rebuilding all caches. Called immediately after `openFont` so that
  * subsequent `apply_yjs_update` calls have a baseline Y.Doc, while the
@@ -1135,6 +1172,13 @@ function __wbg_get_imports() {
             } finally {
                 wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
             }
+        },
+        __wbg_getRandomValues_3dda8830c2565714: function () {
+            return handleError(function (arg0, arg1) {
+                globalThis.crypto.getRandomValues(
+                    getArrayU8FromWasm0(arg0, arg1)
+                );
+            }, arguments);
         },
         __wbg_getRandomValues_c44a50d8cfdaebeb: function () {
             return handleError(function (arg0, arg1) {

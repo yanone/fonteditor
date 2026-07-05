@@ -90,6 +90,10 @@ export const prime_preview_layout_closure_cache: (
     c: number,
     d: number
 ) => [number, number, number];
+export const save_font_as_ufo_entries: (
+    a: number,
+    b: number
+) => [number, number, number, number];
 export const seed_ydoc: (a: number, b: number) => [number, number];
 export const set_debug_font_cache_max_bytes: (a: number) => void;
 export const store_font: (a: number, b: number) => [number, number];
@@ -97,6 +101,20 @@ export const validate_feature_source_with_full_filter_pipeline: (
     a: any
 ) => [number, number];
 export const version: () => [number, number];
+export const add_master_with_interpolated_layers_yjs: (
+    a: number,
+    b: number
+) => [number, number, number];
+export const reinterpolate_layer_yjs: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number];
+export const reinterpolate_master_layers_yjs: (
+    a: number,
+    b: number
+) => [number, number, number];
 export const get_font_axes: (
     a: number,
     b: number
@@ -128,20 +146,6 @@ export const run_fontspector: (
     c: number,
     d: number
 ) => [number, number, number, number];
-export const add_master_with_interpolated_layers_yjs: (
-    a: number,
-    b: number
-) => [number, number, number];
-export const reinterpolate_layer_yjs: (
-    a: number,
-    b: number,
-    c: number,
-    d: number
-) => [number, number, number];
-export const reinterpolate_master_layers_yjs: (
-    a: number,
-    b: number
-) => [number, number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (
     a: number,

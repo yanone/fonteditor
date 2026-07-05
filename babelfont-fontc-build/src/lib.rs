@@ -2843,15 +2843,33 @@ pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue>
         }
 
         "ufo" => {
-            return Err(JsValue::from_str(
-                "UFO loading not available in this build. Use .babelfont format instead.",
-            ));
+            // Load UFO from a JSON-encoded in-memory file tree.
+            // Expected format: { "relative/path": "file contents", ... }
+            let entries: HashMap<String, String> = serde_json::from_str(contents).map_err(|e| {
+                JsValue::from_str(&format!(
+                    "Failed to parse .ufo entries JSON: {}",
+                    e
+                ))
+            })?;
+
+            babelfont::convertors::ufo::load_entries(path.clone(), &entries).map_err(
+                |e| JsValue::from_str(&format!("Failed to load .ufo: {:?}", e)),
+            )?
         }
 
         "designspace" => {
-            return Err(JsValue::from_str(
-                "DesignSpace loading not available in this build. Use .babelfont format instead.",
-            ));
+            // Load DesignSpace from a JSON-encoded in-memory file tree.
+            // Expected format: { "relative/path": "file contents", ... }
+            let entries: HashMap<String, String> = serde_json::from_str(contents).map_err(|e| {
+                JsValue::from_str(&format!(
+                    "Failed to parse .designspace entries JSON: {}",
+                    e
+                ))
+            })?;
+
+            babelfont::convertors::designspace::load_entries(path.clone(), &entries).map_err(
+                |e| JsValue::from_str(&format!("Failed to load .designspace: {:?}", e)),
+            )?
         }
 
         _ => {
@@ -3638,6 +3656,26 @@ pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
     drop(_ir_compile_span);
 
     Ok(compiled_font)
+}
+
+/// Serialize a babelfont JSON string to a UFO file-tree as JSON.
+///
+/// Input: a babelfont JSON string (as produced by `open_font_file`).
+/// Output: a JSON object `{ "relative/path": "file contents", ... }`
+/// representing the UFO directory structure.
+///
+/// Only single-master fonts are supported (norad/UFO limitation).
+#[wasm_bindgen]
+pub fn save_font_as_ufo_entries(babelfont_json: &str) -> Result<String, JsValue> {
+    let font: babelfont::Font = serde_json::from_str(babelfont_json).map_err(|e| {
+        JsValue::from_str(&format!("Failed to parse babelfont JSON: {}", e))
+    })?;
+
+    let entries = babelfont::convertors::ufo::save_entries(&font)
+        .map_err(|e| JsValue::from_str(&format!("Failed to save UFO: {:?}", e)))?;
+
+    serde_json::to_string(&entries)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize UFO entries: {}", e)))
 }
 
 #[cfg(test)]

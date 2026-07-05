@@ -230,7 +230,42 @@ initBabelfontWasm.version = jest.fn(() => '0.1.0');
 
 // Real implementation using wasm module to convert .glyphs files
 initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {
-    // Write to temp file, convert with wasm helper, read result, delete temp files
+    const ext = filename.split('.').pop().toLowerCase();
+
+    // For entry-map-based formats (.ufo, .designspace), use the entries helper
+    if (ext === 'ufo' || ext === 'designspace') {
+        const tempDir = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'babelfont-jest-entries-')
+        );
+        const inputPath = path.join(tempDir, 'entries.json');
+        const outputPath = path.join(tempDir, 'converted.babelfont.json');
+
+        try {
+            fs.writeFileSync(inputPath, contents, 'utf-8');
+            const converterScript = path.join(
+                __dirname,
+                '../helpers/convert-entries-to-babelfont.mjs'
+            );
+            execFileSync(
+                process.execPath,
+                [converterScript, inputPath, outputPath, filename],
+                {
+                    stdio: 'pipe',
+                    maxBuffer: 50 * 1024 * 1024
+                }
+            );
+            const result = fs.readFileSync(outputPath, 'utf-8');
+            const parsed = JSON.parse(result);
+            const normalized = normalizeBabelfontFixture(parsed);
+            return JSON.stringify(normalized);
+        } finally {
+            try {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+            } catch (e) {}
+        }
+    }
+
+    // For .glyphs files, use the original converter
     const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), 'babelfont-jest-convert-')
     );
@@ -259,7 +294,6 @@ initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {
         const normalized = normalizeBabelfontFixture(parsed);
         return JSON.stringify(normalized);
     } finally {
-        // Clean up temp files
         try {
             fs.unlinkSync(inputPath);
         } catch (e) {}
@@ -268,6 +302,36 @@ initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {
         } catch (e) {}
         try {
             fs.rmdirSync(tempDir);
+        } catch (e) {}
+    }
+});
+
+// Real implementation using wasm module to save babelfont JSON as UFO entries
+initBabelfontWasm.save_font_as_ufo_entries = jest.fn((babelfontJson) => {
+    const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'babelfont-jest-saveufo-')
+    );
+    const inputPath = path.join(tempDir, 'font.babelfont.json');
+    const outputPath = path.join(tempDir, 'ufo-entries.json');
+
+    try {
+        fs.writeFileSync(inputPath, babelfontJson, 'utf-8');
+        const converterScript = path.join(
+            __dirname,
+            '../helpers/save-babelfont-as-ufo-entries.mjs'
+        );
+        execFileSync(
+            process.execPath,
+            [converterScript, inputPath, outputPath],
+            {
+                stdio: 'pipe',
+                maxBuffer: 50 * 1024 * 1024
+            }
+        );
+        return fs.readFileSync(outputPath, 'utf-8');
+    } finally {
+        try {
+            fs.rmSync(tempDir, { recursive: true, force: true });
         } catch (e) {}
     }
 });

@@ -376,6 +376,17 @@ export function run_fontspector(
 ): string;
 
 /**
+ * Serialize a babelfont JSON string to a UFO file-tree as JSON.
+ *
+ * Input: a babelfont JSON string (as produced by `open_font_file`).
+ * Output: a JSON object `{ "relative/path": "file contents", ... }`
+ * representing the UFO directory structure.
+ *
+ * Only single-master fonts are supported (norad/UFO limitation).
+ */
+export function save_font_as_ufo_entries(babelfont_json: string): string;
+
+/**
  * Seed the Rust Y.Doc from a full Yjs binary state (v1 encoding) without
  * rebuilding all caches. Called immediately after `openFont` so that
  * subsequent `apply_yjs_update` calls have a baseline Y.Doc, while the
@@ -511,6 +522,10 @@ export interface InitOutput {
         c: number,
         d: number
     ) => [number, number, number];
+    readonly save_font_as_ufo_entries: (
+        a: number,
+        b: number
+    ) => [number, number, number, number];
     readonly seed_ydoc: (a: number, b: number) => [number, number];
     readonly set_debug_font_cache_max_bytes: (a: number) => void;
     readonly store_font: (a: number, b: number) => [number, number];
@@ -518,6 +533,20 @@ export interface InitOutput {
         a: any
     ) => [number, number];
     readonly version: () => [number, number];
+    readonly add_master_with_interpolated_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
+    readonly reinterpolate_layer_yjs: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number];
+    readonly reinterpolate_master_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
     readonly get_font_axes: (
         a: number,
         b: number
@@ -549,20 +578,6 @@ export interface InitOutput {
         c: number,
         d: number
     ) => [number, number, number, number];
-    readonly add_master_with_interpolated_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
-    readonly reinterpolate_layer_yjs: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number];
-    readonly reinterpolate_master_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (
         a: number,
