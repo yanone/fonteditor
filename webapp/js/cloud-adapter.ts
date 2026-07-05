@@ -137,6 +137,25 @@ export function normalizeCloudRoomWebSocketUrl(
     return normalizedUrl.toString();
 }
 
+/**
+ * Convert a room URL to its HTTP form for the /state endpoint.
+ * Reverses normalizeCloudRoomWebSocketUrl — ws: → http:, wss: → https:.
+ */
+export function normalizeCloudRoomHttpUrl(
+    roomUrl: string,
+    websiteBaseUrl: string
+): string {
+    const wsUrl = normalizeCloudRoomWebSocketUrl(roomUrl, websiteBaseUrl);
+    const url = new URL(wsUrl);
+    if (url.protocol === 'ws:') {
+        url.protocol = 'http:';
+    } else if (url.protocol === 'wss:') {
+        url.protocol = 'https:';
+    }
+    url.pathname = url.pathname.replace(/\/$/, '') + '/state';
+    return url.toString();
+}
+
 async function parseRequiredJsonResponse<T>(
     response: Response,
     errorPrefix: string
@@ -528,6 +547,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _lastReconnectReason: string | null = null;
     private _assetRoles = new Map<string, CloudAssetRole>();
     private _hasSynced = false;
+    private _checkpointLogId: number | null = null;
     private _pendingOutboundPackets: CloudOutboundUpdatePacket[] = [];
     private _outboundFlushScheduled = false;
     private _outboundBroadcastEntryCounts = new Map<number, number>();
@@ -660,6 +680,19 @@ export class CloudAdapter implements FileSystemAdapter {
             return;
         }
         this._setStatus('connecting');
+
+        // Phase 5: Try to bootstrap from R2 before opening WebSocket.
+        this._checkpointLogId = null;
+        try {
+            await this._bootstrapFromR2(token, roomUrl);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.log(
+                `CloudAdapter: R2 bootstrap skipped (${msg}), falling back to WebSocket sync`
+            );
+            this._checkpointLogId = null;
+        }
+
         await this._openWebSocket(token, roomUrl);
     }
 
@@ -1042,6 +1075,24 @@ export class CloudAdapter implements FileSystemAdapter {
         if (this._destroyed) return;
         try {
             const { token, roomUrl } = await this._fetchRoomToken();
+
+            // Phase 5: Try to bootstrap from R2 before opening WebSocket.
+            // Downloads the latest checkpoint as raw binary, applies it to
+            // the bridge, and captures the checkpointLogId for the
+            // subsequent sync-request. Falls back to WebSocket-only on
+            // 404 (no checkpoint) or 503 (R2 failure).
+            this._checkpointLogId = null;
+            try {
+                await this._bootstrapFromR2(token, roomUrl);
+            } catch (err) {
+                // Non-fatal — fall back to WebSocket-only sync
+                const msg = err instanceof Error ? err.message : String(err);
+                console.log(
+                    `CloudAdapter: R2 bootstrap skipped (${msg}), falling back to WebSocket sync`
+                );
+                this._checkpointLogId = null;
+            }
+
             await this._openWebSocket(
                 token,
                 normalizeCloudRoomWebSocketUrl(roomUrl, this._websiteBaseUrl)
@@ -1053,6 +1104,125 @@ export class CloudAdapter implements FileSystemAdapter {
             this._setStatus('error', msg);
             if (!this._destroyed) this._scheduleReconnect();
         }
+    }
+
+    /**
+     * Send the initial sync-request with state vector and optional
+     * checkpointLogId from R2 bootstrap.
+     */
+    private _sendInitialSyncRequest(): void {
+        if (this._hasSynced || !this._ws) return;
+
+        const sv = this._bridge?.encodeBridgeStateVector() ?? new Uint8Array(0);
+        const syncRequest: Record<string, unknown> = {
+            type: 'sync-request',
+            stateVector: u8ToBase64(sv)
+        };
+        if (this._checkpointLogId !== null) {
+            syncRequest.checkpointLogId = this._checkpointLogId;
+        }
+        this._ws.send(JSON.stringify(syncRequest));
+    }
+
+    /**
+     * Download the latest checkpoint from R2 via HTTP and apply it to
+     * the bridge. Sets _checkpointLogId for the subsequent sync-request.
+     * Throws on failure (caller falls back to WebSocket-only sync).
+     */
+    private async _bootstrapFromR2(
+        token: string,
+        roomUrl: string
+    ): Promise<void> {
+        const httpUrl = normalizeCloudRoomHttpUrl(
+            roomUrl,
+            this._websiteBaseUrl
+        );
+        const response = await fetch(httpUrl, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (response.status === 404) {
+            throw new Error('no checkpoint available (room may be new)');
+        }
+
+        if (!response.ok) {
+            throw new Error(`R2 bootstrap failed: ${response.status}`);
+        }
+
+        const checkpointLogId = response.headers.get('X-Checkpoint-Log-Id');
+        const stateBytes = new Uint8Array(await response.arrayBuffer());
+
+        if (stateBytes.length === 0) {
+            throw new Error('empty checkpoint response');
+        }
+
+        // Apply the checkpoint as full remote state so the live JSON/model,
+        // undo managers, and worker mirror are rehydrated consistently.
+        if (this._bridge) {
+            this._bridge.applyFullState(stateBytes);
+        }
+
+        this._checkpointLogId =
+            checkpointLogId !== null
+                ? Number.parseInt(checkpointLogId, 10)
+                : null;
+
+        console.log(
+            `CloudAdapter: R2 bootstrap applied ${stateBytes.length} bytes (checkpointLogId=${this._checkpointLogId})`
+        );
+    }
+
+    /**
+     * Upload the bridge state to R2 via HTTP to seed an empty room.
+     * Returns the checkpointLogId from the server response.
+     */
+    private async _seedRoomViaHttp(
+        token: string,
+        roomUrl: string
+    ): Promise<number | null> {
+        const httpUrl = normalizeCloudRoomHttpUrl(
+            roomUrl,
+            this._websiteBaseUrl
+        );
+
+        const bridgeState = this._bridge?.encodeBridgeState();
+        if (!bridgeState || bridgeState.length === 0) {
+            throw new Error('no bridge state to seed');
+        }
+
+        const response = await fetch(httpUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/octet-stream'
+            },
+            body: bridgeState as unknown as BodyInit
+        });
+
+        if (response.status === 409) {
+            throw new Error(
+                'room already has state (seeded by another client)'
+            );
+        }
+
+        if (!response.ok) {
+            const body = await response.text().catch(() => '');
+            throw new Error(
+                `seed failed: ${response.status} ${body.slice(0, 160)}`
+            );
+        }
+
+        const result = await response.json();
+        const checkpointLogId =
+            typeof result.checkpointLogId === 'number'
+                ? result.checkpointLogId
+                : null;
+
+        console.log(
+            `CloudAdapter: seeded ${bridgeState.length} bytes via HTTP (checkpointLogId=${checkpointLogId})`
+        );
+
+        return checkpointLogId;
     }
 
     private async _openWebSocket(token: string, wsUrl: string): Promise<void> {
@@ -1106,6 +1276,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._clientId = null;
                 this._markVisibleRebaselineNeeded();
                 this._hasSynced = false;
+                this._checkpointLogId = null;
                 this._lastInboundMessageAt = 0;
                 this._incomingResponseChunks = null;
                 this._initialServerStateApplied = false;
@@ -1170,27 +1341,50 @@ export class CloudAdapter implements FileSystemAdapter {
                 }
                 this._clientId = String(msg.clientId ?? '');
                 console.log(`CloudAdapter: authenticated as ${this._clientId}`);
-                if (msg.seedRequired === true) {
-                    console.log(
-                        'CloudAdapter: room reseed required; continuing with local bridge bootstrap'
-                    );
-                }
                 this._setStatus('syncing');
                 this._armInitialSyncTimeout();
                 this._initialServerStateApplied = false;
                 this._initialSyncDurable = false;
-                if (!this._hasSynced) {
-                    // Phase 1 of Yjs two-phase sync: send our state vector so
-                    // the server can compute exactly what we're missing.
-                    const sv =
-                        this._bridge?.encodeBridgeStateVector() ??
-                        new Uint8Array(0);
-                    this._ws?.send(
-                        JSON.stringify({
-                            type: 'sync-request',
-                            stateVector: u8ToBase64(sv)
-                        })
+                if (msg.seedRequired === true) {
+                    console.log(
+                        'CloudAdapter: room reseed required; seeding via HTTP'
                     );
+                    // Phase 6: Seed the room via HTTP POST /state.
+                    // The sync-request is deferred until after the seed
+                    // completes so it can include the checkpointLogId.
+                    (async () => {
+                        try {
+                            let token: string;
+                            let roomUrl: string;
+                            if (this._directConnection) {
+                                token = this._directConnection.token;
+                                roomUrl = this._directConnection.roomUrl;
+                            } else {
+                                const fetched = await this._fetchRoomToken();
+                                token = fetched.token;
+                                roomUrl = fetched.roomUrl;
+                            }
+                            const seedLogId = await this._seedRoomViaHttp(
+                                token,
+                                roomUrl
+                            );
+                            this._checkpointLogId = seedLogId;
+                        } catch (err) {
+                            const seedErr =
+                                err instanceof Error
+                                    ? err.message
+                                    : String(err);
+                            console.warn(
+                                `CloudAdapter: HTTP seed failed (${seedErr}), falling back to WebSocket sync-complete`
+                            );
+                        }
+                        // Send sync-request after seed (success or failure)
+                        this._sendInitialSyncRequest();
+                    })();
+                } else {
+                    if (!this._hasSynced) {
+                        this._sendInitialSyncRequest();
+                    }
                 }
                 break;
 

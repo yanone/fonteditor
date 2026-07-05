@@ -1,6 +1,7 @@
 const {
     CloudAdapter,
-    normalizeCloudRoomWebSocketUrl
+    normalizeCloudRoomWebSocketUrl,
+    normalizeCloudRoomHttpUrl
 } = require('../js/cloud-adapter.ts');
 const { createLogEntry } = require('../js/change-log');
 const {
@@ -2651,5 +2652,479 @@ describe('CloudAdapter durability failures', () => {
             adapter.disconnect();
             global.WebSocket = originalWebSocket;
         }
+    });
+});
+
+// ── R2 Direct Transfer tests ──────────────────────────────────────
+
+describe('normalizeCloudRoomHttpUrl', () => {
+    it('converts wss room urls to https /state', () => {
+        expect(
+            normalizeCloudRoomHttpUrl(
+                'wss://rooms.example.com/room/asset-123',
+                'https://editor.counterpunch.space'
+            )
+        ).toBe('https://rooms.example.com/room/asset-123/state');
+    });
+
+    it('converts ws localhost urls to http /state', () => {
+        expect(
+            normalizeCloudRoomHttpUrl(
+                'ws://localhost:8787/room/asset-123',
+                'https://editor.counterpunch.space'
+            )
+        ).toBe('http://localhost:8787/room/asset-123/state');
+    });
+
+    it('resolves relative room urls against the website base url', () => {
+        expect(
+            normalizeCloudRoomHttpUrl(
+                '/api/cloud/room/asset-123',
+                'https://editor.counterpunch.space'
+            )
+        ).toBe(
+            'https://editor.counterpunch.space/api/cloud/room/asset-123/state'
+        );
+    });
+});
+
+describe('R2 bootstrap (GET /state before WebSocket)', () => {
+    const originalFetch = global.fetch;
+    const originalWebSocket = global.WebSocket;
+
+    afterEach(() => {
+        global.fetch = originalFetch;
+        global.WebSocket = originalWebSocket;
+    });
+
+    function makeAdapter() {
+        return new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space'
+        });
+    }
+
+    function mockFetchWithStateEndpoint(opts) {
+        const {
+            status = 200,
+            checkpointBytes = new Uint8Array([1, 2, 3]),
+            checkpointLogId = '42'
+        } = opts || {};
+
+        global.fetch = jest.fn(function (url) {
+            if (typeof url === 'string' && url.endsWith('/state')) {
+                if (status === 404) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404,
+                        headers: new Headers(),
+                        arrayBuffer: function () {
+                            return Promise.resolve(new ArrayBuffer(0));
+                        },
+                        json: function () {
+                            return Promise.resolve({ error: 'No checkpoint' });
+                        }
+                    });
+                }
+                if (status === 503) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 503,
+                        headers: new Headers(),
+                        arrayBuffer: function () {
+                            return Promise.resolve(new ArrayBuffer(0));
+                        },
+                        json: function () {
+                            return Promise.resolve({ error: 'R2 unavailable' });
+                        }
+                    });
+                }
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({
+                        'content-type': 'application/octet-stream',
+                        'x-checkpoint-log-id': checkpointLogId
+                    }),
+                    arrayBuffer: function () {
+                        return Promise.resolve(checkpointBytes.buffer.slice(0));
+                    }
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                headers: new Headers({ 'content-type': 'application/json' }),
+                json: function () {
+                    return Promise.resolve({
+                        token: 'room-token',
+                        roomUrl: 'https://rooms.example.com/room/asset-123'
+                    });
+                },
+                text: function () {
+                    return Promise.resolve('');
+                }
+            });
+        });
+    }
+
+    it('applies R2 checkpoint as full bridge state and sends checkpointLogId in sync-request', async () => {
+        const adapter = makeAdapter();
+        const appliedFullStates = [];
+        var sentMessages = [];
+
+        adapter._bridge = {
+            encodeBridgeStateVector: function () {
+                return new Uint8Array(0);
+            },
+            applyFullState: function (bytes) {
+                appliedFullStates.push(bytes);
+            },
+            applyYDocUpdateSilent: jest.fn(),
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        var socket;
+        global.WebSocket = function FakeWebSocket() {
+            this.readyState = 1;
+            this.send = function (data) {
+                sentMessages.push(JSON.parse(data));
+            };
+            this.close = function () {};
+        };
+
+        mockFetchWithStateEndpoint({
+            checkpointBytes: new Uint8Array([10, 20, 30, 40]),
+            checkpointLogId: '77'
+        });
+
+        await adapter.connectDirect(
+            adapter._bridge,
+            'room-token',
+            'wss://rooms.example.com/room/asset-123'
+        );
+
+        await new Promise(function (r) {
+            setTimeout(r, 50);
+        });
+
+        expect(appliedFullStates).toHaveLength(1);
+        expect(Array.from(appliedFullStates[0])).toEqual([10, 20, 30, 40]);
+        expect(adapter._bridge.applyYDocUpdateSilent).not.toHaveBeenCalled();
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'auth-ok',
+                clientId: 'client-1',
+                roomSchemaVersion: 2
+            })
+        );
+
+        var syncRequest = sentMessages.find(function (m) {
+            return m.type === 'sync-request';
+        });
+        expect(syncRequest).toBeDefined();
+        expect(syncRequest.checkpointLogId).toBe(77);
+    });
+
+    it('falls back to WebSocket-only sync on 404 (no checkpoint)', async () => {
+        const adapter = makeAdapter();
+        var appliedUpdates = [];
+        var sentMessages = [];
+
+        adapter._bridge = {
+            encodeBridgeStateVector: function () {
+                return new Uint8Array(0);
+            },
+            applyFullState: function (bytes) {
+                appliedUpdates.push(bytes);
+            },
+            applyYDocUpdateSilent: function (bytes) {
+                appliedUpdates.push(bytes);
+            },
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        global.WebSocket = function FakeWebSocket() {
+            this.readyState = 1;
+            this.send = function (data) {
+                sentMessages.push(JSON.parse(data));
+            };
+            this.close = function () {};
+        };
+
+        mockFetchWithStateEndpoint({ status: 404 });
+
+        await adapter.connectDirect(
+            adapter._bridge,
+            'room-token',
+            'wss://rooms.example.com/room/asset-123'
+        );
+
+        await new Promise(function (r) {
+            setTimeout(r, 50);
+        });
+
+        expect(appliedUpdates).toHaveLength(0);
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'auth-ok',
+                clientId: 'client-1',
+                roomSchemaVersion: 2
+            })
+        );
+
+        var syncRequest = sentMessages.find(function (m) {
+            return m.type === 'sync-request';
+        });
+        expect(syncRequest).toBeDefined();
+        expect(syncRequest.checkpointLogId).toBeUndefined();
+    });
+
+    it('falls back to WebSocket-only sync on 503 (R2 failure)', async () => {
+        const adapter = makeAdapter();
+        var appliedUpdates = [];
+
+        adapter._bridge = {
+            encodeBridgeStateVector: function () {
+                return new Uint8Array(0);
+            },
+            applyFullState: function (bytes) {
+                appliedUpdates.push(bytes);
+            },
+            applyYDocUpdateSilent: function (bytes) {
+                appliedUpdates.push(bytes);
+            },
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        global.WebSocket = function FakeWebSocket() {
+            this.readyState = 1;
+            this.close = function () {};
+        };
+
+        mockFetchWithStateEndpoint({ status: 503 });
+
+        await adapter.connectDirect(
+            adapter._bridge,
+            'room-token',
+            'wss://rooms.example.com/room/asset-123'
+        );
+
+        await new Promise(function (r) {
+            setTimeout(r, 50);
+        });
+
+        expect(appliedUpdates).toHaveLength(0);
+    });
+});
+
+describe('HTTP seed (POST /state for new rooms)', () => {
+    const originalFetch = global.fetch;
+    const originalWebSocket = global.WebSocket;
+
+    afterEach(() => {
+        global.fetch = originalFetch;
+        global.WebSocket = originalWebSocket;
+    });
+
+    it('POSTs bridge state when seedRequired is true', async () => {
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space'
+        });
+
+        var sentMessages = [];
+        var postUrls = [];
+
+        adapter._bridge = {
+            encodeBridgeStateVector: function () {
+                return new Uint8Array(0);
+            },
+            encodeBridgeState: function () {
+                return new Uint8Array([99, 98, 97]);
+            },
+            applyYDocUpdateSilent: jest.fn(),
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        global.WebSocket = function FakeWebSocket() {
+            this.readyState = 1;
+            this.send = function (data) {
+                sentMessages.push(JSON.parse(data));
+            };
+            this.close = function () {};
+        };
+
+        var seedCallCount = 0;
+        global.fetch = jest.fn(function (url, opts) {
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/state') &&
+                opts &&
+                opts.method === 'POST'
+            ) {
+                postUrls.push(url);
+                seedCallCount++;
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({
+                        'content-type': 'application/json'
+                    }),
+                    json: function () {
+                        return Promise.resolve({
+                            ok: true,
+                            checkpointLogId: 5
+                        });
+                    }
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                headers: new Headers({ 'content-type': 'application/json' }),
+                json: function () {
+                    return Promise.resolve({
+                        token: 'room-token',
+                        roomUrl: 'https://rooms.example.com/room/asset-123'
+                    });
+                },
+                text: function () {
+                    return Promise.resolve('');
+                }
+            });
+        });
+
+        await adapter.connectDirect(
+            adapter._bridge,
+            'room-token',
+            'wss://rooms.example.com/room/asset-123'
+        );
+
+        await new Promise(function (r) {
+            setTimeout(r, 50);
+        });
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'auth-ok',
+                clientId: 'client-1',
+                roomSchemaVersion: 2,
+                seedRequired: true
+            })
+        );
+
+        await new Promise(function (r) {
+            setTimeout(r, 150);
+        });
+
+        expect(seedCallCount).toBe(1);
+        expect(postUrls[0]).toBe(
+            'https://rooms.example.com/room/asset-123/state'
+        );
+
+        await new Promise(function (r) {
+            setTimeout(r, 50);
+        });
+        var syncRequest = sentMessages.find(function (m) {
+            return m.type === 'sync-request';
+        });
+        expect(syncRequest).toBeDefined();
+        expect(syncRequest.checkpointLogId).toBe(5);
+    });
+
+    it('falls back to WebSocket sync when seed returns 409', async () => {
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space'
+        });
+
+        var sentMessages = [];
+
+        adapter._bridge = {
+            encodeBridgeStateVector: function () {
+                return new Uint8Array(0);
+            },
+            encodeBridgeState: function () {
+                return new Uint8Array([1, 2, 3]);
+            },
+            applyYDocUpdateSilent: jest.fn(),
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        global.WebSocket = function FakeWebSocket() {
+            this.readyState = 1;
+            this.send = function (data) {
+                sentMessages.push(JSON.parse(data));
+            };
+            this.close = function () {};
+        };
+
+        global.fetch = jest.fn(function (url, opts) {
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/state') &&
+                opts &&
+                opts.method === 'POST'
+            ) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 409,
+                    headers: new Headers(),
+                    text: function () {
+                        return Promise.resolve(
+                            '{"error":"Room already has state"}'
+                        );
+                    }
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                headers: new Headers({ 'content-type': 'application/json' }),
+                json: function () {
+                    return Promise.resolve({
+                        token: 'room-token',
+                        roomUrl: 'https://rooms.example.com/room/asset-123'
+                    });
+                },
+                text: function () {
+                    return Promise.resolve('');
+                }
+            });
+        });
+
+        await adapter.connectDirect(
+            adapter._bridge,
+            'room-token',
+            'wss://rooms.example.com/room/asset-123'
+        );
+
+        await new Promise(function (r) {
+            setTimeout(r, 50);
+        });
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'auth-ok',
+                clientId: 'client-1',
+                roomSchemaVersion: 2,
+                seedRequired: true
+            })
+        );
+
+        await new Promise(function (r) {
+            setTimeout(r, 150);
+        });
+
+        var syncRequest = sentMessages.find(function (m) {
+            return m.type === 'sync-request';
+        });
+        expect(syncRequest).toBeDefined();
+        expect(syncRequest.checkpointLogId).toBeUndefined();
     });
 });
