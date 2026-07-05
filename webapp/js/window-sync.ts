@@ -89,6 +89,10 @@ export class WindowSync {
     private _peers = new Set<string>();
     private _awaitingFullState = false;
     private _hasAppliedFullState = false;
+    private _fullStateBootstrapResolve: (() => void) | null = null;
+    private _fullStateBootstrapReject: ((error: unknown) => void) | null = null;
+    private _fullStateBootstrapTimeout: ReturnType<typeof setTimeout> | null =
+        null;
     private _mainWindowClosingListeners = new Set<() => void>();
     private _pendingOutboundPackets: YjsUpdatePacket[] = [];
     private _outboundFlushScheduled = false;
@@ -128,10 +132,48 @@ export class WindowSync {
     /**
      * Request the full state from an existing peer window.
      * Call this when a new window opens with `sync=true`.
+     *
+     * Pre-registers a pending worker-document sync promise with
+     * FontCompilation so that any editing compile that fires before the
+     * full-state-response arrives waits for the linked-window bootstrap
+     * instead of failing with "requires a ready worker Yjs document".
+     * (Compilation edit policy rule 24: cached editing compiles MUST wait
+     * for the tracked worker-document sync whenever the gate is closed.)
      */
     requestFullState(): void {
         this._awaitingFullState = true;
         this._hasAppliedFullState = false;
+
+        const fontCompilation = window.fontCompilation;
+        if (fontCompilation && !this._fullStateBootstrapResolve) {
+            fontCompilation.setWorkerCacheDocumentReady?.(false);
+
+            const bootstrapPromise = new Promise<void>((resolve, reject) => {
+                this._fullStateBootstrapResolve = resolve;
+                this._fullStateBootstrapReject = reject;
+            });
+
+            // Track this as a pending worker-document sync so
+            // awaitWorkerDocumentSync() in compileEditingFromJsonCached
+            // blocks until the linked-window seedYdoc completes.
+            // The ready gate is closed above before the request is sent, so
+            // early compiles always wait for this pending bootstrap.
+            fontCompilation.trackWorkerDocumentSync(bootstrapPromise);
+
+            // Safety timeouts: if the main window never responds (closed,
+            // crashed, or on a different font), reject the bootstrap promise
+            // so compiles don't hang forever. workerCacheDocumentReady is
+            // already false, so the compile will fail after
+            // awaitWorkerDocumentSync rejects.
+            this._fullStateBootstrapTimeout = setTimeout(() => {
+                this._resolveFullStateBootstrap(
+                    new Error(
+                        'Linked-window full-state-response timed out — no peer window responded within 15s'
+                    )
+                );
+            }, 15000);
+        }
+
         this._send({
             type: 'full-state-request',
             windowId: this._bridge.windowId,
@@ -146,6 +188,28 @@ export class WindowSync {
             windowId: this._bridge.windowId,
             sessionId: this._sessionId
         });
+    }
+
+    /**
+     * Resolve or reject the pending full-state bootstrap promise.
+     * Pass null to resolve (bootstrap succeeded), or an Error to reject.
+     * Clears the timeout and nulls the resolver/rejector so subsequent
+     * calls are no-ops.
+     */
+    private _resolveFullStateBootstrap(error: unknown | null): void {
+        if (this._fullStateBootstrapTimeout) {
+            clearTimeout(this._fullStateBootstrapTimeout);
+            this._fullStateBootstrapTimeout = null;
+        }
+        const resolve = this._fullStateBootstrapResolve;
+        const reject = this._fullStateBootstrapReject;
+        this._fullStateBootstrapResolve = null;
+        this._fullStateBootstrapReject = null;
+        if (error) {
+            reject?.(error);
+        } else {
+            resolve?.();
+        }
     }
 
     announceMainWindowClosing(): void {
@@ -424,15 +488,25 @@ export class WindowSync {
                             type: 'seedYdoc',
                             state: seedState
                         });
-                    })().catch((error: unknown) => {
-                        console.warn(
-                            'Failed to bootstrap worker state from full-state response',
-                            error
-                        );
-                        window.fontCompilation?.setWorkerCacheDocumentReady?.(
-                            false
-                        );
-                    });
+                    })()
+                        .then(() => {
+                            this._resolveFullStateBootstrap(null);
+                        })
+                        .catch((error: unknown) => {
+                            console.warn(
+                                'Failed to bootstrap worker state from full-state response',
+                                error
+                            );
+                            window.fontCompilation?.setWorkerCacheDocumentReady?.(
+                                false
+                            );
+                            this._resolveFullStateBootstrap(error);
+                        });
+                } else {
+                    // fontCompilation not available — resolve the bootstrap
+                    // so compiles don't hang; they'll fail with their own
+                    // initialization error instead.
+                    this._resolveFullStateBootstrap(null);
                 }
                 if (msg.cloudRelayState) {
                     window.cloudPlugin?.applyRelayedConnectionState?.(

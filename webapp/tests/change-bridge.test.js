@@ -3533,6 +3533,9 @@ describe('WindowSync', () => {
     });
 
     test('full state request/response bootstraps new window', () => {
+        const originalFontCompilation = window.fontCompilation;
+        window.fontCompilation = undefined;
+
         const fontJson1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('win-1');
         bridge1.initFromJson(fontJson1);
@@ -3570,6 +3573,7 @@ describe('WindowSync', () => {
         sync2.destroy();
         bridge1.destroy();
         bridge2.destroy();
+        window.fontCompilation = originalFontCompilation;
     });
 
     test('full state response initializes linked worker cache from authoritative state even before the worker is ready', async () => {
@@ -3580,8 +3584,28 @@ describe('WindowSync', () => {
             window.fontCompilation.isInitialized = true;
             return true;
         });
-        const sendMessage = jest.fn().mockResolvedValue({ success: true });
+        let resolveSeedYdoc;
+        const seedYdocCompleted = new Promise((resolve) => {
+            resolveSeedYdoc = resolve;
+        });
+        const sendMessage = jest.fn().mockImplementation(() => {
+            return seedYdocCompleted.then(() => ({ success: true }));
+        });
         const setWorkerCacheDocumentReady = jest.fn();
+        let pendingWorkerDocumentSync = Promise.resolve();
+        let workerCacheDocumentReady = true;
+        const trackWorkerDocumentSync = jest.fn((syncPromise) => {
+            pendingWorkerDocumentSync = Promise.resolve(syncPromise).then(
+                () => {
+                    workerCacheDocumentReady = true;
+                },
+                (error) => {
+                    workerCacheDocumentReady = false;
+                    throw error;
+                }
+            );
+            return syncPromise;
+        });
         const buildWorkerSeedYjsState = jest.fn(
             () => new Uint8Array([1, 2, 3])
         );
@@ -3597,8 +3621,23 @@ describe('WindowSync', () => {
             isInitialized: false,
             initialize,
             sendMessage,
-            setWorkerCacheDocumentReady
+            setWorkerCacheDocumentReady,
+            trackWorkerDocumentSync,
+            compileEditingFromJsonCached: jest.fn(async () => {
+                if (!workerCacheDocumentReady) {
+                    await pendingWorkerDocumentSync;
+                }
+                if (!workerCacheDocumentReady) {
+                    throw new Error(
+                        'Editing compile requires a ready worker Yjs document; full babelfont JSON fallback is disabled'
+                    );
+                }
+                return { result: new Uint8Array([9]) };
+            })
         };
+        setWorkerCacheDocumentReady.mockImplementation((isReady) => {
+            workerCacheDocumentReady = isReady;
+        });
         window.fontManager = {
             currentFont: {
                 babelfontJson:
@@ -3621,18 +3660,44 @@ describe('WindowSync', () => {
         );
 
         const bridge2 = new ChangeBridge('win-2');
-
-        const sync1 = new WindowSync(bridge1, 'font-channel-worker-bootstrap');
         const sync2 = new WindowSync(bridge2, 'font-channel-worker-bootstrap');
 
         sync2.requestFullState();
-        flushTimers();
-        flushTimers();
+        const earlyCompilePromise =
+            window.fontCompilation.compileEditingFromJsonCached(
+                '__incremental_layer__',
+                'revision-before-bootstrap',
+                ['A']
+            );
+        await Promise.resolve();
+
+        let earlyCompileSettled = false;
+        earlyCompilePromise.then(() => {
+            earlyCompileSettled = true;
+        });
+        await Promise.resolve();
+
+        expect(setWorkerCacheDocumentReady).toHaveBeenCalledWith(false);
+        expect(trackWorkerDocumentSync).toHaveBeenCalledTimes(1);
+        expect(earlyCompileSettled).toBe(false);
+
+        sync2._handleMessage({
+            type: 'full-state-response',
+            state: bridge1.getFullState(),
+            changeLog: bridge1.getChangeLog(),
+            collaborationLog: bridge1.getCollaborationLog(),
+            windowId: 'win-1',
+            sessionId: sync2._sessionId
+        });
         await Promise.resolve();
         await Promise.resolve();
-        flushTimers();
+
+        resolveSeedYdoc();
         await Promise.resolve();
         await Promise.resolve();
+        await expect(earlyCompilePromise).resolves.toEqual({
+            result: new Uint8Array([9])
+        });
 
         expect(initialize).toHaveBeenCalledTimes(1);
         expect(replaceWorkerYjsMirrorFromState).toHaveBeenCalledTimes(1);
@@ -3650,9 +3715,109 @@ describe('WindowSync', () => {
                 state: expect.any(Uint8Array)
             })
         );
-        expect(setWorkerCacheDocumentReady).not.toHaveBeenCalled();
 
-        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+        window.fontCompilation = originalFontCompilation;
+        window.fontManager = originalFontManager;
+    });
+
+    test('linked worker bootstrap preserves seedYdoc failures on the tracked sync', async () => {
+        const originalFontCompilation = window.fontCompilation;
+        const originalFontManager = window.fontManager;
+
+        const seedFailure = new Error('seedYdoc failed');
+        const initialize = jest.fn().mockImplementation(async () => {
+            window.fontCompilation.isInitialized = true;
+            return true;
+        });
+        const sendMessage = jest.fn().mockRejectedValue(seedFailure);
+        const setWorkerCacheDocumentReady = jest.fn();
+        let trackedBootstrapPromise;
+        let pendingWorkerDocumentSync = Promise.resolve();
+        let workerCacheDocumentReady = true;
+        const trackWorkerDocumentSync = jest.fn((syncPromise) => {
+            trackedBootstrapPromise = Promise.resolve(syncPromise);
+            trackedBootstrapPromise.catch(() => undefined);
+            pendingWorkerDocumentSync = trackedBootstrapPromise.then(
+                () => {
+                    workerCacheDocumentReady = true;
+                },
+                (error) => {
+                    workerCacheDocumentReady = false;
+                    throw error;
+                }
+            );
+            pendingWorkerDocumentSync.catch(() => undefined);
+            return syncPromise;
+        });
+
+        window.fontCompilation = {
+            isInitialized: false,
+            initialize,
+            sendMessage,
+            setWorkerCacheDocumentReady,
+            trackWorkerDocumentSync,
+            compileEditingFromJsonCached: jest.fn(async () => {
+                if (!workerCacheDocumentReady) {
+                    await pendingWorkerDocumentSync;
+                }
+                if (!workerCacheDocumentReady) {
+                    throw new Error(
+                        'Editing compile requires a ready worker Yjs document; full babelfont JSON fallback is disabled'
+                    );
+                }
+                return { result: new Uint8Array([9]) };
+            })
+        };
+        setWorkerCacheDocumentReady.mockImplementation((isReady) => {
+            workerCacheDocumentReady = isReady;
+        });
+        window.fontManager = {
+            currentFont: {
+                babelfontJson:
+                    '{"glyphs":[{"name":"A","layers":[{"id":"layer-1","width":600}]}]}'
+            },
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            recordFullFontCrossing: jest.fn()
+        };
+
+        const bridge1 = new ChangeBridge('win-1');
+        bridge1.initFromJson(makeMinimalFont());
+        const bridge2 = new ChangeBridge('win-2');
+        const sync2 = new WindowSync(
+            bridge2,
+            'font-channel-worker-bootstrap-failure'
+        );
+
+        sync2.requestFullState();
+        const earlyCompilePromise =
+            window.fontCompilation.compileEditingFromJsonCached(
+                '__incremental_layer__',
+                'revision-before-bootstrap',
+                ['A']
+            );
+        await Promise.resolve();
+
+        expect(setWorkerCacheDocumentReady).toHaveBeenCalledWith(false);
+        expect(trackWorkerDocumentSync).toHaveBeenCalledTimes(1);
+
+        sync2._handleMessage({
+            type: 'full-state-response',
+            state: bridge1.getFullState(),
+            changeLog: bridge1.getChangeLog(),
+            collaborationLog: bridge1.getCollaborationLog(),
+            windowId: 'win-1',
+            sessionId: sync2._sessionId
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        await expect(trackedBootstrapPromise).rejects.toBe(seedFailure);
+        await expect(earlyCompilePromise).rejects.toBe(seedFailure);
+
         sync2.destroy();
         bridge1.destroy();
         bridge2.destroy();
@@ -3661,6 +3826,9 @@ describe('WindowSync', () => {
     });
 
     test('only first full-state response is applied', () => {
+        const originalFontCompilation = window.fontCompilation;
+        window.fontCompilation = undefined;
+
         const fontA = makeMinimalFont();
         fontA.glyphs[0].layers[0].width = 710;
         const bridgeA = new ChangeBridge('win-a');
@@ -3699,6 +3867,7 @@ describe('WindowSync', () => {
         bridgeA.destroy();
         bridgeB.destroy();
         receiver.destroy();
+        window.fontCompilation = originalFontCompilation;
     });
 
     // Regression: bundling the full Yjs state on every yjs-update used
@@ -6094,6 +6263,9 @@ describe('syncGlyphFromJson', () => {
     });
 
     test('sync window receives edits without calling initFromJson', () => {
+        const originalFontCompilation = window.fontCompilation;
+        window.fontCompilation = undefined;
+
         // Primary: initialized normally
         const font1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('primary');
@@ -6161,6 +6333,7 @@ describe('syncGlyphFromJson', () => {
         sync2.destroy();
         bridge1.destroy();
         bridge2.destroy();
+        window.fontCompilation = originalFontCompilation;
     });
 
     test('linked window emits layerFingerprintChanged when receiving a remote fingerprint-changing update', () => {
