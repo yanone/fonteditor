@@ -3,7 +3,9 @@
     "entry": [
         "compilation-test/compile-test.mjs",
         "tests/helpers/convert-glyphs-to-babelfont.mjs",
-        "tests/helpers/interpolate-glyph.mjs"
+        "tests/helpers/convert-entries-to-babelfont.mjs",
+        "tests/helpers/interpolate-glyph.mjs",
+        "tests/helpers/save-babelfont-as-ufo-entries.mjs"
     ],
     "project": [
         "compilation-test/**/*.mjs",
