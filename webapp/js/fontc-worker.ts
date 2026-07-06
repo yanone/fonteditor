@@ -1706,6 +1706,9 @@ self.onmessage = async (event) => {
                 if (!initialized) {
                     await initializeWasm();
                 }
+                const sanitizedLayerTargets = sanitizeDumpLayerTargets(
+                    Array.isArray(layerTargets) ? layerTargets : []
+                );
                 const updateMetadataJson = JSON.stringify({
                     changedGlyphs: Array.isArray(changedGlyphs)
                         ? changedGlyphs
@@ -1713,9 +1716,7 @@ self.onmessage = async (event) => {
                     nonGlyphChangeHints: Array.isArray(nonGlyphChangeHints)
                         ? nonGlyphChangeHints
                         : [],
-                    layerTargets: Array.isArray(layerTargets)
-                        ? layerTargets
-                        : []
+                    layerTargets: sanitizedLayerTargets
                 });
                 const resultJson = apply_yjs_update(
                     update instanceof Uint8Array

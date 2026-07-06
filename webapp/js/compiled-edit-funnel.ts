@@ -165,10 +165,6 @@ export async function processCommittedEdit(
 
     // Force-trigger for remote, undo, redo.
     if (options?.forceTrigger && canForceTrigger) {
-        // Force full cache refresh so the worker does a clean compile
-        // from the model JSON rather than reusing cached incremental
-        // data that may differ from a forward edit's cache state.
-        fm.forceFullEditingCacheRefresh = true;
         try {
             await window.autoCompileManager.forceTrigger();
         } catch {

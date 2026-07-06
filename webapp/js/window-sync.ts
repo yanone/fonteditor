@@ -210,6 +210,14 @@ export class WindowSync {
         } else {
             resolve?.();
         }
+
+        if (
+            this._pendingYjsMessages.length > 0 &&
+            !this._inboundFlushScheduled
+        ) {
+            this._inboundFlushScheduled = true;
+            queueMicrotask(() => this._flushPendingYjsUpdates());
+        }
     }
 
     announceMainWindowClosing(): void {
@@ -325,6 +333,9 @@ export class WindowSync {
 
     private _queueYjsUpdate(msg: YjsUpdateMsg): void {
         this._pendingYjsMessages.push(msg);
+        if (this._fullStateBootstrapResolve) {
+            return;
+        }
         if (this._inboundFlushScheduled) {
             return;
         }
@@ -337,6 +348,9 @@ export class WindowSync {
             return;
         }
         this._inboundFlushScheduled = false;
+        if (this._fullStateBootstrapResolve) {
+            return;
+        }
         const messages = this._pendingYjsMessages;
         this._pendingYjsMessages = [];
         if (!messages.length) {

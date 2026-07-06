@@ -362,6 +362,7 @@ export class FontCompilation {
             resolve: (value: any) => void;
             reject: (reason?: any) => void;
             filename: string;
+            messageType?: string;
             spanId?: string;
             traceContext?: TimelineTraceContext;
         }
@@ -688,8 +689,14 @@ export class FontCompilation {
         };
 
         if (id !== undefined && this.pendingCompilations.has(id)) {
-            const { resolve, reject, filename, spanId, traceContext } =
-                this.pendingCompilations.get(id)!;
+            const {
+                resolve,
+                reject,
+                filename,
+                messageType,
+                spanId,
+                traceContext
+            } = this.pendingCompilations.get(id)!;
             this.pendingCompilations.delete(id);
             if (spanId) {
                 timelineSpanEnd(spanId);
@@ -740,7 +747,9 @@ export class FontCompilation {
                         : errorPayload !== undefined
                           ? payloadText
                           : 'Compilation failed';
-                const compilationError = new Error(message) as Error & {
+                const compilationError = new Error(
+                    messageType ? `${messageType} failed: ${message}` : message
+                ) as Error & {
                     compilationErrorPayload?: unknown;
                 };
                 compilationError.compilationErrorPayload = errorPayload;
@@ -931,6 +940,7 @@ export class FontCompilation {
                 resolve: wrappedResolve,
                 reject: wrappedReject,
                 filename: data.filename || 'unknown',
+                messageType,
                 spanId,
                 traceContext
             });

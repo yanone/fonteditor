@@ -3821,6 +3821,119 @@ describe('WindowSync', () => {
         window.fontManager = originalFontManager;
     });
 
+    test('linked window defers inbound yjs updates until full-state worker bootstrap completes', async () => {
+        const originalFontCompilation = window.fontCompilation;
+        const originalFontManager = window.fontManager;
+
+        const initialize = jest.fn().mockImplementation(async () => {
+            window.fontCompilation.isInitialized = true;
+            return true;
+        });
+        let resolveSeedYdoc;
+        const seedYdocCompleted = new Promise((resolve) => {
+            resolveSeedYdoc = resolve;
+        });
+        const sendMessage = jest.fn().mockImplementation(() => {
+            return seedYdocCompleted.then(() => ({ success: true }));
+        });
+        const setWorkerCacheDocumentReady = jest.fn();
+        const trackWorkerDocumentSync = jest.fn((syncPromise) => syncPromise);
+
+        window.fontCompilation = {
+            isInitialized: false,
+            initialize,
+            sendMessage,
+            setWorkerCacheDocumentReady,
+            trackWorkerDocumentSync
+        };
+        window.fontManager = {
+            currentFont: {
+                babelfontJson:
+                    '{"glyphs":[{"name":"A","layers":[{"id":"layer-1","width":600}]}]}'
+            },
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            recordFullFontCrossing: jest.fn()
+        };
+
+        const fontJson1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('win-1');
+        bridge1.initFromJson(fontJson1);
+        const bridge2 = new ChangeBridge('win-2');
+        const applyRemoteUpdateSpy = jest.spyOn(bridge2, 'applyRemoteUpdate');
+        const sync2 = new WindowSync(
+            bridge2,
+            'font-channel-worker-bootstrap-deferred-updates'
+        );
+
+        sync2.requestFullState();
+        sync2._handleMessage({
+            type: 'full-state-response',
+            state: bridge1.getFullState(),
+            changeLog: bridge1.getChangeLog(),
+            collaborationLog: bridge1.getCollaborationLog(),
+            windowId: 'win-1',
+            sessionId: sync2._sessionId
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        let lastUpdate = null;
+        let lastCollaborationMessage = null;
+        bridge1.onLocalUpdate((update, collaborationMessage) => {
+            lastUpdate = update;
+            lastCollaborationMessage = collaborationMessage;
+        });
+
+        fontJson1.glyphs[0].layers[0].width = 700;
+        bridge1.syncGlyphFromJson('A', 'Drag 1');
+
+        sync2._handleMessage({
+            type: 'yjs-update',
+            updates: [
+                {
+                    update: lastUpdate,
+                    ...(lastCollaborationMessage
+                        ? { collaborationMessage: lastCollaborationMessage }
+                        : undefined)
+                }
+            ],
+            windowId: 'win-1',
+            sessionId: sync2._sessionId
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(sync2._pendingYjsMessages).toHaveLength(1);
+        expect(applyRemoteUpdateSpy).not.toHaveBeenCalled();
+
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+
+        resolveSeedYdoc();
+        await seedYdocCompleted;
+        await Promise.resolve();
+        await Promise.resolve();
+        sync2._inboundFlushScheduled = true;
+        sync2._flushPendingYjsUpdates();
+        expect(applyRemoteUpdateSpy).toHaveBeenCalledTimes(1);
+
+        expect(sync2._pendingYjsMessages).toHaveLength(0);
+
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+        window.fontCompilation = originalFontCompilation;
+        window.fontManager = originalFontManager;
+    });
+
     test('linked worker bootstrap preserves seedYdoc failures on the tracked sync', async () => {
         const originalFontCompilation = window.fontCompilation;
         const originalFontManager = window.fontManager;
@@ -5492,6 +5605,40 @@ describe('syncGlyphFromJson', () => {
         ).toBe(700);
     });
 
+    test('glyph snapshot replay preserves indexed layer array storage for undo and redo', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+        const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
+        const editedLayer = fontJson.glyphs[0].layers[0];
+
+        editedLayer.shapes[0].nodes[0].x += 43;
+        editedLayer.anchors[0].x += 17;
+        bridge.syncGlyphFromJson('A', 'Glyph snapshot edit');
+
+        bridge.undo('A');
+        let layerMap = getYPath(bridge.fontMap, layerPath);
+        expect(layerMap.get('shapes')).toBeUndefined();
+        expect(layerMap.get('anchors')).toBeUndefined();
+        expect(layerMap.get('shapesById')).toBeInstanceOf(Y.Map);
+        expect(layerMap.get('shapeOrder')).toBeInstanceOf(Y.Array);
+        expect(layerMap.get('anchorsById')).toBeInstanceOf(Y.Map);
+        expect(layerMap.get('anchorOrder')).toBeInstanceOf(Y.Array);
+
+        bridge.redo('A');
+        layerMap = getYPath(bridge.fontMap, layerPath);
+        expect(layerMap.get('shapes')).toBeUndefined();
+        expect(layerMap.get('anchors')).toBeUndefined();
+        expect(layerMap.get('shapesById')).toBeInstanceOf(Y.Map);
+        expect(layerMap.get('shapeOrder')).toBeInstanceOf(Y.Array);
+        expect(layerMap.get('anchorsById')).toBeInstanceOf(Y.Map);
+        expect(layerMap.get('anchorOrder')).toBeInstanceOf(Y.Array);
+        expect(normalizeYDocValue(layerMap).shapes[0].nodes[0].x).toBe(
+            editedLayer.shapes[0].nodes[0].x
+        );
+        expect(normalizeYDocValue(layerMap).anchors[0].x).toBe(
+            editedLayer.anchors[0].x
+        );
+    });
+
     test('malformed scalar layer snapshot payload does not clear an existing layer root', () => {
         const { bridge } = createTestBridge('test-1');
         const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
@@ -7001,6 +7148,103 @@ describe('syncGlyphFromJson', () => {
         senderBridge.destroy();
         receiverBridge.destroy();
         window.patchSyncEngine = undefined;
+    });
+
+    test('linked window keeps the live receiver font model aligned across consecutive remote granular point moves', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-live-model-granular');
+        const receiverBridge = new ChangeBridge('receiver-live-model-granular');
+        const senderFontModel = Font.fromData(senderFontJson);
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const originalFontManager = window.fontManager;
+        let lastUpdate = null;
+        let lastCollaborationMessage = null;
+
+        const syncSenderFontJsonFromModel = () => {
+            const serializedFontJson = JSON.parse(
+                senderFontModel.toJSONString()
+            );
+            for (const key of Object.keys(senderFontJson)) {
+                if (!(key in serializedFontJson)) {
+                    delete senderFontJson[key];
+                }
+            }
+            Object.assign(senderFontJson, serializedFontJson);
+        };
+
+        const applyRemoteGranularMove = (nodeIndex, dx, dy) => {
+            const senderNode = senderFontModel
+                .findGlyph('A')
+                .findLayerById('layer-1').paths[0].nodes[nodeIndex];
+
+            senderBridge.runWithoutRecording(() => {
+                senderNode.x += dx;
+                senderNode.y += dy;
+            });
+
+            syncSenderFontJsonFromModel();
+            senderBridge.syncGlyphFromJson(
+                'A',
+                'Drag point',
+                undefined,
+                undefined,
+                'layer-1'
+            );
+            receiverBridge.applyRemoteUpdate(
+                lastUpdate,
+                undefined,
+                lastCollaborationMessage ? [lastCollaborationMessage] : []
+            );
+        };
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update, collaborationMessage) => {
+            lastUpdate = update;
+            lastCollaborationMessage = collaborationMessage;
+        });
+        window.patchSyncEngine = senderBridge;
+        window.fontManager = {
+            currentFont: {
+                babelfontData: receiverFontJson,
+                fontModel: Font.fromData(cloneValue(receiverFontJson))
+            }
+        };
+        receiverBridge.onAfterSync(() => {
+            const fm = window.fontManager;
+            if (!fm?.currentFont) {
+                return;
+            }
+
+            fm.currentFont.fontModel = Font.fromData(
+                fm.currentFont.babelfontData
+            );
+            window.currentFontModel = fm.currentFont.fontModel;
+        });
+
+        applyRemoteGranularMove(0, 23, 11);
+        applyRemoteGranularMove(1, -17, 19);
+
+        const receiverLayerModel = window.fontManager.currentFont.fontModel
+            .findGlyph('A')
+            .findLayerById('layer-1');
+
+        expect(receiverLayerModel.toJSON()).toEqual(
+            receiverFontJson.glyphs[0].layers[0]
+        );
+        expect(receiverLayerModel.paths[0].nodes[0].x).toBe(
+            receiverFontJson.glyphs[0].layers[0].shapes[0].nodes[0].x
+        );
+        expect(receiverLayerModel.paths[0].nodes[1].y).toBe(
+            receiverFontJson.glyphs[0].layers[0].shapes[0].nodes[1].y
+        );
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+        window.patchSyncEngine = originalPatchSyncEngine;
+        window.fontManager = originalFontManager;
     });
 
     test('linked window remote layer sync keeps branch-scoped Y.Doc patching', () => {

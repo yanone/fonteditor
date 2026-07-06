@@ -1037,16 +1037,14 @@ function collectReplayTargetsFromEntries(
     return normalizeWorkerReplayTargets(targets);
 }
 
-function hasReplayTargetsBeyondDirectEntryPaths(
+function collectReplayTargetsBeyondDirectEntryPaths(
     entries: ChangeLogEntry[]
-): boolean {
+): WorkerReplayTarget[] {
     const replayTargets = collectReplayTargetsFromEntries(entries);
     if (!replayTargets.length) {
-        return false;
+        return [];
     }
 
-    // Collect both layer-specific keys (glyph@@layer) and glyph-level names
-    // (paths with no layer segment, like 'glyphs.A', which cover all layers).
     const directLayerKeys = new Set<string>();
     const directGlyphNames = new Set<string>();
     for (const entry of entries) {
@@ -1062,16 +1060,21 @@ function hasReplayTargetsBeyondDirectEntryPaths(
         if (layerId) {
             directLayerKeys.add(`${glyphName}@@${layerId}`);
         } else {
-            // Glyph-level path matches any replay target for this glyph
             directGlyphNames.add(glyphName);
         }
     }
 
-    return replayTargets.some(
+    return replayTargets.filter(
         (target) =>
             !directGlyphNames.has(target.glyphName) &&
             !directLayerKeys.has(`${target.glyphName}@@${target.layerId}`)
     );
+}
+
+function hasReplayTargetsBeyondDirectEntryPaths(
+    entries: ChangeLogEntry[]
+): boolean {
+    return collectReplayTargetsBeyondDirectEntryPaths(entries).length > 0;
 }
 
 function normalizeLayerDataForWorkerDriftCheck(layerData: unknown): string {
@@ -2276,13 +2279,14 @@ export async function handleCommittedChangeRefresh(
         // already changed. Refresh every explicit replay target before compile
         // so compiled output follows the committed model state exactly.
         const localReplayTargets = collectReplayTargetsFromEntries(entries);
-        if (localReplayTargets.length > 0) {
+        const refreshReplayTargets = localReplayTargets;
+        if (refreshReplayTargets.length > 0) {
             const refreshCache =
                 dependencies?.queueCacheRefresh ?? refreshRustWorkerCache;
 
             await refreshCache(undefined, undefined, {
                 allowSelectedLayerFallback: false,
-                workerReplayTargets: localReplayTargets
+                workerReplayTargets: refreshReplayTargets
             });
 
             await awaitCommittedWorkerCacheSettled(awaitWorkerSync);

@@ -54,6 +54,7 @@ import {
     type DerivedForwardChange
 } from './collaboration-message';
 import { windowRole } from './window-role';
+import { withSuppressedModelRecording } from './babelfont-model';
 
 const console = new Logger('PatchSyncEngine');
 
@@ -2897,6 +2898,7 @@ export class PatchSyncEngine {
                 this._patchLayerFromYDoc(scopeHint)
             )
         ) {
+            this._syncPatchedLayersIntoObjectModel(normalizedScopeHints);
             this._emitLayerFingerprintChangedEvents(
                 previousFingerprintSnapshot,
                 this._collectLayerFingerprintSnapshot(fingerprintTargets)
@@ -2981,6 +2983,67 @@ export class PatchSyncEngine {
 
         layers[layerIdx] = patchedLayer;
         return true;
+    }
+
+    private _syncPatchedLayersIntoObjectModel(
+        scopeHints: Array<{ glyphName: string; layerId: string }>
+    ): void {
+        const fontModel = (window as Unsafe).fontManager?.currentFont
+            ?.fontModel;
+        const glyphs = Array.isArray((this._fontJson as Unsafe)?.glyphs)
+            ? ((this._fontJson as Unsafe).glyphs as Unsafe[])
+            : [];
+        if (!fontModel || glyphs.length === 0) {
+            return;
+        }
+
+        withSuppressedModelRecording(() => {
+            for (const scopeHint of scopeHints) {
+                const modelLayer = fontModel
+                    .findGlyph?.(scopeHint.glyphName)
+                    ?.findLayerById?.(scopeHint.layerId);
+                const storedLayer = glyphs
+                    .find((glyph) => glyph?.name === scopeHint.glyphName)
+                    ?.layers?.find(
+                        (layer: Unsafe) => layer?.id === scopeHint.layerId
+                    );
+                if (!modelLayer || !storedLayer) {
+                    continue;
+                }
+
+                if (typeof modelLayer.syncFromEditorLayerData === 'function') {
+                    modelLayer.syncFromEditorLayerData({
+                        width: storedLayer.width,
+                        ...(storedLayer.height !== undefined
+                            ? { height: storedLayer.height }
+                            : {}),
+                        ...(storedLayer.vertWidth !== undefined
+                            ? { vertWidth: storedLayer.vertWidth }
+                            : {}),
+                        ...(storedLayer.shapes !== undefined
+                            ? { shapes: storedLayer.shapes }
+                            : {}),
+                        ...(storedLayer.anchors !== undefined
+                            ? { anchors: storedLayer.anchors }
+                            : {}),
+                        ...(storedLayer.guides !== undefined
+                            ? { guides: storedLayer.guides }
+                            : {}),
+                        ...(storedLayer.format_specific !== undefined
+                            ? { format_specific: storedLayer.format_specific }
+                            : {})
+                    });
+                    modelLayer.invalidateContentCaches?.();
+                    continue;
+                }
+
+                const rawLayerData = modelLayer.toJSON?.();
+                if (rawLayerData && typeof rawLayerData === 'object') {
+                    Object.assign(rawLayerData, storedLayer);
+                }
+                modelLayer.invalidateContentCaches?.();
+            }
+        });
     }
 
     /**
@@ -4242,6 +4305,44 @@ export class PatchSyncEngine {
         targetMap.set(key, nextValue);
     }
 
+    private _replaceLayerMapContents(
+        layerMap: Y.Map<unknown>,
+        nextRecord: Record<string, unknown>
+    ): void {
+        const nextKeys = new Set(Object.keys(nextRecord));
+        const indexedStorageKeysToKeep = new Set<string>();
+        for (const key of nextKeys) {
+            const mapping = INDEXED_MAP_KEYS[key];
+            if (mapping) {
+                indexedStorageKeysToKeep.add(mapping.byId);
+                indexedStorageKeysToKeep.add(mapping.order);
+            }
+        }
+
+        layerMap.forEach((_value: unknown, key: string) => {
+            if (nextKeys.has(key) || indexedStorageKeysToKeep.has(key)) {
+                return;
+            }
+
+            layerMap.delete(key);
+        });
+
+        for (const [key, value] of Object.entries(nextRecord)) {
+            const mapping = INDEXED_MAP_KEYS[key];
+            if (mapping) {
+                layerMap.delete(key);
+                if (Array.isArray(value)) {
+                    applyIndexedMapArrayToYMap(layerMap, key, value);
+                    continue;
+                }
+                layerMap.delete(mapping.byId);
+                layerMap.delete(mapping.order);
+            }
+
+            this._replaceYMapEntry(layerMap, key, value);
+        }
+    }
+
     private _applyGlyphSnapshot(
         glyphName: string,
         glyphSnapshot: unknown
@@ -4305,7 +4406,10 @@ export class PatchSyncEngine {
                         layerJson,
                         fromYType(layerMap)
                     ) as Record<string, unknown>;
-                    this._replaceYMapContents(layerMap, normalizedLayerJson);
+                    this._replaceLayerMapContents(
+                        layerMap,
+                        normalizedLayerJson
+                    );
                 }
 
                 // Remove layers that are no longer in the snapshot

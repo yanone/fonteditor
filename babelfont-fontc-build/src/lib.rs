@@ -1687,17 +1687,12 @@ fn reconstruct_indexed_map_array(
     {
         let mut arr = Vec::with_capacity(order_arr.len());
         for id_val in &order_arr {
-            let id = match id_val {
-                serde_json::Value::String(s) => s.clone(),
-                _ => panic!(
-                    "indexed-map integrity error: {order_key} contains a non-string id"
-                ),
+            let Some(id) = id_val.as_str() else {
+                continue;
             };
-            let item = by_id_map.get(&id).unwrap_or_else(|| {
-                panic!(
-                    "indexed-map integrity error: {order_key} references missing id {id} in {by_id_key}"
-                )
-            });
+            let Some(item) = by_id_map.get(id) else {
+                continue;
+            };
             arr.push(item.clone());
         }
         obj.insert(array_key.to_string(), serde_json::Value::Array(arr));
@@ -2436,10 +2431,12 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
     let yrs_update = yrs::Update::decode_v1(update)
         .map_err(|e| JsValue::from_str(&format!("apply_yjs_update: decode failed: {:?}", e)))?;
 
-    // Move the worker doc out of the global slot while mutating and reading it.
-    // Keeping the Y_DOC mutex-held handle borrowed across transact_mut()/transact()
-    // can trip yrs' internal transaction guard during live incremental updates.
-    let doc = match Y_DOC.lock().unwrap().take() {
+    // Keep the worker doc installed in Y_DOC while mutating it. In wasm, a trap
+    // inside apply_update can bypass our normal Result flow; if the doc has been
+    // taken out of the global slot, the worker is stranded in
+    // ydoc_not_initialized afterward.
+    let ydoc_lock = Y_DOC.lock().unwrap();
+    let doc = match ydoc_lock.as_ref() {
         Some(doc) => doc,
         None => {
             // Y.Doc not yet seeded — this happens when apply_yjs_update arrives
@@ -2576,17 +2573,22 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                     {
                         let mut subset_changed = false;
                         let mut subset_index_lock = SUBSET_GLYPH_INDEX_CACHE.lock().unwrap();
-                        let subset_index = match subset_index_lock.as_mut() {
-                            Some((cached_key, index)) if *cached_key == *subset_key => index,
-                            _ => {
-                                *subset_index_lock =
-                                    Some((subset_key.clone(), build_glyph_index(subset_json)));
-                                match subset_index_lock.as_mut() {
-                                    Some((_, index)) => index,
-                                    None => unreachable!(),
-                                }
-                            }
-                        };
+                        let needs_subset_index_rebuild = !matches!(
+                            subset_index_lock.as_ref(),
+                            Some((cached_key, _)) if *cached_key == *subset_key
+                        );
+                        if needs_subset_index_rebuild {
+                            *subset_index_lock =
+                                Some((subset_key.clone(), build_glyph_index(subset_json)));
+                        }
+                        let subset_index = subset_index_lock
+                            .as_mut()
+                            .map(|(_, index)| index)
+                            .ok_or_else(|| {
+                                JsValue::from_str(
+                                    "apply_yjs_update: subset glyph index missing after rebuild",
+                                )
+                            })?;
 
                         if refresh_masters {
                             subset_changed |= replace_top_level_json_entry(
@@ -2744,8 +2746,6 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
             ))
         })
     })();
-
-    *Y_DOC.lock().unwrap() = Some(doc);
 
     result
 }
@@ -4025,6 +4025,30 @@ mod tests {
         .unwrap();
 
         assert!(font.glyphs[0].layers[0].anchors.is_empty());
+    }
+
+    #[test]
+    fn reconstruct_indexed_map_array_skips_stale_order_entries() {
+        let mut layer = serde_json::Map::new();
+        layer.insert(
+            "shapesById".to_string(),
+            json!({
+                "shape-a": { "id": "shape-a" }
+            }),
+        );
+        layer.insert(
+            "shapeOrder".to_string(),
+            json!(["shape-a", "missing-shape", 42]),
+        );
+
+        reconstruct_indexed_map_array(&mut layer, "shapes", "shapesById", "shapeOrder");
+
+        assert_eq!(
+            layer.get("shapes"),
+            Some(&json!([{ "id": "shape-a" }]))
+        );
+        assert!(!layer.contains_key("shapesById"));
+        assert!(!layer.contains_key("shapeOrder"));
     }
 
     #[test]

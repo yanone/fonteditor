@@ -8,6 +8,7 @@ const { Font, withSuppressedModelRecording } = require('../js/babelfont-model');
 const {
     deleteYPath,
     jsonToYDoc,
+    setYPath,
     yDocToJson
 } = require('../js/change-bridge-ydoc');
 const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
@@ -26,6 +27,42 @@ function loadFontFile(filePath) {
 
 function cloneJson(value) {
     return JSON.parse(JSON.stringify(value));
+}
+
+function stripLayerStableIds(layer) {
+    if (!layer || typeof layer !== 'object') {
+        return layer;
+    }
+
+    return {
+        ...layer,
+        shapes: Array.isArray(layer.shapes)
+            ? layer.shapes.map((shape) => {
+                  const nextShape = { ...shape };
+                  delete nextShape.id;
+                  if (Array.isArray(nextShape.nodes)) {
+                      nextShape.nodes = nextShape.nodes.map((node) => ({
+                          ...node
+                      }));
+                  }
+                  return nextShape;
+              })
+            : layer.shapes,
+        anchors: Array.isArray(layer.anchors)
+            ? layer.anchors.map((anchor) => {
+                  const nextAnchor = { ...anchor };
+                  delete nextAnchor.id;
+                  return nextAnchor;
+              })
+            : layer.anchors,
+        guides: Array.isArray(layer.guides)
+            ? layer.guides.map((guide) => {
+                  const nextGuide = { ...guide };
+                  delete nextGuide.id;
+                  return nextGuide;
+              })
+            : layer.guides
+    };
 }
 
 function encodeYjsStateFromFontData(fontData) {
@@ -216,6 +253,36 @@ describe('FontManager saveLayerData', () => {
         );
         expect(fontManager.lastChangeSource).toBeNull();
         expect(fontManager.lastEditType).toBeNull();
+    });
+
+    test('interactive anchor drag saves current source glyph shapes', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        const currentShapes = cloneJson(layer.shapes);
+        const staleStoredShapes = [];
+        glyph.layers.find((entry) => entry.id === layer.id).shapes =
+            staleStoredShapes;
+
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            {
+                ...cloneJson(layer),
+                shapes: currentShapes,
+                anchors: [{ name: 'top', x: 180, y: 760 }]
+            },
+            'mouse-drag-anchor'
+        );
+
+        const savedLayer = glyph.layers.find((entry) => entry.id === layer.id);
+
+        expect(savedLayer.shapes).toEqual(currentShapes);
+        expect(savedLayer.shapes).not.toBe(staleStoredShapes);
+        expect(savedLayer.anchors).toEqual([{ name: 'top', x: 180, y: 760 }]);
     });
 
     test('normalizeLayerForRust canonicalizes malformed component transforms', () => {
@@ -2389,12 +2456,54 @@ describe('FontManager boundary-crossing budget', () => {
         });
     });
 
-    test('refreshWorkerCacheForReplayTargets preserves stored shapes for the active anchor layer', async () => {
+    test('refreshWorkerCacheForReplayTargets reads active anchor replay targets from the bridge', async () => {
         const currentFont = fontManager.currentFont;
-        const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const glyphName = 'a';
+        const layerId = currentFont.fontModel.findGlyph(glyphName).layers[0].id;
+        const bridgeDoc = new Y.Doc();
+        jsonToYDoc(
+            cloneJson(currentFont.babelfontData),
+            bridgeDoc.getMap('font')
+        );
+        window.patchSyncEngine = {
+            fontMap: bridgeDoc.getMap('font')
+        };
+        const bridgeLayer = yDocToJson(bridgeDoc.getMap('font'))
+            .glyphs.find((glyph) => glyph.name === glyphName)
+            .layers.find((layer) => layer.id === layerId);
+        const pathIndex = bridgeLayer.shapes.findIndex((shape) =>
+            Array.isArray(shape.nodes)
+        );
+        const bridgeNodeX = bridgeLayer.shapes[pathIndex].nodes[0].x + 101;
+        const staleNodeX = bridgeLayer.shapes[pathIndex].nodes[0].x - 101;
         const serializeLayerForStorageSpy = jest.spyOn(
             fontManager,
             'serializeLayerForStorage'
+        );
+
+        setYPath(
+            bridgeDoc.getMap('font'),
+            [
+                'glyphs',
+                glyphName,
+                'layers',
+                layerId,
+                'shapes',
+                pathIndex,
+                'nodes',
+                0,
+                'x'
+            ],
+            bridgeNodeX
+        );
+        currentFont.babelfontData.glyphs
+            .find((glyph) => glyph.name === glyphName)
+            .layers.find((layer) => layer.id === layerId).shapes[
+            pathIndex
+        ].nodes[0].x = staleNodeX;
+        currentFont.fontModel = Font.fromData(
+            cloneJson(currentFont.babelfontData)
         );
 
         window.glyphCanvas = {
@@ -2402,7 +2511,7 @@ describe('FontManager boundary-crossing budget', () => {
             outlineEditor: {
                 ...(window.glyphCanvas?.outlineEditor || {}),
                 draggingSomething: true,
-                currentGlyphName: 'a',
+                currentGlyphName: glyphName,
                 selectedLayerId: layerId
             }
         };
@@ -2411,19 +2520,37 @@ describe('FontManager boundary-crossing budget', () => {
 
         try {
             await fontManager.refreshWorkerCacheForReplayTargets([
-                { glyphName: 'a', layerId }
+                { glyphName, layerId }
             ]);
 
             expect(serializeLayerForStorageSpy).toHaveBeenCalledWith(
-                'a',
+                glyphName,
+                layerId,
+                expect.objectContaining({ shapes: expect.any(Array) })
+            );
+            expect(serializeLayerForStorageSpy).not.toHaveBeenCalledWith(
+                glyphName,
                 layerId,
                 expect.anything(),
                 { preserveExistingShapes: true }
             );
+
+            const storedLayer = currentFont.babelfontData.glyphs
+                .find((glyph) => glyph.name === glyphName)
+                .layers.find((layer) => layer.id === layerId);
+            expect(storedLayer.shapes[pathIndex].nodes[0].x).toBe(bridgeNodeX);
+
+            const workerLayer = yDocToJson(
+                fontManager.workerCacheYDoc.getMap('font')
+            )
+                .glyphs.find((glyph) => glyph.name === glyphName)
+                .layers.find((layer) => layer.id === layerId);
+            expect(workerLayer.shapes[pathIndex].nodes[0].x).toBe(bridgeNodeX);
         } finally {
             serializeLayerForStorageSpy.mockRestore();
             fontManager.lastEditType = null;
             fontManager.lastChangeSource = null;
+            window.patchSyncEngine = originalPatchSyncEngine;
         }
     });
 
@@ -2455,14 +2582,143 @@ describe('FontManager boundary-crossing budget', () => {
             expect(serializeLayerForStorageSpy).toHaveBeenCalledWith(
                 'a',
                 layerId,
+                expect.anything()
+            );
+            expect(serializeLayerForStorageSpy).not.toHaveBeenCalledWith(
+                'a',
+                layerId,
                 expect.anything(),
-                undefined
+                { preserveExistingShapes: true }
             );
         } finally {
             serializeLayerForStorageSpy.mockRestore();
             fontManager.lastEditType = null;
             fontManager.lastChangeSource = null;
         }
+    });
+
+    test('refreshWorkerCacheForReplayTargets falls back to babelfontData when the model layer is not materialized', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
+        const jsonGlyph = currentFont.babelfontData.glyphs.find(
+            (glyph) => glyph.name === 'a'
+        );
+        const jsonLayer = jsonGlyph.layers.find(
+            (layer) => layer.id === layerId
+        );
+        const originalFindGlyph = currentFont.fontModel.findGlyph.bind(
+            currentFont.fontModel
+        );
+
+        currentFont.fontModel.findGlyph = jest.fn((glyphName) => {
+            const glyph = originalFindGlyph(glyphName);
+            if (!glyph || glyphName !== 'a') {
+                return glyph;
+            }
+
+            return {
+                ...glyph,
+                layers: glyph.layers.filter((layer) => layer.id !== layerId)
+            };
+        });
+
+        try {
+            await expect(
+                fontManager.refreshWorkerCacheForReplayTargets([
+                    { glyphName: 'a', layerId }
+                ])
+            ).resolves.toBe(true);
+
+            expect(sendMessageSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'applyYjsUpdate',
+                    layerTargets: [{ glyphName: 'a', layerId }]
+                })
+            );
+            expect(currentFont.babelfontData.glyphs).toContain(jsonGlyph);
+            expect(jsonGlyph.layers).toContainEqual(jsonLayer);
+        } finally {
+            currentFont.fontModel.findGlyph = originalFindGlyph;
+        }
+    });
+
+    test('refreshWorkerCacheForReplayTargets bootstraps its worker mirror from babelfontData when babelfontJson is stale', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
+        const originalBabelfontJson = currentFont.babelfontJson;
+        const originalWorkerCacheYDoc = fontManager.workerCacheYDoc;
+
+        currentFont.babelfontJson = '{';
+        fontManager.workerCacheYDoc = null;
+
+        try {
+            await expect(
+                fontManager.refreshWorkerCacheForReplayTargets([
+                    { glyphName: 'a', layerId }
+                ])
+            ).resolves.toBe(true);
+
+            expect(sendMessageSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'applyYjsUpdate',
+                    layerTargets: [{ glyphName: 'a', layerId }]
+                })
+            );
+        } finally {
+            currentFont.babelfontJson = originalBabelfontJson;
+            fontManager.workerCacheYDoc = originalWorkerCacheYDoc;
+        }
+    });
+
+    test('refreshWorkerCacheForReplayTargets preserves the sparse baseline when the worker rejects the batch', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
+
+        await expect(
+            fontManager.refreshWorkerCacheForReplayTargets([
+                { glyphName: 'a', layerId }
+            ])
+        ).resolves.toBe(true);
+
+        const baselineState = Y.encodeStateAsUpdate(
+            fontManager.workerCacheYDoc
+        );
+        sendMessageSpy
+            .mockRejectedValueOnce(new Error('RuntimeError: unreachable'))
+            .mockResolvedValueOnce({ success: true });
+
+        await expect(
+            fontManager.refreshWorkerCacheForReplayTargets([
+                { glyphName: 'a', layerId }
+            ])
+        ).resolves.toBe(false);
+
+        expect(
+            Array.from(Y.encodeStateAsUpdate(fontManager.workerCacheYDoc))
+        ).toEqual(Array.from(baselineState));
+
+        await expect(
+            fontManager.refreshWorkerCacheForReplayTargets([
+                { glyphName: 'a', layerId }
+            ])
+        ).resolves.toBe(true);
+
+        expect(sendMessageSpy).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                layerTargets: [{ glyphName: 'a', layerId }],
+                invalidateLayoutClosure: false
+            })
+        );
+        expect(sendMessageSpy).toHaveBeenNthCalledWith(
+            3,
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                layerTargets: [{ glyphName: 'a', layerId }],
+                invalidateLayoutClosure: false
+            })
+        );
     });
 
     test('submitLayerToWorkerCache routes the singular receiver-fallback path through the batched API', async () => {
@@ -2891,6 +3147,8 @@ describe('FontManager boundary-crossing budget', () => {
             })
         ).resolves.toBe(false);
 
+        expect(fontManager.workerCacheYDoc).toBeTruthy();
+
         expect(sendMessageSpy).toHaveBeenCalledTimes(1);
         expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -2901,7 +3159,284 @@ describe('FontManager boundary-crossing budget', () => {
         );
     });
 
-    test('forwardWorkerYjsUpdate reuses the authoritative raw Yjs delta when layer targets are supplied', async () => {
+    test('refreshWorkerCacheForReplayTargets can recover after a raw applyYjsUpdate failure without reseeding the mirror', async () => {
+        const rawUpdate = fontManager.buildWorkerSeedYjsState();
+        const layerId =
+            fontManager.currentFont.fontModel.findGlyph('a').layers[0].id;
+
+        sendMessageSpy
+            .mockRejectedValueOnce(new Error('RuntimeError: unreachable'))
+            .mockResolvedValueOnce({ success: true });
+
+        await expect(
+            fontManager.forwardWorkerYjsUpdate(rawUpdate, ['a'], {
+                invalidateLayoutClosure: false
+            })
+        ).resolves.toBe(false);
+
+        expect(fontManager.workerCacheYDoc).toBeTruthy();
+
+        await expect(
+            fontManager.refreshWorkerCacheForReplayTargets([
+                { glyphName: 'a', layerId }
+            ])
+        ).resolves.toBe(true);
+
+        expect(sendMessageSpy).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                layerTargets: [{ glyphName: 'a', layerId }],
+                invalidateLayoutClosure: false
+            })
+        );
+    });
+
+    test('remote raw Yjs layer updates plus replay-target refresh preserve the edited layer in the worker mirror across consecutive edits', async () => {
+        const currentFont = fontManager.currentFont;
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const glyphName = 'a';
+        const layerId = currentFont.fontModel.findGlyph(glyphName).layers[0].id;
+        const originalFontData = cloneJson(currentFont.babelfontData);
+        const firstEditedFontData = cloneJson(originalFontData);
+        const firstEditedGlyph = firstEditedFontData.glyphs.find(
+            (glyph) => glyph.name === glyphName
+        );
+        const firstEditedLayer = firstEditedGlyph.layers.find(
+            (layer) => layer.id === layerId
+        );
+        const editedPathIndex = firstEditedLayer.shapes.findIndex((shape) =>
+            Array.isArray(shape.nodes)
+        );
+        const firstNextX =
+            firstEditedLayer.shapes[editedPathIndex].nodes[0].x + 37;
+        const firstNextY =
+            firstEditedLayer.shapes[editedPathIndex].nodes[0].y + 19;
+        const secondEditedFontData = cloneJson(firstEditedFontData);
+        const secondEditedGlyph = secondEditedFontData.glyphs.find(
+            (glyph) => glyph.name === glyphName
+        );
+        const secondEditedLayer = secondEditedGlyph.layers.find(
+            (layer) => layer.id === layerId
+        );
+        const secondNextX =
+            secondEditedLayer.shapes[editedPathIndex].nodes[1].x - 21;
+        const secondNextY =
+            secondEditedLayer.shapes[editedPathIndex].nodes[1].y + 14;
+
+        firstEditedLayer.shapes[editedPathIndex].nodes[0].x = firstNextX;
+        firstEditedLayer.shapes[editedPathIndex].nodes[0].y = firstNextY;
+        secondEditedLayer.shapes[editedPathIndex].nodes[0].x = firstNextX;
+        secondEditedLayer.shapes[editedPathIndex].nodes[0].y = firstNextY;
+        secondEditedLayer.shapes[editedPathIndex].nodes[1].x = secondNextX;
+        secondEditedLayer.shapes[editedPathIndex].nodes[1].y = secondNextY;
+
+        const workerDoc = new Y.Doc();
+        jsonToYDoc(cloneJson(originalFontData), workerDoc.getMap('font'));
+        window.patchSyncEngine = {
+            fontMap: workerDoc.getMap('font')
+        };
+        const beforeStateVector = Y.encodeStateVector(workerDoc);
+        try {
+            workerDoc.transact(() => {
+                setYPath(
+                    workerDoc.getMap('font'),
+                    [
+                        'glyphs',
+                        glyphName,
+                        'layers',
+                        layerId,
+                        'shapes',
+                        editedPathIndex,
+                        'nodes',
+                        0,
+                        'x'
+                    ],
+                    firstNextX
+                );
+                setYPath(
+                    workerDoc.getMap('font'),
+                    [
+                        'glyphs',
+                        glyphName,
+                        'layers',
+                        layerId,
+                        'shapes',
+                        editedPathIndex,
+                        'nodes',
+                        0,
+                        'y'
+                    ],
+                    firstNextY
+                );
+            });
+            const firstRawUpdate = Y.encodeStateAsUpdate(
+                workerDoc,
+                beforeStateVector
+            );
+
+            fontManager.workerCacheYDoc = new Y.Doc();
+            jsonToYDoc(
+                cloneJson(originalFontData),
+                fontManager.workerCacheYDoc.getMap('font')
+            );
+            fontManager.workerLayerFingerprintCache.clear();
+            fontManager.workerLayerFingerprintCache.set(
+                `${glyphName}::${layerId}`,
+                JSON.stringify(
+                    fontManager.normalizeLayerForRust(
+                        originalFontData.glyphs
+                            .find((glyph) => glyph.name === glyphName)
+                            .layers.find((layer) => layer.id === layerId)
+                    )
+                )
+            );
+
+            currentFont.babelfontData = firstEditedFontData;
+            currentFont.babelfontJson = JSON.stringify(firstEditedFontData);
+            currentFont.fontModel = Font.fromData(cloneJson(originalFontData));
+
+            await expect(
+                fontManager.forwardWorkerYjsUpdate(
+                    firstRawUpdate,
+                    [glyphName],
+                    {
+                        invalidateLayoutClosure: false,
+                        layerTargets: [{ glyphName, layerId }]
+                    }
+                )
+            ).resolves.toBe(true);
+
+            currentFont.fontModel = Font.fromData(
+                cloneJson(firstEditedFontData)
+            );
+
+            await expect(
+                fontManager.refreshWorkerCacheForReplayTargets([
+                    { glyphName, layerId }
+                ])
+            ).resolves.toBe(true);
+
+            const secondBeforeStateVector = Y.encodeStateVector(workerDoc);
+            workerDoc.transact(() => {
+                setYPath(
+                    workerDoc.getMap('font'),
+                    [
+                        'glyphs',
+                        glyphName,
+                        'layers',
+                        layerId,
+                        'shapes',
+                        editedPathIndex,
+                        'nodes',
+                        1,
+                        'x'
+                    ],
+                    secondNextX
+                );
+                setYPath(
+                    workerDoc.getMap('font'),
+                    [
+                        'glyphs',
+                        glyphName,
+                        'layers',
+                        layerId,
+                        'shapes',
+                        editedPathIndex,
+                        'nodes',
+                        1,
+                        'y'
+                    ],
+                    secondNextY
+                );
+            });
+            const secondRawUpdate = Y.encodeStateAsUpdate(
+                workerDoc,
+                secondBeforeStateVector
+            );
+
+            currentFont.babelfontData = secondEditedFontData;
+            currentFont.babelfontJson = JSON.stringify(secondEditedFontData);
+            currentFont.fontModel = Font.fromData(
+                cloneJson(firstEditedFontData)
+            );
+
+            await expect(
+                fontManager.forwardWorkerYjsUpdate(
+                    secondRawUpdate,
+                    [glyphName],
+                    {
+                        invalidateLayoutClosure: false,
+                        layerTargets: [{ glyphName, layerId }]
+                    }
+                )
+            ).resolves.toBe(true);
+
+            const workerAfterSecondRawUpdate = yDocToJson(
+                fontManager.workerCacheYDoc.getMap('font')
+            );
+            const workerLayerAfterSecondRawUpdate =
+                workerAfterSecondRawUpdate.glyphs
+                    .find((glyph) => glyph.name === glyphName)
+                    .layers.find((layer) => layer.id === layerId);
+
+            expect(workerLayerAfterSecondRawUpdate.shapes).toHaveLength(
+                secondEditedLayer.shapes.length
+            );
+            expect(
+                workerLayerAfterSecondRawUpdate.shapes[editedPathIndex].nodes[0]
+                    .x
+            ).toBe(firstNextX);
+            expect(
+                workerLayerAfterSecondRawUpdate.shapes[editedPathIndex].nodes[1]
+                    .x
+            ).toBe(secondNextX);
+
+            currentFont.fontModel = Font.fromData(
+                cloneJson(secondEditedFontData)
+            );
+
+            await expect(
+                fontManager.refreshWorkerCacheForReplayTargets([
+                    { glyphName, layerId }
+                ])
+            ).resolves.toBe(true);
+
+            const workerRoundTrip = yDocToJson(
+                fontManager.workerCacheYDoc.getMap('font')
+            );
+            const workerLayer = workerRoundTrip.glyphs
+                .find((glyph) => glyph.name === glyphName)
+                .layers.find((layer) => layer.id === layerId);
+            const expectedLayer = fontManager.normalizeLayerForRust(
+                secondEditedFontData.glyphs
+                    .find((glyph) => glyph.name === glyphName)
+                    .layers.find((layer) => layer.id === layerId)
+            );
+            const actualLayer = stripLayerStableIds(
+                fontManager.normalizeLayerForRust(workerLayer)
+            );
+            const comparableExpectedLayer = stripLayerStableIds(expectedLayer);
+
+            expect(actualLayer).toEqual(comparableExpectedLayer);
+            expect(workerLayer.shapes[editedPathIndex].nodes[0].x).toBe(
+                firstNextX
+            );
+            expect(workerLayer.shapes[editedPathIndex].nodes[0].y).toBe(
+                firstNextY
+            );
+            expect(workerLayer.shapes[editedPathIndex].nodes[1].x).toBe(
+                secondNextX
+            );
+            expect(workerLayer.shapes[editedPathIndex].nodes[1].y).toBe(
+                secondNextY
+            );
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+        }
+    });
+
+    test('forwardWorkerYjsUpdate rebuilds layer-target worker deltas from the local mirror when possible', async () => {
         const rawUpdate = fontManager.buildWorkerSeedYjsState();
         const buildWorkerYjsLayerUpdateSpy = jest.spyOn(
             fontManager,
@@ -2927,14 +3462,16 @@ describe('FontManager boundary-crossing budget', () => {
             })
         ).resolves.toBe(true);
 
-        expect(buildWorkerYjsLayerUpdateSpy).not.toHaveBeenCalled();
-        expect(applyMirrorSpy).toHaveBeenCalledWith(rawUpdate);
+        expect(buildWorkerYjsLayerUpdateSpy).toHaveBeenCalledTimes(1);
+        const rebuiltUpdate = applyMirrorSpy.mock.calls[0][0];
+        expect(rebuiltUpdate).toBeInstanceOf(Uint8Array);
+        expect(Array.from(rebuiltUpdate)).not.toEqual(Array.from(rawUpdate));
         expect(syncJsonSpy).toHaveBeenCalled();
         expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
         expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'applyYjsUpdate',
-                update: rawUpdate,
+                update: rebuiltUpdate,
                 changedGlyphs: ['a'],
                 layerTargets: [{ glyphName: 'a', layerId }],
                 invalidateLayoutClosure: false
@@ -2950,6 +3487,129 @@ describe('FontManager boundary-crossing budget', () => {
         buildWorkerYjsLayerUpdateSpy.mockRestore();
         applyMirrorSpy.mockRestore();
         syncJsonSpy.mockRestore();
+    });
+
+    test('forwardWorkerYjsUpdate falls back to model shapes when the bridge target is shape-empty', async () => {
+        const currentFont = fontManager.currentFont;
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const glyphName = 'a';
+        const glyph = currentFont.fontModel.findGlyph(glyphName);
+        const layerId = glyph.layers[0].id;
+        const bridgeDoc = new Y.Doc();
+        jsonToYDoc(
+            cloneJson(currentFont.babelfontData),
+            bridgeDoc.getMap('font')
+        );
+        window.patchSyncEngine = {
+            fontMap: bridgeDoc.getMap('font')
+        };
+
+        setYPath(
+            bridgeDoc.getMap('font'),
+            ['glyphs', glyphName, 'layers', layerId, 'shapes'],
+            []
+        );
+
+        const rawUpdate = fontManager.buildWorkerSeedYjsState();
+
+        try {
+            await expect(
+                fontManager.forwardWorkerYjsUpdate(rawUpdate, [glyphName], {
+                    invalidateLayoutClosure: false,
+                    layerTargets: [{ glyphName, layerId }]
+                })
+            ).resolves.toBe(true);
+
+            const workerLayer = yDocToJson(
+                fontManager.workerCacheYDoc.getMap('font')
+            )
+                .glyphs.find((entry) => entry.name === glyphName)
+                .layers.find((entry) => entry.id === layerId);
+
+            expect(Array.isArray(workerLayer.shapes)).toBe(true);
+            expect(workerLayer.shapes.length).toBeGreaterThan(0);
+            expect(sendMessageSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'applyYjsUpdate',
+                    changedGlyphs: [glyphName],
+                    layerTargets: [{ glyphName, layerId }],
+                    invalidateLayoutClosure: false
+                })
+            );
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+        }
+    });
+
+    test('buildWorkerYjsLayerUpdate prunes stale omitted layer fields from replay-target payloads', () => {
+        const glyphName = 'a';
+        const currentFont = fontManager.currentFont;
+        const glyph = currentFont.fontModel.findGlyph(glyphName);
+        const layer = glyph.layers[0];
+        const layerId = layer.id;
+        const normalizedLayer = fontManager.normalizeLayerForRust(
+            cloneJson(layer.data)
+        );
+
+        const seedStaleLayerFields = (fontMap) => {
+            setYPath(
+                fontMap,
+                ['glyphs', glyphName, 'layers', layerId, 'workerOnlyRootField'],
+                'stale-root'
+            );
+            setYPath(
+                fontMap,
+                [
+                    'glyphs',
+                    glyphName,
+                    'layers',
+                    layerId,
+                    'shapes',
+                    0,
+                    'workerOnlyNestedField'
+                ],
+                'stale-nested'
+            );
+        };
+
+        const staleWorkerDoc = new Y.Doc();
+        staleWorkerDoc.transact(() => {
+            jsonToYDoc(
+                cloneJson(currentFont.babelfontData),
+                staleWorkerDoc.getMap('font')
+            );
+            seedStaleLayerFields(staleWorkerDoc.getMap('font'));
+        });
+        fontManager.replaceWorkerYjsMirrorFromState(
+            Y.encodeStateAsUpdate(staleWorkerDoc)
+        );
+
+        const replayTargetUpdate = fontManager.buildWorkerYjsLayerUpdate([
+            {
+                glyphName,
+                layerId,
+                normalized: normalizedLayer
+            }
+        ]);
+
+        expect(replayTargetUpdate).toBeTruthy();
+        expect(replayTargetUpdate.changedGlyphs).toEqual([glyphName]);
+
+        const recipientDoc = new Y.Doc();
+        Y.applyUpdate(recipientDoc, Y.encodeStateAsUpdate(staleWorkerDoc));
+        Y.applyUpdate(recipientDoc, replayTargetUpdate.update);
+
+        const recipientLayer = yDocToJson(recipientDoc.getMap('font'))
+            .glyphs.find((entry) => entry.name === glyphName)
+            .layers.find((entry) => entry.id === layerId);
+        const comparableActualLayer = stripLayerStableIds(
+            fontManager.normalizeLayerForRust(recipientLayer)
+        );
+        const comparableExpectedLayer = stripLayerStableIds(normalizedLayer);
+
+        expect(recipientLayer.workerOnlyRootField).toBeUndefined();
+        expect(recipientLayer.shapes[0].workerOnlyNestedField).toBeUndefined();
+        expect(comparableActualLayer).toEqual(comparableExpectedLayer);
     });
 
     test('forwardWorkerYjsUpdate counts sparse layer deletion targets as one worker packet', async () => {

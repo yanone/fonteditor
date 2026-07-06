@@ -9919,6 +9919,26 @@ describe('GlyphCanvas anchor movement', () => {
 
     test('anchor commit serializes downstream recomposed layers before batched YDoc sync', () => {
         const originalPatchSyncEngine = window.patchSyncEngine;
+        const rebuiltDependentShapes = [
+            {
+                reference: 'a',
+                transform: { translation: [0, 0] }
+            },
+            {
+                reference: 'dieresiscomb',
+                transform: { translation: [140, 760] }
+            }
+        ];
+        const staleStoredShapes = [
+            {
+                reference: 'a',
+                transform: { translation: [0, 0] }
+            },
+            {
+                reference: 'dieresiscomb',
+                transform: { translation: [40, 660] }
+            }
+        ];
         const currentFont = {
             babelfontData: {
                 glyphs: [
@@ -9956,7 +9976,7 @@ describe('GlyphCanvas anchor movement', () => {
                                                       y: 760
                                                   }
                                               ],
-                                              shapes: []
+                                              shapes: rebuiltDependentShapes
                                           }))
                                       }
                                     : null
@@ -9980,13 +10000,19 @@ describe('GlyphCanvas anchor movement', () => {
             id: 'layer-1',
             width: 610,
             anchors: [{ name: 'top', x: 140, y: 760 }],
-            shapes: [],
+            shapes: rebuiltDependentShapes,
             format_specific: { serialized: true }
         };
         const serializeLayerSpy = jest
             .spyOn(fontManager, 'serializeLayerForCommittedSync')
-            .mockImplementation((glyphName, layerId) => {
+            .mockImplementation((glyphName, layerId, layerData, options) => {
                 if (glyphName === 'adieresis' && layerId === 'layer-1') {
+                    if (options?.preserveExistingShapes) {
+                        return {
+                            ...serializedDependentLayer,
+                            shapes: staleStoredShapes
+                        };
+                    }
                     return serializedDependentLayer;
                 }
 
@@ -10038,13 +10064,16 @@ describe('GlyphCanvas anchor movement', () => {
                 expect.objectContaining({
                     id: 'layer-1',
                     width: 610,
-                    anchors: [{ name: 'top', x: 140, y: 760 }]
-                }),
-                { preserveExistingShapes: true }
+                    anchors: [{ name: 'top', x: 140, y: 760 }],
+                    shapes: rebuiltDependentShapes
+                })
             );
-            expect(currentFont.babelfontData.glyphs[1].layers[0]).toBe(
-                serializedDependentLayer
-            );
+            expect(
+                currentFont.babelfontData.glyphs[1].layers[0].shapes
+            ).toEqual(rebuiltDependentShapes);
+            expect(
+                currentFont.babelfontData.glyphs[1].layers[0].shapes
+            ).not.toEqual(staleStoredShapes);
             expect(syncLayersFromJson).toHaveBeenCalledWith(
                 [
                     { glyphName: 'a', layerId: 'layer-1' },

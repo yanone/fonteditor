@@ -5,6 +5,20 @@ import {
 } from './helpers/snapshot-helper';
 import { rectLineNodes } from './helpers/babelfont-test-data';
 
+const A_DEPENDENT_GLYPHS = [
+    'adieresis',
+    'aacute',
+    'abreve',
+    'acaron',
+    'acircumflex',
+    'agrave',
+    'amacron',
+    'aogonek',
+    'aring',
+    'atilde',
+    'ae'
+];
+
 function makeTestFont(): string {
     return JSON.stringify({
         upm: 1000,
@@ -93,6 +107,45 @@ function makeTestFont(): string {
 }
 
 function makeAAdieresisTestFont(): string {
+    const makeDependentGlyph = (name: string, codepoints: number[] = []) => ({
+        name,
+        category: 'Base',
+        ...(codepoints.length > 0 ? { codepoints } : {}),
+        layers: [
+            {
+                width: 520,
+                id: 'L0',
+                master: { type: 'DefaultForMaster', master: 'M0' },
+                shapes: [
+                    {
+                        reference: 'a',
+                        transform: {
+                            translation: [0, 0],
+                            scale: [1, 1],
+                            rotation: 0,
+                            skew: [0, 0],
+                            order: 'RestOfTheWorld'
+                        }
+                    },
+                    {
+                        reference: 'dieresiscomb',
+                        transform: {
+                            translation: [0, 500],
+                            scale: [1, 1],
+                            rotation: 0,
+                            skew: [0, 0],
+                            order: 'RestOfTheWorld'
+                        }
+                    }
+                ],
+                anchors: [],
+                guides: [],
+                format_specific: {}
+            }
+        ],
+        exported: true
+    });
+
     return JSON.stringify({
         upm: 1000,
         version: [1, 0],
@@ -216,44 +269,12 @@ function makeAAdieresisTestFont(): string {
                 ],
                 exported: true
             },
-            {
-                name: 'adieresis',
-                category: 'Base',
-                codepoints: [228],
-                layers: [
-                    {
-                        width: 520,
-                        id: 'L0',
-                        master: { type: 'DefaultForMaster', master: 'M0' },
-                        shapes: [
-                            {
-                                reference: 'a',
-                                transform: {
-                                    translation: [0, 0],
-                                    scale: [1, 1],
-                                    rotation: 0,
-                                    skew: [0, 0],
-                                    order: 'RestOfTheWorld'
-                                }
-                            },
-                            {
-                                reference: 'dieresiscomb',
-                                transform: {
-                                    translation: [0, 500],
-                                    scale: [1, 1],
-                                    rotation: 0,
-                                    skew: [0, 0],
-                                    order: 'RestOfTheWorld'
-                                }
-                            }
-                        ],
-                        anchors: [],
-                        guides: [],
-                        format_specific: {}
-                    }
-                ],
-                exported: true
-            }
+            ...A_DEPENDENT_GLYPHS.map((glyphName) =>
+                makeDependentGlyph(
+                    glyphName,
+                    glyphName === 'adieresis' ? [228] : []
+                )
+            )
         ],
         date: new Date().toISOString(),
         names: { family_name: { dflt: 'LinkedCompileFuzzTest' } },
@@ -624,21 +645,43 @@ async function commitAAdieresisEdit(
             };
 
             const aLayer = findLayer('a');
-            const adieresisLayer = findLayer('adieresis');
+            const dependentGlyphs = [
+                'adieresis',
+                'aacute',
+                'abreve',
+                'acaron',
+                'acircumflex',
+                'agrave',
+                'amacron',
+                'aogonek',
+                'aring',
+                'atilde',
+                'ae'
+            ];
+            const dependentLayers = dependentGlyphs.map((glyphName) =>
+                findLayer(glyphName)
+            );
             if (kind === 'outline') {
                 aLayer.shapes[0].nodes[0].x += delta;
             } else if (kind === 'anchor') {
                 aLayer.anchors[0].y += delta;
-                adieresisLayer.shapes[1].transform.translation[1] =
-                    aLayer.anchors[0].y;
+                for (const layer of dependentLayers) {
+                    layer.shapes[1].transform.translation[1] =
+                        aLayer.anchors[0].y;
+                }
             } else {
                 aLayer.width += delta;
-                adieresisLayer.width = aLayer.width;
+                for (const layer of dependentLayers) {
+                    layer.width = aLayer.width;
+                }
             }
 
             const replayTargets = [
                 { glyphName: 'a', layerId: 'L0' },
-                { glyphName: 'adieresis', layerId: 'L0' }
+                ...dependentGlyphs.map((glyphName) => ({
+                    glyphName,
+                    layerId: 'L0'
+                }))
             ];
             bridge.syncLayersFromJson(
                 replayTargets,
@@ -660,13 +703,59 @@ async function runAAdieresisUndoRedo(
     page: Page,
     action: 'undo' | 'redo'
 ): Promise<void> {
-    await page.evaluate(async (historyAction) => {
+    const result = await page.evaluate(async (historyAction) => {
+        const collectState = () => {
+            const win = window as any;
+            const fontJson = win.fontManager?.currentFont?.babelfontData;
+            const fontModel = win.fontManager?.currentFont?.fontModel;
+            const jsonGlyph = fontJson?.glyphs?.find(
+                (entry: any) => entry.name === 'a'
+            );
+            const jsonLayer = jsonGlyph?.layers?.find(
+                (entry: any) => entry.id === 'L0'
+            );
+            const modelLayer = fontModel
+                ?.findGlyph?.('a')
+                ?.findLayerById?.('L0')
+                ?.toJSON?.();
+            const history = win.patchSyncEngine?.getHistoryStack?.('a', 'L0');
+            return {
+                jsonLayer,
+                modelLayer,
+                historyTop: Array.isArray(history?.undo)
+                    ? history.undo.at(-1)
+                    : null,
+                compileTracker: win.__editingFontCompileTracker ?? null,
+                sidebarText:
+                    document.getElementById('sidebar-error-display')
+                        ?.textContent ?? null
+            };
+        };
         const runBridgeUndoRedo = (window as any).runBridgeUndoRedo;
         if (typeof runBridgeUndoRedo !== 'function') {
             throw new Error('runBridgeUndoRedo is unavailable');
         }
-        await runBridgeUndoRedo(historyAction, 'a', 'a', 'L0');
+        try {
+            await runBridgeUndoRedo(historyAction, 'a', 'a', 'L0');
+            return { ok: true };
+        } catch (error) {
+            return {
+                ok: false,
+                message: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : null,
+                state: collectState()
+            };
+        }
     }, action);
+    if (!result.ok) {
+        throw new Error(
+            `${action} failed: ${result.message}\n${result.stack ?? ''}\n${JSON.stringify(
+                result.state,
+                null,
+                2
+            )}`
+        );
+    }
 }
 
 async function canRunAAdieresisUndoRedo(
@@ -698,25 +787,148 @@ async function getAAdieresisState(page: Page): Promise<{
     markY: number;
     nodeX: number;
     width: number;
+    aShapeCount: number;
+    adieresisShapeCount: number;
+    modelAShapeCount: number;
+    modelAdieresisShapeCount: number;
 }> {
     return page.evaluate(() => {
-        const fontJson = (window as any).fontManager?.currentFont
-            ?.babelfontData;
+        const currentFont = (window as any).fontManager?.currentFont;
+        const fontJson = currentFont?.babelfontData;
+        const fontModel = currentFont?.fontModel;
         const findLayer = (glyphName: string) => {
             const glyph = fontJson?.glyphs?.find(
                 (entry: any) => entry.name === glyphName
             );
             return glyph?.layers?.find((entry: any) => entry.id === 'L0');
         };
+        const findModelLayer = (glyphName: string) =>
+            fontModel
+                ?.findGlyph?.(glyphName)
+                ?.findLayerById?.('L0')
+                ?.toJSON?.();
         const aLayer = findLayer('a');
         const adieresisLayer = findLayer('adieresis');
+        const modelALayer = findModelLayer('a');
+        const modelAdieresisLayer = findModelLayer('adieresis');
         return {
             anchorY: Number(aLayer?.anchors?.[0]?.y),
             markY: Number(
                 adieresisLayer?.shapes?.[1]?.transform?.translation?.[1]
             ),
             nodeX: Number(aLayer?.shapes?.[0]?.nodes?.[0]?.x),
-            width: Number(aLayer?.width)
+            width: Number(aLayer?.width),
+            aShapeCount: Number(aLayer?.shapes?.length ?? 0),
+            adieresisShapeCount: Number(adieresisLayer?.shapes?.length ?? 0),
+            modelAShapeCount: Number(modelALayer?.shapes?.length ?? 0),
+            modelAdieresisShapeCount: Number(
+                modelAdieresisLayer?.shapes?.length ?? 0
+            )
+        };
+    });
+}
+
+async function expectAAdieresisShapesPresent(
+    page: Page,
+    label: string
+): Promise<void> {
+    const state = await getAAdieresisState(page);
+    const stateJson = JSON.stringify(state);
+    expect(
+        state.aShapeCount,
+        `${label}: stored a shapes ${stateJson}`
+    ).toBeGreaterThan(0);
+    expect(
+        state.adieresisShapeCount,
+        `${label}: stored adieresis shapes ${stateJson}`
+    ).toBeGreaterThan(1);
+    expect(
+        state.modelAShapeCount,
+        `${label}: model a shapes ${stateJson}`
+    ).toBeGreaterThan(0);
+    expect(
+        state.modelAdieresisShapeCount,
+        `${label}: model adieresis shapes ${stateJson}`
+    ).toBeGreaterThan(1);
+}
+
+async function getWorkerLayerShapeCounts(
+    page: Page
+): Promise<Record<string, number | null>> {
+    return page.evaluate(async () => {
+        const fontModel =
+            (window as any).fontManager?.currentFont?.fontModel ||
+            (window as any).currentFontModel;
+        const aLayerId = fontModel?.findGlyph?.('a')?.layers?.[0]?.id;
+        const adieresisLayerId =
+            fontModel?.findGlyph?.('adieresis')?.layers?.[0]?.id;
+        const response = await (window as any).fontCompilation?.sendMessage?.({
+            type: 'dumpLayerState',
+            layerTargets: [
+                { glyphName: 'a', layerId: aLayerId },
+                { glyphName: 'adieresis', layerId: adieresisLayerId }
+            ]
+        });
+        const dump = response?.dumpJson ? JSON.parse(response.dumpJson) : null;
+        const targets = Array.isArray(dump?.targets) ? dump.targets : [];
+        const bridgeFontMap = (window as any).patchSyncEngine?.fontMap;
+        const workerMirrorFontMap = (
+            window as any
+        ).fontManager?.workerCacheYDoc?.getMap?.('font');
+        const getBridgeLayer = (glyphName: string, layerId: string) => {
+            const glyphsMap = bridgeFontMap?.get?.('glyphs');
+            const glyphMap = glyphsMap?.get?.(glyphName);
+            const layersMap = glyphMap?.get?.('layers');
+            return layersMap?.get?.(layerId) ?? null;
+        };
+        const getWorkerMirrorLayer = (glyphName: string, layerId: string) => {
+            const glyphsMap = workerMirrorFontMap?.get?.('glyphs');
+            const glyphMap = glyphsMap?.get?.(glyphName);
+            const layersMap = glyphMap?.get?.('layers');
+            return layersMap?.get?.(layerId) ?? null;
+        };
+        const byName = new Map(
+            targets.map((target: any) => [target?.glyphName, target])
+        );
+        const countShapes = (layer: any) =>
+            Array.isArray(layer?.shapes) ? layer.shapes.length : null;
+        const countBridgeShapes = (layerMap: any) => {
+            if (!layerMap?.get) {
+                return null;
+            }
+            const shapeOrder = layerMap.get('shapeOrder');
+            if (Array.isArray(shapeOrder)) {
+                return shapeOrder.length;
+            }
+            if (typeof shapeOrder?.length === 'number') {
+                return shapeOrder.length;
+            }
+            const shapes = layerMap.get('shapes');
+            return Array.isArray(shapes) ? shapes.length : null;
+        };
+        return {
+            aBridgeShapes: countBridgeShapes(getBridgeLayer('a', aLayerId)),
+            aWorkerMirrorShapes: countBridgeShapes(
+                getWorkerMirrorLayer('a', aLayerId)
+            ),
+            aYDocShapes: countShapes(byName.get('a')?.ydocLayer),
+            aCanonicalShapes: countShapes(byName.get('a')?.canonicalLayer),
+            aSubsetShapes: countShapes(byName.get('a')?.subsetLayer),
+            adieresisBridgeShapes: countBridgeShapes(
+                getBridgeLayer('adieresis', adieresisLayerId)
+            ),
+            adieresisWorkerMirrorShapes: countBridgeShapes(
+                getWorkerMirrorLayer('adieresis', adieresisLayerId)
+            ),
+            adieresisYDocShapes: countShapes(
+                byName.get('adieresis')?.ydocLayer
+            ),
+            adieresisCanonicalShapes: countShapes(
+                byName.get('adieresis')?.canonicalLayer
+            ),
+            adieresisSubsetShapes: countShapes(
+                byName.get('adieresis')?.subsetLayer
+            )
         };
     });
 }
@@ -739,17 +951,207 @@ async function waitForCompileOnBoth(
         return;
     }
 
-    const [afterMain, afterLinked] = await Promise.all([
+    const [afterMain, afterLinked, mainState, linkedState] = await Promise.all([
         getEditingFontCompileTracker(mainPage),
-        getEditingFontCompileTracker(linkedPage)
+        getEditingFontCompileTracker(linkedPage),
+        mainPage.evaluate(() => ({
+            sidebarText:
+                document.getElementById('sidebar-error-display')?.textContent ??
+                null,
+            recentEntries: (
+                (window as any).patchSyncEngine?.getChangeLog?.() ?? []
+            )
+                .slice(-3)
+                .map((entry: any) => ({
+                    path: entry?.path ?? null,
+                    historyAction: entry?.historyAction ?? null,
+                    workerReplayTargets: entry?.workerReplayTargets ?? null,
+                    transactionLabel: entry?.transactionLabel ?? null
+                }))
+        })),
+        linkedPage.evaluate(() => ({
+            sidebarText:
+                document.getElementById('sidebar-error-display')?.textContent ??
+                null,
+            recentEntries: (
+                (window as any).patchSyncEngine?.getChangeLog?.() ?? []
+            )
+                .slice(-3)
+                .map((entry: any) => ({
+                    path: entry?.path ?? null,
+                    historyAction: entry?.historyAction ?? null,
+                    workerReplayTargets: entry?.workerReplayTargets ?? null,
+                    transactionLabel: entry?.transactionLabel ?? null
+                }))
+        }))
     ]);
     throw new Error(
         [
             `Expected app-driven editing-font compiles in both windows after ${label}`,
-            `main: before=${beforeMain}, after=${afterMain.count}, status=${mainResult.status}`,
-            `linked: before=${beforeLinked}, after=${afterLinked.count}, status=${linkedResult.status}`
+            `main: before=${beforeMain}, after=${afterMain.count}, revision=${afterMain.revision}, hash=${afterMain.hash}, status=${mainResult.status}`,
+            `linked: before=${beforeLinked}, after=${afterLinked.count}, revision=${afterLinked.revision}, hash=${afterLinked.hash}, status=${linkedResult.status}`,
+            `main sidebar: ${mainState.sidebarText}`,
+            `linked sidebar: ${linkedState.sidebarText}`,
+            `main recent entries: ${JSON.stringify(mainState.recentEntries)}`,
+            `linked recent entries: ${JSON.stringify(linkedState.recentEntries)}`
         ].join('\n')
     );
+}
+
+function failOnEditingCompileReadinessError(page: Page, label: string): void {
+    const assertMessage = (message: string) => {
+        expect(
+            message,
+            `${label} reported editing compile worker readiness failure`
+        ).not.toContain(
+            'Editing compile requires a ready worker Yjs document; full babelfont JSON fallback is disabled'
+        );
+    };
+
+    page.on('console', (message) => {
+        if (message.type() === 'error' || message.type() === 'warning') {
+            assertMessage(message.text());
+        }
+    });
+    page.on('pageerror', (error) => assertMessage(error.message));
+}
+
+async function performSenderUndoDrainOperation(
+    page: Page,
+    kind: 'outline' | 'anchor' | 'undo',
+    step: number,
+    delta = 0
+): Promise<void> {
+    if (kind === 'undo') {
+        expect(
+            await canRunAAdieresisUndoRedo(page, 'undo'),
+            `sender should have undo available at step ${step}`
+        ).toBe(true);
+        await runAAdieresisUndoRedo(page, 'undo');
+        return;
+    }
+
+    await commitAAdieresisEditorEdit(page, kind, step, delta);
+}
+
+async function commitAAdieresisEditorEdit(
+    page: Page,
+    kind: 'outline' | 'anchor',
+    step: number,
+    delta: number
+): Promise<void> {
+    await page.evaluate(
+        async ({ kind, step, delta }) => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            const outlineEditor = glyphCanvas?.outlineEditor;
+            const fontManager = (window as any).fontManager;
+            if (!glyphCanvas || !outlineEditor || !fontManager?.currentFont) {
+                throw new Error('Missing editor state for sender commit');
+            }
+
+            const layerData = outlineEditor.getCurrentLayerDataFromStack?.();
+            if (!layerData) {
+                throw new Error('Missing current layer data for sender commit');
+            }
+
+            const beforeDescription =
+                kind === 'anchor'
+                    ? outlineEditor._buildAnchorDesc?.(true)
+                    : outlineEditor._buildNodeDesc?.(true);
+
+            if (kind === 'anchor') {
+                const anchor = layerData.anchors?.find(
+                    (entry: any) => entry?.name === 'top'
+                );
+                if (!anchor) {
+                    throw new Error('Missing top anchor for sender commit');
+                }
+                anchor.y += delta;
+            } else {
+                const node = layerData.shapes?.[0]?.nodes?.[0];
+                if (!node) {
+                    throw new Error('Missing outline node for sender commit');
+                }
+                node.x += delta;
+            }
+
+            const changeSource =
+                kind === 'anchor' ? 'mouse-drag-anchor' : 'mouse-drag-outline';
+            await outlineEditor.saveLayerData(changeSource);
+            if (kind === 'anchor') {
+                outlineEditor._anchorAffectedGlyphNames =
+                    outlineEditor.rebuildAutomaticCompositesForCurrentEditedGlyph?.() ??
+                    new Set(['a']);
+                fontManager.currentFont.syncJsonFromModel?.();
+            }
+
+            const sourceTarget = [{ glyphName: 'a', layerId: 'L0' }];
+            const editKinds = new Set([kind]);
+            const closure = outlineEditor.computeRecompositionClosure?.({
+                sourceTargets: sourceTarget,
+                editKinds,
+                scope: 'all',
+                activeLayerId: 'L0'
+            }) ?? { allTargets: sourceTarget };
+
+            const afterDescription =
+                kind === 'anchor'
+                    ? outlineEditor._buildAnchorDesc?.(true)
+                    : outlineEditor._buildNodeDesc?.(true);
+            outlineEditor._syncCurrentGlyphToYDoc(
+                kind === 'anchor' ? 'Drag anchor' : 'Drag point',
+                beforeDescription,
+                afterDescription,
+                undefined,
+                closure.allTargets?.length ? closure.allTargets : undefined,
+                outlineEditor.getCommittedCompileMetadata?.(changeSource)
+            );
+
+            return step;
+        },
+        { kind, step, delta }
+    );
+
+    expect(
+        await canRunAAdieresisUndoRedo(page, 'undo'),
+        `sender should have undo after ${kind} edit ${step}`
+    ).toBe(true);
+}
+
+async function snapshotCompiledUndoDrainState(page: Page): Promise<{
+    model: Awaited<ReturnType<typeof getAAdieresisState>>;
+    hash: string;
+    sample: EditingFontVisualSample;
+}> {
+    const tracker = await getEditingFontCompileTracker(page);
+    return {
+        model: await getAAdieresisState(page),
+        hash: tracker.hash,
+        sample: await getEditingFontVisualSample(page, 'ä')
+    };
+}
+
+function expectUndoDrainSnapshotRestored(
+    actual: Awaited<ReturnType<typeof snapshotCompiledUndoDrainState>>,
+    expected: Awaited<ReturnType<typeof snapshotCompiledUndoDrainState>>,
+    staleState: Awaited<
+        ReturnType<typeof snapshotCompiledUndoDrainState>
+    > | null,
+    label: string
+): void {
+    expect(actual.model, `${label}: model state`).toEqual(expected.model);
+    expect(actual.hash, `${label}: compiled font hash should exist`).not.toBe(
+        'none'
+    );
+    if (
+        staleState &&
+        JSON.stringify(staleState.model) !== JSON.stringify(expected.model)
+    ) {
+        expect(
+            actual.sample,
+            `${label}: compiled adieresis raster should not remain at the just-undone state`
+        ).not.toEqual(staleState.sample);
+    }
 }
 
 async function setEditingContext(
@@ -1017,6 +1419,164 @@ test.describe('Linked window editing compile regression', () => {
         await context.close();
     });
 
+    test('editor anchor commit keeps compiled a/adieresis intact across linked windows', async ({
+        browser
+    }) => {
+        test.setTimeout(180000);
+
+        const context = await browser.newContext();
+        const mainPage = await context.newPage();
+
+        await mainPage.goto('/?test=true');
+        await waitForCanvasReady(mainPage);
+        await loadAAdieresisTestFont(mainPage);
+        await waitForFontLoaded(mainPage);
+        await waitForBridgeReady(mainPage);
+
+        const [linkedPage] = await Promise.all([
+            context.waitForEvent('page'),
+            (async () => {
+                await mainPage.locator('#toolbar-window-menu-btn').click();
+                await mainPage
+                    .locator('.tippy-box:visible .plugin-menu-item', {
+                        hasText: 'Open In New Window'
+                    })
+                    .click();
+            })()
+        ]);
+
+        await waitForCanvasReady(linkedPage);
+        await loadAAdieresisTestFont(linkedPage);
+        await waitForFontLoaded(linkedPage);
+        await waitForFullStateSync(linkedPage);
+        await waitForBridgeReady(linkedPage);
+        await waitForWindowSyncReady(linkedPage);
+
+        await Promise.all([
+            linkedPage.waitForFunction(
+                () => (window as any).windowSync?.peers?.size > 0,
+                { timeout: 15000 }
+            ),
+            mainPage.waitForFunction(
+                () => (window as any).windowSync?.peers?.size > 0,
+                { timeout: 15000 }
+            )
+        ]);
+
+        await installEditingFontCompileTracker(mainPage);
+        await installEditingFontCompileTracker(linkedPage);
+        await installEditingFontVisualProbe(mainPage);
+        await installEditingFontVisualProbe(linkedPage);
+        await setAAdieresisEditingContext(mainPage);
+        await setAAdieresisEditingContext(linkedPage);
+
+        const initialMain = await getEditingFontCompileTracker(mainPage);
+        const initialLinked = await getEditingFontCompileTracker(linkedPage);
+        await Promise.all([
+            forceEditingCompile(mainPage, 'a'),
+            forceEditingCompile(linkedPage, 'a')
+        ]);
+        await waitForCompileOnBoth(
+            mainPage,
+            linkedPage,
+            initialMain.count,
+            initialLinked.count,
+            'initial anchor-commit setup compile'
+        );
+        await assertCompiledAAdieresisState(mainPage, 'initial sender');
+        await assertCompiledAAdieresisState(linkedPage, 'initial receiver');
+        await expectAAdieresisShapesPresent(mainPage, 'initial sender');
+        await expectAAdieresisShapesPresent(linkedPage, 'initial receiver');
+
+        const beforeSenderState = await getAAdieresisState(mainPage);
+
+        const beforeMain = await getEditingFontCompileTracker(mainPage);
+        const beforeLinked = await getEditingFontCompileTracker(linkedPage);
+        await commitAAdieresisEditorEdit(mainPage, 'anchor', 0, 37);
+        await waitForCompileOnBoth(
+            mainPage,
+            linkedPage,
+            beforeMain.count,
+            beforeLinked.count,
+            'editor anchor commit'
+        );
+
+        await expectAAdieresisShapesPresent(mainPage, 'sender after anchor');
+        await expectAAdieresisShapesPresent(
+            linkedPage,
+            'receiver after anchor'
+        );
+        const senderWorkerCounts = await getWorkerLayerShapeCounts(mainPage);
+        const receiverWorkerCounts =
+            await getWorkerLayerShapeCounts(linkedPage);
+        expect(
+            senderWorkerCounts.aYDocShapes,
+            `sender worker dump ${JSON.stringify(senderWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        expect(
+            senderWorkerCounts.aCanonicalShapes,
+            `sender worker dump ${JSON.stringify(senderWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        expect(
+            senderWorkerCounts.aSubsetShapes,
+            `sender worker dump ${JSON.stringify(senderWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        expect(
+            senderWorkerCounts.adieresisYDocShapes,
+            `sender worker dump ${JSON.stringify(senderWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        expect(
+            senderWorkerCounts.adieresisCanonicalShapes,
+            `sender worker dump ${JSON.stringify(senderWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        expect(
+            senderWorkerCounts.adieresisSubsetShapes,
+            `sender worker dump ${JSON.stringify(senderWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        expect(
+            receiverWorkerCounts.aYDocShapes,
+            `receiver worker dump ${JSON.stringify(receiverWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        expect(
+            receiverWorkerCounts.aCanonicalShapes,
+            `receiver worker dump ${JSON.stringify(receiverWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        expect(
+            receiverWorkerCounts.aSubsetShapes,
+            `receiver worker dump ${JSON.stringify(receiverWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        expect(
+            receiverWorkerCounts.adieresisYDocShapes,
+            `receiver worker dump ${JSON.stringify(receiverWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        expect(
+            receiverWorkerCounts.adieresisCanonicalShapes,
+            `receiver worker dump ${JSON.stringify(receiverWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        expect(
+            receiverWorkerCounts.adieresisSubsetShapes,
+            `receiver worker dump ${JSON.stringify(receiverWorkerCounts)}`
+        ).toBeGreaterThan(0);
+        await assertCompiledAAdieresisState(
+            mainPage,
+            'sender after editor anchor commit'
+        );
+        await assertCompiledAAdieresisState(
+            linkedPage,
+            'receiver after editor anchor commit'
+        );
+
+        const afterSenderState = await getAAdieresisState(mainPage);
+        const afterLinkedState = await getAAdieresisState(linkedPage);
+
+        expect(afterSenderState.anchorY).toBe(beforeSenderState.anchorY + 37);
+        expect(afterSenderState.markY).toBe(afterSenderState.anchorY);
+        expect(afterLinkedState.anchorY).toBe(afterSenderState.anchorY);
+        expect(afterLinkedState.markY).toBe(afterSenderState.markY);
+
+        await context.close();
+    });
+
     test('compiled a/adieresis stays correct through linked-window fuzz edits and undo/redo', async ({
         browser
     }) => {
@@ -1226,6 +1786,137 @@ test.describe('Linked window editing compile regression', () => {
                     afterLinked.hash,
                     `linked compiled font bytes should change after metric-only ${operation.label} ${operation.kind} ${step}`
                 ).not.toBe(beforeLinked.hash);
+            }
+        }
+
+        await context.close();
+    });
+
+    test('sender keeps compiling through a dependent undo drain and next edit', async ({
+        browser
+    }) => {
+        test.setTimeout(420000);
+
+        const context = await browser.newContext();
+        const mainPage = await context.newPage();
+
+        failOnEditingCompileReadinessError(mainPage, 'sender');
+
+        await mainPage.goto('/?test=true');
+        await waitForCanvasReady(mainPage);
+        await loadAAdieresisTestFont(mainPage);
+        await waitForFontLoaded(mainPage);
+        await waitForBridgeReady(mainPage);
+
+        const [linkedPage] = await Promise.all([
+            context.waitForEvent('page'),
+            (async () => {
+                await mainPage.locator('#toolbar-window-menu-btn').click();
+                await mainPage
+                    .locator('.tippy-box:visible .plugin-menu-item', {
+                        hasText: 'Open In New Window'
+                    })
+                    .click();
+            })()
+        ]);
+
+        failOnEditingCompileReadinessError(linkedPage, 'receiver');
+
+        await waitForCanvasReady(linkedPage);
+        await loadAAdieresisTestFont(linkedPage);
+        await waitForFontLoaded(linkedPage);
+        await waitForFullStateSync(linkedPage);
+        await waitForBridgeReady(linkedPage);
+        await waitForWindowSyncReady(linkedPage);
+
+        await Promise.all([
+            linkedPage.waitForFunction(
+                () => (window as any).windowSync?.peers?.size > 0,
+                { timeout: 15000 }
+            ),
+            mainPage.waitForFunction(
+                () => (window as any).windowSync?.peers?.size > 0,
+                { timeout: 15000 }
+            )
+        ]);
+
+        await installEditingFontCompileTracker(mainPage);
+        await installEditingFontCompileTracker(linkedPage);
+        await installEditingFontVisualProbe(mainPage);
+        await installEditingFontVisualProbe(linkedPage);
+        const beforeInitialMain = await getEditingFontCompileTracker(mainPage);
+        const beforeInitialLinked =
+            await getEditingFontCompileTracker(linkedPage);
+        await setAAdieresisEditingContext(mainPage);
+        await setAAdieresisEditingContext(linkedPage);
+        await waitForCompileOnBoth(
+            mainPage,
+            linkedPage,
+            beforeInitialMain.count,
+            beforeInitialLinked.count,
+            'initial sender undo-drain context'
+        );
+        await assertCompiledAAdieresisState(mainPage, 'initial sender');
+        await assertCompiledAAdieresisState(linkedPage, 'initial receiver');
+
+        const expectedStates = [await snapshotCompiledUndoDrainState(mainPage)];
+        const operations: Array<{
+            kind: 'outline' | 'anchor' | 'undo';
+            delta?: number;
+            expectedStateIndex?: number;
+        }> = [
+            { kind: 'outline', delta: 17 },
+            { kind: 'anchor', delta: 23 },
+            { kind: 'outline', delta: 11 },
+            { kind: 'undo', expectedStateIndex: 2 },
+            { kind: 'undo', expectedStateIndex: 1 },
+            { kind: 'undo', expectedStateIndex: 0 },
+            { kind: 'outline', delta: 7 }
+        ];
+
+        for (let step = 0; step < operations.length; step++) {
+            const operation = operations[step];
+            const beforeMain = await getEditingFontCompileTracker(mainPage);
+            const beforeLinked = await getEditingFontCompileTracker(linkedPage);
+            const preUndoState =
+                operation.kind === 'undo'
+                    ? await snapshotCompiledUndoDrainState(mainPage)
+                    : null;
+
+            await performSenderUndoDrainOperation(
+                mainPage,
+                operation.kind,
+                step,
+                operation.delta ?? 0
+            );
+
+            await waitForCompileOnBoth(
+                mainPage,
+                linkedPage,
+                beforeMain.count,
+                beforeLinked.count,
+                `sender undo-drain ${operation.kind} ${step}`
+            );
+            await assertCompiledAAdieresisState(
+                mainPage,
+                `sender after ${operation.kind} ${step}`
+            );
+            await assertCompiledAAdieresisState(
+                linkedPage,
+                `receiver after ${operation.kind} ${step}`
+            );
+
+            const actualSenderState =
+                await snapshotCompiledUndoDrainState(mainPage);
+            if (operation.kind === 'undo') {
+                expectUndoDrainSnapshotRestored(
+                    actualSenderState,
+                    expectedStates[operation.expectedStateIndex ?? 0],
+                    preUndoState,
+                    `sender after undo ${step}`
+                );
+            } else {
+                expectedStates.push(actualSenderState);
             }
         }
 

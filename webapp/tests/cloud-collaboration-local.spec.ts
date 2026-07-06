@@ -4037,7 +4037,7 @@ test.describe('Local cloud collaboration', () => {
         await formerOwnerContext.close();
     });
 
-    test('supports linked-window sync and cloud sync simultaneously', async ({
+    test('keeps base and dependent glyphs compiled through an anchor edit across linked-window and cloud peers', async ({
         browser
     }) => {
         test.setTimeout(240000);
@@ -4091,6 +4091,36 @@ test.describe('Local cloud collaboration', () => {
         await waitForCloudConnected(remotePage);
         await waitForAuthenticatedCloudSession(remotePage);
         await installEditingFontCompileTracker(remotePage);
+
+        await setupEditTextMode(mainPage, 'ö');
+        await setupEditTextMode(linkedPage, 'ö');
+        await setupEditTextMode(remotePage, 'ö');
+        await waitForCompiledGlyphBounds(mainPage, 'odieresis');
+        await waitForCompiledGlyphBounds(linkedPage, 'odieresis');
+        await waitForCompiledGlyphBounds(remotePage, 'odieresis');
+
+        await setupEditTextMode(mainPage, 'o');
+        await setupEditTextMode(linkedPage, 'o');
+        await setupEditTextMode(remotePage, 'o');
+        await waitForCompiledGlyphBounds(mainPage, 'o');
+        await waitForCompiledGlyphBounds(linkedPage, 'o');
+        await waitForCompiledGlyphBounds(remotePage, 'o');
+
+        const beforeBaseBoundsMain = await getCompiledGlyphBounds(
+            mainPage,
+            'o'
+        );
+        const beforeBaseBoundsLinked = await getCompiledGlyphBounds(
+            linkedPage,
+            'o'
+        );
+        const beforeBaseBoundsRemote = await getCompiledGlyphBounds(
+            remotePage,
+            'o'
+        );
+
+        expect(beforeBaseBoundsLinked).toEqual(beforeBaseBoundsMain);
+        expect(beforeBaseBoundsRemote).toEqual(beforeBaseBoundsMain);
 
         await setupEditTextMode(mainPage, 'ö');
         await setupEditTextMode(linkedPage, 'ö');
@@ -4255,6 +4285,27 @@ test.describe('Local cloud collaboration', () => {
         expect(afterTopAnchorRemote).toEqual(afterTopAnchorMain);
         expect(afterBoundsLinked).toEqual(afterBoundsMain);
         expect(afterBoundsRemote).toEqual(afterBoundsMain);
+
+        await setupEditTextMode(mainPage, 'o');
+        await setupEditTextMode(linkedPage, 'o');
+        await setupEditTextMode(remotePage, 'o');
+        await waitForCompiledGlyphBounds(mainPage, 'o');
+        await waitForCompiledGlyphBounds(linkedPage, 'o');
+        await waitForCompiledGlyphBounds(remotePage, 'o');
+
+        const afterBaseBoundsMain = await getCompiledGlyphBounds(mainPage, 'o');
+        const afterBaseBoundsLinked = await getCompiledGlyphBounds(
+            linkedPage,
+            'o'
+        );
+        const afterBaseBoundsRemote = await getCompiledGlyphBounds(
+            remotePage,
+            'o'
+        );
+
+        expect(afterBaseBoundsMain).toEqual(beforeBaseBoundsMain);
+        expect(afterBaseBoundsLinked).toEqual(beforeBaseBoundsMain);
+        expect(afterBaseBoundsRemote).toEqual(beforeBaseBoundsMain);
 
         await remoteContext.close();
         await mainContext.close();

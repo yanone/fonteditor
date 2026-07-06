@@ -18010,10 +18010,7 @@ export class OutlineEditor {
                         fontManager.serializeLayerForCommittedSync(
                             target.glyphName,
                             target.layerId,
-                            modelLayer.toJSON(),
-                            compileMetadata?.editType === 'anchor'
-                                ? { preserveExistingShapes: true }
-                                : undefined
+                            modelLayer.toJSON()
                         );
                     if (!serializedLayer) {
                         continue;

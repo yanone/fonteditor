@@ -101,20 +101,6 @@ export const validate_feature_source_with_full_filter_pipeline: (
     a: any
 ) => [number, number];
 export const version: () => [number, number];
-export const add_master_with_interpolated_layers_yjs: (
-    a: number,
-    b: number
-) => [number, number, number];
-export const reinterpolate_layer_yjs: (
-    a: number,
-    b: number,
-    c: number,
-    d: number
-) => [number, number, number];
-export const reinterpolate_master_layers_yjs: (
-    a: number,
-    b: number
-) => [number, number, number];
 export const get_font_axes: (
     a: number,
     b: number
@@ -146,6 +132,20 @@ export const run_fontspector: (
     c: number,
     d: number
 ) => [number, number, number, number];
+export const add_master_with_interpolated_layers_yjs: (
+    a: number,
+    b: number
+) => [number, number, number];
+export const reinterpolate_layer_yjs: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number];
+export const reinterpolate_master_layers_yjs: (
+    a: number,
+    b: number
+) => [number, number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (
     a: number,

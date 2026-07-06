@@ -100,6 +100,35 @@ describe('FontCompilation worker document readiness', () => {
         }
     );
 
+    test('failed applyYjsUpdate keeps the worker document sync rejected and not ready', async () => {
+        const { fontCompilation, getPostedMessage } =
+            createReadyFontCompilation();
+
+        const messagePromise = fontCompilation.sendMessage({
+            type: 'applyYjsUpdate',
+            update: new Uint8Array([4, 5, 6]),
+            changedGlyphs: ['a']
+        });
+
+        expect(fontCompilation.workerCacheDocumentReady).toBe(false);
+
+        fontCompilation.handleWorkerMessage({
+            data: {
+                id: getPostedMessage().id,
+                type: 'applyYjsUpdate',
+                error: 'RuntimeError: unreachable'
+            }
+        });
+
+        await expect(messagePromise).rejects.toThrow(
+            'RuntimeError: unreachable'
+        );
+        await expect(fontCompilation.awaitWorkerDocumentSync()).rejects.toThrow(
+            'RuntimeError: unreachable'
+        );
+        expect(fontCompilation.workerCacheDocumentReady).toBe(false);
+    });
+
     test('cached editing compiles send the incremental sentinel when the worker document is ready', async () => {
         const { fontCompilation } = createReadyFontCompilation();
         const sendMessageSpy = jest
