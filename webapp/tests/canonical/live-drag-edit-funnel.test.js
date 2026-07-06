@@ -102,6 +102,40 @@ describe('LiveDragEditFunnel', () => {
         ).toHaveBeenCalledTimes(1);
     });
 
+    test('does not wake live compile while worker Yjs document is not ready', async () => {
+        const originalFontCompilation = window.fontCompilation;
+        window.fontCompilation = {
+            isInitialized: true,
+            hasWorkerCacheDocument: jest.fn(() => false)
+        };
+
+        const funnel = new LiveDragEditFunnel();
+
+        try {
+            funnel.queue({
+                kind: 'outline',
+                compile: {
+                    changeSource: 'mouse-drag-outline',
+                    editType: 'outline'
+                },
+                run: () => true
+            });
+
+            await funnel.drainAndClearQueued();
+        } finally {
+            window.fontCompilation = originalFontCompilation;
+        }
+
+        expect(
+            window.fontManager.currentFont.requestRecompileWithoutDataChange
+        ).not.toHaveBeenCalled();
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).not.toHaveBeenCalled();
+        expect(window.fontManager.lastChangeSource).toBeNull();
+        expect(window.fontManager.lastEditType).toBeNull();
+    });
+
     test('coalesces queued drag refreshes behind the running refresh', async () => {
         const funnel = new LiveDragEditFunnel();
         const first = deferred();

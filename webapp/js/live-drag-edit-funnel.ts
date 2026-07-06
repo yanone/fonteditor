@@ -123,6 +123,14 @@ export class LiveDragEditFunnel {
             return;
         }
 
+        const fontCompilation = window.fontCompilation;
+        if (
+            fontCompilation?.isInitialized &&
+            !fontCompilation.hasWorkerCacheDocument?.()
+        ) {
+            return;
+        }
+
         const fm = window.fontManager;
         const currentFont = fm?.currentFont;
         if (!fm || !currentFont) {

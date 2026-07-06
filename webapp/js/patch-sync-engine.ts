@@ -78,6 +78,15 @@ export type CommittedChangeListener = (
     }
 ) => void;
 
+export class MetadataFreeRemoteUpdateError extends Error {
+    constructor() {
+        super(
+            'Refusing metadata-free non-noop remote Yjs update; semantic metadata is required for scoped model and compile convergence'
+        );
+        this.name = 'MetadataFreeRemoteUpdateError';
+    }
+}
+
 export type CollaborationLogItem = {
     id: string;
     direction: 'local' | 'remote';
@@ -1630,9 +1639,11 @@ export class PatchSyncEngine {
             }
 
             this._syncJsonFromYDoc(
-                scope === 'layer' && target.glyphName && target.layerId
-                    ? { glyphName: target.glyphName, layerId: target.layerId }
-                    : null
+                workerReplayTargets.length > 0
+                    ? workerReplayTargets
+                    : scope === 'layer' && target.glyphName && target.layerId
+                      ? { glyphName: target.glyphName, layerId: target.layerId }
+                      : null
             );
 
             this._onAfterSync?.();
@@ -1766,9 +1777,11 @@ export class PatchSyncEngine {
             }
 
             this._syncJsonFromYDoc(
-                scope === 'layer' && target.glyphName && target.layerId
-                    ? { glyphName: target.glyphName, layerId: target.layerId }
-                    : null
+                workerReplayTargets.length > 0
+                    ? workerReplayTargets
+                    : scope === 'layer' && target.glyphName && target.layerId
+                      ? { glyphName: target.glyphName, layerId: target.layerId }
+                      : null
             );
 
             this._onAfterSync?.();
@@ -1913,7 +1926,12 @@ export class PatchSyncEngine {
                           }
                       )
                   ) ?? []);
-            const beforeStateVector = Y.encodeStateVector(this.yDoc);
+            if (!effectiveRemoteEntries.length) {
+                if (this._isRemoteUpdateNoop(update)) {
+                    return;
+                }
+                throw new MetadataFreeRemoteUpdateError();
+            }
             // Apply linked-window updates using the shared same-user origin so
             // every window can undo the combined edit history.
             Y.applyUpdate(
@@ -1921,22 +1939,6 @@ export class PatchSyncEngine {
                 update,
                 this._getRemoteUpdateOrigin(effectiveRemoteEntries)
             );
-            const afterStateVector = Y.encodeStateVector(this.yDoc);
-            const isNoopRemoteUpdate =
-                beforeStateVector.length === afterStateVector.length &&
-                beforeStateVector.every(
-                    (value, index) => value === afterStateVector[index]
-                );
-            // Bootstrap/reconciliation packets can legitimately arrive without
-            // semantic change-log metadata. If such a packet is also a CRDT
-            // no-op, suppress all receiver side effects so it cannot mark the
-            // font dirty or wake remote compile paths.
-            if (
-                isNoopRemoteUpdate &&
-                (!effectiveRemoteEntries || effectiveRemoteEntries.length === 0)
-            ) {
-                return;
-            }
             if (effectiveRemoteEntries?.length) {
                 const glyphNames = new Set(
                     effectiveRemoteEntries
@@ -1989,6 +1991,22 @@ export class PatchSyncEngine {
             this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
         } finally {
             this._isApplyingRemote = false;
+        }
+    }
+
+    private _isRemoteUpdateNoop(update: Uint8Array): boolean {
+        const probeDoc = new Y.Doc({ gc: false });
+        try {
+            Y.applyUpdate(probeDoc, Y.encodeStateAsUpdate(this.yDoc));
+            const beforeState = Y.encodeStateAsUpdate(probeDoc);
+            Y.applyUpdate(probeDoc, update);
+            const afterState = Y.encodeStateAsUpdate(probeDoc);
+            return (
+                beforeState.length === afterState.length &&
+                beforeState.every((value, index) => value === afterState[index])
+            );
+        } finally {
+            probeDoc.destroy();
         }
     }
 

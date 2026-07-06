@@ -353,17 +353,24 @@ export class WindowSync {
                 if (packet.collaborationMessage) {
                     collaborationMessageCount += 1;
                 }
-                this._bridge.applyRemoteUpdate(
-                    update,
-                    undefined,
-                    packet.collaborationMessage
-                        ? [packet.collaborationMessage]
-                        : undefined
-                );
-                if (window.windowRole?.isMainWindow()) {
-                    window.cloudPlugin?.relayPeerWindowUpdateToCloud?.(
+                try {
+                    this._bridge.applyRemoteUpdate(
                         update,
-                        packet.collaborationMessage ?? null
+                        undefined,
+                        packet.collaborationMessage
+                            ? [packet.collaborationMessage]
+                            : undefined
+                    );
+                    if (window.windowRole?.isMainWindow()) {
+                        window.cloudPlugin?.relayPeerWindowUpdateToCloud?.(
+                            update,
+                            packet.collaborationMessage ?? null
+                        );
+                    }
+                } catch (error) {
+                    console.warn(
+                        'WindowSync: failed to apply inbound Yjs update:',
+                        error
                     );
                 }
             }

@@ -92,20 +92,205 @@ function makeTestFont(): string {
     });
 }
 
+function makeAAdieresisTestFont(): string {
+    return JSON.stringify({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        instances: [],
+        masters: [
+            {
+                name: { dflt: 'Regular' },
+                id: 'M0',
+                location: {},
+                guides: [],
+                metrics: {},
+                kerning: {},
+                custom_ot_values: {},
+                format_specific: {}
+            }
+        ],
+        glyphs: [
+            {
+                name: '.notdef',
+                category: 'Base',
+                layers: [
+                    {
+                        width: 600,
+                        id: 'L0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: rectLineNodes(
+                                    0,
+                                    0,
+                                    600,
+                                    0,
+                                    600,
+                                    700,
+                                    0,
+                                    700
+                                ),
+                                closed: true
+                            }
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            },
+            {
+                name: 'a',
+                category: 'Base',
+                codepoints: [97],
+                layers: [
+                    {
+                        width: 520,
+                        id: 'L0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: rectLineNodes(
+                                    90,
+                                    0,
+                                    430,
+                                    0,
+                                    430,
+                                    470,
+                                    90,
+                                    470
+                                ),
+                                closed: true
+                            }
+                        ],
+                        anchors: [{ name: 'top', x: 260, y: 500 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            },
+            {
+                name: 'dieresiscomb',
+                category: 'Mark',
+                codepoints: [776],
+                layers: [
+                    {
+                        width: 0,
+                        id: 'L0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: rectLineNodes(
+                                    140,
+                                    0,
+                                    210,
+                                    0,
+                                    210,
+                                    70,
+                                    140,
+                                    70
+                                ),
+                                closed: true
+                            },
+                            {
+                                nodes: rectLineNodes(
+                                    300,
+                                    0,
+                                    370,
+                                    0,
+                                    370,
+                                    70,
+                                    300,
+                                    70
+                                ),
+                                closed: true
+                            }
+                        ],
+                        anchors: [{ name: '_top', x: 255, y: 0 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            },
+            {
+                name: 'adieresis',
+                category: 'Base',
+                codepoints: [228],
+                layers: [
+                    {
+                        width: 520,
+                        id: 'L0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                reference: 'a',
+                                transform: {
+                                    translation: [0, 0],
+                                    scale: [1, 1],
+                                    rotation: 0,
+                                    skew: [0, 0],
+                                    order: 'RestOfTheWorld'
+                                }
+                            },
+                            {
+                                reference: 'dieresiscomb',
+                                transform: {
+                                    translation: [0, 500],
+                                    scale: [1, 1],
+                                    rotation: 0,
+                                    skew: [0, 0],
+                                    order: 'RestOfTheWorld'
+                                }
+                            }
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            }
+        ],
+        date: new Date().toISOString(),
+        names: { family_name: { dflt: 'LinkedCompileFuzzTest' } },
+        features: { classes: {}, prefixes: {}, features: [] }
+    });
+}
+
 async function loadTestFont(page: Page): Promise<void> {
     const fontJson = makeTestFont();
-    await page.evaluate((json) => {
-        const plugin = (window as any).pluginRegistry.get('memory');
-        window.dispatchEvent(
-            new CustomEvent('fontLoaded', {
-                detail: {
-                    path: '/test/LinkedCompileTest.babelfont',
-                    babelfontJson: json,
-                    sourcePlugin: plugin
-                }
-            })
-        );
-    }, fontJson);
+    await loadFontJson(page, fontJson, '/test/LinkedCompileTest.babelfont');
+}
+
+async function loadAAdieresisTestFont(page: Page): Promise<void> {
+    const fontJson = makeAAdieresisTestFont();
+    await loadFontJson(page, fontJson, '/test/LinkedCompileFuzzTest.babelfont');
+}
+
+async function loadFontJson(
+    page: Page,
+    fontJson: string,
+    path: string
+): Promise<void> {
+    await page.evaluate(
+        ({ json, fontPath }) => {
+            const plugin = (window as any).pluginRegistry.get('memory');
+            window.dispatchEvent(
+                new CustomEvent('fontLoaded', {
+                    detail: {
+                        path: fontPath,
+                        babelfontJson: json,
+                        sourcePlugin: plugin
+                    }
+                })
+            );
+        },
+        { json: fontJson, fontPath: path }
+    );
 }
 
 async function waitForBridgeReady(page: Page): Promise<void> {
@@ -356,6 +541,217 @@ function expectVisualSampleChanged(
     ).toBe(true);
 }
 
+function expectAdieresisSampleContainsBase(
+    aSample: EditingFontVisualSample,
+    adieresisSample: EditingFontVisualSample,
+    label: string
+): void {
+    expectVisualSampleNonEmpty(aSample);
+    expectVisualSampleNonEmpty(adieresisSample);
+    expect(
+        adieresisSample.pixelCount,
+        `${label}: adieresis should contain base-like ink, not only the mark. a=${JSON.stringify(aSample)} adieresis=${JSON.stringify(adieresisSample)}`
+    ).toBeGreaterThan(aSample.pixelCount * 0.45);
+    expect(
+        adieresisSample.height,
+        `${label}: adieresis should be at least as tall as base a. a=${JSON.stringify(aSample)} adieresis=${JSON.stringify(adieresisSample)}`
+    ).toBeGreaterThanOrEqual(aSample.height);
+    expect(
+        adieresisSample.width,
+        `${label}: adieresis should preserve the base a width. a=${JSON.stringify(aSample)} adieresis=${JSON.stringify(adieresisSample)}`
+    ).toBeGreaterThan(aSample.width * 0.8);
+}
+
+function makeSeededRandom(seed: number): () => number {
+    let state = seed >>> 0;
+    return () => {
+        state = (state * 1664525 + 1013904223) >>> 0;
+        return state / 0x100000000;
+    };
+}
+
+async function setAAdieresisEditingContext(page: Page): Promise<void> {
+    await page.evaluate(async () => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+        if (!glyphCanvas || !textRunEditor || !outlineEditor) {
+            throw new Error('Missing glyph canvas editor dependencies');
+        }
+
+        textRunEditor.setTextBuffer('aä');
+        await textRunEditor.selectGlyphByIndex(0, true);
+        outlineEditor.active = true;
+        outlineEditor.currentGlyphName = 'a';
+        outlineEditor.selectedLayerId = 'L0';
+        await glyphCanvas.doUIUpdateAsync?.();
+    });
+    await page.waitForFunction(
+        () => {
+            const tr = (window as any).glyphCanvas?.textRunEditor;
+            return tr?.textBuffer === 'aä' && tr?.shapedGlyphs?.length >= 2;
+        },
+        { timeout: 20000 }
+    );
+}
+
+async function commitAAdieresisEdit(
+    page: Page,
+    kind: 'outline' | 'anchor' | 'sidebearing',
+    step: number,
+    delta: number
+): Promise<void> {
+    await page.evaluate(
+        ({ kind, step, delta }) => {
+            const fontManager = (window as any).fontManager;
+            const bridge = (window as any).patchSyncEngine;
+            const fontJson = fontManager?.currentFont?.babelfontData;
+            if (!fontManager || !bridge || !fontJson?.glyphs) {
+                throw new Error('Missing font manager or change bridge');
+            }
+
+            const findLayer = (glyphName: string) => {
+                const glyph = fontJson.glyphs.find(
+                    (entry: any) => entry.name === glyphName
+                );
+                const layer = glyph?.layers?.find(
+                    (entry: any) => entry.id === 'L0'
+                );
+                if (!layer) {
+                    throw new Error(`Missing ${glyphName}/L0`);
+                }
+                return layer;
+            };
+
+            const aLayer = findLayer('a');
+            const adieresisLayer = findLayer('adieresis');
+            if (kind === 'outline') {
+                aLayer.shapes[0].nodes[0].x += delta;
+            } else if (kind === 'anchor') {
+                aLayer.anchors[0].y += delta;
+                adieresisLayer.shapes[1].transform.translation[1] =
+                    aLayer.anchors[0].y;
+            } else {
+                aLayer.width += delta;
+                adieresisLayer.width = aLayer.width;
+            }
+
+            const replayTargets = [
+                { glyphName: 'a', layerId: 'L0' },
+                { glyphName: 'adieresis', layerId: 'L0' }
+            ];
+            bridge.syncLayersFromJson(
+                replayTargets,
+                `fuzz ${kind} ${step}`,
+                undefined,
+                undefined,
+                kind === 'sidebearing' ? 'left' : undefined,
+                replayTargets,
+                `fuzz-${kind}`,
+                `fuzz-${kind}`,
+                kind === 'sidebearing' ? null : kind
+            );
+        },
+        { kind, step, delta }
+    );
+}
+
+async function runAAdieresisUndoRedo(
+    page: Page,
+    action: 'undo' | 'redo'
+): Promise<void> {
+    await page.evaluate(async (historyAction) => {
+        const runBridgeUndoRedo = (window as any).runBridgeUndoRedo;
+        if (typeof runBridgeUndoRedo !== 'function') {
+            throw new Error('runBridgeUndoRedo is unavailable');
+        }
+        await runBridgeUndoRedo(historyAction, 'a', 'a', 'L0');
+    }, action);
+}
+
+async function canRunAAdieresisUndoRedo(
+    page: Page,
+    action: 'undo' | 'redo'
+): Promise<boolean> {
+    return page.evaluate((historyAction) => {
+        const bridge = (window as any).patchSyncEngine;
+        if (!bridge) {
+            return false;
+        }
+        return historyAction === 'undo'
+            ? bridge.canUndo?.('a', 'L0') === true
+            : bridge.canRedo?.('a', 'L0') === true;
+    }, action);
+}
+
+async function assertCompiledAAdieresisState(
+    page: Page,
+    label: string
+): Promise<void> {
+    const aSample = await getEditingFontVisualSample(page, 'a');
+    const adieresisSample = await getEditingFontVisualSample(page, 'ä');
+    expectAdieresisSampleContainsBase(aSample, adieresisSample, label);
+}
+
+async function getAAdieresisState(page: Page): Promise<{
+    anchorY: number;
+    markY: number;
+    nodeX: number;
+    width: number;
+}> {
+    return page.evaluate(() => {
+        const fontJson = (window as any).fontManager?.currentFont
+            ?.babelfontData;
+        const findLayer = (glyphName: string) => {
+            const glyph = fontJson?.glyphs?.find(
+                (entry: any) => entry.name === glyphName
+            );
+            return glyph?.layers?.find((entry: any) => entry.id === 'L0');
+        };
+        const aLayer = findLayer('a');
+        const adieresisLayer = findLayer('adieresis');
+        return {
+            anchorY: Number(aLayer?.anchors?.[0]?.y),
+            markY: Number(
+                adieresisLayer?.shapes?.[1]?.transform?.translation?.[1]
+            ),
+            nodeX: Number(aLayer?.shapes?.[0]?.nodes?.[0]?.x),
+            width: Number(aLayer?.width)
+        };
+    });
+}
+
+async function waitForCompileOnBoth(
+    mainPage: Page,
+    linkedPage: Page,
+    beforeMain: number,
+    beforeLinked: number,
+    label = 'operation'
+): Promise<void> {
+    const [mainResult, linkedResult] = await Promise.allSettled([
+        waitForEditingFontCompileEvent(mainPage, beforeMain),
+        waitForEditingFontCompileEvent(linkedPage, beforeLinked)
+    ]);
+    if (
+        mainResult.status === 'fulfilled' &&
+        linkedResult.status === 'fulfilled'
+    ) {
+        return;
+    }
+
+    const [afterMain, afterLinked] = await Promise.all([
+        getEditingFontCompileTracker(mainPage),
+        getEditingFontCompileTracker(linkedPage)
+    ]);
+    throw new Error(
+        [
+            `Expected app-driven editing-font compiles in both windows after ${label}`,
+            `main: before=${beforeMain}, after=${afterMain.count}, status=${mainResult.status}`,
+            `linked: before=${beforeLinked}, after=${afterLinked.count}, status=${linkedResult.status}`
+        ].join('\n')
+    );
+}
+
 async function setEditingContext(
     page: Page,
     glyphName: string,
@@ -578,7 +974,7 @@ test.describe('Linked window editing compile regression', () => {
         );
 
         expect(afterRemote.count).toBeGreaterThan(beforeRemote.count);
-        expect(afterRemote.revision).toBeGreaterThan(beforeRemote.revision);
+        expect(afterRemote.hash).not.toBe(beforeRemote.hash);
         expectVisualSampleChanged(
             beforeRemoteVisual,
             afterRemoteVisual,
@@ -608,15 +1004,230 @@ test.describe('Linked window editing compile regression', () => {
         const afterLocal = await getEditingFontCompileTracker(linkedPage);
 
         expect(afterLocal.count).toBeGreaterThan(beforeLocal.count);
-        expect(afterLocal.revision).toBeGreaterThan(beforeLocal.revision);
         // Note: direct model mutation + syncJsonFromModel on a Yjs-synced
         // linked window does not produce different compiled font bytes
         // (the model proxy mutation doesn't alter the serialized JSON).
         // The Yjs-driven remote path above already proves the full pipeline
         // (Yjs → worker → fresh font → visible output change). The local
-        // edit assertions here verify a compile event was emitted with a
-        // newer revision, confirming the linked page's own editing path
-        // also schedules and fires compiles for local changes.
+        // edit assertions here verify a compile event was emitted, confirming
+        // the linked page's own editing path also fires compiles for local
+        // changes. The app-scheduled fuzz test below checks compiled output
+        // after every step.
+
+        await context.close();
+    });
+
+    test('compiled a/adieresis stays correct through linked-window fuzz edits and undo/redo', async ({
+        browser
+    }) => {
+        test.setTimeout(420000);
+
+        const context = await browser.newContext();
+        const mainPage = await context.newPage();
+
+        await mainPage.goto('/?test=true');
+        await waitForCanvasReady(mainPage);
+        await loadAAdieresisTestFont(mainPage);
+        await waitForFontLoaded(mainPage);
+        await waitForBridgeReady(mainPage);
+
+        const [linkedPage] = await Promise.all([
+            context.waitForEvent('page'),
+            (async () => {
+                await mainPage.locator('#toolbar-window-menu-btn').click();
+                await mainPage
+                    .locator('.tippy-box:visible .plugin-menu-item', {
+                        hasText: 'Open In New Window'
+                    })
+                    .click();
+            })()
+        ]);
+
+        await waitForCanvasReady(linkedPage);
+        await loadAAdieresisTestFont(linkedPage);
+        await waitForFontLoaded(linkedPage);
+        await waitForFullStateSync(linkedPage);
+        await waitForBridgeReady(linkedPage);
+        await waitForWindowSyncReady(linkedPage);
+
+        await Promise.all([
+            linkedPage.waitForFunction(
+                () => (window as any).windowSync?.peers?.size > 0,
+                { timeout: 15000 }
+            ),
+            mainPage.waitForFunction(
+                () => (window as any).windowSync?.peers?.size > 0,
+                { timeout: 15000 }
+            )
+        ]);
+
+        await installEditingFontCompileTracker(mainPage);
+        await installEditingFontCompileTracker(linkedPage);
+        await installEditingFontVisualProbe(mainPage);
+        await installEditingFontVisualProbe(linkedPage);
+        await setAAdieresisEditingContext(mainPage);
+        await setAAdieresisEditingContext(linkedPage);
+
+        const initialMain = await getEditingFontCompileTracker(mainPage);
+        const initialLinked = await getEditingFontCompileTracker(linkedPage);
+        await Promise.all([
+            forceEditingCompile(mainPage, 'a'),
+            forceEditingCompile(linkedPage, 'a')
+        ]);
+        await waitForCompileOnBoth(
+            mainPage,
+            linkedPage,
+            initialMain.count,
+            initialLinked.count,
+            'initial explicit compile setup'
+        );
+        await assertCompiledAAdieresisState(mainPage, 'initial main');
+        await assertCompiledAAdieresisState(linkedPage, 'initial linked');
+
+        const random = makeSeededRandom(0xaad1e);
+        const operations: Array<{
+            page: Page;
+            label: string;
+            kind: 'outline' | 'anchor' | 'sidebearing' | 'undo' | 'redo';
+        }> = [
+            { page: linkedPage, label: 'linked', kind: 'anchor' },
+            { page: mainPage, label: 'main', kind: 'undo' }
+        ];
+        const pages = [
+            { page: mainPage, label: 'main' },
+            { page: linkedPage, label: 'linked' }
+        ];
+        const kinds: Array<
+            'outline' | 'anchor' | 'sidebearing' | 'undo' | 'redo'
+        > = ['outline', 'anchor', 'sidebearing', 'undo', 'redo'];
+        for (let index = 0; index < 6; index++) {
+            const pageInfo = pages[Math.floor(random() * pages.length)];
+            operations.push({
+                ...pageInfo,
+                kind: kinds[Math.floor(random() * kinds.length)]
+            });
+        }
+        const undoStack: Array<'outline' | 'anchor' | 'sidebearing'> = [];
+        const redoStack: Array<'outline' | 'anchor' | 'sidebearing'> = [];
+
+        for (let step = 0; step < operations.length; step++) {
+            const operation = operations[step];
+            const beforeMain = await getEditingFontCompileTracker(mainPage);
+            const beforeLinked = await getEditingFontCompileTracker(linkedPage);
+            const beforeMainAdieresis = await getEditingFontVisualSample(
+                mainPage,
+                'ä'
+            );
+            const beforeLinkedAdieresis = await getEditingFontVisualSample(
+                linkedPage,
+                'ä'
+            );
+            const beforeMainState = await getAAdieresisState(mainPage);
+            const beforeLinkedState = await getAAdieresisState(linkedPage);
+            let visualChangeExpected = false;
+
+            if (
+                operation.kind === 'outline' ||
+                operation.kind === 'anchor' ||
+                operation.kind === 'sidebearing'
+            ) {
+                visualChangeExpected = operation.kind !== 'sidebearing';
+                await commitAAdieresisEdit(
+                    operation.page,
+                    operation.kind,
+                    step,
+                    8 + Math.floor(random() * 12)
+                );
+                undoStack.push(operation.kind);
+                redoStack.length = 0;
+            } else {
+                if (
+                    (operation.kind === 'undo'
+                        ? undoStack.length > 0
+                        : redoStack.length > 0) &&
+                    (await canRunAAdieresisUndoRedo(
+                        operation.page,
+                        operation.kind
+                    ))
+                ) {
+                    const historyKind =
+                        operation.kind === 'undo'
+                            ? undoStack.pop()
+                            : redoStack.pop();
+                    if (historyKind) {
+                        if (operation.kind === 'undo') {
+                            redoStack.push(historyKind);
+                        } else {
+                            undoStack.push(historyKind);
+                        }
+                    }
+                    visualChangeExpected = historyKind !== 'sidebearing';
+                    await runAAdieresisUndoRedo(operation.page, operation.kind);
+                } else {
+                    operation.kind = 'outline';
+                    visualChangeExpected = true;
+                    await commitAAdieresisEdit(
+                        operation.page,
+                        operation.kind,
+                        step,
+                        8 + Math.floor(random() * 12)
+                    );
+                    undoStack.push(operation.kind);
+                    redoStack.length = 0;
+                }
+            }
+
+            await waitForCompileOnBoth(
+                mainPage,
+                linkedPage,
+                beforeMain.count,
+                beforeLinked.count,
+                `${operation.label} ${operation.kind} ${step}`
+            );
+            const afterMain = await getEditingFontCompileTracker(mainPage);
+            const afterLinked = await getEditingFontCompileTracker(linkedPage);
+            await assertCompiledAAdieresisState(
+                mainPage,
+                `main after ${operation.label} ${operation.kind} ${step}`
+            );
+            await assertCompiledAAdieresisState(
+                linkedPage,
+                `linked after ${operation.label} ${operation.kind} ${step}`
+            );
+            if (visualChangeExpected) {
+                const afterMainState = await getAAdieresisState(mainPage);
+                const afterLinkedState = await getAAdieresisState(linkedPage);
+                expect(
+                    afterMainState,
+                    `main model state should change after ${operation.label} ${operation.kind} ${step}`
+                ).not.toEqual(beforeMainState);
+                expect(
+                    afterLinkedState,
+                    `linked model state should change after ${operation.label} ${operation.kind} ${step}`
+                ).not.toEqual(beforeLinkedState);
+            }
+            if (visualChangeExpected) {
+                expectVisualSampleChanged(
+                    beforeMainAdieresis,
+                    await getEditingFontVisualSample(mainPage, 'ä'),
+                    `main compiled adieresis after ${operation.label} ${operation.kind} ${step}`
+                );
+                expectVisualSampleChanged(
+                    beforeLinkedAdieresis,
+                    await getEditingFontVisualSample(linkedPage, 'ä'),
+                    `linked compiled adieresis after ${operation.label} ${operation.kind} ${step}`
+                );
+            } else {
+                expect(
+                    afterMain.hash,
+                    `main compiled font bytes should change after metric-only ${operation.label} ${operation.kind} ${step}`
+                ).not.toBe(beforeMain.hash);
+                expect(
+                    afterLinked.hash,
+                    `linked compiled font bytes should change after metric-only ${operation.label} ${operation.kind} ${step}`
+                ).not.toBe(beforeLinked.hash);
+            }
+        }
 
         await context.close();
     });

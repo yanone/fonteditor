@@ -212,6 +212,71 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
 
         expect(canvas.renderer.ctx.fillRect).toHaveBeenCalledTimes(3);
     });
+
+    test('anchor-only selection resize does not save during active drag', () => {
+        const editor = canvas.outlineEditor;
+        const layerData = {
+            width: 600,
+            shapes: [],
+            anchors: [{ name: 'top', x: 110, y: 220 }]
+        };
+
+        editor.canvas = canvas.canvas;
+        editor.selectionResizeSnapshot = {
+            bounds: {
+                minX: 100,
+                maxX: 120,
+                minY: 200,
+                maxY: 240,
+                centerX: 110,
+                centerY: 220
+            },
+            handle: {
+                x: 120,
+                y: 240,
+                actualX: 120,
+                actualY: 240,
+                xRole: 1,
+                yRole: 1
+            },
+            points: [],
+            anchors: [{ anchorIndex: 0, x: 110, y: 220 }],
+            components: [],
+            strokeAwareTargets: [],
+            smoothHandleDirections: [],
+            includesAnchors: true,
+            includesGeometry: false
+        };
+        editor.getCurrentLayerDataFromStack = jest.fn(() => layerData);
+        editor.getCurrentLayerModel = jest.fn(() => null);
+        editor.transformMouseToComponentSpace = jest.fn(() => ({
+            glyphX: 130,
+            glyphY: 250
+        }));
+        editor.saveLayerData = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.canvas.getBoundingClientRect = jest.fn(() => ({
+            left: 0,
+            top: 0,
+            width: 500,
+            height: 500,
+            right: 500,
+            bottom: 500
+        }));
+        const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(10);
+
+        try {
+            editor.handleSelectionResizeDrag(
+                new MouseEvent('mousemove', { clientX: 130, clientY: 250 })
+            );
+        } finally {
+            nowSpy.mockRestore();
+        }
+
+        expect(layerData.anchors[0]).toEqual({ name: 'top', x: 115, y: 225 });
+        expect(editor.saveLayerData).not.toHaveBeenCalled();
+    });
 });
 
 describe('GlyphCanvas renderer kerning overlays', () => {

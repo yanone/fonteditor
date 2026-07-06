@@ -300,6 +300,12 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
     const originalPatchSyncEngine = originalWindow.patchSyncEngine;
     const originalChangeBridge = originalWindow.changeBridge;
     const originalAutoCompileManager = originalWindow.autoCompileManager;
+    let originalWorkerCacheReady;
+
+    beforeEach(() => {
+        originalWorkerCacheReady = fontCompilation.hasWorkerCacheDocument();
+        fontCompilation.setWorkerCacheDocumentReady(true);
+    });
 
     afterEach(() => {
         originalWindow.glyphCanvas = originalGlyphCanvas;
@@ -307,6 +313,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         originalWindow.patchSyncEngine = originalPatchSyncEngine;
         originalWindow.changeBridge = originalChangeBridge;
         originalWindow.autoCompileManager = originalAutoCompileManager;
+        fontCompilation.setWorkerCacheDocumentReady(originalWorkerCacheReady);
         jest.clearAllMocks();
     });
 
@@ -1627,7 +1634,9 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
+                { glyphName: 'a', layerId: 'layer-1' }
+            ]);
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -1948,7 +1957,9 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
+                { glyphName: 'a', layerId: 'layer-1' }
+            ]);
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -2207,7 +2218,9 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
             expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
+                { glyphName: 'a', layerId: 'layer-1' }
+            ]);
             expect(sendMessageSpy).not.toHaveBeenCalledWith(
                 expect.objectContaining({ type: 'storeFontJson' })
             );

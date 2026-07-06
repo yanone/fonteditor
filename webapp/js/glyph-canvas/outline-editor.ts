@@ -11659,9 +11659,6 @@ export class OutlineEditor {
         }
         if (snapshot.includesGeometry) {
             this.schedulePendingDragMetricsUpdate();
-        } else if (now - this._lastDragSaveTime >= 50) {
-            this._lastDragSaveTime = now;
-            this.saveLayerData('mouse-drag-anchor');
         }
 
         if (now - this._lastPropertyPanelUpdateTime >= 100) {

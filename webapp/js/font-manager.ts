@@ -2774,6 +2774,7 @@ class FontManager {
                       }
                     | undefined;
                 if (
+                    !forceFullWorkerCompile &&
                     (isInteractiveEdit ||
                         isRemoteFastPathEdit ||
                         isCommittedLayerBatchFastPathEdit) &&
@@ -2786,6 +2787,7 @@ class FontManager {
                         produce_varc_table: false
                     };
                 } else if (
+                    !forceFullWorkerCompile &&
                     (isInteractiveEdit || isRemoteFastPathEdit) &&
                     editTypeAtRequest === 'anchor'
                 ) {
@@ -2794,6 +2796,7 @@ class FontManager {
                         produce_varc_table: false
                     };
                 } else if (
+                    !forceFullWorkerCompile &&
                     (isInteractiveEdit || isRemoteFastPathEdit) &&
                     (editTypeAtRequest === 'kerning-value' ||
                         editTypeAtRequest === 'kerning-groups')

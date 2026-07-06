@@ -1129,7 +1129,7 @@ describe('FontManager editing subset inclusion', () => {
         });
     });
 
-    test('structural outline compiles keep outline-only mode but skip incremental dirty-layer patching', async () => {
+    test('structural outline compiles force full mode and skip incremental dirty-layer patching', async () => {
         setRequestCompileContext('keyboard-outline', 'outline');
         fontManager.forceFullEditingCacheRefresh = true;
 
@@ -1138,13 +1138,11 @@ describe('FontManager editing subset inclusion', () => {
         expect(compileEditingSpy).toHaveBeenCalledTimes(1);
         expect(compileEditingSpy.mock.calls[0][2]).toEqual(['a', 'n']);
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
-            compileSource: 'keyboard-outline',
-            optionOverrides: {
-                skip_features: true,
-                skip_kerning: true,
-                produce_varc_table: false
-            }
+            compileSource: 'keyboard-outline'
         });
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).toBeUndefined();
         expect(fontManager.forceFullEditingCacheRefresh).toBe(false);
     });
 

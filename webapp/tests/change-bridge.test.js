@@ -32,6 +32,7 @@ const {
     deriveObjectInfoFromPath,
     joinPathWithGlyphSeparator,
     normalizeChangeLogEntry,
+    normalizeWorkerReplayTargets,
     resolveHistoryTargetItemId
 } = require('../js/change-log');
 const babelfontModel = require('../js/babelfont-model');
@@ -390,6 +391,103 @@ function cloneValue(value) {
         return undefined;
     }
     return JSON.parse(JSON.stringify(value));
+}
+
+function makeAAdieresisFont() {
+    const font = makeMinimalFont();
+    const baseLayer = cloneValue(font.glyphs[0].layers[0]);
+    baseLayer.id = 'master-regular';
+    baseLayer.width = 600;
+    baseLayer.anchors = [{ name: 'top', x: 300, y: 720 }];
+    baseLayer.shapes = [
+        {
+            nodes: [
+                { x: 100, y: 0, nodetype: 'line', smooth: false },
+                { x: 300, y: 500, nodetype: 'line', smooth: false },
+                { x: 500, y: 0, nodetype: 'line', smooth: false }
+            ],
+            closed: true
+        }
+    ];
+
+    const markLayer = cloneValue(font.glyphs[1].layers[0]);
+    markLayer.id = 'master-regular';
+    markLayer.width = 300;
+    markLayer.anchors = [{ name: '_top', x: 150, y: 0 }];
+    markLayer.shapes = [
+        {
+            nodes: [
+                { x: 80, y: 0, nodetype: 'line', smooth: false },
+                { x: 110, y: 80, nodetype: 'line', smooth: false },
+                { x: 140, y: 0, nodetype: 'line', smooth: false }
+            ],
+            closed: true
+        }
+    ];
+
+    const compositeLayer = cloneValue(baseLayer);
+    compositeLayer.width = 600;
+    compositeLayer.anchors = [];
+    compositeLayer.shapes = [
+        {
+            reference: 'a',
+            transform: {
+                translation: [0, 0],
+                scale: [1, 1],
+                rotation: 0,
+                skew: [0, 0],
+                order: 'RestOfTheWorld'
+            }
+        },
+        {
+            reference: 'dieresiscomb',
+            transform: {
+                translation: [150, 720],
+                scale: [1, 1],
+                rotation: 0,
+                skew: [0, 0],
+                order: 'RestOfTheWorld'
+            }
+        }
+    ];
+
+    font.glyphs = [
+        {
+            ...font.glyphs[0],
+            name: 'a',
+            production_name: 'a',
+            codepoints: [97],
+            layers: [baseLayer]
+        },
+        {
+            ...font.glyphs[1],
+            name: 'dieresiscomb',
+            production_name: 'dieresiscomb',
+            codepoints: [776],
+            layers: [markLayer]
+        },
+        {
+            ...font.glyphs[0],
+            name: 'adieresis',
+            production_name: 'adieresis',
+            codepoints: [228],
+            layers: [compositeLayer]
+        }
+    ];
+    return font;
+}
+
+function makeSeededRandom(seed) {
+    let state = seed >>> 0;
+    return () => {
+        state = (state * 1664525 + 1013904223) >>> 0;
+        return state / 0x100000000;
+    };
+}
+
+function findGlyphLayer(fontJson, glyphName, layerId = 'master-regular') {
+    const glyph = fontJson.glyphs.find((entry) => entry.name === glyphName);
+    return glyph?.layers.find((layer) => layer.id === layerId);
 }
 
 function isModelObject(value) {
@@ -3870,6 +3968,258 @@ describe('WindowSync', () => {
         window.fontCompilation = originalFontCompilation;
     });
 
+    test('linked-window a/adieresis fuzz keeps models and worker caches converged through undo/redo', () => {
+        const mainFontJson = makeAAdieresisFont();
+        const linkedFontJson = cloneValue(mainFontJson);
+        const mainBridge = new ChangeBridge('fuzz-main');
+        const linkedBridge = new ChangeBridge('fuzz-linked');
+        const layerId = 'master-regular';
+        const replayTargets = [
+            { glyphName: 'a', layerId },
+            { glyphName: 'adieresis', layerId }
+        ];
+        const workerCaches = {
+            main: new Map(),
+            linked: new Map()
+        };
+
+        function layerFromBridge(bridge, glyphName, targetLayerId) {
+            return getYPath(bridge.fontMap, [
+                'glyphs',
+                glyphName,
+                'layers',
+                targetLayerId
+            ]);
+        }
+
+        function recordWorkerCache(cache, bridge, entries) {
+            const targets = normalizeWorkerReplayTargets(
+                entries.flatMap((entry) => entry.workerReplayTargets || [])
+            );
+            for (const target of targets) {
+                cache.set(
+                    `${target.glyphName}:${target.layerId}`,
+                    cloneValue(
+                        layerFromBridge(
+                            bridge,
+                            target.glyphName,
+                            target.layerId
+                        )
+                    )
+                );
+            }
+        }
+
+        function normalizeLayer(layer) {
+            const normalized = cloneValue(layer);
+            delete normalized.id;
+            delete normalized.name;
+            const shapes =
+                Array.isArray(normalized.shapes) && normalized.shapes.length
+                    ? normalized.shapes
+                    : (normalized.shapeOrder || []).map(
+                          (shapeId) => normalized.shapesById?.[shapeId]
+                      );
+            const anchors =
+                Array.isArray(normalized.anchors) && normalized.anchors.length
+                    ? normalized.anchors
+                    : (normalized.anchorOrder || []).map(
+                          (anchorId) => normalized.anchorsById?.[anchorId]
+                      );
+            normalized.anchors = anchors.map((anchor) => {
+                const normalizedAnchor = cloneValue(anchor);
+                delete normalizedAnchor.id;
+                return normalizedAnchor;
+            });
+            normalized.shapes = shapes.map((shape) => {
+                const normalizedShape = cloneValue(shape);
+                delete normalizedShape.id;
+                delete normalizedShape.kind;
+                if (Array.isArray(normalizedShape.nodes)) {
+                    normalizedShape.nodes = normalizedShape.nodes.map(
+                        (node) => {
+                            const normalizedNode = cloneValue(node);
+                            delete normalizedNode.id;
+                            return normalizedNode;
+                        }
+                    );
+                } else if (normalizedShape.nodesById) {
+                    normalizedShape.nodes = (
+                        normalizedShape.nodeOrder || []
+                    ).map((nodeId) => {
+                        const normalizedNode = cloneValue(
+                            normalizedShape.nodesById[nodeId]
+                        );
+                        delete normalizedNode.id;
+                        return normalizedNode;
+                    });
+                }
+                delete normalizedShape.nodesById;
+                delete normalizedShape.nodeOrder;
+                return normalizedShape;
+            });
+            delete normalized.anchorOrder;
+            delete normalized.anchorsById;
+            delete normalized.guides;
+            delete normalized.guideOrder;
+            delete normalized.guidesById;
+            delete normalized.shapeOrder;
+            delete normalized.shapesById;
+            return normalized;
+        }
+
+        function snapshot(fontJson) {
+            return {
+                a: normalizeLayer(findGlyphLayer(fontJson, 'a', layerId)),
+                adieresis: normalizeLayer(
+                    findGlyphLayer(fontJson, 'adieresis', layerId)
+                )
+            };
+        }
+
+        function assertConverged() {
+            expect(snapshot(linkedFontJson)).toEqual(snapshot(mainFontJson));
+            expect(
+                normalizeLayer(layerFromBridge(mainBridge, 'a', layerId))
+            ).toEqual(
+                normalizeLayer(findGlyphLayer(mainFontJson, 'a', layerId))
+            );
+            expect(
+                normalizeLayer(
+                    layerFromBridge(linkedBridge, 'adieresis', layerId)
+                )
+            ).toEqual(
+                normalizeLayer(
+                    findGlyphLayer(linkedFontJson, 'adieresis', layerId)
+                )
+            );
+
+            for (const [windowName, cache] of Object.entries(workerCaches)) {
+                const fontJson =
+                    windowName === 'main' ? mainFontJson : linkedFontJson;
+                expect(normalizeLayer(cache.get(`a:${layerId}`))).toEqual(
+                    normalizeLayer(findGlyphLayer(fontJson, 'a', layerId))
+                );
+                expect(
+                    normalizeLayer(cache.get(`adieresis:${layerId}`))
+                ).toEqual(
+                    normalizeLayer(
+                        findGlyphLayer(fontJson, 'adieresis', layerId)
+                    )
+                );
+            }
+
+            expect(
+                findGlyphLayer(mainFontJson, 'adieresis', layerId).shapes[0]
+                    .reference
+            ).toBe('a');
+            expect(
+                findGlyphLayer(linkedFontJson, 'adieresis', layerId).shapes[0]
+                    .reference
+            ).toBe('a');
+        }
+
+        mainBridge.initFromJson(mainFontJson);
+        linkedBridge.setFontJson(linkedFontJson);
+        linkedBridge.applyFullState(mainBridge.getFullState());
+        mainBridge.setYjsWorkerCallback((_update, entries) => {
+            recordWorkerCache(workerCaches.main, mainBridge, entries);
+        });
+        linkedBridge.setYjsWorkerCallback((_update, entries) => {
+            recordWorkerCache(workerCaches.linked, linkedBridge, entries);
+        });
+        mainBridge.onLocalUpdate((update, _message, entries) => {
+            linkedBridge.applyRemoteUpdate(update, entries);
+            recordWorkerCache(workerCaches.linked, linkedBridge, entries);
+        });
+        linkedBridge.onLocalUpdate((update, _message, entries) => {
+            mainBridge.applyRemoteUpdate(update, entries);
+            recordWorkerCache(workerCaches.main, mainBridge, entries);
+        });
+
+        for (const target of replayTargets) {
+            workerCaches.main.set(
+                `${target.glyphName}:${target.layerId}`,
+                cloneValue(
+                    layerFromBridge(
+                        mainBridge,
+                        target.glyphName,
+                        target.layerId
+                    )
+                )
+            );
+            workerCaches.linked.set(
+                `${target.glyphName}:${target.layerId}`,
+                cloneValue(
+                    layerFromBridge(
+                        linkedBridge,
+                        target.glyphName,
+                        target.layerId
+                    )
+                )
+            );
+        }
+
+        const random = makeSeededRandom(0xaad1e);
+        const windows = [
+            { name: 'main', bridge: mainBridge, fontJson: mainFontJson },
+            { name: 'linked', bridge: linkedBridge, fontJson: linkedFontJson }
+        ];
+
+        function commitEdit(windowState, editKind, step) {
+            const aLayer = findGlyphLayer(windowState.fontJson, 'a', layerId);
+            const adieresisLayer = findGlyphLayer(
+                windowState.fontJson,
+                'adieresis',
+                layerId
+            );
+            if (editKind === 'outline') {
+                aLayer.shapes[0].nodes[0].x += 1 + Math.floor(random() * 8);
+            } else if (editKind === 'anchor') {
+                aLayer.anchors[0].y += 1 + Math.floor(random() * 12);
+                adieresisLayer.shapes[1].transform.translation[1] =
+                    aLayer.anchors[0].y;
+            } else {
+                aLayer.width += 1 + Math.floor(random() * 15);
+                adieresisLayer.width = aLayer.width;
+            }
+
+            windowState.bridge.syncLayersFromJson(
+                replayTargets,
+                `${windowState.name} ${editKind} ${step}`,
+                undefined,
+                undefined,
+                editKind === 'sidebearing' ? 'left' : undefined,
+                replayTargets
+            );
+        }
+
+        for (let step = 0; step < 18; step++) {
+            const windowState = windows[Math.floor(random() * windows.length)];
+            const roll = random();
+            if (roll < 0.68 || !windowState.bridge.canUndo('a', layerId)) {
+                const editKinds = ['outline', 'anchor', 'sidebearing'];
+                commitEdit(
+                    windowState,
+                    editKinds[Math.floor(random() * editKinds.length)],
+                    step
+                );
+            } else if (
+                roll < 0.86 ||
+                !windowState.bridge.canRedo('a', layerId)
+            ) {
+                windowState.bridge.undo('a', layerId);
+            } else {
+                windowState.bridge.redo('a', layerId);
+            }
+
+            assertConverged();
+        }
+
+        mainBridge.destroy();
+        linkedBridge.destroy();
+    });
+
     // Regression: bundling the full Yjs state on every yjs-update used
     // to add 100-200 ms of synchronous work per local edit (full-doc
     // encode + typed-array \u2192 plain-array copy of ~3 MB). Ordinary
@@ -4991,12 +5341,14 @@ describe('syncGlyphFromJson', () => {
         const senderBridge = new ChangeBridge('sender-worker-callback');
         const receiverBridge = new ChangeBridge('receiver-worker-callback');
         let lastUpdate = null;
+        let lastEntries = null;
         const workerUpdates = [];
 
         senderBridge.initFromJson(senderFontJson);
         receiverBridge.initFromJson(receiverFontJson);
-        senderBridge.onLocalUpdate((update) => {
+        senderBridge.onLocalUpdate((update, _message, changeLogEntries) => {
             lastUpdate = update;
+            lastEntries = changeLogEntries;
         });
         receiverBridge.setYjsWorkerCallback((update, changeLogEntries) => {
             workerUpdates.push({ update, changeLogEntries });
@@ -5005,23 +5357,23 @@ describe('syncGlyphFromJson', () => {
         senderFontJson.glyphs[0].layers[0].width = 710;
         senderBridge.syncGlyphFromJson('A', 'Remote drag');
 
-        const remoteEntries = senderBridge.getNewChangeLogEntries();
-        receiverBridge.applyRemoteUpdate(lastUpdate, remoteEntries);
+        receiverBridge.applyRemoteUpdate(lastUpdate, lastEntries);
 
         expect(workerUpdates).toHaveLength(1);
         expect(workerUpdates[0].update).toBe(lastUpdate);
-        expect(workerUpdates[0].changeLogEntries).toEqual(remoteEntries);
+        expect(workerUpdates[0].changeLogEntries).toEqual(lastEntries);
 
         senderBridge.destroy();
         receiverBridge.destroy();
     });
 
-    test('duplicate metadata-free remote update does not re-fire remote side effects', () => {
+    test('metadata-free non-noop remote update is refused before side effects', () => {
         const senderFontJson = makeMinimalFont();
         const receiverFontJson = cloneValue(senderFontJson);
         const senderBridge = new ChangeBridge('sender-remote-noop');
         const receiverBridge = new ChangeBridge('receiver-remote-noop');
         let lastUpdate = null;
+        let lastEntries = null;
 
         const onAfterSync = jest.fn();
         const onDirty = jest.fn();
@@ -5032,8 +5384,9 @@ describe('syncGlyphFromJson', () => {
         senderBridge.initFromJson(senderFontJson);
         receiverBridge.setFontJson(receiverFontJson);
         receiverBridge.applyFullState(senderBridge.getFullState());
-        senderBridge.onLocalUpdate((update) => {
+        senderBridge.onLocalUpdate((update, _message, changeLogEntries) => {
             lastUpdate = update;
+            lastEntries = changeLogEntries;
         });
         receiverBridge.onAfterSync(onAfterSync);
         receiverBridge.onDirty(onDirty);
@@ -5044,7 +5397,18 @@ describe('syncGlyphFromJson', () => {
         senderFontJson.glyphs[0].layers[0].width = 710;
         senderBridge.syncGlyphFromJson('A', 'Remote drag');
 
-        receiverBridge.applyRemoteUpdate(lastUpdate);
+        expect(() => receiverBridge.applyRemoteUpdate(lastUpdate)).toThrow(
+            'Refusing metadata-free non-noop remote Yjs update'
+        );
+
+        expect(receiverFontJson.glyphs[0].layers[0].width).toBe(600);
+        expect(onAfterSync).not.toHaveBeenCalled();
+        expect(onDirty).not.toHaveBeenCalled();
+        expect(onRemoteChange).not.toHaveBeenCalled();
+        expect(onCommittedChange).not.toHaveBeenCalled();
+        expect(workerCallback).not.toHaveBeenCalled();
+
+        receiverBridge.applyRemoteUpdate(lastUpdate, lastEntries);
 
         expect(receiverFontJson.glyphs[0].layers[0].width).toBe(710);
         expect(onAfterSync).toHaveBeenCalledTimes(1);

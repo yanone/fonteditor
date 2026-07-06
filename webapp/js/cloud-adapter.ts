@@ -1925,6 +1925,7 @@ export class CloudAdapter implements FileSystemAdapter {
             }
         } catch (err) {
             console.error('CloudAdapter: failed to apply remote update:', err);
+            this._requestServerResyncAfterNoopUpdate();
         }
     }
 

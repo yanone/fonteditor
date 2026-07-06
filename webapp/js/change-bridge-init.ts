@@ -1744,7 +1744,7 @@ async function requestCommittedEditingFontCompile(
     return processCommittedEdit(changeSource, editType ?? null, options);
 }
 
-async function awaitLocalCommittedWorkerCacheSettled(
+async function awaitCommittedWorkerCacheSettled(
     awaitWorkerSync: () => Promise<void>
 ): Promise<void> {
     await awaitWorkerSync();
@@ -1985,6 +1985,23 @@ function resolveLocalCommittedCompileContext(
     return inferCommittedEditTypeFromEntries(entries, 'local');
 }
 
+async function awaitCommittedEditingCompileReady(
+    isUndoRedoPacket: boolean,
+    awaitWorkerSync: () => Promise<void>
+): Promise<boolean> {
+    if (
+        !isUndoRedoPacket ||
+        !fontCompilation?.isInitialized ||
+        typeof fontCompilation.hasWorkerCacheDocument !== 'function' ||
+        fontCompilation.hasWorkerCacheDocument()
+    ) {
+        return true;
+    }
+
+    await awaitCommittedWorkerCacheSettled(awaitWorkerSync);
+    return fontCompilation.hasWorkerCacheDocument();
+}
+
 /**
  * Apply the receiver-side viewport pan compensation when a remote sidebearing
  * edit lands on a linked window. Mirrors the sender's live pan so the active
@@ -2213,10 +2230,23 @@ export async function handleCommittedChangeRefresh(
                 : {})
         });
 
+        const awaitWorkerSync =
+            dependencies?.awaitWorkerSync ??
+            (() => fontCompilation.awaitWorkerDocumentSync());
+        await awaitCommittedWorkerCacheSettled(awaitWorkerSync);
+
         const { editType, changeSource } = inferCommittedEditTypeFromEntries(
             entries,
             'remote'
         );
+        if (
+            !(await awaitCommittedEditingCompileReady(
+                isUndoRedoPacket,
+                awaitWorkerSync
+            ))
+        ) {
+            return;
+        }
         await requestCompile(changeSource, editType);
     } else {
         applyLocalUndoRedoVisualSync(
@@ -2227,7 +2257,7 @@ export async function handleCommittedChangeRefresh(
         const awaitWorkerSync =
             dependencies?.awaitWorkerSync ??
             (() => fontCompilation.awaitWorkerDocumentSync());
-        await awaitLocalCommittedWorkerCacheSettled(awaitWorkerSync);
+        await awaitCommittedWorkerCacheSettled(awaitWorkerSync);
 
         if (
             await showCommittedKeyboardWorkerDriftIfNeeded(
@@ -2239,35 +2269,38 @@ export async function handleCommittedChangeRefresh(
             return;
         }
 
-        // Undo/redo replay the committed layer data back onto the Y.Doc, and
-        // the Yjs diff for those changes is forwarded to the worker. However,
-        // the JS-side font model (currentFont.fontModel) is only synced from
-        // the Y.Doc for the directly edited (target) glyph/layer, NOT for the
-        // cascading recomposition targets — those remain at post-edit state in
-        // the model. Subsequent compile steps (e.g. forceFullEditingCacheRefresh
-        // for undo/redo) can re-serialize the stale model data and overwrite the
-        // worker's correct pre-edit caches. An explicit refresh of all replay
-        // targets is needed so every affected layer gets the right cached data.
-        if (hasReplayTargetsBeyondDirectEntryPaths(entries)) {
-            const replayTargets = collectReplayTargetsFromEntries(entries);
+        // Local committed packets update the Y.Doc and forward that Yjs diff to
+        // the worker. The forwarded update is necessary but not sufficient for
+        // correctness: browser-level linked-window fuzzing caught app-scheduled
+        // compiles using stale worker layer data even when the JS model had
+        // already changed. Refresh every explicit replay target before compile
+        // so compiled output follows the committed model state exactly.
+        const localReplayTargets = collectReplayTargetsFromEntries(entries);
+        if (localReplayTargets.length > 0) {
             const refreshCache =
                 dependencies?.queueCacheRefresh ?? refreshRustWorkerCache;
 
             await refreshCache(undefined, undefined, {
                 allowSelectedLayerFallback: false,
-                workerReplayTargets: replayTargets
+                workerReplayTargets: localReplayTargets
             });
+
+            await awaitCommittedWorkerCacheSettled(awaitWorkerSync);
         }
 
-        // Local committed packets rely on the authoritative incremental Yjs
-        // worker update already forwarded by setYjsWorkerCallback().
-        // awaitLocalCommittedWorkerCacheSettled() waits for that forwarded
-        // update and any chained local worker-cache updates before compile.
-        // Only queue an extra replay-target refresh when the committed packet
-        // carries downstream targets beyond the direct changed layer.
+        // awaitCommittedWorkerCacheSettled() waits for the forwarded worker
+        // update and any explicit local worker-cache refreshes before compile.
 
         const { editType, changeSource } =
             localCompileContext ?? resolveLocalCommittedCompileContext(entries);
+        if (
+            !(await awaitCommittedEditingCompileReady(
+                isUndoRedoPacket,
+                awaitWorkerSync
+            ))
+        ) {
+            return;
+        }
         await requestCompile(changeSource, editType);
     }
 
@@ -2290,6 +2323,7 @@ export async function handleRemoteChangeRefresh(
                 allowSelectedLayerFallback?: boolean;
             }
         ) => Promise<void>;
+        awaitWorkerSync?: () => Promise<void>;
     }
 ): Promise<void> {
     await handleCommittedChangeRefresh(entries, 'remote', dependencies);
@@ -2633,14 +2667,6 @@ function initializeBridge(detail: {
     // crossing. changedGlyphs hint enables targeted Rust-side cache patching.
     bridge.setYjsWorkerCallback((update, changeLogEntries) => {
         if (!fontCompilation?.isInitialized) return;
-
-        // Remote reconciliation/bootstrap updates can arrive without semantic
-        // change-log entries. Do not forward those metadata-free packets into
-        // the Rust worker path; the worker cannot scope them safely, and the
-        // authoritative linked-window bootstrap already uses full-state initYdoc.
-        if (!changeLogEntries.length) {
-            return;
-        }
 
         // Extract affected glyph names from the change-log entries so Rust can
         // perform a targeted partial update instead of a full JSON rebuild.
