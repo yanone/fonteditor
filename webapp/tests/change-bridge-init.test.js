@@ -47,7 +47,7 @@ describe('handleRemoteChangeRefresh', () => {
         });
     });
 
-    test('waits for local worker sync before requesting compile and refreshes overview from the same committed packet', async () => {
+    test('waits for local worker sync before requesting compile without a second replay-target refresh', async () => {
         const refreshOrder = [];
         const awaitWorkerSync = jest.fn(async () => {
             refreshOrder.push('sync');
@@ -101,17 +101,14 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
         expect(requestCompile).toHaveBeenCalledTimes(1);
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-anchor',
             'anchor'
         );
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: [{ glyphName: 'a', layerId: 'master-regular' }]
-        });
-        expect(refreshOrder).toEqual(['sync', 'queue', 'sync', 'compile']);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(refreshOrder).toEqual(['sync', 'compile']);
         expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
         expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
             glyphName: 'a',
@@ -119,15 +116,8 @@ describe('handleRemoteChangeRefresh', () => {
         });
     });
 
-    test('locally waits for undo replay-target refresh before compile when the packet extends beyond direct entry paths', async () => {
+    test('local undo compiles from the forwarded worker update without a replay-target refresh', async () => {
         const refreshOrder = [];
-        let resolvePostRefreshCacheUpdate;
-        const postRefreshCacheUpdate = new Promise((resolve) => {
-            resolvePostRefreshCacheUpdate = () => {
-                refreshOrder.push('post-cache-resolved');
-                resolve();
-            };
-        });
         const awaitWorkerSync = jest.fn(async () => {
             refreshOrder.push('sync');
             window.fontManager.lastChangeSource = 'keyboard-anchor';
@@ -135,8 +125,6 @@ describe('handleRemoteChangeRefresh', () => {
         });
         const queueCacheRefresh = jest.fn(async () => {
             refreshOrder.push('queue');
-            window.fontManager.workerCacheUpdatePromise =
-                postRefreshCacheUpdate;
         });
         const requestCompile = jest.fn(async () => {
             refreshOrder.push('compile');
@@ -155,13 +143,11 @@ describe('handleRemoteChangeRefresh', () => {
             workerCacheUpdatePromise: null,
             awaitWorkerCacheUpdate: jest.fn(async () => {
                 refreshOrder.push('post-cache');
-                await window.fontManager.workerCacheUpdatePromise;
-                window.fontManager.workerCacheUpdatePromise = null;
             })
         };
 
         try {
-            const refreshPromise = handleCommittedChangeRefresh(
+            await handleCommittedChangeRefresh(
                 [
                     {
                         historyAction: 'undo',
@@ -186,48 +172,20 @@ describe('handleRemoteChangeRefresh', () => {
                     queueCacheRefresh
                 }
             );
-
-            await Promise.resolve();
-            await Promise.resolve();
-            await Promise.resolve();
-            expect(requestCompile).not.toHaveBeenCalled();
-
-            resolvePostRefreshCacheUpdate();
-            await refreshPromise;
         } finally {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(3);
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: [
-                {
-                    glyphName: 'a',
-                    layerId: 'master-regular'
-                },
-                {
-                    glyphName: 'adieresis',
-                    layerId: 'master-regular'
-                }
-            ]
-        });
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-anchor',
             'anchor'
         );
-        expect(refreshOrder).toEqual([
-            'sync',
-            'queue',
-            'post-cache-resolved',
-            'sync',
-            'post-cache',
-            'sync',
-            'compile'
-        ]);
+        expect(refreshOrder).toEqual(['sync', 'compile']);
     });
 
-    test('retries local undo compile readiness after replay-target refresh before compiling', async () => {
+    test('retries local undo compile readiness from worker-sync state before compiling', async () => {
         const refreshOrder = [];
         const previousInitialized = fontCompilation.isInitialized;
         const previousWorkerCacheReady =
@@ -237,7 +195,7 @@ describe('handleRemoteChangeRefresh', () => {
 
         const awaitWorkerSync = jest.fn(async () => {
             refreshOrder.push('sync');
-            if (awaitWorkerSync.mock.calls.length === 3) {
+            if (awaitWorkerSync.mock.calls.length === 2) {
                 fontCompilation.setWorkerCacheDocumentReady(true);
             }
         });
@@ -298,19 +256,13 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(3);
-        expect(queueCacheRefresh).toHaveBeenCalledTimes(1);
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-anchor',
             'anchor'
         );
-        expect(refreshOrder).toEqual([
-            'sync',
-            'queue',
-            'sync',
-            'sync',
-            'compile'
-        ]);
+        expect(refreshOrder).toEqual(['sync', 'sync', 'compile']);
     });
 
     test('skips local undo compile only when worker cache remains unready after readiness retry', async () => {
@@ -381,10 +333,10 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(3);
-        expect(queueCacheRefresh).toHaveBeenCalledTimes(1);
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).not.toHaveBeenCalled();
-        expect(refreshOrder).toEqual(['sync', 'queue', 'sync', 'sync']);
+        expect(refreshOrder).toEqual(['sync', 'sync']);
     });
 
     test('shows a sticky sidebar error for post-commit keyboard drift and skips compile', async () => {
@@ -573,7 +525,7 @@ describe('handleRemoteChangeRefresh', () => {
             sidebarErrorDisplay.showError = originalShowError;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
         expect(sendMessageMock).toHaveBeenCalledWith({
             type: 'dumpLayerState',
             layerTargets: [{ glyphName: 'a', layerId: 'layer-1' }]
@@ -640,7 +592,7 @@ describe('handleRemoteChangeRefresh', () => {
             sidebarErrorDisplay.showError = originalShowError;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
         expect(sendMessageMock).not.toHaveBeenCalled();
         expect(showErrorMock).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
@@ -689,10 +641,7 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: [{ glyphName: 'a', layerId: 'master-regular' }]
-        });
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-anchor',
             'anchor'
@@ -748,16 +697,13 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: [{ glyphName: 'A', layerId: 'master-bold' }]
-        });
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'master-reinterpolate-batch',
             'outline'
         );
-        expect(refreshOrder).toEqual(['sync', 'queue', 'sync', 'compile']);
+        expect(refreshOrder).toEqual(['sync', 'compile']);
     });
 
     test('refreshes local replay targets for forwarded add-master batch packets before compile', async () => {
@@ -811,16 +757,13 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: [{ glyphName: 'A', layerId: 'master-3' }]
-        });
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-outline',
             'outline'
         );
-        expect(refreshOrder).toEqual(['sync', 'queue', 'sync', 'compile']);
+        expect(refreshOrder).toEqual(['sync', 'compile']);
     });
 
     test('skips bootstrap-style local compile wake-up before the first editing font exists', async () => {
@@ -1015,28 +958,19 @@ describe('handleRemoteChangeRefresh', () => {
             glyphName: 'a',
             glyphNames: ['a', 'adieresis']
         });
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: [
-                { glyphName: 'a', layerId: 'master-regular' },
-                { glyphName: 'adieresis', layerId: 'master-regular' }
-            ]
-        });
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(refreshOrder).toEqual([
             'sync',
             'cache-1',
             'sync',
             'cache-2',
             'sync',
-            'queue',
-            'sync',
             'compile'
         ]);
     });
 
-    test('requests remote compile only after cache refresh and worker cache update resolve', async () => {
+    test('requests remote compile only after worker cache update resolve', async () => {
         const refreshOrder = [];
-        let resolveRefresh;
         let resolveCacheUpdate;
         let resolveWorkerSync;
         const workerSyncPromise = new Promise((resolve) => {
@@ -1059,19 +993,6 @@ describe('handleRemoteChangeRefresh', () => {
             refreshOrder.push('cache');
             await window.fontManager.workerCacheUpdatePromise;
         });
-        const queueCacheRefresh = jest.fn(() => {
-            refreshOrder.push('queue');
-            window.fontManager = {
-                workerCacheUpdatePromise: cacheUpdatePromise,
-                awaitWorkerCacheUpdate
-            };
-            return new Promise((resolve) => {
-                resolveRefresh = () => {
-                    refreshOrder.push('refresh-resolved');
-                    resolve();
-                };
-            });
-        });
         const requestCompile = jest.fn(async () => {
             refreshOrder.push('compile');
         });
@@ -1089,36 +1010,25 @@ describe('handleRemoteChangeRefresh', () => {
         ];
 
         try {
+            window.fontManager = {
+                workerCacheUpdatePromise: cacheUpdatePromise,
+                awaitWorkerCacheUpdate
+            };
             const refreshPromise = handleRemoteChangeRefresh(remoteEntries, {
                 requestCompile,
-                queueCacheRefresh,
                 awaitWorkerSync
             });
 
-            expect(queueCacheRefresh).toHaveBeenCalledWith(
-                undefined,
-                undefined,
-                {
-                    allowSelectedLayerFallback: false,
-                    workerReplayTargets: [
-                        {
-                            glyphName: 'a',
-                            layerId: 'master-regular'
-                        }
-                    ]
-                }
-            );
             expect(requestCompile).not.toHaveBeenCalled();
-            expect(refreshOrder).toEqual(['queue']);
+            expect(refreshOrder).toEqual(['sync']);
 
-            resolveRefresh();
             await Promise.resolve();
             await Promise.resolve();
             await Promise.resolve();
             await Promise.resolve();
             expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
             expect(requestCompile).not.toHaveBeenCalled();
-            expect(refreshOrder).toEqual(['queue', 'refresh-resolved', 'sync']);
+            expect(refreshOrder).toEqual(['sync']);
 
             resolveWorkerSync();
             await Promise.resolve();
@@ -1126,13 +1036,7 @@ describe('handleRemoteChangeRefresh', () => {
             await Promise.resolve();
             expect(awaitWorkerCacheUpdate).toHaveBeenCalledTimes(1);
             expect(requestCompile).not.toHaveBeenCalled();
-            expect(refreshOrder).toEqual([
-                'queue',
-                'refresh-resolved',
-                'sync',
-                'sync-resolved',
-                'cache'
-            ]);
+            expect(refreshOrder).toEqual(['sync', 'sync-resolved', 'cache']);
 
             resolveCacheUpdate();
             await refreshPromise;
@@ -1144,8 +1048,6 @@ describe('handleRemoteChangeRefresh', () => {
                 'anchor'
             );
             expect(refreshOrder).toEqual([
-                'queue',
-                'refresh-resolved',
                 'sync',
                 'sync-resolved',
                 'cache',
@@ -1159,6 +1061,99 @@ describe('handleRemoteChangeRefresh', () => {
         } finally {
             delete window.fontManager;
         }
+    });
+
+    test('refreshes the active receiver outline editor after worker sync without a second worker cache refresh', async () => {
+        const refreshOrder = [];
+        const awaitWorkerSync = jest.fn(async () => {
+            refreshOrder.push('sync');
+        });
+        const requestCompile = jest.fn(async () => {
+            refreshOrder.push('compile');
+        });
+        const queueCacheRefresh = jest.fn(async () => {
+            refreshOrder.push('queue');
+        });
+        const requestRepaintAfterCompile = jest.fn(() => {
+            refreshOrder.push('repaint');
+        });
+        const reconcileSelectionAfterModelSync = jest.fn(async () => {
+            refreshOrder.push('reconcile');
+        });
+        const fetchLayerData = jest.fn(async (skipRender, glyphName) => {
+            refreshOrder.push(
+                `fetch:${skipRender ? 'skip' : 'render'}:${glyphName}`
+            );
+        });
+
+        window.glyphCanvas = {
+            requestRepaintAfterCompile,
+            outlineEditor: {
+                active: true,
+                draggingSomething: false,
+                pendingRemoteRefreshAfterDrag: false,
+                selectedLayerId: 'master-regular',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                reconcileSelectionAfterModelSync,
+                fetchLayerData,
+                runDeterministicRefresh: jest.fn(async (callback) => {
+                    refreshOrder.push('deterministic');
+                    await callback();
+                })
+            }
+        };
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            },
+            awaitWorkerCacheUpdate: jest.fn(async () => {
+                refreshOrder.push('cache');
+            })
+        };
+
+        try {
+            await handleRemoteChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag anchor',
+                        path: 'glyphs.a.layers.master-regular.anchors.0.x',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'a',
+                                layerId: 'master-regular'
+                            }
+                        ]
+                    }
+                ],
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            delete window.glyphCanvas;
+            delete window.fontManager;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(reconcileSelectionAfterModelSync).toHaveBeenCalledWith({
+            skipRender: true
+        });
+        expect(fetchLayerData).toHaveBeenCalledWith(true, 'a');
+        expect(requestRepaintAfterCompile).toHaveBeenCalledTimes(1);
+        expect(requestCompile).toHaveBeenCalledWith('remote-anchor', 'anchor');
+        expect(refreshOrder).toEqual([
+            'sync',
+            'reconcile',
+            'deterministic',
+            'fetch:skip:a',
+            'repaint',
+            'compile'
+        ]);
     });
 
     test('skips bootstrap-style remote refresh when there are no committed entries', async () => {
@@ -1203,10 +1198,7 @@ describe('handleRemoteChangeRefresh', () => {
             }
         );
 
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: replayTargets
-        });
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenNthCalledWith(
             1,
             'remote-outline',
@@ -1233,9 +1225,7 @@ describe('handleRemoteChangeRefresh', () => {
             }
         );
 
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false
-        });
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith('remote-change', null);
     });
 
@@ -1258,10 +1248,7 @@ describe('handleRemoteChangeRefresh', () => {
             }
         );
 
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: replayTargets
-        });
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'remote-outline',
             'outline'
@@ -1287,10 +1274,7 @@ describe('handleRemoteChangeRefresh', () => {
             }
         );
 
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: replayTargets
-        });
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'remote-outline',
             'outline'
@@ -1320,10 +1304,7 @@ describe('handleRemoteChangeRefresh', () => {
             }
         );
 
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: replayTargets
-        });
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'remote-outline',
             'outline'
@@ -1372,14 +1353,8 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: [
-                { glyphName: 'A', layerId: 'layer-1' },
-                { glyphName: 'B', layerId: 'layer-2' }
-            ]
-        });
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-outline',
             'outline'
@@ -1433,11 +1408,8 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: replayTargets
-        });
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-outline',
             'outline'
@@ -3260,10 +3232,7 @@ describe('committed undo/redo compile requests', () => {
 
         expect(window.fontManager.lastChangeSource).toBeNull();
         expect(window.fontManager.lastEditType).toBeNull();
-        expect(queueCacheRefresh).toHaveBeenCalledWith(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            workerReplayTargets: [{ glyphName: 'a', layerId: 'layer-1' }]
-        });
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
             compileContext: expect.objectContaining({

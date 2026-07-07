@@ -1481,9 +1481,30 @@ export async function syncRustCacheAndRefreshCanvas(
     const parsedStack = oe?.parseGlyphStack?.() || [];
     const refreshRootGlyphName =
         rootGlyphName ?? parsedStack[0]?.glyphName ?? undefined;
-    let selectedLayerId = oe?.selectedLayerId ?? undefined;
 
     await refreshRustWorkerCache(rootGlyphName, editedGlyphName, options);
+
+    await refreshCanvasFromCommittedModelSync(
+        refreshRootGlyphName,
+        editedGlyphName,
+        options
+    );
+}
+
+async function refreshCanvasFromCommittedModelSync(
+    rootGlyphName?: string,
+    editedGlyphName?: string,
+    options?: {
+        skipDeferredCanvasRepaint?: boolean;
+        workerReplayTargets?: WorkerReplayTarget[];
+    }
+): Promise<void> {
+    const gc = window.glyphCanvas;
+    const oe = gc?.outlineEditor;
+    const parsedStack = oe?.parseGlyphStack?.() || [];
+    const refreshRootGlyphName =
+        rootGlyphName ?? parsedStack[0]?.glyphName ?? undefined;
+    let selectedLayerId = oe?.selectedLayerId ?? undefined;
 
     if (gc) {
         // If a drag is in progress, loading layer data from the model would
@@ -1510,7 +1531,12 @@ export async function syncRustCacheAndRefreshCanvas(
                 return;
             }
 
-            await gc.outlineEditor?.fetchLayerData(true, refreshRootGlyphName);
+            if (typeof gc.outlineEditor?.fetchLayerData === 'function') {
+                await gc.outlineEditor.fetchLayerData(
+                    true,
+                    refreshRootGlyphName
+                );
+            }
 
             refreshLiveTextRunAdvances(
                 new Set(
@@ -1538,7 +1564,11 @@ export async function syncRustCacheAndRefreshCanvas(
             await refreshOutlineEditor();
         }
         if (!options?.skipDeferredCanvasRepaint) {
-            gc.requestRepaintAfterCompile();
+            if (typeof gc.requestRepaintAfterCompile === 'function') {
+                gc.requestRepaintAfterCompile();
+            } else if (typeof gc.render === 'function') {
+                gc.render();
+            }
         }
     }
 }
@@ -2175,8 +2205,8 @@ async function refreshGlyphOverviewFromCommittedEntries(
 /**
  * Refresh committed changes through one post-commit funnel for both the
  * local sender and remote receivers. Remote packets still run their
- * receiver-only pan compensation and cache-refresh work before the shared
- * compile + overview refresh steps.
+ * receiver-only pan compensation before the shared compile + overview
+ * refresh steps.
  */
 export async function handleCommittedChangeRefresh(
     entries: ChangeLogEntry[],
@@ -2224,21 +2254,17 @@ export async function handleCommittedChangeRefresh(
     if (origin === 'remote') {
         applyRemoteSidebearingVisualSync(entries);
 
-        const replayTargets = collectReplayTargetsFromEntries(entries);
-        const queueCacheRefresh =
-            dependencies?.queueCacheRefresh ?? queueRustCacheAndRefreshCanvas;
-
-        await queueCacheRefresh(undefined, undefined, {
-            allowSelectedLayerFallback: false,
-            ...(replayTargets.length > 0
-                ? { workerReplayTargets: replayTargets }
-                : {})
-        });
-
         const awaitWorkerSync =
             dependencies?.awaitWorkerSync ??
             (() => fontCompilation.awaitWorkerDocumentSync());
         await awaitCommittedWorkerCacheSettled(awaitWorkerSync);
+
+        const replayTargets = collectReplayTargetsFromEntries(entries);
+        await refreshCanvasFromCommittedModelSync(undefined, undefined, {
+            ...(replayTargets.length > 0
+                ? { workerReplayTargets: replayTargets }
+                : {})
+        });
 
         const { editType, changeSource } = inferCommittedEditTypeFromEntries(
             entries,
@@ -2273,29 +2299,6 @@ export async function handleCommittedChangeRefresh(
             await refreshGlyphOverviewFromCommittedEntries(entries);
             return;
         }
-
-        // Local committed packets update the Y.Doc and forward that Yjs diff to
-        // the worker. The forwarded update is necessary but not sufficient for
-        // correctness: browser-level linked-window fuzzing caught app-scheduled
-        // compiles using stale worker layer data even when the JS model had
-        // already changed. Refresh every explicit replay target before compile
-        // so compiled output follows the committed model state exactly.
-        const localReplayTargets = collectReplayTargetsFromEntries(entries);
-        const refreshReplayTargets = localReplayTargets;
-        if (refreshReplayTargets.length > 0) {
-            const refreshCache =
-                dependencies?.queueCacheRefresh ?? refreshRustWorkerCache;
-
-            await refreshCache(undefined, undefined, {
-                allowSelectedLayerFallback: false,
-                workerReplayTargets: refreshReplayTargets
-            });
-
-            await awaitCommittedWorkerCacheSettled(awaitWorkerSync);
-        }
-
-        // awaitCommittedWorkerCacheSettled() waits for the forwarded worker
-        // update and any explicit local worker-cache refreshes before compile.
 
         const { editType, changeSource } =
             localCompileContext ?? resolveLocalCommittedCompileContext(entries);

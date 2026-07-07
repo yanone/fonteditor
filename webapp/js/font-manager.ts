@@ -4771,7 +4771,6 @@ class FontManager {
                 normalizedLayerTargets
             );
         }
-
         const targetLayerUpdates = normalizedLayerTargets.length
             ? this.collectLayerUpdatesForTargetsFromBridge(
                   normalizedLayerTargets
@@ -4780,11 +4779,6 @@ class FontManager {
                   normalizedLayerTargets
               )
             : null;
-        const canRebuildLayerTargetUpdate =
-            normalizedLayerTargets.length > 0 &&
-            !!targetLayerUpdates &&
-            targetLayerUpdates.removedFingerprintKeys.length === 0 &&
-            targetLayerUpdates.updates.length === normalizedLayerTargets.length;
         const fingerprintUpdates = normalizedLayerTargets.length
             ? targetLayerUpdates?.updates || []
             : this.collectChangedLayerUpdatesFromModel(
@@ -4804,24 +4798,9 @@ class FontManager {
             this.bootstrapWorkerYjsMirrorFromCurrentFont();
         }
 
-        const workerScopedUpdate = canRebuildLayerTargetUpdate
-            ? this.buildWorkerYjsLayerUpdate(
-                  targetLayerUpdates.updates.map((layerUpdate) => ({
-                      glyphName: layerUpdate.glyphName,
-                      layerId: layerUpdate.layerId,
-                      normalized: this.normalizeLayerForRust(
-                          layerUpdate.layerData
-                      )
-                  }))
-              )
-            : null;
-        const updateToSend = workerScopedUpdate?.update ?? update;
-        const changedGlyphsToSend =
-            workerScopedUpdate?.changedGlyphs ?? normalizedChangedGlyphs;
-
         const sent = await this.sendWorkerYjsUpdate(
-            updateToSend,
-            changedGlyphsToSend,
+            update,
+            normalizedChangedGlyphs,
             options?.invalidateLayoutClosure !== false,
             normalizedNonGlyphChangeHints,
             normalizedLayerTargets
@@ -4832,15 +4811,7 @@ class FontManager {
             return false;
         }
 
-        this.applyWorkerYjsUpdateToMirror(updateToSend);
-
-        if (
-            normalizedLayerTargets.length > 0 &&
-            this.pendingBabelfontJsonSyncAfterDrag
-        ) {
-            this.syncBabelfontJsonFromCurrentModel();
-            this.pendingBabelfontJsonSyncAfterDrag = false;
-        }
+        this.applyWorkerYjsUpdateToMirror(update);
 
         for (const fingerprintKey of removedFingerprintKeys) {
             this.workerLayerFingerprintCache.delete(fingerprintKey);
