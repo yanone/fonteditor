@@ -7,7 +7,9 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import init, { save_font_as_ufo_entries } from '../../wasm-dist/babelfont_fontc_web.js';
+import init, {
+    save_font_as_ufo_entries
+} from '../../wasm-dist/babelfont_fontc_web.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
