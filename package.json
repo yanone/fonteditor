@@ -12,7 +12,7 @@
         "prepare": "husky"
     },
     "lint-staged": {
-        "webapp/**/*.{js,json,css,md,html,ts}": "prettier --write"
+        "webapp/**/*.{js,ts,jsx,tsx,json,css,md,html,yml,yaml}": "prettier --write"
     },
     "dependencies": {
         "typescript": "^5.0.0"
