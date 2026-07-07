@@ -28,7 +28,6 @@ __pycache__/
 
 # Node.js
 node_modules/
-package-lock.json
 
 # Compilation test outputs
 webapp/compilation-test/output/
