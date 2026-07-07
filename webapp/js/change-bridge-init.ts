@@ -1089,7 +1089,74 @@ function normalizeLayerDataForWorkerDriftCheck(layerData: unknown): string {
             ? normalizeLayerForRust.call(window.fontManager, layerData)
             : layerData;
 
-    return stableStringifyForWorkerDriftCheck(normalizedLayerData);
+    return stableStringifyForWorkerDriftCheck(
+        pruneSemanticallyEmptyOptionalLayerFields(normalizedLayerData)
+    );
+}
+
+function pruneSemanticallyEmptyOptionalLayerFields(value: unknown): unknown {
+    return pruneSemanticallyEmptyOptionalLayerFieldsInternal(value, false);
+}
+
+function pruneSemanticallyEmptyOptionalLayerFieldsInternal(
+    value: unknown,
+    insideFormatSpecific: boolean
+): unknown {
+    if (Array.isArray(value)) {
+        return value
+            .map((entry) =>
+                pruneSemanticallyEmptyOptionalLayerFieldsInternal(
+                    entry,
+                    insideFormatSpecific
+                )
+            )
+            .filter((entry) => entry !== undefined);
+    }
+
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    const normalized: Record<string, unknown> = {};
+    for (const [key, entryValue] of Object.entries(record)) {
+        const pruneWithinFormatSpecific =
+            insideFormatSpecific || key === 'format_specific';
+        const prunedValue = pruneSemanticallyEmptyOptionalLayerFieldsInternal(
+            entryValue,
+            pruneWithinFormatSpecific
+        );
+
+        if (prunedValue === undefined && pruneWithinFormatSpecific) {
+            continue;
+        }
+
+        if (
+            key === 'format_specific' &&
+            prunedValue &&
+            typeof prunedValue === 'object' &&
+            !Array.isArray(prunedValue) &&
+            Object.keys(prunedValue as Record<string, unknown>).length === 0
+        ) {
+            continue;
+        }
+
+        if (
+            key === 'guides' &&
+            Array.isArray(prunedValue) &&
+            prunedValue.length === 0
+        ) {
+            continue;
+        }
+
+        normalized[key] = prunedValue;
+    }
+
+    if (insideFormatSpecific && Object.keys(normalized).length === 0) {
+        return undefined;
+    }
+
+    return normalized;
 }
 
 function stableStringifyForWorkerDriftCheck(value: unknown): string {

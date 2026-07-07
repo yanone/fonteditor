@@ -1604,10 +1604,12 @@ export class PatchSyncEngine {
             return false;
         }
 
-        const nextKeys = new Set(Object.keys(nextLayer));
-        return Object.keys(previousLayer).every(
-            (key) => key === 'id' || nextKeys.has(key)
-        );
+        // Keep layer commits on the granular path even when the next layer
+        // intentionally omits previously stored optional keys. The granular
+        // builder emits explicit remove ops for missing fields, whereas the
+        // coarse layer-snapshot fallback records the entire layer payload and
+        // can leave stale nested worker/Yjs state behind.
+        return true;
     }
 
     private _hasBufferedLayerRootOperation(

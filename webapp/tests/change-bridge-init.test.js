@@ -691,6 +691,311 @@ describe('handleRemoteChangeRefresh', () => {
         );
     });
 
+    test('does not report worker drift when rust caches only retain empty optional layer containers', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const originalShowError = sidebarErrorDisplay.showError;
+        const showErrorMock = jest.fn();
+        const originalSendMessage = fontCompilation.sendMessage;
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const expectedLayer = {
+            width: 533,
+            id: 'layer-1',
+            master: { type: 'DefaultForMaster', master: 'master-1' },
+            shapes: [
+                {
+                    id: 'shape-1',
+                    nodes: [
+                        { x: 322, y: -8, nodetype: 'OffCurve', id: 'node-1' }
+                    ],
+                    closed: true
+                }
+            ],
+            anchors: [{ name: 'top', x: 145, y: 594 }]
+        };
+        const rustCanonicalLayer = {
+            ...expectedLayer,
+            guides: [],
+            format_specific: {}
+        };
+        const sendMessageMock = jest.fn(async () => ({
+            dumpJson: JSON.stringify({
+                targets: [
+                    {
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        canonicalLayer: rustCanonicalLayer,
+                        subsetLayer: rustCanonicalLayer,
+                        ydocLayer: expectedLayer
+                    }
+                ]
+            })
+        }));
+
+        fontCompilation.isInitialized = true;
+        fontCompilation.sendMessage = sendMessageMock;
+        sidebarErrorDisplay.showError = showErrorMock;
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
+                    findGlyph: jest.fn((glyphName) => ({
+                        findLayerById: jest.fn((layerId) =>
+                            glyphName === 'a' && layerId === 'layer-1'
+                                ? {
+                                      toJSON: () => expectedLayer
+                                  }
+                                : null
+                        )
+                    }))
+                }
+            },
+            lastChangeSource: 'keyboard-outline',
+            lastEditType: 'outline',
+            normalizeLayerForRust: jest.fn((layer) => layer)
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag point',
+                        path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
+                        workerReplayTargets: [
+                            { glyphName: 'a', layerId: 'layer-1' }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile
+                }
+            );
+        } finally {
+            delete window.fontManager;
+            fontCompilation.sendMessage = originalSendMessage;
+            fontCompilation.isInitialized = originalIsInitialized;
+            sidebarErrorDisplay.showError = originalShowError;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(sendMessageMock).toHaveBeenCalledWith({
+            type: 'dumpLayerState',
+            layerTargets: [{ glyphName: 'a', layerId: 'layer-1' }]
+        });
+        expect(showErrorMock).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
+        );
+    });
+
+    test('does not report worker drift when rust caches only retain nested empty format_specific trees', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const originalShowError = sidebarErrorDisplay.showError;
+        const showErrorMock = jest.fn();
+        const originalSendMessage = fontCompilation.sendMessage;
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const expectedLayer = {
+            width: 533,
+            id: 'layer-1',
+            master: { type: 'DefaultForMaster', master: 'master-1' },
+            shapes: [
+                {
+                    id: 'shape-1',
+                    nodes: [
+                        { x: 322, y: -8, nodetype: 'OffCurve', id: 'node-1' }
+                    ],
+                    closed: true
+                }
+            ],
+            anchors: [{ name: 'top', x: 145, y: 594 }]
+        };
+        const rustCanonicalLayer = {
+            ...expectedLayer,
+            format_specific: {
+                com: {
+                    schriftgestalt: {
+                        Glyphs: {
+                            attr: {}
+                        }
+                    }
+                }
+            }
+        };
+        const sendMessageMock = jest.fn(async () => ({
+            dumpJson: JSON.stringify({
+                targets: [
+                    {
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        canonicalLayer: rustCanonicalLayer,
+                        subsetLayer: rustCanonicalLayer,
+                        ydocLayer: expectedLayer
+                    }
+                ]
+            })
+        }));
+
+        fontCompilation.isInitialized = true;
+        fontCompilation.sendMessage = sendMessageMock;
+        sidebarErrorDisplay.showError = showErrorMock;
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
+                    findGlyph: jest.fn((glyphName) => ({
+                        findLayerById: jest.fn((layerId) =>
+                            glyphName === 'a' && layerId === 'layer-1'
+                                ? {
+                                      toJSON: () => expectedLayer
+                                  }
+                                : null
+                        )
+                    }))
+                }
+            },
+            lastChangeSource: 'keyboard-outline',
+            lastEditType: 'outline',
+            normalizeLayerForRust: jest.fn((layer) => layer)
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag point',
+                        path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
+                        workerReplayTargets: [
+                            { glyphName: 'a', layerId: 'layer-1' }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile
+                }
+            );
+        } finally {
+            delete window.fontManager;
+            fontCompilation.sendMessage = originalSendMessage;
+            fontCompilation.isInitialized = originalIsInitialized;
+            sidebarErrorDisplay.showError = originalShowError;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(showErrorMock).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
+        );
+    });
+
+    test('still reports worker drift when optional layer containers differ semantically', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const originalShowError = sidebarErrorDisplay.showError;
+        const showErrorMock = jest.fn();
+        const originalSendMessage = fontCompilation.sendMessage;
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const expectedLayer = {
+            width: 533,
+            id: 'layer-1',
+            master: { type: 'DefaultForMaster', master: 'master-1' },
+            shapes: [
+                {
+                    id: 'shape-1',
+                    nodes: [
+                        { x: 322, y: -8, nodetype: 'OffCurve', id: 'node-1' }
+                    ],
+                    closed: true
+                }
+            ],
+            anchors: [{ name: 'top', x: 145, y: 594 }]
+        };
+        const rustCanonicalLayer = {
+            ...expectedLayer,
+            format_specific: { legacy: true }
+        };
+        const sendMessageMock = jest.fn(async () => ({
+            dumpJson: JSON.stringify({
+                targets: [
+                    {
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        canonicalLayer: rustCanonicalLayer,
+                        subsetLayer: rustCanonicalLayer,
+                        ydocLayer: expectedLayer
+                    }
+                ]
+            })
+        }));
+
+        fontCompilation.isInitialized = true;
+        fontCompilation.sendMessage = sendMessageMock;
+        sidebarErrorDisplay.showError = showErrorMock;
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
+                    findGlyph: jest.fn((glyphName) => ({
+                        findLayerById: jest.fn((layerId) =>
+                            glyphName === 'a' && layerId === 'layer-1'
+                                ? {
+                                      toJSON: () => expectedLayer
+                                  }
+                                : null
+                        )
+                    }))
+                }
+            },
+            lastChangeSource: 'keyboard-outline',
+            lastEditType: 'outline',
+            normalizeLayerForRust: jest.fn((layer) => layer)
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag point',
+                        path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
+                        workerReplayTargets: [
+                            { glyphName: 'a', layerId: 'layer-1' }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile
+                }
+            );
+        } finally {
+            delete window.fontManager;
+            fontCompilation.sendMessage = originalSendMessage;
+            fontCompilation.isInitialized = originalIsInitialized;
+            sidebarErrorDisplay.showError = originalShowError;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(showErrorMock).toHaveBeenCalledWith(
+            expect.any(Error),
+            'editing',
+            { sticky: true }
+        );
+        expect(requestCompile).not.toHaveBeenCalled();
+        expect(showErrorMock.mock.calls[0][0].message).toContain(
+            'format_specific'
+        );
+    });
+
     test('does not report worker drift when authoritative state matches but subset cache is absent', async () => {
         const awaitWorkerSync = jest.fn(async () => {});
         const requestCompile = jest.fn(async () => {});

@@ -194,6 +194,24 @@ function buildSummaryFromEntries(entries: ChangeLogEntry[]): string {
     return `${entries.length} changes`;
 }
 
+function haveMatchingReplayTargets(
+    left: WorkerReplayTarget[] | undefined,
+    right: WorkerReplayTarget[] | undefined
+): boolean {
+    const normalizedLeft = normalizeWorkerReplayTargets(left);
+    const normalizedRight = normalizeWorkerReplayTargets(right);
+
+    if (normalizedLeft.length !== normalizedRight.length) {
+        return false;
+    }
+
+    return normalizedLeft.every(
+        (target, index) =>
+            target.glyphName === normalizedRight[index]?.glyphName &&
+            target.layerId === normalizedRight[index]?.layerId
+    );
+}
+
 export function createCollaborationMessageEnvelopeFromChangeLogEntries(
     entries: ChangeLogEntry[],
     options: {
@@ -234,15 +252,24 @@ export function createCollaborationMessageEnvelopeFromChangeLogEntries(
         localSequence: options.localSequence,
         roomSequence: null,
         baseRevision: options.baseRevision ?? null,
-        changes: entries.map((entry) => ({
-            path: entry.path,
-            op: entry.op,
-            replayOldValue: entry.replayOldValue,
-            replayNewValue: entry.replayNewValue,
-            workerReplayTargets: normalizeWorkerReplayTargets(
+        changes: entries.map((entry) => {
+            const entryReplayTargets = normalizeWorkerReplayTargets(
                 entry.workerReplayTargets
-            )
-        })),
+            );
+
+            return {
+                path: entry.path,
+                op: entry.op,
+                replayOldValue: entry.replayOldValue,
+                replayNewValue: entry.replayNewValue,
+                workerReplayTargets: haveMatchingReplayTargets(
+                    entryReplayTargets,
+                    workerReplayTargets
+                )
+                    ? undefined
+                    : entryReplayTargets
+            };
+        }),
         metadata: {
             editType: workerReplayTargets.length ? 'outline' : 'font',
             editSource: entries[0].editSource ?? null,

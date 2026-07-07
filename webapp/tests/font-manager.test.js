@@ -582,6 +582,49 @@ describe('FontManager saveLayerData', () => {
         ).toThrow(/Path shape nodes must be an array/);
     });
 
+    test('serializeLayerForStorage prunes semantically empty optional containers', () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        glyph.layers[glyph.layers.indexOf(layer)] = {
+            ...cloneJson(layer),
+            format_specific: undefined,
+            guides: undefined
+        };
+
+        const serialized = fontManager.serializeLayerForStorage(
+            'a',
+            layer.id,
+            {
+                ...cloneJson(layer),
+                format_specific: undefined,
+                guides: [],
+                anchors: [
+                    {
+                        name: 'top',
+                        x: 100,
+                        y: 200,
+                        format_specific: {}
+                    }
+                ]
+            },
+            undefined
+        );
+
+        expect(serialized.guides).toBeUndefined();
+        expect(serialized.format_specific).toBeUndefined();
+        expect(serialized.anchors).toEqual([
+            {
+                name: 'top',
+                x: 100,
+                y: 200
+            }
+        ]);
+    });
+
     test('saveLayerData rejects missing layer widths before mutating stored data', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'

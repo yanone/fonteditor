@@ -2415,6 +2415,77 @@ describe('Transactions', () => {
         ).toBe(125);
     });
 
+    test('layer sync point edit stays granular when pruned optional layer keys disappear', () => {
+        const { bridge, fontJson } = createTestBridge(
+            'granular-layer-sync-pruned'
+        );
+        const layer = fontJson.glyphs[0].layers[0];
+        layer.shapes[0].nodes[0].x = 125;
+        layer.shapes[0].nodes[0].y = 15;
+        delete layer.guides;
+        delete layer.format_specific;
+
+        bridge.syncLayersFromJson(
+            [{ glyphName: 'A', layerId: 'layer-1' }],
+            'Drag point',
+            undefined,
+            undefined,
+            null,
+            [{ glyphName: 'A', layerId: 'layer-1' }],
+            'mouse-drag-outline',
+            'mouse-drag-outline',
+            'outline'
+        );
+
+        const log = bridge.getChangeLog();
+        expect(log.map((entry) => entry.path)).toEqual([
+            'glyphs.A:layers.layer-1:format_specific',
+            'glyphs.A:layers.layer-1:shapes.0.nodes.0.x',
+            'glyphs.A:layers.layer-1:shapes.0.nodes.0.y',
+            'glyphs.A:layers.layer-1:guides'
+        ]);
+        expect(log.map((entry) => entry.op)).toEqual([
+            'remove',
+            'set',
+            'set',
+            'remove'
+        ]);
+        expect(
+            log.some((entry) => entry.path === 'glyphs.A:layers.layer-1')
+        ).toBe(false);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'format_specific'
+            ])
+        ).toBeUndefined();
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'guides'
+            ])
+        ).toBeUndefined();
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(125);
+    });
+
     test('batch changes share transactionId and label', () => {
         const { bridge } = createTestBridge('test-1');
         bridge.beginTransaction('Drag node');

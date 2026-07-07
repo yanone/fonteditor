@@ -159,6 +159,81 @@ describe('collaboration-message scaffold', () => {
         );
     });
 
+    test('omits redundant per-change replay targets when packet metadata already matches', () => {
+        const entries = [
+            createLogEntry({
+                timestamp: 123,
+                windowId: 'sender-window',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-1',
+                transactionLabel: 'Drag anchor',
+                transactionId: 55,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.A:layers.layer-1:anchors.0.x',
+                oldValue: 100,
+                newValue: 120,
+                workerReplayTargets: [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ]
+            }),
+            createLogEntry({
+                timestamp: 123,
+                windowId: 'sender-window',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-1',
+                transactionLabel: 'Drag anchor',
+                transactionId: 55,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.A:layers.layer-1:anchors.0.y',
+                oldValue: 200,
+                newValue: 240,
+                workerReplayTargets: [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ]
+            })
+        ];
+
+        const envelope = createCollaborationMessageEnvelopeFromChangeLogEntries(
+            entries,
+            {
+                localSequence: 1,
+                source: 'unit-test',
+                windowId: 'sender-window'
+            }
+        );
+
+        expect(envelope.metadata.workerReplayTargets).toEqual([
+            { glyphName: 'A', layerId: 'layer-1' },
+            { glyphName: 'adieresis', layerId: 'layer-1' }
+        ]);
+        expect(envelope.changes).toEqual([
+            expect.objectContaining({
+                path: 'glyphs.A:layers.layer-1:anchors.0.x',
+                workerReplayTargets: undefined
+            }),
+            expect.objectContaining({
+                path: 'glyphs.A:layers.layer-1:anchors.0.y',
+                workerReplayTargets: undefined
+            })
+        ]);
+
+        const roundTripped =
+            createChangeLogEntriesFromCollaborationMessageEnvelope(envelope, {
+                windowRoleLabel: 'receiver-window'
+            });
+
+        roundTripped.forEach((entry) => {
+            expect(entry.workerReplayTargets).toEqual([
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'adieresis', layerId: 'layer-1' }
+            ]);
+        });
+    });
+
     test('createNamedChangePairFromJsonPatchPair maps dotted glyph names and layer ids', () => {
         const pair = createNamedChangePairFromJsonPatchPair(
             {

@@ -807,7 +807,14 @@ describe('GlyphCanvas onMouseUp', () => {
                 'RSB: 10',
                 'RIGHT RIGHT 20',
                 'right',
-                [{ glyphName: 'l', layerId: 'layer-1' }],
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'l', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'l', layerId: 'layer-1' }
+                    ]
+                },
                 {
                     editSource: 'mouse-drag-sidebearing',
                     changeSource: 'keyboard-sidebearing',
@@ -931,7 +938,14 @@ describe('GlyphCanvas onMouseUp', () => {
                 'RSB: 10',
                 'RIGHT 20',
                 null,
-                [{ glyphName: 'l', layerId: 'layer-1' }],
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'l', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'l', layerId: 'layer-1' }
+                    ]
+                },
                 {
                     editSource: 'mouse-drag-sidebearing',
                     changeSource: 'keyboard-sidebearing',
@@ -1390,7 +1404,14 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
-                [{ glyphName: 'A', layerId: 'layer-1' }],
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ]
+                },
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
@@ -1463,7 +1484,14 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 '(105, 282)',
                 null,
-                [{ glyphName: 'A', layerId: 'layer-1' }],
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ]
+                },
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
@@ -1610,7 +1638,14 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
-                [{ glyphName: 'A', layerId: 'layer-1' }],
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ]
+                },
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
@@ -1907,7 +1942,14 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
-                [{ glyphName: 'A', layerId: 'layer-1' }],
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ]
+                },
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
@@ -2179,7 +2221,14 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(205, 182)'",
                 'RIGHT (205, 182)',
                 'right',
-                [{ glyphName: 'A', layerId: 'layer-1' }],
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' }
+                    ]
+                },
                 {
                     editSource: 'mouse-drag-outline',
                     changeSource: 'mouse-drag-outline',
@@ -3334,7 +3383,10 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 expect.any(String),
                 expect.any(String),
                 'left',
-                undefined,
+                {
+                    changedLayerTargets: [],
+                    workerReplayTargets: []
+                },
                 {
                     editSource: 'keyboard-sidebearing',
                     changeSource: 'keyboard-sidebearing',
@@ -3470,10 +3522,16 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 'RIGHT',
                 'RIGHT',
                 'right',
-                [
-                    { glyphName: 'l', layerId: 'master-layer' },
-                    { glyphName: 'n', layerId: 'master-layer' }
-                ],
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'l', layerId: 'master-layer' },
+                        { glyphName: 'n', layerId: 'master-layer' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'l', layerId: 'master-layer' },
+                        { glyphName: 'n', layerId: 'master-layer' }
+                    ]
+                },
                 {
                     changeSource: 'keyboard-sidebearing',
                     editSource: 'keyboard-sidebearing',
@@ -10031,6 +10089,8 @@ describe('GlyphCanvas anchor movement', () => {
         window.patchSyncEngine = {
             syncLayersFromJson,
             syncGlyphFromJson: jest.fn(),
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
             recordChange: jest.fn(),
             recordAdd: jest.fn(),
             recordRemove: jest.fn()
@@ -10047,10 +10107,16 @@ describe('GlyphCanvas anchor movement', () => {
                 undefined,
                 undefined,
                 null,
-                [
-                    { glyphName: 'a', layerId: 'layer-1' },
-                    { glyphName: 'adieresis', layerId: 'layer-1' }
-                ],
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' },
+                        { glyphName: 'adieresis', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' },
+                        { glyphName: 'adieresis', layerId: 'layer-1' }
+                    ]
+                },
                 {
                     editSource: 'mouse-drag-anchor',
                     changeSource: 'mouse-drag-anchor',
@@ -10094,6 +10160,283 @@ describe('GlyphCanvas anchor movement', () => {
         } finally {
             window.patchSyncEngine = originalPatchSyncEngine;
             serializeLayerSpy.mockRestore();
+        }
+    });
+
+    test('synces only direct layer JSON while preserving broader replay metadata', () => {
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const syncLayersFromJson = jest.fn();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                babelfontData: {
+                    glyphs: [
+                        {
+                            name: 'a',
+                            layers: [
+                                {
+                                    id: 'layer-1',
+                                    width: 500,
+                                    shapes: [],
+                                    anchors: []
+                                }
+                            ]
+                        },
+                        {
+                            name: 'adieresis',
+                            layers: [
+                                {
+                                    id: 'layer-1',
+                                    width: 610,
+                                    shapes: [],
+                                    anchors: []
+                                }
+                            ]
+                        }
+                    ]
+                },
+                fontModel: {
+                    findGlyph: jest.fn(() => null)
+                }
+            });
+
+        window.patchSyncEngine = {
+            syncLayersFromJson,
+            syncGlyphFromJson: jest.fn(),
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
+        };
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'a' }
+        ]);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+
+        try {
+            canvas.outlineEditor._syncCurrentGlyphToYDoc(
+                'Drag point',
+                undefined,
+                undefined,
+                null,
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' },
+                        { glyphName: 'adieresis', layerId: 'layer-1' }
+                    ]
+                },
+                {
+                    editSource: 'mouse-drag-outline',
+                    changeSource: 'mouse-drag-outline',
+                    editType: 'outline'
+                }
+            );
+
+            expect(syncLayersFromJson).toHaveBeenCalledWith(
+                [{ glyphName: 'a', layerId: 'layer-1' }],
+                'Drag point',
+                undefined,
+                undefined,
+                null,
+                [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ],
+                'mouse-drag-outline',
+                'mouse-drag-outline',
+                'outline'
+            );
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+        }
+    });
+
+    test('toggle smooth preserves dependent changed-layer widening when metrics keys are affected', () => {
+        const applyMetricsKeysToCurrentEditedLayerSpy = jest
+            .spyOn(canvas.outlineEditor, 'applyMetricsKeysToCurrentEditedLayer')
+            .mockReturnValue({
+                affectedGlyphNames: new Set(['a', 'adieresis'])
+            });
+        const syncKeyboardOutlineLayerEditSpy = jest
+            .spyOn(canvas.outlineEditor, 'syncKeyboardOutlineLayerEdit')
+            .mockImplementation(() => {});
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockImplementation(() => {});
+
+        canvas.outlineEditor.layerData = {
+            width: 500,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'line', smooth: false },
+                        { x: 50, y: 100, nodetype: 'curve', smooth: true },
+                        { x: 100, y: 0, nodetype: 'line', smooth: false }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: []
+        };
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'a' }
+        ]);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+
+        try {
+            canvas.outlineEditor.togglePointSmoothSelection([
+                { contourIndex: 0, nodeIndex: 1 }
+            ]);
+
+            expect(
+                applyMetricsKeysToCurrentEditedLayerSpy
+            ).toHaveBeenCalledWith(false, {
+                rebuildAutomaticComposites: true
+            });
+            expect(saveLayerDataSpy).toHaveBeenCalledWith('keyboard-outline');
+            expect(syncKeyboardOutlineLayerEditSpy).toHaveBeenCalledWith(
+                'Toggle smooth',
+                {
+                    affectedGlyphNames: new Set(['a', 'adieresis'])
+                }
+            );
+        } finally {
+            applyMetricsKeysToCurrentEditedLayerSpy.mockRestore();
+            syncKeyboardOutlineLayerEditSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
+    test('keyboard outline commit syncs actual changed dependent layers without widening to metadata-only replay targets', () => {
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const syncLayersFromJson = jest.fn();
+        const computeRecompositionClosureSpy = jest
+            .spyOn(canvas.outlineEditor, 'computeRecompositionClosure')
+            .mockReturnValue({
+                allTargets: [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' },
+                    { glyphName: 'agrave', layerId: 'layer-1' }
+                ],
+                dependentTargets: [
+                    { glyphName: 'adieresis', layerId: 'layer-1' },
+                    { glyphName: 'agrave', layerId: 'layer-1' }
+                ],
+                affectedGlyphNames: new Set(['a', 'adieresis', 'agrave'])
+            });
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                babelfontData: {
+                    glyphs: [
+                        {
+                            name: 'a',
+                            layers: [
+                                {
+                                    id: 'layer-1',
+                                    width: 500,
+                                    shapes: [],
+                                    anchors: []
+                                }
+                            ]
+                        },
+                        {
+                            name: 'adieresis',
+                            layers: [
+                                {
+                                    id: 'layer-1',
+                                    width: 600,
+                                    shapes: [],
+                                    anchors: []
+                                }
+                            ]
+                        },
+                        {
+                            name: 'agrave',
+                            layers: [
+                                {
+                                    id: 'layer-1',
+                                    width: 610,
+                                    shapes: [],
+                                    anchors: []
+                                }
+                            ]
+                        }
+                    ]
+                },
+                fontModel: {
+                    glyphs: [
+                        { name: 'a' },
+                        { name: 'adieresis' },
+                        { name: 'agrave' }
+                    ],
+                    findGlyph: jest.fn((glyphName) => ({
+                        findLayerById: jest.fn((layerId) =>
+                            layerId === 'layer-1'
+                                ? {
+                                      id: 'layer-1',
+                                      toJSON: jest.fn(() => ({
+                                          id: 'layer-1',
+                                          width: glyphName === 'a' ? 500 : 600,
+                                          shapes: [],
+                                          anchors: []
+                                      }))
+                                  }
+                                : null
+                        )
+                    }))
+                }
+            });
+
+        window.patchSyncEngine = {
+            syncLayersFromJson,
+            syncGlyphFromJson: jest.fn(),
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
+        };
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'a' }
+        ]);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+
+        try {
+            canvas.outlineEditor.syncKeyboardOutlineLayerEdit('Arrow key', {
+                affectedGlyphNames: new Set(['a', 'adieresis'])
+            });
+
+            expect(syncLayersFromJson).toHaveBeenCalledWith(
+                [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ],
+                'Arrow key',
+                undefined,
+                undefined,
+                null,
+                [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' },
+                    { glyphName: 'agrave', layerId: 'layer-1' }
+                ],
+                'keyboard-outline',
+                'keyboard-outline',
+                'outline'
+            );
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            computeRecompositionClosureSpy.mockRestore();
         }
     });
 });

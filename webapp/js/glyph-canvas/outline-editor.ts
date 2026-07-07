@@ -2959,10 +2959,12 @@ export class OutlineEditor {
     private _componentDragDeltaX: number = 0;
     private _sidebearingAffectedGlyphNames: Set<string> = new Set();
     private _anchorAffectedGlyphNames: Set<string> = new Set();
+    private _committedOutlineAffectedGlyphNames: Set<string> = new Set();
     private liveDragEditFunnel = new LiveDragEditFunnel();
     private keyboardPreviewEditFunnel = new KeyboardPreviewEditFunnel();
     private _pendingKeyboardPreviewCommit: {
         preMoveDesc?: string;
+        affectedGlyphNames?: Set<string>;
     } | null = null;
     private _keyboardPreviewCommitInFlight: Promise<void> | null = null;
     private _cachedAnchorDragScopeSourceGlyphName: string | null = null;
@@ -3954,6 +3956,10 @@ export class OutlineEditor {
             }
         }
 
+        this._committedOutlineAffectedGlyphNames = new Set(
+            metricsUpdate?.affectedGlyphNames || []
+        );
+
         if (persistLayerData) {
             return this.saveLayerData(changeSource);
         }
@@ -4390,6 +4396,29 @@ export class OutlineEditor {
                     activeLayerId
                 });
 
+                const replayTargets =
+                    closure.allTargets.length > 0
+                        ? closure.allTargets
+                        : sourceTargets;
+                const changedLayerTargetsFromModel =
+                    pendingCommit.affectedGlyphNames &&
+                    pendingCommit.affectedGlyphNames.size > 1
+                        ? this.collectMatchingLayerWorkerReplayTargets(
+                              pendingCommit.affectedGlyphNames,
+                              activeLayerId
+                          )
+                        : [];
+                const changedLayerTargets =
+                    editKinds.has('anchor') ||
+                    editKinds.has('sidebearing') ||
+                    this._metricsKeyEditedSide !== null ||
+                    this._metricsKeyInteractionSide !== null ||
+                    changedLayerTargetsFromModel.length > 1
+                        ? changedLayerTargetsFromModel.length > 0
+                            ? changedLayerTargetsFromModel
+                            : replayTargets
+                        : sourceTargets;
+
                 this._syncCurrentGlyphToYDoc(
                     'Arrow key',
                     pendingCommit.preMoveDesc,
@@ -4398,7 +4427,10 @@ export class OutlineEditor {
                         this._metricsKeyEditedSide ??
                         this._metricsKeyInteractionSide ??
                         null,
-                    closure.allTargets.length ? closure.allTargets : undefined,
+                    {
+                        changedLayerTargets,
+                        workerReplayTargets: replayTargets
+                    },
                     this.getCommittedCompileMetadata(committedChangeSource)
                 );
             } finally {
@@ -4429,9 +4461,21 @@ export class OutlineEditor {
         await this.keyboardPreviewEditFunnel.flushPendingCommit();
     }
 
-    private armPendingKeyboardPreviewCommit(preMoveDesc?: string): void {
+    private armPendingKeyboardPreviewCommit(
+        preMoveDesc?: string,
+        affectedGlyphNames?: Set<string>
+    ): void {
         if (!this._pendingKeyboardPreviewCommit) {
-            this._pendingKeyboardPreviewCommit = { preMoveDesc };
+            this._pendingKeyboardPreviewCommit = {
+                preMoveDesc,
+                affectedGlyphNames: affectedGlyphNames
+                    ? new Set(affectedGlyphNames)
+                    : undefined
+            };
+        } else if (affectedGlyphNames) {
+            this._pendingKeyboardPreviewCommit.affectedGlyphNames = new Set(
+                affectedGlyphNames
+            );
         }
         this.keyboardPreviewEditFunnel.scheduleCommit(async () => {
             await this.commitPendingKeyboardPreviewCommit();
@@ -12612,14 +12656,35 @@ export class OutlineEditor {
                             editKinds: dragEditKinds,
                             scope: 'all'
                         });
+                        const replayTargets =
+                            closure.allTargets.length > 0
+                                ? closure.allTargets
+                                : sourceTarget;
+                        const committedOutlineTargets =
+                            activeLayerId &&
+                            this._committedOutlineAffectedGlyphNames.size > 1
+                                ? this.collectMatchingLayerWorkerReplayTargets(
+                                      this._committedOutlineAffectedGlyphNames,
+                                      activeLayerId
+                                  )
+                                : [];
+                        const changedLayerTargets =
+                            dragEditKinds.has('anchor') ||
+                            dragEditKinds.has('sidebearing') ||
+                            hasMetricsKeySideChange
+                                ? replayTargets
+                                : committedOutlineTargets.length > 1
+                                  ? committedOutlineTargets
+                                  : sourceTarget;
                         this._syncCurrentGlyphToYDoc(
                             label,
                             preDragDesc ?? undefined,
                             encodedPostDesc,
                             metricsKeySide,
-                            closure.allTargets.length
-                                ? closure.allTargets
-                                : undefined,
+                            {
+                                changedLayerTargets,
+                                workerReplayTargets: replayTargets
+                            },
                             this.getCommittedCompileMetadata(dragChangeSource)
                         );
                     }
@@ -12657,6 +12722,7 @@ export class OutlineEditor {
                 this._componentDragDeltaX = 0;
                 this._sidebearingAffectedGlyphNames = new Set();
                 this._anchorAffectedGlyphNames = new Set();
+                this._committedOutlineAffectedGlyphNames = new Set();
                 this.resetLiveAnchorRefreshState();
                 this.resetLiveSidebearingRefreshState();
                 this._hasMoved = false;
@@ -15853,7 +15919,9 @@ export class OutlineEditor {
             preserveHandlePositions
         );
 
-        const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer();
+        const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(true, {
+            rebuildAutomaticComposites: true
+        });
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
         return (
@@ -15930,7 +15998,9 @@ export class OutlineEditor {
             }
         }
 
-        const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer();
+        const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(true, {
+            rebuildAutomaticComposites: true
+        });
 
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
@@ -15972,12 +16042,33 @@ export class OutlineEditor {
             activeLayerId
         });
 
+        const replayTargets =
+            closure.allTargets.length > 0 ? closure.allTargets : sourceTargets;
+        const changedLayerTargetsFromModel =
+            (metricsUpdate?.affectedGlyphNames?.size ?? 0) > 1
+                ? this.collectMatchingLayerWorkerReplayTargets(
+                      metricsUpdate?.affectedGlyphNames || [],
+                      activeLayerId
+                  )
+                : [];
+        const changedLayerTargets =
+            this._metricsKeyEditedSide !== null ||
+            this._metricsKeyInteractionSide !== null ||
+            changedLayerTargetsFromModel.length > 1
+                ? changedLayerTargetsFromModel.length > 0
+                    ? changedLayerTargetsFromModel
+                    : replayTargets
+                : sourceTargets;
+
         this._syncCurrentGlyphToYDoc(
             label,
             undefined,
             undefined,
             null,
-            closure.allTargets.length ? closure.allTargets : undefined,
+            {
+                changedLayerTargets,
+                workerReplayTargets: replayTargets
+            },
             this.getCommittedCompileMetadata('keyboard-outline')
         );
     }
@@ -16216,7 +16307,16 @@ export class OutlineEditor {
                 formatSidebearingHistoryValue(side, currentSidebearing),
                 formatSidebearingHistoryValue(side, targetValue),
                 side,
-                closure.allTargets.length ? closure.allTargets : undefined,
+                {
+                    changedLayerTargets:
+                        closure.allTargets.length > 0
+                            ? closure.allTargets
+                            : sourceTargets,
+                    workerReplayTargets:
+                        closure.allTargets.length > 0
+                            ? closure.allTargets
+                            : sourceTargets
+                },
                 this.getCommittedCompileMetadata('keyboard-sidebearing')
             );
         } finally {
@@ -16606,31 +16706,11 @@ export class OutlineEditor {
             return;
         }
 
-        this.saveLayerData('keyboard-outline');
-        // Use unified recomposition closure so undo metadata includes
-        // composite-dependent glyphs.
-        const activeLayerId = this.getCurrentLayerId();
-        const glyphName =
-            this.parseGlyphStack().slice(-1)[0]?.glyphName ??
-            this.glyphCanvas.getCurrentGlyphName();
-        const sourceTargets =
-            activeLayerId && glyphName
-                ? [{ glyphName, layerId: activeLayerId }]
-                : [];
-        const closure = this.computeRecompositionClosure({
-            sourceTargets,
-            editKinds: new Set(['outline']),
-            scope: 'all',
-            activeLayerId
+        const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(false, {
+            rebuildAutomaticComposites: true
         });
-        this._syncCurrentGlyphToYDoc(
-            'Toggle smooth',
-            undefined,
-            undefined,
-            null,
-            closure.allTargets.length ? closure.allTargets : undefined,
-            this.getCommittedCompileMetadata('keyboard-outline')
-        );
+        this.saveLayerData('keyboard-outline');
+        this.syncKeyboardOutlineLayerEdit('Toggle smooth', metricsUpdate);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
     }
@@ -17293,7 +17373,12 @@ export class OutlineEditor {
                         return null;
                     }
 
-                    this.armPendingKeyboardPreviewCommit(preMoveDesc);
+                    this.armPendingKeyboardPreviewCommit(
+                        preMoveDesc,
+                        outlineAffectedGlyphNames.size > 0
+                            ? outlineAffectedGlyphNames
+                            : undefined
+                    );
 
                     if (sidebearingMoved) {
                         return {
@@ -18054,17 +18139,27 @@ export class OutlineEditor {
      * @param oldValue     Previous state description for undo/redo display.
      * @param newValue     New state description for undo/redo display.
      * @param visualAnchorSide Which side was edited (for viewport pan).
-     * @param workerReplayTargets Pre-computed closure targets from the
-     *   caller.  MUST be the full allTargets set from
-     *   computeRecompositionClosure.  Pass undefined when no closure
-     *   was computed (fallback to direct source-only sync).
+     * @param layerSyncTargets Pre-computed changed-layer targets and
+     *   replay metadata targets from the caller.  `changedLayerTargets`
+     *   controls which layer JSON fragments are diffed into Yjs;
+     *   `workerReplayTargets` stays metadata-only for downstream cache
+     *   refresh and compile scoping.
      */
     private _syncCurrentGlyphToYDoc(
         label: string,
         oldValue?: string,
         newValue?: string,
         visualAnchorSide?: SidebearingSide | null,
-        workerReplayTargets?: Array<{ glyphName: string; layerId: string }>,
+        layerSyncTargets?: {
+            changedLayerTargets?: Array<{
+                glyphName: string;
+                layerId: string;
+            }>;
+            workerReplayTargets?: Array<{
+                glyphName: string;
+                layerId: string;
+            }>;
+        },
         compileMetadata?: {
             editSource: string;
             changeSource: string;
@@ -18090,13 +18185,18 @@ export class OutlineEditor {
         const directTarget = activeLayerId
             ? [{ glyphName: editedGlyphName, layerId: activeLayerId }]
             : [];
-        const allTargets = normalizeWorkerReplayTargets([
+        const replayTargets = normalizeWorkerReplayTargets([
             ...directTarget,
-            ...(workerReplayTargets ?? [])
+            ...(layerSyncTargets?.workerReplayTargets ?? [])
         ]);
+        const changedLayerTargets = normalizeWorkerReplayTargets(
+            layerSyncTargets?.changedLayerTargets?.length
+                ? layerSyncTargets.changedLayerTargets
+                : directTarget
+        );
 
         if (
-            allTargets.length &&
+            changedLayerTargets.length &&
             typeof window.patchSyncEngine.syncLayersFromJson === 'function'
         ) {
             // SaveLayerData repointed the bridge snapshot (babelfontData) with
@@ -18111,7 +18211,7 @@ export class OutlineEditor {
             // and subsequent worker-cache-right compiles.
             const fontModel = fontManager.currentFont?.fontModel;
             if (fontModel) {
-                for (const target of allTargets) {
+                for (const target of changedLayerTargets) {
                     if (
                         target.glyphName === editedGlyphName &&
                         target.layerId === activeLayerId
@@ -18150,18 +18250,17 @@ export class OutlineEditor {
                 }
             }
 
-            // Pass allTargets as BOTH the sync targets AND the metadata
-            // workerReplayTargets so every operation entry carries the complete
-            // closure set rather than just its own layer path.  This ensures
-            // that Rust's subset/font/filter cache is refreshed for composite-
-            // dependent glyphs even when their own layer JSON is byte-equal.
+            // Diff only the layers whose committed JSON actually changed.
+            // Replay targets stay metadata-only so downstream caches can still
+            // refresh broader dependent glyph closures without widening the
+            // authoritative Yjs mutation set.
             window.patchSyncEngine.syncLayersFromJson(
-                allTargets,
+                changedLayerTargets,
                 label,
                 oldValue,
                 newValue,
                 visualAnchorSide,
-                allTargets,
+                replayTargets,
                 compileMetadata?.editSource ??
                     compileMetadata?.changeSource ??
                     null,

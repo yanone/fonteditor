@@ -3898,6 +3898,12 @@ class FontManager {
         layerData: Babelfont.Layer,
         options?: { preserveExistingShapes?: boolean }
     ): Babelfont.Layer | null {
+        const hasOwnKeys = (value: unknown): value is Record<string, unknown> =>
+            !!value &&
+            typeof value === 'object' &&
+            !Array.isArray(value) &&
+            Object.keys(value).length > 0;
+
         const extractPathShape = (shape: any): any => {
             if (shape && typeof shape === 'object' && 'Path' in shape) {
                 return (shape as any).Path;
@@ -3932,7 +3938,7 @@ class FontManager {
                         pathCandidate.closed === undefined
                             ? false
                             : pathCandidate.closed,
-                    ...(pathCandidate.format_specific && {
+                    ...(hasOwnKeys(pathCandidate.format_specific) && {
                         format_specific: pathCandidate.format_specific
                     })
                 };
@@ -3959,7 +3965,7 @@ class FontManager {
                     ...(componentCandidate.location && {
                         location: componentCandidate.location
                     }),
-                    ...(componentCandidate.format_specific && {
+                    ...(hasOwnKeys(componentCandidate.format_specific) && {
                         format_specific: componentCandidate.format_specific
                     })
                 };
@@ -4004,24 +4010,32 @@ class FontManager {
                   name: anchor.name,
                   x: anchor.x,
                   y: anchor.y,
-                  ...(anchor.format_specific && {
+                  ...(hasOwnKeys(anchor.format_specific) && {
                       format_specific: anchor.format_specific
                   })
               }))
             : originalLayer?.anchors;
 
         const cleanGuides = Array.isArray(layerData.guides)
-            ? layerData.guides.map((guide) => ({
-                  ...(guide.id && { id: guide.id }),
-                  pos: {
-                      x: guide.pos.x,
-                      y: guide.pos.y,
-                      angle: guide.pos.angle
-                  },
-                  name: guide.name,
-                  ...(guide.color && { color: guide.color })
-              }))
+            ? layerData.guides.length > 0
+                ? layerData.guides.map((guide) => ({
+                      ...(guide.id && { id: guide.id }),
+                      pos: {
+                          x: guide.pos.x,
+                          y: guide.pos.y,
+                          angle: guide.pos.angle
+                      },
+                      name: guide.name,
+                      ...(guide.color && { color: guide.color })
+                  }))
+                : undefined
             : originalLayer?.guides;
+
+        const formatSpecific = hasOwnKeys(layerData.format_specific)
+            ? layerData.format_specific
+            : hasOwnKeys(originalLayer?.format_specific)
+              ? originalLayer?.format_specific
+              : undefined;
 
         const layerName = layerData.name ?? originalLayer?.name;
 
@@ -4059,10 +4073,8 @@ class FontManager {
                     ...(layerData.location ?? originalLayer?.location)
                 }
             }),
-            ...((layerData.format_specific ??
-                originalLayer?.format_specific) && {
-                format_specific:
-                    layerData.format_specific ?? originalLayer?.format_specific
+            ...(formatSpecific && {
+                format_specific: formatSpecific
             }),
             ...((layerData as any).master && {
                 master: (layerData as any).master
