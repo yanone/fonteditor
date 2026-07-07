@@ -522,8 +522,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _websiteBaseUrl: string;
     private _roomWorkerBaseUrl: string;
     private _onConnectionStatus:
-        | ((status: CloudConnectionStatus, detail?: string) => void)
-        | null;
+        ((status: CloudConnectionStatus, detail?: string) => void) | null;
     private _onPendingSyncCountChange: ((count: number) => void) | null;
     private _suppressSyncComplete: boolean;
 
@@ -761,8 +760,7 @@ export class CloudAdapter implements FileSystemAdapter {
 
         const currentFontJson = window.fontManager?.currentFont
             ?.babelfontData as
-            | Record<string, ReturnType<typeof JSON.parse>>
-            | undefined;
+            Record<string, ReturnType<typeof JSON.parse>> | undefined;
 
         const skipMerge = Boolean(
             (

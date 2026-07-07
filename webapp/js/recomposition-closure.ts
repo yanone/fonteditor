@@ -22,10 +22,7 @@ import { normalizeWorkerReplayTargets } from './change-log';
 // ── Public types ───────────────────────────────────────────────────────────
 
 export type RecompositionEditKind =
-    | 'outline'
-    | 'anchor'
-    | 'sidebearing'
-    | 'component';
+    'outline' | 'anchor' | 'sidebearing' | 'component';
 
 export type RecompositionScope = 'visible' | 'all';
 

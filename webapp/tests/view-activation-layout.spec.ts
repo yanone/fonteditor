@@ -37,8 +37,7 @@ async function getTopRowState(page: Page) {
         const visibleTopRow = Array.from(
             document.querySelectorAll('.top-row')
         ).find((row) => (row as HTMLElement).offsetWidth > 0) as
-            | HTMLElement
-            | undefined;
+            HTMLElement | undefined;
         const viewIds = ['view-fontinfo', 'view-overview', 'view-editor'];
         const widths = viewIds.reduce<Record<string, number>>(
             (result, viewId) => {
@@ -123,8 +122,7 @@ async function dragVerticalDivider(
             const visibleTopRow = Array.from(
                 document.querySelectorAll('.top-row')
             ).find((row) => (row as HTMLElement).offsetWidth > 0) as
-                | HTMLElement
-                | undefined;
+                HTMLElement | undefined;
 
             if (!visibleTopRow) {
                 throw new Error('Visible top row not found');
@@ -445,8 +443,7 @@ test('editor collapses to the top-row width minimum when dragged closed', async 
         const visibleTopRow = Array.from(
             document.querySelectorAll('.top-row')
         ).find((row) => (row as HTMLElement).offsetWidth > 0) as
-            | HTMLElement
-            | undefined;
+            HTMLElement | undefined;
         const editorView = visibleTopRow?.querySelector('#view-editor');
         return !!editorView && editorView.getBoundingClientRect().width <= 30;
     });
@@ -465,8 +462,7 @@ test('editor collapses to the top-row width minimum when dragged closed', async 
         const visibleTopRow = Array.from(
             document.querySelectorAll('.top-row')
         ).find((row) => (row as HTMLElement).offsetWidth > 0) as
-            | HTMLElement
-            | undefined;
+            HTMLElement | undefined;
         const editorView = visibleTopRow?.querySelector('#view-editor');
         return !!editorView && editorView.getBoundingClientRect().width > 60;
     });
@@ -551,8 +547,7 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
         const visibleTopRow = Array.from(
             document.querySelectorAll('.top-row')
         ).find((row) => (row as HTMLElement).offsetWidth > 0) as
-            | HTMLElement
-            | undefined;
+            HTMLElement | undefined;
         const editorView = visibleTopRow?.querySelector('#view-editor');
         return !!editorView && editorView.classList.contains('collapsed-width');
     });
@@ -563,8 +558,7 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
         const visibleTopRow = Array.from(
             document.querySelectorAll('.top-row')
         ).find((row) => (row as HTMLElement).offsetWidth > 0) as
-            | HTMLElement
-            | undefined;
+            HTMLElement | undefined;
         const editorView = visibleTopRow?.querySelector('#view-editor');
         return (
             !!editorView && !editorView.classList.contains('collapsed-width')

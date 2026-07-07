@@ -141,8 +141,7 @@ declare global {
             | undefined;
         closeFontFileDialog: (() => void) | undefined;
         locatePathInFileDialog:
-            | ((pluginId: string, fullPath: string) => Promise<void>)
-            | undefined;
+            ((pluginId: string, fullPath: string) => Promise<void>) | undefined;
 
         // From auth-manager.ts
         authManager: {

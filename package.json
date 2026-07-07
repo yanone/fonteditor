@@ -12,7 +12,7 @@
         "prepare": "husky"
     },
     "lint-staged": {
-        "webapp/**/*.{js,ts,jsx,tsx,json,css,md,html,yml,yaml}": "prettier --write"
+        "webapp/**/*.{js,ts,jsx,tsx,json,css,md,html,yml,yaml}": "webapp/node_modules/.bin/prettier --write"
     },
     "dependencies": {
         "typescript": "^5.0.0"
@@ -22,7 +22,6 @@
         "gitnexus": "^1.6.3",
         "husky": "^9.1.7",
         "lint-staged": "^17.0.6",
-        "prettier": "^3.8.3",
         "webpack-cli": "^7.0.2"
     }
 }

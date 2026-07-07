@@ -1787,8 +1787,7 @@ class FontInfoManager {
         }
 
         const scroller = this.featuresEditor.renderer?.scroller as
-            | HTMLElement
-            | undefined;
+            HTMLElement | undefined;
         const manager = this.featuresEditor.session?.widgetManager;
         if (!scroller || !manager) {
             return;
@@ -3076,8 +3075,7 @@ class FontInfoManager {
         masters?: Babelfont.Master[] | undefined
     ): string {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const sourceMasters = masters ?? font?.masters ?? [];
 
         return sourceMasters
@@ -3089,8 +3087,7 @@ class FontInfoManager {
         instances?: Babelfont.Instance[] | undefined
     ): string {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const sourceInstances = instances ?? font?.instances ?? [];
 
         return sourceInstances
@@ -3116,8 +3113,7 @@ class FontInfoManager {
         axes?: Babelfont.Axis[] | undefined
     ): string {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const sourceAxes = axes ?? font?.axes ?? [];
 
         return sourceAxes
@@ -3137,8 +3133,7 @@ class FontInfoManager {
         secondary: string;
     } {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const axis = font?.axes?.[axisIndex];
 
         return {
@@ -3155,8 +3150,7 @@ class FontInfoManager {
         secondary: string[];
     } {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const master = font?.masters?.[masterIndex];
 
         return {
@@ -3176,8 +3170,7 @@ class FontInfoManager {
         secondary: string[];
     } {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const instance = font?.instances?.[instanceIndex];
 
         return {
@@ -3546,8 +3539,7 @@ class FontInfoManager {
         }
 
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         if (!font) {
             return;
         }
@@ -3998,8 +3990,7 @@ class FontInfoManager {
         onCommit: (axisTag: string, nextValue: number | undefined) => void;
     }) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const section = document.createElement('section');
         section.className = 'fontinfo-name-group';
 
@@ -4069,8 +4060,7 @@ class FontInfoManager {
         }
 
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const masters = font?.masters ?? [];
         this.renderedMasterListSignature =
             this.getMasterListStructureSignature(masters);
@@ -4368,8 +4358,7 @@ class FontInfoManager {
         }
 
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const instances = font?.instances ?? [];
         this.renderedInstanceListSignature =
             this.getInstanceListStructureSignature(instances);
@@ -4593,8 +4582,7 @@ class FontInfoManager {
         }
 
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const axes = font?.axes ?? [];
         this.renderedAxisListSignature =
             this.getAxisListStructureSignature(axes);
@@ -4774,8 +4762,7 @@ class FontInfoManager {
             ]
         ] as ['min' | 'max' | 'default', string, string][]) {
             const userspaceValue = selectedAxis[dsFieldKey] as
-                | number
-                | undefined;
+                number | undefined;
             const currentDsValue = this.getAxisDesignspaceValue(
                 selectedAxis,
                 userspaceValue
@@ -4916,8 +4903,7 @@ class FontInfoManager {
         }
 
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         if (!font) {
             return;
         }
@@ -5685,8 +5671,7 @@ class FontInfoManager {
 
     private getDefaultAxisLocation(): Record<string, number> | undefined {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const locationEntries = (font?.axes ?? [])
             .filter((axis) => axis.default !== undefined)
             .map((axis) => [axis.tag, axis.default as number] as const);
@@ -5882,8 +5867,7 @@ class FontInfoManager {
 
     private createDefaultInstanceRecord(): Babelfont.Instance {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const nextIndex = (font?.instances?.length ?? 0) + 1;
 
         return {
@@ -5909,8 +5893,7 @@ class FontInfoManager {
         nextMasters: Babelfont.Master[]
     ) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         if (!font) {
             return;
         }
@@ -6075,8 +6058,7 @@ class FontInfoManager {
 
     private reorderMastersList(fromIndex: number, insertionIndex: number) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const masters = rawArray(font?.masters).map(cloneMasterRecord);
         if (
             fromIndex < 0 ||
@@ -6246,8 +6228,7 @@ class FontInfoManager {
         nextInstances: Babelfont.Instance[]
     ) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         if (!font) {
             return;
         }
@@ -6272,8 +6253,7 @@ class FontInfoManager {
 
     private addInstanceRecord() {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         if (!font) {
             return;
         }
@@ -6289,8 +6269,7 @@ class FontInfoManager {
 
     private removeSelectedInstanceRecord() {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const instances = font?.instances ?? [];
         if (instances.length === 0) {
             return;
@@ -6349,8 +6328,7 @@ class FontInfoManager {
 
     private reorderInstancesList(fromIndex: number, insertionIndex: number) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const instances = rawArray(font?.instances).map(cloneInstanceRecord);
         if (
             fromIndex < 0 ||
@@ -6512,8 +6490,7 @@ class FontInfoManager {
 
     private createDefaultAxisRecord(): Babelfont.Axis {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const existingTags = new Set((font?.axes ?? []).map((a) => a.tag));
         const candidates = [
             'wght',
@@ -6550,8 +6527,7 @@ class FontInfoManager {
 
     private commitAxesListChange(label: string, nextAxes: Babelfont.Axis[]) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         if (!font) {
             return;
         }
@@ -6572,8 +6548,7 @@ class FontInfoManager {
 
     private addAxisRecord() {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         if (!font) {
             return;
         }
@@ -6653,8 +6628,7 @@ class FontInfoManager {
 
     private removeSelectedAxisRecord() {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const axes = font?.axes ?? [];
         if (axes.length === 0) {
             return;
@@ -6729,8 +6703,7 @@ class FontInfoManager {
             for (const tag of removedTags) {
                 (font?.masters ?? []).forEach((master, index) => {
                     const loc = master.location as
-                        | Record<string, number>
-                        | undefined;
+                        Record<string, number> | undefined;
                     if (loc && tag in loc) {
                         const restLoc = { ...loc };
                         delete (restLoc as Record<string, unknown>)[tag];
@@ -6747,8 +6720,7 @@ class FontInfoManager {
 
                 (font?.instances ?? []).forEach((instance, index) => {
                     const loc = instance.location as
-                        | Record<string, number>
-                        | undefined;
+                        Record<string, number> | undefined;
                     if (loc && tag in loc) {
                         const restLoc = { ...loc };
                         delete (restLoc as Record<string, unknown>)[tag];
@@ -6794,8 +6766,7 @@ class FontInfoManager {
 
     private reorderAxesList(fromIndex: number, insertionIndex: number) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const axes = rawArray(font?.axes).map(cloneAxisRecord);
         if (
             fromIndex < 0 ||
@@ -6956,8 +6927,7 @@ class FontInfoManager {
         nextValue: Babelfont.I18NDictionary
     ) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const axis = font?.axes?.[axisIndex];
         if (!axis) {
             return;
@@ -6983,8 +6953,7 @@ class FontInfoManager {
             applyLocal: () => {
                 const liveAxis = (
                     window.currentFontModel as unknown as
-                        | Babelfont.Font
-                        | undefined
+                        Babelfont.Font | undefined
                 )?.axes?.[axisIndex] as any;
                 if (liveAxis) {
                     liveAxis.name = normalizedNextValue;
@@ -6997,8 +6966,7 @@ class FontInfoManager {
 
     private commitAxisTagFieldValue(axisIndex: number, nextValue: string) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const axis = font?.axes?.[axisIndex];
         if (!axis) {
             return;
@@ -7017,8 +6985,7 @@ class FontInfoManager {
             applyLocal: () => {
                 const liveAxis = (
                     window.currentFontModel as unknown as
-                        | Babelfont.Font
-                        | undefined
+                        Babelfont.Font | undefined
                 )?.axes?.[axisIndex] as any;
                 if (liveAxis) {
                     liveAxis.tag = nextValue;
@@ -7035,8 +7002,7 @@ class FontInfoManager {
         nextValue: number
     ) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const axis = font?.axes?.[axisIndex];
         if (!axis) {
             return;
@@ -7055,8 +7021,7 @@ class FontInfoManager {
             applyLocal: () => {
                 const liveAxis = (
                     window.currentFontModel as unknown as
-                        | Babelfont.Font
-                        | undefined
+                        Babelfont.Font | undefined
                 )?.axes?.[axisIndex] as any;
                 if (liveAxis) {
                     liveAxis[field] = nextValue;
@@ -7068,8 +7033,7 @@ class FontInfoManager {
 
     private commitAxisHiddenValue(axisIndex: number, nextValue: boolean) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const axis = font?.axes?.[axisIndex];
         if (!axis) {
             return;
@@ -7088,8 +7052,7 @@ class FontInfoManager {
             applyLocal: () => {
                 const liveAxis = (
                     window.currentFontModel as unknown as
-                        | Babelfont.Font
-                        | undefined
+                        Babelfont.Font | undefined
                 )?.axes?.[axisIndex] as any;
                 if (liveAxis) {
                     liveAxis.hidden = nextValue;
@@ -7121,8 +7084,7 @@ class FontInfoManager {
         nextDesignspaceValue: number | undefined
     ) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const axis = font?.axes?.[axisIndex];
         if (!axis) {
             return;
@@ -7165,8 +7127,7 @@ class FontInfoManager {
         label: string = 'Edit axis mapping'
     ) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         const axis = font?.axes?.[axisIndex];
         if (!axis) {
             return;
@@ -7193,8 +7154,7 @@ class FontInfoManager {
             applyLocal: () => {
                 const liveAxis = (
                     window.currentFontModel as unknown as
-                        | Babelfont.Font
-                        | undefined
+                        Babelfont.Font | undefined
                 )?.axes?.[axisIndex] as any;
                 if (liveAxis) {
                     liveAxis.map = newMap;
@@ -7334,16 +7294,14 @@ class FontInfoManager {
 
     private applyLocalCustomOTValue(key: CustomOTFieldKey, nextValue: unknown) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         if (!font) {
             return;
         }
 
         if (nextValue === undefined) {
             const customOTValues = font.custom_ot_values as
-                | Partial<Babelfont.CustomOTValues>
-                | undefined;
+                Partial<Babelfont.CustomOTValues> | undefined;
             if (customOTValues) {
                 delete customOTValues[key];
                 if (Object.keys(customOTValues).length === 0) {
@@ -7364,16 +7322,14 @@ class FontInfoManager {
 
     private commitCustomOTValue(key: CustomOTFieldKey, nextValue: unknown) {
         const font = window.currentFontModel as unknown as
-            | Babelfont.Font
-            | undefined;
+            Babelfont.Font | undefined;
         if (!font) {
             return;
         }
 
         const previousValue = (
             font.custom_ot_values as
-                | Partial<Babelfont.CustomOTValues>
-                | undefined
+                Partial<Babelfont.CustomOTValues> | undefined
         )?.[key];
         if (areCustomOTFieldValuesEqual(previousValue, nextValue)) {
             if (

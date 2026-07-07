@@ -450,8 +450,7 @@ async function waitForCloudSaveSeedFontJson(
 
                 currentFont.syncJsonFromModel?.();
                 const fontJson = currentFont.babelfontData as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
                 const syncedScore = getCloudFontContentScore(fontJson);
                 if (fontJson && syncedScore > bestCandidateScore) {
                     bestCandidate = canonicalizeCloudExportFontJson(

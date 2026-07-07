@@ -200,12 +200,7 @@ function isSupportedBrowser(): boolean {
 }
 
 function getBrowserMatrixKey():
-    | 'chrome'
-    | 'edge'
-    | 'safari'
-    | 'firefox'
-    | 'brave'
-    | null {
+    'chrome' | 'edge' | 'safari' | 'firefox' | 'brave' | null {
     const ua = navigator.userAgent;
     const navWithUAData = navigator as Navigator & {
         userAgentData?: {

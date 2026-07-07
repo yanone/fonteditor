@@ -1176,8 +1176,7 @@ export class PatchSyncEngine {
         }
 
         const glyphsMap = this.fontMap.get('glyphs') as
-            | Y.Map<unknown>
-            | undefined;
+            Y.Map<unknown> | undefined;
         if (!glyphsMap) {
             return;
         }
@@ -1193,15 +1192,13 @@ export class PatchSyncEngine {
             }
 
             const glyphMap = glyphsMap.get(glyphName) as
-                | Y.Map<unknown>
-                | undefined;
+                Y.Map<unknown> | undefined;
             if (!glyphMap) {
                 continue;
             }
 
             const layersMap = glyphMap.get('layers') as
-                | Y.Map<unknown>
-                | undefined;
+                Y.Map<unknown> | undefined;
             if (!layersMap) {
                 continue;
             }
@@ -1726,8 +1723,7 @@ export class PatchSyncEngine {
         if (!Array.isArray(glyphs)) return;
 
         const glyphsMap = this.fontMap.get('glyphs') as
-            | Y.Map<unknown>
-            | undefined;
+            Y.Map<unknown> | undefined;
         if (!glyphsMap) return;
 
         const targets: Array<{
@@ -1745,8 +1741,7 @@ export class PatchSyncEngine {
             }
 
             const glyphMap = glyphsMap.get(glyphName) as
-                | Y.Map<unknown>
-                | undefined;
+                Y.Map<unknown> | undefined;
             if (!glyphMap) {
                 continue;
             }
@@ -1881,8 +1876,7 @@ export class PatchSyncEngine {
         if (!glyphJson) return false;
 
         const glyphsMap = this.fontMap.get('glyphs') as
-            | Y.Map<unknown>
-            | undefined;
+            Y.Map<unknown> | undefined;
         if (!glyphsMap) return false;
 
         const glyphMap = glyphsMap.get(glyphName) as Y.Map<unknown> | undefined;
@@ -3396,8 +3390,7 @@ export class PatchSyncEngine {
         }
 
         const glyphs = (this._fontJson as Unsafe).glyphs as
-            | Unsafe[]
-            | undefined;
+            Unsafe[] | undefined;
         const glyphIdx =
             glyphs?.findIndex((g: Unsafe) => g.name === scopeHint.glyphName) ??
             -1;
@@ -4836,8 +4829,7 @@ export class PatchSyncEngine {
         for (const [gk, gv] of Object.entries(glyphJson)) {
             if (gk === 'layers' && Array.isArray(gv)) {
                 let layersMap = glyphMap.get('layers') as
-                    | Y.Map<unknown>
-                    | undefined;
+                    Y.Map<unknown> | undefined;
                 if (!(layersMap instanceof Y.Map)) {
                     layersMap = new Y.Map<unknown>();
                     glyphMap.set('layers', layersMap);
@@ -4855,8 +4847,7 @@ export class PatchSyncEngine {
                     // register on the specific Y.Map object) remain valid
                     // after a glyph snapshot is applied.
                     let layerMap = layersMap.get(layerId) as
-                        | Y.Map<unknown>
-                        | undefined;
+                        Y.Map<unknown> | undefined;
                     if (!(layerMap instanceof Y.Map)) {
                         layerMap = new Y.Map<unknown>();
                         layersMap.set(layerId, layerMap);
@@ -5394,8 +5385,7 @@ export class PatchSyncEngine {
         );
 
         const layerMaster = mergedLayerRecord.master as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         if (
             layerMaster &&
             typeof layerMaster === 'object' &&

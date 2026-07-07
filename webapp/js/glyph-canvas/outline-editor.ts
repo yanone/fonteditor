@@ -12577,12 +12577,9 @@ export class OutlineEditor {
                             ),
                             { layerId: null }
                         );
-                    } else if (
-                        !(
-                            dragType === 'guide' &&
-                            draggedGuideScope === 'master'
-                        )
-                    ) {
+                    } else if (!(
+                        dragType === 'guide' && draggedGuideScope === 'master'
+                    )) {
                         // Encode the metrics-key edited side into newValue so
                         // inferSidebearingSideFromHistoryItem can detect it on undo.
                         const metricsKeySide =
@@ -15155,8 +15152,7 @@ export class OutlineEditor {
             currentLayerData?.shapes?.[point.contourIndex]
         );
         const node = contour?.nodes?.[point.nodeIndex] as
-            | Babelfont.Node
-            | undefined;
+            Babelfont.Node | undefined;
 
         return isOnCurveNode(node);
     }

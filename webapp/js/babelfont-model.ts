@@ -5895,10 +5895,7 @@ export class Layer extends ArrayElementBase {
 
     private normalizeSelectionInput(
         value:
-            | SelectableLayerObject
-            | SelectableLayerObject[]
-            | null
-            | undefined
+            SelectableLayerObject | SelectableLayerObject[] | null | undefined
     ): SelectableLayerObject[] {
         const normalized =
             value === null || value === undefined
@@ -6031,10 +6028,7 @@ export class Layer extends ArrayElementBase {
 
     _setSelectionFromPython(
         value:
-            | SelectableLayerObject
-            | SelectableLayerObject[]
-            | null
-            | undefined
+            SelectableLayerObject | SelectableLayerObject[] | null | undefined
     ): void {
         this.applySelectionToOutlineEditor(this.normalizeSelectionInput(value));
     }
@@ -6675,14 +6669,12 @@ export class Layer extends ArrayElementBase {
     private getAutomaticSidebearingAdjustment(side: SidebearingSide): number {
         const glyph = this.parent() as Glyph | undefined;
         const layerFormatSpecific = this.data.format_specific as
-            | Record<string, Unsafe>
-            | undefined;
+            Record<string, Unsafe> | undefined;
         const glyphFormatSpecific = (glyph as Unsafe)?._data
             ?.format_specific as Record<string, Unsafe> | undefined;
         const key = normalizeMetricsKeyValue(
             (layerFormatSpecific?.[getLayerMetricFormatSpecificKey(side)] as
-                | string
-                | undefined) ??
+                string | undefined) ??
                 (glyphFormatSpecific?.[
                     getGlyphMetricFormatSpecificKey(side)
                 ] as string | undefined)
@@ -7737,10 +7729,7 @@ export class Layer extends ArrayElementBase {
 
     set selection(
         value:
-            | SelectableLayerObject
-            | SelectableLayerObject[]
-            | null
-            | undefined
+            SelectableLayerObject | SelectableLayerObject[] | null | undefined
     ) {
         this._setSelectionFromPython(value);
     }
@@ -8544,7 +8533,7 @@ export class Layer extends ArrayElementBase {
         let currentPoint: { x: number; y: number } | null = null;
         let subpathStart: { x: number; y: number } | null = null;
 
-        for (let index = 0; index < tokens.length; ) {
+        for (let index = 0; index < tokens.length;) {
             const command = tokens[index++].toUpperCase();
 
             if (command === 'M') {
@@ -9337,8 +9326,7 @@ function getAppliedMetricsKeySidebearing(
     }
 
     const font = (layer.parent() as Glyph | undefined)?.parent() as
-        | Font
-        | undefined;
+        Font | undefined;
     if (!font || !resolution.input) {
         return { value: resolution.value, error: null };
     }
@@ -10448,8 +10436,7 @@ function syncKerningRtlToFormatSpecific(
     if (Object.keys(flatRtl).length === 0) {
         // Remove the master's entry if it exists; clean up empty containers
         const existing = fs[KEY_KERNING_RTL] as
-            | Record<string, Record<string, Record<string, number>>>
-            | undefined;
+            Record<string, Record<string, Record<string, number>>> | undefined;
         if (existing) {
             delete existing[masterId];
             if (Object.keys(existing).length === 0) {
@@ -10476,11 +10463,9 @@ function syncKerningRtlToFormatSpecific(
 function normalizeLegacyGlyphsRtlKerning(data: Babelfont.Font): Babelfont.Font {
     const masters = Array.isArray(data.masters) ? data.masters : [];
     const formatSpecific = data.format_specific as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
     const rawRtl = formatSpecific?.['com.schriftgestalt.Glyphs.kerningRTL'] as
-        | Record<string, Record<string, Record<string, number>>>
-        | undefined;
+        Record<string, Record<string, Record<string, number>>> | undefined;
 
     // Ensure every master has a kerning_rtl field (empty by default).
     for (const master of masters) {
@@ -11265,8 +11250,7 @@ export class Font extends ModelBase {
     }
 
     get variation_sequences():
-        | Record<number, Record<number, string>>
-        | undefined {
+        Record<number, Record<number, string>> | undefined {
         return getLiveMutableValue(
             this,
             'variation_sequences',
@@ -11961,8 +11945,7 @@ export class Font extends ModelBase {
                 const layerIdsToRemove = rawLayers
                     .filter((layer) => {
                         const layerMaster = layer.master as
-                            | { master?: string }
-                            | undefined;
+                            { master?: string } | undefined;
                         return (
                             typeof layer.id === 'string' &&
                             typeof layerMaster?.master === 'string' &&

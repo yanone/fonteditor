@@ -438,8 +438,7 @@ class ResizableViews {
 
         const topRow = document.querySelector('.top-row') as HTMLElement | null;
         const topViews = topRow?.querySelectorAll('.view') as
-            | NodeListOf<HTMLElement>
-            | undefined;
+            NodeListOf<HTMLElement> | undefined;
 
         if (topViews && topViews.length === 3) {
             // fontinfo: collapsed (24px), overview: 35%, editor: 65%

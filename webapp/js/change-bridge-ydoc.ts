@@ -870,9 +870,7 @@ function diffYArrayOrder(
 
     // Backtrack: collect edit operations in forward order
     type EditOp =
-        | { type: 'keep' }
-        | { type: 'delete' }
-        | { type: 'insert'; id: string };
+        { type: 'keep' } | { type: 'delete' } | { type: 'insert'; id: string };
     const ops: EditOp[] = [];
     let i = m;
     let j = n;

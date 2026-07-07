@@ -125,10 +125,7 @@ type LayerListContextTarget = {
 type KerningSide = 'first' | 'second';
 
 type TextModeKerningStatus =
-    | 'ready'
-    | 'off-master'
-    | 'bidi-boundary'
-    | 'no-pair';
+    'ready' | 'off-master' | 'bidi-boundary' | 'no-pair';
 
 type TextRunClusterInfo = {
     glyphIndex: number;
@@ -214,8 +211,7 @@ type TextModeKerningOverlayCache = {
 
 type KerningRow = Map<string, number> | Record<string, number>;
 type KerningContainer =
-    | Map<string, KerningRow | number>
-    | Record<string, KerningRow | number>;
+    Map<string, KerningRow | number> | Record<string, KerningRow | number>;
 
 function isKerningRow(
     value: KerningRow | number | null | undefined
@@ -4099,8 +4095,7 @@ class GlyphCanvas {
             rotation: transform.rotation ?? 0,
             skew: [transform.skew?.[0] ?? 0, transform.skew?.[1] ?? 0],
             order: (transform.order ?? 'RestOfTheWorld') as
-                | 'Glyphs'
-                | 'RestOfTheWorld'
+                'Glyphs' | 'RestOfTheWorld'
         };
     }
 
@@ -4929,8 +4924,7 @@ class GlyphCanvas {
         }
 
         const kerning = (isRTL ? master.kerning_rtl : master.kerning) as
-            | KerningContainer
-            | undefined;
+            KerningContainer | undefined;
         if (!kerning) {
             return fallbackSelection;
         }
@@ -4984,8 +4978,7 @@ class GlyphCanvas {
         }
 
         const kerning = (isRTL ? master.kerning_rtl : master.kerning) as
-            | KerningContainer
-            | undefined;
+            KerningContainer | undefined;
         const currentValue =
             kerning &&
             currentSelection.firstKey != null &&
@@ -5128,8 +5121,7 @@ class GlyphCanvas {
         }
 
         const clusterMap = this.textRunEditor.clusterMap as
-            | TextRunClusterInfo[]
-            | undefined;
+            TextRunClusterInfo[] | undefined;
         const cursorPosition = this.textRunEditor.cursorPosition;
         let firstCluster: TextRunClusterInfo | null = null;
         let secondCluster: TextRunClusterInfo | null = null;
@@ -5327,8 +5319,7 @@ class GlyphCanvas {
         master: Master
     ): void {
         const kerning = (entry.isRTL ? master.kerning_rtl : master.kerning) as
-            | KerningContainer
-            | undefined;
+            KerningContainer | undefined;
         const metrics =
             (master.metrics as Record<string, number> | null) || null;
         const preferredSelection = this.getPreferredTextModeKerningSelection(
@@ -5686,8 +5677,7 @@ class GlyphCanvas {
         isRTL: boolean = false
     ): void {
         const kerning = (isRTL ? master.kerning_rtl : master.kerning) as
-            | KerningContainer
-            | undefined;
+            KerningContainer | undefined;
         const setKerning = (value: KerningContainer) => {
             if (isRTL) {
                 master.kerning_rtl = value as Record<string, number>;
@@ -7407,8 +7397,7 @@ class GlyphCanvas {
         this.renderer!.render();
         const lastRenderState =
             ((window as any).__glyphCanvasRenderState as
-                | { sequence?: number }
-                | undefined) ?? undefined;
+                { sequence?: number } | undefined) ?? undefined;
         const nextRenderState = {
             sequence: (lastRenderState?.sequence ?? 0) + 1,
             mode: this.outlineEditor.active ? 'edit' : 'text',

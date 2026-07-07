@@ -169,8 +169,7 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
     if (glyphCanvas.axesManager) {
         const syncVariationLocation = (
             eventType:
-                | 'variation_location_initialized'
-                | 'variation_location_changed'
+                'variation_location_initialized' | 'variation_location_changed'
         ) => {
             const location = glyphCanvas.axesManager!.variationSettings || {};
             const roundedLocation: UserspaceLocation = {};
@@ -245,8 +244,7 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
     if (glyphCanvas.featuresManager) {
         const syncOpenTypeFeaturesState = (
             eventType:
-                | 'opentype_features_changed'
-                | 'opentype_features_initialized'
+                'opentype_features_changed' | 'opentype_features_initialized'
         ) => {
             if (!window.stateManager.isUrlSyncEnabled()) return;
 

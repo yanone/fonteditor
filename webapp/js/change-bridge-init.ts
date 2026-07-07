@@ -438,8 +438,7 @@ function applyDirectLayerOperationToSnapshot(
                         typeof nextSegment === 'number' ? [] : {};
                 }
                 cursor = cursor[numericIndex] as
-                    | Record<string, unknown>
-                    | unknown[];
+                    Record<string, unknown> | unknown[];
                 continue;
             }
 
@@ -454,8 +453,7 @@ function applyDirectLayerOperationToSnapshot(
                     typeof nextSegment === 'number' ? [] : {};
             }
             cursor = (cursor as Record<string, unknown>)[objectKey] as
-                | Record<string, unknown>
-                | unknown[];
+                Record<string, unknown> | unknown[];
         }
 
         const terminalSegment = path[path.length - 1];
@@ -521,8 +519,7 @@ function buildCascadeLayerOperations(
         ? ((fontJson as Unsafe).glyphs as Unsafe[])
         : [];
     const glyphsMap = bridge.fontMap.get('glyphs') as
-        | { get?: (key: string) => unknown }
-        | undefined;
+        { get?: (key: string) => unknown } | undefined;
     if (!glyphsMap || !layerTargets.length) {
         return [];
     }
@@ -540,14 +537,11 @@ function buildCascadeLayerOperations(
         }
 
         const glyphMap = glyphsMap.get?.(glyphName) as
-            | { get?: (key: string) => unknown }
-            | undefined;
+            { get?: (key: string) => unknown } | undefined;
         const yGlyphMap = glyphMap as
-            | { get?: (key: string) => unknown }
-            | undefined;
+            { get?: (key: string) => unknown } | undefined;
         const yLayersMap = yGlyphMap?.get?.('layers') as
-            | { get?: (key: string) => unknown }
-            | undefined;
+            { get?: (key: string) => unknown } | undefined;
         const yLayerMap = yLayersMap?.get?.(layerId);
         if (!yLayerMap) {
             continue;
@@ -729,18 +723,10 @@ export function buildCascadingRecompositionOperations(
  * a full compile after the Yjs commit lands.
  */
 type CommittedCompileEditType =
-    | 'anchor'
-    | 'outline'
-    | 'guide'
-    | 'kerning-value'
-    | 'kerning-groups'
-    | null;
+    'anchor' | 'outline' | 'guide' | 'kerning-value' | 'kerning-groups' | null;
 
 type NonGlyphChangeHint =
-    | 'feature-code'
-    | 'kerning-value'
-    | 'kerning-groups'
-    | 'masters';
+    'feature-code' | 'kerning-value' | 'kerning-groups' | 'masters';
 
 function pathTouchesMasterKerning(path: string): boolean {
     return /(^|\.)masters\.[^.]+\.kerning(_rtl)?(\.|$)/.test(path);
@@ -2145,10 +2131,7 @@ function applyRemoteSidebearingVisualSync(entries: ChangeLogEntry[]): boolean {
     }
 
     const previousLayerSnapshot = matchingEntry.oldValue as
-        | { width?: number }
-        | string
-        | null
-        | undefined;
+        { width?: number } | string | null | undefined;
     const previousWidth =
         previousLayerSnapshot && typeof previousLayerSnapshot === 'object'
             ? Number(previousLayerSnapshot.width)

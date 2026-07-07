@@ -234,9 +234,7 @@ export type EditingCompileContext = {
     changeSource: string | null;
     editType: 'outline' | 'anchor' | 'kerning-value' | 'kerning-groups' | null;
     dataFreshnessMode:
-        | 'authoritative-worker-yjs'
-        | 'live-drag-worker-preview'
-        | null;
+        'authoritative-worker-yjs' | 'live-drag-worker-preview' | null;
 };
 
 type EditingCompileRequestOptions = {
@@ -603,11 +601,7 @@ class FontManager {
     glyphOrderCache: string[] | null;
     lastChangeSource: string | null = null; // Track what triggered the last change (keyboard, mouse-drag, etc.)
     lastEditType:
-        | 'outline'
-        | 'anchor'
-        | 'kerning-value'
-        | 'kerning-groups'
-        | null = null; // Track edit type for compilation optimization
+        'outline' | 'anchor' | 'kerning-value' | 'kerning-groups' | null = null; // Track edit type for compilation optimization
     lastCompilationMode:
         | 'full'
         | 'outline-only'
