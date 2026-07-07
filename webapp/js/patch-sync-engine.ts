@@ -276,6 +276,28 @@ type LayerFingerprintSnapshotEntry = LayerFingerprintTarget & {
     fingerprint: string | null;
 };
 
+type LayerSyncMetadata = {
+    editSource?: string | null;
+    compileChangeSource?: string | null;
+    compileEditType?: string | null;
+    visualAnchorSide?: 'left' | 'right' | null;
+    workerReplayTargets?: WorkerReplayTarget[];
+};
+
+const INDEXED_ARRAY_ORDER_KEYS: Record<string, string> = {
+    shapes: 'shapeOrder',
+    nodes: 'nodeOrder',
+    anchors: 'anchorOrder',
+    guides: 'guideOrder'
+};
+
+const GRANULAR_LAYER_ARRAY_KEYS = new Set([
+    'shapes',
+    'nodes',
+    'anchors',
+    'guides'
+]);
+
 function getLayerManagerKey(glyphName: string, layerId: string): string {
     return `${glyphName}@@${layerId}`;
 }
@@ -1160,12 +1182,7 @@ export class PatchSyncEngine {
             return;
         }
 
-        const targets: Array<{
-            glyphName: string;
-            layerId: string;
-            previousLayerSnapshot: unknown;
-            layerSnapshot: unknown;
-        }> = [];
+        const operations: TransactionBufferedOperation[] = [];
 
         for (const { glyphName, layerId } of uniqueTargets) {
             const glyphJson = glyphs.find(
@@ -1206,63 +1223,439 @@ export class PatchSyncEngine {
             // the entry from scratch.  For existing layers only changed fields
             // are included (sparse delta).
             const yLayerJson = yLayerMap ? fromYType(yLayerMap) : null;
-            const delta: Record<string, unknown> = { id: layerId };
-            let hasChanges = false;
-
-            for (const [key, value] of Object.entries(layerJson)) {
-                const oldValue = (
-                    yLayerJson as Record<string, unknown> | null
-                )?.[key];
-                if (this._isDeepEqual(value, oldValue)) continue;
-
-                delta[key] = value;
-                hasChanges = true;
-            }
-
-            if (!hasChanges) {
+            if (!yLayerJson) {
+                operations.push({
+                    op: 'set' as ChangeOp,
+                    path: ['glyphs', glyphName, 'layers', layerId],
+                    oldValue: null,
+                    newValue: cloneHistoryValue(layerJson),
+                    editSource: editSource ?? compileChangeSource ?? null,
+                    compileChangeSource,
+                    compileEditType,
+                    visualAnchorSide,
+                    workerReplayTargets,
+                    applyPath: ['glyphs', glyphName, 'layers', layerId],
+                    applyNewValue: layerJson,
+                    applyMode: 'layer-snapshot' as BatchApplyMode
+                });
                 continue;
             }
 
-            targets.push({
-                glyphName,
-                layerId,
-                previousLayerSnapshot: cloneHistoryValue(yLayerJson),
-                layerSnapshot: delta
-            });
-        }
+            const previousLayer = yLayerJson as Record<string, unknown>;
+            if (
+                this._shouldUseGranularSingleLayerSync(
+                    glyphName,
+                    layerId,
+                    previousLayer,
+                    layerJson
+                )
+            ) {
+                this._adoptIndexedLayerIds(previousLayer, layerJson);
+                operations.push(
+                    ...this._buildGranularLayerSyncOperations(
+                        glyphName,
+                        layerId,
+                        previousLayer,
+                        layerJson,
+                        {
+                            editSource:
+                                editSource ?? compileChangeSource ?? null,
+                            compileChangeSource,
+                            compileEditType,
+                            visualAnchorSide,
+                            workerReplayTargets
+                        }
+                    )
+                );
+                continue;
+            }
 
-        if (!targets.length) {
-            return;
-        }
+            const sparseLayerDelta = this._buildSparseLayerDelta(
+                previousLayer,
+                layerJson,
+                layerId
+            );
+            if (!sparseLayerDelta) {
+                continue;
+            }
 
-        this._queueOrCommitOperations(
-            targets.map((target) => ({
+            operations.push({
                 op: 'set' as ChangeOp,
-                path: ['glyphs', target.glyphName, 'layers', target.layerId],
-                oldValue: cloneHistoryValue(target.previousLayerSnapshot),
-                newValue: cloneHistoryValue(target.layerSnapshot),
+                path: ['glyphs', glyphName, 'layers', layerId],
+                oldValue: oldValue ?? glyphName,
+                newValue: newValue ?? label,
                 editSource: editSource ?? compileChangeSource ?? null,
                 compileChangeSource,
                 compileEditType,
                 visualAnchorSide,
                 workerReplayTargets,
-                applyPath: [
-                    'glyphs',
-                    target.glyphName,
-                    'layers',
-                    target.layerId
-                ],
-                applyNewValue: target.layerSnapshot,
+                applyPath: ['glyphs', glyphName, 'layers', layerId],
+                applyOldValue: sparseLayerDelta.oldValues,
+                applyNewValue: sparseLayerDelta.delta,
                 applyMode: 'layer-snapshot' as BatchApplyMode
-            })),
-            label
-        );
+            });
+        }
+
+        if (!operations.length) {
+            return;
+        }
+
+        this._queueOrCommitOperations(operations, label);
 
         console.log(
-            `Layer sync committed for ${targets
+            `Layer sync committed for ${uniqueTargets
                 .map((target) => `${target.glyphName}/${target.layerId}`)
                 .join(', ')} (${label}) [batched fast path]`
         );
+    }
+
+    private _buildGranularLayerSyncOperations(
+        glyphName: string,
+        layerId: string,
+        previousLayer: Record<string, unknown>,
+        nextLayer: Record<string, unknown>,
+        metadata: LayerSyncMetadata
+    ): TransactionBufferedOperation[] {
+        const basePath: (string | number)[] = [
+            'glyphs',
+            glyphName,
+            'layers',
+            layerId
+        ];
+        return this._buildGranularValueSyncOperations(
+            basePath,
+            previousLayer,
+            nextLayer,
+            metadata
+        );
+    }
+
+    private _buildGranularValueSyncOperations(
+        path: (string | number)[],
+        previousValue: unknown,
+        nextValue: unknown,
+        metadata: LayerSyncMetadata
+    ): TransactionBufferedOperation[] {
+        if (this._isDeepEqual(previousValue, nextValue)) {
+            return [];
+        }
+
+        const lastSegment = path[path.length - 1];
+        if (
+            typeof lastSegment === 'string' &&
+            GRANULAR_LAYER_ARRAY_KEYS.has(lastSegment) &&
+            Array.isArray(previousValue) &&
+            Array.isArray(nextValue)
+        ) {
+            return this._buildGranularIndexedArraySyncOperations(
+                path,
+                lastSegment,
+                previousValue,
+                nextValue,
+                metadata
+            );
+        }
+
+        if (
+            previousValue &&
+            nextValue &&
+            typeof previousValue === 'object' &&
+            typeof nextValue === 'object' &&
+            !Array.isArray(previousValue) &&
+            !Array.isArray(nextValue)
+        ) {
+            const previousRecord = previousValue as Record<string, unknown>;
+            const nextRecord = nextValue as Record<string, unknown>;
+            const keys = new Set([
+                ...Object.keys(previousRecord),
+                ...Object.keys(nextRecord)
+            ]);
+            const operations: TransactionBufferedOperation[] = [];
+            for (const key of keys) {
+                if (key === 'id') {
+                    continue;
+                }
+                operations.push(
+                    ...this._buildGranularValueSyncOperations(
+                        [...path, key],
+                        previousRecord[key],
+                        nextRecord[key],
+                        metadata
+                    )
+                );
+            }
+            return operations;
+        }
+
+        if (Array.isArray(previousValue) && Array.isArray(nextValue)) {
+            const operations: TransactionBufferedOperation[] = [];
+            const maxLength = Math.max(previousValue.length, nextValue.length);
+            for (let index = 0; index < maxLength; index++) {
+                operations.push(
+                    ...this._buildGranularValueSyncOperations(
+                        [...path, index],
+                        previousValue[index],
+                        nextValue[index],
+                        metadata
+                    )
+                );
+            }
+            return operations;
+        }
+
+        if (previousValue === undefined) {
+            return [
+                this._createGranularLayerOperation(
+                    'add',
+                    path,
+                    undefined,
+                    nextValue,
+                    metadata
+                )
+            ];
+        }
+        if (nextValue === undefined) {
+            return [
+                this._createGranularLayerOperation(
+                    'remove',
+                    path,
+                    previousValue,
+                    undefined,
+                    metadata
+                )
+            ];
+        }
+        return [
+            this._createGranularLayerOperation(
+                'set',
+                path,
+                previousValue,
+                nextValue,
+                metadata
+            )
+        ];
+    }
+
+    private _buildGranularIndexedArraySyncOperations(
+        path: (string | number)[],
+        arrayKey: string,
+        previousArray: unknown[],
+        nextArray: unknown[],
+        metadata: LayerSyncMetadata
+    ): TransactionBufferedOperation[] {
+        const previousById = this._mapArrayItemsById(previousArray);
+        const nextById = this._mapArrayItemsById(nextArray);
+        if (!previousById || !nextById) {
+            return [
+                this._createGranularLayerOperation(
+                    'set',
+                    path,
+                    previousArray,
+                    nextArray,
+                    metadata
+                )
+            ];
+        }
+
+        const operations: TransactionBufferedOperation[] = [];
+        const previousIds = previousArray.map((item) =>
+            String((item as Record<string, unknown>).id)
+        );
+        const nextIds = nextArray.map((item) =>
+            String((item as Record<string, unknown>).id)
+        );
+
+        previousIds.forEach((id, previousIndex) => {
+            if (!nextById.has(id)) {
+                operations.push(
+                    this._createGranularLayerOperation(
+                        'remove',
+                        [...path, previousIndex],
+                        previousById.get(id),
+                        undefined,
+                        metadata
+                    )
+                );
+            }
+        });
+
+        nextIds.forEach((id, nextIndex) => {
+            const nextItem = nextById.get(id);
+            if (!previousById.has(id)) {
+                operations.push(
+                    this._createGranularLayerOperation(
+                        'add',
+                        [...path, nextIndex],
+                        undefined,
+                        nextItem,
+                        metadata
+                    )
+                );
+                return;
+            }
+
+            const previousIndex = previousIds.indexOf(id);
+            operations.push(
+                ...this._buildGranularValueSyncOperations(
+                    [...path, previousIndex],
+                    previousById.get(id),
+                    nextItem,
+                    metadata
+                )
+            );
+        });
+
+        if (!this._isDeepEqual(previousIds, nextIds)) {
+            operations.push(
+                this._createGranularLayerOperation(
+                    'set',
+                    [...path.slice(0, -1), INDEXED_ARRAY_ORDER_KEYS[arrayKey]],
+                    previousIds,
+                    nextIds,
+                    metadata
+                )
+            );
+        }
+
+        return operations;
+    }
+
+    private _createGranularLayerOperation(
+        op: ChangeOp,
+        path: (string | number)[],
+        oldValue: unknown,
+        newValue: unknown,
+        metadata: LayerSyncMetadata
+    ): TransactionBufferedOperation {
+        return {
+            op,
+            path,
+            oldValue: cloneHistoryValue(oldValue),
+            newValue: cloneHistoryValue(newValue),
+            editSource: metadata.editSource ?? null,
+            compileChangeSource: metadata.compileChangeSource ?? null,
+            compileEditType: metadata.compileEditType ?? null,
+            visualAnchorSide: metadata.visualAnchorSide ?? null,
+            workerReplayTargets: metadata.workerReplayTargets
+        };
+    }
+
+    private _mapArrayItemsById(
+        items: unknown[]
+    ): Map<string, Record<string, unknown>> | null {
+        const map = new Map<string, Record<string, unknown>>();
+        for (const item of items) {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+                return null;
+            }
+            const id = (item as Record<string, unknown>).id;
+            if (typeof id !== 'string' || !id) {
+                return null;
+            }
+            map.set(id, item as Record<string, unknown>);
+        }
+        return map;
+    }
+
+    private _adoptIndexedLayerIds(
+        previousLayer: Record<string, unknown>,
+        nextLayer: Record<string, unknown>
+    ): void {
+        this._adoptIndexedArrayIds(previousLayer.shapes, nextLayer.shapes);
+        this._adoptIndexedArrayIds(previousLayer.anchors, nextLayer.anchors);
+        this._adoptIndexedArrayIds(previousLayer.guides, nextLayer.guides);
+    }
+
+    private _adoptIndexedArrayIds(
+        previousValue: unknown,
+        nextValue: unknown
+    ): void {
+        if (!Array.isArray(previousValue) || !Array.isArray(nextValue)) {
+            return;
+        }
+        nextValue.forEach((nextItem, index) => {
+            const previousItem = previousValue[index];
+            if (
+                !nextItem ||
+                typeof nextItem !== 'object' ||
+                Array.isArray(nextItem) ||
+                !previousItem ||
+                typeof previousItem !== 'object' ||
+                Array.isArray(previousItem)
+            ) {
+                return;
+            }
+            const nextRecord = nextItem as Record<string, unknown>;
+            const previousRecord = previousItem as Record<string, unknown>;
+            if (!nextRecord.id && typeof previousRecord.id === 'string') {
+                nextRecord.id = previousRecord.id;
+            }
+            this._adoptIndexedArrayIds(previousRecord.nodes, nextRecord.nodes);
+        });
+    }
+
+    private _shouldUseGranularSingleLayerSync(
+        glyphName: string,
+        layerId: string,
+        previousLayer: Record<string, unknown>,
+        nextLayer: Record<string, unknown>
+    ): boolean {
+        if (this._hasBufferedLayerRootOperation(glyphName, layerId)) {
+            return false;
+        }
+
+        const nextKeys = new Set(Object.keys(nextLayer));
+        return Object.keys(previousLayer).every(
+            (key) => key === 'id' || nextKeys.has(key)
+        );
+    }
+
+    private _hasBufferedLayerRootOperation(
+        glyphName: string,
+        layerId: string
+    ): boolean {
+        return this._txBufferedOperations.some((operation) => {
+            if (operation.path.length !== 4) {
+                return false;
+            }
+
+            return (
+                operation.path[0] === 'glyphs' &&
+                operation.path[1] === glyphName &&
+                operation.path[2] === 'layers' &&
+                operation.path[3] === layerId
+            );
+        });
+    }
+
+    private _buildSparseLayerDelta(
+        previousLayer: Record<string, unknown> | null,
+        nextLayer: Record<string, unknown>,
+        layerId: string
+    ): {
+        delta: Record<string, unknown>;
+        oldValues: Record<string, unknown>;
+    } | null {
+        const delta: Record<string, unknown> = { id: layerId };
+        const oldValues: Record<string, unknown> = {};
+
+        for (const [key, value] of Object.entries(nextLayer)) {
+            const oldValue = previousLayer?.[key];
+            if (this._isDeepEqual(value, oldValue)) {
+                continue;
+            }
+
+            delta[key] = value;
+            if (oldValue !== undefined) {
+                oldValues[key] = oldValue;
+            }
+        }
+
+        if (Object.keys(delta).length <= 1) {
+            return null;
+        }
+
+        return { delta, oldValues };
     }
 
     /**
@@ -1495,26 +1888,51 @@ export class PatchSyncEngine {
         );
         if (!layerJson) return false;
 
-        // Build a sparse delta: only include keys where _fontJson differs
-        // from the pre-edit Y.Doc state. This avoids transmitting unchanged
-        // fields and prevents receiver-side key stripping.
         const yLayerJson = fromYType(yLayerMap);
-        const delta: Record<string, unknown> = { id: layerId };
-        const oldValues: Record<string, unknown> = {};
+        const previousLayer = yLayerJson as Record<string, unknown>;
 
-        for (const [key, value] of Object.entries(layerJson)) {
-            const oldValue = (yLayerJson as Record<string, unknown> | null)?.[
-                key
-            ];
-            if (this._isDeepEqual(value, oldValue)) continue;
+        if (
+            this._shouldUseGranularSingleLayerSync(
+                glyphName,
+                layerId,
+                previousLayer,
+                layerJson
+            )
+        ) {
+            this._adoptIndexedLayerIds(previousLayer, layerJson);
 
-            delta[key] = value;
-            if (oldValue !== undefined) {
-                oldValues[key] = oldValue;
+            const operations = this._buildGranularLayerSyncOperations(
+                glyphName,
+                layerId,
+                previousLayer,
+                layerJson,
+                {
+                    editSource: editSource ?? compileChangeSource ?? null,
+                    compileChangeSource,
+                    compileEditType,
+                    visualAnchorSide,
+                    workerReplayTargets
+                }
+            );
+
+            if (!operations.length) {
+                return false;
             }
+
+            this._queueOrCommitOperations(operations, label);
+
+            console.log(
+                `Glyph sync committed for ${glyphName} layer ${layerId} (${label}) [fast path]`
+            );
+            return true;
         }
 
-        if (Object.keys(delta).length <= 1) {
+        const sparseLayerDelta = this._buildSparseLayerDelta(
+            previousLayer,
+            layerJson,
+            layerId
+        );
+        if (!sparseLayerDelta) {
             return false;
         }
 
@@ -1531,8 +1949,8 @@ export class PatchSyncEngine {
                     visualAnchorSide,
                     workerReplayTargets,
                     applyPath: ['glyphs', glyphName, 'layers', layerId],
-                    applyOldValue: oldValues,
-                    applyNewValue: delta,
+                    applyOldValue: sparseLayerDelta.oldValues,
+                    applyNewValue: sparseLayerDelta.delta,
                     applyMode: 'layer-snapshot'
                 }
             ],

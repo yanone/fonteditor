@@ -439,12 +439,422 @@ describe('handleRemoteChangeRefresh', () => {
         ).toBe(false);
         const error = showErrorMock.mock.calls[0][0];
         expect(error.message).toContain(
-            'Committed keyboard glyph data did not reach the compiled worker state after the authoritative commit.'
+            'Committed glyph data did not reach the compiled worker state after the authoritative commit.'
         );
         expect(error.message).toContain(
-            'Keyboard edits are no longer recompiling the editing font on fresh data.'
+            'Layer edits are no longer recompiling the editing font on fresh data.'
         );
         expect(error.message).toContain('a/layer-1: expected=');
+    });
+
+    test('checks local non-keyboard outline commits before compiling', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const originalShowError = sidebarErrorDisplay.showError;
+        const showErrorMock = jest.fn();
+        const originalSendMessage = fontCompilation.sendMessage;
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const expectedLayer = {
+            width: 542,
+            shapes: [{ nodes: [{ x: 25, y: 20, nodetype: 'Line' }] }],
+            anchors: [],
+            guides: []
+        };
+        const staleLayer = {
+            width: 542,
+            shapes: [{ nodes: [{ x: 10, y: 20, nodetype: 'Line' }] }],
+            anchors: [],
+            guides: []
+        };
+        const sendMessageMock = jest.fn(async () => ({
+            dumpJson: JSON.stringify({
+                targets: [
+                    {
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        canonicalLayer: staleLayer,
+                        subsetLayer: staleLayer,
+                        ydocLayer: staleLayer
+                    }
+                ]
+            })
+        }));
+
+        fontCompilation.isInitialized = true;
+        fontCompilation.sendMessage = sendMessageMock;
+        sidebarErrorDisplay.showError = showErrorMock;
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
+                    findGlyph: jest.fn((glyphName) => ({
+                        findLayerById: jest.fn((layerId) =>
+                            glyphName === 'a' && layerId === 'layer-1'
+                                ? {
+                                      toJSON: () => expectedLayer
+                                  }
+                                : null
+                        )
+                    }))
+                }
+            },
+            lastChangeSource: 'keyboard-outline',
+            lastEditType: 'outline',
+            normalizeLayerForRust: jest.fn((layer) => layer)
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag point',
+                        path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
+                        workerReplayTargets: [
+                            { glyphName: 'a', layerId: 'layer-1' }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile
+                }
+            );
+        } finally {
+            delete window.fontManager;
+            fontCompilation.sendMessage = originalSendMessage;
+            fontCompilation.isInitialized = originalIsInitialized;
+            sidebarErrorDisplay.showError = originalShowError;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(sendMessageMock).toHaveBeenCalledWith({
+            type: 'dumpLayerState',
+            layerTargets: [{ glyphName: 'a', layerId: 'layer-1' }]
+        });
+        expect(requestCompile).not.toHaveBeenCalled();
+        expect(showErrorMock).toHaveBeenCalledWith(
+            expect.any(Error),
+            'editing',
+            {
+                sticky: true
+            }
+        );
+        expect(showErrorMock.mock.calls[0][0].message).toContain(
+            'a/layer-1: expected='
+        );
+    });
+
+    test('does not report worker drift for key-order-only differences or uncached subset targets', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const originalShowError = sidebarErrorDisplay.showError;
+        const showErrorMock = jest.fn();
+        const originalSendMessage = fontCompilation.sendMessage;
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const expectedLayer = {
+            width: 533,
+            id: 'layer-1',
+            master: { type: 'DefaultForMaster', master: 'master-1' },
+            shapes: [
+                {
+                    id: 'shape-1',
+                    nodes: [
+                        { x: 322, y: -8, nodetype: 'OffCurve', id: 'node-1' }
+                    ],
+                    closed: true
+                }
+            ],
+            anchors: [{ name: 'top', x: 145, y: 594 }],
+            guides: [],
+            format_specific: {}
+        };
+        const rustLayerDifferentKeyOrder = {
+            master: { master: 'master-1', type: 'DefaultForMaster' },
+            shapes: [
+                {
+                    nodes: [
+                        { y: -8, id: 'node-1', x: 322, nodetype: 'OffCurve' }
+                    ],
+                    closed: true,
+                    id: 'shape-1'
+                }
+            ],
+            width: 533,
+            guides: [],
+            anchors: [{ y: 594, name: 'top', x: 145 }],
+            format_specific: {},
+            id: 'layer-1'
+        };
+        const dependentLayer = {
+            width: 533,
+            id: 'layer-1',
+            master: { type: 'DefaultForMaster', master: 'master-1' },
+            shapes: [{ id: 'component-1', reference: 'a' }],
+            format_specific: {}
+        };
+        const dependentLayerDifferentKeyOrder = {
+            shapes: [{ reference: 'a', id: 'component-1' }],
+            width: 533,
+            master: { master: 'master-1', type: 'DefaultForMaster' },
+            format_specific: {},
+            id: 'layer-1'
+        };
+        const sendMessageMock = jest.fn(async () => ({
+            dumpJson: JSON.stringify({
+                targets: [
+                    {
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        canonicalLayer: rustLayerDifferentKeyOrder,
+                        subsetLayer: rustLayerDifferentKeyOrder,
+                        ydocLayer: rustLayerDifferentKeyOrder
+                    },
+                    {
+                        glyphName: 'aacute',
+                        layerId: 'layer-1',
+                        canonicalLayer: dependentLayerDifferentKeyOrder,
+                        subsetLayer: null,
+                        ydocLayer: dependentLayerDifferentKeyOrder
+                    }
+                ]
+            })
+        }));
+
+        fontCompilation.isInitialized = true;
+        fontCompilation.sendMessage = sendMessageMock;
+        sidebarErrorDisplay.showError = showErrorMock;
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
+                    findGlyph: jest.fn((glyphName) => ({
+                        findLayerById: jest.fn((layerId) => {
+                            if (layerId !== 'layer-1') {
+                                return null;
+                            }
+                            if (glyphName === 'a') {
+                                return { toJSON: () => expectedLayer };
+                            }
+                            if (glyphName === 'aacute') {
+                                return { toJSON: () => dependentLayer };
+                            }
+                            return null;
+                        })
+                    }))
+                }
+            },
+            lastChangeSource: 'keyboard-outline',
+            lastEditType: 'outline',
+            normalizeLayerForRust: jest.fn((layer) => layer)
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag point',
+                        path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
+                        workerReplayTargets: [
+                            { glyphName: 'a', layerId: 'layer-1' },
+                            { glyphName: 'aacute', layerId: 'layer-1' }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile
+                }
+            );
+        } finally {
+            delete window.fontManager;
+            fontCompilation.sendMessage = originalSendMessage;
+            fontCompilation.isInitialized = originalIsInitialized;
+            sidebarErrorDisplay.showError = originalShowError;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(sendMessageMock).toHaveBeenCalledWith({
+            type: 'dumpLayerState',
+            layerTargets: [
+                { glyphName: 'a', layerId: 'layer-1' },
+                { glyphName: 'aacute', layerId: 'layer-1' }
+            ]
+        });
+        expect(showErrorMock).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
+        );
+    });
+
+    test('does not report worker drift when authoritative state matches but subset cache is absent', async () => {
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const originalShowError = sidebarErrorDisplay.showError;
+        const showErrorMock = jest.fn();
+        const originalSendMessage = fontCompilation.sendMessage;
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const sourceLayer = {
+            width: 533,
+            id: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1',
+            master: {
+                master: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1',
+                type: 'DefaultForMaster'
+            },
+            shapes: [
+                {
+                    id: 'source-component-1',
+                    reference: 'a',
+                    transform: {
+                        order: 'RestOfTheWorld',
+                        rotation: 0,
+                        scale: [1, 1],
+                        skew: [0, 0],
+                        translation: [0, 0]
+                    }
+                }
+            ],
+            format_specific: {
+                'com.schriftgestalt.Glyphs.attr': {}
+            }
+        };
+        const dependentLayer = {
+            width: 533,
+            id: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1',
+            master: {
+                master: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1',
+                type: 'DefaultForMaster'
+            },
+            shapes: [
+                {
+                    id: 'dependent-component-1',
+                    reference: 'a',
+                    transform: {
+                        order: 'RestOfTheWorld',
+                        rotation: 0,
+                        scale: [1, 1],
+                        skew: [0, 0],
+                        translation: [0, 0]
+                    }
+                },
+                {
+                    id: 'dependent-component-2',
+                    reference: 'acutecomb',
+                    transform: {
+                        order: 'Glyphs',
+                        rotation: 0,
+                        scale: [1, 1],
+                        skew: [0, 0],
+                        translation: [136, 77]
+                    }
+                }
+            ],
+            format_specific: {
+                'com.schriftgestalt.Glyphs.attr': {}
+            }
+        };
+        const sendMessageMock = jest.fn(async () => ({
+            dumpJson: JSON.stringify({
+                targets: [
+                    {
+                        glyphName: 'a',
+                        layerId: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1',
+                        canonicalLayer: sourceLayer,
+                        subsetLayer: null,
+                        ydocLayer: sourceLayer
+                    },
+                    {
+                        glyphName: 'aacute',
+                        layerId: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1',
+                        canonicalLayer: dependentLayer,
+                        subsetLayer: null,
+                        ydocLayer: dependentLayer
+                    }
+                ]
+            })
+        }));
+
+        fontCompilation.isInitialized = true;
+        fontCompilation.sendMessage = sendMessageMock;
+        sidebarErrorDisplay.showError = showErrorMock;
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
+                    findGlyph: jest.fn((glyphName) => ({
+                        findLayerById: jest.fn((layerId) =>
+                            glyphName === 'a' &&
+                            layerId === '3114FB65-9464-41A5-B67E-A8F9F43C0EF1'
+                                ? { toJSON: () => sourceLayer }
+                                : glyphName === 'aacute' &&
+                                    layerId ===
+                                        '3114FB65-9464-41A5-B67E-A8F9F43C0EF1'
+                                  ? { toJSON: () => dependentLayer }
+                                  : null
+                        )
+                    }))
+                }
+            },
+            lastChangeSource: 'keyboard-outline',
+            lastEditType: 'outline',
+            normalizeLayerForRust: jest.fn((layer) => layer)
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag anchor',
+                        path: 'glyphs.a.layers.3114FB65-9464-41A5-B67E-A8F9F43C0EF1.anchors.0.x',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'a',
+                                layerId: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1'
+                            },
+                            {
+                                glyphName: 'aacute',
+                                layerId: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1'
+                            }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile
+                }
+            );
+        } finally {
+            delete window.fontManager;
+            fontCompilation.sendMessage = originalSendMessage;
+            fontCompilation.isInitialized = originalIsInitialized;
+            sidebarErrorDisplay.showError = originalShowError;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(sendMessageMock).toHaveBeenCalledWith({
+            type: 'dumpLayerState',
+            layerTargets: [
+                {
+                    glyphName: 'a',
+                    layerId: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1'
+                },
+                {
+                    glyphName: 'aacute',
+                    layerId: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1'
+                }
+            ]
+        });
+        expect(showErrorMock).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-anchor',
+            'anchor'
+        );
     });
 
     test('continues the post-commit keyboard compile when post-drag worker state is already fresh', async () => {

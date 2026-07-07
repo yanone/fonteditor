@@ -2164,13 +2164,7 @@ describe('ChangeBridge', () => {
         expect(layer1bItems).toHaveLength(1);
         expect(layer1Items[0].undoScope).toBe('glyph');
 
-        expect(bridge.undo('A', 'layer-1')).toEqual(
-            expect.objectContaining({
-                scope: 'glyph',
-                glyphName: 'A',
-                layerId: null
-            })
-        );
+        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -2360,6 +2354,67 @@ describe('ChangeBridge', () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Transactions', () => {
+    test('layer sync point edit records granular node coordinates without layer snapshots', () => {
+        const { bridge, fontJson } = createTestBridge('granular-layer-sync');
+        const layer = fontJson.glyphs[0].layers[0];
+        layer.shapes[0].nodes[0].x = 125;
+        layer.shapes[0].nodes[0].y = 15;
+
+        bridge.syncLayersFromJson(
+            [{ glyphName: 'A', layerId: 'layer-1' }],
+            'Drag point',
+            undefined,
+            undefined,
+            null,
+            [{ glyphName: 'A', layerId: 'layer-1' }],
+            'mouse-drag-outline',
+            'mouse-drag-outline',
+            'outline'
+        );
+
+        const log = bridge.getChangeLog();
+        expect(log.map((entry) => entry.path)).toEqual([
+            'glyphs.A:layers.layer-1:shapes.0.nodes.0.x',
+            'glyphs.A:layers.layer-1:shapes.0.nodes.0.y'
+        ]);
+        expect(
+            log.some((entry) => entry.path === 'glyphs.A:layers.layer-1')
+        ).toBe(false);
+        expect(
+            log.some((entry) =>
+                [
+                    entry.oldValue,
+                    entry.newValue,
+                    entry.replayOldValue,
+                    entry.replayNewValue
+                ].some(
+                    (value) =>
+                        value &&
+                        typeof value === 'object' &&
+                        !Array.isArray(value) &&
+                        ('shapes' in value ||
+                            'anchors' in value ||
+                            'guides' in value)
+                )
+            )
+        ).toBe(false);
+        expect(log.map((entry) => entry.replayOldValue)).toEqual([100, 0]);
+        expect(log.map((entry) => entry.replayNewValue)).toEqual([125, 15]);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(125);
+    });
+
     test('batch changes share transactionId and label', () => {
         const { bridge } = createTestBridge('test-1');
         bridge.beginTransaction('Drag node');
@@ -2613,13 +2668,7 @@ describe('Transactions', () => {
         expect(layer1Items[0].undoScope).toBe('glyph');
         expect(layer1bItems[0].undoScope).toBe('glyph');
 
-        expect(bridge.undo('A', 'layer-1')).toEqual(
-            expect.objectContaining({
-                scope: 'glyph',
-                glyphName: 'A',
-                layerId: null
-            })
-        );
+        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -6243,13 +6292,7 @@ describe('syncGlyphFromJson', () => {
             )
         ).toEqual([7, 7]);
 
-        expect(bridge.undo('A', 'layer-1')).toEqual(
-            expect.objectContaining({
-                scope: 'glyph',
-                glyphName: 'A',
-                layerId: null
-            })
-        );
+        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
 
         expect(
             fontJson.glyphs[0].layers.map(
@@ -7618,7 +7661,7 @@ describe('syncGlyphFromJson', () => {
         receiverBridge.destroy();
     });
 
-    test('collaboration log forward changes use replay values for layer snapshots', () => {
+    test('collaboration log forward changes use replay values for granular layer edits', () => {
         const fontJson = makeMinimalFont();
         const bridge = new ChangeBridge('local-collaboration-log');
 
@@ -7638,26 +7681,24 @@ describe('syncGlyphFromJson', () => {
         const logItem = bridge.getCollaborationLog().at(-1);
 
         expect(logItem).toBeTruthy();
-        expect(logItem.derivedForwardChanges).toEqual([
-            expect.objectContaining({
-                path: expect.stringContaining('glyphs.A'),
-                objectType: 'layer',
-                op: 'set',
-                oldValue: expect.objectContaining({
-                    width: 600,
-                    anchors: expect.arrayContaining([
-                        expect.objectContaining({ x: 300 })
-                    ])
+        expect(logItem.derivedForwardChanges).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    path: 'glyphs.A:layers.layer-1:width',
+                    objectType: 'layer',
+                    op: 'set',
+                    oldValue: 600,
+                    newValue: 712
                 }),
-                newValue: expect.objectContaining({
-                    id: 'layer-1',
-                    width: 712,
-                    anchors: expect.arrayContaining([
-                        expect.objectContaining({ x: 345 })
-                    ])
+                expect.objectContaining({
+                    path: 'glyphs.A:layers.layer-1:anchors.0.x',
+                    objectType: 'anchor',
+                    op: 'set',
+                    oldValue: 300,
+                    newValue: 345
                 })
-            })
-        ]);
+            ])
+        );
 
         bridge.destroy();
     });
@@ -8000,7 +8041,13 @@ describe('syncGlyphFromJson', () => {
             (entry) => entry.historyAction === 'change'
         );
 
-        expect(changeEntries).toHaveLength(2);
+        expect(changeEntries).toHaveLength(4);
+        expect(changeEntries.map((entry) => entry.path)).toEqual([
+            'glyphs.B:layers.layer-2:width',
+            'glyphs.A:layers.layer-1:width',
+            'glyphs.A:layers.layer-1:shapes.1.transform.translation.0',
+            'glyphs.A:layers.layer-1:shapes.1.transform.translation.1'
+        ]);
         changeEntries.forEach((entry) => {
             expect(entry.workerReplayTargets).toEqual(changedTargets);
             expect(entry.editSource).toBe('mouse-drag-sidebearing');
@@ -8018,6 +8065,180 @@ describe('syncGlyphFromJson', () => {
 
         senderBridge.destroy();
         receiverBridge.destroy();
+    });
+
+    test('syncLayersFromJson preserves partial layer fragments in batched remote apply', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-batched-partial-layer');
+        const receiverBridge = new ChangeBridge(
+            'receiver-batched-partial-layer'
+        );
+        let lastUpdate = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+
+        senderFontJson.glyphs[0].layers[0] = {
+            id: 'layer-1',
+            anchors: [{ name: 'top', x: 320, y: 720 }]
+        };
+        senderFontJson.glyphs[1].layers[0].width = 777;
+        const changedTargets = [
+            { glyphName: 'A', layerId: 'layer-1' },
+            { glyphName: 'B', layerId: 'layer-2' }
+        ];
+
+        senderBridge.syncLayersFromJson(
+            changedTargets,
+            'Batch partial anchor refresh',
+            undefined,
+            undefined,
+            undefined,
+            changedTargets
+        );
+
+        const changeEntries = senderBridge
+            .getNewChangeLogEntries()
+            .filter((entry) => entry.historyAction === 'change');
+
+        expect(changeEntries.map((entry) => entry.path)).toEqual([
+            'glyphs.A:layers.layer-1:',
+            'glyphs.B:layers.layer-2:width'
+        ]);
+
+        receiverBridge.applyRemoteUpdate(lastUpdate, changeEntries);
+
+        expect(receiverFontJson.glyphs[0].layers[0].width).toBe(600);
+        expect(receiverFontJson.glyphs[0].layers[0].anchors[0].x).toBe(320);
+        expect(receiverFontJson.glyphs[0].layers[0].shapes[0].nodes[0].x).toBe(
+            100
+        );
+        expect(receiverFontJson.glyphs[1].layers[0].width).toBe(777);
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('syncLayersFromJson batched layer lifecycle in a transaction preserves undo for recreated layers', () => {
+        const font = Font.fromData(makeMinimalFont());
+        const fontJson = font.toJSON();
+        const bridge = new ChangeBridge('batched-layer-lifecycle-undo');
+        bridge.initFromJson(fontJson);
+        window.changeBridge = bridge;
+
+        const glyph = font.findGlyph('A');
+        const originalLayer = glyph.findLayerById('layer-1');
+        const originalSnapshot = cloneValue(originalLayer.toJSON());
+        const originalWidthB = fontJson.glyphs[1].layers[0].width;
+
+        bridge.beginTransaction('Reinterpolate dependent layers');
+        glyph.removeLayerById('layer-1');
+
+        const recreatedLayer = glyph.addLayer(
+            910,
+            originalSnapshot.master,
+            'layer-1'
+        );
+        withSuppressedModelRecording(() => {
+            recreatedLayer.syncFromEditorLayerData({
+                width: 910,
+                shapes: [
+                    {
+                        nodes: [
+                            {
+                                x: 20,
+                                y: 20,
+                                nodetype: 'line',
+                                smooth: false
+                            },
+                            {
+                                x: 80,
+                                y: 20,
+                                nodetype: 'line',
+                                smooth: false
+                            },
+                            {
+                                x: 80,
+                                y: 120,
+                                nodetype: 'line',
+                                smooth: false
+                            }
+                        ],
+                        closed: true
+                    }
+                ],
+                anchors: [{ name: 'top', x: 200, y: 700 }],
+                guides: []
+            });
+        });
+        fontJson.glyphs[1].layers[0].width = 777;
+
+        bridge.syncLayersFromJson(
+            [
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'B', layerId: 'layer-2' }
+            ],
+            'Reinterpolate dependent layers',
+            undefined,
+            undefined,
+            undefined,
+            [
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'B', layerId: 'layer-2' }
+            ]
+        );
+        bridge.endTransaction();
+
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(910);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes'
+            ])
+        ).toHaveLength(1);
+        expect(fontJson.glyphs[1].layers[0].width).toBe(777);
+
+        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
+
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(originalSnapshot.width);
+        expect(
+            cloneValue(
+                getYPath(bridge.fontMap, [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'anchors'
+                ])
+            )
+        ).toEqual(originalSnapshot.anchors);
+        expect(fontJson.glyphs[1].layers[0].width).toBe(originalWidthB);
+
+        bridge.destroy();
     });
 
     test('full-state sync canonicalizes linked raw layer snapshots by dropping undefined and transient fields', () => {

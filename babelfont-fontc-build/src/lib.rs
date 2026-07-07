@@ -4221,6 +4221,123 @@ mod tests {
     }
 
     #[test]
+    fn apply_yjs_update_indexed_node_patch_refreshes_active_subset_caches() {
+        clear_font_cache();
+
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        font_json["glyphs"][0]["layers"][0]["shapes"] = json!([
+            {
+                "nodes": [
+                    { "x": 10, "y": 20, "nodetype": "Line" },
+                    { "x": 30, "y": 20, "nodetype": "Line" }
+                ],
+                "closed": false
+            }
+        ]);
+        store_font_from_value(font_json.clone()).unwrap();
+
+        let subset_font: babelfont::Font = serde_json::from_value(font_json.clone()).unwrap();
+        store_subset_font_cache("A", &subset_font).unwrap();
+        *FILTERED_FONT_CACHE.lock().unwrap() = Some(FilteredFontCacheEntry {
+            subset_key: "A".to_string(),
+            filter_epoch: FILTER_EPOCH.load(Ordering::Relaxed),
+            cache_epoch: FONT_CACHE_EPOCH.load(Ordering::Relaxed),
+            options_fingerprint: 0,
+            font: Arc::new(subset_font.clone()),
+        });
+
+        let author_doc = Doc::new();
+        let font_map = author_doc.get_or_insert_map("font");
+        let node_map: yrs::MapRef;
+        {
+            let mut txn = author_doc.transact_mut();
+            let glyphs_map: yrs::MapRef =
+                font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
+            let glyph_map: yrs::MapRef = glyphs_map.insert(&mut txn, "A", MapPrelim::<Any>::new());
+            let layers_map: yrs::MapRef =
+                glyph_map.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            let layer_map: yrs::MapRef = layers_map.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
+            layer_map.insert(&mut txn, "id", "layer-1");
+            layer_map.insert(&mut txn, "width", Any::Number(600.0));
+            layer_map.insert(&mut txn, "shapeOrder", ArrayPrelim::from(vec![Any::String("shape-1".into())]));
+            let shapes_by_id: yrs::MapRef =
+                layer_map.insert(&mut txn, "shapesById", MapPrelim::<Any>::new());
+            let shape_map: yrs::MapRef =
+                shapes_by_id.insert(&mut txn, "shape-1", MapPrelim::<Any>::new());
+            shape_map.insert(&mut txn, "closed", Any::Bool(false));
+            shape_map.insert(
+                &mut txn,
+                "nodeOrder",
+                ArrayPrelim::from(vec![Any::String("node-1".into()), Any::String("node-2".into())]),
+            );
+            let nodes_by_id: yrs::MapRef =
+                shape_map.insert(&mut txn, "nodesById", MapPrelim::<Any>::new());
+            node_map = nodes_by_id.insert(&mut txn, "node-1", MapPrelim::<Any>::new());
+            node_map.insert(&mut txn, "x", Any::Number(10.0));
+            node_map.insert(&mut txn, "y", Any::Number(20.0));
+            node_map.insert(&mut txn, "nodetype", "Line");
+            let second_node_map: yrs::MapRef =
+                nodes_by_id.insert(&mut txn, "node-2", MapPrelim::<Any>::new());
+            second_node_map.insert(&mut txn, "x", Any::Number(30.0));
+            second_node_map.insert(&mut txn, "y", Any::Number(20.0));
+            second_node_map.insert(&mut txn, "nodetype", "Line");
+            layer_map.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+        }
+
+        let initial_update = author_doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let base_state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            node_map.insert(&mut txn, "x", Any::Number(25.0));
+        }
+        let incremental_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+
+        let worker_doc = Doc::new();
+        {
+            let update = yrs::Update::decode_v1(initial_update.as_slice()).unwrap();
+            let mut txn = worker_doc.transact_mut();
+            txn.apply_update(update);
+        }
+        *Y_DOC.lock().unwrap() = Some(worker_doc);
+
+        let filter_epoch_before = FILTER_EPOCH.load(Ordering::Relaxed);
+
+        apply_yjs_update(
+            incremental_update.as_slice(),
+            r#"{
+                "changedGlyphs": ["A"],
+                "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }]
+            }"#,
+        )
+        .unwrap();
+
+        assert!(FILTER_EPOCH.load(Ordering::Relaxed) > filter_epoch_before);
+        assert!(FILTERED_FONT_CACHE.lock().unwrap().is_none());
+        assert_eq!(
+            CANONICAL_JSON_CACHE.lock().unwrap().as_ref().unwrap()["glyphs"][0]["layers"][0]
+                ["shapes"][0]["nodes"][0]["x"],
+            json!(25)
+        );
+        assert_eq!(
+            SUBSET_JSON_CACHE.lock().unwrap().as_ref().unwrap().2["glyphs"][0]["layers"][0]
+                ["shapes"][0]["nodes"][0]["x"],
+            json!(25)
+        );
+        let subset_cache_json = serde_json::to_value(
+            &SUBSET_FONT_CACHE.lock().unwrap().as_ref().unwrap().2,
+        )
+        .unwrap();
+        assert_eq!(
+            subset_cache_json["glyphs"][0]["layers"][0]["shapes"][0]["nodes"][0]["x"],
+            json!(25.0)
+        );
+
+        clear_font_cache();
+    }
+
+    #[test]
     fn apply_yjs_update_unrelated_layer_patch_preserves_filter_epoch() {
         clear_font_cache();
 
