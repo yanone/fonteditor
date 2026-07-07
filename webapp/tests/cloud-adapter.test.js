@@ -2945,6 +2945,264 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         global.WebSocket = originalWebSocket;
     });
 
+    it('does not throw or send on a replacement CONNECTING socket when HTTP seed resolves late', async () => {
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space'
+        });
+
+        const bridgeState = new Uint8Array([99, 98, 97]);
+        const unhandledRejections = [];
+        const rejectionHandler = (reason) => {
+            unhandledRejections.push(reason);
+        };
+        process.on('unhandledRejection', rejectionHandler);
+
+        adapter._bridge = {
+            encodeBridgeStateVector: function () {
+                return new Uint8Array(0);
+            },
+            encodeBridgeState: function () {
+                return bridgeState;
+            },
+            applyYDocUpdateSilent: jest.fn(),
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        const sentMessages = [];
+        const firstSocket = {
+            readyState: 1,
+            send: jest.fn(function (data) {
+                sentMessages.push({
+                    socket: 'first',
+                    message: JSON.parse(data)
+                });
+            }),
+            close: function () {}
+        };
+        const secondSocket = {
+            readyState: 0,
+            send: jest.fn(function () {
+                throw new DOMException(
+                    "Failed to execute 'send' on 'WebSocket': Still in CONNECTING state.",
+                    'InvalidStateError'
+                );
+            }),
+            close: function () {}
+        };
+
+        var socketCount = 0;
+        global.WebSocket = function FakeWebSocket() {
+            socketCount++;
+            return socketCount === 1 ? firstSocket : secondSocket;
+        };
+
+        let resolveSeedRequest;
+        global.fetch = jest.fn(function (url, opts) {
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/state') &&
+                opts &&
+                opts.method === 'POST'
+            ) {
+                return new Promise(function (resolve) {
+                    resolveSeedRequest = function () {
+                        resolve({
+                            ok: true,
+                            status: 200,
+                            headers: new Headers({
+                                'content-type': 'application/json'
+                            }),
+                            json: function () {
+                                return Promise.resolve({
+                                    ok: true,
+                                    checkpointLogId: 5
+                                });
+                            }
+                        });
+                    };
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                headers: new Headers({ 'content-type': 'application/json' }),
+                json: function () {
+                    return Promise.resolve({
+                        token: 'room-token',
+                        roomUrl: 'https://rooms.example.com/room/asset-123'
+                    });
+                },
+                text: function () {
+                    return Promise.resolve('');
+                }
+            });
+        });
+
+        try {
+            await adapter.connectDirect(
+                adapter._bridge,
+                'room-token',
+                'wss://rooms.example.com/room/asset-123'
+            );
+
+            await new Promise(function (r) {
+                setTimeout(r, 50);
+            });
+
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'auth-ok',
+                    clientId: 'client-1',
+                    roomSchemaVersion: 2,
+                    seedRequired: true
+                })
+            );
+
+            adapter._ws = secondSocket;
+            resolveSeedRequest();
+
+            await new Promise(function (r) {
+                setTimeout(r, 50);
+            });
+
+            expect(unhandledRejections).toEqual([]);
+            expect(secondSocket.send).not.toHaveBeenCalled();
+        } finally {
+            process.off('unhandledRejection', rejectionHandler);
+        }
+    });
+
+    it('sends initial sync when the replacement socket later authenticates after a stale seed completion', async () => {
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space'
+        });
+
+        const bridgeState = new Uint8Array([99, 98, 97]);
+
+        adapter._bridge = {
+            encodeBridgeStateVector: function () {
+                return new Uint8Array(0);
+            },
+            encodeBridgeState: function () {
+                return bridgeState;
+            },
+            applyYDocUpdateSilent: jest.fn(),
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        const firstSocket = {
+            readyState: 1,
+            send: jest.fn(),
+            close: function () {}
+        };
+        const secondMessages = [];
+        const secondSocket = {
+            readyState: 0,
+            send: jest.fn(function (data) {
+                secondMessages.push(JSON.parse(data));
+            }),
+            close: function () {}
+        };
+
+        let socketCount = 0;
+        global.WebSocket = function FakeWebSocket() {
+            socketCount++;
+            return socketCount === 1 ? firstSocket : secondSocket;
+        };
+
+        let resolveSeedRequest;
+        global.fetch = jest.fn(function (url, opts) {
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/state') &&
+                opts &&
+                opts.method === 'POST'
+            ) {
+                return new Promise(function (resolve) {
+                    resolveSeedRequest = function () {
+                        resolve({
+                            ok: true,
+                            status: 200,
+                            headers: new Headers({
+                                'content-type': 'application/json'
+                            }),
+                            json: function () {
+                                return Promise.resolve({
+                                    ok: true,
+                                    checkpointLogId: 5
+                                });
+                            }
+                        });
+                    };
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                headers: new Headers({ 'content-type': 'application/json' }),
+                json: function () {
+                    return Promise.resolve({
+                        token: 'room-token',
+                        roomUrl: 'https://rooms.example.com/room/asset-123'
+                    });
+                },
+                text: function () {
+                    return Promise.resolve('');
+                }
+            });
+        });
+
+        await adapter.connectDirect(
+            adapter._bridge,
+            'room-token',
+            'wss://rooms.example.com/room/asset-123'
+        );
+
+        await new Promise(function (r) {
+            setTimeout(r, 50);
+        });
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'auth-ok',
+                clientId: 'client-1',
+                roomSchemaVersion: 2,
+                seedRequired: true
+            })
+        );
+
+        adapter._ws = secondSocket;
+        resolveSeedRequest();
+
+        await new Promise(function (r) {
+            setTimeout(r, 50);
+        });
+
+        expect(firstSocket.send).not.toHaveBeenCalledWith(
+            expect.stringContaining('sync-request')
+        );
+        expect(secondSocket.send).not.toHaveBeenCalled();
+
+        secondSocket.readyState = 1;
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'auth-ok',
+                clientId: 'client-2',
+                roomSchemaVersion: 2
+            })
+        );
+
+        expect(secondSocket.send).toHaveBeenCalledTimes(1);
+        expect(secondMessages).toEqual([
+            expect.objectContaining({
+                type: 'sync-request',
+                checkpointLogId: 5
+            })
+        ]);
+    });
+
     it('POSTs bridge state when seedRequired is true', async () => {
         const adapter = new CloudAdapter({
             assetId: 'asset-123',

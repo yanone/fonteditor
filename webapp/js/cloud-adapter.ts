@@ -1108,8 +1108,17 @@ export class CloudAdapter implements FileSystemAdapter {
      * Send the initial sync-request with state vector and optional
      * checkpointLogId from R2 bootstrap.
      */
-    private _sendInitialSyncRequest(): void {
-        if (this._hasSynced || !this._ws) return;
+    private _sendInitialSyncRequest(ws: WebSocket | null = this._ws): void {
+        if (this._hasSynced || !ws || ws !== this._ws) return;
+
+        const openReadyState =
+            typeof WebSocket !== 'undefined' &&
+            typeof WebSocket.OPEN === 'number'
+                ? WebSocket.OPEN
+                : 1;
+        if (ws.readyState !== openReadyState) {
+            return;
+        }
 
         const sv = this._bridge?.encodeBridgeStateVector() ?? new Uint8Array(0);
         const syncRequest: Record<string, unknown> = {
@@ -1119,7 +1128,7 @@ export class CloudAdapter implements FileSystemAdapter {
         if (this._checkpointLogId !== null) {
             syncRequest.checkpointLogId = this._checkpointLogId;
         }
-        this._ws.send(JSON.stringify(syncRequest));
+        ws.send(JSON.stringify(syncRequest));
     }
 
     /**
@@ -1341,6 +1350,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 console.log(`CloudAdapter: authenticated as ${this._clientId}`);
                 this._setStatus('syncing');
                 this._armInitialSyncTimeout();
+                const authenticatedSocket = this._ws;
                 this._initialServerStateApplied = false;
                 this._initialSyncDurable = false;
                 if (msg.seedRequired === true) {
@@ -1377,11 +1387,11 @@ export class CloudAdapter implements FileSystemAdapter {
                             );
                         }
                         // Send sync-request after seed (success or failure)
-                        this._sendInitialSyncRequest();
+                        this._sendInitialSyncRequest(authenticatedSocket);
                     })();
                 } else {
                     if (!this._hasSynced) {
-                        this._sendInitialSyncRequest();
+                        this._sendInitialSyncRequest(authenticatedSocket);
                     }
                 }
                 break;
