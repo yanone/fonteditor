@@ -2708,11 +2708,13 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
         const {
             status = 200,
             checkpointBytes = new Uint8Array([1, 2, 3]),
-            checkpointLogId = '42'
+            checkpointLogId = '42',
+            stateRequests = []
         } = opts || {};
 
-        global.fetch = jest.fn(function (url) {
+        global.fetch = jest.fn(function (url, opts) {
             if (typeof url === 'string' && url.endsWith('/state')) {
+                stateRequests.push({ url, opts });
                 if (status === 404) {
                     return Promise.resolve({
                         ok: false,
@@ -2771,6 +2773,7 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
         const adapter = makeAdapter();
         const appliedFullStates = [];
         var sentMessages = [];
+        const stateRequests = [];
 
         adapter._bridge = {
             encodeBridgeStateVector: function () {
@@ -2795,7 +2798,8 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
 
         mockFetchWithStateEndpoint({
             checkpointBytes: new Uint8Array([10, 20, 30, 40]),
-            checkpointLogId: '77'
+            checkpointLogId: '77',
+            stateRequests
         });
 
         await adapter.connectDirect(
@@ -2811,6 +2815,14 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
         expect(appliedFullStates).toHaveLength(1);
         expect(Array.from(appliedFullStates[0])).toEqual([10, 20, 30, 40]);
         expect(adapter._bridge.applyYDocUpdateSilent).not.toHaveBeenCalled();
+        expect(stateRequests).toEqual([
+            {
+                url: 'https://rooms.example.com/room/asset-123/state',
+                opts: {
+                    headers: { Authorization: 'Bearer room-token' }
+                }
+            }
+        ]);
 
         adapter._handleMessage(
             JSON.stringify({
@@ -2825,6 +2837,8 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
         });
         expect(syncRequest).toBeDefined();
         expect(syncRequest.checkpointLogId).toBe(77);
+        expect(syncRequest.fullState).toBeUndefined();
+        expect(syncRequest.update).toBeUndefined();
     });
 
     it('falls back to WebSocket-only sync on 404 (no checkpoint)', async () => {
@@ -2939,13 +2953,15 @@ describe('HTTP seed (POST /state for new rooms)', () => {
 
         var sentMessages = [];
         var postUrls = [];
+        var postOptions = [];
+        const bridgeState = new Uint8Array([99, 98, 97]);
 
         adapter._bridge = {
             encodeBridgeStateVector: function () {
                 return new Uint8Array(0);
             },
             encodeBridgeState: function () {
-                return new Uint8Array([99, 98, 97]);
+                return bridgeState;
             },
             applyYDocUpdateSilent: jest.fn(),
             onLocalUpdate: jest.fn(),
@@ -2969,6 +2985,7 @@ describe('HTTP seed (POST /state for new rooms)', () => {
                 opts.method === 'POST'
             ) {
                 postUrls.push(url);
+                postOptions.push(opts);
                 seedCallCount++;
                 return Promise.resolve({
                     ok: true,
@@ -3026,6 +3043,16 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         expect(postUrls[0]).toBe(
             'https://rooms.example.com/room/asset-123/state'
         );
+        expect(postOptions[0]).toEqual(
+            expect.objectContaining({
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer room-token',
+                    'Content-Type': 'application/octet-stream'
+                },
+                body: bridgeState
+            })
+        );
 
         await new Promise(function (r) {
             setTimeout(r, 50);
@@ -3035,6 +3062,8 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         });
         expect(syncRequest).toBeDefined();
         expect(syncRequest.checkpointLogId).toBe(5);
+        expect(syncRequest.fullState).toBeUndefined();
+        expect(syncRequest.update).toBeUndefined();
     });
 
     it('falls back to WebSocket sync when seed returns 409', async () => {

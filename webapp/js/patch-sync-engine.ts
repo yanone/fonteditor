@@ -1594,6 +1594,17 @@ export class PatchSyncEngine {
         });
     }
 
+    private _isCompleteLayerSnapshot(
+        nextLayer: Record<string, unknown>
+    ): boolean {
+        return (
+            Object.prototype.hasOwnProperty.call(nextLayer, 'width') &&
+            Object.prototype.hasOwnProperty.call(nextLayer, 'master') &&
+            Object.prototype.hasOwnProperty.call(nextLayer, 'shapes') &&
+            Object.prototype.hasOwnProperty.call(nextLayer, 'anchors')
+        );
+    }
+
     private _shouldUseGranularSingleLayerSync(
         glyphName: string,
         layerId: string,
@@ -1604,11 +1615,13 @@ export class PatchSyncEngine {
             return false;
         }
 
-        // Keep layer commits on the granular path even when the next layer
-        // intentionally omits previously stored optional keys. The granular
-        // builder emits explicit remove ops for missing fields, whereas the
-        // coarse layer-snapshot fallback records the entire layer payload and
-        // can leave stale nested worker/Yjs state behind.
+        // Partial layer fragments must stay on the sparse layer-delta path so
+        // omitted fields remain untouched. Granular sync is only safe for
+        // complete layer snapshots that carry the layer's core fields.
+        if (!this._isCompleteLayerSnapshot(nextLayer)) {
+            return false;
+        }
+
         return true;
     }
 

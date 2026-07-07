@@ -5600,6 +5600,90 @@ describe('syncGlyphFromJson', () => {
         receiverBridge.destroy();
     });
 
+    test('cloud envelopes and local-window entries apply remote packets identically', () => {
+        const senderFontJson = makeMinimalFont();
+        const localWindowFontJson = cloneValue(senderFontJson);
+        const cloudFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-packet-parity');
+        const localWindowBridge = new ChangeBridge(
+            'receiver-packet-parity-local'
+        );
+        const cloudBridge = new ChangeBridge('receiver-packet-parity-cloud');
+        let lastUpdate = null;
+        let lastEntries = null;
+        let lastCollaborationMessage = null;
+        const localWorkerUpdates = [];
+        const cloudWorkerUpdates = [];
+        const localRemoteChanges = [];
+        const cloudRemoteChanges = [];
+        const normalizeRemoteEntries = (entries) =>
+            entries.map((entry) => ({
+                op: entry.op,
+                path: entry.path,
+                undoScope: entry.undoScope,
+                transactionLabel: entry.transactionLabel,
+                workerReplayTargets: entry.workerReplayTargets,
+                replayNewValue: entry.replayNewValue
+            }));
+
+        senderBridge.initFromJson(senderFontJson);
+        localWindowBridge.setFontJson(localWindowFontJson);
+        cloudBridge.setFontJson(cloudFontJson);
+        localWindowBridge.applyFullState(senderBridge.getFullState());
+        cloudBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate(
+            (update, collaborationMessage, changeLogEntries) => {
+                lastUpdate = update;
+                lastCollaborationMessage = collaborationMessage;
+                lastEntries = changeLogEntries;
+            }
+        );
+        localWindowBridge.setYjsWorkerCallback((update, entries) => {
+            localWorkerUpdates.push({ update, entries });
+        });
+        cloudBridge.setYjsWorkerCallback((update, entries) => {
+            cloudWorkerUpdates.push({ update, entries });
+        });
+        localWindowBridge.onRemoteChange((entries) => {
+            localRemoteChanges.push(entries);
+        });
+        cloudBridge.onRemoteChange((entries) => {
+            cloudRemoteChanges.push(entries);
+        });
+
+        senderFontJson.glyphs[0].layers[0].width = 735;
+        senderBridge.syncGlyphFromJson('A', 'Remote width drag');
+
+        localWindowBridge.applyRemoteUpdate(lastUpdate, lastEntries);
+        cloudBridge.applyRemoteUpdate(
+            lastUpdate,
+            undefined,
+            lastCollaborationMessage ? [lastCollaborationMessage] : []
+        );
+
+        expect(localWindowFontJson).toEqual(cloudFontJson);
+        expect(localWindowFontJson.glyphs[0].layers[0].width).toBe(735);
+        expect(localWorkerUpdates).toHaveLength(1);
+        expect(cloudWorkerUpdates).toHaveLength(1);
+        expect(localWorkerUpdates[0].update).toBe(lastUpdate);
+        expect(cloudWorkerUpdates[0].update).toBe(lastUpdate);
+        expect(normalizeRemoteEntries(cloudWorkerUpdates[0].entries)).toEqual(
+            normalizeRemoteEntries(localWorkerUpdates[0].entries)
+        );
+        expect(localRemoteChanges).toHaveLength(1);
+        expect(cloudRemoteChanges).toHaveLength(1);
+        expect(normalizeRemoteEntries(cloudRemoteChanges[0])).toEqual(
+            normalizeRemoteEntries(localRemoteChanges[0])
+        );
+        expect(normalizeRemoteEntries(cloudBridge.getChangeLog())).toEqual(
+            normalizeRemoteEntries(localWindowBridge.getChangeLog())
+        );
+
+        senderBridge.destroy();
+        localWindowBridge.destroy();
+        cloudBridge.destroy();
+    });
+
     test('metadata-free non-noop remote update is refused before side effects', () => {
         const senderFontJson = makeMinimalFont();
         const receiverFontJson = cloneValue(senderFontJson);
@@ -8193,6 +8277,36 @@ describe('syncGlyphFromJson', () => {
 
         senderBridge.destroy();
         receiverBridge.destroy();
+    });
+
+    test('layer-scoped full snapshots without guides stay on the granular fast path', () => {
+        const { bridge, fontJson } = createTestBridge(
+            'test-full-layer-no-guides'
+        );
+
+        const nextLayer = cloneValue(fontJson.glyphs[0].layers[0]);
+        nextLayer.width = 777;
+        nextLayer.anchors[0].x = 345;
+        delete nextLayer.guides;
+        fontJson.glyphs[0].layers[0] = nextLayer;
+
+        bridge.syncGlyphFromJson(
+            'A',
+            'Drag anchor',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+
+        const changeEntries = bridge
+            .getNewChangeLogEntries()
+            .filter((entry) => entry.historyAction === 'change');
+
+        expect(changeEntries.map((entry) => entry.path)).toEqual([
+            'glyphs.A:layers.layer-1:width',
+            'glyphs.A:layers.layer-1:anchors.0.x',
+            'glyphs.A:layers.layer-1:guides'
+        ]);
     });
 
     test('syncLayersFromJson batched layer lifecycle in a transaction preserves undo for recreated layers', () => {

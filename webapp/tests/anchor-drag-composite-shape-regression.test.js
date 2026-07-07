@@ -18,6 +18,17 @@ function cloneJson(value) {
     return JSON.parse(JSON.stringify(value));
 }
 
+function makeWorkerCacheStatus(overrides = {}) {
+    return {
+        coherent: true,
+        documentEpoch: 1,
+        fontCacheEpoch: 1,
+        filterEpoch: 1,
+        subsetCacheEpoch: null,
+        ...overrides
+    };
+}
+
 function expectPlainShapeStructure(shapes, context) {
     expect(Array.isArray(shapes)).toBe(true);
 
@@ -133,7 +144,10 @@ describe('Fustat anchor drag downstream composite serialization', () => {
         fontCompilation.isInitialized = true;
         sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
-            .mockResolvedValue({ success: true });
+            .mockResolvedValue({
+                success: true,
+                workerCacheStatus: makeWorkerCacheStatus()
+            });
 
         const initialWorkerState = fontManager.buildWorkerSeedYjsState();
         fontManager.replaceWorkerYjsMirrorFromState(initialWorkerState);
