@@ -637,6 +637,9 @@ class FontManager {
     workerCacheUpdatePromise: Promise<void> | null;
     forceFullEditingCacheRefresh: boolean;
     workerLayerFingerprintCache: Map<string, string>;
+    lastWorkerDocumentEpoch: number;
+    lastWorkerFilterEpoch: number;
+    lastWorkerFontCacheEpoch: number;
     private editingCompileContextsByRevision: Map<
         string,
         EditingCompileContext
@@ -706,6 +709,9 @@ class FontManager {
         this.workerCacheUpdatePromise = null;
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache = new Map();
+        this.lastWorkerDocumentEpoch = 0;
+        this.lastWorkerFilterEpoch = 0;
+        this.lastWorkerFontCacheEpoch = 0;
         this.editingCompileContextsByRevision = new Map();
         this.workerCacheYDoc = null;
         this.workerYjsSendQueue = Promise.resolve();
@@ -4461,6 +4467,36 @@ class FontManager {
                     );
                     return false;
                 }
+
+                const workerCacheStatus = response?.workerCacheStatus;
+                if (
+                    !workerCacheStatus ||
+                    workerCacheStatus.coherent !== true ||
+                    !Number.isFinite(workerCacheStatus.documentEpoch)
+                ) {
+                    fontCompilation.setWorkerCacheDocumentReady(false);
+                    console.warn(
+                        '[FontManager] Worker Yjs update completed without a coherent cache acknowledgement',
+                        {
+                            changedGlyphs,
+                            invalidateLayoutClosure,
+                            workerCacheStatus
+                        }
+                    );
+                    return false;
+                }
+
+                this.lastWorkerDocumentEpoch = workerCacheStatus.documentEpoch;
+                this.lastWorkerFilterEpoch = Number.isFinite(
+                    workerCacheStatus.filterEpoch
+                )
+                    ? workerCacheStatus.filterEpoch
+                    : this.lastWorkerFilterEpoch;
+                this.lastWorkerFontCacheEpoch = Number.isFinite(
+                    workerCacheStatus.fontCacheEpoch
+                )
+                    ? workerCacheStatus.fontCacheEpoch
+                    : this.lastWorkerFontCacheEpoch;
 
                 return true;
             } catch (error) {

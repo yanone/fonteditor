@@ -14,6 +14,17 @@ const {
 const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
 const { sidebarErrorDisplay } = require('../js/sidebar-error-display');
 
+function makeWorkerCacheStatus(overrides = {}) {
+    return {
+        coherent: true,
+        documentEpoch: 1,
+        fontCacheEpoch: 1,
+        filterEpoch: 1,
+        subsetCacheEpoch: null,
+        ...overrides
+    };
+}
+
 function loadFontFile(filePath) {
     const fileName = path.basename(filePath);
     const fileContents = fs.readFileSync(filePath, 'utf-8');
@@ -134,7 +145,10 @@ describe('FontManager saveLayerData', () => {
         fontCompilation.isInitialized = true;
         sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
-            .mockResolvedValue({ success: true });
+            .mockResolvedValue({
+                success: true,
+                workerCacheStatus: makeWorkerCacheStatus()
+            });
     });
 
     afterEach(() => {
@@ -2421,7 +2435,10 @@ describe('FontManager boundary-crossing budget', () => {
         fontCompilation.isInitialized = true;
         sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
-            .mockResolvedValue({ success: true });
+            .mockResolvedValue({
+                success: true,
+                workerCacheStatus: makeWorkerCacheStatus()
+            });
     });
 
     afterEach(() => {
@@ -2753,7 +2770,10 @@ describe('FontManager boundary-crossing budget', () => {
         );
         sendMessageSpy
             .mockRejectedValueOnce(new Error('RuntimeError: unreachable'))
-            .mockResolvedValueOnce({ success: true });
+            .mockResolvedValueOnce({
+                success: true,
+                workerCacheStatus: makeWorkerCacheStatus()
+            });
 
         await expect(
             fontManager.refreshWorkerCacheForReplayTargets([
@@ -3129,7 +3149,10 @@ describe('FontManager boundary-crossing budget', () => {
         await Promise.resolve();
         await Promise.resolve();
         expect(resolveSend).toEqual(expect.any(Function));
-        resolveSend({ success: true });
+        resolveSend({
+            success: true,
+            workerCacheStatus: makeWorkerCacheStatus({ documentEpoch: 1 })
+        });
         await expect(updatePromise).resolves.toBe(true);
         await fontManager.awaitWorkerCacheUpdate();
         expect(fontManager.workerCacheUpdatePromise).toBeNull();
@@ -3170,7 +3193,10 @@ describe('FontManager boundary-crossing budget', () => {
         // The second send is serialized behind the first one.
         expect(resolveSecondSend).toBeUndefined();
 
-        resolveFirstSend({ success: true });
+        resolveFirstSend({
+            success: true,
+            workerCacheStatus: makeWorkerCacheStatus({ documentEpoch: 1 })
+        });
         await expect(firstUpdatePromise).resolves.toBe(true);
         await Promise.resolve();
         await Promise.resolve();
@@ -3179,10 +3205,55 @@ describe('FontManager boundary-crossing budget', () => {
         // The later queue handle must remain visible until the queued tail settles.
         expect(fontManager.workerCacheUpdatePromise).toBeTruthy();
 
-        resolveSecondSend({ success: true });
+        resolveSecondSend({
+            success: true,
+            workerCacheStatus: makeWorkerCacheStatus({ documentEpoch: 2 })
+        });
         await expect(secondUpdatePromise).resolves.toBe(true);
         await fontManager.awaitWorkerCacheUpdate();
         expect(fontManager.workerCacheUpdatePromise).toBeNull();
+    });
+
+    test('forwardWorkerYjsUpdate rejects a success response without a coherent worker cache acknowledgement', async () => {
+        fontCompilation.setWorkerCacheDocumentReady(true);
+        const previousDocumentEpoch = fontManager.lastWorkerDocumentEpoch;
+
+        sendMessageSpy.mockResolvedValueOnce({
+            success: true,
+            workerCacheStatus: {
+                coherent: false,
+                documentEpoch: 4,
+                fontCacheEpoch: 3,
+                filterEpoch: 2,
+                subsetCacheEpoch: null
+            }
+        });
+
+        await expect(
+            fontManager.forwardWorkerYjsUpdate(new Uint8Array([1, 2, 3]), [])
+        ).resolves.toBe(false);
+
+        expect(fontCompilation.hasWorkerCacheDocument()).toBe(false);
+        expect(fontManager.lastWorkerDocumentEpoch).toBe(previousDocumentEpoch);
+    });
+
+    test('forwardWorkerYjsUpdate stores acknowledged worker cache epochs', async () => {
+        sendMessageSpy.mockResolvedValueOnce({
+            success: true,
+            workerCacheStatus: makeWorkerCacheStatus({
+                documentEpoch: 7,
+                fontCacheEpoch: 11,
+                filterEpoch: 13
+            })
+        });
+
+        await expect(
+            fontManager.forwardWorkerYjsUpdate(new Uint8Array([1, 2, 3]), [])
+        ).resolves.toBe(true);
+
+        expect(fontManager.lastWorkerDocumentEpoch).toBe(7);
+        expect(fontManager.lastWorkerFontCacheEpoch).toBe(11);
+        expect(fontManager.lastWorkerFilterEpoch).toBe(13);
     });
 
     test('forwardWorkerYjsUpdate forwards non-glyph kerning hints with font-wide updates', async () => {
@@ -3234,7 +3305,10 @@ describe('FontManager boundary-crossing budget', () => {
 
         sendMessageSpy
             .mockRejectedValueOnce(new Error('RuntimeError: unreachable'))
-            .mockResolvedValueOnce({ success: true });
+            .mockResolvedValueOnce({
+                success: true,
+                workerCacheStatus: makeWorkerCacheStatus()
+            });
 
         await expect(
             fontManager.forwardWorkerYjsUpdate(rawUpdate, ['a'], {
@@ -3912,7 +3986,10 @@ describe('FontManager boundary-crossing budget', () => {
         sendMessageSpy.mockReset();
         sendMessageSpy.mockImplementation((message) => {
             if (message?.type !== 'applyYjsUpdate') {
-                return Promise.resolve({ success: true });
+                return Promise.resolve({
+                    success: true,
+                    workerCacheStatus: makeWorkerCacheStatus()
+                });
             }
 
             inFlight += 1;
@@ -3921,7 +3998,10 @@ describe('FontManager boundary-crossing budget', () => {
             return new Promise((resolve) => {
                 resolvers.push(() => {
                     inFlight -= 1;
-                    resolve({ success: true });
+                    resolve({
+                        success: true,
+                        workerCacheStatus: makeWorkerCacheStatus()
+                    });
                 });
             });
         });
@@ -4128,7 +4208,10 @@ describe('FontManager handleNewFont', () => {
         fontCompilation.isInitialized = true;
         sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
-            .mockResolvedValue({ success: true });
+            .mockResolvedValue({
+                success: true,
+                workerCacheStatus: makeWorkerCacheStatus()
+            });
         updateDirtyIndicatorSpy = jest
             .spyOn(fontManager, 'updateDirtyIndicator')
             .mockResolvedValue();

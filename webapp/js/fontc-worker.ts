@@ -1733,6 +1733,7 @@ self.onmessage = async (event) => {
                 let parsedResult: {
                     skipped?: string;
                     changedGlyphs?: unknown;
+                    workerCacheStatus?: unknown;
                 } | null = null;
                 try {
                     parsedResult = JSON.parse(resultJson);
@@ -1766,6 +1767,13 @@ self.onmessage = async (event) => {
                     type: 'applyYjsUpdate',
                     success: true,
                     result: resultJson,
+                    workerCacheStatus:
+                        parsedResult &&
+                        typeof parsedResult === 'object' &&
+                        parsedResult.workerCacheStatus &&
+                        typeof parsedResult.workerCacheStatus === 'object'
+                            ? parsedResult.workerCacheStatus
+                            : undefined,
                     skipped: wasSkipped ? parsedResult!.skipped : undefined
                 });
             } catch (e: any) {

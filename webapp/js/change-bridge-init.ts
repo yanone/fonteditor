@@ -2093,7 +2093,6 @@ async function awaitCommittedEditingCompileReady(
     awaitWorkerSync: () => Promise<void>
 ): Promise<boolean> {
     if (
-        !isUndoRedoPacket ||
         !fontCompilation?.isInitialized ||
         typeof fontCompilation.hasWorkerCacheDocument !== 'function' ||
         fontCompilation.hasWorkerCacheDocument()
@@ -2360,11 +2359,8 @@ export async function handleCommittedChangeRefresh(
             (() => fontCompilation.awaitWorkerDocumentSync());
         await awaitCommittedWorkerCacheSettled(awaitWorkerSync);
 
-        if (
-            await showCommittedWorkerDriftIfNeeded(entries, localCompileContext)
-        ) {
-            await refreshGlyphOverviewFromCommittedEntries(entries);
-            return;
+        if (window.fontManager) {
+            window.fontManager.pendingCommittedKeyboardDriftCheckAfterDrag = false;
         }
 
         const { editType, changeSource } =

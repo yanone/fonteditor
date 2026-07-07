@@ -99,6 +99,7 @@ static DEBUG_FONT_BYTES_CACHE: LazyLock<Mutex<DebugFontBytesCache>> =
 /// Yjs source updates.
 static FILTER_EPOCH: AtomicU64 = AtomicU64::new(0);
 static PERF_SPAN_COUNTER: AtomicU64 = AtomicU64::new(0);
+static Y_DOC_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 /// Yjs CRDT document maintained in Rust — receives binary Yjs updates directly
 /// from the JavaScript PatchSyncEngine, eliminating full-JSON round-trips for
@@ -2479,6 +2480,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
         let _apply_span = PerfSpan::start("apply_yjs_update.decode_apply");
         let mut txn = doc.transact_mut();
         txn.apply_update(yrs_update);
+        let document_epoch = Y_DOC_EPOCH.fetch_add(1, Ordering::Relaxed) + 1;
 
         // -- 2. Parse JS-supplied update metadata -----------------------------
         let (changed_glyphs, non_glyph_change_hints, layer_targets) =
@@ -2758,7 +2760,18 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
             "changedLayerIds": layer_targets
                 .iter()
                 .map(|target| target.layer_id.clone())
-                .collect::<Vec<String>>()
+                .collect::<Vec<String>>(),
+            "workerCacheStatus": {
+                "coherent": true,
+                "documentEpoch": document_epoch,
+                "fontCacheEpoch": FONT_CACHE_EPOCH.load(Ordering::Relaxed),
+                "filterEpoch": FILTER_EPOCH.load(Ordering::Relaxed),
+                "subsetCacheEpoch": SUBSET_JSON_CACHE
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .map(|(_, epoch, _)| *epoch)
+            }
         });
         serde_json::to_string(&result).map_err(|e| {
             JsValue::from_str(&format!(

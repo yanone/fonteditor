@@ -339,63 +339,107 @@ describe('handleRemoteChangeRefresh', () => {
         expect(refreshOrder).toEqual(['sync', 'sync']);
     });
 
-    test('shows a sticky sidebar error for post-commit keyboard drift and skips compile', async () => {
-        const awaitWorkerSync = jest.fn(async () => {});
+    test('skips local committed compile when worker cache remains unready after readiness retry', async () => {
+        const refreshOrder = [];
+        const previousInitialized = fontCompilation.isInitialized;
+        const previousWorkerCacheReady =
+            fontCompilation.hasWorkerCacheDocument();
+        fontCompilation.isInitialized = true;
+        fontCompilation.setWorkerCacheDocumentReady(false);
+
+        const awaitWorkerSync = jest.fn(async () => {
+            refreshOrder.push('sync');
+        });
+        const queueCacheRefresh = jest.fn(async () => {
+            refreshOrder.push('queue');
+        });
+        const requestCompile = jest.fn(async () => {
+            refreshOrder.push('compile');
+        });
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(
+                        () => new Set(['adieresis'])
+                    )
+                }
+            },
+            lastChangeSource: 'keyboard-anchor',
+            lastEditType: 'anchor',
+            workerCacheUpdatePromise: null,
+            awaitWorkerCacheUpdate: jest.fn(async () => {
+                refreshOrder.push('cache');
+            })
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag anchor',
+                        path: 'glyphs.a.layers.master-regular.anchors.0.x',
+                        workerReplayTargets: [
+                            {
+                                glyphName: 'a',
+                                layerId: 'master-regular'
+                            },
+                            {
+                                glyphName: 'adieresis',
+                                layerId: 'master-regular'
+                            }
+                        ]
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync,
+                    requestCompile,
+                    queueCacheRefresh
+                }
+            );
+        } finally {
+            fontCompilation.isInitialized = previousInitialized;
+            fontCompilation.setWorkerCacheDocumentReady(
+                previousWorkerCacheReady
+            );
+            delete window.fontManager;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
+        expect(queueCacheRefresh).not.toHaveBeenCalled();
+        expect(requestCompile).not.toHaveBeenCalled();
+        expect(refreshOrder).toEqual(['sync', 'sync']);
+    });
+
+    test('local committed keyboard outline clears stale drift flag and compiles after worker sync', async () => {
+        const previousWorkerCacheReady =
+            fontCompilation.hasWorkerCacheDocument();
+        const awaitWorkerSync = jest.fn(async () => {
+            fontCompilation.setWorkerCacheDocumentReady(true);
+        });
         const requestCompile = jest.fn(async () => {});
         const originalShowError = sidebarErrorDisplay.showError;
         const showErrorMock = jest.fn();
         const originalSendMessage = fontCompilation.sendMessage;
         const originalIsInitialized = fontCompilation.isInitialized;
-        const sendMessageMock = jest.fn(async () => ({
-            dumpJson: JSON.stringify({
-                targets: [
-                    {
-                        glyphName: 'a',
-                        layerId: 'layer-1',
-                        canonicalLayer: staleLayer,
-                        subsetLayer: staleLayer,
-                        ydocLayer: staleLayer
-                    }
-                ]
-            })
-        }));
-        const expectedLayer = {
-            width: 542,
-            shapes: [],
-            anchors: [{ name: 'top', x: 278, y: 500 }],
-            guides: []
-        };
-        const staleLayer = {
-            width: 540,
-            shapes: [],
-            anchors: [{ name: 'top', x: 278, y: 490 }],
-            guides: []
-        };
+        const sendMessageMock = jest.fn(async () => ({ success: true }));
 
         fontCompilation.isInitialized = true;
+        fontCompilation.setWorkerCacheDocumentReady(false);
         fontCompilation.sendMessage = sendMessageMock;
         sidebarErrorDisplay.showError = showErrorMock;
 
         window.fontManager = {
             currentFont: {
                 fontModel: {
-                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
-                    findGlyph: jest.fn((glyphName) => ({
-                        findLayerById: jest.fn((layerId) =>
-                            glyphName === 'a' && layerId === 'layer-1'
-                                ? {
-                                      toJSON: () => expectedLayer
-                                  }
-                                : null
-                        )
-                    }))
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
                 }
             },
             pendingBabelfontJsonSyncAfterDrag: false,
             pendingCommittedKeyboardDriftCheckAfterDrag: true,
             lastChangeSource: 'keyboard-outline',
-            lastEditType: 'outline',
-            normalizeLayerForRust: jest.fn((layer) => layer)
+            lastEditType: 'outline'
         };
         const fontManagerState = window.fontManager;
 
@@ -420,88 +464,50 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
             fontCompilation.sendMessage = originalSendMessage;
             fontCompilation.isInitialized = originalIsInitialized;
+            fontCompilation.setWorkerCacheDocumentReady(
+                previousWorkerCacheReady
+            );
             sidebarErrorDisplay.showError = originalShowError;
         }
 
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
-        expect(requestCompile).not.toHaveBeenCalled();
-        expect(sendMessageMock).toHaveBeenCalledWith({
-            type: 'dumpLayerState',
-            layerTargets: [{ glyphName: 'a', layerId: 'layer-1' }]
-        });
-        expect(showErrorMock).toHaveBeenCalledWith(
-            expect.any(Error),
-            'editing',
-            { sticky: true }
+        expect(sendMessageMock).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
         );
+        expect(showErrorMock).not.toHaveBeenCalled();
         expect(
             fontManagerState.pendingCommittedKeyboardDriftCheckAfterDrag
         ).toBe(false);
-        const error = showErrorMock.mock.calls[0][0];
-        expect(error.message).toContain(
-            'Committed glyph data did not reach the compiled worker state after the authoritative commit.'
-        );
-        expect(error.message).toContain(
-            'Layer edits are no longer recompiling the editing font on fresh data.'
-        );
-        expect(error.message).toContain('a/layer-1: expected=');
     });
 
-    test('checks local non-keyboard outline commits before compiling', async () => {
-        const awaitWorkerSync = jest.fn(async () => {});
+    test('local committed non-keyboard outline compiles without dump-layer inspection', async () => {
+        const previousWorkerCacheReady =
+            fontCompilation.hasWorkerCacheDocument();
+        const awaitWorkerSync = jest.fn(async () => {
+            fontCompilation.setWorkerCacheDocumentReady(true);
+        });
         const requestCompile = jest.fn(async () => {});
         const originalShowError = sidebarErrorDisplay.showError;
         const showErrorMock = jest.fn();
         const originalSendMessage = fontCompilation.sendMessage;
         const originalIsInitialized = fontCompilation.isInitialized;
-        const expectedLayer = {
-            width: 542,
-            shapes: [{ nodes: [{ x: 25, y: 20, nodetype: 'Line' }] }],
-            anchors: [],
-            guides: []
-        };
-        const staleLayer = {
-            width: 542,
-            shapes: [{ nodes: [{ x: 10, y: 20, nodetype: 'Line' }] }],
-            anchors: [],
-            guides: []
-        };
-        const sendMessageMock = jest.fn(async () => ({
-            dumpJson: JSON.stringify({
-                targets: [
-                    {
-                        glyphName: 'a',
-                        layerId: 'layer-1',
-                        canonicalLayer: staleLayer,
-                        subsetLayer: staleLayer,
-                        ydocLayer: staleLayer
-                    }
-                ]
-            })
-        }));
+        const sendMessageMock = jest.fn(async () => ({ success: true }));
 
         fontCompilation.isInitialized = true;
+        fontCompilation.setWorkerCacheDocumentReady(false);
         fontCompilation.sendMessage = sendMessageMock;
         sidebarErrorDisplay.showError = showErrorMock;
 
         window.fontManager = {
             currentFont: {
                 fontModel: {
-                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
-                    findGlyph: jest.fn((glyphName) => ({
-                        findLayerById: jest.fn((layerId) =>
-                            glyphName === 'a' && layerId === 'layer-1'
-                                ? {
-                                      toJSON: () => expectedLayer
-                                  }
-                                : null
-                        )
-                    }))
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
                 }
             },
             lastChangeSource: 'keyboard-outline',
-            lastEditType: 'outline',
-            normalizeLayerForRust: jest.fn((layer) => layer)
+            lastEditType: 'outline'
         };
 
         try {
@@ -525,29 +531,27 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
             fontCompilation.sendMessage = originalSendMessage;
             fontCompilation.isInitialized = originalIsInitialized;
+            fontCompilation.setWorkerCacheDocumentReady(
+                previousWorkerCacheReady
+            );
             sidebarErrorDisplay.showError = originalShowError;
         }
 
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
-        expect(sendMessageMock).toHaveBeenCalledWith({
-            type: 'dumpLayerState',
-            layerTargets: [{ glyphName: 'a', layerId: 'layer-1' }]
-        });
-        expect(requestCompile).not.toHaveBeenCalled();
-        expect(showErrorMock).toHaveBeenCalledWith(
-            expect.any(Error),
-            'editing',
-            {
-                sticky: true
-            }
+        expect(sendMessageMock).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
         );
-        expect(showErrorMock.mock.calls[0][0].message).toContain(
-            'a/layer-1: expected='
-        );
+        expect(showErrorMock).not.toHaveBeenCalled();
     });
 
-    test('does not report worker drift for key-order-only differences or uncached subset targets', async () => {
-        const awaitWorkerSync = jest.fn(async () => {});
+    test('local committed outline with dependent replay targets compiles without dump-layer inspection', async () => {
+        const previousWorkerCacheReady =
+            fontCompilation.hasWorkerCacheDocument();
+        const awaitWorkerSync = jest.fn(async () => {
+            fontCompilation.setWorkerCacheDocumentReady(true);
+        });
         const requestCompile = jest.fn(async () => {});
         const originalShowError = sidebarErrorDisplay.showError;
         const showErrorMock = jest.fn();
@@ -623,6 +627,7 @@ describe('handleRemoteChangeRefresh', () => {
         }));
 
         fontCompilation.isInitialized = true;
+        fontCompilation.setWorkerCacheDocumentReady(false);
         fontCompilation.sendMessage = sendMessageMock;
         sidebarErrorDisplay.showError = showErrorMock;
 
@@ -673,17 +678,14 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
             fontCompilation.sendMessage = originalSendMessage;
             fontCompilation.isInitialized = originalIsInitialized;
+            fontCompilation.setWorkerCacheDocumentReady(
+                previousWorkerCacheReady
+            );
             sidebarErrorDisplay.showError = originalShowError;
         }
 
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
-        expect(sendMessageMock).toHaveBeenCalledWith({
-            type: 'dumpLayerState',
-            layerTargets: [
-                { glyphName: 'a', layerId: 'layer-1' },
-                { glyphName: 'aacute', layerId: 'layer-1' }
-            ]
-        });
+        expect(sendMessageMock).not.toHaveBeenCalled();
         expect(showErrorMock).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-outline',
@@ -691,8 +693,12 @@ describe('handleRemoteChangeRefresh', () => {
         );
     });
 
-    test('does not report worker drift when rust caches only retain empty optional layer containers', async () => {
-        const awaitWorkerSync = jest.fn(async () => {});
+    test('local committed outline ignores retired rust cache drift inspection for empty optional containers', async () => {
+        const previousWorkerCacheReady =
+            fontCompilation.hasWorkerCacheDocument();
+        const awaitWorkerSync = jest.fn(async () => {
+            fontCompilation.setWorkerCacheDocumentReady(true);
+        });
         const requestCompile = jest.fn(async () => {});
         const originalShowError = sidebarErrorDisplay.showError;
         const showErrorMock = jest.fn();
@@ -733,6 +739,7 @@ describe('handleRemoteChangeRefresh', () => {
         }));
 
         fontCompilation.isInitialized = true;
+        fontCompilation.setWorkerCacheDocumentReady(false);
         fontCompilation.sendMessage = sendMessageMock;
         sidebarErrorDisplay.showError = showErrorMock;
 
@@ -777,14 +784,14 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
             fontCompilation.sendMessage = originalSendMessage;
             fontCompilation.isInitialized = originalIsInitialized;
+            fontCompilation.setWorkerCacheDocumentReady(
+                previousWorkerCacheReady
+            );
             sidebarErrorDisplay.showError = originalShowError;
         }
 
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
-        expect(sendMessageMock).toHaveBeenCalledWith({
-            type: 'dumpLayerState',
-            layerTargets: [{ glyphName: 'a', layerId: 'layer-1' }]
-        });
+        expect(sendMessageMock).not.toHaveBeenCalled();
         expect(showErrorMock).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-outline',
@@ -792,8 +799,12 @@ describe('handleRemoteChangeRefresh', () => {
         );
     });
 
-    test('does not report worker drift when rust caches only retain nested empty format_specific trees', async () => {
-        const awaitWorkerSync = jest.fn(async () => {});
+    test('local committed outline ignores retired rust cache drift inspection for nested empty format_specific trees', async () => {
+        const previousWorkerCacheReady =
+            fontCompilation.hasWorkerCacheDocument();
+        const awaitWorkerSync = jest.fn(async () => {
+            fontCompilation.setWorkerCacheDocumentReady(true);
+        });
         const requestCompile = jest.fn(async () => {});
         const originalShowError = sidebarErrorDisplay.showError;
         const showErrorMock = jest.fn();
@@ -841,6 +852,7 @@ describe('handleRemoteChangeRefresh', () => {
         }));
 
         fontCompilation.isInitialized = true;
+        fontCompilation.setWorkerCacheDocumentReady(false);
         fontCompilation.sendMessage = sendMessageMock;
         sidebarErrorDisplay.showError = showErrorMock;
 
@@ -885,10 +897,14 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
             fontCompilation.sendMessage = originalSendMessage;
             fontCompilation.isInitialized = originalIsInitialized;
+            fontCompilation.setWorkerCacheDocumentReady(
+                previousWorkerCacheReady
+            );
             sidebarErrorDisplay.showError = originalShowError;
         }
 
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(sendMessageMock).not.toHaveBeenCalled();
         expect(showErrorMock).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-outline',
@@ -896,8 +912,12 @@ describe('handleRemoteChangeRefresh', () => {
         );
     });
 
-    test('still reports worker drift when optional layer containers differ semantically', async () => {
-        const awaitWorkerSync = jest.fn(async () => {});
+    test('local committed outline does not gate compile on retired semantic drift inspection', async () => {
+        const previousWorkerCacheReady =
+            fontCompilation.hasWorkerCacheDocument();
+        const awaitWorkerSync = jest.fn(async () => {
+            fontCompilation.setWorkerCacheDocumentReady(true);
+        });
         const requestCompile = jest.fn(async () => {});
         const originalShowError = sidebarErrorDisplay.showError;
         const showErrorMock = jest.fn();
@@ -937,6 +957,7 @@ describe('handleRemoteChangeRefresh', () => {
         }));
 
         fontCompilation.isInitialized = true;
+        fontCompilation.setWorkerCacheDocumentReady(false);
         fontCompilation.sendMessage = sendMessageMock;
         sidebarErrorDisplay.showError = showErrorMock;
 
@@ -981,23 +1002,27 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
             fontCompilation.sendMessage = originalSendMessage;
             fontCompilation.isInitialized = originalIsInitialized;
+            fontCompilation.setWorkerCacheDocumentReady(
+                previousWorkerCacheReady
+            );
             sidebarErrorDisplay.showError = originalShowError;
         }
 
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
-        expect(showErrorMock).toHaveBeenCalledWith(
-            expect.any(Error),
-            'editing',
-            { sticky: true }
-        );
-        expect(requestCompile).not.toHaveBeenCalled();
-        expect(showErrorMock.mock.calls[0][0].message).toContain(
-            'format_specific'
+        expect(sendMessageMock).not.toHaveBeenCalled();
+        expect(showErrorMock).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
         );
     });
 
-    test('does not report worker drift when authoritative state matches but subset cache is absent', async () => {
-        const awaitWorkerSync = jest.fn(async () => {});
+    test('local committed anchor refresh compiles without dump-layer inspection when subset cache is absent', async () => {
+        const previousWorkerCacheReady =
+            fontCompilation.hasWorkerCacheDocument();
+        const awaitWorkerSync = jest.fn(async () => {
+            fontCompilation.setWorkerCacheDocumentReady(true);
+        });
         const requestCompile = jest.fn(async () => {});
         const originalShowError = sidebarErrorDisplay.showError;
         const showErrorMock = jest.fn();
@@ -1084,6 +1109,7 @@ describe('handleRemoteChangeRefresh', () => {
         }));
 
         fontCompilation.isInitialized = true;
+        fontCompilation.setWorkerCacheDocumentReady(false);
         fontCompilation.sendMessage = sendMessageMock;
         sidebarErrorDisplay.showError = showErrorMock;
 
@@ -1138,23 +1164,14 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
             fontCompilation.sendMessage = originalSendMessage;
             fontCompilation.isInitialized = originalIsInitialized;
+            fontCompilation.setWorkerCacheDocumentReady(
+                previousWorkerCacheReady
+            );
             sidebarErrorDisplay.showError = originalShowError;
         }
 
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
-        expect(sendMessageMock).toHaveBeenCalledWith({
-            type: 'dumpLayerState',
-            layerTargets: [
-                {
-                    glyphName: 'a',
-                    layerId: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1'
-                },
-                {
-                    glyphName: 'aacute',
-                    layerId: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1'
-                }
-            ]
-        });
+        expect(sendMessageMock).not.toHaveBeenCalled();
         expect(showErrorMock).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-anchor',
@@ -1163,7 +1180,11 @@ describe('handleRemoteChangeRefresh', () => {
     });
 
     test('continues the post-commit keyboard compile when post-drag worker state is already fresh', async () => {
-        const awaitWorkerSync = jest.fn(async () => {});
+        const previousWorkerCacheReady =
+            fontCompilation.hasWorkerCacheDocument();
+        const awaitWorkerSync = jest.fn(async () => {
+            fontCompilation.setWorkerCacheDocumentReady(true);
+        });
         const requestCompile = jest.fn(async () => {});
         const originalShowError = sidebarErrorDisplay.showError;
         const showErrorMock = jest.fn();
@@ -1190,6 +1211,7 @@ describe('handleRemoteChangeRefresh', () => {
         }));
 
         fontCompilation.isInitialized = true;
+        fontCompilation.setWorkerCacheDocumentReady(false);
         fontCompilation.sendMessage = sendMessageMock;
         sidebarErrorDisplay.showError = showErrorMock;
 
@@ -1237,14 +1259,14 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
             fontCompilation.sendMessage = originalSendMessage;
             fontCompilation.isInitialized = originalIsInitialized;
+            fontCompilation.setWorkerCacheDocumentReady(
+                previousWorkerCacheReady
+            );
             sidebarErrorDisplay.showError = originalShowError;
         }
 
         expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
-        expect(sendMessageMock).toHaveBeenCalledWith({
-            type: 'dumpLayerState',
-            layerTargets: [{ glyphName: 'a', layerId: 'layer-1' }]
-        });
+        expect(sendMessageMock).not.toHaveBeenCalled();
         expect(showErrorMock).not.toHaveBeenCalled();
         expect(
             fontManagerState.pendingCommittedKeyboardDriftCheckAfterDrag
@@ -1256,17 +1278,20 @@ describe('handleRemoteChangeRefresh', () => {
     });
 
     test('skips the post-commit keyboard drift check in fresh keyboard state', async () => {
-        const awaitWorkerSync = jest.fn(async () => {});
+        const previousWorkerCacheReady =
+            fontCompilation.hasWorkerCacheDocument();
+        const awaitWorkerSync = jest.fn(async () => {
+            fontCompilation.setWorkerCacheDocumentReady(true);
+        });
         const requestCompile = jest.fn(async () => {});
         const originalShowError = sidebarErrorDisplay.showError;
         const showErrorMock = jest.fn();
         const originalSendMessage = fontCompilation.sendMessage;
         const originalIsInitialized = fontCompilation.isInitialized;
-        const sendMessageMock = jest.fn(async () => ({
-            dumpJson: JSON.stringify({ targets: [] })
-        }));
+        const sendMessageMock = jest.fn(async () => ({ success: true }));
 
         fontCompilation.isInitialized = true;
+        fontCompilation.setWorkerCacheDocumentReady(false);
         fontCompilation.sendMessage = sendMessageMock;
         sidebarErrorDisplay.showError = showErrorMock;
 
@@ -1304,6 +1329,9 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
             fontCompilation.sendMessage = originalSendMessage;
             fontCompilation.isInitialized = originalIsInitialized;
+            fontCompilation.setWorkerCacheDocumentReady(
+                previousWorkerCacheReady
+            );
             sidebarErrorDisplay.showError = originalShowError;
         }
 
