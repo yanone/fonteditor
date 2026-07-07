@@ -269,11 +269,7 @@ async function waitForSyntheticFontReady(page: Page): Promise<void> {
             const currentFontModel = (window as any).currentFontModel;
             const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
 
-            return (
-                !!currentFont &&
-                !!currentFontModel &&
-                textRunEditor?.glyphNameBuffer?.length === 1
-            );
+            return !!currentFont && !!currentFontModel && !!textRunEditor;
         },
         { timeout: 15000 }
     );

@@ -3,7 +3,8 @@ import {
     waitForCanvasReady,
     waitForFontLoaded,
     waitForOpenSessionReady,
-    focusView
+    focusView,
+    openFileFromFilesView
 } from './helpers/snapshot-helper';
 
 async function waitForCompileSettle(page: any, label: string): Promise<void> {
@@ -170,11 +171,7 @@ test('probe keyboard-after-drag runtime state', async ({ page }) => {
         }) as EventListener);
     });
 
-    await page.evaluate(async () => {
-        await (window as any).showFontFileDialog?.({ mode: 'open' });
-    });
-    await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
-    await page.getByText('Fustat.glyphs').dblclick();
+    await openFileFromFilesView(page, 'Fustat.glyphs');
     await waitForFontLoaded(page);
     await waitForOpenSessionReady(page, 'Fustat.glyphs');
     await focusView(page, 'Meta+Shift+E', 'view-editor');

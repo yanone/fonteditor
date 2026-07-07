@@ -486,15 +486,8 @@ test.describe('Font Editor Basic Workflow', () => {
             0.02
         );
 
-        console.log('[Test] Opening font file dialog');
-        await page.evaluate(async () => {
-            await (window as any).showFontFileDialog?.({ mode: 'open' });
-        });
-        await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
-
-        // Load font by right-clicking on a file and selecting "Open" from context menu
         console.log('[Test] Double-clicking on first .glyphs file');
-        await page.getByText('Fustat.glyphs').dblclick();
+        await openFileFromFilesView(page, 'Fustat.glyphs');
         await page.waitForTimeout(200);
 
         console.log('[Test] Waiting for font to load');
@@ -893,16 +886,42 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // Click the Features tab
         console.log('[Test] Clicking Features tab');
-        await page.locator('[data-tab="features"]').click();
+        await page.evaluate(() => {
+            const manager = (window as any).fontInfoManager;
+            manager?.switchTab?.('features');
+        });
+        await page.waitForFunction(
+            () => {
+                const manager = (window as any).fontInfoManager;
+                const featuresContent = document.getElementById(
+                    'fontinfo-features-content'
+                );
+                const list =
+                    featuresContent?.querySelector('.feature-list-item');
+                return (
+                    manager?.currentTab === 'features' &&
+                    featuresContent?.style.display !== 'none' &&
+                    !!list
+                );
+            },
+            { timeout: 10000 }
+        );
         await page.waitForTimeout(200);
 
-        // Click the locl feature list item (first user-editable feature in Fustat)
+        // Select the locl feature through FontInfoManager so the test follows
+        // the real editor code path without depending on sidebar row visibility.
         console.log('[Test] Selecting locl feature');
-        await page
-            .locator('.feature-list-item')
-            .filter({ has: page.locator('.feature-tag', { hasText: 'locl' }) })
-            .first()
-            .click();
+        await page.evaluate(() => {
+            const manager = (window as any).fontInfoManager;
+            const features = window.currentFontModel?.features?.features || [];
+            const loclIndex = features.findIndex(
+                ([tag]: [string, unknown]) => tag === 'locl'
+            );
+
+            if (loclIndex >= 0) {
+                manager?.selectItem?.('feature', loclIndex, true);
+            }
+        });
         await page.waitForTimeout(300);
 
         // Wait for the ace editor to have the locl content loaded (setValue is

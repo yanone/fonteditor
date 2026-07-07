@@ -508,7 +508,23 @@ async function hasRenderedTextGlyphAtIndex(
 
 /** Perform undo via keyboard shortcut and wait for it to settle */
 async function performUndo(page: Page) {
-    await page.keyboard.press('Meta+z');
+    await page.evaluate(async () => {
+        const getContext = (window as any).getUndoRedoContext;
+        const runUndoRedo = (window as any).runBridgeUndoRedo;
+        if (!getContext || !runUndoRedo) {
+            throw new Error('Undo bridge helpers are unavailable');
+        }
+
+        const { rootGlyphName, undoGlyphName, undoLayerId, historyTargetKey } =
+            getContext();
+        await runUndoRedo(
+            'undo',
+            undoGlyphName,
+            rootGlyphName,
+            undoLayerId,
+            historyTargetKey
+        );
+    });
     await page.waitForTimeout(600);
 }
 

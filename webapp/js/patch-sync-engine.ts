@@ -1086,7 +1086,8 @@ export class PatchSyncEngine {
         workerReplayTargets?: WorkerReplayTarget[],
         editSource?: string | null,
         compileChangeSource?: string | null,
-        compileEditType?: string | null
+        compileEditType?: string | null,
+        previousGlyphSnapshot?: Record<string, unknown>
     ): void {
         this.syncGlyphsFromJson(
             [glyphName],
@@ -1098,7 +1099,10 @@ export class PatchSyncEngine {
             workerReplayTargets,
             editSource,
             compileChangeSource,
-            compileEditType
+            compileEditType,
+            previousGlyphSnapshot
+                ? { [glyphName]: previousGlyphSnapshot }
+                : undefined
         );
     }
 
@@ -1275,7 +1279,8 @@ export class PatchSyncEngine {
         workerReplayTargets?: WorkerReplayTarget[],
         editSource?: string | null,
         compileChangeSource?: string | null,
-        compileEditType?: string | null
+        compileEditType?: string | null,
+        previousGlyphSnapshots?: Record<string, Record<string, unknown>>
     ): void {
         if (!this._fontJson || this._suppressRecording || this._isSyncing)
             return;
@@ -1343,9 +1348,13 @@ export class PatchSyncEngine {
                 continue;
             }
 
+            const previousGlyphJson = previousGlyphSnapshots?.[glyphName]
+                ? cloneHistoryValue(previousGlyphSnapshots[glyphName])
+                : cloneHistoryValue(yGlyphJson);
+
             targets.push({
                 glyphName,
-                previousGlyphJson: cloneHistoryValue(yGlyphJson),
+                previousGlyphJson,
                 glyphJson
             });
         }
@@ -1369,6 +1378,9 @@ export class PatchSyncEngine {
                     : [];
                 const glyphSnapshot = this._normalizeGlyphSnapshot(
                     target.glyphJson,
+                    target.previousGlyphJson
+                );
+                const previousGlyphSnapshot = this._normalizeGlyphSnapshot(
                     target.previousGlyphJson
                 );
                 const layerSnapshot = layerId
@@ -1415,7 +1427,7 @@ export class PatchSyncEngine {
                         : ['glyphs', target.glyphName],
                     applyOldValue: isLayerScope
                         ? previousLayerSnapshot
-                        : target.previousGlyphJson,
+                        : previousGlyphSnapshot,
                     applyNewValue: isLayerScope ? layerSnapshot : glyphSnapshot,
                     applyMode: isLayerScope
                         ? 'layer-snapshot'
@@ -1639,10 +1651,16 @@ export class PatchSyncEngine {
                 um?.undo();
             }
 
+            const shouldUseLayerScopeHints = !(
+                isHistoryReplay && targetItem?.undoScope !== 'layer'
+            );
             this._syncJsonFromYDoc(
-                workerReplayTargets.length > 0
+                shouldUseLayerScopeHints && workerReplayTargets.length > 0
                     ? workerReplayTargets
-                    : scope === 'layer' && target.glyphName && target.layerId
+                    : shouldUseLayerScopeHints &&
+                        scope === 'layer' &&
+                        target.glyphName &&
+                        target.layerId
                       ? { glyphName: target.glyphName, layerId: target.layerId }
                       : null
             );
@@ -1777,10 +1795,16 @@ export class PatchSyncEngine {
                 um?.redo();
             }
 
+            const shouldUseLayerScopeHints = !(
+                isHistoryReplay && targetItem?.undoScope !== 'layer'
+            );
             this._syncJsonFromYDoc(
-                workerReplayTargets.length > 0
+                shouldUseLayerScopeHints && workerReplayTargets.length > 0
                     ? workerReplayTargets
-                    : scope === 'layer' && target.glyphName && target.layerId
+                    : shouldUseLayerScopeHints &&
+                        scope === 'layer' &&
+                        target.glyphName &&
+                        target.layerId
                       ? { glyphName: target.glyphName, layerId: target.layerId }
                       : null
             );
@@ -3940,6 +3964,9 @@ export class PatchSyncEngine {
 
         for (let index = candidates.length - 1; index >= 0; index--) {
             const candidate = candidates[index];
+            if (this._canReplayHistoryItemDirectly(candidate, historyAction)) {
+                return candidate;
+            }
             const target = this._targetFromHistoryItem(
                 candidate,
                 resolvedGlyphName,

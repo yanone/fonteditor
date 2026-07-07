@@ -4472,9 +4472,13 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 nodetype: 'Move' as Babelfont.NodeType,
                 smooth: false
             });
-            rotated.push(
-                cloneNodeData(nodeArray[nodeIndex], { smooth: false })
-            );
+            ensureNodeId(rotated[0]);
+            const duplicatedBoundaryNode = cloneNodeData(nodeArray[nodeIndex], {
+                id: generateStableId(),
+                smooth: false
+            });
+            ensureNodeId(duplicatedBoundaryNode);
+            rotated.push(duplicatedBoundaryNode);
 
             this.data.nodes = rotated;
             this.data.closed = false;
@@ -5827,6 +5831,10 @@ export class Layer extends ArrayElementBase {
     ): string {
         switch (nodeType) {
             case 'Move':
+                // Open-path endpoints can round-trip as either Move or Line
+                // while remaining structurally equivalent for interpolation and
+                // linked-layer compatibility purposes.
+                return 'Line';
             case 'Line':
             case 'OffCurve':
             case 'Curve':

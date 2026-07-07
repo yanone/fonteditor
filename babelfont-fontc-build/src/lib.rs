@@ -461,7 +461,28 @@ fn layer_field_from_json<T>(
 where
     T: serde::de::DeserializeOwned,
 {
-    serde_json::from_value(value.clone()).map_err(|e| {
+    let normalized_value = match field_name {
+        "location" | "smart_component_location" => {
+            if let Some(object) = value.as_object() {
+                serde_json::Value::Array(
+                    object
+                        .iter()
+                        .map(|(key, nested_value)| {
+                            serde_json::Value::Array(vec![
+                                serde_json::Value::String(key.clone()),
+                                nested_value.clone(),
+                            ])
+                        })
+                        .collect(),
+                )
+            } else {
+                value.clone()
+            }
+        }
+        _ => value.clone(),
+    };
+
+    serde_json::from_value(normalized_value).map_err(|e| {
         JsValue::from_str(&format!(
             "Layer field deserialization error for {}::{} {}: {}",
             glyph_name, layer_id, field_name, e
@@ -4025,6 +4046,28 @@ mod tests {
         .unwrap();
 
         assert!(font.glyphs[0].layers[0].anchors.is_empty());
+    }
+
+    #[test]
+    fn replace_layer_in_font_cache_accepts_object_location_for_sparse_layer_patch() {
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        font_json["glyphs"][0]["layers"][0]["location"] = json!({ "wght": 400.0 });
+        let mut font: babelfont::Font = serde_json::from_value(font_json).unwrap();
+
+        replace_layer_in_font_cache(
+            &mut font,
+            "A",
+            "layer-1",
+            Some(&json!({
+                "id": "layer-1",
+                "location": { "wght": 650.0 }
+            })),
+        )
+        .unwrap();
+
+        let layer = &font.glyphs[0].layers[0];
+        let serialized_location = serde_json::to_value(&layer.location).unwrap();
+        assert_eq!(serialized_location, json!([["wght", 650.0]]));
     }
 
     #[test]

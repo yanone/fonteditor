@@ -200,6 +200,23 @@ async function getLayerCheck(
                     if (shape0 && typeof shape0.get === 'function') {
                         ydNodes = String(shape0.get('nodes') || 'N/A');
                     }
+                } else {
+                    const ydShapesById = lMap.get('shapesById');
+                    const ydShapeOrder = lMap.get('shapeOrder');
+                    if (
+                        ydShapesById &&
+                        typeof ydShapesById.get === 'function' &&
+                        ydShapeOrder &&
+                        typeof ydShapeOrder.get === 'function'
+                    ) {
+                        const shapeId = ydShapeOrder.get(0);
+                        const shape0 = shapeId
+                            ? ydShapesById.get(shapeId)
+                            : null;
+                        if (shape0 && typeof shape0.get === 'function') {
+                            ydNodes = String(shape0.get('nodes') || 'N/A');
+                        }
+                    }
                 }
             }
 
@@ -355,8 +372,10 @@ test.describe('Multi-edit linked window sync', () => {
             // Verify Y.Doc layer keys are preserved
             expect(linkedAfter.ydKeys).toContain('width');
             expect(linkedAfter.ydKeys).toContain('master');
-            expect(linkedAfter.ydKeys).toContain('shapes');
-            expect(linkedAfter.ydKeys).toContain('anchors');
+            expect(linkedAfter.ydKeys).toContain('shapeOrder');
+            expect(linkedAfter.ydKeys).toContain('shapesById');
+            expect(linkedAfter.ydKeys).toContain('anchorOrder');
+            expect(linkedAfter.ydKeys).toContain('anchorsById');
         }
 
         // ── 5. All edits passed ───────────────────────────────────

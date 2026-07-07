@@ -7390,7 +7390,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
 
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Split path');
-            expect(bridge.syncGlyphFromJson).not.toHaveBeenCalled();
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
             expect(bridge.endTransaction).toHaveBeenCalled();
             expect(
                 currentLayer.paths[0].nodes.map((node) => ({

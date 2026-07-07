@@ -2926,6 +2926,7 @@ export class OutlineEditor {
     isSnappedToCloseOpenPath: boolean = false;
     private _dragStartEndpointsCoincident: boolean = false;
     private _dragConnectionSourcePoint: Point | null = null;
+    private _dragStartPointPosition: { x: number; y: number } | null = null;
     private _dragSeparatedFromCoincidentEndpointPair: boolean = false;
     private _snappedOpenPathEndpointTarget: OpenPathEndpointRef | null = null;
 
@@ -5268,6 +5269,7 @@ export class OutlineEditor {
             layerId?: string | null;
             layerTargets?: Array<{ glyphName: string; layerId: string }>;
             skipGlyphSnapshot?: boolean;
+            previousGlyphSnapshot?: Record<string, unknown> | null;
         } = {}
     ): void {
         const bridge = window.patchSyncEngine;
@@ -5321,7 +5323,11 @@ export class OutlineEditor {
                     undefined,
                     undefined,
                     undefined,
-                    syncLayerTargets
+                    syncLayerTargets,
+                    undefined,
+                    undefined,
+                    undefined,
+                    options.previousGlyphSnapshot ?? undefined
                 );
             } else if (
                 syncLayerTargets.length > 0 &&
@@ -5345,12 +5351,52 @@ export class OutlineEditor {
                     changeLabel,
                     undefined,
                     undefined,
-                    syncLayerId
+                    syncLayerId,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    options.previousGlyphSnapshot ?? undefined
                 );
             }
         } finally {
             bridge.endTransaction();
         }
+    }
+
+    private getCurrentGlyphStructuralLayerTargets(): Array<{
+        glyphName: string;
+        layerId: string;
+    }> {
+        const currentGlyphModel = this.getCurrentGlyphModel();
+        const currentLayerModel = this.getCurrentLayerModel();
+        if (!currentGlyphModel?.name || !currentLayerModel?.id) {
+            return [];
+        }
+
+        const targets = [
+            { glyphName: currentGlyphModel.name, layerId: currentLayerModel.id }
+        ];
+        for (const linkedLayer of currentLayerModel._getLinkedLayers?.() ||
+            []) {
+            if (!linkedLayer?.id) {
+                continue;
+            }
+            targets.push({
+                glyphName: currentGlyphModel.name,
+                layerId: linkedLayer.id
+            });
+        }
+
+        return targets.filter(
+            (target, index, allTargets) =>
+                allTargets.findIndex(
+                    (candidate) =>
+                        candidate.glyphName === target.glyphName &&
+                        candidate.layerId === target.layerId
+                ) === index
+        );
     }
 
     /**
@@ -9514,6 +9560,15 @@ export class OutlineEditor {
                     );
                 this._dragSeparatedFromCoincidentEndpointPair =
                     !this._dragStartEndpointsCoincident;
+                const dragStartLayerData = this.getCurrentLayerDataFromStack();
+                const dragStartContour = getEditableContour(
+                    dragStartLayerData?.shapes?.[hoveredPoint.contourIndex]
+                );
+                const dragStartNode =
+                    dragStartContour?.nodes?.[hoveredPoint.nodeIndex];
+                this._dragStartPointPosition = dragStartNode
+                    ? { x: dragStartNode.x, y: dragStartNode.y }
+                    : null;
                 this._preDragDesc = this._buildNodeDesc();
                 this._pointDragDeltaX = 0;
                 window.patchSyncEngine?.beginTransaction('Drag point');
@@ -12205,6 +12260,7 @@ export class OutlineEditor {
         const wasSnappedToClose = this.isSnappedToCloseOpenPath;
         const snappedEndpointTarget = this._snappedOpenPathEndpointTarget;
         const dragConnectionSourcePoint = this._dragConnectionSourcePoint;
+        const dragStartPointPosition = this._dragStartPointPosition;
         let dragTransactionEnded = false;
         const endDragTransaction = () => {
             if (dragTransactionEnded) {
@@ -12219,6 +12275,7 @@ export class OutlineEditor {
         this.isSnappedToCloseOpenPath = false;
         this._snappedOpenPathEndpointTarget = null;
         this._dragConnectionSourcePoint = null;
+        this._dragStartPointPosition = null;
         this._dragSeparatedFromCoincidentEndpointPair = false;
         this.isDraggingAnchor = false;
         this.isDraggingComponent = false;
@@ -12245,20 +12302,43 @@ export class OutlineEditor {
         this._lastPropertyPanelUpdateTime = 0;
         this.cancelPendingDragMetricsUpdate();
 
-        // If we were snapped to close an open path, abort the normal
-        // drag sync and perform a merge-close instead.
-        if (wasSnappedToClose && wasDragging && snappedEndpointTarget) {
-            const sourcePoint =
-                dragConnectionSourcePoint ||
-                (this.selectedPoints.length === 1
-                    ? this.selectedPoints[0]
-                    : null);
-            const sourceEndpoint = sourcePoint
-                ? this.getOpenPathEndpointRef(
-                      sourcePoint.contourIndex,
-                      sourcePoint.nodeIndex
-                  )
-                : null;
+        // If we ended a point drag with a close-path snap, or the dragged
+        // endpoint landed exactly on its opposite endpoint, abort the normal
+        // drag sync and perform the structural close instead.
+        const sourcePoint =
+            dragConnectionSourcePoint ||
+            (this.selectedPoints.length === 1 ? this.selectedPoints[0] : null);
+        const sourceEndpoint = sourcePoint
+            ? this.getOpenPathEndpointRef(
+                  sourcePoint.contourIndex,
+                  sourcePoint.nodeIndex
+              )
+            : null;
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const draggedContour = sourcePoint
+            ? getEditableContour(
+                  currentLayerData?.shapes?.[sourcePoint.contourIndex]
+              )
+            : null;
+        const draggedNode = sourcePoint
+            ? draggedContour?.nodes?.[sourcePoint.nodeIndex]
+            : null;
+        const draggedPointMoved =
+            !!dragStartPointPosition &&
+            !!draggedNode &&
+            (Math.abs(draggedNode.x - dragStartPointPosition.x) > 0.000001 ||
+                Math.abs(draggedNode.y - dragStartPointPosition.y) > 0.000001);
+        const endedOnCoincidentOpenEndpoint =
+            wasDragging &&
+            dragType === 'point' &&
+            !!sourcePoint &&
+            !!sourceEndpoint &&
+            draggedPointMoved &&
+            this._areOpenPathEndpointsCoincident(sourcePoint);
+        if (
+            (wasSnappedToClose && wasDragging && snappedEndpointTarget) ||
+            endedOnCoincidentOpenEndpoint
+        ) {
             if (!sourceEndpoint) {
                 return;
             }
@@ -12268,6 +12348,19 @@ export class OutlineEditor {
             this._hasMoved = false;
             this._preDragDesc = null;
             this._dragType = null;
+            if (
+                endedOnCoincidentOpenEndpoint ||
+                (snappedEndpointTarget &&
+                    sourceEndpoint.pathIndex ===
+                        snappedEndpointTarget.pathIndex &&
+                    sourceEndpoint.edge !== snappedEndpointTarget.edge)
+            ) {
+                this.closeOpenPathByMerge(sourceEndpoint.shapeIndex, true);
+                return;
+            }
+            if (!snappedEndpointTarget) {
+                return;
+            }
             this.completeOpenPathEndpointConnection(
                 sourceEndpoint,
                 snappedEndpointTarget,
@@ -15011,13 +15104,21 @@ export class OutlineEditor {
     private _finalizePathCutOrSplitEdit(
         label: string,
         currentGlyphModel: any,
-        selectedPoint: Point
+        selectedPoint: Point,
+        previousGlyphSnapshot?: Record<string, unknown> | null
     ): void {
+        const layerTargets = this.getCurrentGlyphStructuralLayerTargets();
         this.syncStructuralGlyphChangeTransaction(
             label,
             currentGlyphModel.name,
             new Set<string>([currentGlyphModel.name]),
-            { layerId: null, skipGlyphSnapshot: true }
+            layerTargets.length > 1
+                ? {
+                      layerId: null,
+                      layerTargets,
+                      previousGlyphSnapshot: previousGlyphSnapshot ?? null
+                  }
+                : { layerId: null, skipGlyphSnapshot: true }
         );
 
         this.syncCurrentExactLayerDataFromModel();
@@ -15062,6 +15163,9 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const previousGlyphSnapshot = this.cloneLayerData(
+            currentGlyphModel.toJSON()
+        ) as Record<string, unknown>;
         let changed = false;
 
         const _openBridge =
@@ -15087,13 +15191,17 @@ export class OutlineEditor {
             return false;
         }
 
-        // Select only the new end node (the duplicate at the end)
         const newPath = currentLayerModel.paths?.[point.contourIndex];
         const lastNodeIndex = newPath ? newPath.nodes.length - 1 : 0;
-        this._finalizePathCutOrSplitEdit('Open path', currentGlyphModel, {
-            contourIndex: point.contourIndex,
-            nodeIndex: lastNodeIndex
-        });
+        this._finalizePathCutOrSplitEdit(
+            'Open path',
+            currentGlyphModel,
+            {
+                contourIndex: point.contourIndex,
+                nodeIndex: lastNodeIndex
+            },
+            previousGlyphSnapshot
+        );
         return true;
     }
 
@@ -15115,6 +15223,9 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const previousGlyphSnapshot = this.cloneLayerData(
+            currentGlyphModel.toJSON()
+        ) as Record<string, unknown>;
         let splitResult: {
             shapeIndex: number;
             insertedShapeIndex: number;
@@ -15144,15 +15255,20 @@ export class OutlineEditor {
         if (!splitResult) {
             return false;
         }
+
         const finalizedSplitResult = splitResult as {
             shapeIndex: number;
             insertedShapeIndex: number;
         };
-
-        this._finalizePathCutOrSplitEdit('Split path', currentGlyphModel, {
-            contourIndex: finalizedSplitResult.insertedShapeIndex,
-            nodeIndex: 0
-        });
+        this._finalizePathCutOrSplitEdit(
+            'Split path',
+            currentGlyphModel,
+            {
+                contourIndex: finalizedSplitResult.insertedShapeIndex,
+                nodeIndex: 0
+            },
+            previousGlyphSnapshot
+        );
         return true;
     }
 
@@ -15275,11 +15391,18 @@ export class OutlineEditor {
                     (result?.closed ? 'Close path' : 'Connect path'),
                 currentGlyphModel.name,
                 new Set<string>([currentGlyphModel.name]),
-                {
-                    reuseTransaction: options.reuseTransaction,
-                    layerId: null,
-                    skipGlyphSnapshot: true
-                }
+                this.getCurrentGlyphStructuralLayerTargets().length > 1
+                    ? {
+                          reuseTransaction: options.reuseTransaction,
+                          layerId: null,
+                          layerTargets:
+                              this.getCurrentGlyphStructuralLayerTargets()
+                      }
+                    : {
+                          reuseTransaction: options.reuseTransaction,
+                          layerId: null,
+                          skipGlyphSnapshot: true
+                      }
             );
         }
 
@@ -15406,8 +15529,16 @@ export class OutlineEditor {
             'Close path',
             currentGlyphModel.name,
             affectedGlyphNames,
-            { reuseTransaction, layerId: null, skipGlyphSnapshot: true }
+            this.getCurrentGlyphStructuralLayerTargets().length > 1
+                ? {
+                      reuseTransaction,
+                      layerId: null,
+                      layerTargets: this.getCurrentGlyphStructuralLayerTargets()
+                  }
+                : { reuseTransaction, layerId: null, skipGlyphSnapshot: true }
         );
+
+        this.syncCurrentExactLayerDataFromModel();
 
         this.refreshKeyedMetricsViewportAnchor(
             affectedGlyphNames,

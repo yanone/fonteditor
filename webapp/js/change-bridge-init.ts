@@ -2211,7 +2211,9 @@ export async function handleCommittedChangeRefresh(
         ((changeSource, editType) =>
             requestCommittedEditingFontCompile(changeSource, editType, {
                 forceTrigger: origin === 'remote' || isUndoRedoPacket,
-                waitForCompletion: origin === 'local' && isUndoRedoPacket
+                waitForCompletion:
+                    origin === 'remote' ||
+                    (origin === 'local' && isUndoRedoPacket)
             }));
     const localCompileContext =
         origin === 'local'

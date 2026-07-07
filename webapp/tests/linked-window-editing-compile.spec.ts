@@ -415,6 +415,24 @@ async function waitForEditingFontCompileEvent(
     );
 }
 
+async function waitForEditingFontCompileHashChange(
+    page: Page,
+    previousCount: number,
+    previousHash: string
+): Promise<void> {
+    await page.waitForFunction(
+        ({ count, hash }) => {
+            const compiledCount =
+                (window as any).__editingFontCompiledCount ?? 0;
+            const compiledHash =
+                (window as any).__lastEditingFontHash ?? 'none';
+            return compiledCount > count && compiledHash !== hash;
+        },
+        { count: previousCount, hash: previousHash },
+        { timeout: 20000 }
+    );
+}
+
 // ── Visual sample helpers ──────────────────────────────────────────────
 // Prove the compiled editing font produces visibly different raster output
 // after remote and local outline edits, not just a new compile event.
@@ -1368,7 +1386,11 @@ test.describe('Linked window editing compile regression', () => {
         );
         expect(remoteEditResult.after.y).toBeCloseTo(remoteEditResult.before.y);
 
-        await waitForEditingFontCompileEvent(linkedPage, beforeRemote.count);
+        await waitForEditingFontCompileHashChange(
+            linkedPage,
+            beforeRemote.count,
+            beforeRemote.hash
+        );
         const afterRemote = await getEditingFontCompileTracker(linkedPage);
         const afterRemoteVisual = await getEditingFontVisualSample(
             linkedPage,

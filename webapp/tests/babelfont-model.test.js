@@ -1281,6 +1281,108 @@ describe('Babelfont Object Model', () => {
                 incompatibleLayerIds: ['incompatible-layer']
             });
         });
+
+        test('glyph compatibility treats equivalent open-path Move and Line endpoint encodings as compatible', () => {
+            const compatibilityFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: { en: 'Regular' },
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'line-open',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Line' },
+                                            { x: 100, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 100,
+                                                y: 100,
+                                                nodetype: 'Line'
+                                            },
+                                            { x: 0, y: 100, nodetype: 'Line' },
+                                            { x: 0, y: 0, nodetype: 'Line' }
+                                        ],
+                                        closed: false
+                                    }
+                                ],
+                                anchors: [],
+                                guides: []
+                            },
+                            {
+                                id: 'move-open',
+                                width: 500,
+                                master: {
+                                    type: 'AssociatedWithMaster',
+                                    master: 'master-1'
+                                },
+                                location: { wght: 1 },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Move' },
+                                            { x: 100, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 100,
+                                                y: 100,
+                                                nodetype: 'Line'
+                                            },
+                                            { x: 0, y: 100, nodetype: 'Line' },
+                                            { x: 0, y: 0, nodetype: 'Move' }
+                                        ],
+                                        closed: false
+                                    }
+                                ],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    }
+                ],
+                names: { family_name: { en: 'Open Path Compatibility Test' } },
+                note: '',
+                date: '2026-03-23',
+                features: {},
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+
+            const glyph = compatibilityFont.findGlyph('A');
+
+            expect(glyph.layers[0].fingerprint).toBe(
+                glyph.layers[1].fingerprint
+            );
+            expect(glyph.calculateOutlineCompatibility()).toEqual({
+                compatible: true,
+                layerCount: 2,
+                referenceLayerId: 'line-open',
+                incompatibleLayerIds: []
+            });
+        });
     });
 
     describe('Sidebearing manipulation (lsb/rsb setters)', () => {
@@ -2835,6 +2937,31 @@ describe('Babelfont Object Model', () => {
                 'OffCurve',
                 'OffCurve'
             ]);
+        });
+
+        test('Path._openClosedPathAtNode assigns distinct ids to reopened boundary endpoints', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 100, nodetype: 'Line' },
+                    { x: 0, y: 100, nodetype: 'Line' }
+                ],
+                true
+            );
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            expect(path._openClosedPathAtNode(0)).toBe(true);
+            expect(path.closed).toBe(false);
+            expect(path.nodes[0].x).toBe(0);
+            expect(path.nodes[0].y).toBe(0);
+            expect(path.nodes[path.nodes.length - 1].x).toBe(0);
+            expect(path.nodes[path.nodes.length - 1].y).toBe(0);
+            expect(path.nodes[0].id).toBeTruthy();
+            expect(path.nodes[path.nodes.length - 1].id).toBeTruthy();
+            expect(path.nodes[0].id).not.toBe(
+                path.nodes[path.nodes.length - 1].id
+            );
         });
 
         test('Layer.connectOpenPathEndpoints closes a same-path contour without dropping a distinct final corner', () => {
