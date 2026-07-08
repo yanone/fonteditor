@@ -1347,7 +1347,6 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._clientId = String(msg.clientId ?? '');
                 console.log(`CloudAdapter: authenticated as ${this._clientId}`);
                 this._setStatus('syncing');
-                this._armInitialSyncTimeout();
                 const authenticatedSocket = this._ws;
                 this._initialServerStateApplied = false;
                 this._initialSyncDurable = false;
@@ -1372,6 +1371,7 @@ export class CloudAdapter implements FileSystemAdapter {
                                 roomUrl
                             );
                             this._checkpointLogId = seedLogId;
+                            this._armInitialSyncTimeout();
                             this._sendInitialSyncRequest(authenticatedSocket);
                         } catch (err) {
                             const seedErr =
@@ -1393,6 +1393,7 @@ export class CloudAdapter implements FileSystemAdapter {
                     })();
                 } else {
                     if (!this._hasSynced) {
+                        this._armInitialSyncTimeout();
                         this._sendInitialSyncRequest(authenticatedSocket);
                     }
                 }

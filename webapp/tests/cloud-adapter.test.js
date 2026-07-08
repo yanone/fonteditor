@@ -3322,6 +3322,138 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         expect(syncRequest.update).toBeUndefined();
     });
 
+    it('does not time out initial sync while HTTP seeding is still in flight', async () => {
+        jest.useFakeTimers();
+
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+
+        const sentMessages = [];
+        const socket = {
+            readyState: 1,
+            send: jest.fn(function (data) {
+                sentMessages.push(JSON.parse(data));
+            }),
+            close: jest.fn()
+        };
+
+        adapter._bridge = {
+            encodeBridgeStateVector: function () {
+                return new Uint8Array(0);
+            },
+            encodeBridgeState: function () {
+                return new Uint8Array([99, 98, 97]);
+            },
+            applyYDocUpdateSilent: jest.fn(),
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        function FakeWebSocket() {
+            return socket;
+        }
+        FakeWebSocket.OPEN = 1;
+        global.WebSocket = FakeWebSocket;
+
+        let resolveSeedRequest;
+        global.fetch = jest.fn(function (url, opts) {
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/state') &&
+                opts &&
+                opts.method === 'POST'
+            ) {
+                return new Promise(function (resolve) {
+                    resolveSeedRequest = function () {
+                        resolve({
+                            ok: true,
+                            status: 200,
+                            headers: new Headers({
+                                'content-type': 'application/json'
+                            }),
+                            json: function () {
+                                return Promise.resolve({
+                                    ok: true,
+                                    checkpointLogId: 5
+                                });
+                            }
+                        });
+                    };
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                headers: new Headers({ 'content-type': 'application/json' }),
+                json: function () {
+                    return Promise.resolve({
+                        token: 'room-token',
+                        roomUrl: 'https://rooms.example.com/room/asset-123'
+                    });
+                },
+                text: function () {
+                    return Promise.resolve('');
+                }
+            });
+        });
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            await adapter.connectDirect(
+                adapter._bridge,
+                'room-token',
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
+            );
+
+            await jest.advanceTimersByTimeAsync(50);
+
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'auth-ok',
+                    clientId: 'client-1',
+                    roomSchemaVersion: 2,
+                    seedRequired: true
+                })
+            );
+
+            await Promise.resolve();
+            await jest.advanceTimersByTimeAsync(10000);
+
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+            expect(socket.close).not.toHaveBeenCalled();
+            expect(statuses).not.toContainEqual({
+                status: 'connecting',
+                detail: 'Cloud initial sync timed out'
+            });
+            expect(
+                sentMessages.some((message) => message.type === 'sync-request')
+            ).toBe(false);
+
+            resolveSeedRequest();
+            await jest.advanceTimersByTimeAsync(50);
+
+            expect(sentMessages).toContainEqual(
+                expect.objectContaining({
+                    type: 'sync-request',
+                    checkpointLogId: 5
+                })
+            );
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            jest.useRealTimers();
+        }
+    });
+
     it('bootstraps from R2 when seed returns 409', async () => {
         const adapter = new CloudAdapter({
             assetId: 'asset-123',
