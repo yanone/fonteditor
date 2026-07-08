@@ -1203,9 +1203,11 @@ export class CloudAdapter implements FileSystemAdapter {
         });
 
         if (response.status === 409) {
-            throw new Error(
-                'room already has state (seeded by another client)'
+            console.log(
+                'CloudAdapter: HTTP seed raced with existing room state; bootstrapping from server checkpoint'
             );
+            await this._bootstrapFromR2(token, roomUrl);
+            return this._checkpointLogId;
         }
 
         if (!response.ok) {

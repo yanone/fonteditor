@@ -3322,7 +3322,7 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         expect(syncRequest.update).toBeUndefined();
     });
 
-    it('fails closed when seed returns 409', async () => {
+    it('bootstraps from R2 when seed returns 409', async () => {
         const adapter = new CloudAdapter({
             assetId: 'asset-123',
             websiteBaseUrl: 'https://counterpunch.space',
@@ -3330,6 +3330,7 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         });
 
         var sentMessages = [];
+        var appliedFullStates = [];
 
         adapter._bridge = {
             encodeBridgeStateVector: function () {
@@ -3337,6 +3338,9 @@ describe('HTTP seed (POST /state for new rooms)', () => {
             },
             encodeBridgeState: function () {
                 return new Uint8Array([1, 2, 3]);
+            },
+            applyFullState: function (bytes) {
+                appliedFullStates.push(bytes);
             },
             applyYDocUpdateSilent: jest.fn(),
             onLocalUpdate: jest.fn(),
@@ -3365,6 +3369,24 @@ describe('HTTP seed (POST /state for new rooms)', () => {
                     text: function () {
                         return Promise.resolve(
                             '{"error":"Room already has state"}'
+                        );
+                    }
+                });
+            }
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/state') &&
+                (!opts || !opts.method)
+            ) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({
+                        'X-Checkpoint-Log-Id': '7'
+                    }),
+                    arrayBuffer: function () {
+                        return Promise.resolve(
+                            new Uint8Array([9, 8, 7]).buffer
                         );
                     }
                 });
@@ -3411,7 +3433,9 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         var syncRequest = sentMessages.find(function (m) {
             return m.type === 'sync-request';
         });
-        expect(syncRequest).toBeUndefined();
-        expect(adapter.status).toBe('error');
+        expect(appliedFullStates).toEqual([new Uint8Array([9, 8, 7])]);
+        expect(syncRequest).toBeDefined();
+        expect(syncRequest.checkpointLogId).toBe(7);
+        expect(adapter.status).not.toBe('error');
     });
 });
