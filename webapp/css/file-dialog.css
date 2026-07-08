@@ -18,7 +18,9 @@
     cursor: pointer;
     font-family: var(--font-families-sans);
     font-size: 13px;
-    transition: background-color 0.15s ease, border-color 0.15s ease,
+    transition:
+        background-color 0.15s ease,
+        border-color 0.15s ease,
         color 0.15s ease;
 }
 
@@ -118,7 +120,9 @@
     background: transparent;
     color: var(--file-dialog-text);
     cursor: pointer;
-    transition: background-color 0.15s ease, color 0.15s ease;
+    transition:
+        background-color 0.15s ease,
+        color 0.15s ease;
 }
 
 .file-dialog-plugin-tab:first-child {
@@ -347,7 +351,9 @@
     cursor: pointer;
     border-radius: 8px;
     margin: 2px 0;
-    transition: background-color 0.15s ease, color 0.15s ease;
+    transition:
+        background-color 0.15s ease,
+        color 0.15s ease;
     position: relative;
 }
 
@@ -424,6 +430,28 @@
     outline: none;
     border-color: var(--accent-cyan);
     box-shadow: 0 0 0 1px var(--accent-cyan);
+}
+
+.file-dialog-save-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 20px;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.file-dialog-save-warning[data-tone='warning'] {
+    color: var(--warning-color, var(--accent-orange));
+}
+
+.file-dialog-save-warning[data-tone='error'] {
+    color: var(--error-color, var(--accent-red));
+}
+
+.file-dialog-save-warning-icon {
+    font-size: 16px;
+    line-height: 1;
 }
 
 .file-dialog-actions {

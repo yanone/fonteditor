@@ -178,6 +178,7 @@ describe('CloudPlugin.openAsset', () => {
     let plugin;
     let originalAuthManager;
     let originalAlert;
+    let originalConfirm;
     let originalDispatchEvent;
     let originalSetTimeout;
     let originalClearTimeout;
@@ -201,6 +202,7 @@ describe('CloudPlugin.openAsset', () => {
 
         originalAuthManager = window.authManager;
         originalAlert = window.alert;
+        originalConfirm = window.confirm;
         originalDispatchEvent = window.dispatchEvent;
         originalSetTimeout = window.setTimeout;
         originalClearTimeout = window.clearTimeout;
@@ -217,6 +219,7 @@ describe('CloudPlugin.openAsset', () => {
             getSessionToken: jest.fn().mockReturnValue('token')
         };
         window.alert = jest.fn();
+        window.confirm = jest.fn(() => true);
 
         window.changeBridge = undefined;
         global.fetch = jest.fn();
@@ -239,6 +242,9 @@ describe('CloudPlugin.openAsset', () => {
                 // Simulate the app setting window.patchSyncEngine before fontModelReady fires
                 if (!window.patchSyncEngine) {
                     window.patchSyncEngine = {
+                        encodeBridgeState: jest.fn(() => new Uint8Array([1])),
+                        onCommittedChange: jest.fn(),
+                        offCommittedChange: jest.fn(),
                         onLocalUpdate: jest.fn(),
                         offLocalUpdate: jest.fn()
                     };
@@ -262,6 +268,7 @@ describe('CloudPlugin.openAsset', () => {
     afterEach(() => {
         window.authManager = originalAuthManager;
         window.alert = originalAlert;
+        window.confirm = originalConfirm;
         window.dispatchEvent = originalDispatchEvent;
         window.setTimeout = originalSetTimeout;
         window.clearTimeout = originalClearTimeout;
@@ -424,12 +431,31 @@ describe('CloudPlugin.openAsset', () => {
             editingFont: new Uint8Array([1])
         };
         window.patchSyncEngine = {
+            encodeBridgeState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            onCommittedChange: jest.fn(),
+            offCommittedChange: jest.fn(),
             onLocalUpdate: jest.fn(),
             offLocalUpdate: jest.fn()
         };
 
         const finalizeCalls = [];
         global.fetch = jest.fn().mockImplementation((url, options = {}) => {
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/api/cloud/eligibility')
+            ) {
+                return Promise.resolve({
+                    ok: true,
+                    json: jest.fn().mockResolvedValue({
+                        cloudHostingEnabled: true,
+                        maxFontsOwned: null,
+                        snapshotRetentionDays: null,
+                        fontsOwnedCount: 0,
+                        maxCloudAssetBytes: 1024 * 1024,
+                        warningCloudAssetBytes: 512
+                    })
+                });
+            }
             if (
                 typeof url === 'string' &&
                 url.endsWith('/api/cloud/assets/asset-save/finalize')
@@ -482,8 +508,114 @@ describe('CloudPlugin.openAsset', () => {
         expect(mockConnectDirect.mock.calls[0][3]).toEqual({
             bootstrapMode: 'skip'
         });
+        expect(
+            JSON.parse(
+                global.fetch.mock.calls.find(
+                    ([url]) =>
+                        typeof url === 'string' &&
+                        url.endsWith('/api/cloud/assets')
+                )[1].body
+            )
+        ).toEqual(
+            expect.objectContaining({
+                name: 'Save Source',
+                estimatedSeedBytes: expect.any(Number)
+            })
+        );
         expect(mockConnect).not.toHaveBeenCalled();
         expect(finalizeCalls).toHaveLength(1);
+    });
+
+    test('saveAs blocks fonts above the current cloud size limit before creating an asset', async () => {
+        plugin._eligibility = {
+            cloudHostingEnabled: true,
+            maxFontsOwned: null,
+            snapshotRetentionDays: null,
+            fontsOwnedCount: 0,
+            maxCloudAssetBytes: 1,
+            warningCloudAssetBytes: 1
+        };
+        window.glyphCanvas = {
+            initialFontLoaded: true
+        };
+        window.currentFontModel = {
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        {
+                            id: 'L0',
+                            shapes: [{}, {}],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ]
+        };
+        window.fontManager = {
+            currentFont: {
+                name: 'Save Source',
+                path: '/user/Save Source.babelfont',
+                babelfontJson: JSON.stringify(defaultCloudFontJson),
+                babelfontData: defaultCloudFontJson,
+                fontModel: window.currentFontModel,
+                syncJsonFromModel: jest.fn()
+            },
+            editingFont: new Uint8Array([1])
+        };
+
+        await expect(plugin.saveAs('Save Source')).rejects.toThrow(
+            'Cloud save blocked:'
+        );
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    test('saveAs warns proactively before creating an asset near the current cloud size limit', async () => {
+        plugin._eligibility = {
+            cloudHostingEnabled: true,
+            maxFontsOwned: null,
+            snapshotRetentionDays: null,
+            fontsOwnedCount: 0,
+            maxCloudAssetBytes: 1024,
+            warningCloudAssetBytes: 1
+        };
+        window.confirm = jest.fn(() => false);
+        window.glyphCanvas = {
+            initialFontLoaded: true
+        };
+        window.currentFontModel = {
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        {
+                            id: 'L0',
+                            shapes: [{}, {}],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ]
+        };
+        window.fontManager = {
+            currentFont: {
+                name: 'Save Source',
+                path: '/user/Save Source.babelfont',
+                babelfontJson: JSON.stringify(defaultCloudFontJson),
+                babelfontData: defaultCloudFontJson,
+                fontModel: window.currentFontModel,
+                syncJsonFromModel: jest.fn()
+            },
+            editingFont: new Uint8Array([1])
+        };
+
+        await expect(plugin.saveAs('Save Source')).rejects.toThrow(
+            'Cloud save cancelled near the current size limit'
+        );
+        expect(window.confirm).toHaveBeenCalledTimes(1);
+        expect(global.fetch).not.toHaveBeenCalled();
     });
 
     test('saveAs rejects when the direct live-room attach fails', async () => {
@@ -688,11 +820,17 @@ describe('CloudPlugin.openAsset', () => {
         };
 
         const originalBridge = {
+            encodeBridgeState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            onCommittedChange: jest.fn(),
+            offCommittedChange: jest.fn(),
             onLocalUpdate: jest.fn(),
             offLocalUpdate: jest.fn(),
             fontMap: { __mock: true }
         };
         const replacementBridge = {
+            encodeBridgeState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            onCommittedChange: jest.fn(),
+            offCommittedChange: jest.fn(),
             onLocalUpdate: jest.fn(),
             offLocalUpdate: jest.fn(),
             fontMap: { __mock: true }
@@ -708,6 +846,22 @@ describe('CloudPlugin.openAsset', () => {
         );
 
         global.fetch = jest.fn().mockImplementation((url) => {
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/api/cloud/eligibility')
+            ) {
+                return Promise.resolve({
+                    ok: true,
+                    json: jest.fn().mockResolvedValue({
+                        cloudHostingEnabled: true,
+                        maxFontsOwned: null,
+                        snapshotRetentionDays: null,
+                        fontsOwnedCount: 0,
+                        maxCloudAssetBytes: 1024 * 1024,
+                        warningCloudAssetBytes: 512
+                    })
+                });
+            }
             if (
                 typeof url === 'string' &&
                 url.endsWith('/api/cloud/assets/asset-save/finalize')
@@ -742,7 +896,7 @@ describe('CloudPlugin.openAsset', () => {
         const savePromise = plugin.saveAs('Save Source');
         for (
             let attempt = 0;
-            attempt < 10 && typeof resolveRoomToken !== 'function';
+            attempt < 50 && typeof resolveRoomToken !== 'function';
             attempt++
         ) {
             await Promise.resolve();

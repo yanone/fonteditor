@@ -193,6 +193,114 @@ test.describe('Open Dialog UI', () => {
         });
     });
 
+    test('cloud save as shows a visible near-limit warning before saving', async ({
+        page
+    }) => {
+        await page.evaluate(async () => {
+            await (window as any).showFontFileDialog?.({ mode: 'open' });
+        });
+
+        const dialog = page.locator('#font-file-dialog');
+        await dialog.waitFor({ state: 'visible' });
+        await dialog
+            .locator('.file-item[data-name="Fustat.glyphs"]')
+            .dblclick();
+
+        await waitForFontLoaded(page);
+        await waitForOpenSessionReady(page, 'Fustat.glyphs');
+
+        await page.evaluate(async () => {
+            await (window as any).switchContext?.('cloud');
+            const cloudPlugin = (window as any).cloudPlugin;
+            const originalGetCurrentSaveAsWarningState =
+                cloudPlugin.getCurrentSaveAsWarningState.bind(cloudPlugin);
+
+            cloudPlugin.getCurrentSaveAsWarningState = async () => ({
+                visible: true,
+                title: 'Near limit warning',
+                label: 'Near limit',
+                icon: 'warning',
+                tone: 'warning',
+                canSave: true
+            });
+
+            await (window as any).showFontFileDialog?.({
+                mode: 'save-as',
+                pluginId: 'cloud'
+            });
+
+            (window as any).__restoreCloudSaveWarningTest = () => {
+                cloudPlugin.getCurrentSaveAsWarningState =
+                    originalGetCurrentSaveAsWarningState;
+            };
+        });
+
+        await dialog.waitFor({ state: 'visible' });
+        await expect(dialog.locator('#file-dialog-save-warning')).toContainText(
+            'Near limit'
+        );
+        await expect(dialog.locator('#file-dialog-confirm-btn')).toBeEnabled();
+
+        await page.evaluate(() => {
+            (window as any).__restoreCloudSaveWarningTest?.();
+            delete (window as any).__restoreCloudSaveWarningTest;
+        });
+    });
+
+    test('cloud save as shows a visible size error and disables saving before submit', async ({
+        page
+    }) => {
+        await page.evaluate(async () => {
+            await (window as any).showFontFileDialog?.({ mode: 'open' });
+        });
+
+        const dialog = page.locator('#font-file-dialog');
+        await dialog.waitFor({ state: 'visible' });
+        await dialog
+            .locator('.file-item[data-name="Fustat.glyphs"]')
+            .dblclick();
+
+        await waitForFontLoaded(page);
+        await waitForOpenSessionReady(page, 'Fustat.glyphs');
+
+        await page.evaluate(async () => {
+            await (window as any).switchContext?.('cloud');
+            const cloudPlugin = (window as any).cloudPlugin;
+            const originalGetCurrentSaveAsWarningState =
+                cloudPlugin.getCurrentSaveAsWarningState.bind(cloudPlugin);
+
+            cloudPlugin.getCurrentSaveAsWarningState = async () => ({
+                visible: true,
+                title: 'Too large error',
+                label: 'Too large',
+                icon: 'sync_problem',
+                tone: 'error',
+                canSave: false
+            });
+
+            await (window as any).showFontFileDialog?.({
+                mode: 'save-as',
+                pluginId: 'cloud'
+            });
+
+            (window as any).__restoreCloudSaveWarningTest = () => {
+                cloudPlugin.getCurrentSaveAsWarningState =
+                    originalGetCurrentSaveAsWarningState;
+            };
+        });
+
+        await dialog.waitFor({ state: 'visible' });
+        await expect(dialog.locator('#file-dialog-save-warning')).toContainText(
+            'Too large'
+        );
+        await expect(dialog.locator('#file-dialog-confirm-btn')).toBeDisabled();
+
+        await page.evaluate(() => {
+            (window as any).__restoreCloudSaveWarningTest?.();
+            delete (window as any).__restoreCloudSaveWarningTest;
+        });
+    });
+
     test('cloud open failure keeps the dialog open, shows an inline error, and preserves the current font', async ({
         page
     }) => {

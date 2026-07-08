@@ -19,7 +19,10 @@ import {
     normalizeCloudRoomWebSocketUrl
 } from './cloud-adapter';
 import { yDocToJson } from './change-bridge-ydoc';
-import { PatchSyncEngine } from './patch-sync-engine';
+import {
+    PatchSyncEngine,
+    type CommittedChangeListener
+} from './patch-sync-engine';
 import { Logger } from './logger';
 import { resolveWebsiteURL } from './website-url';
 
@@ -28,6 +31,18 @@ const CLOUD_ASSET_DELETED_MESSAGE = 'Cloud asset was deleted';
 const CLOUD_ASSET_LOCALIZED_EVENT = 'cloudAssetLocalizedToMemory';
 
 export type CloudAssetRole = 'owner' | 'editor' | 'viewer';
+
+type CloudAssetSizeWarningState = {
+    visible: boolean;
+    title: string;
+    label: string;
+    icon: string;
+    tone: 'warning' | 'error';
+};
+
+type CloudSaveSizeWarningState = CloudAssetSizeWarningState & {
+    canSave: boolean;
+};
 
 function decodeBase64UrlJson<T>(value: string): T | null {
     try {
@@ -117,6 +132,19 @@ function getCloudRequestHeaders(
 
 function formatCloudDebugTimestamp(timestamp: number): string {
     return new Date(timestamp).toISOString();
+}
+
+function formatCloudByteCount(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+        return '0 B';
+    }
+    if (bytes >= 1024 * 1024) {
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+    }
+    if (bytes >= 1024) {
+        return `${(bytes / 1024).toFixed(1)} KiB`;
+    }
+    return `${Math.round(bytes)} B`;
 }
 
 function canonicalizeCloudExportFontJson(
@@ -580,6 +608,8 @@ export interface CloudEligibility {
     maxFontsOwned: number | null;
     snapshotRetentionDays: number | null;
     fontsOwnedCount: number;
+    maxCloudAssetBytes?: number;
+    warningCloudAssetBytes?: number;
 }
 
 export interface CloudAssetMember {
@@ -659,6 +689,10 @@ export class CloudPlugin extends FilesystemPlugin {
     private _connectedAssetIds = new Set<string>();
     private _lastAlertedConnectionErrorByAssetId = new Map<string, string>();
     private _availabilityErrorMessage: string | null = null;
+    private _assetEstimatedBytesByAssetId = new Map<string, number>();
+    private _activeAssetSizeBridge: PatchSyncEngine | null = null;
+    private _activeAssetSizeListener: CommittedChangeListener | null = null;
+    private _activeAssetSizeRecomputeTimer: number | null = null;
 
     private _getDeletedAssetRecoveryPath(): string {
         const currentFont = window.fontManager?.currentFont;
@@ -771,6 +805,92 @@ export class CloudPlugin extends FilesystemPlugin {
 
     getAssetConnectionDetail(assetId: string): string | undefined {
         return this._connectionDetailByAssetId.get(assetId);
+    }
+
+    getAssetSizeWarningState(
+        assetId: string
+    ): CloudAssetSizeWarningState | null {
+        const policy = this._getCloudAssetSizePolicy();
+        const rawByteLength = this._assetEstimatedBytesByAssetId.get(assetId);
+        if (
+            !policy ||
+            typeof rawByteLength !== 'number' ||
+            !Number.isFinite(rawByteLength)
+        ) {
+            return null;
+        }
+        const byteLength = rawByteLength;
+
+        return this._getAssetSizeWarningStateForByteLength(byteLength, policy);
+    }
+
+    async getCurrentSaveAsWarningState(): Promise<CloudSaveSizeWarningState | null> {
+        const seedFontJson = canonicalizeCloudExportFontJson(
+            await waitForCloudSaveSeedFontJson()
+        );
+        validateCloudExportForFontOpen(seedFontJson, 'save');
+
+        const byteLength = new TextEncoder().encode(
+            JSON.stringify(seedFontJson)
+        ).length;
+        const policy = await this._ensureCloudSizePolicy();
+        if (!policy) {
+            return null;
+        }
+
+        if (byteLength > policy.maxCloudAssetBytes) {
+            return {
+                visible: true,
+                title: `Cloud save blocked: Font exceeds the current cloud size limit (${formatCloudByteCount(byteLength)} of ${formatCloudByteCount(policy.maxCloudAssetBytes)}). A larger compaction tier is required before saving to cloud.`,
+                label: 'Too large',
+                icon: 'sync_problem',
+                tone: 'error',
+                canSave: false
+            };
+        }
+
+        if (byteLength >= policy.warningCloudAssetBytes) {
+            return {
+                visible: true,
+                title: `Cloud save warning: Font is near the current cloud size limit (${formatCloudByteCount(byteLength)} of ${formatCloudByteCount(policy.maxCloudAssetBytes)}). Saving may still work now, but cloud editing can stop working if the font grows further.`,
+                label: 'Near limit',
+                icon: 'warning',
+                tone: 'warning',
+                canSave: true
+            };
+        }
+
+        return null;
+    }
+
+    private _getAssetSizeWarningStateForByteLength(
+        byteLength: number,
+        policy: {
+            maxCloudAssetBytes: number;
+            warningCloudAssetBytes: number;
+        }
+    ): CloudAssetSizeWarningState | null {
+        if (byteLength > policy.maxCloudAssetBytes) {
+            return {
+                visible: true,
+                title: `Cloud status: Font exceeds the current cloud size limit (${formatCloudByteCount(byteLength)} of ${formatCloudByteCount(policy.maxCloudAssetBytes)}). Cloud editing will stop working until a larger compaction tier exists.`,
+                label: 'Too large',
+                icon: 'sync_problem',
+                tone: 'error'
+            };
+        }
+
+        if (byteLength >= policy.warningCloudAssetBytes) {
+            return {
+                visible: true,
+                title: `Cloud status: Font is near the current cloud size limit (${formatCloudByteCount(byteLength)} of ${formatCloudByteCount(policy.maxCloudAssetBytes)}).`,
+                label: 'Near limit',
+                icon: 'warning',
+                tone: 'warning'
+            };
+        }
+
+        return null;
     }
 
     getAssetPendingSyncCount(assetId: string): number {
@@ -953,6 +1073,132 @@ export class CloudPlugin extends FilesystemPlugin {
                 }
             })
         );
+    }
+
+    private _getCloudAssetSizePolicy(): {
+        maxCloudAssetBytes: number;
+        warningCloudAssetBytes: number;
+    } | null {
+        const maxCloudAssetBytes = Number(
+            this._eligibility?.maxCloudAssetBytes ?? 0
+        );
+        const warningCloudAssetBytes = Number(
+            this._eligibility?.warningCloudAssetBytes ?? 0
+        );
+        if (
+            !Number.isFinite(maxCloudAssetBytes) ||
+            maxCloudAssetBytes <= 0 ||
+            !Number.isFinite(warningCloudAssetBytes) ||
+            warningCloudAssetBytes <= 0
+        ) {
+            return null;
+        }
+        return {
+            maxCloudAssetBytes,
+            warningCloudAssetBytes: Math.min(
+                maxCloudAssetBytes,
+                warningCloudAssetBytes
+            )
+        };
+    }
+
+    private _setAssetEstimatedBytes(assetId: string, byteLength: number): void {
+        if (!Number.isFinite(byteLength) || byteLength <= 0) {
+            this._assetEstimatedBytesByAssetId.delete(assetId);
+        } else {
+            this._assetEstimatedBytesByAssetId.set(assetId, byteLength);
+        }
+
+        if (this._activeAssetId === assetId) {
+            void window.fontManager?.updateFontDisplay?.();
+        }
+    }
+
+    private _stopTrackingActiveAssetSize(): void {
+        if (this._activeAssetSizeRecomputeTimer !== null) {
+            window.clearTimeout(this._activeAssetSizeRecomputeTimer);
+            this._activeAssetSizeRecomputeTimer = null;
+        }
+        if (this._activeAssetSizeBridge && this._activeAssetSizeListener) {
+            const bridge = this._activeAssetSizeBridge as PatchSyncEngine & {
+                offCommittedChange?: (cb: CommittedChangeListener) => void;
+            };
+            bridge.offCommittedChange?.(this._activeAssetSizeListener);
+        }
+        this._activeAssetSizeBridge = null;
+        this._activeAssetSizeListener = null;
+    }
+
+    private _recomputeActiveAssetSize(): void {
+        this._activeAssetSizeRecomputeTimer = null;
+        if (!this._activeAssetId || !this._activeAssetSizeBridge) {
+            return;
+        }
+
+        const bridge = this._activeAssetSizeBridge as PatchSyncEngine & {
+            encodeBridgeState?: () => Uint8Array;
+        };
+        const encodedState = bridge.encodeBridgeState?.();
+        if (!encodedState) {
+            return;
+        }
+
+        this._setAssetEstimatedBytes(this._activeAssetId, encodedState.length);
+    }
+
+    private _scheduleActiveAssetSizeRecompute(): void {
+        if (this._activeAssetSizeRecomputeTimer !== null) {
+            return;
+        }
+
+        this._activeAssetSizeRecomputeTimer = window.setTimeout(() => {
+            this._recomputeActiveAssetSize();
+        }, 100);
+    }
+
+    private _startTrackingActiveAssetSize(
+        assetId: string,
+        bridge: PatchSyncEngine
+    ): void {
+        this._stopTrackingActiveAssetSize();
+        this._activeAssetId = assetId;
+        this._activeAssetSizeBridge = bridge;
+        this._activeAssetSizeListener = () => {
+            this._scheduleActiveAssetSizeRecompute();
+        };
+        (
+            bridge as PatchSyncEngine & {
+                onCommittedChange?: (cb: CommittedChangeListener) => void;
+            }
+        ).onCommittedChange?.(this._activeAssetSizeListener);
+        this._recomputeActiveAssetSize();
+    }
+
+    private async _ensureCloudSizePolicy(): Promise<{
+        maxCloudAssetBytes: number;
+        warningCloudAssetBytes: number;
+    } | null> {
+        if (!this._getCloudAssetSizePolicy()) {
+            await this.checkEligibility();
+        }
+        return this._getCloudAssetSizePolicy();
+    }
+
+    private _warnBeforeNearLimitCloudSave(byteLength: number): void {
+        const policy = this._getCloudAssetSizePolicy();
+        if (!policy || byteLength < policy.warningCloudAssetBytes) {
+            return;
+        }
+        if (byteLength > policy.maxCloudAssetBytes) {
+            return;
+        }
+
+        const proceed = window.confirm(
+            `This font is near the current cloud size limit (${formatCloudByteCount(byteLength)} of ${formatCloudByteCount(policy.maxCloudAssetBytes)}). Cloud editing may stop working if it grows further. Continue saving to cloud?`
+        );
+        if (!proceed) {
+            throw new Error('Cloud save cancelled near the current size limit');
+        }
     }
 
     getRelayConnectionState(): {
@@ -1229,17 +1475,10 @@ export class CloudPlugin extends FilesystemPlugin {
                 label: 'Save to Cloud',
                 icon: 'cloud_upload',
                 action: async () => {
-                    const name = prompt('Enter a name for this cloud font:');
-                    if (!name) return;
-                    try {
-                        const assetId = await this.saveAs(name);
-                        console.log(`Saved to cloud as ${assetId}`);
-                    } catch (err) {
-                        console.error('Save to cloud failed:', err);
-                        alert(
-                            `Failed to save to cloud: ${(err as Error).message}`
-                        );
-                    }
+                    await window.showFontFileDialog?.({
+                        mode: 'save-as',
+                        pluginId: 'cloud'
+                    });
                 }
             },
             {
@@ -1634,6 +1873,10 @@ export class CloudPlugin extends FilesystemPlugin {
             throw new Error('Authentication required');
         }
 
+        void this._ensureCloudSizePolicy().then(() => {
+            void window.fontManager?.updateFontDisplay?.();
+        });
+
         this._disconnectCurrent();
 
         const { token, roomUrl } = await this._fetchRoomToken(assetId);
@@ -1800,6 +2043,7 @@ export class CloudPlugin extends FilesystemPlugin {
                         liveTokenResponse.token,
                         liveWsUrl
                     );
+                    this._startTrackingActiveAssetSize(assetId, liveBridge);
                     resolve();
                 } catch (error) {
                     reject(
@@ -1889,6 +2133,13 @@ export class CloudPlugin extends FilesystemPlugin {
         const estimatedSaveBytes = new TextEncoder().encode(
             JSON.stringify(seedFontJson)
         ).length;
+        const sizePolicy = await this._ensureCloudSizePolicy();
+        if (sizePolicy && estimatedSaveBytes > sizePolicy.maxCloudAssetBytes) {
+            throw new Error(
+                `Cloud save blocked: font is ${formatCloudByteCount(estimatedSaveBytes)} but the current cloud tier only supports up to ${formatCloudByteCount(sizePolicy.maxCloudAssetBytes)}.`
+            );
+        }
+        this._warnBeforeNearLimitCloudSave(estimatedSaveBytes);
 
         const resp = await fetch(`${this._websiteBaseUrl}/api/cloud/assets`, {
             method: 'POST',
@@ -1896,7 +2147,10 @@ export class CloudPlugin extends FilesystemPlugin {
             headers: getCloudRequestHeaders({
                 'Content-Type': 'application/json'
             }),
-            body: JSON.stringify({ name })
+            body: JSON.stringify({
+                name,
+                estimatedSeedBytes: estimatedSaveBytes
+            })
         });
 
         if (!resp.ok) {
@@ -1984,6 +2238,7 @@ export class CloudPlugin extends FilesystemPlugin {
             this._cloudAdapter = await connectAndWaitForSync(liveBridge, {
                 bootstrapMode: 'skip'
             });
+            this._startTrackingActiveAssetSize(assetId, liveBridge);
             await this._finalizePendingAsset(assetId);
         } catch (error) {
             this._disconnectCurrent();
@@ -2042,6 +2297,7 @@ export class CloudPlugin extends FilesystemPlugin {
 
         console.log(`Connecting to room: ${assetId}`);
         await this._cloudAdapter.connect(bridge);
+        this._startTrackingActiveAssetSize(assetId, bridge);
     }
 
     /**
@@ -2090,6 +2346,7 @@ export class CloudPlugin extends FilesystemPlugin {
         );
         console.log(`Connecting directly to room: ${assetId} at ${wsUrl}`);
         await this._cloudAdapter.connectDirect(bridge, token, wsUrl);
+        this._startTrackingActiveAssetSize(assetId, bridge);
     }
 
     /** Disconnect from the current room. */
@@ -2114,6 +2371,7 @@ export class CloudPlugin extends FilesystemPlugin {
     // ── Private helpers ──────────────────────────────────────────
 
     private _disconnectCurrent(): void {
+        this._stopTrackingActiveAssetSize();
         this._cloudAdapter?.disconnect();
         if (this._activeAssetId) {
             this._updatePendingSyncCount(this._activeAssetId, 0);

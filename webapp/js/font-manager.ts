@@ -874,6 +874,12 @@ class FontManager {
             };
         }
 
+        const sizeWarningState =
+            window.cloudPlugin?.getAssetSizeWarningState?.(assetId);
+        if (sizeWarningState?.visible) {
+            return sizeWarningState;
+        }
+
         const pendingSyncCount =
             window.cloudPlugin?.getAssetPendingSyncCount?.(assetId) ?? 0;
         const hasConnectionProblem =

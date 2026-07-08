@@ -113,6 +113,17 @@ let pendingDialogHighlightPath: string | null = null;
 let fileDialogBusyDepth = 0;
 let fileDialogBusyMessage: string | null = null;
 let fileDialogBusyActionLabel: string | null = null;
+let fileDialogSaveBlocked = false;
+let fileDialogSaveWarningRefreshToken = 0;
+
+type FileDialogSaveWarningState = {
+    visible: boolean;
+    title: string;
+    label: string;
+    icon: string;
+    tone: 'warning' | 'error';
+    canSave: boolean;
+};
 let lastFileTreeRefreshAt: number | null = null;
 let pathDisplayFrame: number | null = null;
 
@@ -363,6 +374,7 @@ function updateFileDialogFooter(): void {
     const saveNameInput = document.getElementById(
         'file-dialog-save-name'
     ) as HTMLInputElement | null;
+    const saveWarning = document.getElementById('file-dialog-save-warning');
     const confirmButton = document.getElementById(
         'file-dialog-confirm-btn'
     ) as HTMLButtonElement | null;
@@ -404,6 +416,11 @@ function updateFileDialogFooter(): void {
             activeFileDialogMode === 'save-as' ? 'flex' : 'none';
     }
 
+    if (saveWarning) {
+        saveWarning.style.display =
+            activeFileDialogMode === 'save-as' ? '' : 'none';
+    }
+
     if (confirmButton) {
         confirmButton.textContent =
             fileDialogBusyActionLabel ||
@@ -412,7 +429,86 @@ function updateFileDialogFooter(): void {
             isBusy ||
             (activeFileDialogMode === 'open'
                 ? !isSelectedPathOpenableFont()
-                : !saveNameInput?.value.trim());
+                : !saveNameInput?.value.trim() || fileDialogSaveBlocked);
+    }
+}
+
+function setFileDialogSaveWarning(
+    warningState: FileDialogSaveWarningState | null
+): void {
+    const warningElement = document.getElementById('file-dialog-save-warning');
+    const iconElement = document.getElementById(
+        'file-dialog-save-warning-icon'
+    );
+    const textElement = document.getElementById(
+        'file-dialog-save-warning-text'
+    );
+
+    fileDialogSaveBlocked = Boolean(warningState && !warningState.canSave);
+
+    if (!warningElement || !iconElement || !textElement) {
+        updateFileDialogFooter();
+        return;
+    }
+
+    if (!warningState?.visible || activeFileDialogMode !== 'save-as') {
+        warningElement.style.display = 'none';
+        warningElement.removeAttribute('title');
+        warningElement.dataset.tone = '';
+        textElement.textContent = '';
+        iconElement.textContent = '';
+        updateFileDialogFooter();
+        return;
+    }
+
+    warningElement.style.display = '';
+    warningElement.title = warningState.title;
+    warningElement.dataset.tone = warningState.tone;
+    textElement.textContent = warningState.label;
+    iconElement.textContent = warningState.icon;
+    updateFileDialogFooter();
+}
+
+async function refreshFileDialogSaveWarning(): Promise<void> {
+    const requestToken = ++fileDialogSaveWarningRefreshToken;
+
+    if (
+        activeFileDialogMode !== 'save-as' ||
+        fileSystemCache.currentPlugin?.getId() !== 'cloud'
+    ) {
+        setFileDialogSaveWarning(null);
+        return;
+    }
+
+    const cloudPlugin = (
+        window as Window & {
+            cloudPlugin?: {
+                getCurrentSaveAsWarningState?: () => Promise<FileDialogSaveWarningState | null>;
+            };
+        }
+    ).cloudPlugin;
+
+    if (!cloudPlugin?.getCurrentSaveAsWarningState) {
+        setFileDialogSaveWarning(null);
+        return;
+    }
+
+    try {
+        const warningState = await cloudPlugin.getCurrentSaveAsWarningState();
+        if (requestToken !== fileDialogSaveWarningRefreshToken) {
+            return;
+        }
+        setFileDialogSaveWarning(warningState);
+    } catch (error) {
+        if (requestToken !== fileDialogSaveWarningRefreshToken) {
+            return;
+        }
+        console.warn(
+            '[FileBrowser]',
+            'Failed to compute cloud save warning:',
+            error
+        );
+        setFileDialogSaveWarning(null);
     }
 }
 
@@ -425,6 +521,8 @@ function closeFontFileDialog(): void {
     dialog.style.display = 'none';
     selectedDialogPath = null;
     pendingDialogHighlightPath = null;
+    fileDialogSaveWarningRefreshToken += 1;
+    setFileDialogSaveWarning(null);
     updateFileDialogFooter();
 
     const editorView = document.getElementById('view-editor');
@@ -489,6 +587,7 @@ async function showFontFileDialog(
 
     updateFileDialogFooter();
     updateFileDialogBusyUi();
+    void refreshFileDialogSaveWarning();
 
     if (activeFileDialogMode === 'save-as') {
         setTimeout(() => saveNameInput?.focus(), 0);
@@ -1866,6 +1965,11 @@ async function saveCurrentFontAsToPath(): Promise<void> {
 
     if (rawFileName.includes('/') || rawFileName.includes('\\')) {
         alert('File name cannot contain / or \\');
+        return;
+    }
+
+    if (fileDialogSaveBlocked) {
+        updateFileDialogFooter();
         return;
     }
 

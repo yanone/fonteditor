@@ -190,9 +190,9 @@ Rules:
 5. The editor applies the baseline locally.
 6. The editor opens the WebSocket.
 7. The editor sends `sync-request` with:
-   - local state vector
-   - `checkpointLogId` from the baseline response
-   - optional manifest generation/hash for diagnostics
+    - local state vector
+    - `checkpointLogId` from the baseline response
+    - optional manifest generation/hash for diagnostics
 8. The DO replays durable tail rows with `id > checkpointLogId`.
 9. The editor applies the replayed tail and enters live collaboration.
 
@@ -213,12 +213,12 @@ On each writable live update:
    packets.
 4. Write the update to `room_log` before acking durable success.
 5. Update room counters:
-   - `last_log_id`
-   - `last_write_at`
-   - `dirty_row_count`
-   - `dirty_byte_count`
-   - `oldest_uncheckpointed_log_id`
-   - `oldest_uncheckpointed_at`
+    - `last_log_id`
+    - `last_write_at`
+    - `dirty_row_count`
+    - `dirty_byte_count`
+    - `oldest_uncheckpointed_log_id`
+    - `oldest_uncheckpointed_at`
 6. Broadcast the same update to connected peers.
 
 The DO must not apply the update to a full server-side document only for the
@@ -484,47 +484,47 @@ website-only fields such as asset name and owner email.
 
 ### Phase 1: Spec and tests
 
-- [ ] Add tests that fail if DO seed adoption reads R2 object bodies.
-- [ ] Add tests that fail if room open requires DO full-doc hydration.
+- [x] Add tests that fail if DO seed adoption reads R2 object bodies.
+- [x] Add tests that fail if room open requires DO full-doc hydration.
 - [ ] Add tests that acknowledged live updates survive sole-client disconnect.
-- [ ] Add tests for service-authenticated tail export and promotion contracts.
+- [x] Add tests for service-authenticated tail export and promotion contracts.
 - [ ] Add dashboard API tests for summary metrics and admin authorization.
 
 ### Phase 2: Metadata-only seed adoption
 
-- [ ] Replace `/internal/apply-seed` with `/internal/adopt-baseline` for HTTP
-   seed.
+- [x] Replace `/internal/apply-seed` with `/internal/adopt-baseline` for HTTP
+      seed.
 - [ ] Keep old route only temporarily behind tests proving it is unused, then
-   delete it.
-- [ ] Store active manifest without hydrating seed bytes.
+      delete it.
+- [x] Store active manifest without hydrating seed bytes.
 - [ ] Verify Save As finalization still waits for readable baseline state.
 
 ### Phase 3: Tail replay join path
 
-- [ ] Make `sync-request.checkpointLogId` the normal post-baseline join path.
-- [ ] Replay `room_log` rows after that log id without a full server `Y.Doc`.
+- [x] Make `sync-request.checkpointLogId` the normal post-baseline join path.
+- [x] Replay `room_log` rows after that log id without a full server `Y.Doc`.
 - [ ] Batch replay responses by byte budget.
-- [ ] Preserve mutation-history sidecars if still needed by the editor.
+- [x] Preserve mutation-history sidecars if still needed by the editor.
 
 ### Phase 4: Remove DO checkpoint ownership
 
 - [ ] Disable checkpoint alarm scheduling.
 - [ ] Remove calls to DO `_checkpointToR2()` from live updates and seed.
-- [ ] Remove cold-load full baseline hydration from normal join handling.
-- [ ] Keep only bounded metadata and tail state in the DO.
+- [x] Remove cold-load full baseline hydration from normal join handling.
+- [x] Keep only bounded metadata and tail state in the DO.
 
 ### Phase 5: External compactor service
 
-- [ ] Add service authentication between compactor, website, and collab worker.
-- [ ] Add tail export endpoint.
-- [ ] Add promotion endpoint.
-- [ ] Implement compactor using current Yjs compaction algorithm outside the DO.
+- [x] Add service authentication between compactor, website, and collab worker.
+- [x] Add tail export endpoint.
+- [x] Add promotion endpoint.
+- [x] Implement compactor using current Yjs compaction algorithm outside the DO.
 - [ ] Run scheduled scans with one-room concurrency.
 - [ ] Record compaction metrics back to room state.
 
 ### Phase 6: Dashboard
 
-- [ ] Add admin-only website API aggregation endpoints.
+- [x] Add admin-only website API aggregation endpoints.
 - [ ] Add Cloud Operations > Room Health page.
 - [ ] Show summary cards, sortable room table, and room detail diagnostics.
 - [ ] Add request-compaction and retry-cleanup actions.
@@ -534,7 +534,7 @@ website-only fields such as asset name and owner email.
 
 - [ ] Delete obsolete full-state DO seed/checkpoint paths.
 - [ ] Add production alerts for rooms over thresholds, compaction failures, and DO
-   resets.
+      resets.
 - [ ] Add stale artifact cleanup for candidate baselines and failed seed objects.
 - [ ] Load-test with large real font assets.
 
@@ -545,14 +545,14 @@ The migration is complete only when all of these are true:
 - [ ] A 15-50 MB initial seed succeeds without DO memory reset.
 - [ ] DO seed adoption can be tested with an R2 object whose `arrayBuffer()` throws.
 - [ ] A cold room open applies baseline from R2 and tail from DO without full DO
-   hydration.
+      hydration.
 - [ ] A sole editor can disconnect after durable acks, and all acked edits are
-   recoverable from baseline plus tail.
+      recoverable from baseline plus tail.
 - [ ] The external compactor can promote a new baseline while edits continue.
 - [ ] Stale compactor promotion attempts are rejected.
 - [ ] Cleanup failure after promotion does not corrupt room recovery.
 - [ ] The website dashboard shows room counts, oldest uncheckpointed edit, dirty
-   tail sizes, estimated memory, and compaction status.
+      tail sizes, estimated memory, and compaction status.
 - [ ] Normal users cannot access dashboard APIs or internal room health endpoints.
 - [ ] WebSocket full-state bootstrap remains forbidden for seed/open fallback.
 

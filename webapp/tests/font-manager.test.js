@@ -2088,6 +2088,7 @@ describe('FontManager share button visibility', () => {
         fontManager.currentFontId = 'test-font';
         window.cloudPlugin = {
             getCurrentAssetRole: jest.fn(() => role),
+            getAssetSizeWarningState: jest.fn(() => null),
             getAssetConnectionStatus: jest.fn(() => 'connected'),
             getAssetConnectionDetail: jest.fn(() => undefined),
             hasConnectionProblem: jest.fn(() => false),
@@ -2192,6 +2193,30 @@ describe('FontManager share button visibility', () => {
             'Cloud status: Access epoch is stale'
         );
         expect(warningBadge.textContent).toContain('Reconnecting');
+    });
+
+    test('shows a persistent cloud size warning badge even when the connection is stable', () => {
+        setCurrentFont({ role: 'owner', path: 'cloud://asset-1' });
+        window.cloudPlugin.getAssetSizeWarningState.mockReturnValue({
+            visible: true,
+            title: 'Cloud status: Font is near the current cloud size limit (11.9 MiB of 16.0 MiB).',
+            label: 'Near limit',
+            icon: 'warning',
+            tone: 'warning'
+        });
+
+        fontManager.updateFontDisplay();
+
+        const warningBadge = document.querySelector(
+            '.cloud-connection-warning-badge'
+        );
+
+        expect(warningBadge.classList.contains('visible')).toBe(true);
+        expect(warningBadge.hidden).toBe(false);
+        expect(warningBadge.getAttribute('title')).toBe(
+            'Cloud status: Font is near the current cloud size limit (11.9 MiB of 16.0 MiB).'
+        );
+        expect(warningBadge.textContent).toContain('Near limit');
     });
 
     test('shows a connection warning badge for a cloud-backed font with no live adapter attached', () => {
