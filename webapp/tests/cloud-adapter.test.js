@@ -225,7 +225,8 @@ describe('CloudAdapter outbound updates', () => {
                     offLocalUpdate: jest.fn()
                 },
                 'room-token',
-                'wss://rooms.example.com/room/asset-123'
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
             );
 
             socket.onerror();
@@ -1732,7 +1733,8 @@ describe('CloudAdapter durability failures', () => {
                     offLocalUpdate: jest.fn()
                 },
                 'room-token',
-                'wss://rooms.example.com/room/asset-123'
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
             );
 
             socket.onopen();
@@ -1798,7 +1800,8 @@ describe('CloudAdapter durability failures', () => {
                     offLocalUpdate: jest.fn()
                 },
                 'room-token',
-                'wss://rooms.example.com/room/asset-123'
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
             );
 
             socket.onopen();
@@ -2163,7 +2166,8 @@ describe('CloudAdapter durability failures', () => {
                     offLocalUpdate: jest.fn()
                 },
                 'room-token',
-                'wss://rooms.example.com/room/asset-123'
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
             );
 
             adapter._hasSynced = true;
@@ -2381,7 +2385,8 @@ describe('CloudAdapter durability failures', () => {
                     offLocalUpdate: jest.fn()
                 },
                 'room-token',
-                'wss://rooms.example.com/room/asset-123'
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
             );
 
             socket.onclose?.({ code: 4008, reason: 'asset-deleted' });
@@ -2436,7 +2441,8 @@ describe('CloudAdapter durability failures', () => {
                     offLocalUpdate: jest.fn()
                 },
                 'room-token',
-                'wss://rooms.example.com/room/asset-123'
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
             );
 
             adapter._handleMessage(
@@ -2499,7 +2505,8 @@ describe('CloudAdapter durability failures', () => {
                     offLocalUpdate: jest.fn()
                 },
                 'room-token',
-                'wss://rooms.example.com/room/asset-123'
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
             );
 
             adapter._handleMessage(
@@ -2565,7 +2572,8 @@ describe('CloudAdapter durability failures', () => {
                     offLocalUpdate: jest.fn()
                 },
                 'room-token',
-                'wss://rooms.example.com/room/asset-123'
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
             );
 
             adapter._handleMessage(
@@ -2631,7 +2639,8 @@ describe('CloudAdapter durability failures', () => {
                     offLocalUpdate: jest.fn()
                 },
                 'room-token',
-                'wss://rooms.example.com/room/asset-123'
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
             );
 
             adapter._handleMessage(
@@ -2841,10 +2850,10 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
         expect(syncRequest.update).toBeUndefined();
     });
 
-    it('falls back to WebSocket-only sync on 404 (no checkpoint)', async () => {
+    it('fails closed on 404 (no checkpoint) when bootstrap is required', async () => {
         const adapter = makeAdapter();
         var appliedUpdates = [];
-        var sentMessages = [];
+        var webSocketOpened = false;
 
         adapter._bridge = {
             encodeBridgeStateVector: function () {
@@ -2861,45 +2870,30 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
         };
 
         global.WebSocket = function FakeWebSocket() {
+            webSocketOpened = true;
             this.readyState = 1;
-            this.send = function (data) {
-                sentMessages.push(JSON.parse(data));
-            };
             this.close = function () {};
         };
 
         mockFetchWithStateEndpoint({ status: 404 });
 
-        await adapter.connectDirect(
-            adapter._bridge,
-            'room-token',
-            'wss://rooms.example.com/room/asset-123'
-        );
-
-        await new Promise(function (r) {
-            setTimeout(r, 50);
-        });
+        await expect(
+            adapter.connectDirect(
+                adapter._bridge,
+                'room-token',
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'required' }
+            )
+        ).rejects.toThrow('no checkpoint available');
 
         expect(appliedUpdates).toHaveLength(0);
-
-        adapter._handleMessage(
-            JSON.stringify({
-                type: 'auth-ok',
-                clientId: 'client-1',
-                roomSchemaVersion: 2
-            })
-        );
-
-        var syncRequest = sentMessages.find(function (m) {
-            return m.type === 'sync-request';
-        });
-        expect(syncRequest).toBeDefined();
-        expect(syncRequest.checkpointLogId).toBeUndefined();
+        expect(webSocketOpened).toBe(false);
     });
 
-    it('falls back to WebSocket-only sync on 503 (R2 failure)', async () => {
+    it('fails closed on 503 (R2 failure) when bootstrap is required', async () => {
         const adapter = makeAdapter();
         var appliedUpdates = [];
+        var webSocketOpened = false;
 
         adapter._bridge = {
             encodeBridgeStateVector: function () {
@@ -2916,23 +2910,24 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
         };
 
         global.WebSocket = function FakeWebSocket() {
+            webSocketOpened = true;
             this.readyState = 1;
             this.close = function () {};
         };
 
         mockFetchWithStateEndpoint({ status: 503 });
 
-        await adapter.connectDirect(
-            adapter._bridge,
-            'room-token',
-            'wss://rooms.example.com/room/asset-123'
-        );
-
-        await new Promise(function (r) {
-            setTimeout(r, 50);
-        });
+        await expect(
+            adapter.connectDirect(
+                adapter._bridge,
+                'room-token',
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'required' }
+            )
+        ).rejects.toThrow('R2 bootstrap failed: 503');
 
         expect(appliedUpdates).toHaveLength(0);
+        expect(webSocketOpened).toBe(false);
     });
 });
 
@@ -3043,7 +3038,8 @@ describe('HTTP seed (POST /state for new rooms)', () => {
             await adapter.connectDirect(
                 adapter._bridge,
                 'room-token',
-                'wss://rooms.example.com/room/asset-123'
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
             );
 
             await new Promise(function (r) {
@@ -3157,7 +3153,8 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         await adapter.connectDirect(
             adapter._bridge,
             'room-token',
-            'wss://rooms.example.com/room/asset-123'
+            'wss://rooms.example.com/room/asset-123',
+            { bootstrapMode: 'skip' }
         );
 
         await new Promise(function (r) {
@@ -3277,7 +3274,8 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         await adapter.connectDirect(
             adapter._bridge,
             'room-token',
-            'wss://rooms.example.com/room/asset-123'
+            'wss://rooms.example.com/room/asset-123',
+            { bootstrapMode: 'skip' }
         );
 
         await new Promise(function (r) {
@@ -3324,10 +3322,11 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         expect(syncRequest.update).toBeUndefined();
     });
 
-    it('falls back to WebSocket sync when seed returns 409', async () => {
+    it('fails closed when seed returns 409', async () => {
         const adapter = new CloudAdapter({
             assetId: 'asset-123',
-            websiteBaseUrl: 'https://counterpunch.space'
+            websiteBaseUrl: 'https://counterpunch.space',
+            onConnectionStatus: jest.fn()
         });
 
         var sentMessages = [];
@@ -3388,7 +3387,8 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         await adapter.connectDirect(
             adapter._bridge,
             'room-token',
-            'wss://rooms.example.com/room/asset-123'
+            'wss://rooms.example.com/room/asset-123',
+            { bootstrapMode: 'skip' }
         );
 
         await new Promise(function (r) {
@@ -3411,7 +3411,7 @@ describe('HTTP seed (POST /state for new rooms)', () => {
         var syncRequest = sentMessages.find(function (m) {
             return m.type === 'sync-request';
         });
-        expect(syncRequest).toBeDefined();
-        expect(syncRequest.checkpointLogId).toBeUndefined();
+        expect(syncRequest).toBeUndefined();
+        expect(adapter.status).toBe('error');
     });
 });

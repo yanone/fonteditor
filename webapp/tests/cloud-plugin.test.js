@@ -308,6 +308,21 @@ describe('CloudPlugin.openAsset', () => {
         );
     });
 
+    test('uses required HTTP bootstrap for cloud open before attaching live room', async () => {
+        await expect(plugin.openAsset('asset-1')).resolves.toBeUndefined();
+
+        expect(mockConnectDirect).toHaveBeenCalledTimes(2);
+        expect(mockConnectDirect.mock.calls[0][3]).toEqual({
+            bootstrapMode: 'required'
+        });
+        expect(mockConnectDirect.mock.calls[1][3]).toEqual({
+            bootstrapMode: 'required'
+        });
+        expect(mockConnectDirect.mock.calls[0][0]).not.toBe(
+            mockConnectDirect.mock.calls[1][0]
+        );
+    });
+
     test('waits for initial cloud font data before throwing no-font-data', async () => {
         mockYDocToJson
             .mockReturnValueOnce({})
@@ -409,19 +424,38 @@ describe('CloudPlugin.openAsset', () => {
             offLocalUpdate: jest.fn()
         };
 
-        global.fetch = jest.fn().mockResolvedValue({
-            ok: true,
-            json: jest.fn().mockResolvedValue({
-                asset: {
-                    id: 'asset-save',
-                    name: 'Save Source',
-                    role: 'owner',
-                    ownerUserId: 'user-1',
-                    createdAt: 1,
-                    updatedAt: 1
-                }
-            }),
-            text: jest.fn().mockResolvedValue('')
+        const finalizeCalls = [];
+        global.fetch = jest.fn().mockImplementation((url, options = {}) => {
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/api/cloud/assets/asset-save/finalize')
+            ) {
+                finalizeCalls.push({ url, options });
+                return Promise.resolve({
+                    ok: true,
+                    json: jest.fn().mockResolvedValue({
+                        success: true,
+                        asset: { id: 'asset-save', lifecycleState: 'active' }
+                    }),
+                    text: jest.fn().mockResolvedValue('')
+                });
+            }
+
+            return Promise.resolve({
+                ok: true,
+                json: jest.fn().mockResolvedValue({
+                    asset: {
+                        id: 'asset-save',
+                        name: 'Save Source',
+                        role: 'owner',
+                        ownerUserId: 'user-1',
+                        createdAt: 1,
+                        updatedAt: 1,
+                        lifecycleState: 'pending_bootstrap'
+                    }
+                }),
+                text: jest.fn().mockResolvedValue('')
+            });
         });
 
         window.dispatchEvent = jest.fn((event) => {
@@ -441,7 +475,11 @@ describe('CloudPlugin.openAsset', () => {
         expect(plugin.getAssetConnectionStatus('asset-save')).toBe('connected');
         expect(mockConnectDirect).toHaveBeenCalledTimes(1);
         expect(mockConnectDirect.mock.calls[0][0]).toBe(window.patchSyncEngine);
+        expect(mockConnectDirect.mock.calls[0][3]).toEqual({
+            bootstrapMode: 'skip'
+        });
         expect(mockConnect).not.toHaveBeenCalled();
+        expect(finalizeCalls).toHaveLength(1);
     });
 
     test('saveAs rejects when the direct live-room attach fails', async () => {
@@ -483,19 +521,39 @@ describe('CloudPlugin.openAsset', () => {
             [{ status: 'error', detail: 'cloud sync timed out' }]
         ];
 
-        global.fetch = jest.fn().mockResolvedValue({
-            ok: true,
-            json: jest.fn().mockResolvedValue({
-                asset: {
-                    id: 'asset-save',
-                    name: 'Save Source',
-                    role: 'owner',
-                    ownerUserId: 'user-1',
-                    createdAt: 1,
-                    updatedAt: 1
-                }
-            }),
-            text: jest.fn().mockResolvedValue('')
+        const abortCalls = [];
+        global.fetch = jest.fn().mockImplementation((url, options = {}) => {
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/api/cloud/assets/asset-save/abort')
+            ) {
+                abortCalls.push({ url, options });
+                return Promise.resolve({
+                    ok: true,
+                    json: jest.fn().mockResolvedValue({
+                        success: true,
+                        assetId: 'asset-save',
+                        lifecycleState: 'bootstrap_failed'
+                    }),
+                    text: jest.fn().mockResolvedValue('')
+                });
+            }
+
+            return Promise.resolve({
+                ok: true,
+                json: jest.fn().mockResolvedValue({
+                    asset: {
+                        id: 'asset-save',
+                        name: 'Save Source',
+                        role: 'owner',
+                        ownerUserId: 'user-1',
+                        createdAt: 1,
+                        updatedAt: 1,
+                        lifecycleState: 'pending_bootstrap'
+                    }
+                }),
+                text: jest.fn().mockResolvedValue('')
+            });
         });
 
         await expect(plugin.saveAs('Save Source')).rejects.toThrow(
@@ -506,6 +564,7 @@ describe('CloudPlugin.openAsset', () => {
         expect(window.fontManager.currentFont.path).toBe(
             '/user/Save Source.babelfont'
         );
+        expect(abortCalls).toHaveLength(1);
     });
 
     test('saveAs returns only after the direct live-room attach reaches connected', async () => {
@@ -543,19 +602,36 @@ describe('CloudPlugin.openAsset', () => {
             offLocalUpdate: jest.fn()
         };
 
-        global.fetch = jest.fn().mockResolvedValue({
-            ok: true,
-            json: jest.fn().mockResolvedValue({
-                asset: {
-                    id: 'asset-save',
-                    name: 'Save Source',
-                    role: 'owner',
-                    ownerUserId: 'user-1',
-                    createdAt: 1,
-                    updatedAt: 1
-                }
-            }),
-            text: jest.fn().mockResolvedValue('')
+        global.fetch = jest.fn().mockImplementation((url) => {
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/api/cloud/assets/asset-save/finalize')
+            ) {
+                return Promise.resolve({
+                    ok: true,
+                    json: jest.fn().mockResolvedValue({
+                        success: true,
+                        asset: { id: 'asset-save', lifecycleState: 'active' }
+                    }),
+                    text: jest.fn().mockResolvedValue('')
+                });
+            }
+
+            return Promise.resolve({
+                ok: true,
+                json: jest.fn().mockResolvedValue({
+                    asset: {
+                        id: 'asset-save',
+                        name: 'Save Source',
+                        role: 'owner',
+                        ownerUserId: 'user-1',
+                        createdAt: 1,
+                        updatedAt: 1,
+                        lifecycleState: 'pending_bootstrap'
+                    }
+                }),
+                text: jest.fn().mockResolvedValue('')
+            });
         });
 
         window.dispatchEvent = jest.fn((event) => {
@@ -626,19 +702,36 @@ describe('CloudPlugin.openAsset', () => {
                 })
         );
 
-        global.fetch = jest.fn().mockResolvedValue({
-            ok: true,
-            json: jest.fn().mockResolvedValue({
-                asset: {
-                    id: 'asset-save',
-                    name: 'Save Source',
-                    role: 'owner',
-                    ownerUserId: 'user-1',
-                    createdAt: 1,
-                    updatedAt: 1
-                }
-            }),
-            text: jest.fn().mockResolvedValue('')
+        global.fetch = jest.fn().mockImplementation((url) => {
+            if (
+                typeof url === 'string' &&
+                url.endsWith('/api/cloud/assets/asset-save/finalize')
+            ) {
+                return Promise.resolve({
+                    ok: true,
+                    json: jest.fn().mockResolvedValue({
+                        success: true,
+                        asset: { id: 'asset-save', lifecycleState: 'active' }
+                    }),
+                    text: jest.fn().mockResolvedValue('')
+                });
+            }
+
+            return Promise.resolve({
+                ok: true,
+                json: jest.fn().mockResolvedValue({
+                    asset: {
+                        id: 'asset-save',
+                        name: 'Save Source',
+                        role: 'owner',
+                        ownerUserId: 'user-1',
+                        createdAt: 1,
+                        updatedAt: 1,
+                        lifecycleState: 'pending_bootstrap'
+                    }
+                }),
+                text: jest.fn().mockResolvedValue('')
+            });
         });
 
         const savePromise = plugin.saveAs('Save Source');
@@ -663,6 +756,9 @@ describe('CloudPlugin.openAsset', () => {
         expect(mockConnectDirect).toHaveBeenCalledTimes(1);
         expect(mockConnectDirect.mock.calls[0][0]).toBe(replacementBridge);
         expect(mockConnectDirect.mock.calls[0][0]).not.toBe(originalBridge);
+        expect(mockConnectDirect.mock.calls[0][3]).toEqual({
+            bootstrapMode: 'skip'
+        });
     });
 
     test('flags an open cloud font as a connection problem when no adapter is attached', () => {

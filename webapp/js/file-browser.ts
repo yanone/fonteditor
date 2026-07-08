@@ -1812,7 +1812,16 @@ async function openFont(
         timelineMark('font.open.failed');
         timelineSpanEnd(openSpan);
         console.error('[FileBrowser]', 'Error opening font:', error);
-        alert(`Error opening font: ${getErrorMessage(error)}`);
+        if (fileSystemCache.currentPlugin?.getId() === 'cloud') {
+            showPluginMessage({
+                icon: 'cloud_off',
+                title: 'Cloud Open Failed',
+                message: getErrorMessage(error),
+                tone: 'warning'
+            });
+        } else {
+            alert(`Error opening font: ${getErrorMessage(error)}`);
+        }
         // Reset cursor on error
         endLoadingCursor();
     }
@@ -1860,85 +1869,99 @@ async function saveCurrentFontAsToPath(): Promise<void> {
         return;
     }
 
-    await withFileDialogBusy(
-        {
-            message: 'Saving font…',
-            actionLabel: 'Saving…',
-            useLoadingCursor: true
-        },
-        async () => {
-            // If the active plugin handles Save As itself (e.g. cloud),
-            // delegate and close the dialog — no writeFile needed.
-            if (fileSystemCache.currentPlugin?.interceptsSaveAs) {
-                const handled =
-                    await fileSystemCache.currentPlugin.handleSaveAs(
-                        rawFileName
-                    );
-                if (handled) {
-                    syncEditorFileStateFromCurrentFont();
-                    closeFontFileDialog();
-                    void refreshFileSystem().catch((error) => {
-                        console.error(
-                            '[FileBrowser]',
-                            'Cloud Save As succeeded but dialog refresh failed:',
-                            error
+    try {
+        await withFileDialogBusy(
+            {
+                message: 'Saving font…',
+                actionLabel: 'Saving…',
+                useLoadingCursor: true
+            },
+            async () => {
+                // If the active plugin handles Save As itself (e.g. cloud),
+                // delegate and close the dialog — no writeFile needed.
+                if (fileSystemCache.currentPlugin?.interceptsSaveAs) {
+                    const handled =
+                        await fileSystemCache.currentPlugin.handleSaveAs(
+                            rawFileName
                         );
-                    });
+                    if (handled) {
+                        syncEditorFileStateFromCurrentFont();
+                        closeFontFileDialog();
+                        void refreshFileSystem().catch((error) => {
+                            console.error(
+                                '[FileBrowser]',
+                                'Cloud Save As succeeded but dialog refresh failed:',
+                                error
+                            );
+                        });
+                    }
+                    return;
                 }
-                return;
+
+                const targetPath =
+                    fileSystemCache.currentPath === '/'
+                        ? `/${rawFileName}`
+                        : `${fileSystemCache.currentPath.replace(/\/+$/, '')}/${rawFileName}`;
+
+                const fileExists =
+                    await fileSystemCache.activeAdapter.fileExists(targetPath);
+                if (
+                    fileExists &&
+                    !confirm(`Overwrite existing file "${rawFileName}"?`)
+                ) {
+                    return;
+                }
+
+                currentFont.syncJsonFromModel();
+                await fileSystemCache.activeAdapter.writeFile(
+                    targetPath,
+                    currentFont.babelfontJson
+                );
+
+                currentFont.path = targetPath;
+                currentFont.sourcePlugin = fileSystemCache.currentPlugin;
+                currentFont.fileHandle = await getDiskFileHandleForPath(
+                    fileSystemCache.currentPlugin,
+                    targetPath
+                );
+                currentFont.directoryHandle =
+                    fileSystemCache.currentPlugin.getId() === 'disk'
+                        ? (
+                              fileSystemCache.currentPlugin.getAdapter() as {
+                                  directoryHandle?: FileSystemDirectoryHandle;
+                              }
+                          ).directoryHandle
+                        : undefined;
+                currentFont.needsRecompile = false;
+                currentFont.hasUnsavedChanges = false;
+
+                const pluginId = fileSystemCache.currentPlugin.getId();
+                const fileUri = createFileUri(pluginId, targetPath);
+                syncEditorFileState(fileUri, 'file_saved_as');
+
+                await window.fontManager.updateFontDisplay();
+                await window.fontManager.updateDirtyIndicator();
+                window.saveButton?.updateButtonState?.();
+
+                await refreshFileSystem();
+                selectedDialogPath = targetPath;
+                updateFileSelectionUi();
+                closeFontFileDialog();
             }
-
-            const targetPath =
-                fileSystemCache.currentPath === '/'
-                    ? `/${rawFileName}`
-                    : `${fileSystemCache.currentPath.replace(/\/+$/, '')}/${rawFileName}`;
-
-            const fileExists =
-                await fileSystemCache.activeAdapter.fileExists(targetPath);
-            if (
-                fileExists &&
-                !confirm(`Overwrite existing file "${rawFileName}"?`)
-            ) {
-                return;
-            }
-
-            currentFont.syncJsonFromModel();
-            await fileSystemCache.activeAdapter.writeFile(
-                targetPath,
-                currentFont.babelfontJson
-            );
-
-            currentFont.path = targetPath;
-            currentFont.sourcePlugin = fileSystemCache.currentPlugin;
-            currentFont.fileHandle = await getDiskFileHandleForPath(
-                fileSystemCache.currentPlugin,
-                targetPath
-            );
-            currentFont.directoryHandle =
-                fileSystemCache.currentPlugin.getId() === 'disk'
-                    ? (
-                          fileSystemCache.currentPlugin.getAdapter() as {
-                              directoryHandle?: FileSystemDirectoryHandle;
-                          }
-                      ).directoryHandle
-                    : undefined;
-            currentFont.needsRecompile = false;
-            currentFont.hasUnsavedChanges = false;
-
-            const pluginId = fileSystemCache.currentPlugin.getId();
-            const fileUri = createFileUri(pluginId, targetPath);
-            syncEditorFileState(fileUri, 'file_saved_as');
-
-            await window.fontManager.updateFontDisplay();
-            await window.fontManager.updateDirtyIndicator();
-            window.saveButton?.updateButtonState?.();
-
-            await refreshFileSystem();
-            selectedDialogPath = targetPath;
-            updateFileSelectionUi();
-            closeFontFileDialog();
+        );
+    } catch (error: unknown) {
+        console.error('[FileBrowser]', 'Error saving font:', error);
+        if (fileSystemCache.currentPlugin?.getId() === 'cloud') {
+            showPluginMessage({
+                icon: 'cloud_off',
+                title: 'Cloud Save Failed',
+                message: getErrorMessage(error),
+                tone: 'warning'
+            });
+            return;
         }
-    );
+        alert(`Error saving font: ${getErrorMessage(error)}`);
+    }
 }
 
 async function confirmFileDialogPrimaryAction(): Promise<void> {

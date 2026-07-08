@@ -652,7 +652,10 @@ export class CloudAdapter implements FileSystemAdapter {
     async connectDirect(
         bridge: PatchSyncEngine,
         token: string,
-        roomUrl: string
+        roomUrl: string,
+        options?: {
+            bootstrapMode?: 'required' | 'skip';
+        }
     ): Promise<void> {
         if (this._destroyed) {
             console.warn('CloudAdapter: already destroyed');
@@ -680,16 +683,9 @@ export class CloudAdapter implements FileSystemAdapter {
         }
         this._setStatus('connecting');
 
-        // Phase 5: Try to bootstrap from R2 before opening WebSocket.
         this._checkpointLogId = null;
-        try {
+        if (options?.bootstrapMode !== 'skip') {
             await this._bootstrapFromR2(token, roomUrl);
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.log(
-                `CloudAdapter: R2 bootstrap skipped (${msg}), falling back to WebSocket sync`
-            );
-            this._checkpointLogId = null;
         }
 
         await this._openWebSocket(token, roomUrl);
@@ -1357,9 +1353,6 @@ export class CloudAdapter implements FileSystemAdapter {
                     console.log(
                         'CloudAdapter: room reseed required; seeding via HTTP'
                     );
-                    // Phase 6: Seed the room via HTTP POST /state.
-                    // The sync-request is deferred until after the seed
-                    // completes so it can include the checkpointLogId.
                     (async () => {
                         try {
                             let token: string;
@@ -1377,17 +1370,24 @@ export class CloudAdapter implements FileSystemAdapter {
                                 roomUrl
                             );
                             this._checkpointLogId = seedLogId;
+                            this._sendInitialSyncRequest(authenticatedSocket);
                         } catch (err) {
                             const seedErr =
                                 err instanceof Error
                                     ? err.message
                                     : String(err);
-                            console.warn(
-                                `CloudAdapter: HTTP seed failed (${seedErr}), falling back to WebSocket sync-complete`
+                            console.error(
+                                `CloudAdapter: HTTP seed failed (${seedErr})`
                             );
+                            this._terminalCloseDetail = seedErr;
+                            this._setStatus('error', seedErr);
+                            if (this._ws === authenticatedSocket) {
+                                this._ws?.close(
+                                    CLIENT_RECONNECT_CLOSE_CODE,
+                                    'http-seed-failed'
+                                );
+                            }
                         }
-                        // Send sync-request after seed (success or failure)
-                        this._sendInitialSyncRequest(authenticatedSocket);
                     })();
                 } else {
                     if (!this._hasSynced) {

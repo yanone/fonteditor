@@ -1106,13 +1106,8 @@ export class CloudPlugin extends FilesystemPlugin {
     }
 
     async handleSaveAs(name: string): Promise<boolean> {
-        try {
-            await this.saveAs(name);
-            return true;
-        } catch (err) {
-            alert(`Failed to save to cloud: ${(err as Error).message}`);
-            return false;
-        }
+        await this.saveAs(name);
+        return true;
     }
 
     async handleOpenPath(path: string): Promise<boolean> {
@@ -1652,6 +1647,7 @@ export class CloudPlugin extends FilesystemPlugin {
             nextToken: string,
             nextWsUrl: string,
             options?: {
+                bootstrapMode?: 'required' | 'skip';
                 suppressSyncComplete?: boolean;
                 reportConnectionStatus?: boolean;
             }
@@ -1689,7 +1685,9 @@ export class CloudPlugin extends FilesystemPlugin {
                 }
             });
 
-            await adapter.connectDirect(bridgeToConnect, nextToken, nextWsUrl);
+            await adapter.connectDirect(bridgeToConnect, nextToken, nextWsUrl, {
+                bootstrapMode: options?.bootstrapMode ?? 'required'
+            });
 
             const timeout = new Promise<never>((_, rej) =>
                 setTimeout(
@@ -1709,6 +1707,7 @@ export class CloudPlugin extends FilesystemPlugin {
             token,
             wsUrl,
             {
+                bootstrapMode: 'required',
                 suppressSyncComplete: true,
                 reportConnectionStatus: false
             }
@@ -1911,6 +1910,7 @@ export class CloudPlugin extends FilesystemPlugin {
         const connectAndWaitForSync = async (
             bridgeToConnect: PatchSyncEngine,
             options?: {
+                bootstrapMode?: 'required' | 'skip';
                 reportConnectionStatus?: boolean;
             }
         ): Promise<CloudAdapter> => {
@@ -1946,7 +1946,9 @@ export class CloudPlugin extends FilesystemPlugin {
                 }
             });
 
-            await adapter.connectDirect(bridgeToConnect, token, wsUrl);
+            await adapter.connectDirect(bridgeToConnect, token, wsUrl, {
+                bootstrapMode: options?.bootstrapMode ?? 'required'
+            });
 
             const timeout = new Promise<never>((_, rej) =>
                 setTimeout(
@@ -1964,9 +1966,19 @@ export class CloudPlugin extends FilesystemPlugin {
         assertCloudBridgeStateCanBeSaved(liveBridge);
 
         try {
-            this._cloudAdapter = await connectAndWaitForSync(liveBridge);
+            this._cloudAdapter = await connectAndWaitForSync(liveBridge, {
+                bootstrapMode: 'skip'
+            });
+            await this._finalizePendingAsset(assetId);
         } catch (error) {
             this._disconnectCurrent();
+            await this._abortPendingAsset(assetId).catch((abortError) => {
+                console.warn(
+                    '[CloudPlugin]',
+                    'Failed to abort pending cloud asset:',
+                    abortError
+                );
+            });
             throw error;
         }
 
@@ -2258,5 +2270,38 @@ export class CloudPlugin extends FilesystemPlugin {
         }
         this._cacheAssetRole(assetId, extractRoleFromRoomToken(data.token));
         return data;
+    }
+
+    private async _finalizePendingAsset(assetId: string): Promise<void> {
+        const url = `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(assetId)}/finalize`;
+        const resp = await fetch(url, {
+            method: 'POST',
+            cache: 'no-store',
+            credentials: 'include',
+            headers: getCloudRequestHeaders({
+                'Content-Type': 'application/json'
+            })
+        });
+        if (!resp.ok) {
+            const body = await resp.text().catch(() => '');
+            throw new Error(`finalize request failed: ${resp.status} ${body}`);
+        }
+    }
+
+    private async _abortPendingAsset(assetId: string): Promise<void> {
+        const url = `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(assetId)}/abort`;
+        const resp = await fetch(url, {
+            method: 'POST',
+            cache: 'no-store',
+            credentials: 'include',
+            headers: getCloudRequestHeaders({
+                'Content-Type': 'application/json'
+            }),
+            body: JSON.stringify({ reason: 'bootstrap_failed' })
+        });
+        if (!resp.ok) {
+            const body = await resp.text().catch(() => '');
+            throw new Error(`abort request failed: ${resp.status} ${body}`);
+        }
     }
 }
