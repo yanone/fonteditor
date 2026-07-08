@@ -68,12 +68,15 @@ Use explicit environment-scoped origin policy.
 
 1. Production accepts only configured production origins.
 2. Preview accepts production plus configured preview origins.
-3. Localhost and arbitrary local ports are accepted only when `LOCAL_DEV ===
-"true"` or when the request host itself is local.
+3. Localhost and arbitrary local ports are accepted only when they are
+explicitly allowlisted and, for insecure local token fallback, when
+`AUTH_TOKEN_ALLOW_INSECURE_LOCAL_FALLBACK === "true"` on a local request.
 4. Credentialed CORS must never be returned for an unconfigured production
    origin.
 5. The website and room worker must share the same origin policy vocabulary:
-   `WEBSITE_ALLOWED_ORIGINS`, `EDITOR_ALLOWED_ORIGINS`, and `LOCAL_DEV`.
+      `WEBSITE_ALLOWED_ORIGINS`, `EDITOR_ALLOWED_ORIGINS`,
+      `AUTH_TOKEN_ALLOW_INSECURE_LOCAL_FALLBACK`, and
+      `LOCAL_CLOUD_DEV_ENABLED`.
 
 ### Implementation Checklist
 
@@ -87,8 +90,10 @@ Use explicit environment-scoped origin policy.
 - [x] Add a production default deny behavior for unknown origins: no
       `Access-Control-Allow-Origin`, no `Access-Control-Allow-Credentials`, and
       no useful preflight grant.
-- [ ] Keep local worktree support by setting `LOCAL_DEV=true` in local wrangler
-      state and local Playwright helpers.
+- [ ] Keep local worktree support by explicitly allowlisting localhost origins
+      and setting `AUTH_TOKEN_ALLOW_INSECURE_LOCAL_FALLBACK=true` plus
+      `LOCAL_CLOUD_DEV_ENABLED=true` only in local wrangler state and local
+      Playwright helpers.
 - [x] Remove or reduce auth-token prefix logging in middleware so production
       logs do not contain reusable token material.
 - [x] Confirm website session cookies include `HttpOnly`, `Secure`, and an

@@ -83,7 +83,6 @@ class AuthManager {
     async checkURLForSessionToken(): Promise<void> {
         const urlParams = new URLSearchParams(window.location.search);
         const handoffCode = urlParams.get('handoff');
-        const sessionToken = urlParams.get('session');
 
         if (handoffCode) {
             console.log('[Auth] Auth handoff code found in URL');
@@ -113,33 +112,12 @@ class AuthManager {
                 }
             } finally {
                 urlParams.delete('handoff');
-                urlParams.delete('session');
                 this.replaceUrlAuthParams(urlParams);
             }
             return;
         }
 
-        if (sessionToken) {
-            console.log(
-                '[Auth] Session token found in URL:',
-                sessionToken.substring(0, 20) + '...'
-            );
-
-            this.storeEditorSessionToken(sessionToken);
-
-            console.log('[Auth] Cookie set, verifying...');
-            const verification = this.getSessionToken();
-            console.log(
-                '[Auth] Cookie verified:',
-                verification ? 'SUCCESS' : 'FAILED'
-            );
-
-            // Clean up URL
-            urlParams.delete('session');
-            this.replaceUrlAuthParams(urlParams);
-        } else {
-            console.log('[Auth] No session token in URL');
-        }
+        console.log('[Auth] No auth handoff code in URL');
     }
 
     private replaceUrlAuthParams(urlParams: URLSearchParams): void {
