@@ -1685,19 +1685,29 @@ export class CloudPlugin extends FilesystemPlugin {
                 }
             });
 
-            await adapter.connectDirect(bridgeToConnect, nextToken, nextWsUrl, {
-                bootstrapMode: options?.bootstrapMode ?? 'required'
-            });
+            try {
+                await adapter.connectDirect(
+                    bridgeToConnect,
+                    nextToken,
+                    nextWsUrl,
+                    {
+                        bootstrapMode: options?.bootstrapMode ?? 'required'
+                    }
+                );
 
-            const timeout = new Promise<never>((_, rej) =>
-                setTimeout(
-                    () => rej(new Error('cloud sync timed out')),
-                    estimateCloudTransferTimeoutMs()
-                )
-            );
-            await Promise.race([connectedPromise, timeout]);
+                const timeout = new Promise<never>((_, rej) =>
+                    setTimeout(
+                        () => rej(new Error('cloud sync timed out')),
+                        estimateCloudTransferTimeoutMs()
+                    )
+                );
+                await Promise.race([connectedPromise, timeout]);
 
-            return adapter;
+                return adapter;
+            } catch (error) {
+                adapter.disconnect();
+                throw error;
+            }
         };
 
         // Temporary bridge receives the initial CRDT state from the room.
@@ -1946,19 +1956,24 @@ export class CloudPlugin extends FilesystemPlugin {
                 }
             });
 
-            await adapter.connectDirect(bridgeToConnect, token, wsUrl, {
-                bootstrapMode: options?.bootstrapMode ?? 'required'
-            });
+            try {
+                await adapter.connectDirect(bridgeToConnect, token, wsUrl, {
+                    bootstrapMode: options?.bootstrapMode ?? 'required'
+                });
 
-            const timeout = new Promise<never>((_, rej) =>
-                setTimeout(
-                    () => rej(new Error('cloud save timed out')),
-                    estimateCloudTransferTimeoutMs(estimatedSaveBytes)
-                )
-            );
-            await Promise.race([connectedPromise, timeout]);
+                const timeout = new Promise<never>((_, rej) =>
+                    setTimeout(
+                        () => rej(new Error('cloud save timed out')),
+                        estimateCloudTransferTimeoutMs(estimatedSaveBytes)
+                    )
+                );
+                await Promise.race([connectedPromise, timeout]);
 
-            return adapter;
+                return adapter;
+            } catch (error) {
+                adapter.disconnect();
+                throw error;
+            }
         };
 
         this._disconnectCurrent();

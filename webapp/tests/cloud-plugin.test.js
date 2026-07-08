@@ -8,6 +8,7 @@ jest.mock('../js/logger', () => ({
 
 const mockConnectDirect = jest.fn().mockResolvedValue();
 const mockConnect = jest.fn().mockResolvedValue();
+const mockDisconnect = jest.fn();
 const mockRebindToCurrentBridge = jest.fn();
 const mockYDocToJson = jest.fn();
 const { TextEncoder } = require('util');
@@ -46,7 +47,9 @@ jest.mock('../js/cloud-adapter', () => ({
             }
         }),
         rebindToCurrentBridge: mockRebindToCurrentBridge,
-        disconnect: jest.fn(),
+        disconnect: jest.fn(() => {
+            mockDisconnect();
+        }),
         status: 'disconnected'
     })),
     normalizeCloudRoomWebSocketUrl: jest.fn((roomUrl) => roomUrl)
@@ -189,6 +192,7 @@ describe('CloudPlugin.openAsset', () => {
     beforeEach(() => {
         mockConnectDirect.mockClear();
         mockConnect.mockClear();
+        mockDisconnect.mockClear();
         mockConnectDirectStatusQueue = [];
         mockRebindToCurrentBridge.mockClear();
         mockYDocToJson.mockReset();
@@ -560,6 +564,7 @@ describe('CloudPlugin.openAsset', () => {
             'cloud sync timed out'
         );
 
+        expect(mockDisconnect).toHaveBeenCalledTimes(1);
         expect(plugin.activeAssetId).toBeNull();
         expect(window.fontManager.currentFont.path).toBe(
             '/user/Save Source.babelfont'
