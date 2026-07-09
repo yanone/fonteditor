@@ -35,6 +35,7 @@ import {
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import { reloadLinkedEditorWindows } from './window-buttons';
 import { updateUrlState } from './url-state';
+import { shouldHandleOpenPathBeforeEditorReady } from './open-font-readiness';
 
 const console = new Logger('FileBrowser');
 
@@ -1712,6 +1713,28 @@ async function openFont(
     timelineMark('font.open.requested');
 
     try {
+        const sourcePluginId = sourcePlugin.getId();
+        const shouldHandleOpenPathEarly = shouldHandleOpenPathBeforeEditorReady(
+            sourcePluginId,
+            path
+        );
+
+        if (
+            shouldHandleOpenPathEarly &&
+            (await sourcePlugin.handleOpenPath(path))
+        ) {
+            const normalizedPath = path.startsWith('cloud://')
+                ? path.slice('cloud://'.length)
+                : path;
+            const fileUri = createFileUri(sourcePluginId, normalizedPath);
+            syncEditorFileState(fileUri, 'file_opened');
+            if (options.closeDialogOnSuccess) {
+                closeFontFileDialog();
+            }
+            timelineSpanEnd(openSpan);
+            return;
+        }
+
         const pythonReadySpan = timelineSpanStart('font.open.waitForPython');
         try {
             await waitForPythonEnvironmentReady();
@@ -1720,12 +1743,11 @@ async function openFont(
         }
 
         if (await sourcePlugin.handleOpenPath(path)) {
-            const pluginId = sourcePlugin.getId();
             const normalizedPath =
-                pluginId === 'cloud' && path.startsWith('cloud://')
+                sourcePluginId === 'cloud' && path.startsWith('cloud://')
                     ? path.slice('cloud://'.length)
                     : path;
-            const fileUri = createFileUri(pluginId, normalizedPath);
+            const fileUri = createFileUri(sourcePluginId, normalizedPath);
             syncEditorFileState(fileUri, 'file_opened');
             if (options.closeDialogOnSuccess) {
                 closeFontFileDialog();
