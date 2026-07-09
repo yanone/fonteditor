@@ -352,7 +352,6 @@ class AuthManager {
      * Get session token from cookie
      */
     getSessionToken(): string | null {
-        console.log('[Auth] All cookies:', document.cookie);
         const cookies = document.cookie.split(';');
         for (const cookie of cookies) {
             const trimmedCookie = cookie.trim();
@@ -364,14 +363,9 @@ class AuthManager {
             const name = trimmedCookie.slice(0, separatorIndex);
             const value = trimmedCookie.slice(separatorIndex + 1);
             if (name === 'editor_session') {
-                console.log(
-                    '[Auth] Found editor session cookie:',
-                    value.substring(0, 20) + '...'
-                );
                 return value;
             }
         }
-        console.log('[Auth] Editor session cookie not found');
         return null;
     }
 

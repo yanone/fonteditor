@@ -91,4 +91,23 @@ describe('AuthManager.checkAuthStatus', () => {
         expect(replaceStateSpy).toHaveBeenCalled();
         expect(window.location.search).toBe('');
     });
+
+    it('does not log raw session cookie values when reading the editor session token', async () => {
+        require('../js/auth-manager');
+
+        const authManager = window.authManager;
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+        document.cookie = 'editor_session=signed-editor-token; Path=/';
+        document.cookie = 'other_cookie=visible-but-irrelevant; Path=/';
+
+        expect(authManager.getSessionToken()).toBe('signed-editor-token');
+        expect(logSpy).not.toHaveBeenCalledWith(
+            '[Auth] All cookies:',
+            expect.stringContaining('signed-editor-token')
+        );
+        expect(logSpy).not.toHaveBeenCalledWith(
+            '[Auth] Found editor session cookie:',
+            expect.stringContaining('signed-editor-token')
+        );
+    });
 });

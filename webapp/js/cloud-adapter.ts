@@ -563,6 +563,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _resyncRequestedAfterNoopUpdate = false;
     private _initialServerStateApplied = false;
     private _initialSyncDurable = false;
+    private _canSkipBootstrapOnReconnect = false;
     private _needsVisibleRebaseline = false;
     private _visibleRebaselinePromise: Promise<void> | null = null;
     private _workerBridgeSyncPromise: Promise<void> | null = null;
@@ -626,6 +627,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._incomingLiveUpdateChunks.clear();
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
+        this._canSkipBootstrapOnReconnect = false;
         this._lastInboundMessageAt = 0;
         this._terminalCloseDetail = null;
         this._visibleRebaselinePromise = null;
@@ -666,6 +668,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._incomingLiveUpdateChunks.clear();
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
+        this._canSkipBootstrapOnReconnect = false;
         this._lastInboundMessageAt = 0;
         this._terminalCloseDetail = null;
         this._visibleRebaselinePromise = null;
@@ -713,6 +716,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._inboundFlushScheduled = false;
         this._initialServerStateApplied = false;
         this._initialSyncDurable = false;
+        this._canSkipBootstrapOnReconnect = false;
         this._lastInboundMessageAt = 0;
         this._terminalCloseDetail = null;
         this._needsVisibleRebaseline = false;
@@ -1069,28 +1073,36 @@ export class CloudAdapter implements FileSystemAdapter {
         if (this._destroyed) return;
         try {
             const { token, roomUrl } = await this._fetchRoomToken();
+            const normalizedWsUrl = normalizeCloudRoomWebSocketUrl(
+                roomUrl,
+                this._websiteBaseUrl
+            );
 
-            // Phase 5: Try to bootstrap from R2 before opening WebSocket.
-            // Downloads the latest checkpoint as raw binary, applies it to
-            // the bridge, and captures the checkpointLogId for the
-            // subsequent sync-request. Falls back to WebSocket-only on
-            // 404 (no checkpoint) or 503 (R2 failure).
             this._checkpointLogId = null;
-            try {
-                await this._bootstrapFromR2(token, roomUrl);
-            } catch (err) {
-                // Non-fatal — fall back to WebSocket-only sync
-                const msg = err instanceof Error ? err.message : String(err);
+            if (!this._canSkipBootstrapOnReconnect) {
+                // Phase 5: Try to bootstrap from R2 before opening WebSocket.
+                // Downloads the latest checkpoint as raw binary, applies it to
+                // the bridge, and captures the checkpointLogId for the
+                // subsequent sync-request. Falls back to WebSocket-only on
+                // 404 (no checkpoint) or 503 (R2 failure).
+                try {
+                    await this._bootstrapFromR2(token, roomUrl);
+                } catch (err) {
+                    // Non-fatal — fall back to WebSocket-only sync
+                    const msg =
+                        err instanceof Error ? err.message : String(err);
+                    console.log(
+                        `CloudAdapter: R2 bootstrap skipped (${msg}), falling back to WebSocket sync`
+                    );
+                    this._checkpointLogId = null;
+                }
+            } else {
                 console.log(
-                    `CloudAdapter: R2 bootstrap skipped (${msg}), falling back to WebSocket sync`
+                    'CloudAdapter: skipping R2 bootstrap on reconnect; bridge already hydrated'
                 );
-                this._checkpointLogId = null;
             }
 
-            await this._openWebSocket(
-                token,
-                normalizeCloudRoomWebSocketUrl(roomUrl, this._websiteBaseUrl)
-            );
+            await this._openWebSocket(token, normalizedWsUrl);
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             console.error('CloudAdapter: connection failed:', msg);
@@ -1807,6 +1819,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 await this._visibleRebaselinePromise;
             }
             if (!this._canMarkInitialSyncConnected(syncGeneration)) return;
+            this._canSkipBootstrapOnReconnect = true;
             this._setStatus('connected');
         }
     }

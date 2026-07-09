@@ -284,6 +284,48 @@ describe('CloudAdapter outbound updates', () => {
         }
     });
 
+    it('skips R2 bootstrap on routine reconnect after an established sync', async () => {
+        const originalFetch = global.fetch;
+        const openWebSocket = jest.fn().mockResolvedValue(undefined);
+        const bootstrapFromR2 = jest.fn().mockResolvedValue(undefined);
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space'
+        });
+
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            headers: new Headers({
+                'content-type': 'application/json'
+            }),
+            json: async () => ({
+                token: 'room-token',
+                roomUrl:
+                    'https://fonts-room.fonteditor.workers.dev/room/asset-123'
+            }),
+            text: async () => ''
+        });
+        adapter._openWebSocket = openWebSocket;
+        adapter._bootstrapFromR2 = bootstrapFromR2;
+        adapter._bridge = {
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+        adapter._canSkipBootstrapOnReconnect = true;
+
+        try {
+            await adapter._connectWebSocket();
+
+            expect(bootstrapFromR2).not.toHaveBeenCalled();
+            expect(openWebSocket).toHaveBeenCalledWith(
+                'room-token',
+                'wss://fonts-room.fonteditor.workers.dev/room/asset-123'
+            );
+        } finally {
+            global.fetch = originalFetch;
+        }
+    });
+
     it('imports persisted mutation history from sync-response bootstrap', () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
         const historyEntry = createLogEntry({
