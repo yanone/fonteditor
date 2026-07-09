@@ -183,6 +183,7 @@ const AUTHENTICATION_MAX_WAIT_MS = 30000;
 const OUTBOUND_ACK_TIMEOUT_MS = 10000;
 const OUTBOUND_ACK_MAX_WAIT_MS = 30000;
 const INITIAL_SYNC_TIMEOUT_MS = 10000;
+const INITIAL_SYNC_MAX_WAIT_MS = 30000;
 
 export type CloudConnectionStatus =
     | 'disconnected'
@@ -2423,12 +2424,45 @@ export class CloudAdapter implements FileSystemAdapter {
         this._outboundAckSentAtBySeq.clear();
     }
 
-    private _armInitialSyncTimeout(): void {
+    private _armInitialSyncTimeout(
+        startedAt = Date.now(),
+        delayOverrideMs = INITIAL_SYNC_TIMEOUT_MS
+    ): void {
         this._clearInitialSyncTimeout();
         this._initialSyncTimer = setTimeout(() => {
             this._initialSyncTimer = null;
+
+            if (
+                this._destroyed ||
+                this._status !== 'syncing' ||
+                !this._ws ||
+                this._ws.readyState !== WebSocket.OPEN
+            ) {
+                return;
+            }
+
+            if (
+                this._hasSynced &&
+                this._initialServerStateApplied &&
+                this._initialSyncDurable
+            ) {
+                return;
+            }
+
+            const syncAgeMs = Date.now() - startedAt;
+            if (syncAgeMs < INITIAL_SYNC_MAX_WAIT_MS) {
+                console.warn(
+                    `CloudAdapter: initial sync still pending after ${syncAgeMs}ms; waiting before reconnect`
+                );
+                this._armInitialSyncTimeout(
+                    startedAt,
+                    INITIAL_SYNC_MAX_WAIT_MS - syncAgeMs
+                );
+                return;
+            }
+
             this._handleInitialSyncTimeout();
-        }, INITIAL_SYNC_TIMEOUT_MS);
+        }, delayOverrideMs);
     }
 
     private _clearInitialSyncTimeout(): void {

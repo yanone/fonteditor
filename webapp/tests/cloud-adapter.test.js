@@ -2300,7 +2300,7 @@ describe('CloudAdapter durability failures', () => {
         }
     });
 
-    it('reconnects when initial sync-complete durability stalls in syncing', () => {
+    it('allows a grace period before reconnecting when initial sync-complete durability stalls in syncing', () => {
         jest.useFakeTimers();
 
         const statuses = [];
@@ -2325,6 +2325,9 @@ describe('CloudAdapter durability failures', () => {
         const scheduleReconnect = jest
             .spyOn(adapter, '_scheduleReconnect')
             .mockImplementation(() => {});
+        const warnSpy = jest
+            .spyOn(console, 'warn')
+            .mockImplementation(() => {});
 
         try {
             adapter._armInitialSyncTimeout();
@@ -2332,6 +2335,24 @@ describe('CloudAdapter durability failures', () => {
             expect(adapter.status).toBe('syncing');
 
             jest.advanceTimersByTime(10000);
+
+            expect(warnSpy).toHaveBeenCalledWith(
+                '[CloudAdapter]',
+                'CloudAdapter: initial sync still pending after 10000ms; waiting before reconnect'
+            );
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+            expect(socket.close).not.toHaveBeenCalled();
+            expect(adapter._ws).toBe(socket);
+            expect(adapter._hasSynced).toBe(true);
+            expect(adapter._initialServerStateApplied).toBe(true);
+            expect(adapter._initialSyncDurable).toBe(false);
+
+            jest.advanceTimersByTime(19999);
+
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+            expect(socket.close).not.toHaveBeenCalled();
+
+            jest.advanceTimersByTime(1);
 
             expect(statuses).toContainEqual({
                 status: 'connecting',
@@ -2344,6 +2365,7 @@ describe('CloudAdapter durability failures', () => {
             expect(adapter._initialSyncDurable).toBe(false);
             expect(adapter._hasSynced).toBe(false);
         } finally {
+            warnSpy.mockRestore();
             scheduleReconnect.mockRestore();
             adapter.disconnect();
             jest.useRealTimers();
