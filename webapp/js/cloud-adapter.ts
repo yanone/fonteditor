@@ -598,6 +598,10 @@ export class CloudAdapter implements FileSystemAdapter {
         return this._assetId;
     }
 
+    get checkpointLogId(): number | null {
+        return this._checkpointLogId;
+    }
+
     get pendingSyncCount(): number {
         return this._durableOutboxEntries.size;
     }
@@ -657,6 +661,7 @@ export class CloudAdapter implements FileSystemAdapter {
         roomUrl: string,
         options?: {
             bootstrapMode?: 'required' | 'skip';
+            checkpointLogId?: number | null;
         }
     ): Promise<void> {
         if (this._destroyed) {
@@ -686,7 +691,9 @@ export class CloudAdapter implements FileSystemAdapter {
         }
         this._setStatus('connecting');
 
-        this._checkpointLogId = null;
+        this._checkpointLogId = Number.isInteger(options?.checkpointLogId)
+            ? (options?.checkpointLogId as number)
+            : null;
         if (options?.bootstrapMode !== 'skip') {
             await this._bootstrapFromR2(token, roomUrl);
         }
@@ -1078,8 +1085,8 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._websiteBaseUrl
             );
 
-            this._checkpointLogId = null;
             if (!this._canSkipBootstrapOnReconnect) {
+                this._checkpointLogId = null;
                 // Phase 5: Try to bootstrap from R2 before opening WebSocket.
                 // Downloads the latest checkpoint as raw binary, applies it to
                 // the bridge, and captures the checkpointLogId for the
@@ -1293,7 +1300,6 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._clientId = null;
                 this._markVisibleRebaselineNeeded();
                 this._hasSynced = false;
-                this._checkpointLogId = null;
                 this._lastInboundMessageAt = 0;
                 this._incomingResponseChunks = null;
                 this._initialServerStateApplied = false;

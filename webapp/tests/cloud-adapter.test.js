@@ -1309,6 +1309,82 @@ describe('CloudAdapter outbound updates', () => {
         expect(bridge.advanceBroadcastLogCursor).toHaveBeenCalledWith(1);
     });
 
+    it('clears a timed-out pending transaction when reconnect history already contains it', async () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        let localUpdateHandler = null;
+        const localUpdate = new Uint8Array([1, 2, 3, 4]);
+        const changeLogEntries = [
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'client-1',
+                windowRoleLabel: 'main',
+                transactionLabel: 'Live edit',
+                transactionId: 4,
+                op: 'set',
+                undoScope: 'glyph',
+                path: 'glyphs.C:name',
+                oldValue: 'C',
+                newValue: 'C.alt',
+                workerReplayTargets: []
+            })
+        ];
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                changeLogEntries,
+                {
+                    localSequence: 4,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            );
+        const bridge = {
+            mergeImportedChangeLog: jest.fn(),
+            mergeImportedCollaborationMessages: jest.fn(),
+            applyFullState: jest.fn(),
+            onLocalUpdate: (handler) => {
+                localUpdateHandler = handler;
+            },
+            offLocalUpdate: jest.fn(),
+            encodeStateDiff: jest.fn(() => new Uint8Array()),
+            getNewChangeLogEntries: jest.fn(() => []),
+            advanceBroadcastLogCursor: jest.fn(),
+            windowId: 'client-1'
+        };
+
+        adapter._bridge = bridge;
+        adapter._ws = {
+            readyState: 1,
+            send: jest.fn(),
+            close: jest.fn()
+        };
+        adapter._clientId = 'client-1';
+        adapter._status = 'connected';
+        adapter._hasSynced = true;
+
+        adapter._registerOutboundHook();
+        localUpdateHandler(localUpdate, collaborationMessage);
+        await Promise.resolve();
+
+        expect(adapter.pendingSyncCount).toBe(1);
+
+        adapter._resetLiveAckTracking();
+        adapter._resetBootstrapStateForReconnect();
+        adapter._status = 'syncing';
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'sync-response',
+                update: '',
+                serverStateVector: Buffer.from([8, 9, 10]).toString('base64'),
+                collaborationMessageHistory: [collaborationMessage]
+            })
+        );
+
+        expect(adapter.pendingSyncCount).toBe(0);
+        expect(adapter._pendingDurabilityMessages).toEqual([]);
+        expect(adapter._pendingOutboundPackets).toEqual([]);
+    });
+
     it('rehydrates persisted durable outbox entries into the bridge before reconnect sync', async () => {
         const originalIndexedDb = global.indexedDB;
         const changeLogEntries = [
@@ -2890,6 +2966,55 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
         expect(syncRequest.checkpointLogId).toBe(77);
         expect(syncRequest.fullState).toBeUndefined();
         expect(syncRequest.update).toBeUndefined();
+    });
+
+    it('sends an inherited checkpointLogId in sync-request when reconnect skips HTTP bootstrap', async () => {
+        const adapter = makeAdapter();
+        var sentMessages = [];
+
+        adapter._bridge = {
+            encodeBridgeStateVector: function () {
+                return new Uint8Array([1, 2, 3]);
+            },
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        global.WebSocket = function FakeWebSocket() {
+            this.readyState = 1;
+            this.send = function (data) {
+                sentMessages.push(JSON.parse(data));
+            };
+            this.close = function () {};
+        };
+
+        await adapter.connectDirect(
+            adapter._bridge,
+            'room-token',
+            'wss://rooms.example.com/room/asset-123',
+            {
+                bootstrapMode: 'skip',
+                checkpointLogId: 77
+            }
+        );
+
+        await new Promise(function (r) {
+            setTimeout(r, 50);
+        });
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'auth-ok',
+                clientId: 'client-1',
+                roomSchemaVersion: 2
+            })
+        );
+
+        var syncRequest = sentMessages.find(function (message) {
+            return message.type === 'sync-request';
+        });
+        expect(syncRequest).toBeDefined();
+        expect(syncRequest.checkpointLogId).toBe(77);
     });
 
     it('fails closed on 404 (no checkpoint) when bootstrap is required', async () => {

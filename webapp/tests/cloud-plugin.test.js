@@ -15,43 +15,56 @@ const { TextEncoder } = require('util');
 let mockConnectDirectStatusQueue = [];
 
 jest.mock('../js/cloud-adapter', () => ({
-    CloudAdapter: jest.fn().mockImplementation((options = {}) => ({
-        cacheAssetRole: jest.fn(),
-        getCachedAssetRole: jest.fn().mockReturnValue(null),
-        connectDirect: jest.fn(async (...args) => {
-            mockConnectDirect(...args);
-            const queuedStatuses = mockConnectDirectStatusQueue.length
-                ? mockConnectDirectStatusQueue.shift()
-                : [{ status: 'connected' }];
-            if (typeof options.onConnectionStatus === 'function') {
-                for (const statusEntry of queuedStatuses) {
-                    options.onConnectionStatus(
-                        statusEntry.status,
-                        statusEntry.detail
-                    );
+    CloudAdapter: jest.fn().mockImplementation((options = {}) => {
+        const adapter = {
+            cacheAssetRole: jest.fn(),
+            getCachedAssetRole: jest.fn().mockReturnValue(null),
+            checkpointLogId: null,
+            connectDirect: jest.fn(async (...args) => {
+                mockConnectDirect(...args);
+                if (typeof args[3]?.checkpointLogId === 'number') {
+                    adapter.checkpointLogId = args[3].checkpointLogId;
+                } else if (
+                    args[3]?.bootstrapMode === 'required' &&
+                    adapter.checkpointLogId === null
+                ) {
+                    adapter.checkpointLogId = 42;
                 }
-            }
-        }),
-        connect: jest.fn(async (...args) => {
-            mockConnect(...args);
-            const queuedStatuses = mockConnectDirectStatusQueue.length
-                ? mockConnectDirectStatusQueue.shift()
-                : [{ status: 'connected' }];
-            if (typeof options.onConnectionStatus === 'function') {
-                for (const statusEntry of queuedStatuses) {
-                    options.onConnectionStatus(
-                        statusEntry.status,
-                        statusEntry.detail
-                    );
+                const queuedStatuses = mockConnectDirectStatusQueue.length
+                    ? mockConnectDirectStatusQueue.shift()
+                    : [{ status: 'connected' }];
+                if (typeof options.onConnectionStatus === 'function') {
+                    for (const statusEntry of queuedStatuses) {
+                        options.onConnectionStatus(
+                            statusEntry.status,
+                            statusEntry.detail
+                        );
+                    }
                 }
-            }
-        }),
-        rebindToCurrentBridge: mockRebindToCurrentBridge,
-        disconnect: jest.fn(() => {
-            mockDisconnect();
-        }),
-        status: 'disconnected'
-    })),
+            }),
+            connect: jest.fn(async (...args) => {
+                mockConnect(...args);
+                const queuedStatuses = mockConnectDirectStatusQueue.length
+                    ? mockConnectDirectStatusQueue.shift()
+                    : [{ status: 'connected' }];
+                if (typeof options.onConnectionStatus === 'function') {
+                    for (const statusEntry of queuedStatuses) {
+                        options.onConnectionStatus(
+                            statusEntry.status,
+                            statusEntry.detail
+                        );
+                    }
+                }
+            }),
+            rebindToCurrentBridge: mockRebindToCurrentBridge,
+            disconnect: jest.fn(() => {
+                mockDisconnect();
+            }),
+            status: 'disconnected'
+        };
+
+        return adapter;
+    }),
     normalizeCloudRoomWebSocketUrl: jest.fn((roomUrl) => roomUrl)
 }));
 
@@ -324,10 +337,12 @@ describe('CloudPlugin.openAsset', () => {
 
         expect(mockConnectDirect).toHaveBeenCalledTimes(2);
         expect(mockConnectDirect.mock.calls[0][3]).toEqual({
-            bootstrapMode: 'required'
+            bootstrapMode: 'required',
+            checkpointLogId: null
         });
         expect(mockConnectDirect.mock.calls[1][3]).toEqual({
-            bootstrapMode: 'skip'
+            bootstrapMode: 'skip',
+            checkpointLogId: 42
         });
         expect(mockConnectDirect.mock.calls[0][0]).not.toBe(
             mockConnectDirect.mock.calls[1][0]
@@ -350,7 +365,8 @@ describe('CloudPlugin.openAsset', () => {
 
         expect(mockConnectDirect).toHaveBeenCalledTimes(2);
         expect(mockConnectDirect.mock.calls[1][3]).toEqual({
-            bootstrapMode: 'skip'
+            bootstrapMode: 'skip',
+            checkpointLogId: 42
         });
     });
 

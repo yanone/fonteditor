@@ -1891,6 +1891,7 @@ export class CloudPlugin extends FilesystemPlugin {
             nextWsUrl: string,
             options?: {
                 bootstrapMode?: 'required' | 'skip';
+                checkpointLogId?: number | null;
                 suppressSyncComplete?: boolean;
                 reportConnectionStatus?: boolean;
             }
@@ -1934,7 +1935,8 @@ export class CloudPlugin extends FilesystemPlugin {
                     nextToken,
                     nextWsUrl,
                     {
-                        bootstrapMode: options?.bootstrapMode ?? 'required'
+                        bootstrapMode: options?.bootstrapMode ?? 'required',
+                        checkpointLogId: options?.checkpointLogId ?? null
                     }
                 );
 
@@ -1983,6 +1985,7 @@ export class CloudPlugin extends FilesystemPlugin {
         const babelfontJson = JSON.stringify(fontJson);
         const bridgeState = tempBridge.getFullState();
         const bootstrapChangeLog = tempBridge.getChangeLog();
+        const bootstrapCheckpointLogId = bootstrapAdapter.checkpointLogId;
         bootstrapAdapter.disconnect();
 
         this._activeAssetId = assetId;
@@ -2043,7 +2046,8 @@ export class CloudPlugin extends FilesystemPlugin {
                         liveTokenResponse.token,
                         liveWsUrl,
                         {
-                            bootstrapMode: 'skip'
+                            bootstrapMode: 'skip',
+                            checkpointLogId: bootstrapCheckpointLogId
                         }
                     );
                     this._startTrackingActiveAssetSize(assetId, liveBridge);
