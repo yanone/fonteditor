@@ -179,6 +179,7 @@ async function parseRequiredJsonResponse<T>(
 const SYNC_CHUNK_SIZE = 750_000;
 const CLIENT_RECONNECT_CLOSE_CODE = 4000;
 const AUTHENTICATION_TIMEOUT_MS = 10000;
+const AUTHENTICATION_MAX_WAIT_MS = 30000;
 const OUTBOUND_ACK_TIMEOUT_MS = 10000;
 const OUTBOUND_ACK_MAX_WAIT_MS = 30000;
 const INITIAL_SYNC_TIMEOUT_MS = 10000;
@@ -539,6 +540,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _destroyed = false;
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private _authenticationTimer: ReturnType<typeof setTimeout> | null = null;
+    private _authenticationStartedAt = 0;
     private _outboundAckTimer: ReturnType<typeof setTimeout> | null = null;
     private _initialSyncTimer: ReturnType<typeof setTimeout> | null = null;
     private _lastInboundMessageAt = 0;
@@ -2564,14 +2566,32 @@ export class CloudAdapter implements FileSystemAdapter {
         this._scheduleReconnect();
     }
 
-    private _armAuthenticationTimeout(ws: WebSocket): void {
+    private _armAuthenticationTimeout(
+        ws: WebSocket,
+        startedAt = Date.now(),
+        delayOverrideMs = AUTHENTICATION_TIMEOUT_MS
+    ): void {
         this._clearAuthenticationTimeout();
+        this._authenticationStartedAt = startedAt;
         this._authenticationTimer = setTimeout(() => {
             if (
                 this._destroyed ||
                 this._ws !== ws ||
                 this._status !== 'authenticating'
             ) {
+                return;
+            }
+
+            const authAgeMs = Date.now() - startedAt;
+            if (authAgeMs < AUTHENTICATION_MAX_WAIT_MS) {
+                console.warn(
+                    `CloudAdapter: authentication still pending after ${authAgeMs}ms; waiting before reconnect`
+                );
+                this._armAuthenticationTimeout(
+                    ws,
+                    startedAt,
+                    AUTHENTICATION_MAX_WAIT_MS - authAgeMs
+                );
                 return;
             }
 
@@ -2589,7 +2609,7 @@ export class CloudAdapter implements FileSystemAdapter {
             }
             ws.close(CLIENT_RECONNECT_CLOSE_CODE, 'auth-timeout');
             this._scheduleReconnect();
-        }, AUTHENTICATION_TIMEOUT_MS);
+        }, delayOverrideMs);
     }
 
     private _clearAuthenticationTimeout(): void {
@@ -2597,6 +2617,7 @@ export class CloudAdapter implements FileSystemAdapter {
             clearTimeout(this._authenticationTimer);
             this._authenticationTimer = null;
         }
+        this._authenticationStartedAt = 0;
     }
 
     private _getTerminalCloseDetail(

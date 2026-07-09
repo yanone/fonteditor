@@ -469,7 +469,13 @@ if (typeof window === 'undefined') {
         console.log('[COI] Registering service worker...');
         navigator.serviceWorker
             .register(window.document.currentScript.src, {
-                scope: scope
+                scope: scope,
+                // Bypass the HTTP cache when checking for SW updates so
+                // registration.update() (focus + 10-min interval) actually
+                // sees a newly deployed coi-serviceworker.js instead of the
+                // stale max-age=14400 (4h) cached copy. Without this, focus
+                // never detects updates; only a cache-busting reload does.
+                updateViaCache: 'none'
             })
             .then(
                 (registration) => {

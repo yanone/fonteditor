@@ -1858,6 +1858,15 @@ describe('CloudAdapter durability failures', () => {
             socket.onopen();
             jest.advanceTimersByTime(10000);
 
+            expect(statuses).not.toContainEqual({
+                status: 'connecting',
+                detail: 'Cloud room authentication timed out'
+            });
+            expect(socket.close).not.toHaveBeenCalled();
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+
+            jest.advanceTimersByTime(20000);
+
             expect(socket.send).toHaveBeenCalledWith(
                 JSON.stringify({
                     type: 'auth',
@@ -1925,6 +1934,15 @@ describe('CloudAdapter durability failures', () => {
             socket.onopen();
             jest.advanceTimersByTime(10000);
 
+            expect(statuses).not.toContainEqual({
+                status: 'connecting',
+                detail: 'Cloud room authentication timed out'
+            });
+            expect(socket.close).not.toHaveBeenCalled();
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+
+            jest.advanceTimersByTime(20000);
+
             expect(statuses).toContainEqual({
                 status: 'connecting',
                 detail: 'Cloud room authentication timed out'
@@ -1935,6 +1953,88 @@ describe('CloudAdapter durability failures', () => {
 
             socket.onclose?.({ code: 4000, reason: 'auth-timeout' });
             expect(scheduleReconnect).toHaveBeenCalledTimes(1);
+        } finally {
+            scheduleReconnect.mockRestore();
+            adapter.disconnect();
+            global.WebSocket = originalWebSocket;
+            jest.useRealTimers();
+        }
+    });
+
+    it('accepts auth-ok that arrives after the warning threshold but before the hard cap', async () => {
+        jest.useFakeTimers();
+
+        const statuses = [];
+        const originalWebSocket = global.WebSocket;
+        let socket;
+
+        class FakeWebSocket {
+            constructor(_url) {
+                this.readyState = 1;
+                this.send = jest.fn();
+                this.close = jest.fn((code, reason) => {
+                    this.readyState = 3;
+                    this.onclose?.({ code, reason });
+                });
+                socket = this;
+            }
+        }
+
+        global.WebSocket = FakeWebSocket;
+
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+
+        const scheduleReconnect = jest
+            .spyOn(adapter, '_scheduleReconnect')
+            .mockImplementation(() => {});
+
+        try {
+            await adapter.connectDirect(
+                {
+                    onLocalUpdate: jest.fn(),
+                    offLocalUpdate: jest.fn(),
+                    encodeBridgeStateVector: () => new Uint8Array(0)
+                },
+                'room-token',
+                'wss://rooms.example.com/room/asset-123',
+                { bootstrapMode: 'skip' }
+            );
+
+            socket.onopen();
+            jest.advanceTimersByTime(10000);
+
+            expect(socket.close).not.toHaveBeenCalled();
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+
+            adapter._handleMessage(
+                JSON.stringify({
+                    type: 'auth-ok',
+                    clientId: 'client-1',
+                    roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION,
+                    seedRequired: false
+                })
+            );
+
+            expect(adapter._clientId).toBe('client-1');
+            expect(statuses).toContainEqual({
+                status: 'syncing',
+                detail: undefined
+            });
+
+            jest.advanceTimersByTime(20000);
+
+            expect(socket.close).not.toHaveBeenCalled();
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+            expect(statuses).not.toContainEqual({
+                status: 'connecting',
+                detail: 'Cloud room authentication timed out'
+            });
         } finally {
             scheduleReconnect.mockRestore();
             adapter.disconnect();
@@ -2291,6 +2391,12 @@ describe('CloudAdapter durability failures', () => {
             adapter._hasSynced = true;
             socket.onopen();
             jest.advanceTimersByTime(10000);
+
+            expect(adapter._ws).toBe(socket);
+            expect(adapter._hasSynced).toBe(true);
+            expect(scheduleReconnect).not.toHaveBeenCalled();
+
+            jest.advanceTimersByTime(20000);
 
             expect(adapter._ws).toBeNull();
             expect(adapter._hasSynced).toBe(false);

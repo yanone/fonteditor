@@ -2053,34 +2053,53 @@
                             }
                         );
 
-                        // Listen for controller change (new SW taking control)
+                        // Listen for controller change (new SW taking control).
+                        // The authoritative new version arrives via the
+                        // SW_UPDATED message (posted in the new SW's activate
+                        // handler). This fallback only fires when that message
+                        // hasn't arrived yet; re-fetch the SW script to read
+                        // its current VERSION rather than the value captured
+                        // at page-load time, which is the OLD version.
                         navigator.serviceWorker.addEventListener(
                             'controllerchange',
                             () => {
                                 console.log(
                                     '[PWA] 🔄 New service worker activated'
                                 );
-                                // If there's no update already pending, set one
-                                if (!window.__pendingUpdate) {
-                                    const versionSpan =
-                                        document.getElementById('app-version');
-                                    const version =
-                                        versionSpan?.dataset?.version ||
-                                        versionSpan?.textContent ||
-                                        'unknown';
-                                    window.__pendingUpdate = {
-                                        version,
-                                        isPreview: version.includes('preview')
-                                    };
-                                    document.dispatchEvent(
-                                        new CustomEvent(
-                                            'counterpunch:update-available',
-                                            {
-                                                detail: window.__pendingUpdate
-                                            }
-                                        )
-                                    );
+                                if (window.__pendingUpdate) {
+                                    return; // SW_UPDATED message already handled it
                                 }
+                                fetch('coi-serviceworker.js')
+                                    .then((response) => response.text())
+                                    .then((text) => {
+                                        if (window.__pendingUpdate) {
+                                            return; // message arrived in the meantime
+                                        }
+                                        const match = text.match(
+                                            /const\s+VERSION\s*=\s*['"](v[^\s'"]+)['"]/
+                                        );
+                                        const version =
+                                            (match && match[1]) || 'unknown';
+                                        window.__pendingUpdate = {
+                                            version,
+                                            isPreview:
+                                                version.includes('preview')
+                                        };
+                                        document.dispatchEvent(
+                                            new CustomEvent(
+                                                'counterpunch:update-available',
+                                                {
+                                                    detail: window.__pendingUpdate
+                                                }
+                                            )
+                                        );
+                                    })
+                                    .catch((err) => {
+                                        console.warn(
+                                            '[PWA] Could not read updated version:',
+                                            err
+                                        );
+                                    });
                             }
                         );
                     } else {
