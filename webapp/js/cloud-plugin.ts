@@ -2041,7 +2041,10 @@ export class CloudPlugin extends FilesystemPlugin {
                     this._cloudAdapter = await connectAndWaitForSync(
                         liveBridge,
                         liveTokenResponse.token,
-                        liveWsUrl
+                        liveWsUrl,
+                        {
+                            bootstrapMode: 'skip'
+                        }
                     );
                     this._startTrackingActiveAssetSize(assetId, liveBridge);
                     resolve();

@@ -319,7 +319,7 @@ describe('CloudPlugin.openAsset', () => {
         );
     });
 
-    test('uses required HTTP bootstrap for cloud open before attaching live room', async () => {
+    test('skips redundant HTTP bootstrap when attaching the live room after cloud open', async () => {
         await expect(plugin.openAsset('asset-1')).resolves.toBeUndefined();
 
         expect(mockConnectDirect).toHaveBeenCalledTimes(2);
@@ -327,11 +327,31 @@ describe('CloudPlugin.openAsset', () => {
             bootstrapMode: 'required'
         });
         expect(mockConnectDirect.mock.calls[1][3]).toEqual({
-            bootstrapMode: 'required'
+            bootstrapMode: 'skip'
         });
         expect(mockConnectDirect.mock.calls[0][0]).not.toBe(
             mockConnectDirect.mock.calls[1][0]
         );
+    });
+
+    test('keeps cloud open attached when the live room handoff would fail on a second HTTP bootstrap', async () => {
+        let connectDirectCallCount = 0;
+        mockConnectDirect.mockImplementation((...args) => {
+            connectDirectCallCount += 1;
+            if (
+                connectDirectCallCount === 2 &&
+                args[3]?.bootstrapMode === 'required'
+            ) {
+                throw new Error('R2 bootstrap failed: net::ERR_FAILED');
+            }
+        });
+
+        await expect(plugin.openAsset('asset-1')).resolves.toBeUndefined();
+
+        expect(mockConnectDirect).toHaveBeenCalledTimes(2);
+        expect(mockConnectDirect.mock.calls[1][3]).toEqual({
+            bootstrapMode: 'skip'
+        });
     });
 
     test('waits for initial cloud font data before throwing no-font-data', async () => {
