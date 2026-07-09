@@ -1894,14 +1894,18 @@ export class CloudPlugin extends FilesystemPlugin {
                 checkpointLogId?: number | null;
                 suppressSyncComplete?: boolean;
                 reportConnectionStatus?: boolean;
+                awaitConnected?: boolean;
             }
         ): Promise<CloudAdapter> => {
-            let resolveConnected!: () => void;
-            let rejectConnected!: (err: Error) => void;
-            const connectedPromise = new Promise<void>((res, rej) => {
-                resolveConnected = res;
-                rejectConnected = rej;
-            });
+            let resolveConnected: (() => void) | null = null;
+            let rejectConnected: ((err: Error) => void) | null = null;
+            const shouldAwaitConnected = options?.awaitConnected !== false;
+            const connectedPromise = shouldAwaitConnected
+                ? new Promise<void>((res, rej) => {
+                      resolveConnected = res;
+                      rejectConnected = rej;
+                  })
+                : null;
 
             const adapter = new CloudAdapter({
                 assetId,
@@ -1917,9 +1921,11 @@ export class CloudPlugin extends FilesystemPlugin {
                     if (options?.reportConnectionStatus !== false) {
                         this._updateConnectionStatus(assetId, status, detail);
                     }
-                    if (status === 'connected') resolveConnected();
+                    if (status === 'connected') {
+                        resolveConnected?.();
+                    }
                     if (status === 'error') {
-                        rejectConnected(
+                        rejectConnected?.(
                             new Error(detail ?? 'cloud connection error')
                         );
                     }
@@ -1940,13 +1946,15 @@ export class CloudPlugin extends FilesystemPlugin {
                     }
                 );
 
-                const timeout = new Promise<never>((_, rej) =>
-                    setTimeout(
-                        () => rej(new Error('cloud sync timed out')),
-                        estimateCloudTransferTimeoutMs()
-                    )
-                );
-                await Promise.race([connectedPromise, timeout]);
+                if (connectedPromise) {
+                    const timeout = new Promise<never>((_, rej) =>
+                        setTimeout(
+                            () => rej(new Error('cloud sync timed out')),
+                            estimateCloudTransferTimeoutMs()
+                        )
+                    );
+                    await Promise.race([connectedPromise, timeout]);
+                }
 
                 return adapter;
             } catch (error) {
@@ -1964,7 +1972,8 @@ export class CloudPlugin extends FilesystemPlugin {
             {
                 bootstrapMode: 'required',
                 suppressSyncComplete: true,
-                reportConnectionStatus: false
+                reportConnectionStatus: false,
+                awaitConnected: false
             }
         );
 

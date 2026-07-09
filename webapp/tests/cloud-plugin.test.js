@@ -403,6 +403,31 @@ describe('CloudPlugin.openAsset', () => {
         );
     });
 
+    test('opens from HTTP bootstrap state even when bootstrap websocket auth times out', async () => {
+        mockConnectDirectStatusQueue = [
+            [
+                { status: 'authenticating' },
+                { status: 'error', detail: 'cloud sync timed out' }
+            ],
+            [{ status: 'connected' }]
+        ];
+
+        await expect(plugin.openAsset('asset-1')).resolves.toBeUndefined();
+
+        expect(dispatchSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'fontLoaded' })
+        );
+        expect(mockConnectDirect).toHaveBeenCalledTimes(2);
+        expect(mockConnectDirect.mock.calls[0][3]).toEqual({
+            bootstrapMode: 'required',
+            checkpointLogId: null
+        });
+        expect(mockConnectDirect.mock.calls[1][3]).toEqual({
+            bootstrapMode: 'skip',
+            checkpointLogId: 42
+        });
+    });
+
     test('coalesces concurrent opens for the same asset', async () => {
         mockYDocToJson
             .mockReturnValueOnce({})
