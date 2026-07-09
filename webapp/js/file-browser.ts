@@ -25,6 +25,7 @@ import {
     setupMenuKeyboardNav
 } from './tippy-utils';
 import { Logger } from './logger';
+const { waitForFontEditorReady } = require('./editor-startup-ready.js');
 import { requestOpenFontConversion } from './font-compilation';
 import {
     timelineMark,
@@ -711,33 +712,36 @@ async function waitForFileBrowserReady(timeoutMs = 30000): Promise<void> {
 }
 
 async function waitForPythonEnvironmentReady(timeoutMs = 30000): Promise<void> {
-    if (window.pyodide) {
-        return;
-    }
-
     const startedAt = performance.now();
 
-    await new Promise<void>((resolve, reject) => {
-        const checkReadiness = () => {
-            if (window.pyodide) {
-                resolve();
-                return;
-            }
+    if (!window.pyodide) {
+        await new Promise<void>((resolve, reject) => {
+            const checkReadiness = () => {
+                if (window.pyodide) {
+                    resolve();
+                    return;
+                }
 
-            if (performance.now() - startedAt >= timeoutMs) {
-                reject(
-                    new Error(
-                        'Timed out waiting for Python environment to initialize'
-                    )
+                if (performance.now() - startedAt >= timeoutMs) {
+                    reject(
+                        new Error(
+                            'Timed out waiting for Python environment to initialize'
+                        )
+                    );
+                    return;
+                }
+
+                window.setTimeout(
+                    checkReadiness,
+                    PYTHON_READY_POLL_INTERVAL_MS
                 );
-                return;
-            }
+            };
 
-            window.setTimeout(checkReadiness, PYTHON_READY_POLL_INTERVAL_MS);
-        };
+            checkReadiness();
+        });
+    }
 
-        checkReadiness();
-    });
+    await waitForFontEditorReady(timeoutMs);
 }
 
 function normalizeObservedPath(path: string): string {

@@ -533,6 +533,10 @@ declare global {
         // From example-loader.ts
         loadExampleFonts: () => Promise<void>;
 
+        // From editor-startup-ready.ts
+        __fontEditorReadyState?: 'pending' | 'ready' | 'failed';
+        __fontEditorReadyError?: Error | null;
+
         // From resizer.js
         resizableViews: ResizableViews;
 

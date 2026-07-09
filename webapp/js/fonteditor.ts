@@ -1,6 +1,11 @@
 // FontEditor initialization
 // Loads and initializes Python packages for font editing
 
+const {
+    markFontEditorReady,
+    markFontEditorReadyFailed
+} = require('./editor-startup-ready.js');
+
 type WheelsManifest = {
     wheels: string[];
 };
@@ -245,10 +250,13 @@ async function initFontEditor() {
             }
         }, 200); // Wait 200ms after "Ready" appears
 
+        markFontEditorReady();
+
         return true;
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error('[FontEditor]', 'Error initializing FontEditor:', error);
+        markFontEditorReadyFailed(error);
         if (window.term) {
             window.term.error('Failed to initialize FontEditor: ' + message);
         }
