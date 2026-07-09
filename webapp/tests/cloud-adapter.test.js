@@ -2356,7 +2356,7 @@ describe('CloudAdapter durability failures', () => {
 
             expect(statuses).toContainEqual({
                 status: 'connecting',
-                detail: 'Cloud initial sync timed out'
+                detail: 'Cloud initial sync durability ack timed out'
             });
             expect(socket.close).toHaveBeenCalledWith(4000, 'sync-timeout');
             expect(scheduleReconnect).toHaveBeenCalledTimes(1);

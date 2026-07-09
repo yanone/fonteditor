@@ -2527,7 +2527,11 @@ export class CloudAdapter implements FileSystemAdapter {
             return;
         }
 
-        const detail = 'Cloud initial sync timed out';
+        const detail = !this._hasSynced
+            ? 'Cloud initial sync timed out before server response'
+            : !this._initialServerStateApplied
+              ? 'Cloud initial sync timed out before applying server state'
+              : 'Cloud initial sync durability ack timed out';
         console.warn(`CloudAdapter: ${detail}`);
         this._lastReconnectReason = 'sync-timeout';
         this._clearAuthenticationTimeout();

@@ -428,6 +428,31 @@ describe('CloudPlugin.openAsset', () => {
         });
     });
 
+    test('resolves once bootstrap completes even if the live room handoff stalls', async () => {
+        mockConnectDirectStatusQueue = [
+            [{ status: 'connected' }],
+            [{ status: 'authenticating' }, { status: 'syncing' }]
+        ];
+
+        window.setTimeout = jest.fn((handler) => {
+            Promise.resolve().then(() => {
+                handler();
+            });
+            return 1;
+        });
+
+        await expect(plugin.openAsset('asset-1')).resolves.toBeUndefined();
+
+        expect(dispatchSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'fontLoaded' })
+        );
+        expect(mockConnectDirect).toHaveBeenCalledTimes(2);
+        expect(plugin.getAssetConnectionStatus('asset-1')).toBe('error');
+        expect(plugin.getAssetConnectionDetail('asset-1')).toBe(
+            'cloud bridge bootstrap timed out'
+        );
+    });
+
     test('coalesces concurrent opens for the same asset', async () => {
         mockYDocToJson
             .mockReturnValueOnce({})

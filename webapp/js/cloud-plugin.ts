@@ -1845,7 +1845,9 @@ export class CloudPlugin extends FilesystemPlugin {
             return this._pendingOpenAsset.promise;
         }
 
-        const openPromise = this._openAssetInternal(assetId);
+        const openPromise = this._openAssetInternal(assetId, {
+            awaitLiveBridge: false
+        });
         this._pendingOpenAsset = {
             assetId,
             promise: openPromise
