@@ -11,6 +11,9 @@ This proposal deliberately avoids a single monolithic replacement for
 Glyphs.app's `GlyphData.xml`. Unicode provides the universal baseline; packs
 add focused knowledge, alternatives, and explicit overrides.
 
+For a plain-language summary of the whole system, see [TLDR](#tldr) at the
+bottom of this document.
+
 ## How This Replaces GlyphData.xml
 
 `GlyphData.xml` centralizes many repeated per-glyph facts in one database. A
@@ -52,7 +55,7 @@ Language Pack authors own linguistic and stylistic knowledge:
 - glyph identity and naming rules
 - construction and anchor recipes
 - generated OpenType feature code
-- optional glyph filters
+- glyph filters
 
 This division keeps plugins expressive without making each pack a fork of the
 editor's core behavior.
@@ -68,7 +71,7 @@ One package may provide any combination of the following plugin roles:
 | Composition provider | Candidate component recipes, starting with Unicode decomposition and adding overrides   |
 | Anchor provider      | Initial anchor recipes and placement expressions                                        |
 | Feature generator    | Regenerable OpenType feature-code blocks                                                |
-| Glyph filter         | An existing code-driven glyph filter, optionally bundled with the pack                  |
+| Glyph filter         | A code-driven filter for glyph views, grouping, or analysis                             |
 
 Hyperglot and `gflanguages` are natural sources for character-database
 providers. A provider contributes query results; it does not copy an entire
@@ -436,3 +439,40 @@ it replaces, and what a regeneration will change.
   coexist.
 - The host guarantees deterministic resolution, batching, provenance, and
   protection of user work.
+
+## TLDR
+
+A **Language Pack** is an installable Python package that teaches
+Counterpunch about a language, script, writing style, or font-engineering
+task. A font can activate several packs and select one provider where a policy
+must be exclusive, while unrelated additions continue to work together.
+
+The plugin types work together as follows:
+
+- A **Character database** says which encoded characters, Unicode sequences,
+  and unencoded glyph concepts matter for a language or coverage set.
+- A **Glyph-name resolver** supplies its versioned glyph-identity artifact.
+  Counterpunch combines active artifacts in the font's saved priority order so
+  a glyph name and a Unicode sequence resolve to one authoritative identity.
+- A **Composition provider** uses Unicode decomposition where possible and
+  adds explicit recipes where it is not enough, such as a style-specific or
+  script-specific composite.
+- An **Anchor provider** supplies initial anchor-placement rules for those
+  glyphs and components. It can use real or virtual bounds, but created
+  anchors immediately become ordinary, permanent font data.
+- A **Feature generator** turns the relevant glyphs, the selected pack
+  settings, and the font's state into ordered OpenType feature-code entries.
+  Its user-selectable capability, such as `feature:fractions`, says what can
+  be replaced; each generated block is one entry that its generator can update
+  later without touching manual code or another generator's entries.
+- A **Glyph filter** provides a code-driven view or grouping of the font. Like
+  feature generators, it declares when it needs to refresh so it does not run
+  on every edit.
+
+Plugin settings provide deliberate choices that cannot be inferred from
+Unicode or outlines alone, such as whether `Ŋ` follows a Sami or African
+design target. Counterpunch saves those settings with the active pack versions
+and reruns only the affected plugins after an edit. The result is a modular,
+inspectable alternative to one global `GlyphData.xml`: common knowledge is
+inferred from reusable rules, while script-, style-, and foundry-specific
+exceptions remain explicit and replaceable.
