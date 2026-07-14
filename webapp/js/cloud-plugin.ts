@@ -27,6 +27,7 @@ import { Logger } from './logger';
 import { resolveWebsiteURL } from './website-url';
 
 const console = new Logger('CloudPlugin');
+const CLOUD_PLUGIN_UI_ENABLED = false;
 const CLOUD_ASSET_DELETED_MESSAGE = 'Cloud asset was deleted';
 const CLOUD_ASSET_LOCALIZED_EVENT = 'cloudAssetLocalizedToMemory';
 
@@ -1306,6 +1307,10 @@ export class CloudPlugin extends FilesystemPlugin {
 
     getIcon(): string {
         return '<span class="material-symbols-outlined">cloud</span>';
+    }
+
+    isVisibleInUI(): boolean {
+        return CLOUD_PLUGIN_UI_ENABLED;
     }
 
     canSave(): boolean {

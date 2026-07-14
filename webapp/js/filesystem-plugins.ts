@@ -214,6 +214,11 @@ export abstract class FilesystemPlugin {
         return true;
     }
 
+    /** Whether this plugin should be visible in editor UI surfaces. */
+    isVisibleInUI(): boolean {
+        return true;
+    }
+
     // ==========================================
     // Script Editor File Capabilities
     // ==========================================

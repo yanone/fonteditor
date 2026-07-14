@@ -198,8 +198,10 @@ function getWindowMenuItems(): ToolbarMenuItem[] {
 }
 
 function getDeveloperMenuItems(): ToolbarMenuItem[] {
-    return [
-        {
+    const items: ToolbarMenuItem[] = [];
+
+    if (window.cloudPlugin?.isVisibleInUI?.() !== false) {
+        items.push({
             label: 'Copy Cloud Debug Snapshot',
             icon: 'content_copy',
             action: async () => {
@@ -210,39 +212,40 @@ function getDeveloperMenuItems(): ToolbarMenuItem[] {
 
                 await window.cloudPlugin.copyCloudDebugSnapshot();
             }
-        },
-        {
-            label: 'Copy History Items (Debug)',
-            icon: 'content_copy',
-            action: async () => {
-                const engine = window.patchSyncEngine;
-                if (!engine) {
-                    alert('Patch sync engine is not available.');
-                    return;
-                }
+        });
+    }
 
-                const items = engine.getCollaborationLog();
-                if (!items.length) {
-                    alert('No history items to copy.');
-                    return;
-                }
+    items.push({
+        label: 'Copy History Items (Debug)',
+        icon: 'content_copy',
+        action: async () => {
+            const engine = window.patchSyncEngine;
+            if (!engine) {
+                alert('Patch sync engine is not available.');
+                return;
+            }
 
-                const text = JSON.stringify(items, null, 2);
-                try {
-                    await navigator.clipboard.writeText(text);
-                } catch (error) {
-                    console.error(
-                        'Failed to copy history items to clipboard:',
-                        error
-                    );
-                    alert(
-                        'Clipboard access failed while copying history items.'
-                    );
-                    throw error;
-                }
+            const items = engine.getCollaborationLog();
+            if (!items.length) {
+                alert('No history items to copy.');
+                return;
+            }
+
+            const text = JSON.stringify(items, null, 2);
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch (error) {
+                console.error(
+                    'Failed to copy history items to clipboard:',
+                    error
+                );
+                alert('Clipboard access failed while copying history items.');
+                throw error;
             }
         }
-    ];
+    });
+
+    return items;
 }
 
 function createToolbarMenu(

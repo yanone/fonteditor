@@ -53,7 +53,12 @@ function getCloudPlugin(): CloudPlugin | null {
 }
 
 function isCloudShareAvailable(): boolean {
-    return !!getCloudPlugin()?.getCurrentAssetIdForSharing();
+    const cloudPlugin = getCloudPlugin();
+    if (!cloudPlugin || cloudPlugin.isVisibleInUI() === false) {
+        return false;
+    }
+
+    return !!cloudPlugin.getCurrentAssetIdForSharing();
 }
 
 function escapeHtml(value: string | null | undefined): string {
@@ -741,6 +746,12 @@ export function initShareButton(): void {
     const shareButton = document.getElementById('share-btn');
     if (!shareButton) {
         console.error('[ShareButton]', 'Share button not found');
+        return;
+    }
+
+    if (getCloudPlugin()?.isVisibleInUI() === false) {
+        shareButton.hidden = true;
+        shareButton.classList.remove('visible');
         return;
     }
 

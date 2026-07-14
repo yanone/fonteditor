@@ -1280,6 +1280,8 @@ class FontManager {
         );
         const cloudConnectionWarningBadge =
             this.ensureCloudConnectionWarningBadge();
+        const isCloudPluginVisibleInUI =
+            window.cloudPlugin?.isVisibleInUI?.() !== false;
         const roleLabel = window.windowRole?.getRoleLabel() ?? 'Main';
         const roleBadge = this.ensureWindowRoleBadge();
 
@@ -1297,6 +1299,7 @@ class FontManager {
             }
             if (shareButton) {
                 shareButton.classList.remove('visible');
+                shareButton.hidden = !isCloudPluginVisibleInUI;
                 shareButton.setAttribute('title', 'Invite people');
             }
             if (cloudConnectionWarningBadge) {
@@ -1325,8 +1328,15 @@ class FontManager {
                     this.fontDisplay.title = `${currentFont.path} (${sourceName}) — ${roleLabel}`;
                 }
                 if (cloudConnectionWarningBadge) {
-                    const warningState =
-                        this.getCloudConnectionWarningState(currentFont);
+                    const warningState = isCloudPluginVisibleInUI
+                        ? this.getCloudConnectionWarningState(currentFont)
+                        : {
+                              visible: false,
+                              title: '',
+                              label: '',
+                              icon: 'cloud',
+                              tone: 'warning' as const
+                          };
                     cloudConnectionWarningBadge.classList.toggle(
                         'visible',
                         warningState.visible
@@ -1366,19 +1376,24 @@ class FontManager {
                 }
                 if (cloudAccessRoleBadge) {
                     const cloudRole = currentFont.isCloudBacked()
-                        ? (window.cloudPlugin?.getCurrentAssetRole?.() ?? null)
+                        ? isCloudPluginVisibleInUI
+                            ? (window.cloudPlugin?.getCurrentAssetRole?.() ??
+                              null)
+                            : null
                         : null;
                     const isAuthenticated =
                         window.authManager?.isAuthenticated?.() !== false;
                     if (shareButton) {
                         const shouldShowShareButton =
                             isAuthenticated &&
+                            isCloudPluginVisibleInUI &&
                             currentFont.isCloudBacked() &&
                             cloudRole === 'owner';
                         shareButton.classList.toggle(
                             'visible',
                             shouldShowShareButton
                         );
+                        shareButton.hidden = !isCloudPluginVisibleInUI;
                         shareButton.setAttribute(
                             'title',
                             currentFont.isCloudBacked()
@@ -1407,6 +1422,7 @@ class FontManager {
                             'role-editor',
                             'role-viewer'
                         );
+                        cloudAccessRoleBadge.hidden = !isCloudPluginVisibleInUI;
                         cloudAccessRoleBadge.innerHTML = '';
                         cloudAccessRoleBadge.removeAttribute('title');
                     }

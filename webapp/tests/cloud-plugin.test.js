@@ -1321,6 +1321,14 @@ describe('CloudPlugin.openAsset', () => {
     });
 });
 
+describe('CloudPlugin UI availability', () => {
+    test('is hidden from UI by plugin flag', () => {
+        const plugin = new CloudPlugin();
+
+        expect(plugin.isVisibleInUI()).toBe(false);
+    });
+});
+
 describe('CloudPlugin sharing APIs', () => {
     let plugin;
     let originalAuthManager;

@@ -2169,6 +2169,30 @@ describe('FontManager share button visibility', () => {
         expect(cloudAccessRoleBadge.classList.contains('visible')).toBe(false);
     });
 
+    test('hides cloud-only affordances when the cloud plugin is disabled in UI', () => {
+        setCurrentFont({ role: 'owner', path: 'cloud://asset-1' });
+        window.cloudPlugin.isVisibleInUI = jest.fn(() => false);
+        window.cloudPlugin.hasConnectionProblem.mockReturnValue(true);
+        window.cloudPlugin.getAssetConnectionStatus.mockReturnValue(
+            'connecting'
+        );
+
+        fontManager.updateFontDisplay();
+
+        const shareButton = document.getElementById('share-btn');
+        const cloudAccessRoleBadge = document.getElementById(
+            'cloud-access-role-badge'
+        );
+        const warningBadge = document.querySelector(
+            '.cloud-connection-warning-badge'
+        );
+
+        expect(shareButton.classList.contains('visible')).toBe(false);
+        expect(cloudAccessRoleBadge.classList.contains('visible')).toBe(false);
+        expect(warningBadge.classList.contains('visible')).toBe(false);
+        expect(warningBadge.hidden).toBe(true);
+    });
+
     test('shows a connection warning badge next to the owner invite button while cloud sync is unstable', () => {
         setCurrentFont({ role: 'owner', path: 'cloud://asset-1' });
         window.cloudPlugin.hasConnectionProblem.mockReturnValue(true);

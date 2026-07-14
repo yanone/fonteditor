@@ -72,6 +72,16 @@ function getErrorMessage(error: unknown): string {
 // Files/folders to hide from the file browser (applies to all plugins)
 const HIDDEN_FILES: string[] = ['.DS_Store'];
 
+function isPluginVisibleInUI(
+    plugin: FilesystemPlugin | null | undefined
+): plugin is FilesystemPlugin {
+    return Boolean(plugin?.isVisibleInUI());
+}
+
+function getUIVisiblePlugins(): FilesystemPlugin[] {
+    return pluginRegistry.getAll().filter((plugin) => plugin.isVisibleInUI());
+}
+
 function getPathStorageKey(pluginId: string): string {
     return `last-path-${pluginId}`;
 }
@@ -546,8 +556,16 @@ async function showFontFileDialog(
     }
 
     activeFileDialogMode = options.mode || 'open';
-    const targetPluginId =
-        options.pluginId || fileSystemCache.currentPlugin.getId();
+    const requestedPlugin = options.pluginId
+        ? pluginRegistry.get(options.pluginId)
+        : fileSystemCache.currentPlugin;
+    const fallbackPlugin = isPluginVisibleInUI(fileSystemCache.currentPlugin)
+        ? fileSystemCache.currentPlugin
+        : (pluginRegistry.getDefault() ?? fileSystemCache.currentPlugin);
+    const targetPlugin = isPluginVisibleInUI(requestedPlugin)
+        ? requestedPlugin
+        : fallbackPlugin;
+    const targetPluginId = targetPlugin.getId();
     selectedDialogPath =
         options.highlightPath || getDefaultDialogSelectionPath(targetPluginId);
     pendingDialogHighlightPath = selectedDialogPath;
@@ -561,11 +579,8 @@ async function showFontFileDialog(
 
     dialog.style.display = 'flex';
 
-    if (
-        options.pluginId &&
-        options.pluginId !== fileSystemCache.currentPlugin.getId()
-    ) {
-        await switchContext(options.pluginId);
+    if (targetPluginId !== fileSystemCache.currentPlugin.getId()) {
+        await switchContext(targetPluginId);
     }
 
     if (options.path) {
@@ -2140,6 +2155,13 @@ async function switchContext(pluginId: string) {
         console.error('[FileBrowser]', `Plugin '${pluginId}' not found`);
         return;
     }
+    if (!plugin.isVisibleInUI()) {
+        console.warn(
+            '[FileBrowser]',
+            `Plugin '${pluginId}' is disabled in the editor UI`
+        );
+        return;
+    }
 
     showPluginMessage({
         icon: 'progress_activity',
@@ -2190,7 +2212,7 @@ async function switchContext(pluginId: string) {
                     });
 
                 // Update dropdown icon visibility for all plugins
-                pluginRegistry.getAll().forEach((p) => {
+                getUIVisiblePlugins().forEach((p) => {
                     updatePluginMenuButtonVisibility(p);
                 });
 
@@ -3669,7 +3691,7 @@ async function initFileBrowser() {
             // Clear existing content
             titleBarRight.innerHTML = '';
 
-            const plugins = pluginRegistry.getAll();
+            const plugins = getUIVisiblePlugins();
             plugins.forEach((plugin) => {
                 const button = document.createElement('button');
                 button.className = 'file-dialog-plugin-tab context-tab';
@@ -3779,7 +3801,7 @@ async function initFileBrowser() {
             const lastContextId = localStorage.getItem(LAST_CONTEXT_KEY);
             if (lastContextId) {
                 const restoredPlugin = pluginRegistry.get(lastContextId);
-                if (restoredPlugin) {
+                if (isPluginVisibleInUI(restoredPlugin)) {
                     // Check if plugin is ready (important for disk plugin)
                     const isReady = await restoredPlugin.isReady();
                     if (isReady) {
@@ -3941,13 +3963,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Check if plugin exists
                 const plugin = pluginRegistry.get(pluginId);
-                if (!plugin) {
+                if (!plugin || !plugin.isVisibleInUI()) {
                     alert(
                         `Error: File system plugin "${pluginId}" not found.\n\nThe requested file cannot be loaded because the plugin is not available.`
                     );
                     console.error(
                         '[FileBrowser]',
-                        `Plugin '${pluginId}' not found for URL param`
+                        `Plugin '${pluginId}' is not available for URL param`
                     );
                     return;
                 }
