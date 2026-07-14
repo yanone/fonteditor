@@ -11,6 +11,29 @@ This proposal deliberately avoids a single monolithic replacement for
 Glyphs.app's `GlyphData.xml`. Unicode provides the universal baseline; packs
 add focused knowledge, alternatives, and explicit overrides.
 
+## How This Replaces GlyphData.xml
+
+`GlyphData.xml` centralizes many repeated per-glyph facts in one database. A
+Language Pack replaces that repetition with a small number of general rules,
+versioned lookup artifacts, and explicit exceptions. For example, Unicode can
+derive the name and decomposition of `U+00E1` as `aacute` built from `a` and
+`acute`; a generic mark rule can propose `top` and `_top` anchors; and a
+fractions generator can derive its OpenType feature code from the glyphs that
+actually exist in the font. A pack writes an override only when a script,
+style, or foundry policy differs from that baseline, such as the preferred
+shape of `Ŋ` or a connected-script joining rule.
+
+The potential authoring reduction is substantial, though the exact result must
+be measured with real packs. As an illustrative Latin example, 250 encoded
+accented glyphs that follow Unicode decomposition could be covered by generic
+naming and composition rules plus perhaps 10 to 25 explicit exceptions,
+instead of 250 hand-maintained glyph records: roughly 90% fewer
+glyph-specific definitions. The same principle lets one fractions generator
+produce a handful of ordered feature-code entries from the font's glyph set,
+instead of maintaining many separate feature snippets. The goal is not to hide
+knowledge in automation, but to make the common cases inspectable and inferred
+while keeping exceptions local, visible, and owned by the relevant pack.
+
 ## The Simple Model
 
 A Python distribution can expose one or more plugins. A **Language Pack** is a
