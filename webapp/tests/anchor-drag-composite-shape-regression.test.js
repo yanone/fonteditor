@@ -173,7 +173,6 @@ describe('Fustat anchor drag downstream composite serialization', () => {
         expect(glyphOacute).toBeTruthy();
         expect(layerO).toBeTruthy();
         expect(topAnchor).toBeTruthy();
-
         for (let moveIndex = 0; moveIndex < 3; moveIndex += 1) {
             withSuppressedModelRecording(() => {
                 topAnchor.y += 10;
@@ -240,7 +239,6 @@ describe('Fustat anchor drag downstream composite serialization', () => {
         expect(glyphOacute).toBeTruthy();
         expect(layerO).toBeTruthy();
         expect(topAnchor).toBeTruthy();
-
         for (let moveIndex = 0; moveIndex < 3; moveIndex += 1) {
             withSuppressedModelRecording(() => {
                 topAnchor.y += 10;
@@ -251,7 +249,6 @@ describe('Fustat anchor drag downstream composite serialization', () => {
                     preferredLayerId: layerO.id,
                     preferredSourceGlyphName: 'o'
                 });
-
             const layerTargets = getMatchingLayerTargets(
                 fontModel,
                 'o',

@@ -425,11 +425,7 @@ export function validate_feature_source_with_full_filter_pipeline(
 export function version(): string;
 
 export type InitInput =
-    | RequestInfo
-    | URL
-    | Response
-    | BufferSource
-    | WebAssembly.Module;
+    RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;

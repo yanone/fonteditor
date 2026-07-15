@@ -4172,18 +4172,15 @@ class GlyphCanvas {
     }
 
     private getComponentAutoAlignmentValue(component: Component): boolean {
-        const value =
-            component.format_specific?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
-        // -1 = manually positioned; undefined (omitted), 0, 1 = automatic
-        return value !== -1;
+        return component.isAutomaticAligned();
     }
 
     private setComponentAutoAlignmentValue(
         component: Component,
         enabled: boolean
     ): boolean {
-        const currentValue = this.getComponentAutoAlignmentValue(component);
-        if (currentValue === enabled) {
+        const isExplicitlyManual = component.hasExplicitManualAlignment();
+        if (isExplicitlyManual === !enabled) {
             return false;
         }
 

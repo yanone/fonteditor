@@ -1983,7 +1983,7 @@ describe('Babelfont Object Model', () => {
             expect(glyphE.rightMetricsKey).toBe('=c@200');
         });
 
-        test('imports Fustat dieresiscomb components with alignment preserved from .glyphs source', () => {
+        test('imports Fustat dieresiscomb as a manual component layer when alignment is explicitly disabled', () => {
             const glyph = font.findGlyph('dieresiscomb');
             const layer = glyph.layers[0];
 
@@ -1991,22 +1991,73 @@ describe('Babelfont Object Model', () => {
             expect(
                 layer.components.map((component) => component.reference)
             ).toEqual(['dotaccentcomb', 'dotaccentcomb']);
-            // The WASM converter (babelfont-rs) uses insert_if_ne_json with
-            // default=-1 for alignment, so alignment=-1 (manual) is not
-            // emitted in format_specific. Both components end up with
-            // undefined format_specific, which the JS model treats as
-            // automatic (undefined !== -1).
+            expect(
+                layer.components.map(
+                    (component) => component.transform?.translation[0] ?? 0
+                )
+            ).toEqual([172, 0]);
             expect(
                 layer.components.map(
                     (component) => component.toJSON().format_specific
                 )
-            ).toEqual([undefined, undefined]);
+            ).toEqual([
+                undefined,
+                { 'com.schriftgestalt.Glyphs.alignment': -1 }
+            ]);
+            expect(
+                layer.components.map((component) =>
+                    component.isAutomaticAligned()
+                )
+            ).toEqual([false, false]);
+            expect(layer.isAutomaticAlignedLayer()).toBe(false);
+        });
+
+        test('imports Fustat adieresis as an automatic component layer', () => {
+            const glyph = font.findGlyph('adieresis');
+            const layer = glyph.layers[0];
+
+            expect(
+                layer.components.map((component) => component.reference)
+            ).toEqual(['a', 'dieresiscomb']);
             expect(
                 layer.components.map((component) =>
                     component.isAutomaticAligned()
                 )
             ).toEqual([true, true]);
             expect(layer.isAutomaticAlignedLayer()).toBe(true);
+        });
+
+        test('uses an explicit Glyphs manual alignment value as a layer-wide override', () => {
+            const layer = font.findGlyph('dieresiscomb').layers[0];
+            const [firstComponent, secondComponent] = layer.components;
+
+            expect(firstComponent.isAutomaticAligned()).toBe(false);
+            expect(secondComponent.isAutomaticAligned()).toBe(false);
+
+            secondComponent.format_specific = undefined;
+            expect(firstComponent.isAutomaticAligned()).toBe(true);
+            expect(secondComponent.isAutomaticAligned()).toBe(true);
+
+            firstComponent.format_specific = {
+                'com.schriftgestalt.Glyphs.alignment': 0
+            };
+            expect(firstComponent.isAutomaticAligned()).toBe(true);
+
+            firstComponent.format_specific = {
+                'com.schriftgestalt.Glyphs.alignment': -1
+            };
+            expect(firstComponent.isAutomaticAligned()).toBe(false);
+            expect(secondComponent.isAutomaticAligned()).toBe(false);
+
+            firstComponent.format_specific = {
+                'com.schriftgestalt.Glyphs.alignment': 1
+            };
+            expect(firstComponent.isAutomaticAligned()).toBe(true);
+
+            firstComponent.format_specific = {
+                'com.schriftgestalt.Glyphs.alignment': 3
+            };
+            expect(firstComponent.isAutomaticAligned()).toBe(true);
         });
 
         test('changing l rsb recomputes dependent glyph metrics', () => {

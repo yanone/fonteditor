@@ -349,11 +349,10 @@ function getAutomaticComponentTransform(
     return component.transform || createIdentityDecomposedAffine();
 }
 
-function isAutomaticAlignedComponent(component: Component): boolean {
+function hasExplicitManualComponentAlignment(component: Component): boolean {
     const value =
         getModelFormatSpecific(component)?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
-    // -1 = manually positioned; undefined (omitted), 0, 1 = automatic
-    return value !== -1;
+    return value === -1;
 }
 
 function isAutomaticSidebearingOverrideKey(value: string | undefined): boolean {
@@ -5150,8 +5149,24 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         getLayerForSelectableObject(this)?.invalidateLayoutCache();
     }
 
+    /**
+     * Returns the effective component alignment state for its containing layer.
+     * One explicit Glyphs manual alignment override makes the complete
+     * component-only layer manually positioned.
+     */
     isAutomaticAligned(): boolean {
-        return isAutomaticAlignedComponent(this);
+        const layer = getLayerForSelectableObject(this);
+        return layer
+            ? layer.isAutomaticAlignedLayer()
+            : !hasExplicitManualComponentAlignment(this);
+    }
+
+    /**
+     * Returns whether this component itself carries Glyphs' explicit manual
+     * alignment metadata, independent of the layer's effective state.
+     */
+    hasExplicitManualAlignment(): boolean {
+        return hasExplicitManualComponentAlignment(this);
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
@@ -6286,8 +6301,8 @@ export class Layer extends ArrayElementBase {
             return false;
         }
 
-        return components.every((shape) =>
-            shape.asComponent().isAutomaticAligned()
+        return components.every(
+            (shape) => !hasExplicitManualComponentAlignment(shape.asComponent())
         );
     }
 

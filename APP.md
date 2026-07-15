@@ -172,7 +172,7 @@ When an automatically aligned component has more than one eligible target anchor
 
 #### Automatic Glyph Composition
 
-Layers that contain only components and no paths, and where every component is set to automatic alignment, must be composed by the editor automatically.
+Layers that contain only components and no paths are automatically composed by the editor as soon as all of their components are automatically aligned. This applies whether automatic alignment is stored explicitly or implied by omitted alignment metadata.
 
 Anchors serve both OpenType GPOS attachment features and automatic component arrangement in the editor at design-time. A base component may expose anchors such as `top` or `bottom`, and a mark component may expose matching attachment anchors such as `_top` or `_bottom`. During automatic composition, a mark component must snap to the matching base anchor in the same way mark-to-base positioning would attach the mark glyph.
 
@@ -186,7 +186,7 @@ Automatic alignment keeps composite metrics derived from their base components. 
 
 Automatic composition also depends on anchor positions. Moving an anchor on a glyph must therefore rebuild any compatible automatically composed downstream glyphs that attach to that anchor family, update the editing font from that rebuilt data, and do so both for direct edits and for undo or redo of those edits.
 
-Automatic alignment applies only when every component in a component-only layer is explicitly set to automatic alignment. Components without an explicit automatic-alignment flag remain manually placed. Disabling automatic alignment on any component in a layer takes that layer out of automatic composition and allows manual placement of all components in that layer, even components that still carry an automatic-alignment flag. Re-enabling automatic alignment on all components returns the layer to automatic composition. Changing automatic alignment state or a component's explicit target-anchor override must rebuild the automatic composition immediately.
+Glyphs components are automatically aligned by default: components without stored alignment metadata participate in automatic composition. Only an explicit `alignment = -1` disables automatic alignment and takes a component-only layer out of automatic composition, allowing manual placement of all of its components. Re-enabling automatic alignment on all components returns the layer to automatic composition. Changing automatic alignment state or a component's explicit target-anchor override must rebuild the automatic composition immediately.
 
 Sidebearings of automatically composed layers cannot be edited directly because they are derived from the base glyph. The property panel must therefore present those fields as automatic unless the user has supplied an explicit automatic-offset override. Imported non-operator metrics keys that merely restate the implicit automatic derivation, such as direct references to the first or last chained base glyph, must not appear as explicit keys on an automatic layer and must not replace the implicit automatic sidebearings. However, the automatic sidebearings may be adjusted using `=+` and `=-` glyph-wide operators, or `==+` and `==-` layer-local overrides.
 

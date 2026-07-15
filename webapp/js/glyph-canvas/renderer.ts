@@ -91,6 +91,29 @@ function collectDuplicateNodePositionKeys(
     );
 }
 
+type ComponentAlignmentLayerSnapshot = {
+    shapes?: Array<{
+        reference?: string;
+        format_specific?: Record<string, number | undefined>;
+    }>;
+};
+
+function isAutomaticallyAlignedComponentLayer(
+    layerData: ComponentAlignmentLayerSnapshot | null | undefined
+): boolean {
+    const shapes = layerData?.shapes;
+    if (!Array.isArray(shapes) || shapes.length === 0) {
+        return false;
+    }
+
+    return shapes.every(
+        (shape) =>
+            typeof shape.reference === 'string' &&
+            shape.format_specific?.['com.schriftgestalt.Glyphs.alignment'] !==
+                -1
+    );
+}
+
 function getClosedFromOutlineShape(shape: any): boolean {
     if (!shape || typeof shape !== 'object') {
         return false;
@@ -1862,6 +1885,8 @@ export class GlyphCanvasRenderer {
 
         // Only draw shapes if they exist (empty glyphs like space won't have shapes)
         if (currentLayerData.shapes && Array.isArray(currentLayerData.shapes)) {
+            const isAutomaticComponentLayer =
+                isAutomaticallyAlignedComponentLayer(currentLayerData);
             // Apply monochrome during manual slider interpolation OR when not on an exact layer
             // Don't apply monochrome during layer switch animations
             const isInterpolated =
@@ -1924,9 +1949,7 @@ export class GlyphCanvasRenderer {
                         shape.layerData.shapes,
                         isSelected,
                         isHovered,
-                        shape.format_specific?.[
-                            'com.schriftgestalt.Glyphs.alignment'
-                        ] !== -1,
+                        isAutomaticComponentLayer,
                         !!isInterpolated,
                         invScale,
                         isDarkTheme
@@ -5153,6 +5176,8 @@ export class GlyphCanvasRenderer {
         const colors = isDarkTheme
             ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
             : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+        const isAutomaticComponentLayer =
+            isAutomaticallyAlignedComponentLayer(layerData);
 
         // Draw paths (not components)
         layerData.shapes.forEach((shape: any, index: number) => {
@@ -5181,9 +5206,7 @@ export class GlyphCanvasRenderer {
                 shape.layerData.shapes,
                 false,
                 false,
-                shape.format_specific?.[
-                    'com.schriftgestalt.Glyphs.alignment'
-                ] !== -1,
+                isAutomaticComponentLayer,
                 false,
                 invScale,
                 isDarkTheme
@@ -5203,6 +5226,8 @@ export class GlyphCanvasRenderer {
         isDarkTheme: boolean,
         enableInteraction: boolean
     ): void {
+        const isAutomaticComponentLayer =
+            isAutomaticallyAlignedComponentLayer(layerData);
         // Draw filled background
         this.ctx.save();
         this.ctx.beginPath();
@@ -5262,9 +5287,7 @@ export class GlyphCanvasRenderer {
                 shape.layerData.shapes,
                 isSelected,
                 isHovered,
-                shape.format_specific?.[
-                    'com.schriftgestalt.Glyphs.alignment'
-                ] === 0,
+                isAutomaticComponentLayer,
                 false,
                 invScale,
                 isDarkTheme

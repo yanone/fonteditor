@@ -951,7 +951,7 @@ function setupCanvasForLayer(canvas, font, glyphName, layerId) {
 }
 
 describe('Automatic Glyph Composition canonical behavior', () => {
-    test('components with an explicit manual alignment flag stay manual', () => {
+    test('an explicit manual alignment flag makes the component layer manual', () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -995,9 +995,7 @@ describe('Automatic Glyph Composition canonical behavior', () => {
                                 {
                                     reference: 'dotaccentcomb',
                                     transform: [1, 0, 0, 1, 0, 0],
-                                    format_specific: {
-                                        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: -1
-                                    }
+                                    format_specific: {}
                                 },
                                 {
                                     reference: 'dotaccentcomb',
@@ -1481,7 +1479,7 @@ describe('Automatic component editing canonical behavior', () => {
         ).toEqual(['', 'top', 'top_alt']);
     });
 
-    test('mixed layers keep automatic-marked components movable', () => {
+    test('manual component layers keep every component movable', () => {
         const layer = setupCanvasForLayer(
             canvas,
             font,
@@ -1506,7 +1504,7 @@ describe('Automatic component editing canonical behavior', () => {
         );
 
         expect(layer.isAutomaticAlignedLayer()).toBe(false);
-        expect(layer.components[0].isAutomaticAligned()).toBe(true);
+        expect(layer.components[0].isAutomaticAligned()).toBe(false);
         expect(translateX).toBeTruthy();
         expect(translateY).toBeTruthy();
         expect(translateX.disabled).toBe(false);
@@ -1521,6 +1519,34 @@ describe('Automatic component editing canonical behavior', () => {
         expect(
             canvas.outlineEditor.layerData.shapes[0].transform.translation[1]
         ).toBe(25);
+    });
+
+    test('component alignment toggles mutate raw metadata in a manual layer', () => {
+        const layer = setupCanvasForLayer(
+            canvas,
+            font,
+            'manualComposite',
+            'MC0'
+        );
+        const automaticComponent = layer.components[0];
+
+        expect(layer.isAutomaticAlignedLayer()).toBe(false);
+        expect(automaticComponent.hasExplicitManualAlignment()).toBe(false);
+        expect(automaticComponent.isAutomaticAligned()).toBe(false);
+        automaticComponent.format_specific = {};
+
+        expect(
+            canvas.setComponentAutoAlignmentValue(automaticComponent, true)
+        ).toBe(false);
+        expect(automaticComponent.format_specific).toEqual({});
+
+        expect(
+            canvas.setComponentAutoAlignmentValue(automaticComponent, false)
+        ).toBe(true);
+        expect(automaticComponent.hasExplicitManualAlignment()).toBe(true);
+        expect(
+            automaticComponent.format_specific[GLYPHS_COMPONENT_ALIGNMENT_KEY]
+        ).toBe(-1);
     });
 
     test('renderer uses distinct fill and stroke styling for automatic and manual components', () => {
@@ -1611,6 +1637,49 @@ describe('Automatic component editing canonical behavior', () => {
         expect(
             APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT.COMPONENT_FILL_AUTO_NORMAL
         ).toBe('#8f8f8fcc');
+    });
+
+    test('renderer styles every component in a manually aligned layer as manual', () => {
+        const outlineShapes = [
+            {
+                nodes: [
+                    { x: 0, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 100, nodetype: 'Line' },
+                    { x: 0, y: 100, nodetype: 'Line' }
+                ],
+                closed: true
+            }
+        ];
+        const layerData = {
+            shapes: [
+                {
+                    reference: 'dotaccentcomb',
+                    transform: [1, 0, 0, 1, 0, 0],
+                    format_specific: {},
+                    layerData: { shapes: outlineShapes }
+                },
+                {
+                    reference: 'dotaccentcomb',
+                    transform: [1, 0, 0, 1, 120, 0],
+                    format_specific: {
+                        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: -1
+                    },
+                    layerData: { shapes: outlineShapes }
+                }
+            ]
+        };
+        const drawComponent = jest
+            .spyOn(canvas.renderer, 'drawComponentWithOutlines')
+            .mockImplementation(() => {});
+
+        canvas.renderer.renderLayerShapes(layerData, 1, false, false);
+
+        expect(drawComponent).toHaveBeenCalledTimes(2);
+        expect(drawComponent.mock.calls.map((call) => call[3])).toEqual([
+            false,
+            false
+        ]);
     });
 
     test('automatic chained layers show auto placeholders instead of imported direct-reference metrics keys', () => {
