@@ -670,6 +670,13 @@ The plugin types work together as follows:
   feature generators, it declares when it needs to refresh so it does not run
   on every edit.
 
+Counterpunch can rebuild selected recipe-backed glyphs either as materialized
+components or as shaper-composed `ccmp` shells. Packs supply the recipes;
+Counterpunch writes and reads its own managed `ccmp` block, so membership in
+that block is the complete current-state definition of shaper composition. A
+conversion is offered only when every relevant active feature provider supports
+the requested representation; manual `ccmp` code remains untouched.
+
 Plugin settings provide deliberate choices that cannot be inferred from
 Unicode or outlines alone, such as whether `Ŋ` follows a Sami or African
 design target. Counterpunch saves those settings with the active pack versions
