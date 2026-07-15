@@ -732,6 +732,13 @@ function pathTouchesMasterKerning(path: string): boolean {
     return /(^|\.)masters\.[^.]+\.kerning(_rtl)?(\.|$)/.test(path);
 }
 
+function pathTouchesRtlKerningFormatSpecific(path: string): boolean {
+    return (
+        path === 'format_specific.com.schriftgestalt.Glyphs.kerningRTL' ||
+        path.startsWith('format_specific.com.schriftgestalt.Glyphs.kerningRTL.')
+    );
+}
+
 function pathTouchesKerningGroups(path: string): boolean {
     return (
         path === 'first_kern_groups' ||
@@ -754,7 +761,8 @@ function inferKerningEditTypeFromMetadata(
     }
     if (
         normalizedLabel.includes('kerning pair') ||
-        pathTouchesMasterKerning(path)
+        pathTouchesMasterKerning(path) ||
+        pathTouchesRtlKerningFormatSpecific(path)
     ) {
         return 'kerning-value';
     }

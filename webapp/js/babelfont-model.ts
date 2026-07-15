@@ -10166,19 +10166,10 @@ export class Master extends ArrayElementBase {
     set kerning_rtl(value: Record<string, number>) {
         const old = this.data.kerning_rtl;
         this.data.kerning_rtl = value;
-        // Sync back to format_specific so Rust preserves RTL kerning on
-        // round-trip (Rust only reads format_specific, not this field).
-        // Suppressed: the format_specific write is a derived consequence
-        // of the kerning_rtl edit, not an independent user action, so it
-        // should not produce a separate change-log entry.
-        const fontData = this.parent() as Babelfont.Font | null;
-        withSuppressedModelRecording(() => {
-            syncKerningRtlToFormatSpecific(
-                fontData || undefined,
-                this.data.id,
-                value
-            );
-        });
+        const font = this.parent();
+        if (font instanceof Font) {
+            syncKerningRtlToFormatSpecific(font, this.data.id, value);
+        }
         recordAndMarkDirty(this, 'kerning_rtl', old, value);
     }
 
@@ -10439,37 +10430,31 @@ function flatKerningRtlToNested(
  * round-trip. Called from the Master.kerning_rtl setter.
  */
 function syncKerningRtlToFormatSpecific(
-    fontData: Babelfont.Font | undefined,
+    font: Font,
     masterId: string,
     flatRtl: Record<string, number>
 ): void {
-    if (!fontData) return;
-
-    const fs = (fontData.format_specific ||
-        (fontData.format_specific = {})) as Record<string, unknown>;
+    const formatSpecific = font.format_specific || {};
+    const nextFormatSpecific = { ...formatSpecific };
+    const existingRtl = formatSpecific[KEY_KERNING_RTL] as
+        Record<string, Record<string, Record<string, number>>> | undefined;
+    const nextRtl = { ...existingRtl };
 
     if (Object.keys(flatRtl).length === 0) {
-        // Remove the master's entry if it exists; clean up empty containers
-        const existing = fs[KEY_KERNING_RTL] as
-            Record<string, Record<string, Record<string, number>>> | undefined;
-        if (existing) {
-            delete existing[masterId];
-            if (Object.keys(existing).length === 0) {
-                delete fs[KEY_KERNING_RTL];
-            }
+        delete nextRtl[masterId];
+        if (Object.keys(nextRtl).length === 0) {
+            delete nextFormatSpecific[KEY_KERNING_RTL];
+        } else {
+            nextFormatSpecific[KEY_KERNING_RTL] = nextRtl;
         }
+        font.format_specific = nextFormatSpecific;
         return;
     }
 
     const nested = flatKerningRtlToNested(flatRtl, masterId);
-    const existing =
-        (fs[KEY_KERNING_RTL] as
-            | Record<string, Record<string, Record<string, number>>>
-            | undefined) || {};
-
-    // Replace this master's entry, preserving other masters
-    existing[masterId] = nested[masterId] || {};
-    fs[KEY_KERNING_RTL] = existing;
+    nextRtl[masterId] = nested[masterId] || {};
+    nextFormatSpecific[KEY_KERNING_RTL] = nextRtl;
+    font.format_specific = nextFormatSpecific;
 }
 
 /**

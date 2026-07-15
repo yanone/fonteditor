@@ -2899,6 +2899,8 @@ describe('Model setter change recording', () => {
             const candidateValue = mutateValue(oldValue);
             const isComponentAnchorAlias =
                 spec.className === 'Component' && spec.property === 'anchor';
+            const isMasterRtlKerning =
+                spec.className === 'Master' && spec.property === 'kerning_rtl';
             const expectedProperty = isComponentAnchorAlias
                 ? 'componentAnchor'
                 : spec.property;
@@ -2930,6 +2932,34 @@ describe('Model setter change recording', () => {
                 const shapeYMap = getYPath(bridge.fontMap, shapePath);
                 const reconstructed = fromYType(shapeYMap);
                 expect(reconstructed.nodes).toEqual(expectedValue);
+            } else if (isMasterRtlKerning) {
+                expect(log).toHaveLength(2);
+                expect(log.map((entry) => entry.property).sort()).toEqual([
+                    'format_specific',
+                    'kerning_rtl'
+                ]);
+                expect(log[0].transactionId).toBe(log[1].transactionId);
+                expect(log[0].transactionLabel).toBe(log[1].transactionLabel);
+
+                const rtlEntry = log.find(
+                    (entry) => entry.property === 'kerning_rtl'
+                );
+                const canonicalEntry = log.find(
+                    (entry) => entry.property === 'format_specific'
+                );
+                expect(rtlEntry.oldValue).toEqual(oldValue);
+                expect(rtlEntry.newValue).toEqual(expectedValue);
+                expect(canonicalEntry.newValue).toEqual(
+                    cloneValue(font.format_specific)
+                );
+                expect(
+                    normalizeYValue(getYPath(bridge.fontMap, expectedYPath))
+                ).toEqual(expectedValue);
+                expect(
+                    normalizeYValue(
+                        getYPath(bridge.fontMap, ['format_specific'])
+                    )
+                ).toEqual(cloneValue(font.format_specific));
             } else {
                 expect(log).toHaveLength(1);
                 expect(log[0].property).toBe(expectedProperty);

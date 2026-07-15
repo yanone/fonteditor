@@ -2097,6 +2097,11 @@ fn refresh_kerning_related_caches_from_ydoc<T: ReadTxn>(
     } else {
         None
     };
+    let format_specific_json = if refresh_master_kerning {
+        ydoc_get_top_level_json_with_txn("format_specific", txn)
+    } else {
+        None
+    };
     let first_kern_groups_json = if refresh_kern_groups {
         ydoc_get_top_level_json_with_txn("first_kern_groups", txn)
     } else {
@@ -2114,6 +2119,11 @@ fn refresh_kerning_related_caches_from_ydoc<T: ReadTxn>(
         if let Some(ref mut canonical) = *canonical_lock {
             if refresh_master_kerning {
                 replace_masters_kerning_in_json(canonical, masters_json.as_ref());
+                replace_top_level_json_entry(
+                    canonical,
+                    "format_specific",
+                    format_specific_json.clone(),
+                );
             }
             if refresh_kern_groups {
                 replace_top_level_json_entry(
@@ -2153,6 +2163,11 @@ fn refresh_kerning_related_caches_from_ydoc<T: ReadTxn>(
             if refresh_master_kerning {
                 subset_changed |=
                     replace_masters_kerning_in_json(subset_json, masters_json.as_ref());
+                subset_changed |= replace_top_level_json_entry(
+                    subset_json,
+                    "format_specific",
+                    format_specific_json.clone(),
+                );
             }
             if refresh_kern_groups {
                 subset_changed |= replace_top_level_json_entry(
@@ -4643,6 +4658,68 @@ mod tests {
                 .map(|value| value.as_str()),
             Some("Renamed Regular")
         );
+    }
+
+    #[test]
+    fn refresh_kerning_related_caches_updates_canonical_rtl_kerning() {
+        clear_font_cache();
+
+        let old_rtl_kerning = json!({
+            "master-regular": {
+                "@MMK_R_A": { "@MMK_L_V": -10 }
+            }
+        });
+        let mut canonical_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        canonical_json["format_specific"]["com.schriftgestalt.Glyphs.kerningRTL"] =
+            old_rtl_kerning.clone();
+        set_canonical_json_cache(canonical_json.clone());
+
+        let subset_json = canonical_json.clone();
+        *SUBSET_JSON_CACHE.lock().unwrap() = Some(("A".to_string(), 1, subset_json.clone()));
+
+        let doc = Doc::new();
+        let font_map = doc.get_or_insert_map("font");
+        {
+            let mut txn = doc.transact_mut();
+            let masters: yrs::ArrayRef =
+                font_map.insert(&mut txn, "masters", ArrayPrelim::from(Vec::<Any>::new()));
+            let master: yrs::MapRef = masters.push_back(&mut txn, MapPrelim::<Any>::new());
+            master.insert(&mut txn, "kerning", MapPrelim::<Any>::new());
+
+            let format_specific: yrs::MapRef =
+                font_map.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+            let rtl_kerning: yrs::MapRef = format_specific.insert(
+                &mut txn,
+                "com.schriftgestalt.Glyphs.kerningRTL",
+                MapPrelim::<Any>::new(),
+            );
+            let master_rtl: yrs::MapRef =
+                rtl_kerning.insert(&mut txn, "master-regular", MapPrelim::<Any>::new());
+            let first: yrs::MapRef =
+                master_rtl.insert(&mut txn, "@MMK_R_A", MapPrelim::<Any>::new());
+            first.insert(&mut txn, "@MMK_L_V", Any::Number(-80.0));
+        }
+
+        let txn = doc.transact();
+        refresh_kerning_related_caches_from_ydoc(&txn, true, false).unwrap();
+
+        let expected_rtl_kerning = json!({
+            "master-regular": {
+                "@MMK_R_A": { "@MMK_L_V": -80 }
+            }
+        });
+        assert_eq!(
+            CANONICAL_JSON_CACHE.lock().unwrap().as_ref().unwrap()["format_specific"]
+                ["com.schriftgestalt.Glyphs.kerningRTL"],
+            expected_rtl_kerning
+        );
+        assert_eq!(
+            SUBSET_JSON_CACHE.lock().unwrap().as_ref().unwrap().2["format_specific"]
+                ["com.schriftgestalt.Glyphs.kerningRTL"],
+            expected_rtl_kerning
+        );
+
+        clear_font_cache();
     }
 
     #[test]

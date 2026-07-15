@@ -11659,7 +11659,7 @@ describe('Text-mode kerning property panel', () => {
         expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-55);
     });
 
-    test('committing an RTL kerning value records a bridge change and writes native master RTL kerning data', async () => {
+    test('committing an RTL kerning value records the canonical source and editor RTL data', async () => {
         const recordChange = jest.fn();
         window.patchSyncEngine = {
             beginTransaction: jest.fn(),
@@ -11689,6 +11689,19 @@ describe('Text-mode kerning property panel', () => {
             'Edit kerning pair'
         );
         expect(window.patchSyncEngine.endTransaction).toHaveBeenCalled();
+        expect(recordChange).toHaveBeenCalledTimes(2);
+        const formatSpecificChange = recordChange.mock.calls.find(
+            ([path, property]) =>
+                Array.isArray(path) &&
+                path.length === 0 &&
+                property === 'format_specific'
+        );
+        expect(formatSpecificChange).toBeDefined();
+        expect(
+            formatSpecificChange[3]['com.schriftgestalt.Glyphs.kerningRTL'][
+                'master-1'
+            ]['@MMK_R_AFirst']['@MMK_L_VSecond']
+        ).toBe(-55);
         expect(recordChange).toHaveBeenCalledWith(
             ['masters', 0],
             'kerning_rtl',

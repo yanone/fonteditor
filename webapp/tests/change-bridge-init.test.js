@@ -2675,9 +2675,27 @@ describe('bridge Yjs worker callback', () => {
                 invalidateLayoutClosure: false
             })
         );
+
+        forwardWorkerYjsUpdate.mockClear();
+        bridge._yjsWorkerCallback(new Uint8Array([4, 7]), [
+            {
+                path: 'format_specific.com.schriftgestalt.Glyphs.kerningRTL.master-regular.@MMK_R_A.@MMK_L_V'
+            }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            [],
+            expect.objectContaining({
+                invalidateLayoutClosure: false,
+                nonGlyphChangeHints: ['kerning-value']
+            })
+        );
     });
 
-    test('forwards RTL kerning-pair Yjs updates with non-glyph kerning hints', async () => {
+    test('forwards canonical RTL kerning Yjs updates with non-glyph kerning hints', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
@@ -2704,6 +2722,10 @@ describe('bridge Yjs worker callback', () => {
         fullWorkerUpdateSpy.mockClear();
 
         bridge._yjsWorkerCallback(new Uint8Array([4, 6]), [
+            {
+                path: 'format_specific',
+                transactionLabel: 'Edit kerning pair'
+            },
             {
                 path: 'masters.0.kerning_rtl.@AFirst:@VSecond',
                 transactionLabel: 'Edit kerning pair'
@@ -3870,60 +3892,63 @@ describe('committed undo/redo compile requests', () => {
         expect(window.fontManager.currentFont.compileRequestVersion).toBe(11);
     });
 
-    test('undo/redo packets preserve kerning edit types', async () => {
-        const checkAndSchedule = jest.fn();
-        const requestRecompileWithoutDataChange = jest.fn(function () {
-            this.compileRequestVersion += 1;
-        });
+    test.each(['undo', 'redo'])(
+        '%s RTL kerning packets preserve kerning edit types',
+        async (historyAction) => {
+            const checkAndSchedule = jest.fn();
+            const requestRecompileWithoutDataChange = jest.fn(function () {
+                this.compileRequestVersion += 1;
+            });
 
-        window.autoCompileManager = {
-            checkAndSchedule
-        };
-        window.fontManager = {
-            lastChangeSource: null,
-            lastEditType: null,
-            setEditingCompileContext(changeSource, editType) {
-                this.lastChangeSource = changeSource;
-                this.lastEditType = editType;
-            },
-            clearEditingCompileContext() {
-                this.lastChangeSource = null;
-                this.lastEditType = null;
-            },
-            currentFont: {
-                compileRequestVersion: 2,
-                requestRecompileWithoutDataChange
-            }
-        };
-
-        await changeBridgeInit.handleCommittedChangeRefresh(
-            [
-                {
-                    historyAction: 'redo',
-                    transactionLabel: 'Set kerning value',
-                    path: 'masters.master-1.kerning.A.V',
-                    oldValue: -50,
-                    newValue: -80
+            window.autoCompileManager = {
+                checkAndSchedule
+            };
+            window.fontManager = {
+                lastChangeSource: null,
+                lastEditType: null,
+                setEditingCompileContext(changeSource, editType) {
+                    this.lastChangeSource = changeSource;
+                    this.lastEditType = editType;
+                },
+                clearEditingCompileContext() {
+                    this.lastChangeSource = null;
+                    this.lastEditType = null;
+                },
+                currentFont: {
+                    compileRequestVersion: 2,
+                    requestRecompileWithoutDataChange
                 }
-            ],
-            'local',
-            {
-                awaitWorkerSync: jest.fn(async () => {}),
-                queueCacheRefresh: jest.fn(async () => {})
-            }
-        );
+            };
 
-        expect(window.fontManager.lastChangeSource).toBeNull();
-        expect(window.fontManager.lastEditType).toBeNull();
-        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
-        expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
-            compileContext: expect.objectContaining({
-                changeSource: 'keyboard-kerning-value',
-                editType: 'kerning-value'
-            })
-        });
-        expect(checkAndSchedule).toHaveBeenCalledTimes(1);
-    });
+            await changeBridgeInit.handleCommittedChangeRefresh(
+                [
+                    {
+                        historyAction,
+                        transactionLabel: 'Edit kerning pair',
+                        path: 'masters.master-1.kerning_rtl.@AFirst:@VSecond',
+                        oldValue: -50,
+                        newValue: -80
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync: jest.fn(async () => {}),
+                    queueCacheRefresh: jest.fn(async () => {})
+                }
+            );
+
+            expect(window.fontManager.lastChangeSource).toBeNull();
+            expect(window.fontManager.lastEditType).toBeNull();
+            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+            expect(requestRecompileWithoutDataChange).toHaveBeenCalledWith({
+                compileContext: expect.objectContaining({
+                    changeSource: 'keyboard-kerning-value',
+                    editType: 'kerning-value'
+                })
+            });
+            expect(checkAndSchedule).toHaveBeenCalledTimes(1);
+        }
+    );
 
     test('undo sidebearing packets preserve the stamped sidebearing compile context', async () => {
         const checkAndSchedule = jest.fn();
