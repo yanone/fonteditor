@@ -137,7 +137,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'get_editor_state',
             description:
-                'Get the current editor state for both inspection and parameter-copying. Returns the text buffer contents; HarfBuzz shaped buffers (glyph names, gids, advances, clusters); the complete current OpenType feature inventory with descriptions, subset availability, and activation flags; a per-feature tag-to-boolean activation dictionary; the current userspace location; the current designspace location; and the current file. Use this to understand the active text layout and feature configuration, and also to copy explicit inputs for compile_and_shape_font. This state can change after text, feature, or font-data edits, so refresh it when needed.',
+                'Get the current editor state for both inspection and parameter-copying. Returns raw text-buffer syntax as textBuffer and textBufferRaw, user-visible text as textBufferDisplay, parsed explicit glyph tokens, HarfBuzz shaped buffers (glyph names, gids, advances, clusters), the complete current OpenType feature inventory with descriptions, subset availability, and activation flags, a per-feature tag-to-boolean activation dictionary, the current userspace location, the current designspace location, and the current file. In raw text syntax, // represents one literal slash and /glyphname is an explicit glyph reference only when it resolves; never claim an escaped slash pair unless textBufferRaw explicitly contains //. Use this to understand the active text layout and feature configuration, and also to copy explicit inputs for compile_and_shape_font. This state can change after text, feature, or font-data edits, so refresh it when needed.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -182,14 +182,14 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'set_editor_text_buffer',
             description:
-                'Set the text buffer contents. The string may include encoded Unicode characters as well as glyph names using the /glyphname notation. Several glyph names may appear consecutively, but the last one needs to have a space character as a suffix before encoded characters may follow. Use tool `get_editor_state` first to see the current buffer.',
+                'Set the raw text-buffer contents. The string may include encoded Unicode characters, literal slashes encoded as //, and explicit glyph names using the /glyphname notation. Several glyph names may appear consecutively, but the last one needs to have a space character as a suffix before encoded characters may follow. Use tool `get_editor_state` first to inspect textBufferRaw, textBufferDisplay, and explicitGlyphTokens.',
             parameters: {
                 type: 'object',
                 properties: {
                     text: {
                         type: 'string',
                         description:
-                            'The new text buffer content. Supports /glyphname notation for explicit glyph references, space-separated. Example: "H/Ohorn/e/l/l/o" or "ABC /fi /ffi def".'
+                            'The new raw text buffer content. Use // for one literal slash and /glyphname for an explicit glyph reference. Example: "H/Ohorn/e/l/l/o", "ABC /fi /ffi def", or "0//10" for the visible text 0/10.'
                     }
                 },
                 required: ['text']

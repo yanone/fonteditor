@@ -1638,14 +1638,79 @@ if '_agent_original_stdout' in dir():
                     userspaceLocation as any,
                     axes
                 );
+                const textBufferRaw = String(s.editor_text_buffer || '');
+                const textRunEditor = (window as any).glyphCanvas
+                    ?.textRunEditor;
+                const textRunStateMatches =
+                    textRunEditor?.textBuffer === textBufferRaw;
+                // The state snapshot is authoritative; only reuse parsed UI state
+                // when it was derived from the same raw buffer.
+                const textBufferDisplay =
+                    textRunStateMatches &&
+                    typeof textRunEditor.displayTextBuffer === 'string'
+                        ? textRunEditor.displayTextBuffer
+                        : textBufferRaw.replace(/\/\//g, '/');
+                const explicitGlyphTokens = textRunStateMatches
+                    ? textRunEditor.explicitGlyphTokens.map(
+                          ({
+                              name,
+                              start,
+                              end
+                          }: {
+                              name: string;
+                              start: number;
+                              end: number;
+                          }) => ({ name, start, end })
+                      )
+                    : [];
+                const liveGlyphNameBuffer = textRunStateMatches
+                    ? textRunEditor.glyphNameBuffer
+                    : null;
+                const liveGlyphBuffer = textRunStateMatches
+                    ? textRunEditor.shapedGlyphs
+                    : null;
+                const hasLiveShapingState =
+                    Array.isArray(liveGlyphNameBuffer) &&
+                    Array.isArray(liveGlyphBuffer);
+                const glyphs = hasLiveShapingState
+                    ? liveGlyphNameBuffer.join(' ')
+                    : s.editor_harfbuzz_glyph_names || '';
+                const gids = hasLiveShapingState
+                    ? liveGlyphBuffer.map((glyph: { g?: number }) =>
+                          String(glyph.g ?? '')
+                      )
+                    : s.editor_harfbuzz_gids || '';
+                const advances = hasLiveShapingState
+                    ? liveGlyphBuffer.map((glyph: { ax?: number }) =>
+                          String(glyph.ax ?? '')
+                      )
+                    : s.editor_harfbuzz_ax || '';
+                const clusters = hasLiveShapingState
+                    ? liveGlyphBuffer.map((glyph: { cl?: number }) =>
+                          String(glyph.cl ?? '')
+                      )
+                    : s.editor_harfbuzz_cl || '';
 
                 return JSON.stringify(
                     {
-                        textBuffer: s.editor_text_buffer || '',
-                        glyphs: s.editor_harfbuzz_glyph_names || '',
-                        gids: s.editor_harfbuzz_gids || '',
-                        advances: s.editor_harfbuzz_ax || '',
-                        clusters: s.editor_harfbuzz_cl || '',
+                        textBuffer: textBufferRaw,
+                        textBufferRaw,
+                        textBufferDisplay,
+                        textBufferInterpretationIsCurrent: textRunStateMatches,
+                        explicitGlyphTokens,
+                        textBufferSyntax:
+                            'Raw syntax: // is one literal slash; /glyphname is an explicit glyph reference only when it resolves. Never infer // unless textBufferRaw contains it.',
+                        glyphs,
+                        gids: Array.isArray(gids) ? gids.join(' ') : gids,
+                        advances: Array.isArray(advances)
+                            ? advances.join(' ')
+                            : advances,
+                        clusters: Array.isArray(clusters)
+                            ? clusters.join(' ')
+                            : clusters,
+                        shapingStateSource: hasLiveShapingState
+                            ? 'live-text-run'
+                            : 'state-manager',
                         userspaceLocation,
                         designspaceLocation,
                         featureStateByTag,
