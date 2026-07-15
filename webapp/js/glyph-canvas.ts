@@ -4171,10 +4171,6 @@ class GlyphCanvas {
         return true;
     }
 
-    private getComponentAutoAlignmentValue(component: Component): boolean {
-        return component.isAutomaticAligned();
-    }
-
     private setComponentAutoAlignmentValue(
         component: Component,
         enabled: boolean
@@ -4200,7 +4196,7 @@ class GlyphCanvas {
         }
 
         const values = components.map((component) =>
-            this.getComponentAutoAlignmentValue(component)
+            component.isAutomaticAligned()
         );
         const first = values[0];
         return values.every((value) => value === first) ? first : 'mixed';
