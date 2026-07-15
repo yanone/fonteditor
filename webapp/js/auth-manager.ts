@@ -147,7 +147,7 @@ class AuthManager {
     }
 
     isLocalWebsiteURL(): boolean {
-        return this.websiteURL.startsWith('http://localhost:8788');
+        return this.websiteURL.startsWith('https://localhost:8788');
     }
 
     /**

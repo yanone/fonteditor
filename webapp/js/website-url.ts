@@ -5,7 +5,7 @@ export function resolveWebsiteURL(hostname?: string): string {
         effectiveHostname === 'localhost' ||
         effectiveHostname === '127.0.0.1'
     ) {
-        return 'http://localhost:8788';
+        return 'https://localhost:8788';
     }
 
     if (
