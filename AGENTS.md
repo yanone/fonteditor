@@ -437,6 +437,20 @@ When changing compilation scheduling, compile-mode selection, worker cache inval
 - Pyodide: https://pyodide.org/
 - HarfBuzz.js: https://github.com/harfbuzz/harfbuzzjs
 
+## Sibling Repositories
+
+The `editor` repo lives inside `/Users/yanone/Code/Counterpunch/` alongside several related repositories. These are all separate git repos that together form the Counterpunch ecosystem:
+
+| Directory | Description |
+|-----------|-------------|
+| `babelfont-rs/` | Rust workspace providing a unified font source file library. Loads, manipulates, and converts fonts between UFO, DesignSpace, Glyphs, FontLab VFJ, and its own JSON format. Includes sub-crates for font merging (`fontmerge`) and SR-AEF support. |
+| `cf-compactor/` | Cloudflare Worker for Yjs document compaction in collaborative editing rooms. Exposes a `/room/:id/compact` endpoint to compact and garbage-collect Yjs document state. |
+| `collab/` | Cloudflare Worker for managing collaborative font editing rooms. Provides the real-time collaboration backend (room creation, health/status endpoints) that the editor's multi-user features connect to. |
+| `glyphslib-rs/` | Rust workspace (with `glyphslib` and `openstep-plist` sub-crates) for reading, writing, and converting Glyphs.app font source files (`.glyphs` and `.glyphspackage`, v2 and v3). The Rust counterpart of the Python `glyphslib` library. |
+| `marketing/` | Marketing assets, including a feature-benefit matrix image. |
+| `norad/` | Rust crate (from the Linebender project) for reading, writing, and manipulating UFO (Unified Font Object) files. Provides typed data structures corresponding to the UFO 3 specification. |
+| `website/` | Counterpunch's public-facing website and user dashboard. Cloudflare Pages application with a full backend (D1 database, Stripe subscriptions, API endpoints) and a frontend providing account management, documentation, and editor integration. |
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
