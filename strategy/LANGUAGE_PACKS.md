@@ -160,6 +160,21 @@ whose declared setting changed and then applies the normal batched rebuild and
 compilation rules. The font records the setting value together with the
 plugin's identity and version so the result remains reproducible.
 
+### Idea: Shared Pack Settings
+
+This is an open design idea, not yet a rule. A pack may need one setting that
+several of its roles read consistently. Counterpunch could add a pack-level
+settings schema and pass the resulting immutable settings snapshot to every
+plugin instance in that pack. Individual plugins would still declare which
+shared values they use, so changing a value reruns only the affected roles.
+
+For example, a pack could declare one `composition-output` setting. Its
+composition provider and feature generator would both read the same selected
+value, while its glyph filter could read it to describe the resulting glyph
+set. The unresolved question is whether this setting belongs to the whole pack
+or to a pack's selected profile, allowing one pack to use different output
+representations for Latin and Arabic.
+
 ## Packages, Profiles, And Capabilities
 
 Installing a pack only makes it available. A font records which packs are
@@ -339,6 +354,52 @@ Anchors are permanent ordinary font data once created:
   anchors.
 - The safe default adds missing anchors only; moving or replacing existing
   anchor families is an explicit action.
+
+### Idea: Materialized And `ccmp` Composition Output
+
+This is an exploratory direction, not a commitment. A pack-level
+`composition-output` setting could offer two representations of the same
+canonical composition recipe:
+
+```text
+Materialized
+  The encoded glyph owns ordinary components or outlines in the font.
+
+Shaper-composed (ccmp)
+  The encoded glyph remains in cmap but is an empty shell. Generated ccmp
+  code decomposes it into component glyphs during shaping.
+```
+
+For Latin, an encoded glyph such as `aacute` could be an empty shell for
+`U+00E1`; generated `ccmp` code would expand it to `a + acutecomb`, followed
+by normal mark positioning. This reduces repeated outline data but not the
+need for the encoded cmap entry. For Arabic, `ccmp` could decompose dotted
+letters into a joinable skeleton plus dot components before the normal
+`init`/`medi`/`fina`/`isol` shaping stages. This can remove repeated dotted
+variants, but it does not remove positional skeleton forms where the design
+still needs them.
+
+The possible ownership boundary is deliberately conservative:
+
+- The **pack provider** supplies declarative recipes, component roles,
+  attachment information, supported output modes, and the script-specific
+  generated feature-code blocks.
+- **Counterpunch** applies the selected representation: creating materialized
+  composites or encoded shells, running one undoable batched transaction, and
+  protecting user-edited glyph data.
+
+Under this idea, providers do not receive an imperative “convert this font”
+hook. Counterpunch lowers a shared canonical composition plan into the chosen
+representation, while the feature generator emits matching `ccmp`, `mark`,
+`mkmk`, and script-shaping blocks from that same plan. This avoids asking two
+providers to independently rediscover the same composition relationship.
+
+Several questions remain before adopting this model: how a switch treats
+user-edited generated glyphs; which settings scope is appropriate; required
+metrics and GDEF data for empty shells; feature ordering and application
+compatibility; and the test suite needed to prove equivalent shaping in target
+applications. A safe initial rule would preserve user-edited materialized
+glyphs and report them rather than collapsing them automatically.
 
 ## Generated OpenType Feature Code
 
