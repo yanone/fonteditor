@@ -387,6 +387,37 @@ and positioning rules against the glyphs that exist after the selected rebuild;
 they do not receive an imperative “convert this font” hook or write the generic
 one-to-many `ccmp` substitutions.
 
+Feature providers that shape, position, or otherwise reference the selected
+glyphs must declare which composition representations they support. A provider
+that supports `ccmp` receives a read-only, structured post-composition view
+with the prospective font, rather than parsing Counterpunch's generated FEA
+code. For example, an Arabic joining provider can see that `beh-ar` will first
+decompose to `beh-ar.skeleton + dot-below`, and must generate `init`, `medi`,
+`fina`, and `isol` rules for the skeleton forms. In materialized output it may
+instead generate rules for `beh-ar` and its ordinary positional forms.
+
+Before offering or applying a representation change, Counterpunch resolves the
+requested scope's dependency graph. It finds every active capability whose
+generated feature code can refer to the selected glyphs, then checks whether
+its provider supports the requested representation. A conversion is available
+only when every required provider can generate correct code for that resulting
+glyph topology. An unsupported provider blocks the operation with a diagnostic;
+it cannot leave a partly converted font:
+
+```text
+Cannot rebuild Arabic as ccmp
+
+Arabic Joining Pack supports: materialized
+Requested output: ccmp
+
+Choose materialized output or select a ccmp-capable joining provider.
+```
+
+This check is capability- and scope-specific, not merely a pack-wide badge. A
+pack may support `ccmp` for Latin composition while its Arabic joining feature
+supports only materialized glyphs; unrelated capabilities such as fractions do
+not affect the choice.
+
 The managed `ccmp` block is also the complete, stateless description of the
 current shaper-composed glyphs. A glyph is `ccmp`-composed when it is the input
 of a substitution in that block:
