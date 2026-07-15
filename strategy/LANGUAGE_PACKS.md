@@ -100,10 +100,26 @@ plugin roles, provided and replaced capability keys, dependencies, and
 supported scripts or languages.
 
 GitHub discovery creates a searchable **catalogue entry**; it does not execute
-code. Selecting a pack installs a specific, versioned package into Pyodide,
-then the normal Python plugin discovery process loads its declared hooks. This
-keeps discovery, installation, and activation distinct and lets a font record
-the exact pack version that supplied its behavior.
+code. A pack release contains a normal Python wheel, its manifest, and a
+resolved lock file naming every required pure-Python or Pyodide-compatible
+wheel. Authors publish these release assets on GitHub, with no PyPI account or
+separate package-registry workflow required.
+
+On the first installation of a GitHub release, Counterpunch downloads,
+validates, hash-checks, and mirrors the pack wheel and its complete locked
+dependency closure to Counterpunch storage. Only after this capture succeeds
+does Counterpunch install the exact mirrored wheels into Pyodide and load their
+declared hooks. A font records the mirrored artifact IDs and hashes, together
+with the GitHub repository and release as provenance. It does not rely on a
+future GitHub or dependency-index lookup to reopen or regenerate the font.
+
+The mirror is a reproducibility guarantee, not an endorsement of the pack.
+Before a release has been mirrored it may be discoverable from GitHub; after
+mirroring it is eligible to become a durable font dependency. Counterpunch
+installs the locked wheel list with dependency resolution disabled, so the
+recorded environment is deterministic. Changing the active pack set recreates
+the Pyodide worker rather than replacing imported packages in a running Python
+environment.
 
 Whether the catalogue queries the GitHub API live or uses a pre-rendered,
 periodically refreshed database remains an open delivery decision. Both must
