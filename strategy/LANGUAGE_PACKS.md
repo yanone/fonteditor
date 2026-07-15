@@ -168,12 +168,9 @@ settings schema and pass the resulting immutable settings snapshot to every
 plugin instance in that pack. Individual plugins would still declare which
 shared values they use, so changing a value reruns only the affected roles.
 
-For example, a pack could declare one `composition-output` setting. Its
-composition provider and feature generator would both read the same selected
-value, while its glyph filter could read it to describe the resulting glyph
-set. The unresolved question is whether this setting belongs to the whole pack
-or to a pack's selected profile, allowing one pack to use different output
-representations for Latin and Arabic.
+This idea does not apply to the materialized-versus-`ccmp` choice described
+below. That is a Counterpunch-wide rebuild operation over declarative recipes,
+not a setting that Language Pack roles negotiate among themselves.
 
 ## Packages, Profiles, And Capabilities
 
@@ -357,49 +354,145 @@ Anchors are permanent ordinary font data once created:
 
 ### Idea: Materialized And `ccmp` Composition Output
 
-This is an exploratory direction, not a commitment. A pack-level
-`composition-output` setting could offer two representations of the same
-canonical composition recipe:
+This is an exploratory direction, but an important one. A composition recipe
+describes what a glyph is made of; Counterpunch can apply that recipe in either
+of two ways. This is a font-editor operation, not a Language Pack setting.
 
 ```text
+Recipe
+  aacute = a + acutecomb, attached at top
+
 Materialized
-  The encoded glyph owns ordinary components or outlines in the font.
+  Counterpunch writes aacute as an ordinary component glyph in the font.
 
 Shaper-composed (ccmp)
-  The encoded glyph remains in cmap but is an empty shell. Generated ccmp
-  code decomposes it into component glyphs during shaping.
+  Counterpunch keeps aacute as the encoded cmap glyph but makes it an empty
+  shell. Generated ccmp code decomposes it during shaping.
 ```
 
-For Latin, an encoded glyph such as `aacute` could be an empty shell for
-`U+00E1`; generated `ccmp` code would expand it to `a + acutecomb`, followed
-by normal mark positioning. This reduces repeated outline data but not the
-need for the encoded cmap entry. For Arabic, `ccmp` could decompose dotted
-letters into a joinable skeleton plus dot components before the normal
-`init`/`medi`/`fina`/`isol` shaping stages. This can remove repeated dotted
-variants, but it does not remove positional skeleton forms where the design
-still needs them.
+For Latin, `aacute` remains the cmap target for `U+00E1`; generated `ccmp`
+code expands it to `a + acutecomb`, followed by normal mark positioning. This
+reduces repeated outline data but not the need for the encoded cmap entry. For
+Arabic, `ccmp` can decompose a dotted letter into a joinable skeleton plus dot
+components before normal `init`/`medi`/`fina`/`isol` shaping. This can remove
+repeated dotted variants, but it does not remove positional skeleton forms when
+the design still needs them.
 
-The possible ownership boundary is deliberately conservative:
+Language Packs supply the declarative recipes, including component roles and
+attachment information. Counterpunch owns the representation choice and the
+generic lowering of a recipe into a materialized composite or a `ccmp` shell.
+It writes one generic, managed `ccmp` block from the selected recipes. Existing
+script-specific feature providers continue to generate their normal joining
+and positioning rules against the glyphs that exist after the selected rebuild;
+they do not receive an imperative “convert this font” hook or write the generic
+one-to-many `ccmp` substitutions.
 
-- The **pack provider** supplies declarative recipes, component roles,
-  attachment information, supported output modes, and the script-specific
-  generated feature-code blocks.
-- **Counterpunch** applies the selected representation: creating materialized
-  composites or encoded shells, running one undoable batched transaction, and
-  protecting user-edited glyph data.
+The managed `ccmp` block is also the complete, stateless description of the
+current shaper-composed glyphs. A glyph is `ccmp`-composed when it is the input
+of a substitution in that block:
 
-Under this idea, providers do not receive an imperative “convert this font”
-hook. Counterpunch lowers a shared canonical composition plan into the chosen
-representation, while the feature generator emits matching `ccmp`, `mark`,
-`mkmk`, and script-shaping blocks from that same plan. This avoids asking two
-providers to independently rediscover the same composition relationship.
+```fea
+feature ccmp {
+  sub aacute by a acutecomb;
+} ccmp;
+```
 
-Several questions remain before adopting this model: how a switch treats
-user-edited generated glyphs; which settings scope is appropriate; required
-metrics and GDEF data for empty shells; feature ordering and application
-compatibility; and the test suite needed to prove equivalent shaping in target
-applications. A safe initial rule would preserve user-edited materialized
-glyphs and report them rather than collapsing them automatically.
+Here `aacute` is shaper-composed, regardless of whether it currently contains
+outlines, components, or no drawable data. The rule controls shaping; leftover
+drawable content is dead content that the rebuild preview may offer to clear.
+If a glyph is not an input in Counterpunch's managed `ccmp` block, it is not
+currently in Counterpunch's `ccmp` representation. No separate glyph marker,
+per-glyph ownership record, or build history is needed.
+
+Manual `ccmp` feature code remains separate and is never rewritten
+automatically. The managed block is ordinary present font data, analogous to
+other generated feature-code blocks; it is the safe scope Counterpunch may
+inspect and replace during an explicit composition rebuild.
+
+The UI is an explicit, stateless **Rebuild Composition** command. The user
+chooses both a scope and an output representation:
+
+```text
+Scope
+  selected glyphs
+  current script or profile
+  Latin
+  Arabic
+  all glyphs with applicable recipes
+
+Output
+  materialized components
+  shaper-composed ccmp shells
+```
+
+The command resolves the current recipes for the requested scope and creates a
+prospective rebuilt font before changing the real one. It does not need to know
+which earlier command created a glyph or whether a user later edited it. The
+user has deliberately selected glyphs to replace, so the preview shows the
+current and proposed representations by reading the managed `ccmp` block, and
+the rebuild replaces the selected targets in one undoable transaction.
+Unselected glyphs remain as they are, so a font can intentionally use `ccmp`
+for Latin accents while keeping Arabic, or a special user-drawn composite,
+materialized.
+
+#### Removing Redundant Glyphs After A `ccmp` Rebuild
+
+Converting a base Arabic glyph can make previously materialized presentation
+forms redundant even when the user did not select those forms. For example, a
+user may select `beh-ar`, but not `beh-ar.init`, `.medi`, and `.fina`. The
+prospective `ccmp` rebuild changes the reachable shaping path:
+
+```text
+Before
+  beh-ar -> beh-ar.init / beh-ar.medi / beh-ar.fina
+
+After
+  cmap beh-ar
+    -> ccmp: beh-ar.skeleton + dot-below
+    -> init / medi / fina
+    -> beh-ar.skeleton.init / .medi / .fina
+```
+
+The old dotted presentation forms are then candidates for removal. The rule is
+not “delete unselected glyphs”; it is “offer to delete glyphs that are no
+longer reachable in the prospective rebuilt font.” Counterpunch computes this
+after all selected recipes and affected generated feature blocks have been
+applied to the temporary font state, but before committing the operation.
+
+The reachability graph must be conservative. Its roots and references include
+cmap entries, `.notdef` and other protected glyphs, component references, all
+generated and manual OpenType code, color or SVG glyph references, and any
+other glyph-bearing font table. A glyph named in a manual feature or used as a
+component remains reachable even if ordinary Unicode text no longer selects
+it. Counterpunch presents only glyphs that have no surviving use:
+
+```text
+Converted
+  beh-ar -> ccmp shell
+
+New supporting glyphs
+  beh-ar.skeleton
+  beh-ar.skeleton.init / .medi / .fina
+  dot-below
+
+No longer reachable
+  beh-ar.init
+  beh-ar.medi
+  beh-ar.fina
+
+Delete 3 unreachable glyphs?  [Keep all]  [Delete selected]
+```
+
+Keeping all is the default. Deleting selected candidates, changing the chosen
+glyph representations, and regenerating the affected feature code remain one
+previewed, undoable operation. This keeps the system stateless: the current
+font and the current active recipes determine the proposal; no per-glyph build
+history or generator-ownership record is required.
+
+Several questions remain before adopting this model: required metrics and GDEF
+data for empty shells, feature ordering and application compatibility, the
+precise set of glyph-bearing references in a compiled font, and the test suite
+needed to prove equivalent shaping in target applications.
 
 ## Generated OpenType Feature Code
 
