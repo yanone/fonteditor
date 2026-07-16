@@ -103,6 +103,7 @@ describe('collaboration-message scaffold', () => {
                 windowId: 'sender-window',
                 windowRoleLabel: 'linked-2',
                 historyItemId: 'history-undo-1',
+                promptGroupId: 'agent-prompt-1',
                 historyAction: 'undo',
                 targetHistoryItemId: 'history-change-1',
                 transactionLabel: 'Undo',
@@ -142,6 +143,7 @@ describe('collaboration-message scaffold', () => {
                 windowId: 'sender-window',
                 windowRoleLabel: 'linked-2',
                 historyItemId: 'sender-window:history-undo-1',
+                promptGroupId: 'agent-prompt-1',
                 historyAction: 'undo',
                 targetHistoryItemId: 'sender-window:history-change-1',
                 transactionLabel: 'Undo',
@@ -157,6 +159,54 @@ describe('collaboration-message scaffold', () => {
                 historyTargetLabel: 'liga'
             })
         );
+    });
+
+    test('keeps prompt grouping separate from native history identities', () => {
+        const entries = [
+            createLogEntry({
+                timestamp: 123,
+                windowId: 'sender-window',
+                windowRoleLabel: 'main',
+                historyItemId: 'python-call-1',
+                promptGroupId: 'agent-prompt-1',
+                transactionLabel: 'Python script',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'glyph',
+                path: 'glyphs.A:name',
+                oldValue: 'A',
+                newValue: 'A.alt'
+            }),
+            createLogEntry({
+                timestamp: 124,
+                windowId: 'sender-window',
+                windowRoleLabel: 'main',
+                historyItemId: 'python-call-2',
+                promptGroupId: 'agent-prompt-1',
+                transactionLabel: 'Python script',
+                transactionId: 2,
+                op: 'set',
+                undoScope: 'glyph',
+                path: 'glyphs.A:exported',
+                oldValue: false,
+                newValue: true
+            })
+        ];
+
+        const envelopes =
+            createCollaborationMessageEnvelopesFromChangeLogEntries(entries, {
+                startingLocalSequence: 1,
+                source: 'unit-test',
+                windowId: 'sender-window'
+            });
+
+        expect(envelopes).toHaveLength(2);
+        expect(
+            envelopes.map((envelope) => envelope.metadata.historyItemId)
+        ).toEqual(['python-call-1', 'python-call-2']);
+        expect(
+            envelopes.map((envelope) => envelope.metadata.promptGroupId)
+        ).toEqual(['agent-prompt-1', 'agent-prompt-1']);
     });
 
     test('omits redundant per-change replay targets when packet metadata already matches', () => {

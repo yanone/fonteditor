@@ -27,6 +27,10 @@ import {
     CompileAndShapeFontCacheEntry,
     resolveCompileAndShapeFontCompilation
 } from './compile-and-shape-font-cache';
+import {
+    AgentPromptExecutionContext,
+    setActiveAgentPythonExecution
+} from './agent-execution-context';
 
 const console = new Logger('AIAgent');
 
@@ -50,6 +54,8 @@ class AIAgent {
     roundUsage: UsageMetrics[];
     sessionTotals: UsageMetrics;
     compileAndShapeFontCache: CompileAndShapeFontCacheEntry | null;
+    allowFontEdits: boolean;
+    activePromptContext: AgentPromptExecutionContext | null;
 
     constructor() {
         this.messagesContainer = null;
@@ -68,6 +74,9 @@ class AIAgent {
         this.roundUsage = [];
         this.sessionTotals = {};
         this.compileAndShapeFontCache = null;
+        this.allowFontEdits =
+            localStorage.getItem('agentAllowFontEdits') === 'true';
+        this.activePromptContext = null;
 
         this.initUI();
         this.checkAuthenticationStatus();
@@ -181,6 +190,20 @@ class AIAgent {
             .getElementById('agent-new-chat-btn')
             ?.addEventListener('click', () => this.newChat());
 
+        const editToggle = document.getElementById(
+            'agent-edit-toggle'
+        ) as HTMLButtonElement | null;
+        editToggle?.addEventListener('click', () => {
+            if (this.isStreaming) return;
+            this.allowFontEdits = !this.allowFontEdits;
+            localStorage.setItem(
+                'agentAllowFontEdits',
+                String(this.allowFontEdits)
+            );
+            this.updateAgentEditToggle();
+        });
+        this.updateAgentEditToggle();
+
         document
             .getElementById('agent-stop-btn')
             ?.addEventListener('click', () => {
@@ -197,6 +220,40 @@ class AIAgent {
         });
 
         this.setupInfoModal();
+    }
+
+    updateAgentEditToggle() {
+        const editToggle = document.getElementById(
+            'agent-edit-toggle'
+        ) as HTMLButtonElement | null;
+        if (!editToggle) return;
+
+        const editsAllowed = this.allowFontEdits;
+        const isLocked = this.isStreaming;
+        const stateLabel = editsAllowed ? 'on' : 'off';
+        const label = isLocked
+            ? `Agent font edits are ${stateLabel} for this prompt and locked`
+            : `Agent font edits are ${stateLabel}`;
+
+        editToggle.classList.toggle('active', editsAllowed);
+        editToggle.classList.toggle('locked', isLocked);
+        editToggle.disabled = isLocked;
+        editToggle.setAttribute('aria-pressed', String(editsAllowed));
+        editToggle.setAttribute('aria-label', label);
+        editToggle.title = label;
+
+        const icon = editToggle.querySelector('.material-symbols-outlined');
+        if (icon) {
+            icon.textContent = editsAllowed ? 'edit' : 'edit_off';
+        }
+    }
+
+    private async getRuntimeSystemPrompt(): Promise<string> {
+        const editorState = await this.executeToolCall({
+            function: { name: 'get_editor_state', arguments: '{}' }
+        });
+        const promptContext = this.activePromptContext;
+        return `${AGENT_SYSTEM_PROMPT}\n\nCURRENT PROMPT PERMISSION: Font data editing is ${promptContext?.allowFontEdits ? 'allowed' : 'disabled'} for this prompt.\n\nCURRENT EDITOR STATE:\n${editorState}`;
     }
 
     setupInfoModal() {
@@ -1571,7 +1628,9 @@ sys.stdout = _agent_output_buffer
 
                 let output = '';
                 try {
+                    setActiveAgentPythonExecution(this.activePromptContext);
                     await pyodide.runPythonAsync(code);
+                    setActiveAgentPythonExecution(null);
                     output = await pyodide.runPythonAsync(`
 output = _agent_output_buffer.getvalue()
 sys.stdout = _agent_original_stdout
@@ -1580,12 +1639,15 @@ del _agent_original_stdout
 output
                     `);
                 } catch (err: any) {
+                    setActiveAgentPythonExecution(null);
                     // Restore stdout on error
                     await pyodide.runPythonAsync(`
 if '_agent_original_stdout' in dir():
     sys.stdout = _agent_original_stdout
                     `);
                     throw new Error(`Python error: ${err.message}`);
+                } finally {
+                    setActiveAgentPythonExecution(null);
                 }
 
                 return output || '(no output)';
@@ -1720,6 +1782,17 @@ if '_agent_original_stdout' in dir():
                     null,
                     2
                 );
+            }
+            case 'set_prompt_history_summary': {
+                const summary = String(args.summary || '').trim();
+                if (!summary) {
+                    throw new Error('Missing required parameter: summary');
+                }
+                if (!this.activePromptContext) {
+                    throw new Error('No agent prompt is currently running');
+                }
+                this.activePromptContext.historySummary = summary;
+                return 'Prompt history summary recorded.';
             }
             case 'get_font_opentype_info': {
                 return this.getFontOpenTypeInfo();
@@ -1989,7 +2062,7 @@ if '_agent_original_stdout' in dir():
         const body: Record<string, any> = {
             messages,
             tools: AGENT_TOOLS,
-            systemPrompt: AGENT_SYSTEM_PROMPT,
+            systemPrompt: await this.getRuntimeSystemPrompt(),
             stream: true
         };
         if (previousGenerationIds && previousGenerationIds.length > 0) {
@@ -2106,6 +2179,12 @@ if '_agent_original_stdout' in dir():
         this.promptInput.value = '';
         this.promptInput.style.height = 'auto';
         this.isStreaming = true;
+        this.activePromptContext = {
+            id: `agent-prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            allowFontEdits: this.allowFontEdits,
+            historySummary: null
+        };
+        this.updateAgentEditToggle();
         if (this.sendButton)
             (this.sendButton as HTMLButtonElement).disabled = true;
         this.showStreamIndicator();
@@ -2293,6 +2372,8 @@ if '_agent_original_stdout' in dir():
                     if (appendTarget) appendTarget.appendChild(exhaustedMsg);
                     this.hideStreamIndicator();
                     this.isStreaming = false;
+                    this.activePromptContext = null;
+                    this.updateAgentEditToggle();
                     if (this.sendButton)
                         (this.sendButton as HTMLButtonElement).disabled = false;
                     if (this.promptInput) this.promptInput.focus();
@@ -2405,6 +2486,9 @@ if '_agent_original_stdout' in dir():
                     });
                     this.hideStreamIndicator();
                     this.isStreaming = false;
+                    this.abortController = null;
+                    this.activePromptContext = null;
+                    this.updateAgentEditToggle();
                     if (this.sendButton)
                         (this.sendButton as HTMLButtonElement).disabled = false;
                     if (this.promptInput) this.promptInput.focus();
@@ -2432,6 +2516,8 @@ if '_agent_original_stdout' in dir():
 
         this.hideStreamIndicator();
         this.isStreaming = false;
+        this.activePromptContext = null;
+        this.updateAgentEditToggle();
         if (this.sendButton)
             (this.sendButton as HTMLButtonElement).disabled = false;
         if (this.promptInput) this.promptInput.focus();

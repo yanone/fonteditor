@@ -628,6 +628,17 @@
                         </div>
                         <div class="view-title-right">
                             <button
+                                id="agent-edit-toggle"
+                                class="view-title-button agent-edit-toggle"
+                                title="Agent font edits are off"
+                                aria-label="Agent font edits are off"
+                                aria-pressed="false"
+                            >
+                                <span class="material-symbols-outlined"
+                                    >edit_off</span
+                                >
+                            </button>
+                            <button
                                 id="agent-new-chat-btn"
                                 class="view-title-button"
                                 title="Start a new agent chat"
@@ -704,7 +715,7 @@
                                 <div id="agent-prompt-wrapper">
                                     <textarea
                                         id="agent-prompt"
-                                        placeholder="Ask the Agent about the app..."
+                                        placeholder="Ask the Agent about the font or app..."
                                         data-1p-ignore
                                     ></textarea>
                                 </div>

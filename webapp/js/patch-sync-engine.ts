@@ -100,6 +100,8 @@ export type CollaborationLogItem = {
     windowId: string | null;
     windowRoleLabel: string;
     historyItemId: string;
+    promptGroupId: string | null;
+    groupedMessageCount?: number;
     historyAction: 'change' | 'undo' | 'redo';
     targetHistoryItemId: string | null;
     undoScope: UndoScope;
@@ -441,6 +443,10 @@ export class PatchSyncEngine {
     private _nextHistoryItemId = 1;
     /** Current transaction-level history item ID */
     private _txHistoryItemId: string | null = null;
+    /** Optional summary for an agent-grouped history item. */
+    private _txHistorySummary: string | null = null;
+    /** Presentation-only group ID for an agent prompt. */
+    private _txPromptGroupId: string | null = null;
     /** Optional explicit history target for the current transaction */
     private _txHistoryTarget: TransactionHistoryTarget | null = null;
     /** Compact state-vector captured at the start of the outermost transaction. */
@@ -1025,14 +1031,22 @@ export class PatchSyncEngine {
      */
     beginTransaction(
         label: string,
-        historyTarget?: TransactionHistoryTarget | null
+        historyTarget?: TransactionHistoryTarget | null,
+        historyMetadata?: {
+            historyItemId?: string | null;
+            promptGroupId?: string | null;
+            historySummary?: string | null;
+        }
     ): void {
         this._txDepth++;
         if (this._txDepth === 1) {
             this._txLabel = label;
             this._txId = this._nextTxId++;
             this._txStartTimeMs = performance.now();
-            this._txHistoryItemId = this._createHistoryItemId();
+            this._txHistoryItemId =
+                historyMetadata?.historyItemId ?? this._createHistoryItemId();
+            this._txPromptGroupId = historyMetadata?.promptGroupId ?? null;
+            this._txHistorySummary = historyMetadata?.historySummary ?? null;
             this._txHistoryTarget = historyTarget ?? null;
             // Capture a compact state-vector (< 100 bytes) rather than the
             // full font serialization so the fallback canonical-diff path in
@@ -1055,7 +1069,9 @@ export class PatchSyncEngine {
                     this._txLabel,
                     this._txId,
                     this._txHistoryItemId,
-                    this._txHistoryTarget
+                    this._txHistoryTarget,
+                    this._txPromptGroupId,
+                    this._txHistorySummary
                 );
             }
             this._txBufferedOperations = [];
@@ -1063,6 +1079,8 @@ export class PatchSyncEngine {
             this._txId = null;
             this._txStartTimeMs = null;
             this._txHistoryItemId = null;
+            this._txPromptGroupId = null;
+            this._txHistorySummary = null;
             this._txHistoryTarget = null;
             this._txStartStateVector = null;
         }
@@ -3662,7 +3680,9 @@ export class PatchSyncEngine {
         label: string | null,
         transactionId: number | null,
         historyItemId?: string | null,
-        historyTarget?: TransactionHistoryTarget | null
+        historyTarget?: TransactionHistoryTarget | null,
+        promptGroupId?: string | null,
+        historySummary?: string | null
     ): TransactionCommitResult | null {
         const normalizedOperations = operations.filter(
             (operation) => operation.path.length > 0
@@ -3730,6 +3750,8 @@ export class PatchSyncEngine {
                 windowId: this.windowId,
                 windowRoleLabel: this._getWindowRoleLabel(),
                 historyItemId: nextHistoryItemId,
+                promptGroupId,
+                historySummary,
                 historyAction: 'change',
                 transactionLabel: label,
                 transactionId,
@@ -5720,6 +5742,7 @@ export class PatchSyncEngine {
                 message.metadata.sourceWindowRoleLabel ??
                 this._getWindowRoleLabel(),
             historyItemId: message.metadata.historyItemId,
+            promptGroupId: message.metadata.promptGroupId ?? null,
             historyAction: message.metadata.historyAction,
             targetHistoryItemId: message.metadata.targetHistoryItemId ?? null,
             undoScope: message.metadata.undoScope,

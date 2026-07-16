@@ -1,6 +1,8 @@
 // Python-UI Synchronization Hooks
 // These functions control when UI updates are paused/resumed during Python execution
 
+import { getActiveAgentPythonExecution } from './agent-execution-context';
+
 // Flag to skip dirty checks during font loading operations
 let isLoadingFont = false;
 
@@ -37,13 +39,18 @@ function beforePythonExecution(code?: string) {
         '[PythonUISync]',
         '🔒 UI updates paused (Python execution starting)'
     );
+    const agentExecution = getActiveAgentPythonExecution();
     window.pythonExecutionHistoryContext = {
         beforeFontDataJson: createNormalizedFontSnapshot(),
         code: code ?? null,
         label: 'Python script',
-        startedAt: Date.now()
+        startedAt: Date.now(),
+        historySummary: agentExecution?.historySummary ?? null
     };
-    window.patchSyncEngine?.beginTransaction('Python script');
+    window.patchSyncEngine?.beginTransaction('Python script', null, {
+        promptGroupId: agentExecution?.id ?? null,
+        historySummary: agentExecution?.historySummary ?? null
+    });
     window.patchSyncEngine?.setRecordingSuppressed(true);
 }
 

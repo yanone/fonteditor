@@ -1424,6 +1424,33 @@ kbd + kbd {
     border-left-color: var(--text-secondary);
 }
 
+.view-title-button.agent-edit-toggle.active {
+    background-color: var(--view-agent);
+    border-left-color: var(--view-agent);
+    color: var(--text-primary) !important;
+}
+
+.view-title-button.agent-edit-toggle {
+    align-self: stretch;
+    box-sizing: border-box;
+    justify-content: center;
+    min-width: 36px;
+    padding: 0 8px;
+}
+
+.view-title-button.agent-edit-toggle:not(.active) {
+    color: var(--text-secondary) !important;
+}
+
+.view-title-button.agent-edit-toggle:disabled {
+    cursor: default;
+    opacity: 1;
+}
+
+.view-title-button.agent-edit-toggle.locked {
+    background-color: var(--input-bg);
+}
+
 /* View Title Action Buttons */
 .view-title-action-btn {
     background-color: transparent;

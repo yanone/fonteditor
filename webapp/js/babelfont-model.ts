@@ -137,6 +137,10 @@ import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
+import {
+    assertAgentFontEditAllowed,
+    isAgentPythonExecutionActive
+} from './agent-execution-context';
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import type {
     PatchSyncEngine,
@@ -3902,12 +3906,23 @@ function assertTaggedLayerMaster(master: Unsafe, context: string): void {
  * Base class for model objects that wrap JSON data
  */
 abstract class ModelBase<TData = Unsafe, TParent = Unsafe> {
-    protected _data: TData;
+    private _rawData: TData;
     protected _parentObject: TParent | null = null;
 
     constructor(data: TData, parentObject: TParent | null = null) {
-        this._data = data;
+        this._rawData = data;
         this._parentObject = parentObject;
+    }
+
+    protected get _data(): TData {
+        return isAgentPythonExecutionActive()
+            ? getAgentGuardedMutableData(this._rawData)
+            : this._rawData;
+    }
+
+    protected set _data(value: TData) {
+        assertAgentFontEditAllowed();
+        this._rawData = value;
     }
 
     /**
@@ -3953,6 +3968,48 @@ abstract class ModelBase<TData = Unsafe, TParent = Unsafe> {
     }
 }
 
+const agentGuardedDataProxies = new WeakMap<object, object>();
+
+function getAgentGuardedMutableData<T>(value: T): T {
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
+
+    const cached = agentGuardedDataProxies.get(value as object);
+    if (cached) {
+        return cached as T;
+    }
+
+    const proxy = new Proxy(value as object, {
+        get(target, key, receiver) {
+            const result = Reflect.get(target, key, receiver);
+            if (
+                Array.isArray(target) &&
+                typeof key === 'string' &&
+                MUTATING_ARRAY_METHODS.has(key) &&
+                typeof result === 'function'
+            ) {
+                return (...args: unknown[]) => {
+                    assertAgentFontEditAllowed();
+                    return Reflect.apply(result, target, args);
+                };
+            }
+            return getAgentGuardedMutableData(result);
+        },
+        set(target, key, nextValue, receiver) {
+            assertAgentFontEditAllowed();
+            return Reflect.set(target, key, nextValue, receiver);
+        },
+        deleteProperty(target, key) {
+            assertAgentFontEditAllowed();
+            return Reflect.deleteProperty(target, key);
+        }
+    });
+
+    agentGuardedDataProxies.set(value as object, proxy);
+    return proxy as T;
+}
+
 /**
  * Base class for objects that are elements in an array
  */
@@ -3977,13 +4034,17 @@ abstract class ArrayElementBase<
      * Get current data (handles index changes)
      */
     protected get data(): TData {
-        return this._parent[this._index];
+        const value = this._parent[this._index];
+        return isAgentPythonExecutionActive()
+            ? getAgentGuardedMutableData(value)
+            : value;
     }
 
     /**
      * Update underlying data reference and mark font as dirty
      */
     protected set data(value: TData) {
+        assertAgentFontEditAllowed();
         this._parent[this._index] = value;
         markFontDirty();
     }

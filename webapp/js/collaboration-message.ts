@@ -69,6 +69,7 @@ export type CollaborationMessageMetadata = {
     workerReplayTargets: WorkerReplayTarget[];
     transactionDurationMs?: number | null;
     historyItemId: string;
+    promptGroupId?: string | null;
     historyAction: HistoryAction;
     targetHistoryItemId?: string | null;
     sourceWindowRoleLabel?: string | null;
@@ -280,6 +281,7 @@ export function createCollaborationMessageEnvelopeFromChangeLogEntries(
             workerReplayTargets,
             transactionDurationMs: entries[0].transactionDurationMs,
             historyItemId: entries[0].historyItemId,
+            promptGroupId: entries[0].promptGroupId ?? null,
             historyAction: entries[0].historyAction,
             targetHistoryItemId: entries[0].targetHistoryItemId,
             sourceWindowRoleLabel: entries[0].windowRoleLabel,
@@ -290,7 +292,7 @@ export function createCollaborationMessageEnvelopeFromChangeLogEntries(
         },
         source: options.source,
         label: entries[0].transactionLabel,
-        summary: buildSummaryFromEntries(entries),
+        summary: entries[0].historySummary ?? buildSummaryFromEntries(entries),
         windowId: options.windowId ?? entries[0].windowId ?? null,
         timestamp: entries[0].timestamp
     });
@@ -365,6 +367,7 @@ export function createChangeLogEntriesFromCollaborationMessageEnvelope(
             transactionDurationMs:
                 envelope.metadata.transactionDurationMs ?? null,
             historyItemId: namespacedHistoryItemId,
+            promptGroupId: envelope.metadata.promptGroupId ?? null,
             historyAction: envelope.metadata.historyAction,
             targetHistoryItemId: namespacedTargetHistoryItemId,
             transactionLabel: envelope.label,

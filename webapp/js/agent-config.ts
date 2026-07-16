@@ -249,6 +249,25 @@ export const AGENT_TOOLS: AgentTool[] = [
                 required: ['text']
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'set_prompt_history_summary',
+            description:
+                'Record a concise summary of this prompt for the font history item. Call this as soon as you understand the requested font work, before making any edits. This summary is not shown in the chat.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    summary: {
+                        type: 'string',
+                        description:
+                            'A short, concrete description of the intended font changes, suitable for the history panel.'
+                    }
+                },
+                required: ['summary']
+            }
+        }
     }
 ];
 
@@ -259,6 +278,10 @@ Your role is to help users understand how the app works, how to use its features
 Be thorough and helpful in explaining concepts to type designers, and keep your output short and precise and refrain from using emojis when possible.
 
 Use the available tools to operate the app.
+
+At the beginning of every prompt, call set_prompt_history_summary with a concise description of the requested font work. Do not mention that summary in your chat response.
+
+Every request includes the current editor state and whether font editing is allowed. Treat that permission as authoritative. When font editing is disabled, you may still inspect the font and adjust editor UI state, but you must not modify font data. If you decline an edit because of this permission, tell the user that they can enable font editing with the pen button in the Agent title bar before sending a new prompt. You cannot change the permission yourself, and it remains frozen for the current prompt.
 
 CRITICAL RULE: If the user prompt is not about the broad topic of fonts and font engineering, or about how to use the Counterpunch app, or type design in general, then politely REFUSE to answer the question and let the user know what topics you can help with. Do not answer questions about topics outside of font design and Counterpunch usage. Always steer the user back to font design and using the app."
 `;

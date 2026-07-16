@@ -69,9 +69,10 @@
     --background-hover: #333333;
     --background-editor-sidebar: #353535;
     --glyph-tile-selected-active: #4a4a4a;
-    --glyph-tile-selected-inactive: #3B3B3B;
+    --glyph-tile-selected-inactive: #3b3b3b;
     --view-editor: #00aeef;
     --view-assistant: #ef4136;
+    --view-agent: #ef4136;
     --view-console: #fbc540;
     --view-files: #be1e2d;
     --view-scripts: #f7941d;
@@ -87,7 +88,7 @@
 }
 
 /* Light theme */
-:root[data-theme="light"] {
+:root[data-theme='light'] {
     --border-tertiary: rgba(0, 0, 0, 0.2);
     --border-secondary: #999999;
     --border-primary: #c0c0c0;
@@ -153,6 +154,7 @@
     --glyph-tile-selected-inactive: #dbdbdb;
     --view-editor: #00aeef;
     --view-assistant: #ef4136;
+    --view-agent: #ef4136;
     --view-console: #fbc540;
     --view-files: #be1e2d;
     --view-scripts: #f7941d;

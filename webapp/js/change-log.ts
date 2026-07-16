@@ -119,6 +119,10 @@ export interface ChangeLogEntry {
     compileChangeSource?: string | null;
     /** Compile edit type stamped onto the committed packet by the producer */
     compileEditType?: string | null;
+    /** Concise agent-provided description of a grouped prompt. */
+    historySummary?: string | null;
+    /** Presentation-only key that groups agent prompt commits in history UI. */
+    promptGroupId?: string | null;
     /** Optional features-editor target type for scoped history */
     historyTargetType: HistoryTargetType | null;
     /** Optional stable-enough features-editor target key */
@@ -152,6 +156,8 @@ export function createLogEntry(
         | 'workerReplayTargets'
         | 'compileChangeSource'
         | 'compileEditType'
+        | 'historySummary'
+        | 'promptGroupId'
         | 'semanticChangeLogEntries'
     > & {
         historyItemId?: string;
@@ -173,6 +179,8 @@ export function createLogEntry(
         editSource?: string | null;
         compileChangeSource?: string | null;
         compileEditType?: string | null;
+        historySummary?: string | null;
+        promptGroupId?: string | null;
         visualAnchorSide?: 'left' | 'right' | null;
         workerReplayTargets?: WorkerReplayTarget[];
         replayOldValue?: unknown;
@@ -204,6 +212,8 @@ export function createLogEntry(
         editSource: fields.editSource ?? null,
         compileChangeSource: fields.compileChangeSource ?? null,
         compileEditType: fields.compileEditType ?? null,
+        historySummary: fields.historySummary ?? null,
+        promptGroupId: fields.promptGroupId ?? null,
         historyTargetType: fields.historyTargetType ?? null,
         historyTargetKey: fields.historyTargetKey ?? null,
         historyTargetLabel: fields.historyTargetLabel ?? null,
@@ -249,6 +259,7 @@ export interface HistoryStackItem {
     transactionDurationMs: number | null;
     windowRoleLabel: string;
     transactionLabel: string | null;
+    historySummary: string | null;
     undoScope: UndoScope;
     touchedPaths: string[];
     isActive: boolean;
@@ -554,6 +565,7 @@ function processHistoryEntry(entry: ChangeLogEntry, state: HistoryState): void {
                 transactionDurationMs: entry.transactionDurationMs ?? null,
                 windowRoleLabel: entry.windowRoleLabel,
                 transactionLabel: entry.transactionLabel,
+                historySummary: entry.historySummary ?? null,
                 undoScope: entry.undoScope,
                 touchedPaths: [],
                 glyphNameSet: new Set<string>(),
@@ -586,6 +598,7 @@ function processHistoryEntry(entry: ChangeLogEntry, state: HistoryState): void {
             entry.transactionDurationMs ?? item.transactionDurationMs;
         item.windowRoleLabel = entry.windowRoleLabel;
         item.transactionLabel = entry.transactionLabel;
+        item.historySummary = entry.historySummary ?? item.historySummary;
         item.isActive = true;
         item.lastAction = 'change';
         if (entryGlyphName && !item.glyphNameSet.has(entryGlyphName)) {
@@ -985,6 +998,8 @@ export function normalizeChangeLogEntry(
         editSource: entry.editSource ?? null,
         compileChangeSource: entry.compileChangeSource ?? null,
         compileEditType: entry.compileEditType ?? null,
+        historySummary: entry.historySummary ?? null,
+        promptGroupId: entry.promptGroupId ?? null,
         historyItemId: normalizeHistoryItemId(entry.historyItemId, entry.id),
         historyAction: normalizeHistoryAction(entry.historyAction),
         undoScope: entry.undoScope ?? deriveUndoScope(glyphName, layerId),

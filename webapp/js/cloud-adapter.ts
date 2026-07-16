@@ -467,6 +467,7 @@ function importCollaborationMessageHistory(
                 window.windowRole?.getRoleLabel?.() ??
                 'main',
             historyItemId: message.metadata.historyItemId,
+            promptGroupId: message.metadata.promptGroupId ?? null,
             historyAction: message.metadata.historyAction,
             targetHistoryItemId: message.metadata.targetHistoryItemId ?? null,
             undoScope: message.metadata.undoScope,

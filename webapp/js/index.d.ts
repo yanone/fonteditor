@@ -515,6 +515,7 @@ declare global {
             code: string | null;
             label: string;
             startedAt: number;
+            historySummary?: string | null;
         } | null;
 
         // From pyodide-official-console.js

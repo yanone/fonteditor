@@ -223,14 +223,48 @@ class HistoryViewController {
             return;
         }
 
+        const groupedItems = new Map<string, CollaborationLogItem>();
+        for (const item of this.collaborationItems) {
+            const groupKey = item.promptGroupId ?? item.id;
+            const existing = groupedItems.get(groupKey);
+            if (!existing) {
+                groupedItems.set(groupKey, {
+                    ...item,
+                    groupedMessageCount: 1
+                });
+                continue;
+            }
+
+            groupedItems.set(groupKey, {
+                ...item,
+                changedGlyphNames: [
+                    ...new Set([
+                        ...existing.changedGlyphNames,
+                        ...item.changedGlyphNames
+                    ])
+                ],
+                changedLayerIds: [
+                    ...new Set([
+                        ...existing.changedLayerIds,
+                        ...item.changedLayerIds
+                    ])
+                ],
+                changes: [...existing.changes, ...item.changes],
+                derivedForwardChanges: [
+                    ...existing.derivedForwardChanges,
+                    ...item.derivedForwardChanges
+                ],
+                groupedMessageCount: (existing.groupedMessageCount ?? 1) + 1
+            });
+        }
+
+        const displayItems = [...groupedItems.values()].sort(
+            (left, right) => left.timestamp - right.timestamp
+        );
         const fragment = document.createDocumentFragment();
 
-        for (
-            let index = this.collaborationItems.length - 1;
-            index >= 0;
-            index--
-        ) {
-            const item = this.collaborationItems[index];
+        for (let index = displayItems.length - 1; index >= 0; index--) {
+            const item = displayItems[index];
             const row = document.createElement('div');
             row.className = 'history-entry history-entry-flat';
             row.innerHTML = `
@@ -265,6 +299,9 @@ class HistoryViewController {
             this.formatTime(item.timestamp),
             item.windowRoleLabel,
             item.historyAction,
+            item.groupedMessageCount && item.groupedMessageCount > 1
+                ? `${item.groupedMessageCount} prompt calls`
+                : null,
             this.formatDuration(item.transactionDurationMs),
             `${item.updateByteLength} B`
         ]
@@ -376,6 +413,12 @@ class HistoryViewController {
             this.buildMetadataRow('History action', item.historyAction),
             this.buildMetadataRow('Undo scope', item.undoScope),
             this.buildMetadataRow('History item', item.historyItemId),
+            this.buildMetadataRow(
+                'Prompt calls',
+                item.groupedMessageCount && item.groupedMessageCount > 1
+                    ? String(item.groupedMessageCount)
+                    : null
+            ),
             this.buildMetadataRow('Target item', item.targetHistoryItemId),
             this.buildMetadataRow(
                 'Changed glyphs',
