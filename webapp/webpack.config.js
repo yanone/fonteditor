@@ -26,6 +26,23 @@ try {
     worktreeConfig = { port: 8000 };
 }
 const DEV_PORT = worktreeConfig.port;
+const LOCAL_HTTPS_CERTIFICATE_DIRECTORY = path.join(__dirname, '.local-certs');
+const LOCAL_HTTPS_CERTIFICATE_PATH = path.join(
+    LOCAL_HTTPS_CERTIFICATE_DIRECTORY,
+    'localhost.pem'
+);
+const LOCAL_HTTPS_KEY_PATH = path.join(
+    LOCAL_HTTPS_CERTIFICATE_DIRECTORY,
+    'localhost-key.pem'
+);
+const LOCAL_HTTPS_OPTIONS =
+    fs.existsSync(LOCAL_HTTPS_CERTIFICATE_PATH) &&
+    fs.existsSync(LOCAL_HTTPS_KEY_PATH)
+        ? {
+              cert: fs.readFileSync(LOCAL_HTTPS_CERTIFICATE_PATH),
+              key: fs.readFileSync(LOCAL_HTTPS_KEY_PATH)
+          }
+        : undefined;
 
 const resolveGitCommit = () => {
     if (process.env.BUILD_HASH_FULL) {
@@ -152,7 +169,10 @@ module.exports = {
             }
         ],
         port: DEV_PORT,
-        server: 'https',
+        server: {
+            type: 'https',
+            options: LOCAL_HTTPS_OPTIONS
+        },
         hot: false,
         liveReload: false,
         client: {

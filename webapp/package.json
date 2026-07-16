@@ -27,9 +27,10 @@
         "tutorial:outline:assemble": "node scripts/tutorial/assemble-outline-tutorial.mjs",
         "tutorial:outline:make": "node scripts/tutorial/make-outline-tutorial.mjs",
         "tokens": "node scripts/generate-css-tokens.js",
-        "dev": "npm run tokens && webpack serve",
+        "ensure:local-https": "node scripts/ensure-local-https.cjs",
+        "dev": "npm run ensure:local-https && npm run tokens && webpack serve",
         "build": "npm run tokens && webpack",
-        "serve": "npm run tokens && webpack serve --mode development",
+        "serve": "npm run ensure:local-https && npm run tokens && webpack serve --mode development",
         "serve:ci": "npx http-server build -p 9000"
     },
     "devDependencies": {
