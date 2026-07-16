@@ -702,6 +702,10 @@ const historyStateCache = new WeakMap<
     { processedLength: number; state: HistoryState }
 >();
 
+export function invalidateHistoryStateCache(entries: ChangeLogEntry[]): void {
+    historyStateCache.delete(entries);
+}
+
 function computeHistoryState(entries: ChangeLogEntry[]): HistoryState {
     let cached = historyStateCache.get(entries);
     if (!cached || cached.processedLength > entries.length) {

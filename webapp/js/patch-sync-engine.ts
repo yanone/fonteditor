@@ -39,6 +39,7 @@ import {
     deriveLayerIdsFromPaths,
     deriveObjectInfoFromPath,
     getPathSegments,
+    invalidateHistoryStateCache,
     joinPathWithGlyphSeparator,
     normalizeWorkerReplayTargets,
     normalizeChangeLogEntry,
@@ -3198,6 +3199,25 @@ export class PatchSyncEngine {
     /** Get the full change log. */
     getChangeLog(): ChangeLogEntry[] {
         return this._changeLog;
+    }
+
+    updatePromptHistorySummary(
+        promptGroupId: string,
+        historySummary: string
+    ): boolean {
+        let didUpdate = false;
+        for (const entry of this._changeLog) {
+            if (entry.promptGroupId !== promptGroupId) {
+                continue;
+            }
+            entry.historySummary = historySummary;
+            didUpdate = true;
+        }
+        if (didUpdate) {
+            invalidateHistoryStateCache(this._changeLog);
+            this._notifyChangeLogListeners();
+        }
+        return didUpdate;
     }
 
     getCollaborationLog(): CollaborationLogItem[] {

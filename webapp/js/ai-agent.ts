@@ -39,10 +39,21 @@ const INTERRUPTED_PROMPT_HISTORY_SUFFIX = ' (interrupted)';
 type CompileAndShapeFontWorkerState = {
     awaitWorkerDocumentSync?: () => Promise<void>;
     hasWorkerCacheDocument?: () => boolean;
+    bootstrapWorkerCacheFromFontState?: (
+        state: Uint8Array | ArrayBufferLike
+    ) => Promise<void>;
+    compileCached?: (
+        target: string,
+        filename: string
+    ) => Promise<{ result: Uint8Array }>;
+    compileCommittedDebugFont?: (
+        subsetGlyphs: string[]
+    ) => Promise<{ result: Uint8Array }>;
 };
 
 type CompileAndShapeFontManagerState = {
     workerCacheUpdatePromise?: Promise<void> | null;
+    buildWorkerSeedYjsState?: () => Uint8Array | null;
 };
 
 /** Wait until the committed Yjs worker state and visible font revision settle. */
@@ -1678,8 +1689,30 @@ class AIAgent {
                         'Python environment (Pyodide) not loaded yet. Please wait and try again.'
                     );
 
+                // Stdout setup and cleanup are implementation details, not
+                // user-authored Python edits. Running them through the wrapper
+                // would take extra model snapshots and could re-emit the user
+                // script's synthetic change set into the prompt transaction.
+                if (typeof pyodide._originalRunPythonAsync !== 'function') {
+                    throw new Error(
+                        'Python execution wrapper is not ready yet. Please wait and try again.'
+                    );
+                }
+                if (!window.__counterpunchPythonPostExecutionHookInstalled) {
+                    throw new Error(
+                        'Python edit lifecycle is not ready yet. Please wait and try again.'
+                    );
+                }
+                if (!window.patchSyncEngine) {
+                    throw new Error(
+                        'Python edit bridge is not ready yet. Please wait and try again.'
+                    );
+                }
+                const runInternalPythonAsync =
+                    pyodide._originalRunPythonAsync.bind(pyodide);
+
                 // Set up stdout capture
-                await pyodide.runPythonAsync(`
+                await runInternalPythonAsync(`
 import sys
 from io import StringIO
 _agent_output_buffer = StringIO()
@@ -1692,7 +1725,7 @@ sys.stdout = _agent_output_buffer
                     setActiveAgentPythonExecution(this.activePromptContext);
                     await pyodide.runPythonAsync(code);
                     setActiveAgentPythonExecution(null);
-                    output = await pyodide.runPythonAsync(`
+                    output = await runInternalPythonAsync(`
 output = _agent_output_buffer.getvalue()
 sys.stdout = _agent_original_stdout
 del _agent_output_buffer
@@ -1702,10 +1735,17 @@ output
                 } catch (err: any) {
                     setActiveAgentPythonExecution(null);
                     // Restore stdout on error
-                    await pyodide.runPythonAsync(`
+                    try {
+                        await runInternalPythonAsync(`
 if '_agent_original_stdout' in dir():
     sys.stdout = _agent_original_stdout
-                    `);
+                        `);
+                    } catch (cleanupError) {
+                        console.warn(
+                            'Could not restore agent Python stdout after an execution error',
+                            cleanupError
+                        );
+                    }
                     throw new Error(`Python error: ${err.message}`);
                 } finally {
                     setActiveAgentPythonExecution(null);
@@ -1852,18 +1892,11 @@ if '_agent_original_stdout' in dir():
                 if (!this.activePromptContext) {
                     throw new Error('No agent prompt is currently running');
                 }
-                if (
-                    !window.patchSyncEngine?.updateTransactionMetadata(
-                        this.activePromptContext.id,
-                        summary,
-                        summary
-                    )
-                ) {
-                    throw new Error(
-                        'The active prompt transaction is no longer available'
-                    );
-                }
                 this.activePromptContext.historySummary = summary;
+                window.patchSyncEngine?.updatePromptHistorySummary(
+                    this.activePromptContext.id,
+                    summary
+                );
                 return 'Prompt history summary recorded.';
             }
             case 'get_font_opentype_info': {
@@ -1906,13 +1939,25 @@ if '_agent_original_stdout' in dir():
             }
             case 'compile_and_shape_font': {
                 const fm = (window as any).fontManager;
-                const fc = (window as any).fontCompilation;
+                const editingFontCompilation = (window as any).fontCompilation;
+                const analysisFontCompilation = (window as any)
+                    .fullFontCompilation;
                 const shapeWithFontDetailed = (window as any)
                     .shapeTextWithFontDetailed;
 
-                if (!fm || !fc || !shapeWithFontDetailed) {
+                if (
+                    !fm ||
+                    !editingFontCompilation ||
+                    !analysisFontCompilation ||
+                    !shapeWithFontDetailed
+                ) {
                     throw new Error(
                         'compile_and_shape_font dependencies are not available yet.'
+                    );
+                }
+                if (analysisFontCompilation === editingFontCompilation) {
+                    throw new Error(
+                        'compile_and_shape_font requires a separate analysis compiler.'
                     );
                 }
                 if (window.windowRole && !window.windowRole.isMainWindow()) {
@@ -2049,7 +2094,7 @@ if '_agent_original_stdout' in dir():
                 };
                 await awaitStableCompileAndShapeFontWorkerState(
                     fm as CompileAndShapeFontManagerState,
-                    fc as CompileAndShapeFontWorkerState,
+                    editingFontCompilation as CompileAndShapeFontWorkerState,
                     () => buildCompileAndShapeFontRevisionKey(getFontRevision())
                 );
                 if (isEditPreviewActive()) {
@@ -2060,6 +2105,19 @@ if '_agent_original_stdout' in dir():
                 const fontRevision = getFontRevision();
                 const fontRevisionKey =
                     buildCompileAndShapeFontRevisionKey(fontRevision);
+                const analysisCompiler =
+                    analysisFontCompilation as CompileAndShapeFontWorkerState;
+                if (
+                    typeof analysisCompiler.bootstrapWorkerCacheFromFontState !==
+                        'function' ||
+                    typeof analysisCompiler.compileCached !== 'function' ||
+                    typeof analysisCompiler.compileCommittedDebugFont !==
+                        'function'
+                ) {
+                    throw new Error(
+                        'compile_and_shape_font isolated analysis compiler is not ready yet.'
+                    );
+                }
                 const cacheKey = buildCompileAndShapeFontCacheKey(
                     fontRevision,
                     text
@@ -2085,16 +2143,28 @@ if '_agent_original_stdout' in dir():
                             variationLocation: userspaceLocation
                         },
                         compileFullFont: async () => {
-                            const fullCommittedFont = await fc.compileCached(
-                                'full',
-                                'debug-full-font.ttf'
+                            const workerSeedState = (
+                                fm as CompileAndShapeFontManagerState
+                            ).buildWorkerSeedYjsState?.();
+                            if (!workerSeedState?.length) {
+                                throw new Error(
+                                    'compile_and_shape_font could not snapshot the committed font state for isolated analysis.'
+                                );
+                            }
+                            await analysisCompiler.bootstrapWorkerCacheFromFontState!(
+                                workerSeedState
                             );
+                            const fullCommittedFont =
+                                await analysisCompiler.compileCached!(
+                                    'full',
+                                    'debug-full-font.ttf'
+                                );
                             return fullCommittedFont.result;
                         },
                         shapeSubsetWithFont: shapeWithFontDetailed,
                         compileSubsetFont: async (subsetGlyphs) => {
                             const compileResult =
-                                await fc.compileCommittedDebugFont(
+                                await analysisCompiler.compileCommittedDebugFont!(
                                     subsetGlyphs
                                 );
                             return compileResult.result;
@@ -2282,15 +2352,7 @@ if '_agent_original_stdout' in dir():
             allowFontEdits: this.allowFontEdits,
             historySummary: DEFAULT_PROMPT_HISTORY_SUMMARY
         };
-        window.patchSyncEngine?.beginTransaction(
-            DEFAULT_PROMPT_HISTORY_SUMMARY,
-            null,
-            {
-                promptGroupId: this.activePromptContext.id,
-                historySummary: DEFAULT_PROMPT_HISTORY_SUMMARY
-            }
-        );
-        this.promptTransactionOpen = Boolean(window.patchSyncEngine);
+        this.promptTransactionOpen = false;
         this.promptInterrupted = false;
         this.updateAgentEditToggle();
         if (this.sendButton)
@@ -2645,32 +2707,19 @@ if '_agent_original_stdout' in dir():
     }
 
     private finishPromptTransaction(interrupted: boolean = false) {
-        if (!this.promptTransactionOpen) {
-            return;
-        }
         const promptContext = this.activePromptContext;
         if (interrupted && promptContext) {
-            const summary = promptContext.historySummary!.endsWith(
-                INTERRUPTED_PROMPT_HISTORY_SUFFIX
-            )
-                ? promptContext.historySummary!
-                : `${promptContext.historySummary}${INTERRUPTED_PROMPT_HISTORY_SUFFIX}`;
-            if (
-                !window.patchSyncEngine?.updateTransactionMetadata(
-                    promptContext.id,
-                    summary,
-                    summary
+            promptContext.historySummary =
+                promptContext.historySummary!.endsWith(
+                    INTERRUPTED_PROMPT_HISTORY_SUFFIX
                 )
-            ) {
-                this.promptTransactionOpen = false;
-                console.warn(
-                    '[AIAgent] Prompt transaction ended before interruption metadata could be recorded'
-                );
-                return;
-            }
-            promptContext.historySummary = summary;
+                    ? promptContext.historySummary!
+                    : `${promptContext.historySummary}${INTERRUPTED_PROMPT_HISTORY_SUFFIX}`;
+            window.patchSyncEngine?.updatePromptHistorySummary(
+                promptContext.id,
+                promptContext.historySummary
+            );
         }
-        window.patchSyncEngine?.endTransaction();
         this.promptTransactionOpen = false;
     }
 

@@ -40,20 +40,28 @@ function beforePythonExecution(code?: string) {
         '🔒 UI updates paused (Python execution starting)'
     );
     const agentExecution = getActiveAgentPythonExecution();
+    const bridge = window.patchSyncEngine;
     window.pythonExecutionHistoryContext = {
         beforeFontDataJson: createNormalizedFontSnapshot(),
         code: code ?? null,
         label: 'Python script',
         startedAt: Date.now(),
-        historySummary: agentExecution?.historySummary ?? null
+        historySummary: agentExecution?.historySummary ?? null,
+        transactionStarted: false
     };
-    if (!agentExecution) {
-        window.patchSyncEngine?.beginTransaction('Python script', null, {
-            promptGroupId: null,
-            historySummary: null
-        });
+    bridge?.beginTransaction(
+        agentExecution?.historySummary ?? 'Python script',
+        null,
+        {
+            historyItemId: agentExecution?.id ?? null,
+            promptGroupId: agentExecution?.id ?? null,
+            historySummary: agentExecution?.historySummary ?? null
+        }
+    );
+    if (bridge) {
+        window.pythonExecutionHistoryContext.transactionStarted = true;
+        bridge.setRecordingSuppressed(true);
     }
-    window.patchSyncEngine?.setRecordingSuppressed(true);
 }
 
 /**

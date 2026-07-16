@@ -12,6 +12,10 @@
             return;
         }
 
+        if (window.pyodide.__counterpunchPythonExecutionWrapperInstalled) {
+            return;
+        }
+
         console.log(
             '[PythonExec]',
             '🔧 Installing Python execution wrapper...'
@@ -29,6 +33,7 @@
         // (e.g., for internal checks that shouldn't trigger UI updates)
         window.pyodide._originalRunPythonAsync = _originalRunPythonAsync;
         window.pyodide._originalRunPython = _originalRunPython;
+        window.pyodide.__counterpunchPythonExecutionWrapperInstalled = true;
 
         // Counter for execution tracking
         let executionCounter = 0;

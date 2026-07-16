@@ -516,6 +516,7 @@ declare global {
             label: string;
             startedAt: number;
             historySummary?: string | null;
+            transactionStarted: boolean;
         } | null;
 
         // From pyodide-official-console.js
@@ -530,6 +531,7 @@ declare global {
         // From python-execution-wrapper.js
         beforePythonExecution?: (code?: string) => void | Promise<void>;
         afterPythonExecution?: () => void | Promise<void>;
+        __counterpunchPythonPostExecutionHookInstalled?: boolean;
 
         // From example-loader.ts
         loadExampleFonts: () => Promise<void>;

@@ -30,6 +30,7 @@ describe('compile_and_shape_font committed worker state', () => {
     let AIAgent;
     let fullFont;
     let subsetFont;
+    let workerSeedState;
 
     beforeAll(() => {
         document.body.innerHTML = `
@@ -51,6 +52,7 @@ describe('compile_and_shape_font committed worker state', () => {
     beforeEach(() => {
         fullFont = new Uint8Array([1]);
         subsetFont = new Uint8Array([2]);
+        workerSeedState = new Uint8Array([3]);
         window.fontManager = {
             currentFont: {
                 sourcePlugin: { getId: jest.fn(() => 'memory') },
@@ -59,6 +61,7 @@ describe('compile_and_shape_font committed worker state', () => {
             },
             currentFontModel: { axes: [] },
             workerCacheUpdatePromise: null,
+            buildWorkerSeedYjsState: jest.fn(() => workerSeedState),
             forceFullWorkerCacheUpdate: jest.fn(),
             submitLayerUpdatesToWorkerCache: jest.fn()
         };
@@ -71,6 +74,13 @@ describe('compile_and_shape_font committed worker state', () => {
                 .mockResolvedValue({ result: subsetFont }),
             bootstrapWorkerCacheFromFontState: jest.fn(),
             storeFontJson: jest.fn()
+        };
+        window.fullFontCompilation = {
+            bootstrapWorkerCacheFromFontState: jest.fn().mockResolvedValue(),
+            compileCached: jest.fn().mockResolvedValue({ result: fullFont }),
+            compileCommittedDebugFont: jest
+                .fn()
+                .mockResolvedValue({ result: subsetFont })
         };
         window.shapeTextWithFontDetailed = jest.fn(async (font) =>
             font === fullFont
@@ -110,12 +120,15 @@ describe('compile_and_shape_font committed worker state', () => {
 
         const result = JSON.parse(await toolCall);
         expect(result.fontRevision.changeVersion).toBe(2);
-        expect(window.fontCompilation.compileCached).toHaveBeenCalledWith(
+        expect(
+            window.fullFontCompilation.bootstrapWorkerCacheFromFontState
+        ).toHaveBeenCalledWith(workerSeedState);
+        expect(window.fullFontCompilation.compileCached).toHaveBeenCalledWith(
             'full',
             'debug-full-font.ttf'
         );
         expect(
-            window.fontCompilation.compileCommittedDebugFont
+            window.fullFontCompilation.compileCommittedDebugFont
         ).toHaveBeenCalledWith(['zero', 'slash', 'one']);
         expect(result.gids).toBe('1 2 3 4');
         expect(
@@ -124,10 +137,38 @@ describe('compile_and_shape_font committed worker state', () => {
         expect(
             window.fontManager.submitLayerUpdatesToWorkerCache
         ).not.toHaveBeenCalled();
+        expect(window.fontCompilation.compileCached).not.toHaveBeenCalled();
+        expect(
+            window.fontCompilation.compileCommittedDebugFont
+        ).not.toHaveBeenCalled();
         expect(
             window.fontCompilation.bootstrapWorkerCacheFromFontState
         ).not.toHaveBeenCalled();
         expect(window.fontCompilation.storeFontJson).not.toHaveBeenCalled();
+    });
+
+    test('reuses a matching isolated analysis result without reseeding', async () => {
+        const agent = new AIAgent();
+        const toolCall = {
+            function: {
+                name: 'compile_and_shape_font',
+                arguments: JSON.stringify({ text: '0/10' })
+            }
+        };
+
+        await agent.executeToolCall(toolCall);
+        await agent.executeToolCall(toolCall);
+
+        expect(
+            window.fullFontCompilation.bootstrapWorkerCacheFromFontState
+        ).toHaveBeenCalledTimes(1);
+        expect(window.fullFontCompilation.compileCached).toHaveBeenCalledTimes(
+            1
+        );
+        expect(
+            window.fullFontCompilation.compileCommittedDebugFont
+        ).toHaveBeenCalledTimes(1);
+        expect(window.fontCompilation.compileCached).not.toHaveBeenCalled();
     });
 
     test('fails closed when the pending committed worker update rejects', async () => {

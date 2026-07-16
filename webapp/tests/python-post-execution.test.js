@@ -24,12 +24,33 @@ describe('Python post-execution synthetic commit alignment', () => {
         return { ...moduleExports, agentExecutionContext };
     }
 
+    function loadModuleImmediately() {
+        jest.resetModules();
+        originalReadyState = document.readyState;
+        Object.defineProperty(document, 'readyState', {
+            configurable: true,
+            value: 'complete'
+        });
+
+        try {
+            jest.isolateModules(() => {
+                require('../js/python-post-execution');
+            });
+        } finally {
+            Object.defineProperty(document, 'readyState', {
+                configurable: true,
+                value: originalReadyState
+            });
+        }
+    }
+
     afterEach(() => {
         delete window.autoCompileManager;
         delete window.afterPythonExecution;
         delete window.fontManager;
         delete window.patchSyncEngine;
         delete window.pythonExecutionHistoryContext;
+        delete window.__counterpunchPythonPostExecutionHookInstalled;
     });
 
     test('derives Python synthetic changes from the refreshed canonical serialized snapshot', () => {
@@ -71,6 +92,7 @@ describe('Python post-execution synthetic commit alignment', () => {
         commitPythonExecutionSyntheticChanges(
             currentFont,
             {
+                transactionStarted: true,
                 beforeFontDataJson: JSON.stringify({
                     glyphs: [
                         {
@@ -122,6 +144,30 @@ describe('Python post-execution synthetic commit alignment', () => {
         expect(bridge.endTransaction).not.toHaveBeenCalled();
     });
 
+    test('closes the Python transaction when canonicalization fails', () => {
+        const { commitPythonExecutionSyntheticChanges } = loadModule();
+        const currentFont = {
+            syncJsonFromModel: jest.fn(() => {
+                throw new Error('invalid Python model state');
+            })
+        };
+        const bridge = {
+            setRecordingSuppressed: jest.fn(),
+            applySyntheticChangeSet: jest.fn(),
+            endTransaction: jest.fn()
+        };
+
+        expect(() =>
+            commitPythonExecutionSyntheticChanges(
+                currentFont,
+                { beforeFontDataJson: null, transactionStarted: true },
+                bridge
+            )
+        ).toThrow('invalid Python model state');
+        expect(bridge.setRecordingSuppressed).toHaveBeenCalledWith(false);
+        expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
+    });
+
     test('replaces reordered OpenType features atomically', () => {
         const { commitPythonExecutionSyntheticChanges } = loadModule();
         const zero = {
@@ -154,6 +200,7 @@ describe('Python post-execution synthetic commit alignment', () => {
         commitPythonExecutionSyntheticChanges(
             currentFont,
             {
+                transactionStarted: true,
                 beforeFontDataJson: JSON.stringify({
                     features: {
                         features: [
@@ -207,6 +254,7 @@ describe('Python post-execution synthetic commit alignment', () => {
         commitPythonExecutionSyntheticChanges(
             currentFont,
             {
+                transactionStarted: true,
                 beforeFontDataJson: JSON.stringify({
                     glyphs: [firstGlyph, secondGlyph]
                 }),
@@ -228,7 +276,7 @@ describe('Python post-execution synthetic commit alignment', () => {
         );
     });
 
-    test('leaves an agent prompt transaction open for prompt finalization', () => {
+    test('closes an agent Python transaction so its committed funnel can run', () => {
         const {
             commitPythonExecutionSyntheticChanges,
             agentExecutionContext: { setActiveAgentPythonExecution }
@@ -258,6 +306,7 @@ describe('Python post-execution synthetic commit alignment', () => {
             commitPythonExecutionSyntheticChanges(
                 currentFont,
                 {
+                    transactionStarted: true,
                     beforeFontDataJson: JSON.stringify({
                         features: {
                             features: [['liga', { code: 'sub f f by ff;' }]]
@@ -272,7 +321,244 @@ describe('Python post-execution synthetic commit alignment', () => {
         }
 
         expect(bridge.applySyntheticChangeSet).toHaveBeenCalledTimes(1);
-        expect(bridge.endTransaction).not.toHaveBeenCalled();
+        expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    test('starts each agent Python execution with the prompt history identity', () => {
+        jest.resetModules();
+        const {
+            setActiveAgentPythonExecution
+        } = require('../js/agent-execution-context.ts');
+        require('../js/python-ui-sync.ts');
+        const bridge = {
+            beginTransaction: jest.fn(),
+            setRecordingSuppressed: jest.fn()
+        };
+        window.patchSyncEngine = bridge;
+        window.fontManager = {
+            currentFont: {
+                babelfontData: { glyphs: [] }
+            }
+        };
+
+        setActiveAgentPythonExecution({
+            id: 'prompt-1',
+            allowFontEdits: true,
+            historySummary: 'Reorder features'
+        });
+        try {
+            window.beforePythonExecution(
+                'features[0], features[1] = features[1], features[0]'
+            );
+        } finally {
+            setActiveAgentPythonExecution(null);
+        }
+
+        expect(bridge.beginTransaction).toHaveBeenCalledWith(
+            'Reorder features',
+            null,
+            {
+                historyItemId: 'prompt-1',
+                promptGroupId: 'prompt-1',
+                historySummary: 'Reorder features'
+            }
+        );
+        expect(bridge.setRecordingSuppressed).toHaveBeenCalledWith(true);
+    });
+
+    test('does not stack the post-execution commit hook after module reinitialization', async () => {
+        window.autoCompileManager = {};
+        const existingHook = jest.fn();
+        window.afterPythonExecution = existingHook;
+
+        loadModuleImmediately();
+        const installedHook = window.afterPythonExecution;
+
+        loadModuleImmediately();
+
+        expect(window.afterPythonExecution).toBe(installedHook);
+        await installedHook();
+        expect(existingHook).toHaveBeenCalledTimes(1);
+    });
+
+    test('commits one prompt-owned feature reorder update with one undo step', () => {
+        const {
+            commitPythonExecutionSyntheticChanges,
+            agentExecutionContext: { setActiveAgentPythonExecution }
+        } = loadModule();
+        const { PatchSyncEngine } = require('../js/patch-sync-engine');
+        const { yDocToJson } = require('../js/change-bridge-ydoc');
+        const { buildHistoryStackItems } = require('../js/change-log');
+        const Y = require('yjs');
+        const zero = { code: 'sub zero by zero.zero;', automatic: true };
+        const frac = { code: 'sub slash by fraction;', automatic: true };
+        const beforeSnapshot = {
+            features: {
+                features: [
+                    ['zero', zero],
+                    ['frac', frac]
+                ]
+            }
+        };
+        const afterSnapshot = {
+            features: {
+                features: [
+                    ['frac', frac],
+                    ['zero', zero]
+                ]
+            }
+        };
+        const finalSnapshot = {
+            features: {
+                features: [
+                    [
+                        'frac',
+                        {
+                            ...frac,
+                            code: 'sub slash by fraction;\nsub one by one.numr;'
+                        }
+                    ],
+                    ['zero', zero]
+                ]
+            }
+        };
+        const sender = new PatchSyncEngine('prompt-feature-reorder-sender');
+        const receiver = new PatchSyncEngine('prompt-feature-reorder-receiver');
+        const receiverFontJson = JSON.parse(JSON.stringify(beforeSnapshot));
+        sender.initFromJson(beforeSnapshot);
+        receiver._fontJson = receiverFontJson;
+        Y.applyUpdate(receiver.yDoc, Y.encodeStateAsUpdate(sender.yDoc));
+
+        const emittedUpdates = [];
+        sender.onLocalUpdate((update, _message, entries) => {
+            emittedUpdates.push({ update, entries });
+        });
+        sender.beginTransaction('Reorder features', null, {
+            historyItemId: 'prompt-feature-reorder',
+            promptGroupId: 'prompt-feature-reorder',
+            historySummary: 'Reorder features'
+        });
+        setActiveAgentPythonExecution({
+            id: 'prompt-feature-reorder',
+            allowFontEdits: true,
+            historySummary: 'Reorder features'
+        });
+        try {
+            commitPythonExecutionSyntheticChanges(
+                {
+                    babelfontJson: '',
+                    syncJsonFromModel: jest.fn(function () {
+                        this.babelfontJson = JSON.stringify(afterSnapshot);
+                    })
+                },
+                {
+                    transactionStarted: true,
+                    beforeFontDataJson: JSON.stringify(beforeSnapshot),
+                    label: 'Reorder features'
+                },
+                sender
+            );
+        } finally {
+            setActiveAgentPythonExecution(null);
+        }
+
+        sender.beginTransaction('Update feature code', null, {
+            historyItemId: 'prompt-feature-reorder',
+            promptGroupId: 'prompt-feature-reorder',
+            historySummary: 'Reorder features'
+        });
+        setActiveAgentPythonExecution({
+            id: 'prompt-feature-reorder',
+            allowFontEdits: true,
+            historySummary: 'Reorder features'
+        });
+        try {
+            commitPythonExecutionSyntheticChanges(
+                {
+                    babelfontJson: '',
+                    syncJsonFromModel: jest.fn(function () {
+                        this.babelfontJson = JSON.stringify(finalSnapshot);
+                    })
+                },
+                {
+                    transactionStarted: true,
+                    beforeFontDataJson: JSON.stringify(afterSnapshot),
+                    label: 'Update feature code'
+                },
+                sender
+            );
+        } finally {
+            setActiveAgentPythonExecution(null);
+        }
+
+        expect(emittedUpdates).toHaveLength(2);
+        expect(emittedUpdates[0].entries).toEqual([
+            expect.objectContaining({
+                path: 'features.features',
+                replayOldValue: beforeSnapshot.features.features,
+                replayNewValue: afterSnapshot.features.features,
+                promptGroupId: 'prompt-feature-reorder'
+            })
+        ]);
+        expect(buildHistoryStackItems(sender.getChangeLog())).toEqual([
+            expect.objectContaining({
+                id: 'prompt-feature-reorder',
+                entries: expect.arrayContaining([
+                    expect.objectContaining({ path: 'features.features' })
+                ])
+            })
+        ]);
+        expect(yDocToJson(sender.fontMap)).toEqual(finalSnapshot);
+
+        const historyLogUpdates = [];
+        sender.onChangeLogUpdate((entries) => {
+            historyLogUpdates.push(entries);
+        });
+        expect(
+            sender.updatePromptHistorySummary(
+                'prompt-feature-reorder',
+                'Reorder features (interrupted)'
+            )
+        ).toBe(true);
+        expect(emittedUpdates).toHaveLength(2);
+        expect(historyLogUpdates).toHaveLength(2);
+        expect(buildHistoryStackItems(sender.getChangeLog())).toEqual([
+            expect.objectContaining({
+                id: 'prompt-feature-reorder',
+                historySummary: 'Reorder features (interrupted)'
+            })
+        ]);
+
+        receiver.applyRemoteUpdate(
+            emittedUpdates[0].update,
+            emittedUpdates[0].entries
+        );
+        receiver.applyRemoteUpdate(
+            emittedUpdates[1].update,
+            emittedUpdates[1].entries
+        );
+        expect(receiverFontJson).toEqual(finalSnapshot);
+
+        sender.undo();
+        expect(emittedUpdates).toHaveLength(3);
+        expect(yDocToJson(sender.fontMap)).toEqual(beforeSnapshot);
+        receiver.applyRemoteUpdate(
+            emittedUpdates[2].update,
+            emittedUpdates[2].entries
+        );
+        expect(receiverFontJson).toEqual(beforeSnapshot);
+
+        sender.redo();
+        expect(emittedUpdates).toHaveLength(4);
+        expect(yDocToJson(sender.fontMap)).toEqual(finalSnapshot);
+        receiver.applyRemoteUpdate(
+            emittedUpdates[3].update,
+            emittedUpdates[3].entries
+        );
+        expect(receiverFontJson).toEqual(finalSnapshot);
+
+        sender.destroy();
+        receiver.destroy();
     });
 
     test('applies Python glyph and layer collection changes through keyed Yjs maps', () => {
@@ -390,6 +676,7 @@ describe('Python post-execution synthetic commit alignment', () => {
         commitPythonExecutionSyntheticChanges(
             currentFont,
             {
+                transactionStarted: true,
                 beforeFontDataJson: JSON.stringify(beforeSnapshot),
                 label: 'Python collection change'
             },

@@ -25,6 +25,10 @@ describe('get_editor_state text-buffer interpretation', () => {
     });
 
     beforeEach(() => {
+        window.__counterpunchPythonPostExecutionHookInstalled = true;
+        window.patchSyncEngine = {
+            updatePromptHistorySummary: jest.fn()
+        };
         window.fontManager = { currentFontModel: { axes: [] } };
         window.stateManager = {
             getStateSnapshot: jest.fn(() => ({
@@ -163,9 +167,9 @@ describe('get_editor_state text-buffer interpretation', () => {
         });
     });
 
-    test('updates the active prompt transaction when recording a summary', async () => {
+    test('stores a prompt summary for the next grouped Python transaction', async () => {
         window.patchSyncEngine = {
-            updateTransactionMetadata: jest.fn(() => true)
+            updatePromptHistorySummary: jest.fn()
         };
         const agent = new AIAgent();
         agent.activePromptContext = {
@@ -183,16 +187,146 @@ describe('get_editor_state text-buffer interpretation', () => {
             })
         ).resolves.toBe('Prompt history summary recorded.');
 
-        expect(
-            window.patchSyncEngine.updateTransactionMetadata
-        ).toHaveBeenCalledWith('prompt-1', 'Update glyphs', 'Update glyphs');
         expect(agent.activePromptContext.historySummary).toBe('Update glyphs');
+        expect(
+            window.patchSyncEngine.updatePromptHistorySummary
+        ).toHaveBeenCalledWith('prompt-1', 'Update glyphs');
     });
 
-    test('marks a stopped prompt transaction as interrupted before committing', () => {
+    test('runs only the feature-reorder script through the Python mutation lifecycle', async () => {
+        const featureReorderCode = `
+font = Font()
+features = font.features.features
+features[16], features[17] = features[17], features[16]
+        `;
+        const wrappedRunPythonAsync = jest.fn(async () => undefined);
+        const originalRunPythonAsync = jest
+            .fn()
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce('zero\nfrac');
+        window.pyodide = {
+            runPythonAsync: wrappedRunPythonAsync,
+            _originalRunPythonAsync: originalRunPythonAsync
+        };
+        const agent = new AIAgent();
+        agent.activePromptContext = {
+            id: 'prompt-feature-reorder',
+            allowFontEdits: true,
+            historySummary: 'Reorder features'
+        };
+
+        await expect(
+            agent.executeToolCall({
+                function: {
+                    name: 'execute_python_code',
+                    arguments: JSON.stringify({ code: featureReorderCode })
+                }
+            })
+        ).resolves.toBe('zero\nfrac');
+
+        expect(wrappedRunPythonAsync).toHaveBeenCalledTimes(1);
+        expect(wrappedRunPythonAsync).toHaveBeenCalledWith(featureReorderCode);
+        expect(originalRunPythonAsync).toHaveBeenCalledTimes(2);
+        expect(agent.activePromptContext).toEqual(
+            expect.objectContaining({ id: 'prompt-feature-reorder' })
+        );
+    });
+
+    test('fails closed until the Python wrapper exposes its original executor', async () => {
+        const wrappedRunPythonAsync = jest.fn();
+        window.pyodide = {
+            runPythonAsync: wrappedRunPythonAsync
+        };
+        const agent = new AIAgent();
+
+        await expect(
+            agent.executeToolCall({
+                function: {
+                    name: 'execute_python_code',
+                    arguments: JSON.stringify({ code: 'print("ready")' })
+                }
+            })
+        ).rejects.toThrow('Python execution wrapper is not ready yet');
+
+        expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
+    });
+
+    test('fails closed until the post-execution commit hook is installed', async () => {
+        window.__counterpunchPythonPostExecutionHookInstalled = false;
+        const wrappedRunPythonAsync = jest.fn();
+        window.pyodide = {
+            runPythonAsync: wrappedRunPythonAsync,
+            _originalRunPythonAsync: jest.fn()
+        };
+        const agent = new AIAgent();
+
+        await expect(
+            agent.executeToolCall({
+                function: {
+                    name: 'execute_python_code',
+                    arguments: JSON.stringify({ code: 'print("ready")' })
+                }
+            })
+        ).rejects.toThrow('Python edit lifecycle is not ready yet');
+
+        expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
+    });
+
+    test('fails closed until the PatchSyncEngine is ready', async () => {
+        delete window.patchSyncEngine;
+        const wrappedRunPythonAsync = jest.fn();
+        window.pyodide = {
+            runPythonAsync: wrappedRunPythonAsync,
+            _originalRunPythonAsync: jest.fn()
+        };
+        const agent = new AIAgent();
+
+        await expect(
+            agent.executeToolCall({
+                function: {
+                    name: 'execute_python_code',
+                    arguments: JSON.stringify({ code: 'print("ready")' })
+                }
+            })
+        ).rejects.toThrow('Python edit bridge is not ready yet');
+
+        expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
+    });
+
+    test('preserves the user Python error when stdout restoration fails', async () => {
+        const userError = new Error('feature reorder failed');
+        const wrappedRunPythonAsync = jest.fn().mockRejectedValue(userError);
+        const originalRunPythonAsync = jest
+            .fn()
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error('stdout restore failed'));
+        window.pyodide = {
+            runPythonAsync: wrappedRunPythonAsync,
+            _originalRunPythonAsync: originalRunPythonAsync
+        };
+        const agent = new AIAgent();
+        agent.activePromptContext = {
+            id: 'prompt-python-error',
+            allowFontEdits: true,
+            historySummary: 'Reorder features'
+        };
+
+        await expect(
+            agent.executeToolCall({
+                function: {
+                    name: 'execute_python_code',
+                    arguments: JSON.stringify({ code: 'raise Exception()' })
+                }
+            })
+        ).rejects.toThrow('Python error: feature reorder failed');
+
+        expect(wrappedRunPythonAsync).toHaveBeenCalledTimes(1);
+        expect(originalRunPythonAsync).toHaveBeenCalledTimes(2);
+    });
+
+    test('marks a stopped prompt summary as interrupted without closing another transaction', () => {
         window.patchSyncEngine = {
-            updateTransactionMetadata: jest.fn(() => true),
-            endTransaction: jest.fn()
+            updatePromptHistorySummary: jest.fn()
         };
         const agent = new AIAgent();
         agent.activePromptContext = {
@@ -200,36 +334,14 @@ describe('get_editor_state text-buffer interpretation', () => {
             allowFontEdits: true,
             historySummary: 'Agent changes'
         };
-        agent.promptTransactionOpen = true;
-
         agent.finishPromptTransaction(true);
 
-        expect(
-            window.patchSyncEngine.updateTransactionMetadata
-        ).toHaveBeenCalledWith(
-            'prompt-1',
-            'Agent changes (interrupted)',
+        expect(agent.activePromptContext.historySummary).toBe(
             'Agent changes (interrupted)'
         );
-        expect(window.patchSyncEngine.endTransaction).toHaveBeenCalledTimes(1);
-        expect(agent.promptTransactionOpen).toBe(false);
-    });
-
-    test('releases prompt ownership without ending a mismatched transaction', () => {
-        window.patchSyncEngine = {
-            updateTransactionMetadata: jest.fn(() => false),
-            endTransaction: jest.fn()
-        };
-        const agent = new AIAgent();
-        agent.activePromptContext = {
-            id: 'prompt-1',
-            allowFontEdits: true,
-            historySummary: 'Agent changes'
-        };
-        agent.promptTransactionOpen = true;
-
-        expect(() => agent.finishPromptTransaction(true)).not.toThrow();
-        expect(window.patchSyncEngine.endTransaction).not.toHaveBeenCalled();
+        expect(
+            window.patchSyncEngine.updatePromptHistorySummary
+        ).toHaveBeenCalledWith('prompt-1', 'Agent changes (interrupted)');
         expect(agent.promptTransactionOpen).toBe(false);
     });
 });

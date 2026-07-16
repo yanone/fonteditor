@@ -14,7 +14,6 @@ import {
     type JsonPatchOperation,
     type NamedChangePair
 } from './collaboration-message';
-import { isAgentPythonExecutionActive } from './agent-execution-context';
 
 const console = new Logger('PythonPostExecution');
 
@@ -29,6 +28,7 @@ type SyntheticChangeOperation = {
 type PythonExecutionCommitContext = {
     beforeFontDataJson: string | null;
     label?: string | null;
+    transactionStarted?: boolean;
 };
 
 type PythonExecutionCommitFont = {
@@ -296,48 +296,52 @@ export function commitPythonExecutionSyntheticChanges(
     historyContext: PythonExecutionCommitContext | null | undefined,
     bridge: PythonExecutionCommitBridge | null | undefined
 ): void {
-    if (!currentFont) {
-        return;
-    }
+    try {
+        if (!currentFont) {
+            return;
+        }
 
-    // Python mutates the live wrapper/model graph directly. Canonicalize that
-    // already-committed state in place, refresh the serialized snapshot, then
-    // derive the authoritative synthetic diff from that post-sync serialization.
-    currentFont.syncJsonFromModel();
+        // Python mutates the live wrapper/model graph directly. Canonicalize that
+        // already-committed state in place, refresh the serialized snapshot, then
+        // derive the authoritative synthetic diff from that post-sync serialization.
+        currentFont.syncJsonFromModel();
 
-    const beforeFontDataJson = historyContext?.beforeFontDataJson;
-    if (!beforeFontDataJson || !bridge) {
-        return;
-    }
+        const beforeFontDataJson = historyContext?.beforeFontDataJson;
+        if (!beforeFontDataJson || !bridge) {
+            return;
+        }
 
-    const afterSnapshot = createCanonicalSerializedFontSnapshot(currentFont);
-    if (!afterSnapshot) {
-        return;
-    }
+        const afterSnapshot =
+            createCanonicalSerializedFontSnapshot(currentFont);
+        if (!afterSnapshot) {
+            return;
+        }
 
-    const beforeSnapshot = JSON.parse(beforeFontDataJson) as Record<
-        string,
-        unknown
-    >;
-    const directOperations =
-        createSyntheticChangeOperationsFromNamedChangePairs(
-            createNamedPatchPairsFromJsonSnapshots(
-                beforeSnapshot,
-                afterSnapshot,
-                []
-            )
-        );
+        const beforeSnapshot = JSON.parse(beforeFontDataJson) as Record<
+            string,
+            unknown
+        >;
+        const directOperations =
+            createSyntheticChangeOperationsFromNamedChangePairs(
+                createNamedPatchPairsFromJsonSnapshots(
+                    beforeSnapshot,
+                    afterSnapshot,
+                    []
+                )
+            );
 
-    bridge.setRecordingSuppressed(false);
-    if (directOperations.length) {
-        bridge.applySyntheticChangeSet(
-            historyContext?.label ?? 'Python script',
-            directOperations
-        );
-    }
-
-    if (!isAgentPythonExecutionActive()) {
-        bridge.endTransaction();
+        bridge.setRecordingSuppressed(false);
+        if (directOperations.length) {
+            bridge.applySyntheticChangeSet(
+                historyContext?.label ?? 'Python script',
+                directOperations
+            );
+        }
+    } finally {
+        if (historyContext?.transactionStarted) {
+            bridge?.setRecordingSuppressed(false);
+            bridge?.endTransaction();
+        }
     }
 }
 
@@ -345,6 +349,10 @@ console.log('🔧 Module loaded, setting up post-execution hooks...');
 
 // Wait for required globals to be available
 function setupHooks() {
+    if ((window as any).__counterpunchPythonPostExecutionHookInstalled) {
+        return;
+    }
+
     console.log(
         '[PythonPostExec]',
         'setupHooks called, checking for autoCompileManager:',
@@ -383,12 +391,6 @@ function setupHooks() {
             );
         } finally {
             window.patchSyncEngine?.setRecordingSuppressed(false);
-            if (
-                window.patchSyncEngine?.inTransaction &&
-                !isAgentPythonExecutionActive()
-            ) {
-                window.patchSyncEngine.endTransaction();
-            }
             window.pythonExecutionHistoryContext = null;
         }
 
@@ -396,6 +398,7 @@ function setupHooks() {
             await existingHook();
         }
     };
+    (window as any).__counterpunchPythonPostExecutionHookInstalled = true;
 
     console.log(
         '[PythonPostExec]',

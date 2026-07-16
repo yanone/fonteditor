@@ -52,6 +52,16 @@ For normal editing there are no escape hatches: no full babelfont JSON resend, n
 
 Full-document transport is reserved for bootstrap from external sources only, such as opening or importing a font into a fresh Rust worker state. Once a document is open and editing has begun, steady-state document convergence must remain incremental-only.
 
+### Agent Prompt Transaction Ownership
+
+An agent prompt owns exactly one logical history and undo item for its entire lifetime. The prompt ID is the stable `historyItemId` and `promptGroupId` attached to each prompt-derived committed edit. Every Babelfont model change caused by those tool calls, including changes made indirectly by a tool lifecycle hook, must carry those identifiers.
+
+Prompt-derived edits must each use a normal, bounded `PatchSyncEngine` transaction and commit immediately after the edit is complete. This emits the authoritative incremental Yjs update, runs the shared committed-change funnel, refreshes the editing worker, recompiles the editing font, and keeps the visible text state current while the prompt continues. The shared prompt `historyItemId` makes those independent committed packets appear as one history item and one undo step.
+
+No prompt-derived path may create a different history item or undo step. A summary supplied with `set_prompt_history_summary` is stamped on subsequently committed prompt edits; otherwise they use the default agent-change summary. Stopping a prompt must not create a synthetic final transaction. Empty prompts create no history item.
+
+Any change to prompt execution, tool execution, Python execution, transaction buffering, or history integration must include regression coverage proving that mixed prompt-derived edits produce immediate incremental Yjs updates and committed-funnel passes, correct local and remote document state, one logical history item, and one undo/redo step. Tests must also cover natural completion and interruption.
+
 ### Cloud sync vs. local window sync
 
 Only a font’s main window syncs with the DO room in the cloud. Local linked windows only talk to the main window which relays messages back and forth between the cloud and the local linked windows.
