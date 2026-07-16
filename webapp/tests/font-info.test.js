@@ -369,6 +369,50 @@ describe('FontInfo feature code compilation scheduling', () => {
         expect(fontInfoManager.featureCodeDirty).toBe(false);
     });
 
+    test('fontModelSync refreshes a reordered feature list without discarding a focused draft', () => {
+        const fontInfoManager = loadFontInfoManager();
+        document.body.innerHTML = '<div id="features-list"></div>';
+        const setValue = jest.fn();
+        window.currentFontModel = {
+            features: {
+                features: [
+                    ['dlig', { code: 'sub f f by f_f;', automatic: false }],
+                    ['salt', { code: 'sub a by a.alt;', automatic: false }]
+                ]
+            },
+            analyzeFeatureTables: jest.fn(() => ({
+                hasGSUB: true,
+                hasGPOS: false
+            }))
+        };
+        fontInfoManager.currentTab = 'features';
+        fontInfoManager.featuresEditor = {
+            isFocused: jest.fn(() => true),
+            setValue,
+            session: {
+                setUseWrapMode: jest.fn()
+            }
+        };
+        fontInfoManager.selectedItem = { type: 'feature', key: 0 };
+        fontInfoManager.selectedFeatureTag = 'salt';
+        fontInfoManager.featureCodeDirty = true;
+
+        fontInfoManager.onFontModelSynced();
+
+        expect(
+            [...document.querySelectorAll('.feature-tag')].map(
+                (element) => element.textContent
+            )
+        ).toEqual(['dlig', 'salt']);
+        expect(fontInfoManager.selectedItem).toEqual({
+            type: 'feature',
+            key: 1
+        });
+        expect(setValue).not.toHaveBeenCalled();
+        expect(fontInfoManager.featureCodeDirty).toBe(true);
+        expect(fontInfoManager.pendingModelSyncRefresh).toBe(true);
+    });
+
     test('automatic checkbox changes go through the patch funnel', () => {
         const fontInfoManager = loadFontInfoManager();
         const codeData = { code: 'sub f i by fi;', automatic: false };

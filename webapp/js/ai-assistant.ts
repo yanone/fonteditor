@@ -3,6 +3,12 @@
 // Executes generated Python code with error handling and retry
 
 import { resolveWebsiteURL } from './website-url';
+import {
+    AgentPromptExecutionContext,
+    awaitActiveAgentPythonExecutionSettled,
+    getActiveAgentPythonExecution,
+    runAgentPythonExecution
+} from './agent-execution-context';
 
 /**
  * A fixed-height code block that shows the latest 7 lines.
@@ -239,7 +245,7 @@ class StreamingMarkdownRenderer {
     }
 }
 
-class AIAssistant {
+export class AIAssistant {
     [key: string]: any;
 
     constructor() {
@@ -250,6 +256,7 @@ class AIAssistant {
         this.isShowingErrorFix = false; // Flag to prevent duplicate error fix messages
         this.isAuthenticated = false; // Track authentication state
         this.hasLoadedLastChat = false; // Flag to prevent loading last chat multiple times
+        this.activePromptExecutionContext = null;
 
         // Get website URL for API calls
         this.websiteURL = this.getWebsiteURL();
@@ -273,6 +280,14 @@ class AIAssistant {
 
     getWebsiteURL() {
         return resolveWebsiteURL();
+    }
+
+    private createPromptExecutionContext(): AgentPromptExecutionContext {
+        return {
+            id: `assistant-prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            allowFontEdits: true,
+            historySummary: 'Assistant changes'
+        };
     }
 
     async checkAuthenticationStatus() {
@@ -1812,6 +1827,10 @@ class AIAssistant {
 
                     // Execute directly without adding another user message
                     setTimeout(async () => {
+                        const promptExecutionContext =
+                            this.createPromptExecutionContext();
+                        this.activePromptExecutionContext =
+                            promptExecutionContext;
                         try {
                             await this.executeWithRetry(prompt, 0);
                         } catch (error) {
@@ -1824,6 +1843,12 @@ class AIAssistant {
                                 `Failed after ${this.maxRetries} attempts: ${errorMessage}`
                             );
                         } finally {
+                            if (
+                                this.activePromptExecutionContext ===
+                                promptExecutionContext
+                            ) {
+                                this.activePromptExecutionContext = null;
+                            }
                             // Hide typing indicator
                             this.hideTypingIndicator();
 
@@ -1999,6 +2024,9 @@ ${errorTraceback}
         // Show typing indicator
         this.showTypingIndicator();
 
+        const promptExecutionContext = this.createPromptExecutionContext();
+        this.activePromptExecutionContext = promptExecutionContext;
+
         try {
             await this.streamClaude(prompt);
         } catch (error) {
@@ -2006,6 +2034,9 @@ ${errorTraceback}
                 error instanceof Error ? error.message : String(error);
             this.addMessage('error', `Failed: ${errorMessage}`);
         } finally {
+            if (this.activePromptExecutionContext === promptExecutionContext) {
+                this.activePromptExecutionContext = null;
+            }
             // Hide typing indicator
             this.hideTypingIndicator();
 
@@ -2743,12 +2774,22 @@ ${errorTraceback}
             throw new Error('Pyodide not available');
         }
 
-        try {
-            // Capture stdout
-            let capturedOutput = '';
+        const promptExecutionContext =
+            this.activePromptExecutionContext ??
+            this.createPromptExecutionContext();
+        return await runAgentPythonExecution(
+            promptExecutionContext,
+            async () => {
+                // Capture stdout
+                let capturedOutput = '';
+                const runInternalPythonAsync =
+                    window.pyodide._originalRunPythonAsync?.bind(
+                        window.pyodide
+                    ) ?? window.pyodide.runPythonAsync.bind(window.pyodide);
 
-            // Set up output capturing
-            await window.pyodide.runPythonAsync(`
+                try {
+                    // Set up output capturing
+                    await runInternalPythonAsync(`
 import sys
 from io import StringIO
 
@@ -2758,11 +2799,17 @@ _original_stdout = sys.stdout
 sys.stdout = _ai_output_buffer
             `);
 
-            // Execute the Python code
-            await window.pyodide.runPythonAsync(code);
+                    // Execute the Python code
+                    await window.pyodide.runPythonAsync(code);
+                    let settledRefreshError: unknown = null;
+                    try {
+                        await awaitActiveAgentPythonExecutionSettled();
+                    } catch (error) {
+                        settledRefreshError = error;
+                    }
 
-            // Get captured output
-            capturedOutput = await window.pyodide.runPythonAsync(`
+                    // Get captured output
+                    capturedOutput = await runInternalPythonAsync(`
 # Get the captured output
 output = _ai_output_buffer.getvalue()
 
@@ -2776,23 +2823,58 @@ del _original_stdout
 output
             `);
 
-            return capturedOutput;
-        } catch (error) {
-            // Restore stdout on error
-            try {
-                await window.pyodide.runPythonAsync(`
+                    if (settledRefreshError) {
+                        throw settledRefreshError;
+                    }
+                    return capturedOutput;
+                } catch (error) {
+                    const execution = getActiveAgentPythonExecution();
+                    let settledRefreshError: unknown = null;
+                    try {
+                        await awaitActiveAgentPythonExecutionSettled();
+                    } catch (settleError) {
+                        settledRefreshError = settleError;
+                    }
+                    // Restore stdout on error
+                    try {
+                        await runInternalPythonAsync(`
 if '_original_stdout' in dir():
     sys.stdout = _original_stdout
                 `);
-            } catch (e) {
-                // Ignore cleanup errors
-            }
+                    } catch (e) {
+                        // Ignore cleanup errors
+                    }
 
-            // Re-throw with cleaned up error message
-            throw new Error(
-                error instanceof Error ? error.message : String(error)
-            );
-        }
+                    if (execution?.commitState === 'partial') {
+                        return JSON.stringify({
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                            changesCommitted: true,
+                            state: 'partial',
+                            ...(settledRefreshError
+                                ? {
+                                      refreshError:
+                                          settledRefreshError instanceof Error
+                                              ? settledRefreshError.message
+                                              : String(settledRefreshError)
+                                  }
+                                : {})
+                        });
+                    }
+
+                    if (settledRefreshError) {
+                        throw settledRefreshError;
+                    }
+
+                    // Re-throw with cleaned up error message
+                    throw new Error(
+                        error instanceof Error ? error.message : String(error)
+                    );
+                }
+            }
+        );
     }
 
     /**

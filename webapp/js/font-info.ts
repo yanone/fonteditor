@@ -2834,6 +2834,7 @@ class FontInfoManager {
         }
 
         if (this.featuresEditor?.isFocused?.() && this.featureCodeDirty) {
+            this.loadFeaturesList({ preserveFeatureEditorDraft: true });
             return;
         }
 
@@ -7648,7 +7649,9 @@ class FontInfoManager {
         return Array.from(scripts).sort();
     }
 
-    private loadFeaturesList() {
+    private loadFeaturesList(options?: {
+        preserveFeatureEditorDraft?: boolean;
+    }) {
         const listContainer = document.getElementById('features-list');
         console.log('[FontInfo] loadFeaturesList - container:', listContainer);
         if (!listContainer) return;
@@ -7933,8 +7936,24 @@ class FontInfoManager {
             this.applyFeaturesSearch();
         }
 
-        // Restore selection by feature tag when possible (stable across fonts/index changes)
-        if (this.selectedFeatureTag) {
+        // Keep a focused dirty editor draft intact while its sidebar is rebuilt
+        // for an external model sync. The selected feature may have a new index.
+        if (options?.preserveFeatureEditorDraft && this.selectedFeatureTag) {
+            const matchingFeatureIndex = features.findIndex(
+                ([tag]) => tag === this.selectedFeatureTag
+            );
+            if (matchingFeatureIndex >= 0) {
+                this.selectedItem = {
+                    type: 'feature',
+                    key: matchingFeatureIndex
+                };
+                this.featureListItems
+                    .get(matchingFeatureIndex)
+                    ?.classList.add('selected');
+                this.notifyHistoryScopeChange();
+            }
+            // Restore selection by feature tag when possible (stable across fonts/index changes)
+        } else if (this.selectedFeatureTag) {
             const matchingFeatureIndex = features.findIndex(
                 ([tag]) => tag === this.selectedFeatureTag
             );
@@ -7952,15 +7971,20 @@ class FontInfoManager {
                 // Re-select current item to refresh
                 this.selectItem(this.selectedItem.type, this.selectedItem.key);
             }
-        } else if (!this.selectedItem && features.length > 0) {
+        } else if (
+            !options?.preserveFeatureEditorDraft &&
+            !this.selectedItem &&
+            features.length > 0
+        ) {
             this.selectItem('feature', 0);
         } else if (
+            !options?.preserveFeatureEditorDraft &&
             this.selectedItem?.type === 'feature' &&
             typeof this.selectedItem.key === 'number' &&
             this.selectedItem.key >= features.length
         ) {
             this.selectItem('feature', features.length - 1);
-        } else if (this.selectedItem) {
+        } else if (!options?.preserveFeatureEditorDraft && this.selectedItem) {
             // Re-select current item to refresh
             this.selectItem(this.selectedItem.type, this.selectedItem.key);
         }
