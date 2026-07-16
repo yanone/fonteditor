@@ -140,6 +140,65 @@ describe('GlyphCanvas initialization', () => {
         expect(canvas.featuresManager).toBeTruthy();
     });
 
+    test('text input keeps its cached subset closure independent of active feature settings', async () => {
+        jest.useFakeTimers();
+        const isReadySpy = jest
+            .spyOn(fontManager, 'isReady')
+            .mockReturnValue(true);
+        const deriveSubsetSpy = jest
+            .spyOn(fontManager, 'deriveSubsetGlyphsFromText')
+            .mockReturnValue(['zero', 'slash', 'one']);
+        const updateSubsetSpy = jest
+            .spyOn(fontManager, 'updateEditingSubsetSnapshot')
+            .mockReturnValue(true);
+        const setCompileContextSpy = jest.spyOn(
+            fontManager,
+            'setEditingCompileContext'
+        );
+        const compileEditingSpy = jest
+            .spyOn(fontManager, 'compileEditingFont')
+            .mockResolvedValue();
+
+        try {
+            canvas = new GlyphCanvas('test-container');
+            expect(canvas.textChangeFastDelay).toBe(75);
+            expect(canvas.textChangeSlowDelay).toBe(75);
+            canvas.featuresManager.featureSettings = {
+                frac: true,
+                kern: false,
+                zero: true
+            };
+            canvas.textRunEditor.textBuffer = '0/10';
+
+            canvas.onTextChange();
+            jest.advanceTimersByTime(canvas.textChangeSlowDelay - 1);
+
+            expect(compileEditingSpy).not.toHaveBeenCalled();
+
+            jest.advanceTimersByTime(1);
+
+            expect(setCompileContextSpy).toHaveBeenCalledWith(
+                'text-input',
+                null
+            );
+            expect(compileEditingSpy).toHaveBeenCalledWith(
+                '0/10',
+                [],
+                ['zero', 'slash', 'one']
+            );
+        } finally {
+            if (canvas?.textInputFullCompileTimer) {
+                clearTimeout(canvas.textInputFullCompileTimer);
+            }
+            compileEditingSpy.mockRestore();
+            setCompileContextSpy.mockRestore();
+            updateSubsetSpy.mockRestore();
+            deriveSubsetSpy.mockRestore();
+            isReadySpy.mockRestore();
+            jest.useRealTimers();
+        }
+    });
+
     test('should initialize text run editor', () => {
         canvas = new GlyphCanvas('test-container');
         expect(canvas.textRunEditor).toBeTruthy();
