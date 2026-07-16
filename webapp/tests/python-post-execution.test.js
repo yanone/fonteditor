@@ -324,6 +324,66 @@ describe('Python post-execution synthetic commit alignment', () => {
         expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
     });
 
+    test('commits the canonical Python diff after releasing scoped live recording suppression', () => {
+        const { commitPythonExecutionSyntheticChanges } = loadModule();
+        const { PatchSyncEngine } = require('../js/patch-sync-engine');
+        const { yDocToJson } = require('../js/change-bridge-ydoc');
+        const Y = require('yjs');
+        const beforeSnapshot = { names: { familyName: 'Before' } };
+        const afterSnapshot = { names: { familyName: 'After' } };
+        const sender = new PatchSyncEngine('python-suppression-sender');
+        const receiver = new PatchSyncEngine('python-suppression-receiver');
+        const receiverFontJson = JSON.parse(JSON.stringify(beforeSnapshot));
+        sender.initFromJson(beforeSnapshot);
+        receiver._fontJson = receiverFontJson;
+        Y.applyUpdate(receiver.yDoc, Y.encodeStateAsUpdate(sender.yDoc));
+
+        const emittedUpdates = [];
+        sender.onLocalUpdate((update, _message, entries) => {
+            emittedUpdates.push({ update, entries });
+        });
+        sender.beginTransaction('Python script', null, {
+            historyItemId: 'prompt-python-suppression',
+            promptGroupId: 'prompt-python-suppression',
+            historySummary: 'Rename family'
+        });
+        const releaseRecordingSuppression = sender.beginRecordingSuppression();
+
+        commitPythonExecutionSyntheticChanges(
+            {
+                babelfontJson: '',
+                syncJsonFromModel: jest.fn(function () {
+                    this.babelfontJson = JSON.stringify(afterSnapshot);
+                })
+            },
+            {
+                transactionStarted: true,
+                beforeFontDataJson: JSON.stringify(beforeSnapshot),
+                label: 'Python script',
+                releaseRecordingSuppression
+            },
+            sender
+        );
+
+        expect(emittedUpdates).toHaveLength(1);
+        expect(emittedUpdates[0].entries).toEqual([
+            expect.objectContaining({
+                path: 'names.familyName',
+                promptGroupId: 'prompt-python-suppression'
+            })
+        ]);
+        expect(yDocToJson(sender.fontMap)).toEqual(afterSnapshot);
+
+        receiver.applyRemoteUpdate(
+            emittedUpdates[0].update,
+            emittedUpdates[0].entries
+        );
+        expect(receiverFontJson).toEqual(afterSnapshot);
+
+        sender.destroy();
+        receiver.destroy();
+    });
+
     test('starts each agent Python execution with the prompt history identity', () => {
         jest.resetModules();
         const {
@@ -510,22 +570,11 @@ describe('Python post-execution synthetic commit alignment', () => {
         ]);
         expect(yDocToJson(sender.fontMap)).toEqual(finalSnapshot);
 
-        const historyLogUpdates = [];
-        sender.onChangeLogUpdate((entries) => {
-            historyLogUpdates.push(entries);
-        });
-        expect(
-            sender.updatePromptHistorySummary(
-                'prompt-feature-reorder',
-                'Reorder features (interrupted)'
-            )
-        ).toBe(true);
         expect(emittedUpdates).toHaveLength(2);
-        expect(historyLogUpdates).toHaveLength(2);
         expect(buildHistoryStackItems(sender.getChangeLog())).toEqual([
             expect.objectContaining({
                 id: 'prompt-feature-reorder',
-                historySummary: 'Reorder features (interrupted)'
+                historySummary: 'Reorder features'
             })
         ]);
 
@@ -555,6 +604,113 @@ describe('Python post-execution synthetic commit alignment', () => {
             emittedUpdates[3].update,
             emittedUpdates[3].entries
         );
+        expect(receiverFontJson).toEqual(finalSnapshot);
+
+        sender.destroy();
+        receiver.destroy();
+    });
+
+    test('replays mixed font, glyph, and layer prompt edits as one logical undo item', () => {
+        const { PatchSyncEngine } = require('../js/patch-sync-engine');
+        const { yDocToJson } = require('../js/change-bridge-ydoc');
+        const { buildHistoryStackItems } = require('../js/change-log');
+        const Y = require('yjs');
+        const beforeSnapshot = {
+            names: { familyName: 'Before' },
+            glyphs: {
+                A: {
+                    name: 'A',
+                    note: 'before',
+                    layers: {
+                        master: { width: 500, shapes: [] }
+                    }
+                }
+            }
+        };
+        const sender = new PatchSyncEngine('mixed-prompt-sender');
+        const receiver = new PatchSyncEngine('mixed-prompt-receiver');
+        sender.initFromJson(beforeSnapshot);
+        const normalizedBeforeSnapshot = yDocToJson(sender.fontMap);
+        const finalSnapshot = JSON.parse(
+            JSON.stringify(normalizedBeforeSnapshot)
+        );
+        finalSnapshot.names.familyName = 'After';
+        finalSnapshot.glyphs[0].note = 'after';
+        finalSnapshot.glyphs[0].layers[0].width = 600;
+        finalSnapshot.glyphs[0].layers[0].shapes = [
+            { id: 'shape-1', nodes: [], closed: false }
+        ];
+        const receiverFontJson = JSON.parse(
+            JSON.stringify(normalizedBeforeSnapshot)
+        );
+        receiver._fontJson = receiverFontJson;
+        Y.applyUpdate(receiver.yDoc, Y.encodeStateAsUpdate(sender.yDoc));
+
+        const emittedUpdates = [];
+        sender.onLocalUpdate((update, _message, entries) => {
+            emittedUpdates.push({ update, entries });
+        });
+        const promptHistoryMetadata = {
+            historyItemId: 'prompt-mixed-scope',
+            promptGroupId: 'prompt-mixed-scope',
+            historySummary: 'Adjust family and A'
+        };
+        const commit = (label, change) => {
+            sender.beginTransaction(label, null, promptHistoryMetadata);
+            change();
+            sender.endTransaction();
+        };
+
+        commit('Rename family', () =>
+            sender.recordChange(['names'], 'familyName', 'Before', 'After')
+        );
+        commit('Update glyph note', () =>
+            sender.recordChange(['glyphs', 'A'], 'note', 'before', 'after')
+        );
+        commit('Adjust layer', () => {
+            sender.recordChange(
+                ['glyphs', 'A', 'layers', 'master'],
+                'width',
+                500,
+                600
+            );
+            sender.recordChange(
+                ['glyphs', 'A', 'layers', 'master'],
+                'shapes',
+                [],
+                [{ id: 'shape-1', type: 'path', nodes: [] }]
+            );
+        });
+
+        expect(buildHistoryStackItems(sender.getChangeLog())).toEqual([
+            expect.objectContaining({
+                id: 'prompt-mixed-scope',
+                entries: expect.arrayContaining([
+                    expect.objectContaining({ path: 'names.familyName' }),
+                    expect.objectContaining({ path: 'glyphs.A:note' }),
+                    expect.objectContaining({
+                        path: 'glyphs.A:layers.master:width'
+                    })
+                ])
+            })
+        ]);
+        expect(yDocToJson(sender.fontMap)).toEqual(finalSnapshot);
+
+        for (const packet of emittedUpdates) {
+            receiver.applyRemoteUpdate(packet.update, packet.entries);
+        }
+        expect(receiverFontJson).toEqual(finalSnapshot);
+
+        sender.undo();
+        const undoPacket = emittedUpdates.at(-1);
+        receiver.applyRemoteUpdate(undoPacket.update, undoPacket.entries);
+        expect(yDocToJson(sender.fontMap)).toEqual(normalizedBeforeSnapshot);
+        expect(receiverFontJson).toEqual(normalizedBeforeSnapshot);
+
+        sender.redo();
+        const redoPacket = emittedUpdates.at(-1);
+        receiver.applyRemoteUpdate(redoPacket.update, redoPacket.entries);
+        expect(yDocToJson(sender.fontMap)).toEqual(finalSnapshot);
         expect(receiverFontJson).toEqual(finalSnapshot);
 
         sender.destroy();

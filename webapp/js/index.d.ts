@@ -517,6 +517,7 @@ declare global {
             startedAt: number;
             historySummary?: string | null;
             transactionStarted: boolean;
+            releaseRecordingSuppression: (() => void) | null;
         } | null;
 
         // From pyodide-official-console.js
@@ -530,7 +531,9 @@ declare global {
 
         // From python-execution-wrapper.js
         beforePythonExecution?: (code?: string) => void | Promise<void>;
-        afterPythonExecution?: () => void | Promise<void>;
+        afterPythonExecution?: (outcome?: {
+            succeeded: boolean;
+        }) => void | Promise<void>;
         __counterpunchPythonPostExecutionHookInstalled?: boolean;
 
         // From example-loader.ts

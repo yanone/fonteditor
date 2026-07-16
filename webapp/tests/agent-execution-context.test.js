@@ -2,6 +2,7 @@ const {
     assertAgentFontEditAllowed,
     getActiveAgentPythonExecution,
     isAgentPythonExecutionActive,
+    runAgentPythonExecution,
     setActiveAgentPythonExecution
 } = require('../js/agent-execution-context.ts');
 
@@ -30,5 +31,44 @@ describe('agent execution context', () => {
         });
 
         expect(assertAgentFontEditAllowed).not.toThrow();
+    });
+
+    test('serializes agent Python executions and clears their active context', async () => {
+        let releaseFirstExecution;
+        const firstExecution = new Promise((resolve) => {
+            releaseFirstExecution = resolve;
+        });
+        const order = [];
+
+        const first = runAgentPythonExecution(
+            {
+                id: 'prompt-1',
+                allowFontEdits: true,
+                historySummary: null
+            },
+            async () => {
+                order.push('first-start');
+                await firstExecution;
+                order.push('first-finish');
+            }
+        );
+        const second = runAgentPythonExecution(
+            {
+                id: 'prompt-2',
+                allowFontEdits: true,
+                historySummary: null
+            },
+            async () => {
+                order.push('second-start');
+            }
+        );
+
+        await Promise.resolve();
+        expect(order).toEqual(['first-start']);
+        releaseFirstExecution();
+        await Promise.all([first, second]);
+
+        expect(order).toEqual(['first-start', 'first-finish', 'second-start']);
+        expect(isAgentPythonExecutionActive()).toBe(false);
     });
 });

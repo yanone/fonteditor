@@ -14,6 +14,11 @@ import {
     type JsonPatchOperation,
     type NamedChangePair
 } from './collaboration-message';
+import { getCommittedChangeRefreshPromise } from './change-bridge-init';
+import {
+    isAgentPythonExecutionActive,
+    setActiveAgentPythonExecutionCommit
+} from './agent-execution-context';
 
 const console = new Logger('PythonPostExecution');
 
@@ -29,6 +34,7 @@ type PythonExecutionCommitContext = {
     beforeFontDataJson: string | null;
     label?: string | null;
     transactionStarted?: boolean;
+    releaseRecordingSuppression?: (() => void) | null;
 };
 
 type PythonExecutionCommitFont = {
@@ -37,12 +43,16 @@ type PythonExecutionCommitFont = {
 };
 
 type PythonExecutionCommitBridge = {
-    setRecordingSuppressed: (suppressed: boolean) => void;
+    setRecordingSuppressed?: (suppressed: boolean) => void;
     applySyntheticChangeSet: (
         label: string,
         operations: SyntheticChangeOperation[]
     ) => void;
-    endTransaction: () => void;
+    endTransaction: () => { changeLogEntries: unknown[] } | null;
+};
+
+export type PythonExecutionOutcome = {
+    succeeded: boolean;
 };
 
 function cloneJsonValue<T>(value: T): T {
@@ -294,8 +304,17 @@ function createCanonicalSerializedFontSnapshot(
 export function commitPythonExecutionSyntheticChanges(
     currentFont: PythonExecutionCommitFont | null | undefined,
     historyContext: PythonExecutionCommitContext | null | undefined,
-    bridge: PythonExecutionCommitBridge | null | undefined
+    bridge: PythonExecutionCommitBridge | null | undefined,
+    outcome: PythonExecutionOutcome = { succeeded: true }
 ): void {
+    let didApplyOperations = false;
+    const releaseRecordingSuppression = () => {
+        if (historyContext?.releaseRecordingSuppression) {
+            historyContext.releaseRecordingSuppression();
+        } else {
+            bridge?.setRecordingSuppressed?.(false);
+        }
+    };
     try {
         if (!currentFont) {
             return;
@@ -330,17 +349,30 @@ export function commitPythonExecutionSyntheticChanges(
                 )
             );
 
-        bridge.setRecordingSuppressed(false);
         if (directOperations.length) {
+            // Live Python setters remain suppressed, but the canonical diff is
+            // the one intentional bridge operation that must be recorded.
+            releaseRecordingSuppression();
             bridge.applySyntheticChangeSet(
                 historyContext?.label ?? 'Python script',
                 directOperations
             );
+            didApplyOperations = true;
         }
     } finally {
         if (historyContext?.transactionStarted) {
-            bridge?.setRecordingSuppressed(false);
-            bridge?.endTransaction();
+            releaseRecordingSuppression();
+            const commitResult = bridge?.endTransaction();
+            if (
+                didApplyOperations &&
+                commitResult &&
+                isAgentPythonExecutionActive()
+            ) {
+                setActiveAgentPythonExecutionCommit(
+                    outcome.succeeded ? 'committed' : 'partial',
+                    getCommittedChangeRefreshPromise()
+                );
+            }
         }
     }
 }
@@ -382,20 +414,23 @@ function setupHooks() {
      * Hook that runs after every Python code execution
      * Triggers font recompilation
      */
-    window.afterPythonExecution = async function () {
+    window.afterPythonExecution = async function (
+        outcome: PythonExecutionOutcome = { succeeded: true }
+    ) {
         try {
             commitPythonExecutionSyntheticChanges(
                 window.fontManager?.currentFont,
                 window.pythonExecutionHistoryContext,
-                window.patchSyncEngine
+                window.patchSyncEngine,
+                outcome
             );
         } finally {
-            window.patchSyncEngine?.setRecordingSuppressed(false);
+            window.pythonExecutionHistoryContext?.releaseRecordingSuppression?.();
             window.pythonExecutionHistoryContext = null;
         }
 
         if (typeof existingHook === 'function') {
-            await existingHook();
+            await existingHook(outcome);
         }
     };
     (window as any).__counterpunchPythonPostExecutionHookInstalled = true;

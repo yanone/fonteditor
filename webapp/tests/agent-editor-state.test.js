@@ -26,9 +26,7 @@ describe('get_editor_state text-buffer interpretation', () => {
 
     beforeEach(() => {
         window.__counterpunchPythonPostExecutionHookInstalled = true;
-        window.patchSyncEngine = {
-            updatePromptHistorySummary: jest.fn()
-        };
+        window.patchSyncEngine = {};
         window.fontManager = { currentFontModel: { axes: [] } };
         window.stateManager = {
             getStateSnapshot: jest.fn(() => ({
@@ -185,12 +183,11 @@ describe('get_editor_state text-buffer interpretation', () => {
                     arguments: JSON.stringify({ summary: 'Update glyphs' })
                 }
             })
-        ).resolves.toBe('Prompt history summary recorded.');
+        ).resolves.toBe(
+            'Prompt history summary will be used for subsequent edits.'
+        );
 
         expect(agent.activePromptContext.historySummary).toBe('Update glyphs');
-        expect(
-            window.patchSyncEngine.updatePromptHistorySummary
-        ).toHaveBeenCalledWith('prompt-1', 'Update glyphs');
     });
 
     test('runs only the feature-reorder script through the Python mutation lifecycle', async () => {
@@ -230,6 +227,86 @@ features[16], features[17] = features[17], features[16]
         expect(agent.activePromptContext).toEqual(
             expect.objectContaining({ id: 'prompt-feature-reorder' })
         );
+    });
+
+    test('waits for the active edit packet to settle before returning Python output', async () => {
+        let releaseCommittedRefresh;
+        const committedRefresh = new Promise((resolve) => {
+            releaseCommittedRefresh = resolve;
+        });
+        const {
+            setActiveAgentPythonExecutionCommit
+        } = require('../js/agent-execution-context.ts');
+        const wrappedRunPythonAsync = jest.fn(async () => {
+            setActiveAgentPythonExecutionCommit('committed', committedRefresh);
+        });
+        const originalRunPythonAsync = jest
+            .fn()
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce('updated shaping');
+        window.pyodide = {
+            runPythonAsync: wrappedRunPythonAsync,
+            _originalRunPythonAsync: originalRunPythonAsync
+        };
+        const agent = new AIAgent();
+        agent.activePromptContext = {
+            id: 'prompt-settle',
+            allowFontEdits: true,
+            historySummary: 'Update shaping'
+        };
+
+        const result = agent.executeToolCall({
+            function: {
+                name: 'execute_python_code',
+                arguments: JSON.stringify({
+                    code: 'font.names.family_name = "Updated"'
+                })
+            }
+        });
+
+        await Promise.resolve();
+        expect(originalRunPythonAsync).toHaveBeenCalledTimes(1);
+        releaseCommittedRefresh();
+        await expect(result).resolves.toBe('updated shaping');
+    });
+
+    test('reports a failed script with its committed partial-change status', async () => {
+        const {
+            setActiveAgentPythonExecutionCommit
+        } = require('../js/agent-execution-context.ts');
+        const wrappedRunPythonAsync = jest.fn(async () => {
+            setActiveAgentPythonExecutionCommit('partial', Promise.resolve());
+            throw new Error('feature reorder failed');
+        });
+        const originalRunPythonAsync = jest
+            .fn()
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce(undefined);
+        window.pyodide = {
+            runPythonAsync: wrappedRunPythonAsync,
+            _originalRunPythonAsync: originalRunPythonAsync
+        };
+        const agent = new AIAgent();
+        agent.activePromptContext = {
+            id: 'prompt-partial',
+            allowFontEdits: true,
+            historySummary: 'Reorder features'
+        };
+
+        const result = JSON.parse(
+            await agent.executeToolCall({
+                function: {
+                    name: 'execute_python_code',
+                    arguments: JSON.stringify({ code: 'raise Exception()' })
+                }
+            })
+        );
+
+        expect(result).toEqual({
+            error: 'Python error: feature reorder failed',
+            changesCommitted: true,
+            state: 'partial'
+        });
     });
 
     test('fails closed until the Python wrapper exposes its original executor', async () => {
@@ -324,10 +401,7 @@ features[16], features[17] = features[17], features[16]
         expect(originalRunPythonAsync).toHaveBeenCalledTimes(2);
     });
 
-    test('marks a stopped prompt summary as interrupted without closing another transaction', () => {
-        window.patchSyncEngine = {
-            updatePromptHistorySummary: jest.fn()
-        };
+    test('stopping a prompt does not mutate existing history metadata', () => {
         const agent = new AIAgent();
         agent.activePromptContext = {
             id: 'prompt-1',
@@ -336,12 +410,7 @@ features[16], features[17] = features[17], features[16]
         };
         agent.finishPromptTransaction(true);
 
-        expect(agent.activePromptContext.historySummary).toBe(
-            'Agent changes (interrupted)'
-        );
-        expect(
-            window.patchSyncEngine.updatePromptHistorySummary
-        ).toHaveBeenCalledWith('prompt-1', 'Agent changes (interrupted)');
+        expect(agent.activePromptContext.historySummary).toBe('Agent changes');
         expect(agent.promptTransactionOpen).toBe(false);
     });
 });

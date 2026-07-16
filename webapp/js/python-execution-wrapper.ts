@@ -68,10 +68,13 @@
             );
             console.groupEnd();
 
+            let succeeded = false;
+
             // Execute the original function
             try {
                 const execStartTime = performance.now();
                 const result = await _originalRunPythonAsync(code, options);
+                succeeded = true;
                 const execDuration = performance.now() - execStartTime;
                 console.log(
                     '[PythonExec]',
@@ -91,7 +94,7 @@
                 // Call after-execution hook (always, even on error)
                 if (window.afterPythonExecution) {
                     const afterHookStart = performance.now();
-                    await window.afterPythonExecution();
+                    await window.afterPythonExecution({ succeeded });
                     const afterHookDuration =
                         performance.now() - afterHookStart;
                     if (afterHookDuration > 10) {
@@ -133,9 +136,12 @@
             console.log('[PythonExec]', code);
             console.groupEnd();
 
+            let succeeded = false;
+
             // Execute the original function
             try {
                 const result = _originalRunPython(code, options);
+                succeeded = true;
                 console.log(
                     '[PythonExec]',
                     `✅ Execution #${execId} completed successfully`
@@ -157,7 +163,9 @@
                         '[PythonExec]',
                         `🪝 Calling afterPythonExecution hook for sync #${execId}`
                     );
-                    const hookResult = window.afterPythonExecution();
+                    const hookResult = window.afterPythonExecution({
+                        succeeded
+                    });
                     if (hookResult && typeof hookResult.then === 'function') {
                         console.warn(
                             '[PythonExec]',

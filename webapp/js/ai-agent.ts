@@ -29,12 +29,13 @@ import {
 } from './compile-and-shape-font-cache';
 import {
     AgentPromptExecutionContext,
-    setActiveAgentPythonExecution
+    awaitActiveAgentPythonExecutionSettled,
+    getActiveAgentPythonExecution,
+    runAgentPythonExecution
 } from './agent-execution-context';
 
 const console = new Logger('AIAgent');
 const DEFAULT_PROMPT_HISTORY_SUMMARY = 'Agent changes';
-const INTERRUPTED_PROMPT_HISTORY_SUFFIX = ' (interrupted)';
 
 type CompileAndShapeFontWorkerState = {
     awaitWorkerDocumentSync?: () => Promise<void>;
@@ -1711,47 +1712,61 @@ class AIAgent {
                 const runInternalPythonAsync =
                     pyodide._originalRunPythonAsync.bind(pyodide);
 
-                // Set up stdout capture
-                await runInternalPythonAsync(`
+                const promptContext = this.activePromptContext;
+                if (!promptContext) {
+                    throw new Error('No agent prompt is currently running');
+                }
+                return await runAgentPythonExecution(
+                    promptContext,
+                    async () => {
+                        let output = '';
+                        try {
+                            // Stdout is shared Pyodide process state, so it must
+                            // be configured inside the serialized execution.
+                            await runInternalPythonAsync(`
 import sys
 from io import StringIO
 _agent_output_buffer = StringIO()
 _agent_original_stdout = sys.stdout
 sys.stdout = _agent_output_buffer
-                `);
-
-                let output = '';
-                try {
-                    setActiveAgentPythonExecution(this.activePromptContext);
-                    await pyodide.runPythonAsync(code);
-                    setActiveAgentPythonExecution(null);
-                    output = await runInternalPythonAsync(`
+                            `);
+                            await pyodide.runPythonAsync(code);
+                            await awaitActiveAgentPythonExecutionSettled();
+                            output = await runInternalPythonAsync(`
 output = _agent_output_buffer.getvalue()
 sys.stdout = _agent_original_stdout
 del _agent_output_buffer
 del _agent_original_stdout
 output
                     `);
-                } catch (err: any) {
-                    setActiveAgentPythonExecution(null);
-                    // Restore stdout on error
-                    try {
-                        await runInternalPythonAsync(`
+                        } catch (err: any) {
+                            const execution = getActiveAgentPythonExecution();
+                            await awaitActiveAgentPythonExecutionSettled();
+                            // Restore stdout on error
+                            try {
+                                await runInternalPythonAsync(`
 if '_agent_original_stdout' in dir():
     sys.stdout = _agent_original_stdout
                         `);
-                    } catch (cleanupError) {
-                        console.warn(
-                            'Could not restore agent Python stdout after an execution error',
-                            cleanupError
-                        );
-                    }
-                    throw new Error(`Python error: ${err.message}`);
-                } finally {
-                    setActiveAgentPythonExecution(null);
-                }
+                            } catch (cleanupError) {
+                                console.warn(
+                                    'Could not restore agent Python stdout after an execution error',
+                                    cleanupError
+                                );
+                            }
+                            if (execution?.commitState === 'partial') {
+                                return JSON.stringify({
+                                    error: `Python error: ${err.message}`,
+                                    changesCommitted: true,
+                                    state: 'partial'
+                                });
+                            }
+                            throw new Error(`Python error: ${err.message}`);
+                        }
 
-                return output || '(no output)';
+                        return output || '(no output)';
+                    }
+                );
             }
             case 'get_editor_state': {
                 const sm = (window as any).stateManager;
@@ -1893,11 +1908,7 @@ if '_agent_original_stdout' in dir():
                     throw new Error('No agent prompt is currently running');
                 }
                 this.activePromptContext.historySummary = summary;
-                window.patchSyncEngine?.updatePromptHistorySummary(
-                    this.activePromptContext.id,
-                    summary
-                );
-                return 'Prompt history summary recorded.';
+                return 'Prompt history summary will be used for subsequent edits.';
             }
             case 'get_font_opentype_info': {
                 return this.getFontOpenTypeInfo();
@@ -2707,19 +2718,6 @@ if '_agent_original_stdout' in dir():
     }
 
     private finishPromptTransaction(interrupted: boolean = false) {
-        const promptContext = this.activePromptContext;
-        if (interrupted && promptContext) {
-            promptContext.historySummary =
-                promptContext.historySummary!.endsWith(
-                    INTERRUPTED_PROMPT_HISTORY_SUFFIX
-                )
-                    ? promptContext.historySummary!
-                    : `${promptContext.historySummary}${INTERRUPTED_PROMPT_HISTORY_SUFFIX}`;
-            window.patchSyncEngine?.updatePromptHistorySummary(
-                promptContext.id,
-                promptContext.historySummary
-            );
-        }
         this.promptTransactionOpen = false;
     }
 

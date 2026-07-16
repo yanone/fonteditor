@@ -47,7 +47,8 @@ function beforePythonExecution(code?: string) {
         label: 'Python script',
         startedAt: Date.now(),
         historySummary: agentExecution?.historySummary ?? null,
-        transactionStarted: false
+        transactionStarted: false,
+        releaseRecordingSuppression: null
     };
     bridge?.beginTransaction(
         agentExecution?.historySummary ?? 'Python script',
@@ -60,7 +61,13 @@ function beforePythonExecution(code?: string) {
     );
     if (bridge) {
         window.pythonExecutionHistoryContext.transactionStarted = true;
-        bridge.setRecordingSuppressed(true);
+        window.pythonExecutionHistoryContext.releaseRecordingSuppression =
+            typeof bridge.beginRecordingSuppression === 'function'
+                ? bridge.beginRecordingSuppression()
+                : () => bridge.setRecordingSuppressed(false);
+        if (typeof bridge.beginRecordingSuppression !== 'function') {
+            bridge.setRecordingSuppressed(true);
+        }
     }
 }
 

@@ -60,6 +60,11 @@ function enqueueCommittedChangeRefresh(
     return committedChangeRefreshQueue;
 }
 
+/** Return the completion promise for all packets enqueued so far. */
+export function getCommittedChangeRefreshPromise(): Promise<void> {
+    return committedChangeRefreshQueue;
+}
+
 function cloneBridgeValue<T>(value: T): T {
     if (value === undefined) {
         return value;

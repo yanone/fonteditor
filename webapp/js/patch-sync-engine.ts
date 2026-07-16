@@ -483,6 +483,8 @@ export class PatchSyncEngine {
     private _onAfterSync: (() => void) | null = null;
     /** Suppress recording (used during undo/redo application) */
     private _suppressRecording = false;
+    /** Number of active scoped recording suppressions. */
+    private _recordingSuppressionDepth = 0;
     /** Index into _changeLog marking the last entry broadcast to peers */
     private _lastBroadcastLogIndex = 0;
     /** Index into _changeLog marking the last entry emitted to local-update listeners */
@@ -1127,7 +1129,29 @@ export class PatchSyncEngine {
     }
 
     setRecordingSuppressed(suppressed: boolean): void {
+        this._recordingSuppressionDepth = suppressed ? 1 : 0;
         this._suppressRecording = suppressed;
+    }
+
+    /**
+     * Suppress model recording until the returned release function is called.
+     * Each release is idempotent so overlapping lifecycle cleanup is safe.
+     */
+    beginRecordingSuppression(): () => void {
+        this._recordingSuppressionDepth += 1;
+        this._suppressRecording = true;
+        let released = false;
+        return () => {
+            if (released) {
+                return;
+            }
+            released = true;
+            this._recordingSuppressionDepth = Math.max(
+                0,
+                this._recordingSuppressionDepth - 1
+            );
+            this._suppressRecording = this._recordingSuppressionDepth > 0;
+        };
     }
 
     runWithoutRecording<T>(fn: () => T): T {
@@ -3199,25 +3223,6 @@ export class PatchSyncEngine {
     /** Get the full change log. */
     getChangeLog(): ChangeLogEntry[] {
         return this._changeLog;
-    }
-
-    updatePromptHistorySummary(
-        promptGroupId: string,
-        historySummary: string
-    ): boolean {
-        let didUpdate = false;
-        for (const entry of this._changeLog) {
-            if (entry.promptGroupId !== promptGroupId) {
-                continue;
-            }
-            entry.historySummary = historySummary;
-            didUpdate = true;
-        }
-        if (didUpdate) {
-            invalidateHistoryStateCache(this._changeLog);
-            this._notifyChangeLogListeners();
-        }
-        return didUpdate;
     }
 
     getCollaborationLog(): CollaborationLogItem[] {
