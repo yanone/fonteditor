@@ -55,6 +55,9 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     let lastCompiledProfile: QcProfile | null = null;
     let lastChecks: QCCheck[] = [];
     let selectedProfile: QcProfile = DEFAULT_QC_PROFILE;
+    let pendingCompilationRetryGeneration: string | null = null;
+    let retriedTransientCompilationGeneration: string | null = null;
+    let terminalCompilationFailureGeneration: string | null = null;
 
     const DEBOUNCE_MS = 350;
     const MONITOR_MS = 200;
@@ -89,10 +92,26 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
         return windowRole.isMainWindow();
     }
 
-    function isTransientWorkerCacheReadinessError(error: unknown): boolean {
-        const message = error instanceof Error ? error.message : String(error);
-        return message.includes(
-            'Cached compile requires a ready worker Yjs document'
+    function getCompilationGenerationKey(
+        path: string | null,
+        version: number
+    ): string {
+        return `${path ?? ''}\u0000${version}`;
+    }
+
+    function isTransientWorkerCacheReadinessError(
+        error: unknown,
+        generationKey: string
+    ): boolean {
+        return (
+            retriedTransientCompilationGeneration !== generationKey &&
+            ((error instanceof Error ? error.message : String(error)).includes(
+                'Cached compile requires a ready worker Yjs document'
+            ) ||
+                (error instanceof Error
+                    ? error.message
+                    : String(error)
+                ).includes('babelfont-fontc WASM not available'))
         );
     }
 
@@ -168,7 +187,10 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
         );
     }
 
-    function scheduleCompilation(delayMs: number = DEBOUNCE_MS): void {
+    function scheduleCompilation(
+        delayMs: number = DEBOUNCE_MS,
+        replaceExistingTimer: boolean = true
+    ): void {
         if (
             !isEnabled ||
             TEMP_DISABLE_FULL_COMPILE ||
@@ -182,6 +204,9 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
         }
 
         if (debounceTimer !== null) {
+            if (!replaceExistingTimer) {
+                return;
+            }
             clearTimeout(debounceTimer);
             debounceTimer = null;
         }
@@ -201,10 +226,6 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
             return;
         }
 
-        if (isCompilationBlockedByEditingSession()) {
-            return;
-        }
-
         const currentFont = fontManager.currentFont;
         if (!currentFont) {
             return;
@@ -214,11 +235,35 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
         const currentVersion = currentFont.changeVersion;
         const pathChanged = currentPath !== lastObservedPath;
         const versionChanged = currentVersion !== lastObservedVersion;
+        const generationKey = getCompilationGenerationKey(
+            currentPath,
+            currentVersion
+        );
+
+        if (
+            terminalCompilationFailureGeneration !== null &&
+            terminalCompilationFailureGeneration !== generationKey
+        ) {
+            terminalCompilationFailureGeneration = null;
+        }
+
+        if (
+            isCompilationBlockedByEditingSession() ||
+            window.autoCompileManager?.getStatus?.().isCompiling
+        ) {
+            return;
+        }
+
+        if (terminalCompilationFailureGeneration === generationKey) {
+            return;
+        }
 
         if (pathChanged || versionChanged) {
             lastObservedPath = currentPath;
             lastObservedVersion = currentVersion;
-            scheduleCompilation();
+            scheduleCompilation(DEBOUNCE_MS, false);
+        } else if (pendingCompilationRetryGeneration === generationKey) {
+            scheduleCompilation(MONITOR_MS, false);
         }
     }
 
@@ -233,6 +278,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
         }
 
         isCompiling = true;
+        let retryDelayMs: number | null = null;
 
         try {
             while (isEnabled) {
@@ -254,6 +300,15 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
 
                 const targetPath = currentFont.path || null;
                 const targetVersion = currentFont.changeVersion;
+                const targetGenerationKey = getCompilationGenerationKey(
+                    targetPath,
+                    targetVersion
+                );
+                if (
+                    terminalCompilationFailureGeneration === targetGenerationKey
+                ) {
+                    break;
+                }
                 const shouldCompile =
                     targetPath !== lastCompiledPath ||
                     targetVersion > lastCompiledVersion ||
@@ -352,6 +407,24 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                     lastCompiledPath = targetPath;
                     lastCompiledVersion = targetVersion;
                     lastCompiledProfile = selectedProfile;
+                    if (
+                        pendingCompilationRetryGeneration ===
+                        targetGenerationKey
+                    ) {
+                        pendingCompilationRetryGeneration = null;
+                    }
+                    if (
+                        retriedTransientCompilationGeneration ===
+                        targetGenerationKey
+                    ) {
+                        retriedTransientCompilationGeneration = null;
+                    }
+                    if (
+                        terminalCompilationFailureGeneration ===
+                        targetGenerationKey
+                    ) {
+                        terminalCompilationFailureGeneration = null;
+                    }
 
                     const latestPath = fontManager.currentFont?.path || null;
                     const latestVersion =
@@ -364,8 +437,20 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                         break;
                     }
                 } catch (error) {
-                    if (isTransientWorkerCacheReadinessError(error)) {
-                        scheduleCompilation(MONITOR_MS);
+                    if (
+                        isTransientWorkerCacheReadinessError(
+                            error,
+                            targetGenerationKey
+                        )
+                    ) {
+                        const message =
+                            error instanceof Error
+                                ? error.message
+                                : String(error);
+                        pendingCompilationRetryGeneration = targetGenerationKey;
+                        retriedTransientCompilationGeneration =
+                            targetGenerationKey;
+                        retryDelayMs = MONITOR_MS;
                         dispatchQcUpdate(
                             fontManager.fullFontQcSummary,
                             'idle',
@@ -378,6 +463,19 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
 
                     const message =
                         error instanceof Error ? error.message : String(error);
+                    if (
+                        pendingCompilationRetryGeneration ===
+                        targetGenerationKey
+                    ) {
+                        pendingCompilationRetryGeneration = null;
+                    }
+                    if (
+                        retriedTransientCompilationGeneration ===
+                        targetGenerationKey
+                    ) {
+                        retriedTransientCompilationGeneration = null;
+                    }
+                    terminalCompilationFailureGeneration = targetGenerationKey;
                     const featureIssues =
                         extractFeatureIssuesFromCompilationError(error);
                     const humanReadableMessage =
@@ -400,6 +498,9 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
             }
         } finally {
             isCompiling = false;
+            if (retryDelayMs !== null) {
+                scheduleCompilation(retryDelayMs, false);
+            }
         }
     }
 

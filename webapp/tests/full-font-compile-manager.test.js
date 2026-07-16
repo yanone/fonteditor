@@ -109,6 +109,7 @@ describe('full font compile manager', () => {
         jest.runOnlyPendingTimers();
         await Promise.resolve();
         await Promise.resolve();
+        await Promise.resolve();
 
         expect(compileCachedMock).toHaveBeenCalledTimes(1);
         expect(sendMessageMock).toHaveBeenCalledWith({
@@ -167,12 +168,13 @@ describe('full font compile manager', () => {
         jest.runOnlyPendingTimers();
         await Promise.resolve();
         await Promise.resolve();
+        await Promise.resolve();
 
         expect(compileCachedMock).toHaveBeenCalledTimes(1);
         expect(showErrorMock).not.toHaveBeenCalled();
         expect(sendMessageMock).not.toHaveBeenCalled();
 
-        jest.advanceTimersByTime(200);
+        jest.advanceTimersByTime(500);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -182,5 +184,210 @@ describe('full font compile manager', () => {
             fontBytes: expect.any(Uint8Array),
             profile: 'universal'
         });
+    });
+
+    test('shows the sidebar error when the worker Yjs document retry also fails', async () => {
+        const qcUpdates = [];
+        window.addEventListener('fontspectorUpdated', (event) => {
+            qcUpdates.push(event.detail);
+        });
+        compileCachedMock.mockRejectedValue(
+            new Error(
+                'Cached compile requires a ready worker Yjs document; full babelfont JSON fallback is disabled'
+            )
+        );
+
+        require('../js/full-font-compile-manager.ts');
+
+        window.fullCompileManager.scheduleCompilation(0);
+        jest.runOnlyPendingTimers();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        jest.advanceTimersByTime(500);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(compileCachedMock).toHaveBeenCalledTimes(2);
+        expect(showErrorMock).toHaveBeenCalledTimes(1);
+        expect(qcUpdates.at(-1)).toEqual(
+            expect.objectContaining({ status: 'error' })
+        );
+
+        jest.advanceTimersByTime(500);
+        await Promise.resolve();
+
+        expect(compileCachedMock).toHaveBeenCalledTimes(2);
+    });
+
+    test('retries one transient full-worker initialization failure without showing a sidebar error', async () => {
+        compileCachedMock
+            .mockRejectedValueOnce(
+                new Error(
+                    'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+                )
+            )
+            .mockResolvedValueOnce({
+                result: new Uint8Array([1, 2, 3, 4]).buffer
+            });
+
+        require('../js/full-font-compile-manager.ts');
+
+        window.fullCompileManager.scheduleCompilation(0);
+        jest.runOnlyPendingTimers();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(compileCachedMock).toHaveBeenCalledTimes(1);
+        expect(showErrorMock).not.toHaveBeenCalled();
+
+        jest.advanceTimersByTime(500);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(compileCachedMock).toHaveBeenCalledTimes(2);
+        expect(sendMessageMock).toHaveBeenCalledWith({
+            type: 'runFontspector',
+            fontBytes: expect.any(Uint8Array),
+            profile: 'universal'
+        });
+        expect(showErrorMock).not.toHaveBeenCalled();
+    });
+
+    test('shows the sidebar error when the full-worker initialization retry also fails', async () => {
+        const qcUpdates = [];
+        window.addEventListener('fontspectorUpdated', (event) => {
+            qcUpdates.push(event.detail);
+        });
+        compileCachedMock.mockRejectedValue(
+            new Error(
+                'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+            )
+        );
+
+        require('../js/full-font-compile-manager.ts');
+
+        window.fullCompileManager.scheduleCompilation(0);
+        jest.runOnlyPendingTimers();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        jest.advanceTimersByTime(500);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(compileCachedMock).toHaveBeenCalledTimes(2);
+        expect(showErrorMock).toHaveBeenCalledTimes(1);
+        expect(qcUpdates.at(-1)).toEqual(
+            expect.objectContaining({ status: 'error' })
+        );
+    });
+
+    test('does not grant another full-worker initialization retry when the monitor observes the same generation', async () => {
+        compileCachedMock.mockRejectedValue(
+            new Error(
+                'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+            )
+        );
+
+        require('../js/full-font-compile-manager.ts');
+
+        window.fullCompileManager.scheduleCompilation(0);
+        jest.runOnlyPendingTimers();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        window.fullCompileManager.checkAndSchedule();
+        jest.advanceTimersByTime(350);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(compileCachedMock).toHaveBeenCalledTimes(2);
+        expect(showErrorMock).toHaveBeenCalledTimes(1);
+    });
+
+    test('re-arms a pending full-worker initialization retry after an active drag ends', async () => {
+        compileCachedMock
+            .mockRejectedValueOnce(
+                new Error(
+                    'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+                )
+            )
+            .mockResolvedValueOnce({
+                result: new Uint8Array([1, 2, 3, 4]).buffer
+            });
+
+        require('../js/full-font-compile-manager.ts');
+
+        window.fullCompileManager.scheduleCompilation(0);
+        jest.runOnlyPendingTimers();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        window.glyphCanvas.outlineEditor.draggingSomething = true;
+        jest.advanceTimersByTime(200);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(compileCachedMock).toHaveBeenCalledTimes(1);
+
+        window.glyphCanvas.outlineEditor.draggingSomething = false;
+        jest.advanceTimersByTime(500);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(compileCachedMock).toHaveBeenCalledTimes(2);
+        expect(sendMessageMock).toHaveBeenCalledWith({
+            type: 'runFontspector',
+            fontBytes: expect.any(Uint8Array),
+            profile: 'universal'
+        });
+        expect(showErrorMock).not.toHaveBeenCalled();
+    });
+
+    test('re-arms a pending full-worker initialization retry after auto compilation ends', async () => {
+        compileCachedMock
+            .mockRejectedValueOnce(
+                new Error(
+                    'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+                )
+            )
+            .mockResolvedValueOnce({
+                result: new Uint8Array([1, 2, 3, 4]).buffer
+            });
+
+        require('../js/full-font-compile-manager.ts');
+
+        window.fullCompileManager.scheduleCompilation(0);
+        jest.runOnlyPendingTimers();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        window.autoCompileManager.getStatus.mockReturnValue({
+            isCompiling: true
+        });
+        jest.advanceTimersByTime(500);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(compileCachedMock).toHaveBeenCalledTimes(1);
+
+        window.autoCompileManager.getStatus.mockReturnValue({
+            isCompiling: false
+        });
+        jest.advanceTimersByTime(500);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(compileCachedMock).toHaveBeenCalledTimes(2);
+        expect(sendMessageMock).toHaveBeenCalledWith({
+            type: 'runFontspector',
+            fontBytes: expect.any(Uint8Array),
+            profile: 'universal'
+        });
+        expect(showErrorMock).not.toHaveBeenCalled();
     });
 });
