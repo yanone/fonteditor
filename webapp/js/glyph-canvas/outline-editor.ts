@@ -4155,7 +4155,7 @@ export class OutlineEditor {
             });
     }
 
-    private hasPendingKeyboardPreviewCommit(): boolean {
+    hasPendingKeyboardPreviewCommit(): boolean {
         return (
             this._pendingKeyboardPreviewCommit !== null ||
             this._keyboardPreviewCommitInFlight !== null ||

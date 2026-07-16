@@ -221,7 +221,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'compile_and_shape_font',
             description:
-                'Compile the current font and shape `text` with explicit inputs only. Use this when you need a state-style shaping result without relying on the editor UI state. Empty `text` compiles the full font; non-empty `text` compiles and shapes a subset seeded from that text. `featureOverrides` is an optional tag-to-boolean map that overrides HarfBuzz defaults. `userspaceLocation` and `designspaceLocation` are optional variation-location overrides; provide at most one of them. The result includes shaped buffers, feature state, file, and `fontRevision`. Compile artifacts may be reused internally, but shaping is evaluated on every call with the current inputs.',
+                'Compile the current committed editor font and shape `text` with explicit inputs only. Use this when you need a state-style shaping result without relying on the editor UI state. Empty `text` compiles the full font; non-empty `text` compiles and shapes a subset seeded from that text. The tool waits for committed edits to reach the compiler worker and is unavailable during an active edit preview. `featureOverrides` is an optional tag-to-boolean map that overrides HarfBuzz defaults. `userspaceLocation` and `designspaceLocation` are optional variation-location overrides; provide at most one of them. The result includes shaped buffers, feature state, file, and `fontRevision`. Compile artifacts may be reused internally, but shaping is evaluated on every call with the current inputs.',
             parameters: {
                 type: 'object',
                 properties: {

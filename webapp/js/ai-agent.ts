@@ -34,6 +34,66 @@ import {
 
 const console = new Logger('AIAgent');
 
+type CompileAndShapeFontWorkerState = {
+    awaitWorkerDocumentSync?: () => Promise<void>;
+    hasWorkerCacheDocument?: () => boolean;
+};
+
+type CompileAndShapeFontManagerState = {
+    workerCacheUpdatePromise?: Promise<void> | null;
+};
+
+/** Wait until the committed Yjs worker state and visible font revision settle. */
+async function awaitStableCompileAndShapeFontWorkerState(
+    fontManager: CompileAndShapeFontManagerState,
+    fontCompilation: CompileAndShapeFontWorkerState,
+    getFontRevisionKey: () => string
+): Promise<void> {
+    if (
+        typeof fontCompilation.awaitWorkerDocumentSync !== 'function' ||
+        typeof fontCompilation.hasWorkerCacheDocument !== 'function'
+    ) {
+        throw new Error(
+            'compile_and_shape_font worker synchronization is not available yet.'
+        );
+    }
+
+    let lastAwaitedCacheUpdate: Promise<void> | null = null;
+    for (let attempt = 0; attempt < 8; attempt++) {
+        const revisionBeforeSync = getFontRevisionKey();
+        await fontCompilation.awaitWorkerDocumentSync();
+
+        const pendingCacheUpdate = fontManager.workerCacheUpdatePromise ?? null;
+        if (
+            pendingCacheUpdate &&
+            pendingCacheUpdate !== lastAwaitedCacheUpdate
+        ) {
+            lastAwaitedCacheUpdate = pendingCacheUpdate;
+            await pendingCacheUpdate;
+            continue;
+        }
+
+        await fontCompilation.awaitWorkerDocumentSync();
+        const cacheUpdateChanged =
+            fontManager.workerCacheUpdatePromise !== pendingCacheUpdate;
+        if (cacheUpdateChanged || revisionBeforeSync !== getFontRevisionKey()) {
+            continue;
+        }
+
+        if (!fontCompilation.hasWorkerCacheDocument()) {
+            throw new Error(
+                'compile_and_shape_font requires the current font to finish synchronizing to the compiler worker.'
+            );
+        }
+
+        return;
+    }
+
+    throw new Error(
+        'compile_and_shape_font could not stabilize the current font revision. Retry after editing settles.'
+    );
+}
+
 class AIAgent {
     [key: string]: any;
 
@@ -1848,6 +1908,19 @@ if '_agent_original_stdout' in dir():
                         'compile_and_shape_font is only available in the main window.'
                     );
                 }
+                const isEditPreviewActive = () => {
+                    const outlineEditor = window.glyphCanvas?.outlineEditor;
+                    return (
+                        outlineEditor?.draggingSomething ||
+                        outlineEditor?.isPreviewMode ||
+                        outlineEditor?.hasPendingKeyboardPreviewCommit()
+                    );
+                };
+                if (isEditPreviewActive()) {
+                    throw new Error(
+                        'compile_and_shape_font is unavailable while an edit preview is active. Retry after the edit commits.'
+                    );
+                }
 
                 if (typeof args.text !== 'string') {
                     throw new Error(
@@ -1951,15 +2024,28 @@ if '_agent_original_stdout' in dir():
                       )
                     : explicitDesignspaceLocation;
 
-                const currentFont = fm?.currentFont;
-                const fontRevision = {
-                    pluginId: currentFont?.sourcePlugin?.getId?.() || '',
-                    fontPath: currentFont?.path || '',
-                    changeVersion:
-                        typeof currentFont?.changeVersion === 'number'
-                            ? currentFont.changeVersion
-                            : null
+                const getFontRevision = () => {
+                    const currentFont = fm?.currentFont;
+                    return {
+                        pluginId: currentFont?.sourcePlugin?.getId?.() || '',
+                        fontPath: currentFont?.path || '',
+                        changeVersion:
+                            typeof currentFont?.changeVersion === 'number'
+                                ? currentFont.changeVersion
+                                : null
+                    };
                 };
+                await awaitStableCompileAndShapeFontWorkerState(
+                    fm as CompileAndShapeFontManagerState,
+                    fc as CompileAndShapeFontWorkerState,
+                    () => buildCompileAndShapeFontRevisionKey(getFontRevision())
+                );
+                if (isEditPreviewActive()) {
+                    throw new Error(
+                        'compile_and_shape_font is unavailable while an edit preview is active. Retry after the edit commits.'
+                    );
+                }
+                const fontRevision = getFontRevision();
                 const fontRevisionKey =
                     buildCompileAndShapeFontRevisionKey(fontRevision);
                 const cacheKey = buildCompileAndShapeFontCacheKey(
