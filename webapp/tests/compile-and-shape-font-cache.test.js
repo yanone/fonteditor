@@ -132,4 +132,56 @@ describe('compile_and_shape_font cache helpers', () => {
         expect(compileSubsetFont).toHaveBeenCalledTimes(1);
         expect(secondResult.compiledFont).toBe(subsetFont);
     });
+
+    it('retains cmap source glyphs alongside feature substitution outputs', async () => {
+        const fullFont = new Uint8Array([1, 2, 3]);
+        const subsetFont = new Uint8Array([4, 5, 6]);
+        const compileSubsetFont = jest.fn(async () => subsetFont);
+        const shapeSubsetWithFont = jest.fn(async (_font, _text, options) =>
+            options.features
+                ? { glyphs: ['zero.numr', 'fraction', 'one.dnom'] }
+                : { glyphs: ['zero', 'slash', 'one'] }
+        );
+
+        await resolveCompileAndShapeFontCompilation({
+            cacheEntry: null,
+            fontRevisionKey: 'revision',
+            cacheKey: 'request',
+            fullFontMode: false,
+            text: '0/10',
+            shapeOptions: {
+                features: 'frac=1,zero=1',
+                variationLocation: { wght: 200 }
+            },
+            compileFullFont: async () => fullFont,
+            shapeSubsetWithFont,
+            compileSubsetFont
+        });
+
+        expect(shapeSubsetWithFont).toHaveBeenNthCalledWith(
+            1,
+            fullFont,
+            '0/10',
+            {
+                features: 'frac=1,zero=1',
+                variationLocation: { wght: 200 }
+            }
+        );
+        expect(shapeSubsetWithFont).toHaveBeenNthCalledWith(
+            2,
+            fullFont,
+            '0/10',
+            {
+                variationLocation: { wght: 200 }
+            }
+        );
+        expect(compileSubsetFont).toHaveBeenCalledWith([
+            'zero.numr',
+            'fraction',
+            'one.dnom',
+            'zero',
+            'slash',
+            'one'
+        ]);
+    });
 });

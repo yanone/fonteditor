@@ -105,11 +105,17 @@ export async function resolveCompileAndShapeFontCompilation({
         text,
         shapeOptions
     );
+    const cmapSeedShape = shapeOptions.features
+        ? await shapeSubsetWithFont(fullCommittedFont, text, {
+              variationLocation: shapeOptions.variationLocation
+          })
+        : null;
     const subsetGlyphs = Array.from(
         new Set(
-            subsetSeedShape.glyphs.filter(
-                (glyphName) => glyphName && glyphName !== '.notdef'
-            )
+            [
+                ...subsetSeedShape.glyphs,
+                ...(cmapSeedShape?.glyphs || [])
+            ].filter((glyphName) => glyphName && glyphName !== '.notdef')
         )
     );
     const subsetGlyphKey = buildSubsetGlyphKey(subsetGlyphs);

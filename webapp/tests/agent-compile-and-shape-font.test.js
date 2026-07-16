@@ -171,6 +171,57 @@ describe('compile_and_shape_font committed worker state', () => {
         expect(window.fontCompilation.compileCached).not.toHaveBeenCalled();
     });
 
+    test('retains cmap glyphs when feature overrides substitute the subset seed', async () => {
+        window.shapeTextWithFontDetailed = jest.fn(
+            async (font, _text, options = {}) => {
+                if (font === fullFont) {
+                    return options.features
+                        ? createShapingResult([
+                              'zero.numr',
+                              'fraction',
+                              'one.dnom',
+                              'zero.dnom'
+                          ])
+                        : createShapingResult(['zero', 'slash', 'one', 'zero']);
+                }
+                return createShapingResult([
+                    'zero.numr',
+                    'fraction',
+                    'one.dnom',
+                    'zero.dnom'
+                ]);
+            }
+        );
+        const agent = new AIAgent();
+
+        const result = JSON.parse(
+            await agent.executeToolCall({
+                function: {
+                    name: 'compile_and_shape_font',
+                    arguments: JSON.stringify({
+                        text: '0/10',
+                        featureOverrides: { frac: true, zero: true },
+                        userspaceLocation: { wght: 200 }
+                    })
+                }
+            })
+        );
+
+        expect(
+            window.fullFontCompilation.compileCommittedDebugFont
+        ).toHaveBeenCalledWith([
+            'zero.numr',
+            'fraction',
+            'one.dnom',
+            'zero.dnom',
+            'zero',
+            'slash',
+            'one'
+        ]);
+        expect(result.glyphs).toBe('zero.numr fraction one.dnom zero.dnom');
+        expect(result.glyphs).not.toContain('.notdef');
+    });
+
     test('fails closed when the pending committed worker update rejects', async () => {
         const failedUpdate = createDeferred();
         window.fontManager.workerCacheUpdatePromise = failedUpdate.promise;
