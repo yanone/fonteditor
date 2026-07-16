@@ -1406,8 +1406,9 @@
             return;
         }
 
-        // Alt+Left Arrow - browser back (Windows/Linux)
-        if (event.altKey && key === 'arrowleft') {
+        // Alt+Left Arrow - browser back (Windows/Linux). Preserve native
+        // Alt/Option word navigation and selection inside editable controls.
+        if (event.altKey && key === 'arrowleft' && !isInTextInput) {
             console.log(
                 '[KeyboardNav]',
                 'Blocking Alt+Left browser navigation'
