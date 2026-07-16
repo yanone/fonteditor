@@ -363,6 +363,9 @@ export function commitPythonExecutionSyntheticChanges(
         if (historyContext?.transactionStarted) {
             releaseRecordingSuppression();
             const commitResult = bridge?.endTransaction();
+            if (didApplyOperations && commitResult) {
+                window.dispatchEvent(new CustomEvent('fontModelSync'));
+            }
             if (
                 didApplyOperations &&
                 commitResult &&

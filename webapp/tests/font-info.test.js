@@ -397,7 +397,13 @@ describe('FontInfo feature code compilation scheduling', () => {
         fontInfoManager.selectedFeatureTag = 'salt';
         fontInfoManager.featureCodeDirty = true;
 
-        fontInfoManager.onFontModelSynced();
+        const onFontModelSync = () => fontInfoManager.onFontModelSynced();
+        window.addEventListener('fontModelSync', onFontModelSync);
+        try {
+            window.dispatchEvent(new CustomEvent('fontModelSync'));
+        } finally {
+            window.removeEventListener('fontModelSync', onFontModelSync);
+        }
 
         expect(
             [...document.querySelectorAll('.feature-tag')].map(

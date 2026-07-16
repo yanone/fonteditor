@@ -170,6 +170,8 @@ describe('Python post-execution synthetic commit alignment', () => {
 
     test('replaces reordered OpenType features atomically', () => {
         const { commitPythonExecutionSyntheticChanges } = loadModule();
+        const executionOrder = [];
+        const onFontModelSync = () => executionOrder.push('fontModelSync');
         const zero = {
             code: 'sub zero by zero.zero;\n',
             automatic: true
@@ -194,25 +196,33 @@ describe('Python post-execution synthetic commit alignment', () => {
         const bridge = {
             setRecordingSuppressed: jest.fn(),
             applySyntheticChangeSet: jest.fn(),
-            endTransaction: jest.fn()
+            endTransaction: jest.fn(() => {
+                executionOrder.push('commit');
+                return {};
+            })
         };
 
-        commitPythonExecutionSyntheticChanges(
-            currentFont,
-            {
-                transactionStarted: true,
-                beforeFontDataJson: JSON.stringify({
-                    features: {
-                        features: [
-                            ['zero', zero],
-                            ['frac', frac]
-                        ]
-                    }
-                }),
-                label: 'Reorder features'
-            },
-            bridge
-        );
+        window.addEventListener('fontModelSync', onFontModelSync);
+        try {
+            commitPythonExecutionSyntheticChanges(
+                currentFont,
+                {
+                    transactionStarted: true,
+                    beforeFontDataJson: JSON.stringify({
+                        features: {
+                            features: [
+                                ['zero', zero],
+                                ['frac', frac]
+                            ]
+                        }
+                    }),
+                    label: 'Reorder features'
+                },
+                bridge
+            );
+        } finally {
+            window.removeEventListener('fontModelSync', onFontModelSync);
+        }
 
         expect(bridge.applySyntheticChangeSet).toHaveBeenCalledWith(
             'Reorder features',
@@ -231,6 +241,7 @@ describe('Python post-execution synthetic commit alignment', () => {
                 })
             ]
         );
+        expect(executionOrder).toEqual(['commit', 'fontModelSync']);
     });
 
     test('records reordered glyph collections through the schema order path', () => {
