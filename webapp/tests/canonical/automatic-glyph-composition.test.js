@@ -69,7 +69,7 @@ function makeComponent(reference, options = {}) {
         }
     } = options;
     const formatSpecific = {
-        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: auto ? 0 : -1
+        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: auto ? 1 : -1
     };
     if (anchor) {
         formatSpecific[GLYPHS_COMPONENT_ANCHOR_KEY] = anchor;
@@ -1537,8 +1537,10 @@ describe('Automatic component editing canonical behavior', () => {
 
         expect(
             canvas.setComponentAutoAlignmentValue(automaticComponent, true)
-        ).toBe(false);
-        expect(automaticComponent.format_specific).toEqual({});
+        ).toBe(true);
+        expect(
+            automaticComponent.format_specific[GLYPHS_COMPONENT_ALIGNMENT_KEY]
+        ).toBe(1);
 
         expect(
             canvas.setComponentAutoAlignmentValue(automaticComponent, false)

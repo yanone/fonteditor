@@ -109,8 +109,7 @@ function isAutomaticallyAlignedComponentLayer(
     return shapes.every(
         (shape) =>
             typeof shape.reference === 'string' &&
-            shape.format_specific?.['com.schriftgestalt.Glyphs.alignment'] !==
-                -1
+            shape.format_specific?.['com.schriftgestalt.Glyphs.alignment'] === 1
     );
 }
 

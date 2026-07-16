@@ -137,10 +137,6 @@ import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
-import {
-    assertAgentFontEditAllowed,
-    isAgentPythonExecutionActive
-} from './agent-execution-context';
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import type {
     PatchSyncEngine,
@@ -357,6 +353,12 @@ function hasExplicitManualComponentAlignment(component: Component): boolean {
     const value =
         getModelFormatSpecific(component)?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
     return value === -1;
+}
+
+function hasExplicitAutomaticComponentAlignment(component: Component): boolean {
+    const value =
+        getModelFormatSpecific(component)?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
+    return value === 1;
 }
 
 function isAutomaticSidebearingOverrideKey(value: string | undefined): boolean {
@@ -3906,23 +3908,12 @@ function assertTaggedLayerMaster(master: Unsafe, context: string): void {
  * Base class for model objects that wrap JSON data
  */
 abstract class ModelBase<TData = Unsafe, TParent = Unsafe> {
-    private _rawData: TData;
+    protected _data: TData;
     protected _parentObject: TParent | null = null;
 
     constructor(data: TData, parentObject: TParent | null = null) {
-        this._rawData = data;
+        this._data = data;
         this._parentObject = parentObject;
-    }
-
-    protected get _data(): TData {
-        return isAgentPythonExecutionActive()
-            ? getAgentGuardedMutableData(this._rawData)
-            : this._rawData;
-    }
-
-    protected set _data(value: TData) {
-        assertAgentFontEditAllowed();
-        this._rawData = value;
     }
 
     /**
@@ -3968,48 +3959,6 @@ abstract class ModelBase<TData = Unsafe, TParent = Unsafe> {
     }
 }
 
-const agentGuardedDataProxies = new WeakMap<object, object>();
-
-function getAgentGuardedMutableData<T>(value: T): T {
-    if (!value || typeof value !== 'object') {
-        return value;
-    }
-
-    const cached = agentGuardedDataProxies.get(value as object);
-    if (cached) {
-        return cached as T;
-    }
-
-    const proxy = new Proxy(value as object, {
-        get(target, key, receiver) {
-            const result = Reflect.get(target, key, receiver);
-            if (
-                Array.isArray(target) &&
-                typeof key === 'string' &&
-                MUTATING_ARRAY_METHODS.has(key) &&
-                typeof result === 'function'
-            ) {
-                return (...args: unknown[]) => {
-                    assertAgentFontEditAllowed();
-                    return Reflect.apply(result, target, args);
-                };
-            }
-            return getAgentGuardedMutableData(result);
-        },
-        set(target, key, nextValue, receiver) {
-            assertAgentFontEditAllowed();
-            return Reflect.set(target, key, nextValue, receiver);
-        },
-        deleteProperty(target, key) {
-            assertAgentFontEditAllowed();
-            return Reflect.deleteProperty(target, key);
-        }
-    });
-
-    agentGuardedDataProxies.set(value as object, proxy);
-    return proxy as T;
-}
-
 /**
  * Base class for objects that are elements in an array
  */
@@ -4034,17 +3983,13 @@ abstract class ArrayElementBase<
      * Get current data (handles index changes)
      */
     protected get data(): TData {
-        const value = this._parent[this._index];
-        return isAgentPythonExecutionActive()
-            ? getAgentGuardedMutableData(value)
-            : value;
+        return this._parent[this._index];
     }
 
     /**
      * Update underlying data reference and mark font as dirty
      */
     protected set data(value: TData) {
-        assertAgentFontEditAllowed();
         this._parent[this._index] = value;
         markFontDirty();
     }
@@ -5211,15 +5156,14 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     /**
-     * Returns the effective component alignment state for its containing layer.
-     * One explicit Glyphs manual alignment override makes the complete
-     * component-only layer manually positioned.
+     * Returns whether every component in the containing layer explicitly opts
+     * into Glyphs automatic alignment.
      */
     isAutomaticAligned(): boolean {
         const layer = getLayerForSelectableObject(this);
         return layer
             ? layer.isAutomaticAlignedLayer()
-            : !hasExplicitManualComponentAlignment(this);
+            : hasExplicitAutomaticComponentAlignment(this);
     }
 
     /**
@@ -6362,8 +6306,8 @@ export class Layer extends ArrayElementBase {
             return false;
         }
 
-        return components.every(
-            (shape) => !hasExplicitManualComponentAlignment(shape.asComponent())
+        return components.every((shape) =>
+            hasExplicitAutomaticComponentAlignment(shape.asComponent())
         );
     }
 

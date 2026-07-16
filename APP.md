@@ -52,18 +52,6 @@ For normal editing there are no escape hatches: no full babelfont JSON resend, n
 
 Full-document transport is reserved for bootstrap from external sources only, such as opening or importing a font into a fresh Rust worker state. Once a document is open and editing has begun, steady-state document convergence must remain incremental-only.
 
-### Agent Prompt Transaction Ownership
-
-An agent prompt owns exactly one logical history and undo item for its entire lifetime. The prompt ID is the stable `historyItemId` and `promptGroupId` attached to each prompt-derived committed edit. Every Babelfont model change caused by those tool calls, including changes made indirectly by a tool lifecycle hook, must carry those identifiers.
-
-Prompt-derived edits must each use a normal, bounded `PatchSyncEngine` transaction and commit immediately after the edit is complete. This emits the authoritative incremental Yjs update, runs the shared committed-change funnel, refreshes the editing worker, recompiles the editing font, and keeps the visible text state current while the prompt continues. The shared prompt `historyItemId` makes those independent committed packets appear as one history item and one undo step.
-
-Each mutating prompt tool call must wait for its own committed packet's shared-funnel refresh before returning data to the agent. Agent-owned Python execution, including shared Pyodide stdout setup and cleanup, must be serialized so the next tool observes the prior tool's settled editing worker, compile, and visible text state.
-
-No prompt-derived path may create a different history item or undo step. A summary supplied with `set_prompt_history_summary` is stamped on subsequently committed prompt edits; otherwise they use the default agent-change summary. Stopping a prompt must not create a synthetic final transaction or mutate existing history rows. Empty prompts create no history item. If Python fails after committing mutations, the tool must wait for the same packet refresh and return an explicit partial-commit result; it must not claim rollback.
-
-Any change to prompt execution, tool execution, Python execution, transaction buffering, or history integration must include regression coverage proving that mixed prompt-derived edits produce immediate incremental Yjs updates and committed-funnel passes, correct local and remote document state, one logical history item, and one undo/redo step. Tests must also cover natural completion and interruption.
-
 ### Cloud sync vs. local window sync
 
 Only a font’s main window syncs with the DO room in the cloud. Local linked windows only talk to the main window which relays messages back and forth between the cloud and the local linked windows.
@@ -184,7 +172,7 @@ When an automatically aligned component has more than one eligible target anchor
 
 #### Automatic Glyph Composition
 
-Layers that contain only components and no paths are automatically composed by the editor as soon as all of their components are automatically aligned. This applies whether automatic alignment is stored explicitly or implied by omitted alignment metadata.
+Layers that contain only components and no paths are automatically composed by the editor only when every component explicitly stores `alignment = 1`.
 
 Anchors serve both OpenType GPOS attachment features and automatic component arrangement in the editor at design-time. A base component may expose anchors such as `top` or `bottom`, and a mark component may expose matching attachment anchors such as `_top` or `_bottom`. During automatic composition, a mark component must snap to the matching base anchor in the same way mark-to-base positioning would attach the mark glyph.
 
@@ -198,7 +186,7 @@ Automatic alignment keeps composite metrics derived from their base components. 
 
 Automatic composition also depends on anchor positions. Moving an anchor on a glyph must therefore rebuild any compatible automatically composed downstream glyphs that attach to that anchor family, update the editing font from that rebuilt data, and do so both for direct edits and for undo or redo of those edits.
 
-Glyphs components are automatically aligned by default: components without stored alignment metadata participate in automatic composition. Only an explicit `alignment = -1` disables automatic alignment and takes a component-only layer out of automatic composition, allowing manual placement of all of its components. Re-enabling automatic alignment on all components returns the layer to automatic composition. Changing automatic alignment state or a component's explicit target-anchor override must rebuild the automatic composition immediately.
+Glyphs components preserve their stored placement unless they explicitly store `alignment = 1`. Omitted alignment metadata and all other alignment values take a component-only layer out of automatic composition, allowing manual placement of all of its components. Enabling automatic alignment writes `alignment = 1` on every component in the layer; only then does the layer return to automatic composition. Changing automatic alignment state or a component's explicit target-anchor override must rebuild the automatic composition immediately.
 
 Sidebearings of automatically composed layers cannot be edited directly because they are derived from the base glyph. The property panel must therefore present those fields as automatic unless the user has supplied an explicit automatic-offset override. Imported non-operator metrics keys that merely restate the implicit automatic derivation, such as direct references to the first or last chained base glyph, must not appear as explicit keys on an automatic layer and must not replace the implicit automatic sidebearings. However, the automatic sidebearings may be adjusted using `=+` and `=-` glyph-wide operators, or `==+` and `==-` layer-local overrides.
 

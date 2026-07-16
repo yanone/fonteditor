@@ -464,8 +464,8 @@ class GlyphCanvas {
     // Adaptive debounce timing for progressive typing compilation
     textChangeLastKeystrokeTime: number = 0;
     textChangeBurstThreshold: number = 200; // ms - keystrokes within this window considered "burst typing"
-    textChangeFastDelay: number = 75; // ms - delay during fast typing bursts
-    textChangeSlowDelay: number = 75; // ms - delay during slow typing
+    textChangeFastDelay: number = 150; // ms - delay during fast typing bursts
+    textChangeSlowDelay: number = 150; // ms - delay during slow typing
     textChangeLastSubsetKey: string = '';
     textInputFullCompileTimer: any = null; // Deferred full compilation after typing stops
 
@@ -4175,15 +4175,17 @@ class GlyphCanvas {
         component: Component,
         enabled: boolean
     ): boolean {
-        const isExplicitlyManual = component.hasExplicitManualAlignment();
-        if (isExplicitlyManual === !enabled) {
+        const alignmentValue = enabled ? 1 : -1;
+        const currentValue =
+            component.format_specific?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
+        if (currentValue === alignmentValue) {
             return false;
         }
 
         const formatSpecific = {
             ...(component.format_specific || {})
         } as Record<string, unknown>;
-        formatSpecific[GLYPHS_COMPONENT_ALIGNMENT_KEY] = enabled ? 0 : -1;
+        formatSpecific[GLYPHS_COMPONENT_ALIGNMENT_KEY] = alignmentValue;
         component.format_specific = formatSpecific;
         return true;
     }
@@ -7198,7 +7200,8 @@ class GlyphCanvas {
                 this.textChangeLastSubsetKey = subsetKey;
                 fontManager.updateEditingSubsetSnapshot(subsetGlyphs);
 
-                // Mark as text-input so the pipeline reuses the worker cache.
+                // Mark as text-input so the pipeline skips full JSON transfer
+                // and skips features/kerning for faster compilation
                 fontManager.setEditingCompileContext('text-input', null);
 
                 fontManager
@@ -9032,24 +9035,6 @@ function setupFontLoadingListener() {
                         gc.textRunEditor!.shapeText(true);
                         timelineMark(
                             'canvas.editingFontCompiled.kerningOnlyShaped'
-                        );
-
-                        if (Number.isFinite(incomingRevision)) {
-                            latestAppliedEditingRevision = incomingRevision;
-                        }
-
-                        gc.requestRepaintAfterCompile();
-                        return;
-                    }
-
-                    if (compilationMode === 'text-input') {
-                        const fontBytesArray = new Uint8Array(arrayBuffer);
-                        gc.fontBytes = fontBytesArray;
-                        gc.axesManager!.fontBytes = fontBytesArray;
-                        gc.textRunEditor!.swapFontBlob(fontBytesArray);
-                        gc.textRunEditor!.shapeText(true);
-                        timelineMark(
-                            'canvas.editingFontCompiled.textInputSwapped'
                         );
 
                         if (Number.isFinite(incomingRevision)) {

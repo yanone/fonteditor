@@ -1868,7 +1868,7 @@ describe('Babelfont Object Model', () => {
             expect(glyphA.leftMetricsKey).toBe('=50');
         });
 
-        test('Fustat o keyed sidebearing edits propagate once through direct and nested composites', () => {
+        test('Fustat o keyed sidebearing edits do not rebuild composites with omitted alignment', () => {
             const glyphO = font.findGlyph('o');
             const layerO = glyphO.layers[0];
             const odieresis = font.findGlyph('odieresis');
@@ -1891,19 +1891,14 @@ describe('Babelfont Object Model', () => {
 
             expect(fixedValueResolution.error).toBeNull();
             expect(fixedValueResolution.updateScope).toBe('font');
-            expect(fixedValueResolution.affectedGlyphNames).toEqual(
-                expect.arrayContaining([
-                    'o',
-                    'odieresis',
-                    'oslash',
-                    'oslashacute'
-                ])
+            expect(fixedValueResolution.affectedGlyphNames).not.toEqual(
+                expect.arrayContaining(['odieresis', 'oslash', 'oslashacute'])
             );
             expect(glyphO.leftMetricsKey).toBe('=50');
             expect(layerO.lsb).toBe(50);
-            expect(odieresisLayer.width).toBe(layerO.width);
-            expect(oslashLayer.width).toBe(layerO.width);
-            expect(oslashacuteLayer.width).toBeGreaterThan(0);
+            expect(odieresisLayer.width).toBe(originalWidths.odieresis);
+            expect(oslashLayer.width).toBe(originalWidths.oslash);
+            expect(oslashacuteLayer.width).toBe(originalWidths.oslashacute);
 
             const glyphA = font.findGlyph('a');
             const glyphAWidth = glyphA.layers[0].width;
@@ -1913,19 +1908,14 @@ describe('Babelfont Object Model', () => {
             );
 
             expect(glyphRefResolution.error).toBeNull();
-            expect(glyphRefResolution.affectedGlyphNames).toEqual(
-                expect.arrayContaining([
-                    'o',
-                    'odieresis',
-                    'oslash',
-                    'oslashacute'
-                ])
+            expect(glyphRefResolution.affectedGlyphNames).not.toEqual(
+                expect.arrayContaining(['odieresis', 'oslash', 'oslashacute'])
             );
             expect(glyphO.leftMetricsKey).toBe('=a');
             expect(layerO.lsb).toBe(glyphA.layers[0].lsb);
             expect(layerO.width).not.toBe(glyphAWidth);
-            expect(odieresisLayer.width).toBe(layerO.width);
-            expect(oslashacuteLayer.width).not.toBe(originalWidths.oslashacute);
+            expect(odieresisLayer.width).toBe(originalWidths.odieresis);
+            expect(oslashacuteLayer.width).toBe(originalWidths.oslashacute);
         });
 
         test('batches geometry history updates during a left-sidebearing translation', () => {
@@ -2012,7 +2002,7 @@ describe('Babelfont Object Model', () => {
             expect(layer.isAutomaticAlignedLayer()).toBe(false);
         });
 
-        test('imports Fustat adieresis as an automatic component layer', () => {
+        test('imports Fustat adieresis as a manual component layer when alignment is omitted', () => {
             const glyph = font.findGlyph('adieresis');
             const layer = glyph.layers[0];
 
@@ -2023,11 +2013,11 @@ describe('Babelfont Object Model', () => {
                 layer.components.map((component) =>
                     component.isAutomaticAligned()
                 )
-            ).toEqual([true, true]);
-            expect(layer.isAutomaticAlignedLayer()).toBe(true);
+            ).toEqual([false, false]);
+            expect(layer.isAutomaticAlignedLayer()).toBe(false);
         });
 
-        test('uses an explicit Glyphs manual alignment value as a layer-wide override', () => {
+        test('requires every component to explicitly opt into automatic alignment', () => {
             const layer = font.findGlyph('dieresiscomb').layers[0];
             const [firstComponent, secondComponent] = layer.components;
 
@@ -2035,13 +2025,13 @@ describe('Babelfont Object Model', () => {
             expect(secondComponent.isAutomaticAligned()).toBe(false);
 
             secondComponent.format_specific = undefined;
-            expect(firstComponent.isAutomaticAligned()).toBe(true);
-            expect(secondComponent.isAutomaticAligned()).toBe(true);
+            expect(firstComponent.isAutomaticAligned()).toBe(false);
+            expect(secondComponent.isAutomaticAligned()).toBe(false);
 
             firstComponent.format_specific = {
                 'com.schriftgestalt.Glyphs.alignment': 0
             };
-            expect(firstComponent.isAutomaticAligned()).toBe(true);
+            expect(firstComponent.isAutomaticAligned()).toBe(false);
 
             firstComponent.format_specific = {
                 'com.schriftgestalt.Glyphs.alignment': -1
@@ -2052,12 +2042,25 @@ describe('Babelfont Object Model', () => {
             firstComponent.format_specific = {
                 'com.schriftgestalt.Glyphs.alignment': 1
             };
+            expect(firstComponent.isAutomaticAligned()).toBe(false);
+
+            secondComponent.format_specific = {
+                'com.schriftgestalt.Glyphs.alignment': 1
+            };
             expect(firstComponent.isAutomaticAligned()).toBe(true);
+            expect(secondComponent.isAutomaticAligned()).toBe(true);
+
+            firstComponent.format_specific = {
+                'com.schriftgestalt.Glyphs.alignment': 2
+            };
+            expect(firstComponent.isAutomaticAligned()).toBe(false);
+            expect(secondComponent.isAutomaticAligned()).toBe(false);
 
             firstComponent.format_specific = {
                 'com.schriftgestalt.Glyphs.alignment': 3
             };
-            expect(firstComponent.isAutomaticAligned()).toBe(true);
+            expect(firstComponent.isAutomaticAligned()).toBe(false);
+            expect(secondComponent.isAutomaticAligned()).toBe(false);
         });
 
         test('changing l rsb recomputes dependent glyph metrics', () => {
@@ -2077,8 +2080,8 @@ describe('Babelfont Object Model', () => {
 
             expect(layerN.rsb).toBe(layerL.rsb - 10);
             expect(layerA.rsb).toBe(layerN.rsb);
-            expect(layerAdieresis.rsb).toBe(layerA.rsb + 10);
-            expect(layerAring.rsb).toBe(layerA.rsb + 20);
+            expect(layerAdieresis.rsb).toBe(10);
+            expect(layerAring.rsb).toBe(20);
         });
 
         test('changing c rsb recomputes baseline-offset dependent glyph metrics', () => {
