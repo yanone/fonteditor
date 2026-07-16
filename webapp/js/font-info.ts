@@ -8394,8 +8394,18 @@ class FontInfoManager {
             codeData = font.features.classes?.[key];
         } else if (type === 'feature' && typeof key === 'number') {
             const features = font.features.features || [];
-            if (key < features.length) {
+            if (
+                key < features.length &&
+                (this.selectedFeatureTag === null ||
+                    features[key][0] === this.selectedFeatureTag)
+            ) {
                 codeData = features[key][1];
+            } else {
+                this.featureCodeDirty = false;
+                requestAnimationFrame(() =>
+                    this.refreshVisibleFeatureContent()
+                );
+                return;
             }
         }
 

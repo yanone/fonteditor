@@ -33,6 +33,8 @@ import {
 } from './agent-execution-context';
 
 const console = new Logger('AIAgent');
+const DEFAULT_PROMPT_HISTORY_SUMMARY = 'Agent changes';
+const INTERRUPTED_PROMPT_HISTORY_SUFFIX = ' (interrupted)';
 
 type CompileAndShapeFontWorkerState = {
     awaitWorkerDocumentSync?: () => Promise<void>;
@@ -116,6 +118,8 @@ class AIAgent {
     compileAndShapeFontCache: CompileAndShapeFontCacheEntry | null;
     allowFontEdits: boolean;
     activePromptContext: AgentPromptExecutionContext | null;
+    promptTransactionOpen: boolean;
+    promptInterrupted: boolean;
 
     constructor() {
         this.messagesContainer = null;
@@ -137,6 +141,8 @@ class AIAgent {
         this.allowFontEdits =
             localStorage.getItem('agentAllowFontEdits') === 'true';
         this.activePromptContext = null;
+        this.promptTransactionOpen = false;
+        this.promptInterrupted = false;
 
         this.initUI();
         this.checkAuthenticationStatus();
@@ -266,12 +272,7 @@ class AIAgent {
 
         document
             .getElementById('agent-stop-btn')
-            ?.addEventListener('click', () => {
-                if (this.abortController) {
-                    this.abortController.abort();
-                    this.abortController = null;
-                }
-            });
+            ?.addEventListener('click', () => this.interruptPrompt());
 
         this.promptInput.addEventListener('input', () => {
             this.promptInput!.style.height = 'auto';
@@ -1851,6 +1852,17 @@ if '_agent_original_stdout' in dir():
                 if (!this.activePromptContext) {
                     throw new Error('No agent prompt is currently running');
                 }
+                if (
+                    !window.patchSyncEngine?.updateTransactionMetadata(
+                        this.activePromptContext.id,
+                        summary,
+                        summary
+                    )
+                ) {
+                    throw new Error(
+                        'The active prompt transaction is no longer available'
+                    );
+                }
                 this.activePromptContext.historySummary = summary;
                 return 'Prompt history summary recorded.';
             }
@@ -2268,8 +2280,18 @@ if '_agent_original_stdout' in dir():
         this.activePromptContext = {
             id: `agent-prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
             allowFontEdits: this.allowFontEdits,
-            historySummary: null
+            historySummary: DEFAULT_PROMPT_HISTORY_SUMMARY
         };
+        window.patchSyncEngine?.beginTransaction(
+            DEFAULT_PROMPT_HISTORY_SUMMARY,
+            null,
+            {
+                promptGroupId: this.activePromptContext.id,
+                historySummary: DEFAULT_PROMPT_HISTORY_SUMMARY
+            }
+        );
+        this.promptTransactionOpen = Boolean(window.patchSyncEngine);
+        this.promptInterrupted = false;
         this.updateAgentEditToggle();
         if (this.sendButton)
             (this.sendButton as HTMLButtonElement).disabled = true;
@@ -2458,6 +2480,7 @@ if '_agent_original_stdout' in dir():
                     if (appendTarget) appendTarget.appendChild(exhaustedMsg);
                     this.hideStreamIndicator();
                     this.isStreaming = false;
+                    this.finishPromptTransaction();
                     this.activePromptContext = null;
                     this.updateAgentEditToggle();
                     if (this.sendButton)
@@ -2573,6 +2596,7 @@ if '_agent_original_stdout' in dir():
                     this.hideStreamIndicator();
                     this.isStreaming = false;
                     this.abortController = null;
+                    this.finishPromptTransaction();
                     this.activePromptContext = null;
                     this.updateAgentEditToggle();
                     if (this.sendButton)
@@ -2602,11 +2626,52 @@ if '_agent_original_stdout' in dir():
 
         this.hideStreamIndicator();
         this.isStreaming = false;
+        this.finishPromptTransaction(this.promptInterrupted);
         this.activePromptContext = null;
         this.updateAgentEditToggle();
         if (this.sendButton)
             (this.sendButton as HTMLButtonElement).disabled = false;
         if (this.promptInput) this.promptInput.focus();
+    }
+
+    private interruptPrompt() {
+        if (!this.isStreaming) {
+            return;
+        }
+
+        this.promptInterrupted = true;
+        this.abortController?.abort();
+        this.abortController = null;
+    }
+
+    private finishPromptTransaction(interrupted: boolean = false) {
+        if (!this.promptTransactionOpen) {
+            return;
+        }
+        const promptContext = this.activePromptContext;
+        if (interrupted && promptContext) {
+            const summary = promptContext.historySummary!.endsWith(
+                INTERRUPTED_PROMPT_HISTORY_SUFFIX
+            )
+                ? promptContext.historySummary!
+                : `${promptContext.historySummary}${INTERRUPTED_PROMPT_HISTORY_SUFFIX}`;
+            if (
+                !window.patchSyncEngine?.updateTransactionMetadata(
+                    promptContext.id,
+                    summary,
+                    summary
+                )
+            ) {
+                this.promptTransactionOpen = false;
+                console.warn(
+                    '[AIAgent] Prompt transaction ended before interruption metadata could be recorded'
+                );
+                return;
+            }
+            promptContext.historySummary = summary;
+        }
+        window.patchSyncEngine?.endTransaction();
+        this.promptTransactionOpen = false;
     }
 
     showInitialStatus() {
@@ -2747,13 +2812,13 @@ if '_agent_original_stdout' in dir():
     }
 
     newChat() {
+        this.interruptPrompt();
         if (this.messagesContainer) this.messagesContainer.innerHTML = '';
         this.messages = [];
         this.conversationMessages = [];
         this.roundUsage = [];
         this.sessionTotals = {};
         this._reconnectAttempts = 0;
-        this.isStreaming = false;
         if (this.promptInput) {
             this.promptInput.value = '';
             this.promptInput.style.height = 'auto';

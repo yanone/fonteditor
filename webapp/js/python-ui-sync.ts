@@ -47,10 +47,12 @@ function beforePythonExecution(code?: string) {
         startedAt: Date.now(),
         historySummary: agentExecution?.historySummary ?? null
     };
-    window.patchSyncEngine?.beginTransaction('Python script', null, {
-        promptGroupId: agentExecution?.id ?? null,
-        historySummary: agentExecution?.historySummary ?? null
-    });
+    if (!agentExecution) {
+        window.patchSyncEngine?.beginTransaction('Python script', null, {
+            promptGroupId: null,
+            historySummary: null
+        });
+    }
     window.patchSyncEngine?.setRecordingSuppressed(true);
 }
 

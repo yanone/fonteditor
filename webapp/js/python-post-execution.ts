@@ -14,6 +14,7 @@ import {
     type JsonPatchOperation,
     type NamedChangePair
 } from './collaboration-message';
+import { isAgentPythonExecutionActive } from './agent-execution-context';
 
 const console = new Logger('PythonPostExecution');
 
@@ -161,18 +162,43 @@ function diffFontDataToJsonPatchPairs(
                     patchPairs
                 );
             }
+
+            const beforeOrder = beforeEntries.map(([key]) => key);
+            const afterOrder = afterEntries.map(([key]) => key);
+            if (valuesDiffer(beforeOrder, afterOrder)) {
+                const orderPath =
+                    collectionKind === 'glyphs'
+                        ? ['glyphOrder']
+                        : [...path.slice(0, -1), 'layerOrder'];
+                patchPairs.push({
+                    forward: {
+                        op: 'replace',
+                        path: toJsonPointerPath(orderPath),
+                        value: afterOrder
+                    },
+                    inverse: {
+                        op: 'replace',
+                        path: toJsonPointerPath(orderPath),
+                        value: beforeOrder
+                    }
+                });
+            }
             return patchPairs;
         }
 
-        const maxLength = Math.max(beforeValue.length, afterValue.length);
-        for (let index = 0; index < maxLength; index++) {
-            diffFontDataToJsonPatchPairs(
-                beforeValue[index],
-                afterValue[index],
-                [...path, index],
-                null,
-                patchPairs
-            );
+        if (valuesDiffer(beforeValue, afterValue)) {
+            patchPairs.push({
+                forward: {
+                    op: 'replace',
+                    path: toJsonPointerPath(path),
+                    value: cloneJsonValue(afterValue)
+                },
+                inverse: {
+                    op: 'replace',
+                    path: toJsonPointerPath(path),
+                    value: cloneJsonValue(beforeValue)
+                }
+            });
         }
         return patchPairs;
     }
@@ -310,7 +336,9 @@ export function commitPythonExecutionSyntheticChanges(
         );
     }
 
-    bridge.endTransaction();
+    if (!isAgentPythonExecutionActive()) {
+        bridge.endTransaction();
+    }
 }
 
 console.log('🔧 Module loaded, setting up post-execution hooks...');
@@ -355,7 +383,10 @@ function setupHooks() {
             );
         } finally {
             window.patchSyncEngine?.setRecordingSuppressed(false);
-            if (window.patchSyncEngine?.inTransaction) {
+            if (
+                window.patchSyncEngine?.inTransaction &&
+                !isAgentPythonExecutionActive()
+            ) {
                 window.patchSyncEngine.endTransaction();
             }
             window.pythonExecutionHistoryContext = null;

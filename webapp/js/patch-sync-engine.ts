@@ -1009,16 +1009,34 @@ export class PatchSyncEngine {
         }
 
         this._queueOrCommitOperations(
-            operations.map((operation) => ({
-                op: operation.op,
-                path: operation.path,
-                oldValue: cloneHistoryValue(operation.oldValue),
-                newValue: cloneHistoryValue(operation.newValue),
-                visualAnchorSide: operation.visualAnchorSide ?? null,
-                workerReplayTargets: normalizeWorkerReplayTargets(
-                    operation.workerReplayTargets
-                )
-            })),
+            operations.map((operation) => {
+                const isObjectValue =
+                    !!operation.newValue &&
+                    typeof operation.newValue === 'object' &&
+                    !Array.isArray(operation.newValue);
+                const isGlyphRoot = this._isGlyphRootPath(operation.path);
+                const isLayerRoot =
+                    operation.path.length === 4 &&
+                    operation.path[0] === 'glyphs' &&
+                    operation.path[2] === 'layers';
+
+                return {
+                    op: operation.op,
+                    path: operation.path,
+                    oldValue: cloneHistoryValue(operation.oldValue),
+                    newValue: cloneHistoryValue(operation.newValue),
+                    visualAnchorSide: operation.visualAnchorSide ?? null,
+                    workerReplayTargets: normalizeWorkerReplayTargets(
+                        operation.workerReplayTargets
+                    ),
+                    applyMode:
+                        isObjectValue && isGlyphRoot
+                            ? ('glyph-snapshot' as BatchApplyMode)
+                            : isObjectValue && isLayerRoot
+                              ? ('layer-snapshot' as BatchApplyMode)
+                              : 'default'
+                };
+            }),
             label
         );
     }
@@ -1053,6 +1071,21 @@ export class PatchSyncEngine {
             // _emitCanonicalLocalUpdateSince stays cheap.
             this._txStartStateVector = Y.encodeStateVector(this.yDoc);
         }
+    }
+
+    /** Update presentation metadata for the current outermost transaction. */
+    updateTransactionMetadata(
+        promptGroupId: string,
+        label: string,
+        historySummary: string
+    ): boolean {
+        if (this._txDepth <= 0 || this._txPromptGroupId !== promptGroupId) {
+            return false;
+        }
+
+        this._txLabel = label;
+        this._txHistorySummary = historySummary;
+        return true;
     }
 
     /**
@@ -2633,14 +2666,14 @@ export class PatchSyncEngine {
         this._syncAllGlyphsFromYDoc();
 
         for (const key of nextTopLevelKeys) {
-            if (key === 'glyphs') {
+            if (key === 'glyphs' || key === 'glyphOrder') {
                 continue;
             }
             this._syncTopLevelFontKeyFromYDoc(key);
         }
 
         for (const key of Object.keys(fontRecord)) {
-            if (key === 'glyphs') {
+            if (key === 'glyphs' || key === 'glyphOrder') {
                 continue;
             }
             if (!nextTopLevelKeys.has(key)) {
@@ -2743,7 +2776,18 @@ export class PatchSyncEngine {
         );
 
         const nextGlyphs: Unsafe[] = [];
+        const glyphOrder = this.fontMap.get('glyphOrder');
+        const orderedGlyphNames =
+            glyphOrder instanceof Y.Array
+                ? glyphOrder.toArray().map(String)
+                : Array.from(yGlyphsMap.keys());
+        const includedGlyphNames = new Set(orderedGlyphNames);
         yGlyphsMap.forEach((_value: unknown, glyphName: string) => {
+            if (!includedGlyphNames.has(glyphName)) {
+                orderedGlyphNames.push(glyphName);
+            }
+        });
+        for (const glyphName of orderedGlyphNames) {
             const glyphSnapshot = this._readNormalizedGlyphSnapshotFromYDoc(
                 glyphName,
                 existingGlyphsByName.get(glyphName)
@@ -2751,7 +2795,7 @@ export class PatchSyncEngine {
             if (glyphSnapshot) {
                 nextGlyphs.push(glyphSnapshot);
             }
-        });
+        }
 
         fontRecord.glyphs = nextGlyphs;
     }
@@ -2761,7 +2805,7 @@ export class PatchSyncEngine {
             return;
         }
 
-        if (key === 'glyphs') {
+        if (key === 'glyphs' || key === 'glyphOrder') {
             this._syncAllGlyphsFromYDoc();
             return;
         }
@@ -3988,7 +4032,6 @@ export class PatchSyncEngine {
 
         if (
             operation.applyMode === 'glyph-snapshot' &&
-            operation.op === 'set' &&
             this._isGlyphRootPath(applyPath)
         ) {
             this._applyGlyphSnapshot(String(applyPath[1]), applyValue);
@@ -3997,7 +4040,6 @@ export class PatchSyncEngine {
 
         if (
             operation.applyMode === 'layer-snapshot' &&
-            operation.op === 'set' &&
             applyPath.length === 4 &&
             applyPath[0] === 'glyphs' &&
             applyPath[2] === 'layers'
@@ -4891,6 +4933,7 @@ export class PatchSyncEngine {
                         layersMap?.delete(key);
                     }
                 });
+                setYPath(glyphMap, ['layerOrder'], Array.from(nextLayerIds));
                 continue;
             }
 
@@ -4899,6 +4942,9 @@ export class PatchSyncEngine {
 
         // Remove glyph-level keys no longer in the snapshot
         const glyphKeys = new Set(Object.keys(glyphJson));
+        if (Array.isArray(glyphJson.layers)) {
+            glyphKeys.add('layerOrder');
+        }
         glyphMap.forEach((_value: unknown, key: string) => {
             if (!glyphKeys.has(key)) {
                 glyphMap?.delete(key);

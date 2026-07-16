@@ -162,4 +162,74 @@ describe('get_editor_state text-buffer interpretation', () => {
             shapingStateSource: 'live-text-run'
         });
     });
+
+    test('updates the active prompt transaction when recording a summary', async () => {
+        window.patchSyncEngine = {
+            updateTransactionMetadata: jest.fn(() => true)
+        };
+        const agent = new AIAgent();
+        agent.activePromptContext = {
+            id: 'prompt-1',
+            allowFontEdits: true,
+            historySummary: 'Agent changes'
+        };
+
+        await expect(
+            agent.executeToolCall({
+                function: {
+                    name: 'set_prompt_history_summary',
+                    arguments: JSON.stringify({ summary: 'Update glyphs' })
+                }
+            })
+        ).resolves.toBe('Prompt history summary recorded.');
+
+        expect(
+            window.patchSyncEngine.updateTransactionMetadata
+        ).toHaveBeenCalledWith('prompt-1', 'Update glyphs', 'Update glyphs');
+        expect(agent.activePromptContext.historySummary).toBe('Update glyphs');
+    });
+
+    test('marks a stopped prompt transaction as interrupted before committing', () => {
+        window.patchSyncEngine = {
+            updateTransactionMetadata: jest.fn(() => true),
+            endTransaction: jest.fn()
+        };
+        const agent = new AIAgent();
+        agent.activePromptContext = {
+            id: 'prompt-1',
+            allowFontEdits: true,
+            historySummary: 'Agent changes'
+        };
+        agent.promptTransactionOpen = true;
+
+        agent.finishPromptTransaction(true);
+
+        expect(
+            window.patchSyncEngine.updateTransactionMetadata
+        ).toHaveBeenCalledWith(
+            'prompt-1',
+            'Agent changes (interrupted)',
+            'Agent changes (interrupted)'
+        );
+        expect(window.patchSyncEngine.endTransaction).toHaveBeenCalledTimes(1);
+        expect(agent.promptTransactionOpen).toBe(false);
+    });
+
+    test('releases prompt ownership without ending a mismatched transaction', () => {
+        window.patchSyncEngine = {
+            updateTransactionMetadata: jest.fn(() => false),
+            endTransaction: jest.fn()
+        };
+        const agent = new AIAgent();
+        agent.activePromptContext = {
+            id: 'prompt-1',
+            allowFontEdits: true,
+            historySummary: 'Agent changes'
+        };
+        agent.promptTransactionOpen = true;
+
+        expect(() => agent.finishPromptTransaction(true)).not.toThrow();
+        expect(window.patchSyncEngine.endTransaction).not.toHaveBeenCalled();
+        expect(agent.promptTransactionOpen).toBe(false);
+    });
 });

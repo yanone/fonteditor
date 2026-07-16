@@ -13,6 +13,7 @@ const {
     withSuppressedModelRecording
 } = require('../js/babelfont-model');
 const { PatchSyncEngine } = require('../js/patch-sync-engine');
+const { yDocToJson } = require('../js/change-bridge-ydoc');
 const Y = require('yjs');
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -494,5 +495,187 @@ describe('Integration: set-start-point and reverse-direction byte budgets', () =
 
         // A single leaf Set should be very small
         expect(update.length).toBeLessThan(200);
+    });
+});
+
+describe('Agent prompt transaction metadata', () => {
+    test('preserves keyed glyph maps and collection order through undo and redo', () => {
+        const fontJson = makeTestFont();
+        const secondLayer = JSON.parse(
+            JSON.stringify(fontJson.glyphs[0].layers[0])
+        );
+        secondLayer.id = 'layer-2';
+        fontJson.glyphs[0].layers.push(secondLayer);
+
+        const secondGlyph = JSON.parse(JSON.stringify(fontJson.glyphs[0]));
+        secondGlyph.name = 'B';
+        secondGlyph.layers.forEach((layer, index) => {
+            layer.id = `layer-b${index + 1}`;
+        });
+        fontJson.glyphs.push(secondGlyph);
+
+        const receiverFontJson = JSON.parse(JSON.stringify(fontJson));
+        const bridge = new PatchSyncEngine('collection-order');
+        const receiverBridge = new PatchSyncEngine('collection-order-receiver');
+        bridge.initFromJson(fontJson);
+        receiverBridge._fontJson = receiverFontJson;
+        Y.applyUpdate(receiverBridge.yDoc, Y.encodeStateAsUpdate(bridge.yDoc));
+        let remoteUpdate;
+        let remoteEntries;
+        bridge.onLocalUpdate((update, _message, entries) => {
+            remoteUpdate = update;
+            remoteEntries = entries;
+        });
+        bridge.applySyntheticChangeSet('Reorder collections', [
+            {
+                op: 'set',
+                path: ['glyphOrder'],
+                oldValue: ['A', 'B'],
+                newValue: ['B', 'A']
+            },
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layerOrder'],
+                oldValue: ['layer-1', 'layer-2'],
+                newValue: ['layer-2', 'layer-1']
+            }
+        ]);
+
+        expect(bridge.fontMap.get('glyphs')).toBeInstanceOf(Y.Map);
+        expect(yDocToJson(bridge.fontMap).glyphs).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ name: 'A' }),
+                expect.objectContaining({ name: 'B' })
+            ])
+        );
+        expect(
+            yDocToJson(bridge.fontMap).glyphs.map((glyph) => glyph.name)
+        ).toEqual(['B', 'A']);
+        expect(
+            yDocToJson(bridge.fontMap)
+                .glyphs.find((glyph) => glyph.name === 'A')
+                .layers.map((layer) => layer.id)
+        ).toEqual(['layer-2', 'layer-1']);
+
+        expect(remoteEntries.map((entry) => entry.path)).toEqual(
+            expect.arrayContaining(['glyphOrder', 'glyphs.A:layerOrder'])
+        );
+        receiverBridge.applyRemoteUpdate(remoteUpdate, remoteEntries);
+        expect(receiverFontJson.glyphs.map((glyph) => glyph.name)).toEqual([
+            'B',
+            'A'
+        ]);
+        expect(
+            receiverFontJson.glyphs[1].layers.map((layer) => layer.id)
+        ).toEqual(['layer-2', 'layer-1']);
+
+        bridge.undo();
+        expect(
+            yDocToJson(bridge.fontMap).glyphs.map((glyph) => glyph.name)
+        ).toEqual(['A', 'B']);
+        expect(
+            yDocToJson(bridge.fontMap).glyphs[0].layers.map((layer) => layer.id)
+        ).toEqual(['layer-1', 'layer-2']);
+
+        bridge.redo();
+        expect(
+            yDocToJson(bridge.fontMap).glyphs.map((glyph) => glyph.name)
+        ).toEqual(['B', 'A']);
+
+        bridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('upgrades the default prompt summary before one buffered commit', () => {
+        const fontJson = makeTestFont();
+        const bridge = new PatchSyncEngine('agent-prompt-metadata');
+        bridge.initFromJson(fontJson);
+
+        bridge.beginTransaction('Agent changes', null, {
+            promptGroupId: 'agent-prompt-1',
+            historySummary: 'Agent changes'
+        });
+        bridge.applySyntheticChangeSet('Agent changes', [
+            {
+                op: 'set',
+                path: ['format_specific', 'source'],
+                oldValue: undefined,
+                newValue: 'agent'
+            }
+        ]);
+
+        expect(
+            bridge.updateTransactionMetadata(
+                'agent-prompt-1',
+                'Add source metadata (interrupted)',
+                'Add source metadata (interrupted)'
+            )
+        ).toBe(true);
+        bridge.endTransaction();
+
+        const entry = bridge
+            .getChangeLog()
+            .find((item) => item.path === 'format_specific.source');
+        expect(entry).toEqual(
+            expect.objectContaining({
+                promptGroupId: 'agent-prompt-1',
+                transactionLabel: 'Add source metadata (interrupted)',
+                historySummary: 'Add source metadata (interrupted)'
+            })
+        );
+    });
+
+    test('commits direct and synthetic prompt edits as one labeled update', () => {
+        const fontJson = makeTestFont();
+        const bridge = new PatchSyncEngine('agent-prompt-aggregation');
+        bridge.initFromJson(fontJson);
+        const localUpdates = jest.fn();
+        bridge.onLocalUpdate(localUpdates);
+
+        bridge.beginTransaction('Agent changes', null, {
+            promptGroupId: 'agent-prompt-2',
+            historySummary: 'Agent changes'
+        });
+        bridge.recordChange(['names'], 'familyName', 'TestFont', 'PromptFont');
+        bridge.applySyntheticChangeSet('Agent changes', [
+            {
+                op: 'set',
+                path: ['format_specific', 'source'],
+                oldValue: undefined,
+                newValue: 'python'
+            }
+        ]);
+        expect(
+            bridge.updateTransactionMetadata(
+                'agent-prompt-2',
+                'Edit font data',
+                'Edit font data'
+            )
+        ).toBe(true);
+        bridge.endTransaction();
+
+        const entries = bridge.getChangeLog();
+        expect(localUpdates).toHaveBeenCalledTimes(1);
+        expect(entries).toHaveLength(2);
+        expect(new Set(entries.map((entry) => entry.transactionId)).size).toBe(
+            1
+        );
+        expect(entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    transactionLabel: 'Edit font data',
+                    historySummary: 'Edit font data',
+                    promptGroupId: 'agent-prompt-2'
+                })
+            ])
+        );
+        expect(yDocToJson(bridge.fontMap)).toEqual(
+            expect.objectContaining({
+                names: expect.objectContaining({ familyName: 'PromptFont' }),
+                format_specific: expect.objectContaining({ source: 'python' })
+            })
+        );
+
+        bridge.destroy();
     });
 });

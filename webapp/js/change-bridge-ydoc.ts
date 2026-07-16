@@ -432,6 +432,7 @@ export function jsonToYDoc(
         if (key === 'glyphs' && Array.isArray(value)) {
             // Glyphs → Y.Map keyed by name
             const glyphsMap = new Y.Map();
+            const glyphOrder = new Y.Array<unknown>();
             for (const glyphJson of value as Record<string, unknown>[]) {
                 const name = glyphJson.name as string;
                 const glyphMap = new Y.Map();
@@ -439,6 +440,7 @@ export function jsonToYDoc(
                     if (gk === 'layers' && Array.isArray(gv)) {
                         // Layers → Y.Map keyed by layer id
                         const layersMap = new Y.Map();
+                        const layerOrder = new Y.Array<unknown>();
                         for (const layerJson of gv as Record<
                             string,
                             unknown
@@ -449,19 +451,84 @@ export function jsonToYDoc(
                                 layerId,
                                 toYType(layerJson) as Y.Map<unknown>
                             );
+                            layerOrder.push([layerId]);
                         }
                         glyphMap.set('layers', layersMap);
+                        glyphMap.set('layerOrder', layerOrder);
                     } else {
                         glyphMap.set(gk, toYType(gv));
                     }
                 }
                 glyphsMap.set(name, glyphMap);
+                glyphOrder.push([name]);
             }
             fontMap.set('glyphs', glyphsMap);
+            fontMap.set('glyphOrder', glyphOrder);
         } else {
             fontMap.set(key, toYType(value));
         }
     }
+}
+
+function getOrderedMapEntries(
+    map: Y.Map<unknown>,
+    orderValue: unknown
+): Array<[string, unknown]> {
+    const entries: Array<[string, unknown]> = [];
+    const included = new Set<string>();
+
+    if (orderValue instanceof Y.Array) {
+        for (const value of orderValue.toArray()) {
+            const id = String(value);
+            const entry = map.get(id);
+            if (entry !== undefined) {
+                entries.push([id, entry]);
+                included.add(id);
+            }
+        }
+    }
+
+    map.forEach((entry: unknown, id: string) => {
+        if (!included.has(id)) {
+            entries.push([id, entry]);
+        }
+    });
+
+    return entries;
+}
+
+function fromYGlyphMap(glyphMap: Y.Map<unknown>): Record<string, unknown> {
+    const glyphJson: Record<string, unknown> = {};
+
+    glyphMap.forEach((value: unknown, key: string) => {
+        if (key !== 'layers' && key !== 'layerOrder') {
+            glyphJson[key] = fromYType(value);
+        }
+    });
+
+    const layersMap = glyphMap.get('layers');
+    if (layersMap instanceof Y.Map) {
+        const layers: Record<string, unknown>[] = [];
+        for (const [layerId, layerValue] of getOrderedMapEntries(
+            layersMap,
+            glyphMap.get('layerOrder')
+        )) {
+            const layerJson = fromYType(layerValue);
+            const layerRecord =
+                layerJson &&
+                typeof layerJson === 'object' &&
+                !Array.isArray(layerJson)
+                    ? (layerJson as Record<string, unknown>)
+                    : {};
+            if (typeof layerRecord.id !== 'string' || !layerRecord.id.length) {
+                layerRecord.id = layerId;
+            }
+            layers.push(layerRecord);
+        }
+        glyphJson.layers = layers;
+    }
+
+    return glyphJson;
 }
 
 // ── Y.Doc → JSON ────────────────────────────────────────────────────
@@ -474,6 +541,10 @@ export function jsonToYDoc(
 export function fromYType(value: unknown): unknown {
     if (value instanceof Y.Map) {
         const obj: Record<string, unknown> = {};
+
+        if (value.get('layers') instanceof Y.Map) {
+            return fromYGlyphMap(value);
+        }
 
         // Check for indexed-map structure (nodesById + nodeOrder)
         if (value.has('nodesById') && value.get('nodesById') instanceof Y.Map) {
@@ -663,52 +734,24 @@ export function yDocToJson(fontMap: Y.Map<unknown>): Record<string, unknown> {
         if (key === 'glyphs' && value instanceof Y.Map) {
             // Glyphs Y.Map → array
             const glyphs: Record<string, unknown>[] = [];
-            (value as Y.Map<unknown>).forEach(
-                (glyphYMap: unknown, glyphName: string) => {
-                    if (glyphYMap instanceof Y.Map) {
-                        const glyphJson: Record<string, unknown> = {};
-                        glyphYMap.forEach((gv: unknown, gk: string) => {
-                            if (gk === 'layers' && gv instanceof Y.Map) {
-                                // Layers Y.Map → array
-                                const layers: Record<string, unknown>[] = [];
-                                (gv as Y.Map<unknown>).forEach(
-                                    (layerYMap: unknown, layerId: string) => {
-                                        const layerValue = fromYType(layerYMap);
-                                        const layerJson =
-                                            layerValue &&
-                                            typeof layerValue === 'object' &&
-                                            !Array.isArray(layerValue)
-                                                ? (layerValue as Record<
-                                                      string,
-                                                      unknown
-                                                  >)
-                                                : {};
-                                        if (
-                                            typeof layerJson.id !== 'string' ||
-                                            !layerJson.id.length
-                                        ) {
-                                            layerJson.id = layerId;
-                                        }
-                                        layers.push(layerJson);
-                                    }
-                                );
-                                glyphJson['layers'] = layers;
-                            } else {
-                                glyphJson[gk] = fromYType(gv);
-                            }
-                        });
-                        if (
-                            typeof glyphJson.name !== 'string' ||
-                            !glyphJson.name.length
-                        ) {
-                            glyphJson.name = glyphName;
-                        }
-                        glyphs.push(glyphJson);
-                    }
+            for (const [glyphName, glyphValue] of getOrderedMapEntries(
+                value as Y.Map<unknown>,
+                fontMap.get('glyphOrder')
+            )) {
+                if (!(glyphValue instanceof Y.Map)) {
+                    continue;
                 }
-            );
+                const glyphJson = fromYGlyphMap(glyphValue);
+                if (
+                    typeof glyphJson.name !== 'string' ||
+                    !glyphJson.name.length
+                ) {
+                    glyphJson.name = glyphName;
+                }
+                glyphs.push(glyphJson);
+            }
             result['glyphs'] = glyphs;
-        } else {
+        } else if (key !== 'glyphOrder') {
             result[key] = fromYType(value);
         }
     });
@@ -808,8 +851,24 @@ const ORDER_KEYS: Record<string, string> = {
     nodeOrder: 'nodes',
     shapeOrder: 'shapes',
     anchorOrder: 'anchors',
-    guideOrder: 'guides'
+    guideOrder: 'guides',
+    glyphOrder: 'glyphs',
+    layerOrder: 'layers'
 };
+
+const COLLECTION_ORDER_KEYS = new Set(['glyphOrder', 'layerOrder']);
+
+function replaceYArrayOrder(
+    orderArr: Y.Array<unknown>,
+    nextOrder: string[]
+): void {
+    if (orderArr.length > 0) {
+        orderArr.delete(0, orderArr.length);
+    }
+    if (nextOrder.length > 0) {
+        orderArr.insert(0, nextOrder);
+    }
+}
 
 /**
  * Apply a minimal diff to a `Y.Array<string>` order array.
@@ -1228,6 +1287,10 @@ export function setYPath(
             const nextIds = Array.isArray(value)
                 ? (value as unknown[]).map(String)
                 : [];
+            if (COLLECTION_ORDER_KEYS.has(lastSegStr)) {
+                replaceYArrayOrder(existingOrder, nextIds);
+                return;
+            }
             diffYArrayOrder(existingOrder, nextIds);
             return;
         }

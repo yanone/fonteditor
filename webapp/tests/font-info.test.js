@@ -341,6 +341,34 @@ describe('FontInfo feature code compilation scheduling', () => {
         ).toBe(false);
     });
 
+    test('does not commit a stale feature draft after a feature reorder', () => {
+        const fontInfoManager = loadFontInfoManager();
+        const context = createFeatureEditContext('sub zero by zero.alt;');
+        const fracCodeData = {
+            code: 'sub slash by fraction;',
+            automatic: true
+        };
+
+        window.currentFontModel.features.features = [
+            ['frac', fracCodeData],
+            ['zero', context.codeData]
+        ];
+        fontInfoManager.featuresEditor = context.editor;
+        fontInfoManager.selectedItem = { type: 'feature', key: 0 };
+        fontInfoManager.selectedFeatureTag = 'zero';
+        fontInfoManager.featureCodeDirty = true;
+        fontInfoManager.refreshVisibleFeatureContent = jest.fn();
+
+        fontInfoManager.commitFeatureCodeChanges();
+
+        expect(context.applySyntheticChangeSet).not.toHaveBeenCalled();
+        expect(fracCodeData).toEqual({
+            code: 'sub slash by fraction;',
+            automatic: true
+        });
+        expect(fontInfoManager.featureCodeDirty).toBe(false);
+    });
+
     test('automatic checkbox changes go through the patch funnel', () => {
         const fontInfoManager = loadFontInfoManager();
         const codeData = { code: 'sub f i by fi;', automatic: false };
