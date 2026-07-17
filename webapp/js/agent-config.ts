@@ -221,7 +221,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'compile_binary_font',
             description:
-                'Compile the current committed font in an isolated analysis worker and return only a stable fontHash. This is the first step of binary-font analysis. Compilation waits for committed worker state, is unavailable during an active edit preview, does not change the editor, and never exposes binary bytes. Use target subset together with text to reuse the existing layout-closure path for subset glyphs. Pass the returned fontHash explicitly to shape_binary_font or inspect_binary_font; those tools never compile implicitly.',
+                'Compile the current committed font in an isolated analysis worker and return only a stable fontHash. This tool is read-only for the editor, waits for committed worker state, is unavailable during an active edit preview, and never exposes binary bytes. Use target subset only together with text when you want the existing layout-closure path to derive subset glyphs. Pass the returned fontHash explicitly to the other binary-font tools; they never compile implicitly.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -229,7 +229,7 @@ export const AGENT_TOOLS: AgentTool[] = [
                         type: 'string',
                         enum: ['full', 'subset'],
                         description:
-                            'Optional compile target. Defaults to full; use subset only together with text when you want the existing subset-closure path.'
+                            'Optional compile target. Defaults to full. Use subset only together with text when you want the existing subset-closure path.'
                     },
                     text: {
                         type: 'string',
@@ -246,7 +246,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'shape_binary_font',
             description:
-                'Shape explicit text with a previously compiled binary font hash. Requires fontHash from compile_binary_font. This tool only reads the isolated analysis cache and never recompiles or changes editor state. Optional features is a JSON feature map, for example {"liga": false, "kern": true}, and variationLocation is a userspace axis-value object.',
+                'Shape explicit text with a previously compiled binary font hash. Requires fontHash from compile_binary_font. This tool only reads the isolated analysis cache, never recompiles, and never changes editor state. features is an optional JSON feature map such as {"liga": false, "kern": true}; variationLocation is an optional userspace axis-value object such as {"wght": 500}.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -279,7 +279,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'binary_font_api_docs',
             description:
-                'Get the supported binary-font discovery, shaping, and inspection workflow, path grammar, profile meanings, result format, and safety limits. Call this before inspect_binary_font when you need exact leaf paths, but use describe_binary_font, list_binary_font_children, search_binary_font, or snapshot_binary_font when you are still discovering the font structure.',
+                'Get the supported binary-font discovery, shaping, and inspection workflow, path grammar, profile meanings, result format, and safety limits. Use this before inspect_binary_font when you need exact leaf paths. Use describe_binary_font, search_binary_font_surface, list_binary_font_children, search_binary_font_children, or snapshot_binary_font while you are still discovering the font structure.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -292,7 +292,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'describe_binary_font',
             description:
-                'Describe the supported binary-font path surface, child collections, and snapshot profiles. Use this to learn what the binary tools can inspect before asking for actual font data.',
+                'Describe the supported binary-font path families, child collections, and snapshot profiles. This is static guidance only and does not require a fontHash.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -311,7 +311,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'list_binary_font_children',
             description:
-                'List the immediate children of a supported binary-font collection path. Use this to discover the actual name records, variation axes, metrics, or glyph ids that exist in the compiled font.',
+                'List the immediate children of one supported binary-font collection path in a compiled font. Requires a fontHash and a collection path such as /tables/name/records or /tables/fvar/axes.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -345,9 +345,9 @@ export const AGENT_TOOLS: AgentTool[] = [
     {
         type: 'function',
         function: {
-            name: 'search_binary_font',
+            name: 'search_binary_font_surface',
             description:
-                'Search the binary-font surface metadata, snapshot profiles, or actual child entries within a collection path. Use this to find likely paths and relevant child nodes without guessing exact leaves.',
+                'Search the static binary-font surface metadata, path families, and snapshot profiles by keyword. Use this when you are still discovering the tool surface and do not yet have a fontHash.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -356,15 +356,39 @@ export const AGENT_TOOLS: AgentTool[] = [
                         description:
                             'Search text or fragment, such as "nameID=1", "variation", or "advanceWidth".'
                     },
+                    path: {
+                        type: 'string',
+                        description:
+                            'Optional static path prefix, such as "/tables/name" or "/tables/fvar", to narrow the search.'
+                    }
+                },
+                required: ['query']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'search_binary_font_children',
+            description:
+                'Search actual child entries inside one compiled-font subtree. Requires fontHash and a collection path. Use this after list_binary_font_children or when you already know the subtree you want to inspect.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: {
+                        type: 'string',
+                        description:
+                            'Search text or fragment to match against the returned child entries.'
+                    },
                     fontHash: {
                         type: 'string',
                         description:
-                            'Optional stable hash if you want to search actual child entries within a compiled font.'
+                            'Required stable hash returned by compile_binary_font.'
                     },
-                    withinPath: {
+                    path: {
                         type: 'string',
                         description:
-                            'Optional collection path to search inside when a fontHash is provided.'
+                            'Required collection path to search, such as "/tables/name/records" or "/tables/fvar/axes".'
                     },
                     fontIndex: {
                         type: 'integer',
@@ -376,15 +400,10 @@ export const AGENT_TOOLS: AgentTool[] = [
                         type: 'integer',
                         minimum: 0,
                         description:
-                            'Optional upper bound on how many child entries to search when a fontHash is provided.'
-                    },
-                    path: {
-                        type: 'string',
-                        description:
-                            'Optional path prefix used to search the static surface description.'
+                            'Optional upper bound on how many child entries to search. Defaults to the tool limit.'
                     }
                 },
-                required: ['query']
+                required: ['query', 'fontHash', 'path']
             }
         }
     },
@@ -393,7 +412,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'snapshot_binary_font',
             description:
-                'Return a curated binary-font snapshot bundle. Profiles are summary, names, variation, metrics, review, and full. Use this when you want the model to inspect a practical bundle of the most relevant font data without manually assembling leaf paths.',
+                'Return one curated binary-font snapshot bundle. Use this when you want a practical bundle of the most relevant font data without manually assembling leaf paths. The available profiles are summary, names, variation, metrics, review, and full.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -413,7 +432,7 @@ export const AGENT_TOOLS: AgentTool[] = [
                             'full'
                         ],
                         description:
-                            'Snapshot profile. summary is the smallest bundle; full returns the broadest bundled view.'
+                            'Snapshot profile. summary is the smallest bundle; full is the broadest bundle.'
                     },
                     fontIndex: {
                         type: 'integer',
@@ -431,7 +450,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'inspect_binary_font',
             description:
-                'Inspect exact OpenType leaf values from a previously compiled binary font hash. Requires fontHash from compile_binary_font and is best used after describe_binary_font or list_binary_font_children has identified the exact leaf paths you want. This tool never compiles implicitly. Paths are resolved in request order and returned as {values: [...]}; missing optional values are null and malformed fonts or exceeded safety limits fail visibly.',
+                'Inspect exact OpenType leaf values from a previously compiled binary font hash. Requires fontHash from compile_binary_font and is best used after describe_binary_font, list_binary_font_children, or search_binary_font_children has identified the exact leaf paths you want. This tool never compiles implicitly. Paths are resolved in request order and returned as {values: [...]}; missing optional values are null and malformed fonts or exceeded safety limits fail visibly.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -450,7 +469,7 @@ export const AGENT_TOOLS: AgentTool[] = [
                         type: 'array',
                         items: { type: 'string' },
                         description:
-                            'Required bounded list of supported table paths. Values preserve this exact order.'
+                            'Required bounded list of exact supported leaf paths. Values preserve this exact order.'
                     }
                 },
                 required: ['fontHash', 'paths']

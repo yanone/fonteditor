@@ -327,27 +327,52 @@ describe('split binary-font agent tools', () => {
         );
     });
 
-    test('search_binary_font can find path metadata and listed children', async () => {
+    test('search_binary_font_surface finds supported paths without a hash', async () => {
         const agent = new AIAgent();
 
         const result = JSON.parse(
             await agent.executeToolCall({
                 function: {
-                    name: 'search_binary_font',
+                    name: 'search_binary_font_surface',
                     arguments: JSON.stringify({
-                        query: 'nameID=1',
-                        fontHash: 'binary-hash-1',
-                        withinPath: '/tables/name/records'
+                        query: 'name records'
                     })
                 }
             })
         );
 
         expect(
+            result.matches.some(
+                (match) => match.path === '/tables/name/records'
+            )
+        ).toBe(true);
+    });
+
+    test('search_binary_font_children finds listed children inside a compiled subtree', async () => {
+        const agent = new AIAgent();
+
+        const result = JSON.parse(
+            await agent.executeToolCall({
+                function: {
+                    name: 'search_binary_font_children',
+                    arguments: JSON.stringify({
+                        query: 'nameID=1',
+                        fontHash: 'binary-hash-1',
+                        path: '/tables/name/records'
+                    })
+                }
+            })
+        );
+
+        expect(result.withinPath).toBe('/tables/name/records');
+        expect(
             result.matches.some((match) =>
                 match.path.includes('/tables/name/records')
             )
         ).toBe(true);
+        expect(window.fullFontCompilation.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'listDebugCachedFontChildren' })
+        );
     });
 
     test('snapshot_binary_font bundles summary and names', async () => {

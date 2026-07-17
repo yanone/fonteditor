@@ -362,6 +362,55 @@ function searchBinaryFontSurface(
         }));
 }
 
+async function searchBinaryFontChildren(
+    analysisCompiler: BinaryFontAnalysisWorkerState,
+    fontHash: string,
+    path: string,
+    query: string,
+    fontIndex: number,
+    limit?: number
+): Promise<{
+    query: string;
+    fontHash: string;
+    withinPath: string;
+    matches: Array<Record<string, unknown>>;
+}> {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) {
+        return {
+            query,
+            fontHash,
+            withinPath: path,
+            matches: []
+        };
+    }
+
+    const listed = await fetchBinaryFontChildren(
+        analysisCompiler,
+        fontHash,
+        path,
+        fontIndex,
+        limit
+    );
+    const matches = listed.children
+        .filter((child) =>
+            JSON.stringify(child).toLowerCase().includes(normalizedQuery)
+        )
+        .map((child) => ({
+            kind: child.kind,
+            path: child.path,
+            label: child.label,
+            value: child.value
+        }));
+
+    return {
+        query,
+        fontHash,
+        withinPath: path,
+        matches
+    };
+}
+
 async function fetchBinaryFontChildren(
     analysisCompiler: BinaryFontAnalysisWorkerState,
     fontHash: string,
@@ -470,10 +519,12 @@ async function buildBinaryFontSnapshot(
 const BINARY_FONT_API_DOCS = `Binary font tools use a discover -> inspect workflow.
 
 1. Call compile_binary_font first. It compiles the current committed font in an isolated analysis worker and returns only a stable fontHash. Use target "subset" together with text when you want the existing layout-closure path to derive subset glyphs from that text.
-2. Use describe_binary_font to see the supported path families and snapshot profiles. Use list_binary_font_children to enumerate immediate children for collection paths such as /tables/name/records and /tables/fvar/axes.
-3. Use search_binary_font to find supported paths, collection nodes, or snapshot profiles by keyword. When you pass a fontHash and withinPath, it also searches the returned child entries for that subtree.
-4. Use snapshot_binary_font to fetch curated bundles. Profiles are: summary (unitsPerEm, numGlyphs, and common name IDs), names (summary + all name records), variation (summary + variation axes), metrics (summary + bounded glyph metrics and outlines), review (summary + names + variation), and full (summary + names + variation + metrics + glyph samples).
-5. Pass a fontHash to inspect_binary_font only when you already know the exact leaf paths you want. inspect_binary_font never compiles implicitly and returns {"values": [...]} in request order.
+2. Use describe_binary_font to see which path families, child collections, and snapshot profiles are supported. This is static guidance only; it does not require a fontHash.
+3. Use search_binary_font_surface to search the static binary-font surface metadata, path families, and snapshot profiles by keyword. Use this before compiling when you are still discovering the tool surface.
+4. Use list_binary_font_children to enumerate the immediate children of a compiled font collection path such as /tables/name/records or /tables/fvar/axes. This requires a fontHash because it reads the compiled font.
+5. Use search_binary_font_children to search actual child entries inside one compiled font subtree. It requires both fontHash and a collection path; use it after listing or when you already know the subtree you want to inspect. The legacy search_binary_font name is kept only for compatibility.
+6. Use snapshot_binary_font to fetch curated bundles. Profiles are exact: summary (unitsPerEm, numGlyphs, and the common name IDs), names (summary + all name records), variation (summary + all variation axes), metrics (summary + bounded glyph metrics and glyph samples), review (summary + names + variation), and full (summary + names + variation + metrics + glyph samples).
+7. Pass a fontHash to inspect_binary_font only when you already know the exact leaf paths you want. inspect_binary_font never compiles implicitly and returns {"values": [...]} in request order.
 
 Supported exact inspection paths include:
 - /tables/head/unitsPerEm
@@ -2523,6 +2574,90 @@ if '_agent_original_stdout' in dir():
                 );
                 return JSON.stringify(result);
             }
+            case 'search_binary_font_surface': {
+                const query = String(args.query || '').trim();
+                if (!query) {
+                    throw new Error('Missing required parameter: query.');
+                }
+
+                const path =
+                    typeof args.path === 'string' && args.path.trim()
+                        ? args.path.trim()
+                        : undefined;
+
+                return JSON.stringify({
+                    query,
+                    path: path || null,
+                    matches: searchBinaryFontSurface(query, path)
+                });
+            }
+            case 'search_binary_font_children': {
+                assertBinaryFontMainWindow('search_binary_font_children');
+
+                const query = String(args.query || '').trim();
+                if (!query) {
+                    throw new Error('Missing required parameter: query.');
+                }
+
+                const fontHash = String(args.fontHash || '').trim();
+                if (!fontHash) {
+                    throw new Error(
+                        'Missing required parameter: fontHash. Call compile_binary_font first.'
+                    );
+                }
+
+                const path =
+                    typeof args.path === 'string' && args.path.trim()
+                        ? args.path.trim()
+                        : typeof args.withinPath === 'string' &&
+                            args.withinPath.trim()
+                          ? args.withinPath.trim()
+                          : '';
+                if (!path) {
+                    throw new Error(
+                        'Missing required parameter: path (string).'
+                    );
+                }
+                if (
+                    args.fontIndex !== undefined &&
+                    (!Number.isInteger(args.fontIndex) || args.fontIndex < 0)
+                ) {
+                    throw new Error(
+                        'fontIndex must be a non-negative integer when provided.'
+                    );
+                }
+                if (
+                    args.limit !== undefined &&
+                    (!Number.isInteger(args.limit) || args.limit < 0)
+                ) {
+                    throw new Error(
+                        'limit must be a non-negative integer when provided.'
+                    );
+                }
+
+                const runtime = getBinaryFontRuntime();
+                const analysisCompiler = runtime.fullFontCompilation;
+                if (!analysisCompiler || !analysisCompiler.sendMessage) {
+                    throw new Error(
+                        'search_binary_font_children analysis compiler is not available yet.'
+                    );
+                }
+                if (runtime.fontCompilation === analysisCompiler) {
+                    throw new Error(
+                        'search_binary_font_children requires a separate analysis compiler.'
+                    );
+                }
+
+                const result = await searchBinaryFontChildren(
+                    analysisCompiler,
+                    fontHash,
+                    path,
+                    query,
+                    args.fontIndex ?? 0,
+                    args.limit ?? 64
+                );
+                return JSON.stringify(result);
+            }
             case 'search_binary_font': {
                 const query = String(args.query || '').trim();
                 if (!query) {
@@ -2562,17 +2697,19 @@ if '_agent_original_stdout' in dir():
                         typeof args.fontIndex === 'number' ? args.fontIndex : 0,
                         typeof args.limit === 'number' ? args.limit : 64
                     );
-                    for (const child of listed.children) {
-                        const haystack = JSON.stringify(child).toLowerCase();
-                        if (haystack.includes(query.toLowerCase())) {
-                            matches.push({
-                                kind: child.kind,
-                                path: child.path,
-                                label: child.label,
-                                value: child.value
-                            });
-                        }
-                    }
+                    const childMatches = listed.children
+                        .filter((child) => {
+                            const haystack =
+                                JSON.stringify(child).toLowerCase();
+                            return haystack.includes(query.toLowerCase());
+                        })
+                        .map((child) => ({
+                            kind: child.kind,
+                            path: child.path,
+                            label: child.label,
+                            value: child.value
+                        }));
+                    matches.push(...childMatches);
                 }
 
                 return JSON.stringify({
