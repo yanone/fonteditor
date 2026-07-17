@@ -35,7 +35,7 @@ pub use font_reader::{
 mod font_introspection;
 pub use font_introspection::{
     inspect_font_bytes, parse_path, FontPath, InspectionError, InspectionResult,
-    MAX_OUTPUT_BYTES, MAX_QUERY_COUNT, MAX_REQUEST_BYTES,
+    MAX_LIST_SIZE, MAX_OUTPUT_BYTES, MAX_QUERY_COUNT, MAX_REQUEST_BYTES,
 };
 
 // Interpolation module
@@ -3658,6 +3658,16 @@ struct BinaryFontInspectionRequest {
     paths: Vec<String>,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BinaryFontChildrenRequest {
+    #[serde(default)]
+    font_index: u32,
+    path: String,
+    #[serde(default)]
+    limit: usize,
+}
+
 /// Inspect a previously compiled debug font by stable hash and return compact
 /// deterministic JSON values in the same order as the requested paths.
 #[wasm_bindgen]
@@ -3686,6 +3696,37 @@ pub fn inspect_debug_cached_font(
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     serde_json::to_string(&result)
         .map_err(|error| JsValue::from_str(&format!("failed to encode inspection result: {error}")))
+}
+
+/// List the immediate children beneath a supported binary-font collection path.
+#[wasm_bindgen]
+pub fn list_debug_cached_font_children(
+    font_hash: &str,
+    request_json: &str,
+) -> Result<String, JsValue> {
+    if request_json.len() > MAX_REQUEST_BYTES {
+        return Err(JsValue::from_str("binary font child-list request is too large"));
+    }
+
+    let request: BinaryFontChildrenRequest = serde_json::from_str(request_json)
+        .map_err(|error| JsValue::from_str(&format!("invalid binary font child-list request: {error}")))?;
+    let limit = if request.limit == 0 {
+        MAX_LIST_SIZE
+    } else {
+        request.limit.min(MAX_LIST_SIZE)
+    };
+
+    let bytes = get_debug_cached_font_bytes(font_hash)?;
+    let result = font_introspection::list_font_children(
+        &bytes,
+        request.font_index,
+        &request.path,
+        limit,
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+
+    serde_json::to_string(&result)
+        .map_err(|error| JsValue::from_str(&format!("failed to encode child-list result: {error}")))
 }
 
 /// Compile the current cached font, store its bytes in the debug cache, and

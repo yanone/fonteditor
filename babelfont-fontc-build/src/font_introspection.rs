@@ -58,6 +58,23 @@ pub struct InspectionResult {
     pub values: Vec<Value>,
 }
 
+#[derive(Debug, PartialEq, Serialize)]
+pub struct FontChildEntry {
+    pub path: String,
+    pub label: String,
+    pub kind: String,
+    pub value: Value,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+pub struct FontChildrenResult {
+    pub path: String,
+    pub children: Vec<FontChildEntry>,
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InspectionError {
     QueryLimitExceeded,
@@ -157,6 +174,427 @@ pub fn inspect_font_bytes(
         return Err(InspectionError::OutputLimitExceeded);
     }
     Ok(result)
+}
+
+pub fn list_font_children(
+    bytes: &[u8],
+    font_index: u32,
+    path: &str,
+    limit: usize,
+) -> Result<FontChildrenResult, InspectionError> {
+    if path.is_empty() || !path.starts_with('/') {
+        return Err(InspectionError::InvalidPath(path.to_owned()));
+    }
+
+    let font = FontRef::from_index(bytes, font_index)
+        .map_err(|error| InspectionError::Font(format!("{error:?}")))?;
+    let limit = limit.min(MAX_LIST_SIZE);
+
+    match path {
+        "/" => Ok(FontChildrenResult {
+            path: path.to_owned(),
+            children: vec![make_collection_child("/tables", "tables", "collection")],
+            truncated: false,
+            note: None,
+        }),
+        "/tables" => Ok(FontChildrenResult {
+            path: path.to_owned(),
+            children: vec![
+                make_collection_child("/tables/head", "head", "table"),
+                make_collection_child("/tables/maxp", "maxp", "table"),
+                make_collection_child("/tables/name", "name", "table"),
+                make_collection_child("/tables/fvar", "fvar", "table"),
+                make_collection_child("/tables/hmtx", "hmtx", "table"),
+                make_collection_child("/tables/cmap", "cmap", "table"),
+                make_collection_child("/tables/glyf", "glyf", "table"),
+            ],
+            truncated: false,
+            note: None,
+        }),
+        "/tables/name" => Ok(FontChildrenResult {
+            path: path.to_owned(),
+            children: vec![make_collection_child(
+                "/tables/name/records",
+                "records",
+                "collection",
+            )],
+            truncated: false,
+            note: None,
+        }),
+        "/tables/name/records" => list_name_records(&font, limit),
+        "/tables/fvar" => Ok(FontChildrenResult {
+            path: path.to_owned(),
+            children: vec![make_collection_child(
+                "/tables/fvar/axes",
+                "axes",
+                "collection",
+            )],
+            truncated: false,
+            note: None,
+        }),
+        "/tables/fvar/axes" => list_variation_axes(&font, limit),
+        "/tables/hmtx" => Ok(FontChildrenResult {
+            path: path.to_owned(),
+            children: vec![make_collection_child(
+                "/tables/hmtx/metrics",
+                "metrics",
+                "collection",
+            )],
+            truncated: false,
+            note: None,
+        }),
+        "/tables/hmtx/metrics" => list_horizontal_metrics(&font, limit),
+        "/tables/glyf" => list_glyph_children(&font, limit),
+        "/tables/cmap" => Ok(FontChildrenResult {
+            path: path.to_owned(),
+            children: Vec::new(),
+            truncated: false,
+            note: Some(
+                "cmap codepoints are inspect-only; enumerate exact codepoint paths directly.".to_owned(),
+            ),
+        }),
+        _ => {
+            if let Ok(FontPath::Name {
+                platform_id,
+                encoding_id,
+                language_id,
+                name_id,
+            }) = parse_path(&format!("{path}/string"))
+            {
+                let value = resolve_name(
+                    &font,
+                    platform_id,
+                    encoding_id,
+                    language_id,
+                    name_id,
+                )?;
+                return Ok(FontChildrenResult {
+                    path: path.to_owned(),
+                    children: vec![FontChildEntry {
+                        path: format!("{path}/string"),
+                        label: format!("nameID={name_id}"),
+                        kind: "leaf".to_owned(),
+                        value,
+                    }],
+                    truncated: false,
+                    note: None,
+                });
+            }
+
+            if let Ok(FontPath::VariationAxis { index, field: None }) = parse_path(path) {
+                return Ok(FontChildrenResult {
+                    path: path.to_owned(),
+                    children: variation_axis_children(
+                        &font,
+                        index,
+                    )?,
+                    truncated: false,
+                    note: None,
+                });
+            }
+
+            if let Ok(FontPath::HorizontalMetric { glyph_id, field: _ }) =
+                parse_path(&format!("{path}/advanceWidth"))
+            {
+                return Ok(FontChildrenResult {
+                    path: path.to_owned(),
+                    children: horizontal_metric_children(&font, glyph_id)?,
+                    truncated: false,
+                    note: None,
+                });
+            }
+
+            if let Ok(FontPath::GlyphOutline { glyph_id }) =
+                parse_path(&format!("{path}/outline"))
+            {
+                return Ok(FontChildrenResult {
+                    path: path.to_owned(),
+                    children: glyph_outline_children(&font, glyph_id)?,
+                    truncated: false,
+                    note: None,
+                });
+            }
+
+            Err(InspectionError::InvalidPath(path.to_owned()))
+        }
+    }
+}
+
+fn make_collection_child(path: &str, label: &str, kind: &str) -> FontChildEntry {
+    FontChildEntry {
+        path: path.to_owned(),
+        label: label.to_owned(),
+        kind: kind.to_owned(),
+        value: Value::Null,
+    }
+}
+
+fn list_name_records(
+    font: &FontRef<'_>,
+    limit: usize,
+) -> Result<FontChildrenResult, InspectionError> {
+    let name = match font.name() {
+        Ok(name) => name,
+        Err(_) => {
+            return Ok(FontChildrenResult {
+                path: "/tables/name/records".to_owned(),
+                children: Vec::new(),
+                truncated: false,
+                note: Some("name table is missing".to_owned()),
+            })
+        }
+    };
+    let data = name.string_data();
+    let mut children = Vec::new();
+    for record in name.name_record().iter().take(limit + 1) {
+        if record.length() as usize > MAX_RAW_BYTES {
+            return Err(InspectionError::RawDataLimitExceeded);
+        }
+        let string = record
+            .string(data)
+            .map_err(font_error)?
+            .to_string();
+        if string.len() > MAX_RAW_BYTES {
+            return Err(InspectionError::RawDataLimitExceeded);
+        }
+        let name_id: u16 = record.name_id().to_u16();
+        let path = format!(
+            "/tables/name/records/platformID={}/encodingID={}/languageID=0x{:04X}/nameID={}/string",
+            record.platform_id(),
+            record.encoding_id(),
+            record.language_id(),
+            name_id
+        );
+        children.push(FontChildEntry {
+            path,
+            label: format!("nameID={name_id}: {string}"),
+            kind: "nameRecord".to_owned(),
+            value: json!({
+                "platformID": record.platform_id(),
+                "encodingID": record.encoding_id(),
+                "languageID": record.language_id(),
+                "nameID": name_id,
+                "string": string,
+            }),
+        });
+    }
+
+    let truncated = children.len() > limit;
+    if truncated {
+        children.truncate(limit);
+    }
+
+    Ok(FontChildrenResult {
+        path: "/tables/name/records".to_owned(),
+        children,
+        truncated,
+        note: None,
+    })
+}
+
+fn list_variation_axes(
+    font: &FontRef<'_>,
+    limit: usize,
+) -> Result<FontChildrenResult, InspectionError> {
+    let fvar = match font.fvar() {
+        Ok(fvar) => fvar,
+        Err(_) => {
+            return Ok(FontChildrenResult {
+                path: "/tables/fvar/axes".to_owned(),
+                children: Vec::new(),
+                truncated: false,
+                note: Some("fvar table is missing".to_owned()),
+            })
+        }
+    };
+    let axes = fvar.axes().map_err(font_error)?;
+    let mut children = Vec::new();
+    for (index, axis) in axes.iter().take(limit + 1).enumerate() {
+        children.push(FontChildEntry {
+            path: format!("/tables/fvar/axes/index={index}"),
+            label: format!("index={index} tag={}", axis.axis_tag()),
+            kind: "variationAxis".to_owned(),
+            value: json!({
+                "tag": axis.axis_tag().to_string(),
+                "minValue": axis.min_value().to_f32(),
+                "defaultValue": axis.default_value().to_f32(),
+                "maxValue": axis.max_value().to_f32(),
+                "flags": axis.flags(),
+            }),
+        });
+    }
+
+    let truncated = children.len() > limit;
+    if truncated {
+        children.truncate(limit);
+    }
+
+    Ok(FontChildrenResult {
+        path: "/tables/fvar/axes".to_owned(),
+        children,
+        truncated,
+        note: None,
+    })
+}
+
+fn variation_axis_children(
+    font: &FontRef<'_>,
+    index: usize,
+) -> Result<Vec<FontChildEntry>, InspectionError> {
+    let fvar = match font.fvar() {
+        Ok(fvar) => fvar,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let axes = fvar.axes().map_err(font_error)?;
+    let Some(axis) = axes.get(index) else {
+        return Ok(Vec::new());
+    };
+
+    Ok(vec![
+        FontChildEntry {
+            path: format!("/tables/fvar/axes/index={index}/tag"),
+            label: "tag".to_owned(),
+            kind: "leaf".to_owned(),
+            value: json!(axis.axis_tag().to_string()),
+        },
+        FontChildEntry {
+            path: format!("/tables/fvar/axes/index={index}/minValue"),
+            label: "minValue".to_owned(),
+            kind: "leaf".to_owned(),
+            value: json!(axis.min_value().to_f32()),
+        },
+        FontChildEntry {
+            path: format!("/tables/fvar/axes/index={index}/defaultValue"),
+            label: "defaultValue".to_owned(),
+            kind: "leaf".to_owned(),
+            value: json!(axis.default_value().to_f32()),
+        },
+        FontChildEntry {
+            path: format!("/tables/fvar/axes/index={index}/maxValue"),
+            label: "maxValue".to_owned(),
+            kind: "leaf".to_owned(),
+            value: json!(axis.max_value().to_f32()),
+        },
+        FontChildEntry {
+            path: format!("/tables/fvar/axes/index={index}/flags"),
+            label: "flags".to_owned(),
+            kind: "leaf".to_owned(),
+            value: json!(axis.flags()),
+        },
+    ])
+}
+
+fn list_horizontal_metrics(
+    font: &FontRef<'_>,
+    limit: usize,
+) -> Result<FontChildrenResult, InspectionError> {
+    let max_glyphs = font.maxp().map_err(font_error)?.num_glyphs() as usize;
+    let count = max_glyphs.min(limit + 1);
+    let mut children = Vec::new();
+    for gid in 0..count {
+        let value = resolve_horizontal_metric(
+            font,
+            gid as u16,
+            HorizontalMetricField::AdvanceWidth,
+        )?;
+        let side_bearing = resolve_horizontal_metric(
+            font,
+            gid as u16,
+            HorizontalMetricField::SideBearing,
+        )?;
+        children.push(FontChildEntry {
+            path: format!("/tables/hmtx/metrics/gid={gid}"),
+            label: format!("gid={gid}"),
+            kind: "horizontalMetric".to_owned(),
+            value: json!({
+                "advanceWidth": value,
+                "sideBearing": side_bearing,
+            }),
+        });
+    }
+
+    let truncated = children.len() > limit;
+    if truncated {
+        children.truncate(limit);
+    }
+
+    Ok(FontChildrenResult {
+        path: "/tables/hmtx/metrics".to_owned(),
+        children,
+        truncated,
+        note: None,
+    })
+}
+
+fn horizontal_metric_children(
+    font: &FontRef<'_>,
+    glyph_id: u16,
+) -> Result<Vec<FontChildEntry>, InspectionError> {
+    Ok(vec![
+        FontChildEntry {
+            path: format!("/tables/hmtx/metrics/gid={glyph_id}/advanceWidth"),
+            label: "advanceWidth".to_owned(),
+            kind: "leaf".to_owned(),
+            value: resolve_horizontal_metric(
+                font,
+                glyph_id,
+                HorizontalMetricField::AdvanceWidth,
+            )?,
+        },
+        FontChildEntry {
+            path: format!("/tables/hmtx/metrics/gid={glyph_id}/sideBearing"),
+            label: "sideBearing".to_owned(),
+            kind: "leaf".to_owned(),
+            value: resolve_horizontal_metric(
+                font,
+                glyph_id,
+                HorizontalMetricField::SideBearing,
+            )?,
+        },
+    ])
+}
+
+fn glyph_outline_children(
+    font: &FontRef<'_>,
+    glyph_id: u16,
+) -> Result<Vec<FontChildEntry>, InspectionError> {
+    Ok(vec![FontChildEntry {
+        path: format!("/tables/glyf/gid={glyph_id}/outline"),
+        label: "outline".to_owned(),
+        kind: "leaf".to_owned(),
+        value: resolve_glyph_outline(font, glyph_id)?,
+    }])
+}
+
+fn list_glyph_children(
+    font: &FontRef<'_>,
+    limit: usize,
+) -> Result<FontChildrenResult, InspectionError> {
+    let max_glyphs = font.maxp().map_err(font_error)?.num_glyphs() as usize;
+    let count = max_glyphs.min(limit + 1);
+    let mut children = Vec::new();
+    for gid in 0..count {
+        children.push(FontChildEntry {
+            path: format!("/tables/glyf/gid={gid}"),
+            label: format!("gid={gid}"),
+            kind: "glyph".to_owned(),
+            value: json!({
+                "outlinePath": format!("/tables/glyf/gid={gid}/outline")
+            }),
+        });
+    }
+
+    let truncated = children.len() > limit;
+    if truncated {
+        children.truncate(limit);
+    }
+
+    Ok(FontChildrenResult {
+        path: "/tables/glyf".to_owned(),
+        children,
+        truncated,
+        note: None,
+    })
 }
 
 fn resolve_path(font: &FontRef<'_>, path: &FontPath) -> Result<Value, InspectionError> {

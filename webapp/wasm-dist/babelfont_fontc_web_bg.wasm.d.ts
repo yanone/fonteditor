@@ -77,6 +77,12 @@ export const interpolate_glyph: (
     d: number,
     e: number
 ) => [number, number, number, number];
+export const list_debug_cached_font_children: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number, number];
 export const open_font_file: (
     a: number,
     b: number,
@@ -110,20 +116,6 @@ export const validate_feature_source_with_full_filter_pipeline: (
     a: any
 ) => [number, number];
 export const version: () => [number, number];
-export const add_master_with_interpolated_layers_yjs: (
-    a: number,
-    b: number
-) => [number, number, number];
-export const reinterpolate_layer_yjs: (
-    a: number,
-    b: number,
-    c: number,
-    d: number
-) => [number, number, number];
-export const reinterpolate_master_layers_yjs: (
-    a: number,
-    b: number
-) => [number, number, number];
 export const run_fontspector: (
     a: number,
     b: number,
@@ -155,6 +147,20 @@ export const get_stylistic_set_names: (
     a: number,
     b: number
 ) => [number, number, number, number];
+export const add_master_with_interpolated_layers_yjs: (
+    a: number,
+    b: number
+) => [number, number, number];
+export const reinterpolate_layer_yjs: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number];
+export const reinterpolate_master_layers_yjs: (
+    a: number,
+    b: number
+) => [number, number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (
     a: number,

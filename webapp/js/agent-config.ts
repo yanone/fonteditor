@@ -279,7 +279,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'binary_font_api_docs',
             description:
-                'Get the supported binary-font shaping and inspection workflow, path grammar, result format, and safety limits. Call this before inspect_binary_font.',
+                'Get the supported binary-font discovery, shaping, and inspection workflow, path grammar, profile meanings, result format, and safety limits. Call this before inspect_binary_font when you need exact leaf paths, but use describe_binary_font, list_binary_font_children, search_binary_font, or snapshot_binary_font when you are still discovering the font structure.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -290,9 +290,148 @@ export const AGENT_TOOLS: AgentTool[] = [
     {
         type: 'function',
         function: {
+            name: 'describe_binary_font',
+            description:
+                'Describe the supported binary-font path surface, child collections, and snapshot profiles. Use this to learn what the binary tools can inspect before asking for actual font data.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: {
+                        type: 'string',
+                        description:
+                            'Optional path prefix to focus the description on a subtree, such as "/tables/name" or "/tables/fvar".'
+                    }
+                },
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'list_binary_font_children',
+            description:
+                'List the immediate children of a supported binary-font collection path. Use this to discover the actual name records, variation axes, metrics, or glyph ids that exist in the compiled font.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    fontHash: {
+                        type: 'string',
+                        description:
+                            'Required stable hash returned by compile_binary_font.'
+                    },
+                    path: {
+                        type: 'string',
+                        description:
+                            'Required collection path, such as "/tables/name/records" or "/tables/fvar/axes".'
+                    },
+                    fontIndex: {
+                        type: 'integer',
+                        minimum: 0,
+                        description:
+                            'Optional face index for a TrueType Collection. Defaults to 0.'
+                    },
+                    limit: {
+                        type: 'integer',
+                        minimum: 0,
+                        description:
+                            'Optional upper bound on how many children to return. Defaults to the tool limit.'
+                    }
+                },
+                required: ['fontHash', 'path']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'search_binary_font',
+            description:
+                'Search the binary-font surface metadata, snapshot profiles, or actual child entries within a collection path. Use this to find likely paths and relevant child nodes without guessing exact leaves.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: {
+                        type: 'string',
+                        description:
+                            'Search text or fragment, such as "nameID=1", "variation", or "advanceWidth".'
+                    },
+                    fontHash: {
+                        type: 'string',
+                        description:
+                            'Optional stable hash if you want to search actual child entries within a compiled font.'
+                    },
+                    withinPath: {
+                        type: 'string',
+                        description:
+                            'Optional collection path to search inside when a fontHash is provided.'
+                    },
+                    fontIndex: {
+                        type: 'integer',
+                        minimum: 0,
+                        description:
+                            'Optional face index for a TrueType Collection. Defaults to 0.'
+                    },
+                    limit: {
+                        type: 'integer',
+                        minimum: 0,
+                        description:
+                            'Optional upper bound on how many child entries to search when a fontHash is provided.'
+                    },
+                    path: {
+                        type: 'string',
+                        description:
+                            'Optional path prefix used to search the static surface description.'
+                    }
+                },
+                required: ['query']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'snapshot_binary_font',
+            description:
+                'Return a curated binary-font snapshot bundle. Profiles are summary, names, variation, metrics, review, and full. Use this when you want the model to inspect a practical bundle of the most relevant font data without manually assembling leaf paths.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    fontHash: {
+                        type: 'string',
+                        description:
+                            'Required stable hash returned by compile_binary_font.'
+                    },
+                    profile: {
+                        type: 'string',
+                        enum: [
+                            'summary',
+                            'names',
+                            'variation',
+                            'metrics',
+                            'review',
+                            'full'
+                        ],
+                        description:
+                            'Snapshot profile. summary is the smallest bundle; full returns the broadest bundled view.'
+                    },
+                    fontIndex: {
+                        type: 'integer',
+                        minimum: 0,
+                        description:
+                            'Optional face index for a TrueType Collection. Defaults to 0.'
+                    }
+                },
+                required: ['fontHash']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'inspect_binary_font',
             description:
-                'Inspect selected OpenType table values from a previously compiled binary font hash. Requires fontHash from compile_binary_font and a prior binary_font_api_docs call. This tool never compiles implicitly. Paths are resolved in request order and returned as {values: [...]}; missing optional values are null and malformed fonts or exceeded safety limits fail visibly.',
+                'Inspect exact OpenType leaf values from a previously compiled binary font hash. Requires fontHash from compile_binary_font and is best used after describe_binary_font or list_binary_font_children has identified the exact leaf paths you want. This tool never compiles implicitly. Paths are resolved in request order and returned as {values: [...]}; missing optional values are null and malformed fonts or exceeded safety limits fail visibly.',
             parameters: {
                 type: 'object',
                 properties: {

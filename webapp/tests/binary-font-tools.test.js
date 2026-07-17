@@ -35,6 +35,126 @@ describe('split binary-font agent tools', () => {
     });
 
     beforeEach(() => {
+        const inspectionValues = {
+            '/tables/head/unitsPerEm': 1000,
+            '/tables/maxp/numGlyphs': 42,
+            '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=1/string':
+                'Fustat',
+            '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=2/string':
+                'Regular',
+            '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=4/string':
+                'Fustat Regular',
+            '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=5/string':
+                'Version 1.011',
+            '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=6/string':
+                'Fustat-Regular',
+            '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=0/string':
+                'Copyright 2022 The Fustat Project Authors (https://github.com/Kief-Type-Foundry/Fustat)',
+            '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=3/string':
+                '1.011;1KTF;Fustat-Regular'
+        };
+        const listedChildren = {
+            '/tables/name/records': {
+                path: '/tables/name/records',
+                children: [
+                    {
+                        path: '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=1/string',
+                        label: 'nameID=1: Fustat',
+                        kind: 'nameRecord',
+                        value: {
+                            platformID: 3,
+                            encodingID: 1,
+                            languageID: 0x0409,
+                            nameID: 1,
+                            string: 'Fustat'
+                        }
+                    },
+                    {
+                        path: '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=2/string',
+                        label: 'nameID=2: Regular',
+                        kind: 'nameRecord',
+                        value: {
+                            platformID: 3,
+                            encodingID: 1,
+                            languageID: 0x0409,
+                            nameID: 2,
+                            string: 'Regular'
+                        }
+                    }
+                ],
+                truncated: false
+            },
+            '/tables/fvar/axes': {
+                path: '/tables/fvar/axes',
+                children: [
+                    {
+                        path: '/tables/fvar/axes/index=0',
+                        label: 'index=0 tag=wght',
+                        kind: 'variationAxis',
+                        value: {
+                            tag: 'wght',
+                            minValue: 100,
+                            defaultValue: 400,
+                            maxValue: 900,
+                            flags: 0
+                        }
+                    }
+                ],
+                truncated: false
+            },
+            '/tables/hmtx/metrics': {
+                path: '/tables/hmtx/metrics',
+                children: [
+                    {
+                        path: '/tables/hmtx/metrics/gid=0',
+                        label: 'gid=0',
+                        kind: 'horizontalMetric',
+                        value: { advanceWidth: 600, sideBearing: 15 }
+                    }
+                ],
+                truncated: false
+            },
+            '/tables/glyf': {
+                path: '/tables/glyf',
+                children: [
+                    {
+                        path: '/tables/glyf/gid=36',
+                        label: 'gid=36',
+                        kind: 'glyph',
+                        value: { outlinePath: '/tables/glyf/gid=36/outline' }
+                    }
+                ],
+                truncated: false
+            }
+        };
+        const mockSendMessage = function (data) {
+            if (!data || data.type !== 'listDebugCachedFontChildren') {
+                return Promise.resolve({});
+            }
+
+            const request = JSON.parse(data.requestJson);
+            const payload = listedChildren[request.path] || {
+                path: request.path,
+                children: [],
+                truncated: false
+            };
+            return Promise.resolve({
+                result: JSON.stringify(payload)
+            });
+        };
+        const mockInspectDebugCachedFont = function (_fontHash, request) {
+            return Promise.resolve({
+                values: request.paths.map(function (path) {
+                    return Object.prototype.hasOwnProperty.call(
+                        inspectionValues,
+                        path
+                    )
+                        ? inspectionValues[path]
+                        : null;
+                })
+            });
+        };
+
         window.fontManager = {
             currentFont: {
                 sourcePlugin: { getId: jest.fn(() => 'memory') },
@@ -53,36 +173,44 @@ describe('split binary-font agent tools', () => {
             compileCommittedDebugFont: jest.fn(),
             storeFontJson: jest.fn()
         };
-        window.fullFontCompilation = {
-            awaitWorkerDocumentSync: jest.fn().mockResolvedValue(),
-            hasWorkerCacheDocument: jest.fn(() => true),
-            bootstrapWorkerCacheFromFontState: jest.fn().mockResolvedValue(),
-            compileBinaryFont: jest
-                .fn()
-                .mockResolvedValue({ fontHash: 'binary-hash-1' }),
-            compileCommittedDebugFont: jest.fn().mockResolvedValue({
+        window.fullFontCompilation = {};
+        window.fullFontCompilation.awaitWorkerDocumentSync = jest
+            .fn()
+            .mockResolvedValue();
+        window.fullFontCompilation.hasWorkerCacheDocument = jest.fn(() => true);
+        window.fullFontCompilation.bootstrapWorkerCacheFromFontState = jest
+            .fn()
+            .mockResolvedValue();
+        window.fullFontCompilation.compileBinaryFont = jest
+            .fn()
+            .mockResolvedValue({ fontHash: 'binary-hash-1' });
+        window.fullFontCompilation.compileCommittedDebugFont = jest
+            .fn()
+            .mockResolvedValue({
                 result: new Uint8Array([4, 5, 6]),
                 filename: 'debug-font.ttf',
                 time_taken: 1,
                 fontHash: 'editing-hash-1',
                 closureGlyphCount: 2
-            }),
-            getDebugCachedFontBytes: jest
-                .fn()
-                .mockResolvedValue(new Uint8Array([4, 5, 6])),
-            inspectDebugCachedFont: jest.fn().mockResolvedValue({
-                values: [1000, 42]
-            })
-        };
-        window.shapeTextWithFontDetailed = jest.fn(async () => ({
-            glyphs: ['A'],
-            gids: [36],
-            advances: [600],
-            advancesY: [0],
-            offsetsX: [0],
-            offsetsY: [0],
-            clusters: [0]
-        }));
+            });
+        window.fullFontCompilation.sendMessage = jest.fn(mockSendMessage);
+        window.fullFontCompilation.getDebugCachedFontBytes = jest
+            .fn()
+            .mockResolvedValue(new Uint8Array([4, 5, 6]));
+        window.fullFontCompilation.inspectDebugCachedFont = jest.fn(
+            mockInspectDebugCachedFont
+        );
+        window.shapeTextWithFontDetailed = jest.fn(function () {
+            return Promise.resolve({
+                glyphs: ['A'],
+                gids: [36],
+                advances: [600],
+                advancesY: [0],
+                offsetsX: [0],
+                offsetsY: [0],
+                clusters: [0]
+            });
+        });
         window.windowRole = { isMainWindow: jest.fn(() => true) };
         window.glyphCanvas = {
             outlineEditor: {
@@ -153,6 +281,94 @@ describe('split binary-font agent tools', () => {
         expect(
             window.fullFontCompilation.compileBinaryFont
         ).not.toHaveBeenCalled();
+    });
+
+    test('describe_binary_font exposes supported collections and profiles', async () => {
+        const agent = new AIAgent();
+
+        const result = JSON.parse(
+            await agent.executeToolCall({
+                function: {
+                    name: 'describe_binary_font',
+                    arguments: JSON.stringify({ path: '/tables/name' })
+                }
+            })
+        );
+
+        expect(
+            result.collections.some(
+                (entry) => entry.path === '/tables/name/records'
+            )
+        ).toBe(true);
+        expect(result.snapshotProfiles.map((profile) => profile.name)).toEqual(
+            expect.arrayContaining(['summary', 'names', 'variation', 'metrics'])
+        );
+    });
+
+    test('list_binary_font_children returns actual name records', async () => {
+        const agent = new AIAgent();
+
+        const result = JSON.parse(
+            await agent.executeToolCall({
+                function: {
+                    name: 'list_binary_font_children',
+                    arguments: JSON.stringify({
+                        fontHash: 'binary-hash-1',
+                        path: '/tables/name/records'
+                    })
+                }
+            })
+        );
+
+        expect(result.path).toBe('/tables/name/records');
+        expect(result.children[0].path).toContain('nameID=1/string');
+        expect(window.fullFontCompilation.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'listDebugCachedFontChildren' })
+        );
+    });
+
+    test('search_binary_font can find path metadata and listed children', async () => {
+        const agent = new AIAgent();
+
+        const result = JSON.parse(
+            await agent.executeToolCall({
+                function: {
+                    name: 'search_binary_font',
+                    arguments: JSON.stringify({
+                        query: 'nameID=1',
+                        fontHash: 'binary-hash-1',
+                        withinPath: '/tables/name/records'
+                    })
+                }
+            })
+        );
+
+        expect(
+            result.matches.some((match) =>
+                match.path.includes('/tables/name/records')
+            )
+        ).toBe(true);
+    });
+
+    test('snapshot_binary_font bundles summary and names', async () => {
+        const agent = new AIAgent();
+
+        const result = JSON.parse(
+            await agent.executeToolCall({
+                function: {
+                    name: 'snapshot_binary_font',
+                    arguments: JSON.stringify({
+                        fontHash: 'binary-hash-1',
+                        profile: 'names'
+                    })
+                }
+            })
+        );
+
+        expect(result.profile).toBe('names');
+        expect(result.summary.familyName).toBe('Fustat');
+        expect(result.nameRecords.children).toHaveLength(2);
+        expect(result.nameRecords.children[0].value.string).toBe('Fustat');
     });
 
     test('subset target derives subset glyphs from text before compiling', async () => {

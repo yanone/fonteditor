@@ -18,6 +18,7 @@ import init, {
     add_master_with_interpolated_layers_yjs,
     get_debug_cached_font_bytes,
     inspect_debug_cached_font,
+    list_debug_cached_font_children,
     prime_layout_closure_cache,
     prime_debug_layout_closure_cache,
     prime_preview_layout_closure_cache,
@@ -1639,6 +1640,56 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(inspectDebugFontSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'listDebugCachedFontChildren') {
+            const listDebugFontChildrenSpanId = timelineSpanStart(
+                'font.worker.listDebugCachedFontChildren'
+            );
+
+            if (!initialized) {
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: 'Worker not initialized'
+                });
+                return;
+            }
+
+            try {
+                const fontHash = String(data.fontHash || '').trim();
+                if (!fontHash) {
+                    throw new Error('fontHash is required.');
+                }
+                if (typeof data.requestJson !== 'string') {
+                    throw new Error('requestJson is required.');
+                }
+
+                const result = list_debug_cached_font_children(
+                    fontHash,
+                    data.requestJson
+                );
+                self.postMessage({
+                    type: 'listed',
+                    id: data.id,
+                    result,
+                    workerPostedAtMs: performance.timeOrigin + performance.now()
+                });
+                timelineMark('font.worker.listDebugCachedFontChildren.success');
+            } catch (error: unknown) {
+                timelineMark('font.worker.listDebugCachedFontChildren.failed');
+                const normalizedError = normalizeWorkerError(error);
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: normalizedError.message,
+                    errorPayload: normalizedError.payload,
+                    stack: normalizedError.stack
+                });
+            } finally {
+                timelineSpanEnd(listDebugFontChildrenSpanId);
             }
             return;
         }

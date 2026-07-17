@@ -74,19 +74,408 @@ type BinaryFontAnalysisWorkerState = BinaryFontWorkerState & {
         }
     ) => Promise<{ fontHash: string }>;
     getDebugCachedFontBytes?: (fontHash: string) => Promise<Uint8Array>;
+    sendMessage?: (
+        data: Record<string, unknown>
+    ) => Promise<Record<string, unknown>>;
     inspectDebugCachedFont?: (
         fontHash: string,
         request: { fontIndex?: number; paths: string[] }
     ) => Promise<{ values: unknown[] }>;
 };
 
-const BINARY_FONT_API_DOCS = `Binary font tools use an explicit compile-then-read workflow.
+type BinaryFontChildrenRequest = {
+    fontIndex?: number;
+    path: string;
+    limit?: number;
+};
+
+type BinaryFontChildEntry = {
+    path: string;
+    label: string;
+    kind: string;
+    value: unknown;
+};
+
+type BinaryFontChildrenResult = {
+    path: string;
+    children: BinaryFontChildEntry[];
+    truncated: boolean;
+    note?: string;
+};
+
+type BinaryFontSurfaceEntry = {
+    path: string;
+    label: string;
+    kind: 'collection' | 'leaf' | 'profile';
+    description: string;
+    pathTemplate?: string;
+};
+
+type BinaryFontSnapshotProfile = {
+    name: string;
+    description: string;
+    inspectPaths: string[];
+    listPaths: Array<{
+        path: string;
+        limit?: number;
+    }>;
+};
+
+const BINARY_FONT_SUMMARY_PATHS = [
+    '/tables/head/unitsPerEm',
+    '/tables/maxp/numGlyphs',
+    '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=1/string',
+    '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=2/string',
+    '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=4/string',
+    '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=5/string',
+    '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=6/string',
+    '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=0/string',
+    '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=3/string'
+];
+
+const BINARY_FONT_SURFACE_COLLECTIONS: BinaryFontSurfaceEntry[] = [
+    {
+        path: '/tables',
+        label: 'tables',
+        kind: 'collection',
+        description:
+            'Top-level OpenType tables visible to the binary-font tools.'
+    },
+    {
+        path: '/tables/name/records',
+        label: 'name records',
+        kind: 'collection',
+        description:
+            'Immediate `name` table records. Each child path is the exact leaf string path.',
+        pathTemplate:
+            '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=1/string'
+    },
+    {
+        path: '/tables/fvar/axes',
+        label: 'variation axes',
+        kind: 'collection',
+        description:
+            'Immediate `fvar` axis records. Use the axis index to inspect leaf fields.',
+        pathTemplate: '/tables/fvar/axes/index=0'
+    },
+    {
+        path: '/tables/hmtx/metrics',
+        label: 'horizontal metrics',
+        kind: 'collection',
+        description:
+            'Glyph advance-width and side-bearing entries, addressed by glyph id.',
+        pathTemplate: '/tables/hmtx/metrics/gid=42'
+    },
+    {
+        path: '/tables/glyf',
+        label: 'glyph outlines',
+        kind: 'collection',
+        description: 'Glyph ids that can be inspected for outline data.',
+        pathTemplate: '/tables/glyf/gid=36/outline'
+    }
+];
+
+const BINARY_FONT_SURFACE_LEAVES: BinaryFontSurfaceEntry[] = [
+    {
+        path: '/tables/head/unitsPerEm',
+        label: 'unitsPerEm',
+        kind: 'leaf',
+        description: 'The head table units-per-em value.'
+    },
+    {
+        path: '/tables/maxp/numGlyphs',
+        label: 'numGlyphs',
+        kind: 'leaf',
+        description: 'The total glyph count from maxp.'
+    },
+    {
+        path: '/tables/name/records/.../string',
+        label: 'name string',
+        kind: 'leaf',
+        description:
+            'Exact `name` string leaf values addressed by platform, encoding, language, and nameID.',
+        pathTemplate:
+            '/tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=1/string'
+    },
+    {
+        path: '/tables/fvar/axes/index=0/tag|minValue|defaultValue|maxValue|flags',
+        label: 'axis fields',
+        kind: 'leaf',
+        description:
+            'The individual leaf fields available beneath a variation axis node.',
+        pathTemplate: '/tables/fvar/axes/index=0'
+    },
+    {
+        path: '/tables/hmtx/metrics/gid=42/advanceWidth|sideBearing',
+        label: 'metric fields',
+        kind: 'leaf',
+        description:
+            'The individual advance-width and side-bearing leaves available for a metric node.',
+        pathTemplate: '/tables/hmtx/metrics/gid=42'
+    },
+    {
+        path: '/tables/cmap/codepoint=U+0041/gid',
+        label: 'cmap gid',
+        kind: 'leaf',
+        description: 'Exact codepoint lookup for the cmap table.'
+    },
+    {
+        path: '/tables/glyf/gid=36/outline',
+        label: 'outline',
+        kind: 'leaf',
+        description: 'Exact glyph outline inspection by glyph id.'
+    }
+];
+
+const BINARY_FONT_SNAPSHOT_PROFILES: BinaryFontSnapshotProfile[] = [
+    {
+        name: 'summary',
+        description:
+            'Small overview: unitsPerEm, glyph count, and the common name IDs.',
+        inspectPaths: BINARY_FONT_SUMMARY_PATHS,
+        listPaths: []
+    },
+    {
+        name: 'names',
+        description: 'Summary plus the full set of name records.',
+        inspectPaths: BINARY_FONT_SUMMARY_PATHS,
+        listPaths: [{ path: '/tables/name/records' }]
+    },
+    {
+        name: 'variation',
+        description: 'Summary plus the variation axis inventory.',
+        inspectPaths: BINARY_FONT_SUMMARY_PATHS,
+        listPaths: [{ path: '/tables/fvar/axes' }]
+    },
+    {
+        name: 'metrics',
+        description:
+            'Summary plus a bounded sample of glyph metrics and outlines.',
+        inspectPaths: BINARY_FONT_SUMMARY_PATHS,
+        listPaths: [
+            { path: '/tables/hmtx/metrics', limit: 32 },
+            { path: '/tables/glyf', limit: 32 }
+        ]
+    },
+    {
+        name: 'review',
+        description: 'Summary plus names and variation axes.',
+        inspectPaths: BINARY_FONT_SUMMARY_PATHS,
+        listPaths: [
+            { path: '/tables/name/records' },
+            { path: '/tables/fvar/axes' }
+        ]
+    },
+    {
+        name: 'full',
+        description:
+            'Summary plus names, variation axes, metrics, and a bounded glyph sample.',
+        inspectPaths: BINARY_FONT_SUMMARY_PATHS,
+        listPaths: [
+            { path: '/tables/name/records' },
+            { path: '/tables/fvar/axes' },
+            { path: '/tables/hmtx/metrics', limit: 32 },
+            { path: '/tables/glyf', limit: 32 }
+        ]
+    }
+];
+
+function getBinaryFontSurfaceDescription(path?: string): {
+    collections: BinaryFontSurfaceEntry[];
+    leaves: BinaryFontSurfaceEntry[];
+    snapshotProfiles: BinaryFontSnapshotProfile[];
+} {
+    const normalizedPath = String(path || '').trim();
+    if (!normalizedPath) {
+        return {
+            collections: BINARY_FONT_SURFACE_COLLECTIONS,
+            leaves: BINARY_FONT_SURFACE_LEAVES,
+            snapshotProfiles: BINARY_FONT_SNAPSHOT_PROFILES
+        };
+    }
+
+    const prefix = normalizedPath.endsWith('/')
+        ? normalizedPath
+        : `${normalizedPath}/`;
+    return {
+        collections: BINARY_FONT_SURFACE_COLLECTIONS.filter(
+            (entry) =>
+                entry.path === normalizedPath || entry.path.startsWith(prefix)
+        ),
+        leaves: BINARY_FONT_SURFACE_LEAVES.filter(
+            (entry) =>
+                entry.path === normalizedPath || entry.path.startsWith(prefix)
+        ),
+        snapshotProfiles: BINARY_FONT_SNAPSHOT_PROFILES
+    };
+}
+
+function searchBinaryFontSurface(
+    query: string,
+    withinPath?: string
+): Array<Record<string, unknown>> {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) {
+        return [];
+    }
+
+    const scopePrefix = withinPath ? withinPath.trim() : '';
+    const entries = [
+        ...BINARY_FONT_SURFACE_COLLECTIONS,
+        ...BINARY_FONT_SURFACE_LEAVES,
+        ...BINARY_FONT_SNAPSHOT_PROFILES.map((profile) => ({
+            path: `snapshot:${profile.name}`,
+            label: profile.name,
+            kind: 'profile' as const,
+            description: profile.description,
+            pathTemplate: profile.inspectPaths[0] || ''
+        }))
+    ].filter((entry) => {
+        if (!scopePrefix) {
+            return true;
+        }
+        return (
+            entry.path === scopePrefix ||
+            entry.path.startsWith(`${scopePrefix}/`)
+        );
+    });
+
+    return entries
+        .filter((entry) => {
+            const haystack = [
+                entry.path,
+                entry.label,
+                entry.kind,
+                entry.description,
+                entry.pathTemplate || ''
+            ]
+                .join('\n')
+                .toLowerCase();
+            return haystack.includes(normalizedQuery);
+        })
+        .map((entry) => ({
+            kind: entry.kind,
+            path: entry.path,
+            label: entry.label,
+            description: entry.description,
+            pathTemplate: entry.pathTemplate
+        }));
+}
+
+async function fetchBinaryFontChildren(
+    analysisCompiler: BinaryFontAnalysisWorkerState,
+    fontHash: string,
+    path: string,
+    fontIndex: number,
+    limit?: number
+): Promise<BinaryFontChildrenResult> {
+    if (typeof analysisCompiler.sendMessage !== 'function') {
+        throw new Error(
+            'list_binary_font_children is not available in the analysis compiler.'
+        );
+    }
+
+    const result = await analysisCompiler.sendMessage({
+        type: 'listDebugCachedFontChildren',
+        fontHash,
+        requestJson: JSON.stringify({
+            fontIndex,
+            path,
+            limit
+        })
+    });
+
+    if (typeof result?.result !== 'string') {
+        throw new Error(
+            `Worker returned no child-list result for font hash ${fontHash}`
+        );
+    }
+
+    try {
+        return JSON.parse(result.result) as BinaryFontChildrenResult;
+    } catch (error) {
+        throw new Error(
+            `Worker returned invalid child-list JSON: ${String(error)}`
+        );
+    }
+}
+
+async function buildBinaryFontSnapshot(
+    analysisCompiler: BinaryFontAnalysisWorkerState,
+    fontHash: string,
+    profileName: string,
+    fontIndex: number
+): Promise<string> {
+    const normalizedProfile = profileName.trim().toLowerCase();
+    const profile = BINARY_FONT_SNAPSHOT_PROFILES.find(
+        (entry) => entry.name === normalizedProfile
+    );
+    if (!profile) {
+        throw new Error(`Unknown snapshot profile: ${profileName}`);
+    }
+
+    if (typeof analysisCompiler.inspectDebugCachedFont !== 'function') {
+        throw new Error(
+            'snapshot_binary_font requires the binary inspection compiler.'
+        );
+    }
+
+    const summary = await analysisCompiler.inspectDebugCachedFont(fontHash, {
+        fontIndex,
+        paths: profile.inspectPaths
+    });
+    const summaryValues = summary.values;
+    const summaryRecord = {
+        unitsPerEm: summaryValues[0] ?? null,
+        numGlyphs: summaryValues[1] ?? null,
+        familyName: summaryValues[2] ?? null,
+        subfamilyName: summaryValues[3] ?? null,
+        fullName: summaryValues[4] ?? null,
+        version: summaryValues[5] ?? null,
+        postScriptName: summaryValues[6] ?? null,
+        copyright: summaryValues[7] ?? null,
+        uniqueId: summaryValues[8] ?? null
+    };
+
+    const result: Record<string, unknown> = {
+        fontHash,
+        profile: profile.name,
+        summary: summaryRecord
+    };
+
+    for (const listRequest of profile.listPaths) {
+        const listed = await fetchBinaryFontChildren(
+            analysisCompiler,
+            fontHash,
+            listRequest.path,
+            fontIndex,
+            listRequest.limit
+        );
+        if (listRequest.path === '/tables/name/records') {
+            result.nameRecords = listed;
+        } else if (listRequest.path === '/tables/fvar/axes') {
+            result.variationAxes = listed;
+        } else if (listRequest.path === '/tables/hmtx/metrics') {
+            result.horizontalMetrics = listed;
+        } else if (listRequest.path === '/tables/glyf') {
+            result.glyphs = listed;
+        } else {
+            result[listRequest.path] = listed;
+        }
+    }
+
+    return JSON.stringify(result);
+}
+
+const BINARY_FONT_API_DOCS = `Binary font tools use a discover -> inspect workflow.
 
 1. Call compile_binary_font first. It compiles the current committed font in an isolated analysis worker and returns only a stable fontHash. Use target "subset" together with text when you want the existing layout-closure path to derive subset glyphs from that text.
-2. Pass that fontHash to shape_binary_font or inspect_binary_font. These tools never compile implicitly and fail if the hash is missing from the analysis cache.
-3. Call binary_font_api_docs before inspect_binary_font. Inspection returns {"values": [...]} in the same order as the requested paths.
+2. Use describe_binary_font to see the supported path families and snapshot profiles. Use list_binary_font_children to enumerate immediate children for collection paths such as /tables/name/records and /tables/fvar/axes.
+3. Use search_binary_font to find supported paths, collection nodes, or snapshot profiles by keyword. When you pass a fontHash and withinPath, it also searches the returned child entries for that subtree.
+4. Use snapshot_binary_font to fetch curated bundles. Profiles are: summary (unitsPerEm, numGlyphs, and common name IDs), names (summary + all name records), variation (summary + variation axes), metrics (summary + bounded glyph metrics and outlines), review (summary + names + variation), and full (summary + names + variation + metrics + glyph samples).
+5. Pass a fontHash to inspect_binary_font only when you already know the exact leaf paths you want. inspect_binary_font never compiles implicitly and returns {"values": [...]} in request order.
 
-Supported inspection paths:
+Supported exact inspection paths include:
 - /tables/head/unitsPerEm
 - /tables/maxp/numGlyphs
 - /tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=1/string
@@ -95,7 +484,7 @@ Supported inspection paths:
 - /tables/cmap/codepoint=U+0041/gid
 - /tables/glyf/gid=36/outline
 
-Inspection is bounded to 64 paths, 256 list entries, 4096 raw string bytes, 256 KiB request bytes, and 64 KiB serialized output. Missing tables, records, glyphs, and cmap entries return null. Malformed fonts, invalid indexes, unknown paths, and exceeded limits fail visibly.
+The discovery and inspection helpers are bounded to 64 exact inspection paths, 256 list entries, 4096 raw string bytes, 256 KiB request bytes, and 64 KiB serialized output. Missing tables, records, glyphs, and cmap entries return null. Malformed fonts, invalid indexes, unknown paths, and exceeded limits fail visibly.
 
 shape_binary_font accepts text plus an optional HarfBuzz feature map, for example {"liga": false, "kern": true}, and a userspace variationLocation. It returns glyph names, gids, advances, offsets, and clusters for the compiled hash.`;
 
@@ -2079,6 +2468,157 @@ if '_agent_original_stdout' in dir():
             case 'binary_font_api_docs':
                 this.binaryFontApiDocsViewed = true;
                 return BINARY_FONT_API_DOCS;
+            case 'describe_binary_font': {
+                const path =
+                    typeof args.path === 'string' && args.path.trim()
+                        ? args.path.trim()
+                        : undefined;
+                return JSON.stringify(getBinaryFontSurfaceDescription(path));
+            }
+            case 'list_binary_font_children': {
+                assertBinaryFontMainWindow('list_binary_font_children');
+                const runtime = getBinaryFontRuntime();
+                const analysisCompiler = runtime.fullFontCompilation;
+                if (!analysisCompiler || !analysisCompiler.sendMessage) {
+                    throw new Error(
+                        'list_binary_font_children analysis compiler is not available yet.'
+                    );
+                }
+
+                const fontHash = String(args.fontHash || '').trim();
+                if (!fontHash) {
+                    throw new Error(
+                        'Missing required parameter: fontHash. Call compile_binary_font first.'
+                    );
+                }
+                const path = String(args.path || '').trim();
+                if (!path) {
+                    throw new Error(
+                        'Missing required parameter: path (string).'
+                    );
+                }
+                if (
+                    args.fontIndex !== undefined &&
+                    (!Number.isInteger(args.fontIndex) || args.fontIndex < 0)
+                ) {
+                    throw new Error(
+                        'fontIndex must be a non-negative integer when provided.'
+                    );
+                }
+                if (
+                    args.limit !== undefined &&
+                    (!Number.isInteger(args.limit) || args.limit < 0)
+                ) {
+                    throw new Error(
+                        'limit must be a non-negative integer when provided.'
+                    );
+                }
+
+                const result = await fetchBinaryFontChildren(
+                    analysisCompiler,
+                    fontHash,
+                    path,
+                    args.fontIndex ?? 0,
+                    args.limit
+                );
+                return JSON.stringify(result);
+            }
+            case 'search_binary_font': {
+                const query = String(args.query || '').trim();
+                if (!query) {
+                    throw new Error('Missing required parameter: query.');
+                }
+
+                const surfaceMatches = searchBinaryFontSurface(
+                    query,
+                    typeof args.path === 'string' && args.path.trim()
+                        ? args.path.trim()
+                        : undefined
+                );
+
+                const fontHash =
+                    typeof args.fontHash === 'string'
+                        ? String(args.fontHash).trim()
+                        : '';
+                const withinPath =
+                    typeof args.withinPath === 'string' &&
+                    args.withinPath.trim()
+                        ? args.withinPath.trim()
+                        : '';
+                const matches = [...surfaceMatches];
+                if (fontHash && withinPath) {
+                    assertBinaryFontMainWindow('search_binary_font');
+                    const runtime = getBinaryFontRuntime();
+                    const analysisCompiler = runtime.fullFontCompilation;
+                    if (!analysisCompiler || !analysisCompiler.sendMessage) {
+                        throw new Error(
+                            'search_binary_font analysis compiler is not available yet.'
+                        );
+                    }
+                    const listed = await fetchBinaryFontChildren(
+                        analysisCompiler,
+                        fontHash,
+                        withinPath,
+                        typeof args.fontIndex === 'number' ? args.fontIndex : 0,
+                        typeof args.limit === 'number' ? args.limit : 64
+                    );
+                    for (const child of listed.children) {
+                        const haystack = JSON.stringify(child).toLowerCase();
+                        if (haystack.includes(query.toLowerCase())) {
+                            matches.push({
+                                kind: child.kind,
+                                path: child.path,
+                                label: child.label,
+                                value: child.value
+                            });
+                        }
+                    }
+                }
+
+                return JSON.stringify({
+                    query,
+                    fontHash: fontHash || null,
+                    withinPath: withinPath || null,
+                    matches
+                });
+            }
+            case 'snapshot_binary_font': {
+                assertBinaryFontMainWindow('snapshot_binary_font');
+                const runtime = getBinaryFontRuntime();
+                const analysisCompiler = runtime.fullFontCompilation;
+                if (
+                    !analysisCompiler ||
+                    !analysisCompiler.sendMessage ||
+                    typeof analysisCompiler.inspectDebugCachedFont !==
+                        'function'
+                ) {
+                    throw new Error(
+                        'snapshot_binary_font analysis compiler is not available yet.'
+                    );
+                }
+                const fontHash = String(args.fontHash || '').trim();
+                if (!fontHash) {
+                    throw new Error(
+                        'Missing required parameter: fontHash. Call compile_binary_font first.'
+                    );
+                }
+                const profile = String(args.profile || 'summary').trim();
+                if (
+                    args.fontIndex !== undefined &&
+                    (!Number.isInteger(args.fontIndex) || args.fontIndex < 0)
+                ) {
+                    throw new Error(
+                        'fontIndex must be a non-negative integer when provided.'
+                    );
+                }
+
+                return await buildBinaryFontSnapshot(
+                    analysisCompiler,
+                    fontHash,
+                    profile,
+                    args.fontIndex ?? 0
+                );
+            }
             case 'compile_binary_font': {
                 const runtime = getBinaryFontRuntime();
                 const fontManager = runtime.fontManager;

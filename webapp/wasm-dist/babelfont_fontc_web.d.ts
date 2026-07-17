@@ -339,6 +339,14 @@ export function interpolate_glyph(
 ): string;
 
 /**
+ * List the immediate children beneath a supported binary-font collection path.
+ */
+export function list_debug_cached_font_children(
+    font_hash: string,
+    request_json: string
+): string;
+
+/**
  * Open a font file from various formats
  *
  * Supports .glyphs, .glyphspackage, .ufo, .designspace, .vfj, and .babelfont formats.
@@ -520,6 +528,12 @@ export interface InitOutput {
         d: number,
         e: number
     ) => [number, number, number, number];
+    readonly list_debug_cached_font_children: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number, number];
     readonly open_font_file: (
         a: number,
         b: number,
@@ -553,20 +567,6 @@ export interface InitOutput {
         a: any
     ) => [number, number];
     readonly version: () => [number, number];
-    readonly add_master_with_interpolated_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
-    readonly reinterpolate_layer_yjs: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number];
-    readonly reinterpolate_master_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
     readonly run_fontspector: (
         a: number,
         b: number,
@@ -598,6 +598,20 @@ export interface InitOutput {
         a: number,
         b: number
     ) => [number, number, number, number];
+    readonly add_master_with_interpolated_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
+    readonly reinterpolate_layer_yjs: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number];
+    readonly reinterpolate_master_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (
         a: number,
