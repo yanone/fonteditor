@@ -889,14 +889,27 @@ def filter_glyphs(font):
             return true;
         }
 
-        const save = confirm(
-            'You have unsaved changes. Do you want to save before opening a file?'
-        );
-        if (!save) {
+        const { showNamedUnsavedChangesDialog } =
+            await import('./ui/confirm-dialog');
+        const scriptName = currentFilePath?.split('/').pop() || 'Untitled';
+        const choice = await showNamedUnsavedChangesDialog({
+            subjectType: 'Script',
+            subjectName: scriptName
+        });
+
+        if (choice === 'cancel') {
+            return false;
+        }
+
+        if (choice === 'discard') {
             return true;
         }
 
-        return await handleSave();
+        if (currentFilePath && currentPluginId) {
+            return await handleSave();
+        }
+
+        return await handleSaveAs();
     }
 
     /**
@@ -913,10 +926,6 @@ def filter_glyphs(font):
                 '[ScriptEditor]',
                 'Open file picker not supported by current plugin'
             );
-            return;
-        }
-
-        if (!(await confirmProceedWithOpen())) {
             return;
         }
 

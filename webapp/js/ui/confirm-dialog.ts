@@ -7,25 +7,30 @@
 
 export type ConfirmChoice = 'save' | 'discard' | 'cancel';
 
-/**
- * Show an "Unsaved Changes" dialog with three choices.
- *
- * @param fontName - The name of the font with unsaved changes
- * @returns A promise that resolves with the user's choice
- */
-export function showUnsavedChangesDialog(
-    fontName: string
-): Promise<ConfirmChoice> {
+type UnsavedChangesDialogOptions = {
+    subjectType: string;
+    subjectName: string;
+};
+
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+export function showNamedUnsavedChangesDialog({
+    subjectType,
+    subjectName
+}: UnsavedChangesDialogOptions): Promise<ConfirmChoice> {
     return new Promise((resolve) => {
         const overlay = document.createElement('div');
         overlay.className = 'info-popup-overlay';
         overlay.style.display = 'flex';
         overlay.style.zIndex = '10002';
 
-        const escapedName = fontName
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
+        const escapedType = escapeHtml(subjectType);
+        const escapedName = escapeHtml(subjectName);
 
         overlay.innerHTML = `
             <div class="info-popup confirm-dialog">
@@ -36,7 +41,7 @@ export function showUnsavedChangesDialog(
                     </button>
                 </div>
                 <div class="info-popup-content confirm-dialog-content">
-                    <p>Font <strong>${escapedName}</strong> has unsaved changes. What do you want to do?</p>
+                    <p>${escapedType} <strong>${escapedName}</strong> has unsaved changes. What do you want to do?</p>
                     <div class="confirm-dialog-actions">
                         <button type="button" class="localized-string-modal-button confirm-dialog-btn confirm-dialog-danger" data-action="discard">Don't Save</button>
                         <button type="button" class="localized-string-modal-button confirm-dialog-btn" data-action="cancel">Cancel</button>
@@ -66,21 +71,18 @@ export function showUnsavedChangesDialog(
             }
         }
 
-        // Click on backdrop (the overlay itself) → cancel
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) {
                 handleChoice('cancel');
             }
         });
 
-        // Close button → cancel
         overlay
             .querySelector('.confirm-dialog-close-btn')
             ?.addEventListener('click', () => {
                 handleChoice('cancel');
             });
 
-        // Button clicks
         overlay.querySelectorAll('[data-action]').forEach((btn) => {
             btn.addEventListener('click', () => {
                 const action = (btn as HTMLElement).dataset
@@ -89,15 +91,28 @@ export function showUnsavedChangesDialog(
             });
         });
 
-        // Escape key → cancel (cleaned up in cleanup())
         document.addEventListener('keydown', onKeyDown);
 
-        // Focus the Save button (primary action)
         queueMicrotask(() => {
             const saveBtn = overlay.querySelector(
                 '[data-action="save"]'
             ) as HTMLElement;
             saveBtn?.focus();
         });
+    });
+}
+
+/**
+ * Show an "Unsaved Changes" dialog with three choices.
+ *
+ * @param fontName - The name of the font with unsaved changes
+ * @returns A promise that resolves with the user's choice
+ */
+export function showUnsavedChangesDialog(
+    fontName: string
+): Promise<ConfirmChoice> {
+    return showNamedUnsavedChangesDialog({
+        subjectType: 'Font',
+        subjectName: fontName
     });
 }
