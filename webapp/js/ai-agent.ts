@@ -121,6 +121,15 @@ type BinaryFontSnapshotProfile = {
     }>;
 };
 
+type PythonSyntaxCheck = {
+    checked: boolean;
+    valid: boolean;
+    message: string;
+    line?: number;
+    offset?: number;
+    text?: string;
+};
+
 const BINARY_FONT_SUMMARY_PATHS = [
     '/tables/head/unitsPerEm',
     '/tables/maxp/numGlyphs',
@@ -2539,6 +2548,78 @@ class AIAgent {
             .join('\n');
     }
 
+    private validatePythonSyntax(content: string): PythonSyntaxCheck {
+        const pyodide = (window as any).pyodide;
+        const runPython = pyodide?._originalRunPython || pyodide?.runPython;
+        const globals = pyodide?.globals;
+        if (
+            !pyodide ||
+            typeof runPython !== 'function' ||
+            !globals ||
+            typeof globals.set !== 'function'
+        ) {
+            return {
+                checked: false,
+                valid: false,
+                message:
+                    'Python syntax validation is not available yet. Wait for Pyodide to finish loading and validate again.'
+            };
+        }
+
+        const sourceKey = '__counterpunch_agent_python_validation_source';
+        globals.set(sourceKey, content);
+        try {
+            const rawResult = runPython.call(
+                pyodide,
+                `import json
+
+def __counterpunch_agent_validate_syntax(source):
+    try:
+        compile(source, "<script-editor>", "exec")
+    except SyntaxError as exc:
+        return json.dumps({
+            "valid": False,
+            "message": exc.msg,
+            "line": exc.lineno,
+            "offset": exc.offset,
+            "text": (exc.text or "").rstrip("\\n")
+        })
+    return json.dumps({"valid": True, "message": "Python syntax is valid."})
+
+__counterpunch_agent_validate_syntax(${sourceKey})`
+            );
+            const parsed = JSON.parse(String(rawResult || '{}'));
+            return {
+                checked: true,
+                valid: parsed.valid === true,
+                message:
+                    typeof parsed.message === 'string'
+                        ? parsed.message
+                        : parsed.valid === true
+                          ? 'Python syntax is valid.'
+                          : 'Python syntax is invalid.',
+                line: typeof parsed.line === 'number' ? parsed.line : undefined,
+                offset:
+                    typeof parsed.offset === 'number'
+                        ? parsed.offset
+                        : undefined,
+                text: typeof parsed.text === 'string' ? parsed.text : undefined
+            };
+        } catch (error: any) {
+            return {
+                checked: false,
+                valid: false,
+                message:
+                    error?.message ||
+                    'Python syntax validation failed before parsing completed.'
+            };
+        } finally {
+            if (typeof globals.delete === 'function') {
+                globals.delete(sourceKey);
+            }
+        }
+    }
+
     private createPythonDiff(oldText: string, newText: string): string {
         const limit = 12;
         const oldLines = oldText.split(/\r?\n/).slice(0, limit);
@@ -2992,18 +3073,50 @@ if '_agent_original_stdout' in dir():
             }
             case 'validate_python_document': {
                 const state = window.scriptEditor.getDocumentState();
+                const syntax = this.validatePythonSyntax(state.content || '');
                 const hasFilterFunction =
                     /^\s*def\s+filter_glyphs\s*\(\s*font\s*\)\s*:/m.test(
                         state.content
                     );
+                const structureValid =
+                    state.kind !== 'glyph-filter' || hasFilterFunction;
+                const messages: string[] = [];
+                if (!syntax.valid) {
+                    const location = syntax.line
+                        ? ` on line ${syntax.line}${
+                              syntax.offset ? `, column ${syntax.offset}` : ''
+                          }`
+                        : '';
+                    messages.push(
+                        syntax.checked
+                            ? `Python syntax error${location}: ${syntax.message}`
+                            : syntax.message
+                    );
+                }
+                if (!structureValid) {
+                    messages.push(
+                        'Glyph filters must define filter_glyphs(font).'
+                    );
+                }
                 return JSON.stringify({
                     kind: state.kind,
                     revision: state.revision,
-                    valid: state.kind !== 'glyph-filter' || hasFilterFunction,
+                    valid: syntax.valid && structureValid,
+                    syntaxChecked: syntax.checked,
+                    syntaxValid: syntax.valid,
+                    syntaxError: syntax.valid
+                        ? null
+                        : {
+                              message: syntax.message,
+                              line: syntax.line,
+                              offset: syntax.offset,
+                              text: syntax.text
+                          },
+                    structureValid,
                     message:
-                        state.kind === 'glyph-filter' && !hasFilterFunction
-                            ? 'Glyph filters must define filter_glyphs(font).'
-                            : 'Static structure is valid. Python was not run.'
+                        messages.length > 0
+                            ? messages.join(' ')
+                            : 'Python syntax and static structure are valid. Python was not run.'
                 });
             }
             case 'get_editor_state': {

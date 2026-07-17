@@ -630,7 +630,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'validate_python_document',
             description:
-                'After create_python_draft_in_editor or replace_python_text_in_editor, perform non-executing structural validation of the current Script Editor buffer. Glyph filters must define filter_glyphs(font). Report validation failures before proposing more edits. This never runs, imports, or saves Python.',
+                'After create_python_draft_in_editor or replace_python_text_in_editor, perform non-executing validation of the current Script Editor buffer. This parses Python syntax with the Python compiler but does not execute the code object. Glyph filters must also define filter_glyphs(font). Report validation failures before proposing more edits. This never runs user code, imports the user document, or saves Python.',
             parameters: {
                 type: 'object',
                 properties: {},

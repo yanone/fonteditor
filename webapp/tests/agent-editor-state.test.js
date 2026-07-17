@@ -376,6 +376,115 @@ describe('get_editor_state text-buffer interpretation', () => {
         ).toBeGreaterThan(0);
     });
 
+    test('validates Python syntax without running the document', async () => {
+        const globals = new Map();
+        const originalRunPython = jest.fn(() =>
+            JSON.stringify({ valid: true, message: 'Python syntax is valid.' })
+        );
+        const wrappedRunPython = jest.fn();
+        const wrappedRunPythonAsync = jest.fn();
+        window.pyodide = {
+            _originalRunPython: originalRunPython,
+            runPython: wrappedRunPython,
+            runPythonAsync: wrappedRunPythonAsync,
+            globals: {
+                set: jest.fn((key, value) => globals.set(key, value)),
+                delete: jest.fn((key) => globals.delete(key))
+            }
+        };
+        window.scriptEditor = {
+            getDocumentState: jest.fn(() => ({
+                kind: 'general-script',
+                revision: 'revision-valid',
+                content: 'print("not run during validation")'
+            }))
+        };
+        const agent = new AIAgent();
+
+        const result = JSON.parse(
+            await agent.executeToolCall({
+                function: {
+                    name: 'validate_python_document',
+                    arguments: '{}'
+                }
+            })
+        );
+
+        expect(result).toMatchObject({
+            valid: true,
+            syntaxChecked: true,
+            syntaxValid: true,
+            structureValid: true,
+            message:
+                'Python syntax and static structure are valid. Python was not run.'
+        });
+        expect(originalRunPython).toHaveBeenCalledWith(
+            expect.stringContaining(
+                'compile(source, "<script-editor>", "exec")'
+            )
+        );
+        expect(
+            globals.get('__counterpunch_agent_python_validation_source')
+        ).toBe(undefined);
+        expect(wrappedRunPython).not.toHaveBeenCalled();
+        expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
+    });
+
+    test('reports Python syntax errors from validation', async () => {
+        const globals = new Map();
+        window.pyodide = {
+            _originalRunPython: jest.fn(() =>
+                JSON.stringify({
+                    valid: false,
+                    message: "expected ':'",
+                    line: 1,
+                    offset: 23,
+                    text: 'def filter_glyphs(font)'
+                })
+            ),
+            globals: {
+                set: jest.fn((key, value) => globals.set(key, value)),
+                delete: jest.fn((key) => globals.delete(key))
+            }
+        };
+        window.scriptEditor = {
+            getDocumentState: jest.fn(() => ({
+                kind: 'glyph-filter',
+                revision: 'revision-invalid',
+                content: 'def filter_glyphs(font)\n    yield {}'
+            }))
+        };
+        const agent = new AIAgent();
+
+        const result = JSON.parse(
+            await agent.executeToolCall({
+                function: {
+                    name: 'validate_python_document',
+                    arguments: '{}'
+                }
+            })
+        );
+
+        expect(result).toMatchObject({
+            valid: false,
+            syntaxChecked: true,
+            syntaxValid: false,
+            structureValid: false,
+            syntaxError: {
+                message: "expected ':'",
+                line: 1,
+                offset: 23,
+                text: 'def filter_glyphs(font)'
+            }
+        });
+        expect(result.message).toContain(
+            "Python syntax error on line 1, column 23: expected ':'"
+        );
+        expect(result.message).toContain(
+            'Glyph filters must define filter_glyphs(font).'
+        );
+    });
+
     test('rejects execute_python_code without invoking Python', async () => {
         const wrappedRunPythonAsync = jest.fn();
         const originalRunPythonAsync = jest.fn();
