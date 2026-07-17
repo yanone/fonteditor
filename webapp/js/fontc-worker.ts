@@ -5,6 +5,7 @@
 import init, {
     compile_babelfont,
     compile_cached_font,
+    compile_cached_font_to_debug_hash,
     compile_cached_font_from_last_layout_closure,
     compile_debug_cached_font_from_last_layout_closure,
     compile_preview_cached_font_from_last_layout_closure,
@@ -16,6 +17,7 @@ import init, {
     dump_layer_state_json,
     add_master_with_interpolated_layers_yjs,
     get_debug_cached_font_bytes,
+    inspect_debug_cached_font,
     prime_layout_closure_cache,
     prime_debug_layout_closure_cache,
     prime_preview_layout_closure_cache,
@@ -572,6 +574,19 @@ function postCompiledResult(
     );
     timelineSpanEnd(postMessageSpanId);
     timelineSpanEnd(transferSpanId);
+}
+
+function postFontHashResult(payload: {
+    id: number;
+    time_taken: number;
+    filename?: string;
+    fontHash: string;
+}) {
+    self.postMessage({
+        type: 'compiled',
+        ...payload,
+        workerPostedAtMs: performance.timeOrigin + performance.now()
+    });
 }
 
 export function isMissingPrimedLayoutClosureError(error: unknown): boolean {
@@ -1476,6 +1491,154 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(compileCachedSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'compileBinaryFont') {
+            const compileBinarySpanId = timelineSpanStart(
+                'font.worker.compileBinaryFont'
+            );
+
+            if (!initialized) {
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: 'Worker not initialized'
+                });
+                return;
+            }
+
+            try {
+                const startTime = performance.now();
+                if (
+                    typeof data.memoryBudgetBytes === 'number' &&
+                    Number.isFinite(data.memoryBudgetBytes) &&
+                    data.memoryBudgetBytes > 0
+                ) {
+                    set_debug_font_cache_max_bytes(
+                        Math.max(1, Math.floor(data.memoryBudgetBytes))
+                    );
+                }
+                const fontHash = compile_cached_font_to_debug_hash(
+                    data.options || {}
+                );
+                const endTime = performance.now();
+                postFontHashResult({
+                    id: data.id,
+                    filename: data.filename || 'analysis-font.ttf',
+                    time_taken: endTime - startTime,
+                    fontHash
+                });
+                timelineMark('font.worker.compileBinaryFont.success');
+            } catch (error: unknown) {
+                timelineMark('font.worker.compileBinaryFont.failed');
+                const normalizedError = normalizeWorkerError(error);
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: normalizedError.message,
+                    errorPayload: normalizedError.payload,
+                    stack: normalizedError.stack
+                });
+            } finally {
+                timelineSpanEnd(compileBinarySpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'getDebugCachedFont') {
+            const getDebugFontSpanId = timelineSpanStart(
+                'font.worker.getDebugCachedFont'
+            );
+
+            if (!initialized) {
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: 'Worker not initialized'
+                });
+                return;
+            }
+
+            try {
+                const fontHash = String(data.fontHash || '').trim();
+                if (!fontHash) {
+                    throw new Error('fontHash is required.');
+                }
+                const compiledBytes = get_debug_cached_font_bytes(fontHash);
+                postCompiledResult(
+                    {
+                        id: data.id,
+                        filename: 'analysis-font.ttf',
+                        time_taken: 0,
+                        fontHash
+                    },
+                    compiledBytes
+                );
+                timelineMark('font.worker.getDebugCachedFont.success');
+            } catch (error: unknown) {
+                timelineMark('font.worker.getDebugCachedFont.failed');
+                const normalizedError = normalizeWorkerError(error);
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: normalizedError.message,
+                    errorPayload: normalizedError.payload,
+                    stack: normalizedError.stack
+                });
+            } finally {
+                timelineSpanEnd(getDebugFontSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'inspectDebugCachedFont') {
+            const inspectDebugFontSpanId = timelineSpanStart(
+                'font.worker.inspectDebugCachedFont'
+            );
+
+            if (!initialized) {
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: 'Worker not initialized'
+                });
+                return;
+            }
+
+            try {
+                const fontHash = String(data.fontHash || '').trim();
+                if (!fontHash) {
+                    throw new Error('fontHash is required.');
+                }
+                if (typeof data.requestJson !== 'string') {
+                    throw new Error('requestJson is required.');
+                }
+
+                const result = inspect_debug_cached_font(
+                    fontHash,
+                    data.requestJson
+                );
+                self.postMessage({
+                    type: 'inspected',
+                    id: data.id,
+                    result,
+                    workerPostedAtMs: performance.timeOrigin + performance.now()
+                });
+                timelineMark('font.worker.inspectDebugCachedFont.success');
+            } catch (error: unknown) {
+                timelineMark('font.worker.inspectDebugCachedFont.failed');
+                const normalizedError = normalizeWorkerError(error);
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: normalizedError.message,
+                    errorPayload: normalizedError.payload,
+                    stack: normalizedError.stack
+                });
+            } finally {
+                timelineSpanEnd(inspectDebugFontSpanId);
             }
             return;
         }

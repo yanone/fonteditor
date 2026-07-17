@@ -39,8 +39,94 @@ interface CompilationOptions {
     produce_varc_table?: boolean;
 }
 
+export type StableWorkerStateDependencies = {
+    awaitWorkerDocumentSync: () => Promise<void>;
+    hasWorkerCacheDocument: () => boolean;
+    getWorkerCacheUpdatePromise: () => Promise<void> | null | undefined;
+    getFontRevisionKey: () => string;
+};
+
+export type StableWorkerStateMessages = {
+    unavailable: string;
+    notReady: string;
+    unstable: string;
+};
+
+export type BinaryFontInspectionValue =
+    | null
+    | string
+    | number
+    | {
+          tag: string;
+          minValue: number;
+          defaultValue: number;
+          maxValue: number;
+          flags: number;
+      }
+    | {
+          kind: 'simple';
+          contours: number[];
+          points: Array<{
+              x: number;
+              y: number;
+              onCurve: boolean;
+          }>;
+      }
+    | {
+          kind: 'composite';
+          components: Array<{
+              gid: number;
+              flags: number;
+          }>;
+      };
+
+export type BinaryFontInspectionResult = {
+    values: BinaryFontInspectionValue[];
+};
+
+/** Wait until the committed worker state and visible font revision settle. */
+export async function awaitStableWorkerState(
+    dependencies: StableWorkerStateDependencies,
+    messages: StableWorkerStateMessages
+): Promise<void> {
+    let lastAwaitedCacheUpdate: Promise<void> | null = null;
+    for (let attempt = 0; attempt < 8; attempt++) {
+        const revisionBeforeSync = dependencies.getFontRevisionKey();
+        await dependencies.awaitWorkerDocumentSync();
+
+        const pendingCacheUpdate =
+            dependencies.getWorkerCacheUpdatePromise() ?? null;
+        if (
+            pendingCacheUpdate &&
+            pendingCacheUpdate !== lastAwaitedCacheUpdate
+        ) {
+            lastAwaitedCacheUpdate = pendingCacheUpdate;
+            await pendingCacheUpdate;
+            continue;
+        }
+
+        await dependencies.awaitWorkerDocumentSync();
+        const cacheUpdateChanged =
+            dependencies.getWorkerCacheUpdatePromise() !== pendingCacheUpdate;
+        if (
+            cacheUpdateChanged ||
+            revisionBeforeSync !== dependencies.getFontRevisionKey()
+        ) {
+            continue;
+        }
+
+        if (!dependencies.hasWorkerCacheDocument()) {
+            throw new Error(messages.notReady);
+        }
+
+        return;
+    }
+
+    throw new Error(messages.unstable);
+}
+
 type ShapeTextWithFontOptions = {
-    features?: string[] | string;
+    features?: string[] | string | Record<string, boolean | number | string>;
     variationLocation?: Record<string, number>;
 };
 
@@ -140,7 +226,7 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
 const DEFAULT_DEBUG_FONT_CACHE_BYTES = 64 * 1024 * 1024;
 
 function normalizeHarfBuzzFeatures(
-    features?: string[] | string
+    features?: string[] | string | Record<string, boolean | number | string>
 ): string | undefined {
     if (typeof features === 'string') {
         const trimmed = features.trim();
@@ -148,7 +234,37 @@ function normalizeHarfBuzzFeatures(
     }
 
     if (!Array.isArray(features)) {
-        return undefined;
+        if (!features || typeof features !== 'object') {
+            return undefined;
+        }
+
+        const normalized = Object.entries(features)
+            .map(([tag, value]) => {
+                const normalizedTag = tag.trim();
+                if (!normalizedTag) {
+                    return '';
+                }
+
+                if (typeof value === 'boolean') {
+                    return `${normalizedTag}=${value ? 1 : 0}`;
+                }
+
+                if (typeof value === 'number' && Number.isFinite(value)) {
+                    return `${normalizedTag}=${value}`;
+                }
+
+                if (typeof value === 'string') {
+                    const trimmedValue = value.trim();
+                    return trimmedValue
+                        ? `${normalizedTag}=${trimmedValue}`
+                        : '';
+                }
+
+                return '';
+            })
+            .filter((feature) => feature.length > 0);
+
+        return normalized.length > 0 ? normalized.join(',') : undefined;
     }
 
     const normalized = Array.from(
@@ -1191,6 +1307,139 @@ export class FontCompilation {
             };
         } finally {
             timelineSpanEnd(compileSpanId);
+        }
+    }
+
+    async compileBinaryFont(
+        target: string | CompilationOptions = 'full',
+        filename: string = 'analysis-font.ttf',
+        workerState?: StableWorkerStateDependencies
+    ): Promise<{
+        fontHash: string;
+        filename: string;
+        time_taken: number;
+    }> {
+        if (!this.isInitialized) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                throw new Error(
+                    'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+                );
+            }
+        }
+
+        if (!workerState) {
+            throw new Error(
+                'Binary-font analysis requires committed worker-state synchronization.'
+            );
+        }
+
+        await awaitStableWorkerState(
+            {
+                ...workerState,
+                awaitWorkerDocumentSync: () => this.awaitWorkerDocumentSync(),
+                hasWorkerCacheDocument: () => this.hasWorkerCacheDocument()
+            },
+            {
+                unavailable:
+                    'Binary-font analysis requires committed worker-state synchronization.',
+                notReady:
+                    'Binary-font analysis requires a ready worker Yjs document.',
+                unstable:
+                    'Binary-font analysis could not stabilize the current font revision. Retry after editing settles.'
+            }
+        );
+
+        const options: CompilationOptions =
+            typeof target === 'string'
+                ? { ...COMPILATION_TARGETS[target] }
+                : target;
+        if (!options) {
+            throw new Error(`Unknown compilation target: ${target}`);
+        }
+
+        const result = await this.sendMessage({
+            type: 'compileBinaryFont',
+            options,
+            filename,
+            memoryBudgetBytes: getDebugFontCacheBudgetBytes()
+        });
+
+        return {
+            fontHash: String(result.fontHash || ''),
+            filename: result.filename || filename,
+            time_taken: result.time_taken || 0
+        };
+    }
+
+    async getDebugCachedFontBytes(fontHash: string): Promise<Uint8Array> {
+        const normalizedHash = String(fontHash || '').trim();
+        if (!normalizedHash) {
+            throw new Error('fontHash is required.');
+        }
+
+        if (!this.isInitialized) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                throw new Error(
+                    'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+                );
+            }
+        }
+
+        const result = await this.sendMessage({
+            type: 'getDebugCachedFont',
+            fontHash: normalizedHash
+        });
+        if (!(result?.result instanceof Uint8Array)) {
+            throw new Error(
+                `Worker returned no compiled binary for font hash ${normalizedHash}`
+            );
+        }
+        return result.result;
+    }
+
+    async inspectDebugCachedFont(
+        fontHash: string,
+        request: { fontIndex?: number; paths: string[] }
+    ): Promise<BinaryFontInspectionResult> {
+        const normalizedHash = String(fontHash || '').trim();
+        if (!normalizedHash) {
+            throw new Error('fontHash is required.');
+        }
+        if (!request || !Array.isArray(request.paths)) {
+            throw new Error('Binary-font inspection requires a paths array.');
+        }
+
+        if (!this.isInitialized) {
+            const initialized = await this.initialize();
+            if (!initialized) {
+                throw new Error(
+                    'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+                );
+            }
+        }
+
+        const result = await this.sendMessage({
+            type: 'inspectDebugCachedFont',
+            fontHash: normalizedHash,
+            requestJson: JSON.stringify({
+                fontIndex: request.fontIndex ?? 0,
+                paths: request.paths
+            })
+        });
+        if (typeof result?.result !== 'string') {
+            throw new Error(
+                `Worker returned no inspection result for font hash ${normalizedHash}`
+            );
+        }
+
+        try {
+            return JSON.parse(result.result) as BinaryFontInspectionResult;
+        } catch (error) {
+            throw new Error(
+                `Worker returned invalid inspection JSON: ${String(error)}`
+            );
         }
     }
 

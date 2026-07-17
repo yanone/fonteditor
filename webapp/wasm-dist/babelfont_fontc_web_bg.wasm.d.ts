@@ -24,6 +24,9 @@ export const compile_cached_font: (a: any) => [number, number, number, number];
 export const compile_cached_font_from_last_layout_closure: (
     a: any
 ) => [number, number, number, number];
+export const compile_cached_font_to_debug_hash: (
+    a: any
+) => [number, number, number, number];
 export const compile_debug_cached_font_from_last_layout_closure: (
     a: any
 ) => [number, number, number, number];
@@ -61,6 +64,12 @@ export const get_layout_closure_cached: (
 ) => [number, number, number, number];
 export const init: () => void;
 export const init_ydoc_from_state: (a: number, b: number) => [number, number];
+export const inspect_debug_cached_font: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number, number];
 export const interpolate_glyph: (
     a: number,
     b: number,
@@ -101,6 +110,26 @@ export const validate_feature_source_with_full_filter_pipeline: (
     a: any
 ) => [number, number];
 export const version: () => [number, number];
+export const add_master_with_interpolated_layers_yjs: (
+    a: number,
+    b: number
+) => [number, number, number];
+export const reinterpolate_layer_yjs: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number];
+export const reinterpolate_master_layers_yjs: (
+    a: number,
+    b: number
+) => [number, number, number];
+export const run_fontspector: (
+    a: number,
+    b: number,
+    c: number,
+    d: number
+) => [number, number, number, number];
 export const get_font_axes: (
     a: number,
     b: number
@@ -126,26 +155,6 @@ export const get_stylistic_set_names: (
     a: number,
     b: number
 ) => [number, number, number, number];
-export const run_fontspector: (
-    a: number,
-    b: number,
-    c: number,
-    d: number
-) => [number, number, number, number];
-export const add_master_with_interpolated_layers_yjs: (
-    a: number,
-    b: number
-) => [number, number, number];
-export const reinterpolate_layer_yjs: (
-    a: number,
-    b: number,
-    c: number,
-    d: number
-) => [number, number, number];
-export const reinterpolate_master_layers_yjs: (
-    a: number,
-    b: number
-) => [number, number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (
     a: number,

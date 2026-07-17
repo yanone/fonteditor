@@ -32,6 +32,12 @@ pub use font_reader::{
     get_glyph_order, get_stylistic_set_names,
 };
 
+mod font_introspection;
+pub use font_introspection::{
+    inspect_font_bytes, parse_path, FontPath, InspectionError, InspectionResult,
+    MAX_OUTPUT_BYTES, MAX_QUERY_COUNT, MAX_REQUEST_BYTES,
+};
+
 // Interpolation module
 mod interpolation;
 
@@ -3642,6 +3648,57 @@ pub fn get_debug_cached_font_bytes(font_hash: &str) -> Result<Vec<u8>, JsValue> 
                 font_hash
             ))
         })
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BinaryFontInspectionRequest {
+    #[serde(default)]
+    font_index: u32,
+    paths: Vec<String>,
+}
+
+/// Inspect a previously compiled debug font by stable hash and return compact
+/// deterministic JSON values in the same order as the requested paths.
+#[wasm_bindgen]
+pub fn inspect_debug_cached_font(
+    font_hash: &str,
+    request_json: &str,
+) -> Result<String, JsValue> {
+    if request_json.len() > MAX_REQUEST_BYTES {
+        return Err(JsValue::from_str("binary font inspection request is too large"));
+    }
+
+    let request: BinaryFontInspectionRequest = serde_json::from_str(request_json)
+        .map_err(|error| JsValue::from_str(&format!("invalid binary font inspection request: {error}")))?;
+    if request.paths.len() > MAX_QUERY_COUNT {
+        return Err(JsValue::from_str("inspection query limit exceeded"));
+    }
+
+    let paths = request
+        .paths
+        .iter()
+        .map(|path| font_introspection::parse_path(path))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let bytes = get_debug_cached_font_bytes(font_hash)?;
+    let result = font_introspection::inspect_font_bytes(&bytes, request.font_index, &paths)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    serde_json::to_string(&result)
+        .map_err(|error| JsValue::from_str(&format!("failed to encode inspection result: {error}")))
+}
+
+/// Compile the current cached font, store its bytes in the debug cache, and
+/// return only the stable hash used to retrieve those bytes later.
+#[wasm_bindgen]
+pub fn compile_cached_font_to_debug_hash(options: &JsValue) -> Result<String, JsValue> {
+    let compiled_font = compile_cached_font(options)?;
+    let font_hash = stable_hash_bytes(&compiled_font);
+    DEBUG_FONT_BYTES_CACHE
+        .lock()
+        .unwrap()
+        .insert(font_hash.clone(), compiled_font);
+    Ok(font_hash)
 }
 
 /// Compile the cached font to TTF

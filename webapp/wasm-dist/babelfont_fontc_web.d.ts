@@ -93,6 +93,12 @@ export function compile_cached_font_from_last_layout_closure(
 ): Uint8Array;
 
 /**
+ * Compile the current cached font, store its bytes in the debug cache, and
+ * return only the stable hash used to retrieve those bytes later.
+ */
+export function compile_cached_font_to_debug_hash(options: any): string;
+
+/**
  * Compile the committed-state debug cached font using the last primed debug
  * layout closure subset. Returns a stable hash key for retrieving the cached
  * font bytes via get_debug_cached_font_bytes().
@@ -306,6 +312,15 @@ export function init(): void;
 export function init_ydoc_from_state(state_update: Uint8Array): void;
 
 /**
+ * Inspect a previously compiled debug font by stable hash and return compact
+ * deterministic JSON values in the same order as the requested paths.
+ */
+export function inspect_debug_cached_font(
+    font_hash: string,
+    request_json: string
+): string;
+
+/**
  * Interpolate a glyph at a specific location in design space
  *
  * Requires that a font has been stored via store_font() first.
@@ -452,6 +467,9 @@ export interface InitOutput {
     readonly compile_cached_font_from_last_layout_closure: (
         a: any
     ) => [number, number, number, number];
+    readonly compile_cached_font_to_debug_hash: (
+        a: any
+    ) => [number, number, number, number];
     readonly compile_debug_cached_font_from_last_layout_closure: (
         a: any
     ) => [number, number, number, number];
@@ -489,6 +507,12 @@ export interface InitOutput {
     ) => [number, number, number, number];
     readonly init: () => void;
     readonly init_ydoc_from_state: (a: number, b: number) => [number, number];
+    readonly inspect_debug_cached_font: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number, number];
     readonly interpolate_glyph: (
         a: number,
         b: number,
@@ -529,6 +553,26 @@ export interface InitOutput {
         a: any
     ) => [number, number];
     readonly version: () => [number, number];
+    readonly add_master_with_interpolated_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
+    readonly reinterpolate_layer_yjs: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number];
+    readonly reinterpolate_master_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
+    readonly run_fontspector: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number, number];
     readonly get_font_axes: (
         a: number,
         b: number
@@ -554,26 +598,6 @@ export interface InitOutput {
         a: number,
         b: number
     ) => [number, number, number, number];
-    readonly run_fontspector: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number, number];
-    readonly add_master_with_interpolated_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
-    readonly reinterpolate_layer_yjs: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number];
-    readonly reinterpolate_master_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (
         a: number,

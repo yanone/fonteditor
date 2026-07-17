@@ -22,22 +22,17 @@ import {
 } from './opentype-features';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import {
-    buildCompileAndShapeFontCacheKey,
-    buildCompileAndShapeFontRevisionKey,
-    CompileAndShapeFontCacheEntry,
-    resolveCompileAndShapeFontCompilation
-} from './compile-and-shape-font-cache';
-import {
     AgentPromptExecutionContext,
     awaitActiveAgentPythonExecutionSettled,
     getActiveAgentPythonExecution,
     runAgentPythonExecution
 } from './agent-execution-context';
+import { awaitStableWorkerState } from './font-compilation';
 
 const console = new Logger('AIAgent');
 const DEFAULT_PROMPT_HISTORY_SUMMARY = 'Agent changes';
 
-type CompileAndShapeFontWorkerState = {
+type BinaryFontWorkerState = {
     awaitWorkerDocumentSync?: () => Promise<void>;
     hasWorkerCacheDocument?: () => boolean;
     bootstrapWorkerCacheFromFontState?: (
@@ -47,20 +42,67 @@ type CompileAndShapeFontWorkerState = {
         target: string,
         filename: string
     ) => Promise<{ result: Uint8Array }>;
-    compileCommittedDebugFont?: (
-        subsetGlyphs: string[]
-    ) => Promise<{ result: Uint8Array }>;
+    compileCommittedDebugFont?: (subsetGlyphs: string[]) => Promise<{
+        result: Uint8Array;
+        filename: string;
+        time_taken: number;
+        fontHash: string;
+        closureGlyphCount: number;
+    }>;
 };
 
-type CompileAndShapeFontManagerState = {
+type BinaryFontManagerState = {
     workerCacheUpdatePromise?: Promise<void> | null;
     buildWorkerSeedYjsState?: () => Uint8Array | null;
+    deriveSubsetGlyphsFromText?: (text: string) => string[];
+    currentFont?: {
+        sourcePlugin?: { getId?: () => string };
+        path?: string;
+        changeVersion?: number;
+    };
 };
 
+type BinaryFontAnalysisWorkerState = BinaryFontWorkerState & {
+    compileBinaryFont?: (
+        target: string,
+        filename: string,
+        workerState: {
+            awaitWorkerDocumentSync: () => Promise<void>;
+            hasWorkerCacheDocument: () => boolean;
+            getWorkerCacheUpdatePromise: () => Promise<void> | null;
+            getFontRevisionKey: () => string;
+        }
+    ) => Promise<{ fontHash: string }>;
+    getDebugCachedFontBytes?: (fontHash: string) => Promise<Uint8Array>;
+    inspectDebugCachedFont?: (
+        fontHash: string,
+        request: { fontIndex?: number; paths: string[] }
+    ) => Promise<{ values: unknown[] }>;
+};
+
+const BINARY_FONT_API_DOCS = `Binary font tools use an explicit compile-then-read workflow.
+
+1. Call compile_binary_font first. It compiles the current committed font in an isolated analysis worker and returns only a stable fontHash. Use target "subset" together with text when you want the existing layout-closure path to derive subset glyphs from that text.
+2. Pass that fontHash to shape_binary_font or inspect_binary_font. These tools never compile implicitly and fail if the hash is missing from the analysis cache.
+3. Call binary_font_api_docs before inspect_binary_font. Inspection returns {"values": [...]} in the same order as the requested paths.
+
+Supported inspection paths:
+- /tables/head/unitsPerEm
+- /tables/maxp/numGlyphs
+- /tables/name/records/platformID=3/encodingID=1/languageID=0x0409/nameID=1/string
+- /tables/fvar/axes/index=0 and /tables/fvar/axes/index=0/tag|minValue|defaultValue|maxValue|flags
+- /tables/hmtx/metrics/gid=42/advanceWidth|sideBearing
+- /tables/cmap/codepoint=U+0041/gid
+- /tables/glyf/gid=36/outline
+
+Inspection is bounded to 64 paths, 256 list entries, 4096 raw string bytes, 256 KiB request bytes, and 64 KiB serialized output. Missing tables, records, glyphs, and cmap entries return null. Malformed fonts, invalid indexes, unknown paths, and exceeded limits fail visibly.
+
+shape_binary_font accepts text plus an optional HarfBuzz feature map, for example {"liga": false, "kern": true}, and a userspace variationLocation. It returns glyph names, gids, advances, offsets, and clusters for the compiled hash.`;
+
 /** Wait until the committed Yjs worker state and visible font revision settle. */
-async function awaitStableCompileAndShapeFontWorkerState(
-    fontManager: CompileAndShapeFontManagerState,
-    fontCompilation: CompileAndShapeFontWorkerState,
+async function awaitStableBinaryFontWorkerState(
+    fontManager: BinaryFontManagerState,
+    fontCompilation: BinaryFontWorkerState,
     getFontRevisionKey: () => string
 ): Promise<void> {
     if (
@@ -68,44 +110,130 @@ async function awaitStableCompileAndShapeFontWorkerState(
         typeof fontCompilation.hasWorkerCacheDocument !== 'function'
     ) {
         throw new Error(
-            'compile_and_shape_font worker synchronization is not available yet.'
+            'Binary-font analysis worker synchronization is not available yet.'
         );
     }
 
-    let lastAwaitedCacheUpdate: Promise<void> | null = null;
-    for (let attempt = 0; attempt < 8; attempt++) {
-        const revisionBeforeSync = getFontRevisionKey();
-        await fontCompilation.awaitWorkerDocumentSync();
-
-        const pendingCacheUpdate = fontManager.workerCacheUpdatePromise ?? null;
-        if (
-            pendingCacheUpdate &&
-            pendingCacheUpdate !== lastAwaitedCacheUpdate
-        ) {
-            lastAwaitedCacheUpdate = pendingCacheUpdate;
-            await pendingCacheUpdate;
-            continue;
+    await awaitStableWorkerState(
+        {
+            awaitWorkerDocumentSync: () =>
+                fontCompilation.awaitWorkerDocumentSync!(),
+            hasWorkerCacheDocument: () =>
+                fontCompilation.hasWorkerCacheDocument!(),
+            getWorkerCacheUpdatePromise: () =>
+                fontManager.workerCacheUpdatePromise,
+            getFontRevisionKey
+        },
+        {
+            unavailable:
+                'Binary-font analysis worker synchronization is not available yet.',
+            notReady:
+                'Binary-font analysis requires the current font to finish synchronizing to the compiler worker.',
+            unstable:
+                'Binary-font analysis could not stabilize the current font revision. Retry after editing settles.'
         }
+    );
+}
 
-        await fontCompilation.awaitWorkerDocumentSync();
-        const cacheUpdateChanged =
-            fontManager.workerCacheUpdatePromise !== pendingCacheUpdate;
-        if (cacheUpdateChanged || revisionBeforeSync !== getFontRevisionKey()) {
-            continue;
+type BinaryFontRuntime = {
+    fontManager?: BinaryFontManagerState;
+    fontCompilation?: BinaryFontWorkerState;
+    fullFontCompilation?: BinaryFontAnalysisWorkerState;
+    shapeTextWithFontDetailed?: (
+        fontBytes: Uint8Array,
+        text: string,
+        options?: {
+            features?:
+                string | string[] | Record<string, boolean | number | string>;
+            variationLocation?: Record<string, number>;
         }
+    ) => Promise<{
+        glyphs: string[];
+        gids: number[];
+        advances: number[];
+        advancesY: number[];
+        offsetsX: number[];
+        offsetsY: number[];
+        clusters: number[];
+    }>;
+};
 
-        if (!fontCompilation.hasWorkerCacheDocument()) {
-            throw new Error(
-                'compile_and_shape_font requires the current font to finish synchronizing to the compiler worker.'
-            );
-        }
+function getBinaryFontRuntime(): BinaryFontRuntime {
+    return window as unknown as BinaryFontRuntime;
+}
 
-        return;
+function isAgentEditPreviewActive(): boolean {
+    const outlineEditor = window.glyphCanvas?.outlineEditor;
+    return Boolean(
+        outlineEditor?.draggingSomething ||
+        outlineEditor?.isPreviewMode ||
+        outlineEditor?.hasPendingKeyboardPreviewCommit()
+    );
+}
+
+function assertBinaryFontMainWindow(toolName: string): void {
+    if (window.windowRole && !window.windowRole.isMainWindow()) {
+        throw new Error(`${toolName} is only available in the main window.`);
+    }
+    if (isAgentEditPreviewActive()) {
+        throw new Error(
+            `${toolName} is unavailable while an edit preview is active. Retry after the edit commits.`
+        );
+    }
+}
+
+async function prepareBinaryFontAnalysisWorker(
+    fontManager: BinaryFontManagerState,
+    editingCompiler: BinaryFontWorkerState,
+    analysisCompiler: BinaryFontAnalysisWorkerState,
+    getFontRevisionKey: () => string
+): Promise<void> {
+    await awaitStableBinaryFontWorkerState(
+        fontManager,
+        editingCompiler,
+        getFontRevisionKey
+    );
+    if (isAgentEditPreviewActive()) {
+        throw new Error(
+            'Binary-font analysis is unavailable while an edit preview is active. Retry after the edit commits.'
+        );
     }
 
-    throw new Error(
-        'compile_and_shape_font could not stabilize the current font revision. Retry after editing settles.'
-    );
+    if (
+        typeof analysisCompiler.bootstrapWorkerCacheFromFontState !== 'function'
+    ) {
+        throw new Error(
+            'Binary-font analysis isolated compiler is not ready yet.'
+        );
+    }
+    const workerSeedState = fontManager.buildWorkerSeedYjsState?.();
+    if (!workerSeedState?.length) {
+        throw new Error(
+            'Binary-font analysis could not snapshot the committed font state.'
+        );
+    }
+    await analysisCompiler.bootstrapWorkerCacheFromFontState(workerSeedState);
+}
+
+function getBinaryFontAnalysisWorkerState(
+    analysisCompiler: BinaryFontAnalysisWorkerState
+) {
+    if (
+        typeof analysisCompiler.awaitWorkerDocumentSync !== 'function' ||
+        typeof analysisCompiler.hasWorkerCacheDocument !== 'function'
+    ) {
+        throw new Error(
+            'Binary-font analysis isolated compiler synchronization is not ready yet.'
+        );
+    }
+    return {
+        awaitWorkerDocumentSync: () =>
+            analysisCompiler.awaitWorkerDocumentSync!(),
+        hasWorkerCacheDocument: () =>
+            analysisCompiler.hasWorkerCacheDocument!(),
+        getWorkerCacheUpdatePromise: () => null,
+        getFontRevisionKey: () => 'binary-analysis-worker'
+    };
 }
 
 class AIAgent {
@@ -127,7 +255,7 @@ class AIAgent {
     conversationMessages: Array<any>;
     roundUsage: UsageMetrics[];
     sessionTotals: UsageMetrics;
-    compileAndShapeFontCache: CompileAndShapeFontCacheEntry | null;
+    binaryFontApiDocsViewed: boolean;
     allowFontEdits: boolean;
     activePromptContext: AgentPromptExecutionContext | null;
     promptTransactionOpen: boolean;
@@ -149,7 +277,7 @@ class AIAgent {
         this.conversationMessages = [];
         this.roundUsage = [];
         this.sessionTotals = {};
-        this.compileAndShapeFontCache = null;
+        this.binaryFontApiDocsViewed = false;
         this.allowFontEdits =
             localStorage.getItem('agentAllowFontEdits') === 'true';
         this.activePromptContext = null;
@@ -1948,152 +2076,43 @@ if '_agent_original_stdout' in dir():
 
                 return `Features updated. Active: ${activeFeatures.length > 0 ? activeFeatures.join(', ') : '(none)'}`;
             }
-            case 'compile_and_shape_font': {
-                const fm = (window as any).fontManager;
-                const editingFontCompilation = (window as any).fontCompilation;
-                const analysisFontCompilation = (window as any)
-                    .fullFontCompilation;
-                const shapeWithFontDetailed = (window as any)
-                    .shapeTextWithFontDetailed;
+            case 'binary_font_api_docs':
+                this.binaryFontApiDocsViewed = true;
+                return BINARY_FONT_API_DOCS;
+            case 'compile_binary_font': {
+                const runtime = getBinaryFontRuntime();
+                const fontManager = runtime.fontManager;
+                const editingCompiler = runtime.fontCompilation;
+                const analysisCompiler = runtime.fullFontCompilation;
+                if (!fontManager || !editingCompiler || !analysisCompiler) {
+                    throw new Error(
+                        'compile_binary_font dependencies are not available yet.'
+                    );
+                }
+                if (editingCompiler === analysisCompiler) {
+                    throw new Error(
+                        'compile_binary_font requires a separate analysis compiler.'
+                    );
+                }
+                assertBinaryFontMainWindow('compile_binary_font');
 
+                const target = args.target ?? 'full';
                 if (
-                    !fm ||
-                    !editingFontCompilation ||
-                    !analysisFontCompilation ||
-                    !shapeWithFontDetailed
+                    target !== 'full' &&
+                    target !== 'subset' &&
+                    target !== 'editing'
                 ) {
                     throw new Error(
-                        'compile_and_shape_font dependencies are not available yet.'
+                        'target must be either "full" or "subset".'
                     );
                 }
-                if (analysisFontCompilation === editingFontCompilation) {
-                    throw new Error(
-                        'compile_and_shape_font requires a separate analysis compiler.'
-                    );
+                const subsetTarget =
+                    target === 'subset' || target === 'editing';
+                if (subsetTarget && typeof args.text !== 'string') {
+                    throw new Error('target "subset" requires text (string).');
                 }
-                if (window.windowRole && !window.windowRole.isMainWindow()) {
-                    throw new Error(
-                        'compile_and_shape_font is only available in the main window.'
-                    );
-                }
-                const isEditPreviewActive = () => {
-                    const outlineEditor = window.glyphCanvas?.outlineEditor;
-                    return (
-                        outlineEditor?.draggingSomething ||
-                        outlineEditor?.isPreviewMode ||
-                        outlineEditor?.hasPendingKeyboardPreviewCommit()
-                    );
-                };
-                if (isEditPreviewActive()) {
-                    throw new Error(
-                        'compile_and_shape_font is unavailable while an edit preview is active. Retry after the edit commits.'
-                    );
-                }
-
-                if (typeof args.text !== 'string') {
-                    throw new Error(
-                        'Missing required parameter: text (string). Use an empty string for full-font mode.'
-                    );
-                }
-                const text = args.text;
-                const fullFontMode = text.length === 0;
-
-                if (
-                    args.featureOverrides != null &&
-                    (typeof args.featureOverrides !== 'object' ||
-                        Array.isArray(args.featureOverrides))
-                ) {
-                    throw new Error(
-                        'featureOverrides must be an object of { tag: boolean } when provided.'
-                    );
-                }
-                const featureOverridesInput = (args.featureOverrides ||
-                    {}) as Record<string, unknown>;
-                const featureOverrides: Record<string, boolean> = {};
-                for (const [rawTag, enabled] of Object.entries(
-                    featureOverridesInput
-                )) {
-                    const tag = rawTag.trim();
-                    if (tag.length === 0 || typeof enabled !== 'boolean') {
-                        continue;
-                    }
-                    featureOverrides[tag] = enabled;
-                }
-                const featureOverrideList = Object.entries(featureOverrides)
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([tag, enabled]) => `${tag}=${enabled ? 1 : 0}`);
-                const featureOverrideString =
-                    featureOverrideList.length > 0
-                        ? featureOverrideList.join(',')
-                        : undefined;
-
-                const hasUserspaceLocation = args.userspaceLocation != null;
-                const hasDesignspaceLocation = args.designspaceLocation != null;
-                if (hasUserspaceLocation && hasDesignspaceLocation) {
-                    throw new Error(
-                        'Provide at most one of userspaceLocation or designspaceLocation, not both.'
-                    );
-                }
-
-                if (
-                    (hasUserspaceLocation &&
-                        typeof args.userspaceLocation !== 'object') ||
-                    Array.isArray(args.userspaceLocation)
-                ) {
-                    throw new Error(
-                        'userspaceLocation must be an object when provided.'
-                    );
-                }
-                if (
-                    (hasDesignspaceLocation &&
-                        typeof args.designspaceLocation !== 'object') ||
-                    Array.isArray(args.designspaceLocation)
-                ) {
-                    throw new Error(
-                        'designspaceLocation must be an object when provided.'
-                    );
-                }
-
-                const axes = fm?.currentFontModel?.axes || [];
-                const explicitUserspaceLocation = Object.fromEntries(
-                    Object.entries(
-                        (args.userspaceLocation || {}) as Record<
-                            string,
-                            unknown
-                        >
-                    ).filter(
-                        ([, value]) =>
-                            typeof value === 'number' && Number.isFinite(value)
-                    )
-                ) as Record<string, number>;
-
-                const explicitDesignspaceLocation = Object.fromEntries(
-                    Object.entries(
-                        (args.designspaceLocation || {}) as Record<
-                            string,
-                            unknown
-                        >
-                    ).filter(
-                        ([, value]) =>
-                            typeof value === 'number' && Number.isFinite(value)
-                    )
-                ) as Record<string, number>;
-
-                const userspaceLocation = hasDesignspaceLocation
-                    ? (designspaceToUserspace(
-                          explicitDesignspaceLocation as any,
-                          axes
-                      ) as Record<string, number>)
-                    : explicitUserspaceLocation;
-                const designspaceLocation = hasUserspaceLocation
-                    ? userspaceToDesignspace(
-                          explicitUserspaceLocation as any,
-                          axes
-                      )
-                    : explicitDesignspaceLocation;
-
                 const getFontRevision = () => {
-                    const currentFont = fm?.currentFont;
+                    const currentFont = fontManager.currentFont;
                     return {
                         pluginId: currentFont?.sourcePlugin?.getId?.() || '',
                         fontPath: currentFont?.path || '',
@@ -2103,115 +2122,205 @@ if '_agent_original_stdout' in dir():
                                 : null
                     };
                 };
-                await awaitStableCompileAndShapeFontWorkerState(
-                    fm as CompileAndShapeFontManagerState,
-                    editingFontCompilation as CompileAndShapeFontWorkerState,
-                    () => buildCompileAndShapeFontRevisionKey(getFontRevision())
+                await prepareBinaryFontAnalysisWorker(
+                    fontManager,
+                    editingCompiler,
+                    analysisCompiler,
+                    () => JSON.stringify(getFontRevision())
                 );
-                if (isEditPreviewActive()) {
+                if (subsetTarget) {
+                    const deriveSubsetGlyphsFromText =
+                        fontManager.deriveSubsetGlyphsFromText;
+                    if (typeof deriveSubsetGlyphsFromText !== 'function') {
+                        throw new Error(
+                            'compile_binary_font subset target requires layout-closure support.'
+                        );
+                    }
+
+                    const subsetGlyphs = deriveSubsetGlyphsFromText(args.text);
+                    if (!subsetGlyphs.length) {
+                        throw new Error(
+                            'target "subset" requires text that resolves to at least one glyph.'
+                        );
+                    }
+
+                    if (
+                        typeof analysisCompiler.compileCommittedDebugFont !==
+                        'function'
+                    ) {
+                        throw new Error(
+                            'compile_binary_font subset target is not available in the analysis compiler.'
+                        );
+                    }
+
+                    const result =
+                        await analysisCompiler.compileCommittedDebugFont(
+                            subsetGlyphs
+                        );
+                    const fontHash = String(result.fontHash || '').trim();
+                    if (!fontHash) {
+                        throw new Error(
+                            'compile_binary_font returned an empty font hash.'
+                        );
+                    }
+                    return fontHash;
+                }
+
+                if (typeof analysisCompiler.compileBinaryFont !== 'function') {
                     throw new Error(
-                        'compile_and_shape_font is unavailable while an edit preview is active. Retry after the edit commits.'
+                        'compile_binary_font is not available in the analysis compiler.'
                     );
                 }
-                const fontRevision = getFontRevision();
-                const fontRevisionKey =
-                    buildCompileAndShapeFontRevisionKey(fontRevision);
-                const analysisCompiler =
-                    analysisFontCompilation as CompileAndShapeFontWorkerState;
+                const result = await analysisCompiler.compileBinaryFont(
+                    target,
+                    'agent-binary-font.ttf',
+                    getBinaryFontAnalysisWorkerState(analysisCompiler)
+                );
+                const fontHash = String(result.fontHash || '').trim();
+                if (!fontHash) {
+                    throw new Error(
+                        'compile_binary_font returned an empty font hash.'
+                    );
+                }
+                return fontHash;
+            }
+            case 'shape_binary_font': {
+                const fontHash = String(args.fontHash || '').trim();
+                if (!fontHash) {
+                    throw new Error(
+                        'Missing required parameter: fontHash. Call compile_binary_font first.'
+                    );
+                }
+                if (typeof args.text !== 'string') {
+                    throw new Error(
+                        'Missing required parameter: text (string).'
+                    );
+                }
                 if (
-                    typeof analysisCompiler.bootstrapWorkerCacheFromFontState !==
+                    args.features !== undefined &&
+                    (typeof args.features !== 'object' ||
+                        args.features === null ||
+                        Array.isArray(args.features))
+                ) {
+                    throw new Error(
+                        'features must be an object when provided.'
+                    );
+                }
+                if (
+                    args.variationLocation !== undefined &&
+                    (typeof args.variationLocation !== 'object' ||
+                        args.variationLocation === null ||
+                        Array.isArray(args.variationLocation))
+                ) {
+                    throw new Error(
+                        'variationLocation must be an object when provided.'
+                    );
+                }
+
+                const runtime = getBinaryFontRuntime();
+                const analysisCompiler = runtime.fullFontCompilation;
+                const shapeWithFontDetailed = runtime.shapeTextWithFontDetailed;
+                if (
+                    !analysisCompiler ||
+                    typeof analysisCompiler.getDebugCachedFontBytes !==
                         'function' ||
-                    typeof analysisCompiler.compileCached !== 'function' ||
-                    typeof analysisCompiler.compileCommittedDebugFont !==
+                    !shapeWithFontDetailed
+                ) {
+                    throw new Error(
+                        'shape_binary_font dependencies are not available yet.'
+                    );
+                }
+                if (runtime.fontCompilation === analysisCompiler) {
+                    throw new Error(
+                        'shape_binary_font requires a separate analysis compiler.'
+                    );
+                }
+                assertBinaryFontMainWindow('shape_binary_font');
+
+                const variationLocation = Object.fromEntries(
+                    Object.entries(
+                        (args.variationLocation || {}) as Record<
+                            string,
+                            unknown
+                        >
+                    ).filter(
+                        ([, value]) =>
+                            typeof value === 'number' && Number.isFinite(value)
+                    )
+                ) as Record<string, number>;
+                const fontBytes =
+                    await analysisCompiler.getDebugCachedFontBytes(fontHash);
+                const shaped = await shapeWithFontDetailed(
+                    fontBytes,
+                    args.text,
+                    {
+                        features: args.features,
+                        variationLocation
+                    }
+                );
+                return JSON.stringify({
+                    fontHash,
+                    text: args.text,
+                    ...shaped
+                });
+            }
+            case 'inspect_binary_font': {
+                assertBinaryFontMainWindow('inspect_binary_font');
+                if (!this.binaryFontApiDocsViewed) {
+                    throw new Error(
+                        'Call binary_font_api_docs before inspect_binary_font.'
+                    );
+                }
+                const fontHash = String(args.fontHash || '').trim();
+                if (!fontHash) {
+                    throw new Error(
+                        'Missing required parameter: fontHash. Call compile_binary_font first.'
+                    );
+                }
+                if (!Array.isArray(args.paths)) {
+                    throw new Error(
+                        'Missing required parameter: paths (array of strings).'
+                    );
+                }
+                if (
+                    args.fontIndex !== undefined &&
+                    (!Number.isInteger(args.fontIndex) || args.fontIndex < 0)
+                ) {
+                    throw new Error(
+                        'fontIndex must be a non-negative integer when provided.'
+                    );
+                }
+                if (
+                    args.paths.some((path: unknown) => typeof path !== 'string')
+                ) {
+                    throw new Error('Every inspection path must be a string.');
+                }
+
+                const runtime = getBinaryFontRuntime();
+                const analysisCompiler = runtime.fullFontCompilation;
+                if (
+                    !analysisCompiler ||
+                    typeof analysisCompiler.inspectDebugCachedFont !==
                         'function'
                 ) {
                     throw new Error(
-                        'compile_and_shape_font isolated analysis compiler is not ready yet.'
+                        'inspect_binary_font analysis compiler is not available yet.'
                     );
                 }
-                const cacheKey = buildCompileAndShapeFontCacheKey(
-                    fontRevision,
-                    text
-                );
+                if (runtime.fontCompilation === analysisCompiler) {
+                    throw new Error(
+                        'inspect_binary_font requires a separate analysis compiler.'
+                    );
+                }
 
-                const allFeatureTags = Object.keys(featureOverrides).sort();
-                const features = allFeatureTags.map((tag) => ({
-                    tag,
-                    active: featureOverrides[tag] === true,
-                    inSubset: !fullFontMode,
-                    description: getFeatureDescription(tag) || tag
-                }));
-
-                const compileResolution =
-                    await resolveCompileAndShapeFontCompilation({
-                        cacheEntry: this.compileAndShapeFontCache,
-                        fontRevisionKey,
-                        cacheKey,
-                        fullFontMode,
-                        text,
-                        shapeOptions: {
-                            features: featureOverrideString,
-                            variationLocation: userspaceLocation
-                        },
-                        compileFullFont: async () => {
-                            const workerSeedState = (
-                                fm as CompileAndShapeFontManagerState
-                            ).buildWorkerSeedYjsState?.();
-                            if (!workerSeedState?.length) {
-                                throw new Error(
-                                    'compile_and_shape_font could not snapshot the committed font state for isolated analysis.'
-                                );
-                            }
-                            await analysisCompiler.bootstrapWorkerCacheFromFontState!(
-                                workerSeedState
-                            );
-                            const fullCommittedFont =
-                                await analysisCompiler.compileCached!(
-                                    'full',
-                                    'debug-full-font.ttf'
-                                );
-                            return fullCommittedFont.result;
-                        },
-                        shapeSubsetWithFont: shapeWithFontDetailed,
-                        compileSubsetFont: async (subsetGlyphs) => {
-                            const compileResult =
-                                await analysisCompiler.compileCommittedDebugFont!(
-                                    subsetGlyphs
-                                );
-                            return compileResult.result;
-                        }
-                    });
-
-                const shaped = await shapeWithFontDetailed(
-                    compileResolution.compiledFont,
-                    text,
+                const result = await analysisCompiler.inspectDebugCachedFont(
+                    fontHash,
                     {
-                        features: featureOverrideString,
-                        variationLocation: userspaceLocation
+                        fontIndex: args.fontIndex,
+                        paths: args.paths
                     }
                 );
-
-                const editorStateOutput = {
-                    textBuffer: text,
-                    glyphs: shaped.glyphs.join(' '),
-                    gids: shaped.gids.join(' '),
-                    advances: shaped.advances.join(' '),
-                    clusters: shaped.clusters.join(' '),
-                    fontRevision,
-                    userspaceLocation,
-                    designspaceLocation,
-                    featureStateByTag: Object.fromEntries(
-                        allFeatureTags.map((tag) => [
-                            tag,
-                            featureOverrides[tag]
-                        ])
-                    ),
-                    features,
-                    file: fm?.currentFont?.path || ''
-                };
-                const result = JSON.stringify(editorStateOutput, null, 2);
-                this.compileAndShapeFontCache = compileResolution.cacheEntry;
-                return result;
+                return JSON.stringify(result);
             }
             default:
                 throw new Error(`Unknown tool: ${name}`);

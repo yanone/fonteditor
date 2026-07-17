@@ -201,6 +201,32 @@ export function compile_cached_font_from_last_layout_closure(options) {
 }
 
 /**
+ * Compile the current cached font, store its bytes in the debug cache, and
+ * return only the stable hash used to retrieve those bytes later.
+ * @param {any} options
+ * @returns {string}
+ */
+export function compile_cached_font_to_debug_hash(options) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ret = wasm.compile_cached_font_to_debug_hash(options);
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0;
+            len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * Compile the committed-state debug cached font using the last primed debug
  * layout closure subset. Returns a stable hash key for retrieving the cached
  * font bytes via get_debug_cached_font_bytes().
@@ -722,6 +748,45 @@ export function init_ydoc_from_state(state_update) {
     const ret = wasm.init_ydoc_from_state(ptr0, len0);
     if (ret[1]) {
         throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
+ * Inspect a previously compiled debug font by stable hash and return compact
+ * deterministic JSON values in the same order as the requested paths.
+ * @param {string} font_hash
+ * @param {string} request_json
+ * @returns {string}
+ */
+export function inspect_debug_cached_font(font_hash, request_json) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(
+            font_hash,
+            wasm.__wbindgen_malloc,
+            wasm.__wbindgen_realloc
+        );
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(
+            request_json,
+            wasm.__wbindgen_malloc,
+            wasm.__wbindgen_realloc
+        );
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.inspect_debug_cached_font(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0;
+            len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
     }
 }
 

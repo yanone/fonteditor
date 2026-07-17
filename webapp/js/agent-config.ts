@@ -137,7 +137,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'get_editor_state',
             description:
-                'Get the current editor state for both inspection and parameter-copying. Returns raw text-buffer syntax as textBuffer and textBufferRaw, user-visible text as textBufferDisplay, parsed explicit glyph tokens, HarfBuzz shaped buffers (glyph names, gids, advances, clusters), the complete current OpenType feature inventory with descriptions, subset availability, and activation flags, a per-feature tag-to-boolean activation dictionary, the current userspace location, the current designspace location, and the current file. In raw text syntax, // represents one literal slash and /glyphname is an explicit glyph reference only when it resolves; never claim an escaped slash pair unless textBufferRaw explicitly contains //. Use this to understand the active text layout and feature configuration, and also to copy explicit inputs for compile_and_shape_font. This state can change after text, feature, or font-data edits, so refresh it when needed.',
+                'Get the current editor state for both inspection and parameter-copying. Returns raw text-buffer syntax as textBuffer and textBufferRaw, user-visible text as textBufferDisplay, parsed explicit glyph tokens, HarfBuzz shaped buffers (glyph names, gids, advances, clusters), the complete current OpenType feature inventory with descriptions, subset availability, and activation flags, a per-feature tag-to-boolean activation dictionary, the current userspace location, the current designspace location, and the current file. In raw text syntax, // represents one literal slash and /glyphname is an explicit glyph reference only when it resolves; never claim an escaped slash pair unless textBufferRaw explicitly contains //. Use this to understand the active text layout and feature configuration, and also to copy explicit inputs for compile_binary_font or shape_binary_font. This state can change after text, feature, or font-data edits, so refresh it when needed.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -219,34 +219,102 @@ export const AGENT_TOOLS: AgentTool[] = [
     {
         type: 'function',
         function: {
-            name: 'compile_and_shape_font',
+            name: 'compile_binary_font',
             description:
-                'Compile the current committed editor font and shape `text` with explicit inputs only. Use this when you need a state-style shaping result without relying on the editor UI state. Empty `text` compiles the full font; non-empty `text` compiles and shapes a subset seeded from that text. The tool waits for committed edits to reach the compiler worker and is unavailable during an active edit preview. `featureOverrides` is an optional tag-to-boolean map that overrides HarfBuzz defaults. `userspaceLocation` and `designspaceLocation` are optional variation-location overrides; provide at most one of them. The result includes shaped buffers, feature state, file, and `fontRevision`. Compile artifacts may be reused internally, but shaping is evaluated on every call with the current inputs.',
+                'Compile the current committed font in an isolated analysis worker and return only a stable fontHash. This is the first step of binary-font analysis. Compilation waits for committed worker state, is unavailable during an active edit preview, does not change the editor, and never exposes binary bytes. Use target subset together with text to reuse the existing layout-closure path for subset glyphs. Pass the returned fontHash explicitly to shape_binary_font or inspect_binary_font; those tools never compile implicitly.',
             parameters: {
                 type: 'object',
                 properties: {
+                    target: {
+                        type: 'string',
+                        enum: ['full', 'subset'],
+                        description:
+                            'Optional compile target. Defaults to full; use subset only together with text when you want the existing subset-closure path.'
+                    },
                     text: {
                         type: 'string',
                         description:
-                            'Required. Text to shape. Empty string means full-font mode; non-empty string means subset mode.'
-                    },
-                    featureOverrides: {
-                        type: 'object',
-                        description:
-                            'Optional. OpenType feature override dictionary, e.g. {"liga": false, "kern": true}. Omit it or pass {} to use HarfBuzz defaults without overrides.'
-                    },
-                    userspaceLocation: {
-                        type: 'object',
-                        description:
-                            'Optional. Userspace variation location override, e.g. {"wght": 500}. Omit it to avoid overriding the font default location. Do not provide this together with designspaceLocation.'
-                    },
-                    designspaceLocation: {
-                        type: 'object',
-                        description:
-                            'Optional. Designspace location override, e.g. {"wght": 75}. Omit it to avoid overriding the font default location. Do not provide this together with userspaceLocation.'
+                            'Text used to derive the subset closure when target is subset.'
                     }
                 },
-                required: ['text']
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'shape_binary_font',
+            description:
+                'Shape explicit text with a previously compiled binary font hash. Requires fontHash from compile_binary_font. This tool only reads the isolated analysis cache and never recompiles or changes editor state. Optional features is a JSON feature map, for example {"liga": false, "kern": true}, and variationLocation is a userspace axis-value object.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    fontHash: {
+                        type: 'string',
+                        description:
+                            'Required stable hash returned by compile_binary_font.'
+                    },
+                    text: {
+                        type: 'string',
+                        description: 'Required text to shape.'
+                    },
+                    features: {
+                        type: 'object',
+                        description:
+                            'Optional HarfBuzz feature map, for example {"liga": false, "kern": true}.'
+                    },
+                    variationLocation: {
+                        type: 'object',
+                        description:
+                            'Optional userspace variation location, for example {"wght": 500}.'
+                    }
+                },
+                required: ['fontHash', 'text']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'binary_font_api_docs',
+            description:
+                'Get the supported binary-font shaping and inspection workflow, path grammar, result format, and safety limits. Call this before inspect_binary_font.',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'inspect_binary_font',
+            description:
+                'Inspect selected OpenType table values from a previously compiled binary font hash. Requires fontHash from compile_binary_font and a prior binary_font_api_docs call. This tool never compiles implicitly. Paths are resolved in request order and returned as {values: [...]}; missing optional values are null and malformed fonts or exceeded safety limits fail visibly.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    fontHash: {
+                        type: 'string',
+                        description:
+                            'Required stable hash returned by compile_binary_font.'
+                    },
+                    fontIndex: {
+                        type: 'integer',
+                        minimum: 0,
+                        description:
+                            'Optional face index for a TrueType Collection. Defaults to 0.'
+                    },
+                    paths: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description:
+                            'Required bounded list of supported table paths. Values preserve this exact order.'
+                    }
+                },
+                required: ['fontHash', 'paths']
             }
         }
     },
