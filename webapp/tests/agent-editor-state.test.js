@@ -237,6 +237,30 @@ describe('get_editor_state text-buffer interpretation', () => {
         global.fetch = originalFetch;
     });
 
+    test('renders every enum parameter as a selectable tool-executor field', () => {
+        const { AGENT_TOOLS } = require('../js/agent-config.ts');
+        const agent = new AIAgent();
+        const toolsWithEnums = AGENT_TOOLS.filter(({ function: tool }) =>
+            Object.values(tool.parameters.properties || {}).some((schema) =>
+                Array.isArray(schema.enum)
+            )
+        );
+
+        for (const tool of toolsWithEnums) {
+            const popup = agent.createToolInvocationPopup(tool);
+            for (const [name, schema] of Object.entries(
+                tool.function.parameters.properties
+            )) {
+                if (!Array.isArray(schema.enum)) continue;
+                const selector = popup.querySelector(`select[name="${name}"]`);
+                expect(selector).not.toBeNull();
+                expect(
+                    Array.from(selector.options).map((option) => option.value)
+                ).toEqual(['', ...schema.enum]);
+            }
+        }
+    });
+
     test('rejects execute_python_code without invoking Python', async () => {
         const wrappedRunPythonAsync = jest.fn();
         const originalRunPythonAsync = jest.fn();

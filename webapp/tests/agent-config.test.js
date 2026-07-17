@@ -12,6 +12,12 @@ describe('agent configuration', () => {
         expect(AGENT_SYSTEM_PROMPT).toContain(
             'call python_authoring_guide for its kind'
         );
+        const activeDocumentTool = AGENT_TOOLS.find(
+            ({ function: tool }) => tool.name === 'get_active_python_document'
+        );
+        expect(activeDocumentTool.function.description).toContain(
+            'use the returned kind with python_authoring_guide'
+        );
         const guideTool = AGENT_TOOLS.find(
             ({ function: tool }) => tool.name === 'python_authoring_guide'
         );
@@ -23,5 +29,8 @@ describe('agent configuration', () => {
                 }
             }
         });
+        expect(
+            guideTool.function.parameters.properties.kind.description
+        ).toContain('general-script');
     });
 });

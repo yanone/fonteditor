@@ -463,7 +463,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'get_active_python_document',
             description:
-                'Read the current Script Editor buffer. Returns its purpose, saved path, revision, modified state, and optionally bounded content. Read this before proposing or replacing script code.',
+                'Read the current Script Editor buffer. Returns its kind, saved path, revision, modified state, and optionally bounded content. Before creating or substantially editing Python, use the returned kind with python_authoring_guide to read the matching general-script or Glyph Overview filter guide.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -485,7 +485,9 @@ export const AGENT_TOOLS: AgentTool[] = [
                 properties: {
                     kind: {
                         type: 'string',
-                        enum: ['general-script', 'glyph-filter']
+                        enum: ['general-script', 'glyph-filter'],
+                        description:
+                            'Choose general-script for a reusable Counterpunch/Scripts file, or glyph-filter for a Counterpunch/Filters Glyph Overview filter.'
                     }
                 },
                 required: ['kind']

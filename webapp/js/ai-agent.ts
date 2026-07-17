@@ -1160,7 +1160,10 @@ class AIAgent {
 
     collectToolInvocationArguments(
         tool: AgentTool,
-        fields: Record<string, HTMLInputElement | HTMLTextAreaElement>
+        fields: Record<
+            string,
+            HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+        >
     ): Record<string, any> {
         const properties = this.getToolParameterProperties(tool);
         const required = this.getToolRequiredParameters(tool);
@@ -1197,8 +1200,10 @@ class AIAgent {
     ): HTMLElement {
         const properties = this.getToolParameterProperties(tool);
         const fieldEntries = Object.entries(properties);
-        const fields: Record<string, HTMLInputElement | HTMLTextAreaElement> =
-            {};
+        const fields: Record<
+            string,
+            HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+        > = {};
 
         const wrapper = document.createElement('div');
         wrapper.style.cssText =
@@ -1223,16 +1228,34 @@ class AIAgent {
             label.style.cssText = 'font-weight:600;';
             fieldWrapper.appendChild(label);
 
-            const input = this.shouldUseTextareaForToolParameter(
-                paramName,
-                schema
-            )
-                ? document.createElement('textarea')
-                : document.createElement('input');
+            const enumValues = Array.isArray(schema.enum)
+                ? schema.enum.filter(
+                      (value: unknown): value is string =>
+                          typeof value === 'string'
+                  )
+                : [];
+            const input =
+                enumValues.length > 0
+                    ? document.createElement('select')
+                    : this.shouldUseTextareaForToolParameter(paramName, schema)
+                      ? document.createElement('textarea')
+                      : document.createElement('input');
 
             input.style.cssText =
                 'width:100%;box-sizing:border-box;border:1px solid var(--border-primary);border-radius:6px;padding:8px;background:var(--background-primary);color:var(--text-primary);font:inherit;font-size:11px;';
-            if (input instanceof HTMLTextAreaElement) {
+            input.name = paramName;
+            if (input instanceof HTMLSelectElement) {
+                const placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = `Choose ${paramName}`;
+                input.appendChild(placeholder);
+                for (const value of enumValues) {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = value;
+                    input.appendChild(option);
+                }
+            } else if (input instanceof HTMLTextAreaElement) {
                 input.rows = schema.type === 'array' ? 4 : 6;
                 if (schema.type === 'array') {
                     input.placeholder =
@@ -1242,7 +1265,11 @@ class AIAgent {
                 input.type = 'text';
             }
 
-            if (!input.placeholder && typeof schema.description === 'string') {
+            if (
+                !(input instanceof HTMLSelectElement) &&
+                !input.placeholder &&
+                typeof schema.description === 'string'
+            ) {
                 input.placeholder = schema.description;
             }
 
