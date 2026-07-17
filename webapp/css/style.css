@@ -1425,8 +1425,8 @@ kbd + kbd {
 }
 
 .view-title-button.agent-edit-toggle.active {
-    background-color: var(--view-agent);
-    border-left-color: var(--view-agent);
+    background-color: var(--background-primary);
+    border-left-color: var(--border-primary);
     color: var(--text-primary) !important;
 }
 
@@ -1444,11 +1444,11 @@ kbd + kbd {
 
 .view-title-button.agent-edit-toggle:disabled {
     cursor: default;
-    opacity: 1;
+    opacity: 0.65;
 }
 
 .view-title-button.agent-edit-toggle.locked {
-    background-color: var(--input-bg);
+    opacity: 0.65;
 }
 
 /* View Title Action Buttons */
