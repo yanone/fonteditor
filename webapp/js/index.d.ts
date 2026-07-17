@@ -561,6 +561,30 @@ declare global {
         // From script-editor.js
         ace: any; // Ace
         scriptEditor: {
+            getDocumentState: () => {
+                content: string;
+                kind: 'general-script' | 'glyph-filter';
+                path: string | null;
+                revision: string;
+                isModified: boolean;
+            };
+            setDocumentKind: (kind: 'general-script' | 'glyph-filter') => void;
+            createDraft: (
+                kind: 'general-script' | 'glyph-filter',
+                content?: string
+            ) => void;
+            revertToSaved: () => boolean;
+            replaceExactText: (
+                oldText: string,
+                newText: string,
+                expectedRevision: string
+            ) => {
+                content: string;
+                kind: 'general-script' | 'glyph-filter';
+                path: string | null;
+                revision: string;
+                isModified: boolean;
+            };
             runScript: () => void;
             openFile: (path: string, pluginId: string) => Promise<boolean>;
             openFileFromUri: (uri: string) => Promise<boolean>;

@@ -700,6 +700,8 @@ class AIAgent {
     activePromptContext: AgentPromptExecutionContext | null;
     promptTransactionOpen: boolean;
     promptInterrupted: boolean;
+    lastKnownScriptRevision: string | null;
+    scriptStateInvalidated: boolean;
 
     constructor() {
         this.messagesContainer = null;
@@ -723,6 +725,8 @@ class AIAgent {
         this.activePromptContext = null;
         this.promptTransactionOpen = false;
         this.promptInterrupted = false;
+        this.lastKnownScriptRevision = null;
+        this.scriptStateInvalidated = false;
 
         this.initUI();
         this.checkAuthenticationStatus();
@@ -850,6 +854,16 @@ class AIAgent {
         });
         this.updateAgentEditToggle();
 
+        window.addEventListener('scriptEditorDocumentChanged', (event) => {
+            const state = (event as CustomEvent<{ revision: string }>).detail;
+            if (
+                this.lastKnownScriptRevision &&
+                state.revision !== this.lastKnownScriptRevision
+            ) {
+                this.scriptStateInvalidated = true;
+            }
+        });
+
         document
             .getElementById('agent-stop-btn')
             ?.addEventListener('click', () => this.interruptPrompt());
@@ -873,8 +887,8 @@ class AIAgent {
         const isLocked = this.isStreaming;
         const stateLabel = editsAllowed ? 'on' : 'off';
         const label = isLocked
-            ? `Agent font edits are ${stateLabel} for this prompt and locked`
-            : `Agent font edits are ${stateLabel}`;
+            ? `Agent edits are ${stateLabel} for this prompt and locked`
+            : `Agent edits are ${stateLabel}`;
 
         editToggle.classList.toggle('active', editsAllowed);
         editToggle.classList.toggle('locked', isLocked);
@@ -894,7 +908,18 @@ class AIAgent {
             function: { name: 'get_editor_state', arguments: '{}' }
         });
         const promptContext = this.activePromptContext;
-        return `${AGENT_SYSTEM_PROMPT}\n\nCURRENT PROMPT PERMISSION: Font data editing is ${promptContext?.allowFontEdits ? 'allowed' : 'disabled'} for this prompt.\n\nCURRENT EDITOR STATE:\n${editorState}`;
+        const scriptState = window.scriptEditor?.getDocumentState();
+        if (
+            scriptState &&
+            this.lastKnownScriptRevision &&
+            scriptState.revision !== this.lastKnownScriptRevision
+        ) {
+            this.scriptStateInvalidated = true;
+        }
+        const staleScriptNotice = this.scriptStateInvalidated
+            ? '\n\nSCRIPT STATE NOTICE: The Script Editor changed after the Agent last read it. The buffer is authoritative; read the active Python document before proposing or applying another script edit.'
+            : '';
+        return `${AGENT_SYSTEM_PROMPT}\n\nCURRENT PROMPT PERMISSION: Agent editing is ${promptContext?.allowFontEdits ? 'allowed' : 'disabled'} for this prompt.${staleScriptNotice}\n\nCURRENT EDITOR STATE:\n${editorState}`;
     }
 
     setupInfoModal() {
@@ -1435,7 +1460,76 @@ class AIAgent {
             <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-size:10px">${this.escapeHtml(toolResult)}</pre>
         `;
 
+        if (
+            toolName === 'replace_python_text_in_editor' &&
+            typeof args.old_text === 'string' &&
+            typeof args.new_text === 'string'
+        ) {
+            this.addPythonDocumentToolActions(metaEl, args, toolResult);
+        }
+
         return metaEl;
+    }
+
+    private addPythonDocumentToolActions(
+        metaEl: HTMLElement,
+        args: { old_text: string; new_text: string },
+        toolResult: string
+    ): void {
+        const revision = toolResult.match(/^Revision: (.+)$/m)?.[1];
+        if (!revision) return;
+
+        const actions = document.createElement('div');
+        actions.style.cssText =
+            'display:flex;gap:4px;margin-top:6px;align-items:center;';
+        const openButton = document.createElement('button');
+        openButton.type = 'button';
+        openButton.title = 'Open in Script Editor';
+        openButton.setAttribute('aria-label', 'Open in Script Editor');
+        openButton.innerHTML =
+            '<span class="material-symbols-outlined">code</span>';
+        const revertButton = document.createElement('button');
+        revertButton.type = 'button';
+        revertButton.title = 'Revert this Agent edit';
+        revertButton.setAttribute('aria-label', 'Revert this Agent edit');
+        revertButton.innerHTML =
+            '<span class="material-symbols-outlined">undo</span>';
+        const status = document.createElement('span');
+        status.style.cssText = 'font-size:10px;';
+
+        openButton.addEventListener('click', () => {
+            document.getElementById('view-scripts')?.click();
+        });
+        revertButton.addEventListener('click', () => {
+            if (!this.allowFontEdits) {
+                status.textContent =
+                    'Enable editing in the Agent title bar before reverting.';
+                return;
+            }
+            const scriptEditor = window.scriptEditor;
+            const state = scriptEditor?.getDocumentState();
+            if (!scriptEditor || !state || state.revision !== revision) {
+                status.textContent =
+                    'The script changed since this Agent edit. Use the Script Editor recovery controls instead.';
+                return;
+            }
+            try {
+                const restored = scriptEditor.replaceExactText(
+                    args.new_text,
+                    args.old_text,
+                    revision
+                );
+                this.lastKnownScriptRevision = restored.revision;
+                this.scriptStateInvalidated = false;
+                revertButton.disabled = true;
+                status.textContent = 'Agent edit reverted, not saved.';
+            } catch (error) {
+                status.textContent = (error as Error).message;
+            }
+        });
+
+        actions.append(openButton, revertButton, status);
+        metaEl.appendChild(actions);
     }
 
     createToolCallOutputElement(
@@ -2066,9 +2160,137 @@ class AIAgent {
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
     }
 
+    private requireAgentEditPermission(): void {
+        if (!this.activePromptContext?.allowFontEdits) {
+            throw new Error(
+                'Enable editing in the Agent title bar before changing Python code.'
+            );
+        }
+    }
+
+    private isManagedPythonPath(path: string): boolean {
+        return (
+            path.endsWith('.py') &&
+            (path.startsWith('/Counterpunch/Scripts/') ||
+                path.startsWith('/Counterpunch/Filters/'))
+        );
+    }
+
+    private getPythonDocumentKind(
+        path: string
+    ): 'general-script' | 'glyph-filter' {
+        return path.startsWith('/Counterpunch/Filters/')
+            ? 'glyph-filter'
+            : 'general-script';
+    }
+
+    private async getPythonDiskAdapter(): Promise<{
+        hasDirectory?: () => boolean;
+        initialize?: () => Promise<void>;
+        fileExists?: (path: string) => Promise<boolean>;
+        listFilesRecursive?: (
+            path: string,
+            depth: number
+        ) => Promise<Array<{ path: string }>>;
+        readFile: (path: string) => Promise<string | Uint8Array>;
+    }> {
+        const plugin = window.pluginRegistry.get('disk') as {
+            getAdapter: () => {
+                hasDirectory?: () => boolean;
+                initialize?: () => Promise<void>;
+                fileExists?: (path: string) => Promise<boolean>;
+                listFilesRecursive?: (
+                    path: string,
+                    depth: number
+                ) => Promise<Array<{ path: string }>>;
+                readFile: (path: string) => Promise<string | Uint8Array>;
+            };
+        } | null;
+        if (!plugin) throw new Error('Disk storage is not available.');
+
+        const adapter = plugin.getAdapter();
+        if (adapter.hasDirectory && !adapter.hasDirectory()) {
+            await adapter.initialize?.();
+        }
+        if (adapter.hasDirectory && !adapter.hasDirectory()) {
+            throw new Error(
+                'Choose a disk folder before reading Python files.'
+            );
+        }
+        return adapter;
+    }
+
+    private async listManagedPythonFiles(
+        collection: string = 'both'
+    ): Promise<
+        Array<{ path: string; kind: 'general-script' | 'glyph-filter' }>
+    > {
+        const adapter = await this.getPythonDiskAdapter();
+        if (!adapter.listFilesRecursive) {
+            throw new Error('Disk storage cannot list Python files.');
+        }
+        const roots =
+            collection === 'scripts'
+                ? ['/Counterpunch/Scripts']
+                : collection === 'filters'
+                  ? ['/Counterpunch/Filters']
+                  : ['/Counterpunch/Scripts', '/Counterpunch/Filters'];
+        const files: Array<{
+            path: string;
+            kind: 'general-script' | 'glyph-filter';
+        }> = [];
+        for (const root of roots) {
+            if (adapter.fileExists && !(await adapter.fileExists(root))) {
+                continue;
+            }
+            const entries = await adapter.listFilesRecursive(root, 3);
+            entries
+                .filter((entry) => entry.path.endsWith('.py'))
+                .forEach((entry) =>
+                    files.push({
+                        path: entry.path,
+                        kind: this.getPythonDocumentKind(entry.path)
+                    })
+                );
+        }
+        return files.sort((first, second) =>
+            first.path.localeCompare(second.path)
+        );
+    }
+
+    private formatPythonLines(
+        content: string,
+        startLine: number,
+        endLine: number
+    ): string {
+        return content
+            .split(/\r?\n/)
+            .slice(Math.max(0, startLine - 1), Math.max(startLine, endLine))
+            .map((line, index) => `${startLine + index}: ${line}`)
+            .join('\n');
+    }
+
+    private createPythonDiff(oldText: string, newText: string): string {
+        const limit = 12;
+        const oldLines = oldText.split(/\r?\n/).slice(0, limit);
+        const newLines = newText.split(/\r?\n/).slice(0, limit);
+        const truncated =
+            oldText.split(/\r?\n/).length > limit ||
+            newText.split(/\r?\n/).length > limit;
+        return [
+            '@@ Script Editor @@',
+            ...oldLines.map((line) => `-${line}`),
+            ...newLines.map((line) => `+${line}`),
+            ...(truncated ? ['… diff truncated'] : [])
+        ].join('\n');
+    }
+
     async executeToolCall(toolCall: any): Promise<string> {
         const { name, arguments: argsStr } = toolCall.function;
         const args = JSON.parse(argsStr || '{}');
+        if (name === 'execute_python_code') {
+            throw new Error('Agent tools do not execute Python code.');
+        }
         switch (name) {
             case 'handbook_toc':
                 return await this.fetchText('/handbook/README.md');
@@ -2089,6 +2311,21 @@ class AIAgent {
                     );
                 if (!res.ok) throw new Error('API documentation not found');
                 return await res.text();
+            }
+            case 'python_authoring_guide': {
+                const guides: Record<string, string> = {
+                    'general-script':
+                        '/handbook/python/04-writing-general-scripts.md',
+                    'glyph-filter':
+                        '/handbook/python/05-writing-glyph-overview-filters.md'
+                };
+                const guidePath = guides[args.kind];
+                if (!guidePath) {
+                    throw new Error(
+                        'Choose general-script or glyph-filter for the Python authoring guide.'
+                    );
+                }
+                return await this.fetchText(guidePath);
             }
             case 'list_available_fonts': {
                 const pluginRegistry = (window as any).pluginRegistry;
@@ -2335,6 +2572,170 @@ if '_agent_original_stdout' in dir():
                         return output || '(no output)';
                     }
                 );
+            }
+            case 'get_active_python_document': {
+                const state = window.scriptEditor.getDocumentState();
+                const includeContent = args.include_content !== false;
+                const maxChars = Math.max(0, Number(args.max_chars) || 12000);
+                this.lastKnownScriptRevision = state.revision;
+                this.scriptStateInvalidated = false;
+                return JSON.stringify({
+                    ...state,
+                    content: includeContent
+                        ? state.content.slice(0, maxChars)
+                        : undefined,
+                    truncated: includeContent && state.content.length > maxChars
+                });
+            }
+            case 'list_python_files': {
+                return JSON.stringify({
+                    files: await this.listManagedPythonFiles(
+                        String(args.collection || 'both')
+                    )
+                });
+            }
+            case 'search_python_files': {
+                const query = String(args.query || '')
+                    .trim()
+                    .toLowerCase();
+                if (!query) throw new Error('Search query is empty.');
+
+                const adapter = await this.getPythonDiskAdapter();
+                const files = await this.listManagedPythonFiles(
+                    String(args.collection || 'both')
+                );
+                const matches: Array<{
+                    path: string;
+                    kind: 'general-script' | 'glyph-filter';
+                    lines: string[];
+                }> = [];
+                for (const file of files) {
+                    const data = await adapter.readFile(file.path);
+                    const content =
+                        typeof data === 'string'
+                            ? data
+                            : new TextDecoder().decode(data);
+                    const lines = content
+                        .split(/\r?\n/)
+                        .map((line, index) => ({ line, index }))
+                        .filter(({ line }) =>
+                            line.toLowerCase().includes(query)
+                        )
+                        .slice(0, 3)
+                        .map(
+                            ({ line, index }) => `${index + 1}: ${line.trim()}`
+                        );
+                    if (
+                        file.path.toLowerCase().includes(query) ||
+                        lines.length > 0
+                    ) {
+                        matches.push({
+                            path: file.path,
+                            kind: file.kind,
+                            lines
+                        });
+                    }
+                }
+                return JSON.stringify({ matches: matches.slice(0, 30) });
+            }
+            case 'read_python_file': {
+                const path = String(args.path || '');
+                if (!this.isManagedPythonPath(path)) {
+                    throw new Error(
+                        'Python files must be under /Counterpunch/Scripts or /Counterpunch/Filters.'
+                    );
+                }
+                const active = window.scriptEditor.getDocumentState();
+                const adapter = await this.getPythonDiskAdapter();
+                const data =
+                    active.path === path
+                        ? active.content
+                        : await adapter.readFile(path);
+                const content =
+                    typeof data === 'string'
+                        ? data
+                        : new TextDecoder().decode(data);
+                const lines = content.split(/\r?\n/);
+                const startLine = Math.max(1, Number(args.start_line) || 1);
+                const endLine = Math.min(
+                    lines.length,
+                    Math.max(
+                        startLine,
+                        Number(args.end_line) || startLine + 199
+                    )
+                );
+                return JSON.stringify({
+                    path,
+                    kind: this.getPythonDocumentKind(path),
+                    revision: active.path === path ? active.revision : null,
+                    content: this.formatPythonLines(
+                        content,
+                        startLine,
+                        endLine
+                    ),
+                    truncated: endLine < lines.length
+                });
+            }
+            case 'open_python_document_in_editor': {
+                const path = String(args.path || '');
+                if (!this.isManagedPythonPath(path)) {
+                    throw new Error(
+                        'Python files must be under /Counterpunch/Scripts or /Counterpunch/Filters.'
+                    );
+                }
+                const opened = await window.scriptEditor.openFile(path, 'disk');
+                if (!opened) throw new Error(`Could not open ${path}.`);
+                return JSON.stringify(window.scriptEditor.getDocumentState());
+            }
+            case 'create_python_draft_in_editor': {
+                this.requireAgentEditPermission();
+                const kind = args.kind;
+                if (kind !== 'general-script' && kind !== 'glyph-filter') {
+                    throw new Error(
+                        'Draft kind must be general-script or glyph-filter.'
+                    );
+                }
+                window.scriptEditor.createDraft(kind, args.content);
+                const state = window.scriptEditor.getDocumentState();
+                this.lastKnownScriptRevision = state.revision;
+                this.scriptStateInvalidated = false;
+                return JSON.stringify(state);
+            }
+            case 'replace_python_text_in_editor': {
+                this.requireAgentEditPermission();
+                const oldText = String(args.old_text || '');
+                const newText = String(args.new_text || '');
+                if (!oldText) throw new Error('old_text is required.');
+                const state = window.scriptEditor.replaceExactText(
+                    oldText,
+                    newText,
+                    String(args.expected_revision || '')
+                );
+                this.lastKnownScriptRevision = state.revision;
+                this.scriptStateInvalidated = false;
+                return [
+                    `Edited ${state.path || 'untitled Python draft'} (${state.kind})`,
+                    `Revision: ${state.revision}`,
+                    'Modified, not saved',
+                    '',
+                    this.createPythonDiff(oldText, newText)
+                ].join('\n');
+            }
+            case 'validate_python_document': {
+                const state = window.scriptEditor.getDocumentState();
+                const hasFilterFunction =
+                    /^\s*def\s+filter_glyphs\s*\(\s*font\s*\)\s*:/m.test(
+                        state.content
+                    );
+                return JSON.stringify({
+                    kind: state.kind,
+                    revision: state.revision,
+                    valid: state.kind !== 'glyph-filter' || hasFilterFunction,
+                    message:
+                        state.kind === 'glyph-filter' && !hasFilterFunction
+                            ? 'Glyph filters must define filter_glyphs(font).'
+                            : 'Static structure is valid. Python was not run.'
+                });
             }
             case 'get_editor_state': {
                 const sm = (window as any).stateManager;

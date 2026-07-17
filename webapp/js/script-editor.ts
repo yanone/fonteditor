@@ -13,6 +13,36 @@ import { Logger } from './logger';
 const console = new Logger('ScriptEditor');
 
 (function () {
+    type ScriptDocumentKind = 'general-script' | 'glyph-filter';
+
+    type ScriptDocumentState = {
+        content: string;
+        kind: ScriptDocumentKind;
+        path: string | null;
+        revision: string;
+        isModified: boolean;
+    };
+
+    const GENERAL_SCRIPT_TEMPLATE = '# New Python script\n';
+    const GLYPH_FILTER_TEMPLATE = `# "New Filter" Filter
+# Define your filter function below
+
+# Optional: Define groups with colors
+# GROUPS = {
+#     "uppercase": {"description": "Uppercase letters", "color": "#ff6b6b"},
+#     "lowercase": {"description": "Lowercase letters", "color": "#4ecdc4"}
+# }
+
+def filter_glyphs(font):
+    """Filter glyphs and return results.
+
+    Yield or return dictionaries with 'glyph_name' keys. Optional 'group'
+    or 'groups' keys place glyphs in groups declared by GROUPS.
+    """
+    for glyph in font.glyphs:
+        yield {"glyph_name": glyph.name}
+`;
+
     let editor: any = null;
     let runButton: HTMLButtonElement | null = null;
     let fileButton: HTMLButtonElement | null = null;
@@ -30,6 +60,46 @@ const console = new Logger('ScriptEditor');
     let fileWatcherInterval: number | null = null;
     let lastModifiedTime: number | null = null;
     let hasExternalChanges = false;
+    let documentKind: ScriptDocumentKind = 'general-script';
+    let documentRevision = 0;
+
+    function getPathKind(path: string | null): ScriptDocumentKind | null {
+        if (!path) return null;
+        if (path.startsWith('/Counterpunch/Filters/')) {
+            return 'glyph-filter';
+        }
+        if (path.startsWith('/Counterpunch/Scripts/')) {
+            return 'general-script';
+        }
+        return null;
+    }
+
+    function getRevision(): string {
+        return `script-${documentRevision}`;
+    }
+
+    function getDocumentState(): ScriptDocumentState {
+        return {
+            content: editor ? editor.getValue() : '',
+            kind: documentKind,
+            path: currentFilePath,
+            revision: getRevision(),
+            isModified: isModified
+        };
+    }
+
+    function recordDocumentChange(): void {
+        documentRevision += 1;
+        window.dispatchEvent(
+            new CustomEvent('scriptEditorDocumentChanged', {
+                detail: getDocumentState()
+            })
+        );
+    }
+
+    function setDocumentKind(kind: ScriptDocumentKind): void {
+        documentKind = kind;
+    }
 
     /**
      * Update the modified indicator in UI
@@ -157,6 +227,7 @@ const console = new Logger('ScriptEditor');
             if (match) {
                 currentPluginId = match[1];
                 currentFilePath = match[2];
+                documentKind = getPathKind(currentFilePath) || documentKind;
                 console.log(
                     '[ScriptEditor]',
                     'Restored file association:',
@@ -256,6 +327,7 @@ const console = new Logger('ScriptEditor');
         editor.session.on('change', function () {
             localStorage.setItem('python_script', editor.getValue());
             checkModified();
+            recordDocumentChange();
         });
 
         // Initialize file menu
@@ -654,6 +726,15 @@ const console = new Logger('ScriptEditor');
             `;
         }
 
+        if (canSave && isModified) {
+            html += `
+                <div class="script-file-menu-item" data-action="revert-saved">
+                    <span class="material-symbols-outlined">undo</span>
+                    <span>Revert to Saved</span>
+                </div>
+            `;
+        }
+
         // Locate in Files (only if file has a path and is from disk plugin)
         const canLocate =
             currentFilePath !== null && currentPluginId === 'disk';
@@ -712,6 +793,9 @@ const console = new Logger('ScriptEditor');
                         case 'save-as':
                             await handleSaveAs();
                             break;
+                        case 'revert-saved':
+                            revertToSaved();
+                            break;
                         case 'locate':
                             await handleLocateInFiles();
                             break;
@@ -743,10 +827,11 @@ const console = new Logger('ScriptEditor');
         stopFileWatcher();
 
         // Clear editor
-        editor.setValue('# New Python script\n', -1);
+        editor.setValue(GENERAL_SCRIPT_TEMPLATE, -1);
         savedContent = editor.getValue();
         currentFilePath = null;
         currentPluginId = null;
+        documentKind = 'general-script';
         hasExternalChanges = false;
         setModified(false);
 
@@ -895,6 +980,30 @@ const console = new Logger('ScriptEditor');
         }
     }
 
+    function revertToSaved(): boolean {
+        if (!currentFilePath || !isModified) return false;
+        if (
+            !confirm(
+                'Discard unsaved script changes and restore the saved file?'
+            )
+        ) {
+            return false;
+        }
+
+        const document = editor.session.getDocument();
+        const currentContent = editor.getValue();
+        document.replace(
+            {
+                start: { row: 0, column: 0 },
+                end: document.indexToPosition(currentContent.length, 0)
+            },
+            savedContent
+        );
+        hasExternalChanges = false;
+        setModified(false);
+        return true;
+    }
+
     /**
      * Handle Save As file
      */
@@ -915,7 +1024,8 @@ const console = new Logger('ScriptEditor');
         try {
             // Suggest a filename
             // Suggest a filename and folder
-            let suggestedName = 'script.py';
+            let suggestedName =
+                documentKind === 'glyph-filter' ? 'New Filter.py' : 'script.py';
             let startFolder: string | undefined;
             if (currentFilePath) {
                 suggestedName = currentFilePath.split('/').pop() || 'script.py';
@@ -923,6 +1033,11 @@ const console = new Logger('ScriptEditor');
                     0,
                     currentFilePath.lastIndexOf('/')
                 );
+            } else {
+                startFolder =
+                    documentKind === 'glyph-filter'
+                        ? '/Counterpunch/Filters'
+                        : '/Counterpunch/Scripts';
             }
 
             const path = await plugin.showSaveFilePicker({
@@ -943,6 +1058,34 @@ const console = new Logger('ScriptEditor');
             if (!path) {
                 // User cancelled
                 return false;
+            }
+
+            const destinationKind = getPathKind(path);
+            if (destinationKind && destinationKind !== documentKind) {
+                const draftLabel =
+                    documentKind === 'glyph-filter'
+                        ? 'Glyph Overview filter'
+                        : 'general-purpose script';
+                const destinationLabel =
+                    destinationKind === 'glyph-filter'
+                        ? 'Glyph Overview filter'
+                        : 'general-purpose script';
+                if (
+                    !confirm(
+                        `This draft was created as a ${draftLabel}. Saving it here makes it a ${destinationLabel}. Continue?`
+                    )
+                ) {
+                    return false;
+                }
+                documentKind = destinationKind;
+            } else if (!destinationKind) {
+                if (
+                    !confirm(
+                        'This location is outside Counterpunch Scripts and Filters. The file will not appear in either managed collection. Save it as an external Python file?'
+                    )
+                ) {
+                    return false;
+                }
             }
 
             // Update current file info
@@ -1005,6 +1148,7 @@ const console = new Logger('ScriptEditor');
             savedContent = content;
             currentFilePath = path;
             currentPluginId = pluginId;
+            documentKind = getPathKind(path) || 'general-script';
 
             // Reset external changes state
             hasExternalChanges = false;
@@ -1500,6 +1644,61 @@ const console = new Logger('ScriptEditor');
         save: handleSave,
         saveAs: handleSaveAs,
         updateFilePath: updateFilePath,
+        getDocumentState: getDocumentState,
+        setDocumentKind: setDocumentKind,
+        createDraft: (kind: ScriptDocumentKind, content?: string) => {
+            stopFileWatcher();
+            documentKind = kind;
+            currentFilePath = null;
+            currentPluginId = null;
+            hasExternalChanges = false;
+            editor.setValue(
+                content ||
+                    (kind === 'glyph-filter'
+                        ? GLYPH_FILTER_TEMPLATE
+                        : GENERAL_SCRIPT_TEMPLATE),
+                -1
+            );
+            savedContent = '';
+            setModified(true);
+            localStorage.removeItem('python_script_uri');
+        },
+        revertToSaved: revertToSaved,
+        replaceExactText: (
+            oldText: string,
+            newText: string,
+            expectedRevision: string
+        ) => {
+            if (expectedRevision !== getRevision()) {
+                throw new Error(
+                    'The script changed since it was last read. Read it again before editing.'
+                );
+            }
+            const content = editor.getValue();
+            const firstIndex = content.indexOf(oldText);
+            if (firstIndex < 0) {
+                throw new Error(
+                    'The requested text was not found in the script.'
+                );
+            }
+            if (content.indexOf(oldText, firstIndex + oldText.length) >= 0) {
+                throw new Error(
+                    'The requested text appears more than once. Read a narrower section before editing.'
+                );
+            }
+            const document = editor.session.getDocument();
+            document.replace(
+                {
+                    start: document.indexToPosition(firstIndex, 0),
+                    end: document.indexToPosition(
+                        firstIndex + oldText.length,
+                        0
+                    )
+                },
+                newText
+            );
+            return getDocumentState();
+        },
         get isModified() {
             return isModified;
         },

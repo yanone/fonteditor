@@ -117,24 +117,6 @@ export const AGENT_TOOLS: AgentTool[] = [
     {
         type: 'function',
         function: {
-            name: 'execute_python_code',
-            description:
-                "Execute a custom Python script to read or modify the current font. Use the tool `python_api_docs` first to learn how to write Python scripts for the font model. The font is accessible via the Font() function which is readily available and doesn't need to be imported. Print output with print() to see results. Changes to the font model are automatically tracked and compiled.",
-            parameters: {
-                type: 'object',
-                properties: {
-                    code: {
-                        type: 'string',
-                        description: 'The Python code to execute.'
-                    }
-                },
-                required: ['code']
-            }
-        }
-    },
-    {
-        type: 'function',
-        function: {
             name: 'get_editor_state',
             description:
                 'Get the current editor state for both inspection and parameter-copying. Returns raw text-buffer syntax as textBuffer and textBufferRaw, user-visible text as textBufferDisplay, parsed explicit glyph tokens, HarfBuzz shaped buffers (glyph names, gids, advances, clusters), the complete current OpenType feature inventory with descriptions, subset availability, and activation flags, a per-feature tag-to-boolean activation dictionary, the current userspace location, the current designspace location, and the current file. In raw text syntax, // represents one literal slash and /glyphname is an explicit glyph reference only when it resolves; never claim an escaped slash pair unless textBufferRaw explicitly contains //. Use this to understand the active text layout and feature configuration, and also to copy explicit inputs for compile_binary_font or shape_binary_font. This state can change after text, feature, or font-data edits, so refresh it when needed.',
@@ -479,6 +461,156 @@ export const AGENT_TOOLS: AgentTool[] = [
     {
         type: 'function',
         function: {
+            name: 'get_active_python_document',
+            description:
+                'Read the current Script Editor buffer. Returns its purpose, saved path, revision, modified state, and optionally bounded content. Read this before proposing or replacing script code.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    include_content: { type: 'boolean' },
+                    max_chars: { type: 'number' }
+                },
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'python_authoring_guide',
+            description:
+                'Get the detailed authoring guide for a reusable general Python script or a Glyph Overview filter. Use before creating or substantially editing a Python document. This never runs or saves code.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    kind: {
+                        type: 'string',
+                        enum: ['general-script', 'glyph-filter']
+                    }
+                },
+                required: ['kind']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'list_python_files',
+            description:
+                'List saved Python files in Counterpunch/Scripts, Counterpunch/Filters, or both. This never runs a script.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    collection: {
+                        type: 'string',
+                        enum: ['scripts', 'filters', 'both']
+                    }
+                },
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'search_python_files',
+            description:
+                'Search file names and text in managed Counterpunch Python files. Returns concise matching lines and never runs a script.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string' },
+                    collection: {
+                        type: 'string',
+                        enum: ['scripts', 'filters', 'both']
+                    }
+                },
+                required: ['query']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'read_python_file',
+            description:
+                'Read a line range from a saved managed Python file. Use get_active_python_document for the unsaved Script Editor buffer.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string' },
+                    start_line: { type: 'number' },
+                    end_line: { type: 'number' }
+                },
+                required: ['path']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'open_python_document_in_editor',
+            description:
+                'Open a saved managed Python file in the Script Editor for the user. Opening does not execute the file.',
+            parameters: {
+                type: 'object',
+                properties: { path: { type: 'string' } },
+                required: ['path']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'create_python_draft_in_editor',
+            description:
+                'Create an unsaved Script Editor draft. Choose glyph-filter for a Glyph Overview filter or general-script for a reusable script. Requires Agent editing to be enabled; never saves or runs code.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    kind: {
+                        type: 'string',
+                        enum: ['general-script', 'glyph-filter']
+                    },
+                    content: { type: 'string' }
+                },
+                required: ['kind']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'replace_python_text_in_editor',
+            description:
+                'Replace one exact unique text span in the current Script Editor buffer. Requires Agent editing to be enabled and the revision returned by a fresh read. This changes only the unsaved buffer and returns a concise diff.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    old_text: { type: 'string' },
+                    new_text: { type: 'string' },
+                    expected_revision: { type: 'string' }
+                },
+                required: ['old_text', 'new_text', 'expected_revision']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'validate_python_document',
+            description:
+                'Perform non-executing structural validation of the current Script Editor buffer. Glyph filters must define filter_glyphs(font). This never runs Python.',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'set_prompt_history_summary',
             description:
                 'Record a concise summary of this prompt for the font history item. Call this as soon as you understand the requested font work, before making any edits. This summary is not shown in the chat.',
@@ -507,7 +639,9 @@ Use the available tools to operate the app.
 
 At the beginning of every prompt, call set_prompt_history_summary with a concise description of the requested font work. Do not mention that summary in your chat response.
 
-Every request includes the current editor state and whether font editing is allowed. Treat that permission as authoritative. When font editing is disabled, you may still inspect the font and adjust editor UI state, but you must not modify font data. If you decline an edit because of this permission, tell the user that they can enable font editing with the pen button in the Agent title bar before sending a new prompt. You cannot change the permission yourself, and it remains frozen for the current prompt.
+Every request includes the current editor state and whether Agent editing is allowed. Treat that permission as authoritative. When Agent editing is disabled, you may inspect the font and Python documents but must not modify font data or Script Editor buffers. If you decline an edit because of this permission, tell the user that they can enable editing with the pen button in the Agent title bar before sending a new prompt. You cannot change the permission yourself, and it remains frozen for the current prompt.
+
+Python-document boundary: Never execute Python with an Agent tool, never save a Python file, and never select a glyph filter. The user saves and runs general scripts in the Script Editor; the user selects glyph filters in Glyph Overview. Before creating or substantially editing a Python document, call python_authoring_guide for its kind. Use the Python document tools for read/search/edit work, and read the active document before editing it.
 
 CRITICAL RULE: If the user prompt is not about the broad topic of fonts and font engineering, or about how to use the Counterpunch app, or type design in general, then politely REFUSE to answer the question and let the user know what topics you can help with. Do not answer questions about topics outside of font design and Counterpunch usage. Always steer the user back to font design and using the app."
 `;

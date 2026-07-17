@@ -32,9 +32,11 @@ This documentation is designed as a practical user guide for real font-productio
 
 1. [Python in Counterpunch](python/01-python-in-counterpunch.md)
 2. [Script Editor Workflow](python/02-script-editor-workflow.md)
-3. [Konsole Quick Tasks](python/03-konsole-quick-tasks.md)
-4. [AI Assistant Overview](ai/01-ai-assistant-overview.md)
-5. [Subscription, Trial, and Usage](ai/03-subscription-trial-and-usage.md)
+3. [Writing General Python Scripts](python/04-writing-general-scripts.md)
+4. [Writing Glyph Overview Filters](python/05-writing-glyph-overview-filters.md)
+5. [Konsole Quick Tasks](python/03-konsole-quick-tasks.md)
+6. [AI Assistant Overview](ai/01-ai-assistant-overview.md)
+7. [Subscription, Trial, and Usage](ai/03-subscription-trial-and-usage.md)
 
 ## Full Table of Contents
 
@@ -74,6 +76,8 @@ This documentation is designed as a practical user guide for real font-productio
 
 - [Python in Counterpunch](python/01-python-in-counterpunch.md)
 - [Script Editor Workflow](python/02-script-editor-workflow.md)
+- [Writing General Python Scripts](python/04-writing-general-scripts.md)
+- [Writing Glyph Overview Filters](python/05-writing-glyph-overview-filters.md)
 - [Konsole Quick Tasks](python/03-konsole-quick-tasks.md)
 
 ### AI Assistant

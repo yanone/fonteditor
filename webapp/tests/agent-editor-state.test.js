@@ -190,227 +190,126 @@ describe('get_editor_state text-buffer interpretation', () => {
         expect(agent.activePromptContext.historySummary).toBe('Update glyphs');
     });
 
-    test('runs only the feature-reorder script through the Python mutation lifecycle', async () => {
-        const featureReorderCode = `
-font = Font()
-features = font.features.features
-features[16], features[17] = features[17], features[16]
-        `;
-        const wrappedRunPythonAsync = jest.fn(async () => undefined);
-        const originalRunPythonAsync = jest
-            .fn()
-            .mockResolvedValueOnce(undefined)
-            .mockResolvedValueOnce('zero\nfrac');
-        window.pyodide = {
-            runPythonAsync: wrappedRunPythonAsync,
-            _originalRunPythonAsync: originalRunPythonAsync
-        };
+    test('loads the detailed Python authoring guide for each document kind', async () => {
+        const originalFetch = global.fetch;
+        const fetchMock = jest.fn().mockResolvedValue({
+            ok: true,
+            text: jest.fn().mockResolvedValue('authoring guide')
+        });
+        global.fetch = fetchMock;
         const agent = new AIAgent();
-        agent.activePromptContext = {
-            id: 'prompt-feature-reorder',
-            allowFontEdits: true,
-            historySummary: 'Reorder features'
-        };
 
         await expect(
             agent.executeToolCall({
                 function: {
-                    name: 'execute_python_code',
-                    arguments: JSON.stringify({ code: featureReorderCode })
+                    name: 'python_authoring_guide',
+                    arguments: JSON.stringify({ kind: 'general-script' })
                 }
             })
-        ).resolves.toBe('zero\nfrac');
-
-        expect(wrappedRunPythonAsync).toHaveBeenCalledTimes(1);
-        expect(wrappedRunPythonAsync).toHaveBeenCalledWith(featureReorderCode);
-        expect(originalRunPythonAsync).toHaveBeenCalledTimes(2);
-        expect(agent.activePromptContext).toEqual(
-            expect.objectContaining({ id: 'prompt-feature-reorder' })
-        );
-    });
-
-    test('waits for the active edit packet to settle before returning Python output', async () => {
-        let releaseCommittedRefresh;
-        const committedRefresh = new Promise((resolve) => {
-            releaseCommittedRefresh = resolve;
-        });
-        const {
-            setActiveAgentPythonExecutionCommit
-        } = require('../js/agent-execution-context.ts');
-        const wrappedRunPythonAsync = jest.fn(async () => {
-            setActiveAgentPythonExecutionCommit('committed', committedRefresh);
-        });
-        const originalRunPythonAsync = jest
-            .fn()
-            .mockResolvedValueOnce(undefined)
-            .mockResolvedValueOnce('updated shaping');
-        window.pyodide = {
-            runPythonAsync: wrappedRunPythonAsync,
-            _originalRunPythonAsync: originalRunPythonAsync
-        };
-        const agent = new AIAgent();
-        agent.activePromptContext = {
-            id: 'prompt-settle',
-            allowFontEdits: true,
-            historySummary: 'Update shaping'
-        };
-
-        const result = agent.executeToolCall({
-            function: {
-                name: 'execute_python_code',
-                arguments: JSON.stringify({
-                    code: 'font.names.family_name = "Updated"'
-                })
-            }
-        });
-
-        await Promise.resolve();
-        expect(originalRunPythonAsync).toHaveBeenCalledTimes(1);
-        releaseCommittedRefresh();
-        await expect(result).resolves.toBe('updated shaping');
-    });
-
-    test('reports a failed script with its committed partial-change status', async () => {
-        const {
-            setActiveAgentPythonExecutionCommit
-        } = require('../js/agent-execution-context.ts');
-        const wrappedRunPythonAsync = jest.fn(async () => {
-            setActiveAgentPythonExecutionCommit('partial', Promise.resolve());
-            throw new Error('feature reorder failed');
-        });
-        const originalRunPythonAsync = jest
-            .fn()
-            .mockResolvedValueOnce(undefined)
-            .mockResolvedValueOnce(undefined);
-        window.pyodide = {
-            runPythonAsync: wrappedRunPythonAsync,
-            _originalRunPythonAsync: originalRunPythonAsync
-        };
-        const agent = new AIAgent();
-        agent.activePromptContext = {
-            id: 'prompt-partial',
-            allowFontEdits: true,
-            historySummary: 'Reorder features'
-        };
-
-        const result = JSON.parse(
-            await agent.executeToolCall({
+        ).resolves.toBe('authoring guide');
+        await expect(
+            agent.executeToolCall({
                 function: {
-                    name: 'execute_python_code',
-                    arguments: JSON.stringify({ code: 'raise Exception()' })
+                    name: 'python_authoring_guide',
+                    arguments: JSON.stringify({ kind: 'glyph-filter' })
                 }
             })
+        ).resolves.toBe('authoring guide');
+        await expect(
+            agent.executeToolCall({
+                function: {
+                    name: 'python_authoring_guide',
+                    arguments: JSON.stringify({ kind: 'other' })
+                }
+            })
+        ).rejects.toThrow(
+            'Choose general-script or glyph-filter for the Python authoring guide.'
         );
 
-        expect(result).toEqual({
-            error: 'Python error: feature reorder failed',
-            changesCommitted: true,
-            state: 'partial'
-        });
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            1,
+            '/handbook/python/04-writing-general-scripts.md'
+        );
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            2,
+            '/handbook/python/05-writing-glyph-overview-filters.md'
+        );
+        global.fetch = originalFetch;
     });
 
-    test('fails closed until the Python wrapper exposes its original executor', async () => {
+    test('rejects execute_python_code without invoking Python', async () => {
         const wrappedRunPythonAsync = jest.fn();
-        window.pyodide = {
-            runPythonAsync: wrappedRunPythonAsync
-        };
-        const agent = new AIAgent();
-
-        await expect(
-            agent.executeToolCall({
-                function: {
-                    name: 'execute_python_code',
-                    arguments: JSON.stringify({ code: 'print("ready")' })
-                }
-            })
-        ).rejects.toThrow('Python execution wrapper is not ready yet');
-
-        expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
-    });
-
-    test('fails closed until the post-execution commit hook is installed', async () => {
-        window.__counterpunchPythonPostExecutionHookInstalled = false;
-        const wrappedRunPythonAsync = jest.fn();
-        window.pyodide = {
-            runPythonAsync: wrappedRunPythonAsync,
-            _originalRunPythonAsync: jest.fn()
-        };
-        const agent = new AIAgent();
-
-        await expect(
-            agent.executeToolCall({
-                function: {
-                    name: 'execute_python_code',
-                    arguments: JSON.stringify({ code: 'print("ready")' })
-                }
-            })
-        ).rejects.toThrow('Python edit lifecycle is not ready yet');
-
-        expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
-    });
-
-    test('fails closed until the PatchSyncEngine is ready', async () => {
-        delete window.patchSyncEngine;
-        const wrappedRunPythonAsync = jest.fn();
-        window.pyodide = {
-            runPythonAsync: wrappedRunPythonAsync,
-            _originalRunPythonAsync: jest.fn()
-        };
-        const agent = new AIAgent();
-
-        await expect(
-            agent.executeToolCall({
-                function: {
-                    name: 'execute_python_code',
-                    arguments: JSON.stringify({ code: 'print("ready")' })
-                }
-            })
-        ).rejects.toThrow('Python edit bridge is not ready yet');
-
-        expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
-    });
-
-    test('preserves the user Python error when stdout restoration fails', async () => {
-        const userError = new Error('feature reorder failed');
-        const wrappedRunPythonAsync = jest.fn().mockRejectedValue(userError);
-        const originalRunPythonAsync = jest
-            .fn()
-            .mockResolvedValueOnce(undefined)
-            .mockRejectedValueOnce(new Error('stdout restore failed'));
+        const originalRunPythonAsync = jest.fn();
         window.pyodide = {
             runPythonAsync: wrappedRunPythonAsync,
             _originalRunPythonAsync: originalRunPythonAsync
         };
         const agent = new AIAgent();
-        agent.activePromptContext = {
-            id: 'prompt-python-error',
-            allowFontEdits: true,
-            historySummary: 'Reorder features'
-        };
 
         await expect(
             agent.executeToolCall({
                 function: {
                     name: 'execute_python_code',
-                    arguments: JSON.stringify({ code: 'raise Exception()' })
+                    arguments: JSON.stringify({ code: 'print("test")' })
                 }
             })
-        ).rejects.toThrow('Python error: feature reorder failed');
+        ).rejects.toThrow('Agent tools do not execute Python code.');
 
-        expect(wrappedRunPythonAsync).toHaveBeenCalledTimes(1);
-        expect(originalRunPythonAsync).toHaveBeenCalledTimes(2);
+        expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
+        expect(originalRunPythonAsync).not.toHaveBeenCalled();
     });
 
-    test('stopping a prompt does not mutate existing history metadata', () => {
-        const agent = new AIAgent();
-        agent.activePromptContext = {
-            id: 'prompt-1',
-            allowFontEdits: true,
-            historySummary: 'Agent changes'
+    test('reverts a Python tool edit only with the current revision and permission', () => {
+        const replaceExactText = jest.fn(() => ({
+            revision: 'revision-after-revert'
+        }));
+        window.scriptEditor = {
+            getDocumentState: jest.fn(() => ({
+                revision: 'revision-after-edit'
+            })),
+            replaceExactText
         };
-        agent.finishPromptTransaction(true);
+        const agent = new AIAgent();
+        agent.allowFontEdits = true;
+        const meta = agent.createToolCallMetaElement(
+            'replace_python_text_in_editor',
+            { old_text: 'old text', new_text: 'new text' },
+            'Edited /Counterpunch/Scripts/example.py (general-script)\nRevision: revision-after-edit\nModified, not saved',
+            '1 ms'
+        );
 
-        expect(agent.activePromptContext.historySummary).toBe('Agent changes');
-        expect(agent.promptTransactionOpen).toBe(false);
+        meta.querySelector('[aria-label="Revert this Agent edit"]').click();
+
+        expect(replaceExactText).toHaveBeenCalledWith(
+            'new text',
+            'old text',
+            'revision-after-edit'
+        );
+        expect(meta.textContent).toContain('Agent edit reverted, not saved.');
+    });
+
+    test('does not revert a Python tool edit while Agent editing is disabled', () => {
+        const replaceExactText = jest.fn();
+        window.scriptEditor = {
+            getDocumentState: jest.fn(() => ({
+                revision: 'revision-after-edit'
+            })),
+            replaceExactText
+        };
+        const agent = new AIAgent();
+        agent.allowFontEdits = false;
+        const meta = agent.createToolCallMetaElement(
+            'replace_python_text_in_editor',
+            { old_text: 'old text', new_text: 'new text' },
+            'Edited /Counterpunch/Scripts/example.py (general-script)\nRevision: revision-after-edit\nModified, not saved',
+            '1 ms'
+        );
+
+        meta.querySelector('[aria-label="Revert this Agent edit"]').click();
+
+        expect(replaceExactText).not.toHaveBeenCalled();
+        expect(meta.textContent).toContain(
+            'Enable editing in the Agent title bar before reverting.'
+        );
     });
 });
