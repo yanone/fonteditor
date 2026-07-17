@@ -9,12 +9,14 @@ import {
     setupMenuKeyboardNav
 } from './tippy-utils';
 import { Logger } from './logger';
+import {
+    getPythonDocumentKindInfo,
+    type ScriptDocumentKind
+} from './python-document-kind';
 
 const console = new Logger('ScriptEditor');
 
 (function () {
-    type ScriptDocumentKind = 'general-script' | 'glyph-filter';
-
     type ScriptDocumentState = {
         content: string;
         kind: ScriptDocumentKind;
@@ -27,6 +29,8 @@ const console = new Logger('ScriptEditor');
     const SCRIPT_URI_STORAGE_KEY = 'python_script_uri';
     const SCRIPT_SAVED_CONTENT_STORAGE_KEY = 'python_script_saved_content';
     const SCRIPT_TIMESTAMP_STORAGE_KEY = 'python_script_timestamp';
+    const RUN_BUTTON_DEFAULT_HTML =
+        'Run <span style="opacity: 0.5;"><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>R</span>';
 
     const GENERAL_SCRIPT_TEMPLATE = '# New Python script\n';
     const GLYPH_FILTER_TEMPLATE = `# "New Filter" Filter
@@ -104,10 +108,40 @@ def filter_glyphs(font):
 
     function setDocumentKind(kind: ScriptDocumentKind): void {
         documentKind = kind;
+        updateRunButtonState();
     }
 
     function persistSavedContent(): void {
         localStorage.setItem(SCRIPT_SAVED_CONTENT_STORAGE_KEY, savedContent);
+    }
+
+    function isGlyphFilterDocument(): boolean {
+        return (
+            getPythonDocumentKindInfo({
+                kind: documentKind,
+                path: currentFilePath,
+                content: editor ? editor.getValue() : ''
+            }).kind === 'glyph-filter'
+        );
+    }
+
+    function updateRunButtonState(): void {
+        if (!runButton) {
+            return;
+        }
+
+        const isGlyphFilter = isGlyphFilterDocument();
+        runButton.disabled = false;
+        runButton.setAttribute(
+            'aria-disabled',
+            isGlyphFilter ? 'true' : 'false'
+        );
+        runButton.style.opacity = isGlyphFilter ? '0.5' : '1';
+        runButton.style.cursor = isGlyphFilter ? 'not-allowed' : '';
+        runButton.title = isGlyphFilter
+            ? 'This script is a glyph filter and must be invoked via the glyph filter UI in the Glyph Overview.'
+            : 'Run script (Cmd+Alt+R)';
+        runButton.innerHTML = RUN_BUTTON_DEFAULT_HTML;
     }
 
     /**
@@ -239,7 +273,7 @@ def filter_glyphs(font):
             if (match) {
                 currentPluginId = match[1];
                 currentFilePath = match[2];
-                documentKind = getPathKind(currentFilePath) || documentKind;
+                setDocumentKind(getPathKind(currentFilePath) || documentKind);
                 console.log(
                     '[ScriptEditor]',
                     'Restored file association:',
@@ -340,6 +374,7 @@ def filter_glyphs(font):
             localStorage.setItem(SCRIPT_CONTENT_STORAGE_KEY, editor.getValue());
             checkModified();
             recordDocumentChange();
+            updateRunButtonState();
         });
 
         const hasPersistedSavedBaseline = restoredSavedContent !== null;
@@ -350,6 +385,7 @@ def filter_glyphs(font):
               : savedScript !== GENERAL_SCRIPT_TEMPLATE;
 
         setModified(initialModified);
+        updateRunButtonState();
 
         // Initialize file menu
         initFileMenu();
@@ -829,7 +865,7 @@ def filter_glyphs(font):
         persistSavedContent();
         currentFilePath = null;
         currentPluginId = null;
-        documentKind = 'general-script';
+        setDocumentKind('general-script');
         hasExternalChanges = false;
         setModified(false);
 
@@ -1076,7 +1112,7 @@ def filter_glyphs(font):
                 ) {
                     return false;
                 }
-                documentKind = destinationKind;
+                setDocumentKind(destinationKind);
             } else if (!destinationKind) {
                 if (
                     !confirm(
@@ -1136,7 +1172,7 @@ def filter_glyphs(font):
             persistSavedContent();
             currentFilePath = path;
             currentPluginId = pluginId;
-            documentKind = getPathKind(path) || 'general-script';
+            setDocumentKind(getPathKind(path) || 'general-script');
 
             // Reset external changes state
             hasExternalChanges = false;
@@ -1211,6 +1247,15 @@ def filter_glyphs(font):
             return;
         }
 
+        if (isGlyphFilterDocument()) {
+            console.log(
+                '[ScriptEditor]',
+                'Run blocked: Glyph Overview filters must run from the filter UI'
+            );
+            updateRunButtonState();
+            return;
+        }
+
         if (!window.pyodide) {
             alert('Python environment not ready yet');
             return;
@@ -1224,6 +1269,7 @@ def filter_glyphs(font):
 
         // Disable the run button while executing
         runButton!.disabled = true;
+        runButton!.style.opacity = '0.65';
         runButton!.textContent = '⏳ Running...';
 
         try {
@@ -1283,9 +1329,7 @@ def filter_glyphs(font):
             }
         } finally {
             // Re-enable the run button
-            runButton!.disabled = false;
-            runButton!.innerHTML =
-                'Run <span style="opacity: 0.5;"><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>R</span>';
+            updateRunButtonState();
         }
     }
 
@@ -1640,7 +1684,7 @@ def filter_glyphs(font):
         setDocumentKind: setDocumentKind,
         createDraft: (kind: ScriptDocumentKind, content?: string) => {
             stopFileWatcher();
-            documentKind = kind;
+            setDocumentKind(kind);
             currentFilePath = null;
             currentPluginId = null;
             hasExternalChanges = false;
