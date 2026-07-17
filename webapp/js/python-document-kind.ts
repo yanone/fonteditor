@@ -11,10 +11,11 @@ export function getPythonDocumentKindInfo(state: {
     kind?: string;
     path?: string | null;
     content?: string;
+    isModified?: boolean;
 }): PythonDocumentKindInfo {
     const editorKind: ScriptDocumentKind =
         state.kind === 'glyph-filter' ? 'glyph-filter' : 'general-script';
-    if (state.path) {
+    if (state.path && !state.isModified) {
         return {
             kind: editorKind,
             editorKind,
@@ -32,15 +33,17 @@ export function getPythonDocumentKindInfo(state: {
             kind: 'glyph-filter',
             editorKind,
             confidence: 'content-inferred',
-            message:
-                'Unsaved buffer has no saved Counterpunch/Filters path yet, but it defines filter_glyphs(font), so it is treated as a Glyph Overview filter.'
+            message: state.path
+                ? 'This buffer has unsaved edits and defines filter_glyphs(font), so it is treated as a Glyph Overview filter until saved.'
+                : 'Unsaved buffer has no saved Counterpunch/Filters path yet, but it defines filter_glyphs(font), so it is treated as a Glyph Overview filter.'
         };
     }
     return {
         kind: null,
         editorKind,
         confidence: 'unclassified-unsaved',
-        message:
-            'Unsaved buffer has no saved Counterpunch/Filters path and does not define filter_glyphs(font), so it is not treated as a Glyph Overview filter.'
+        message: state.path
+            ? 'This buffer has unsaved edits and no longer defines filter_glyphs(font), so it is not treated as a Glyph Overview filter until saved.'
+            : 'Unsaved buffer has no saved Counterpunch/Filters path and does not define filter_glyphs(font), so it is not treated as a Glyph Overview filter.'
     };
 }

@@ -120,7 +120,8 @@ def filter_glyphs(font):
             getPythonDocumentKindInfo({
                 kind: documentKind,
                 path: currentFilePath,
-                content: editor ? editor.getValue() : ''
+                content: editor ? editor.getValue() : '',
+                isModified
             }).kind === 'glyph-filter'
         );
     }
