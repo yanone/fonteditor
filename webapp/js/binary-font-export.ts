@@ -3,6 +3,7 @@ import {
     fontCompilation,
     fullFontCompilation
 } from './font-compilation';
+import { del, get, set } from 'idb-keyval';
 import { Logger } from './logger';
 
 const console = new Logger('BinaryFontExport');
@@ -30,17 +31,32 @@ type ExportedBinaryFontMetadata = {
     timeTakenMs: number;
 };
 
+type CurrentFont = {
+    changeVersion: number;
+    path?: string;
+    sourcePlugin?: {
+        getId?: () => string;
+    };
+} & object;
+
+type WritableFileSystemHandle = FileSystemFileHandle & {
+    queryPermission?: (options: {
+        mode: 'readwrite';
+    }) => Promise<PermissionState>;
+    requestPermission?: (options: {
+        mode: 'readwrite';
+    }) => Promise<PermissionState>;
+};
+
 let destination: {
-    font: object;
+    storageKey: string | null;
     handle: FileSystemFileHandle;
 } | null = null;
 let exportInProgress = false;
 let exportFeedbackReset: (() => void) | null = null;
 
-function getCurrentFont(): {
-    changeVersion: number;
-    path?: string;
-} & object {
+/** Return the active font or stop export before it touches the file system. */
+function getCurrentFont(): CurrentFont {
     const currentFont = window.fontManager?.currentFont;
     if (!currentFont) {
         throw new Error('Open a font before exporting a binary font.');
@@ -55,13 +71,118 @@ function getSuggestedFilename(path: string | undefined): string {
     return `${baseName || 'font'}.ttf`;
 }
 
-function getExportDestinationForFont(
-    currentFont: object
-): FileSystemFileHandle | null {
-    if (destination?.font !== currentFont) {
+/** Build the stable plugin-qualified URI used to retain an export destination. */
+function getExportDestinationStorageKey(
+    currentFont: CurrentFont
+): string | null {
+    const pluginId = currentFont.sourcePlugin?.getId?.();
+    if (!pluginId || !currentFont.path) {
+        return null;
+    }
+
+    const pluginPrefix = `${pluginId}://`;
+    const sourcePath = currentFont.path.startsWith(pluginPrefix)
+        ? currentFont.path.slice(pluginPrefix.length)
+        : currentFont.path;
+    return `${pluginId}:///${sourcePath.replace(/^\/+/, '')}`;
+}
+
+/** Check or request permission before reusing a restored destination handle. */
+async function canWriteToDestination(
+    handle: FileSystemFileHandle
+): Promise<boolean> {
+    const writableHandle = handle as WritableFileSystemHandle;
+    if (!writableHandle.queryPermission || !writableHandle.requestPermission) {
+        return true;
+    }
+
+    const permission = await writableHandle.queryPermission({
+        mode: 'readwrite'
+    });
+    if (permission === 'granted') {
+        return true;
+    }
+
+    return (
+        (await writableHandle.requestPermission({ mode: 'readwrite' })) ===
+        'granted'
+    );
+}
+
+/** Remove an unusable cached destination from memory and durable storage. */
+async function forgetExportDestination(
+    storageKey: string | null
+): Promise<void> {
+    if (destination?.storageKey === storageKey) {
         destination = null;
     }
-    return destination?.handle ?? null;
+    if (!storageKey) {
+        return;
+    }
+
+    try {
+        await del(storageKey);
+    } catch (error: unknown) {
+        console.warn(
+            'Could not clear export destination:',
+            getErrorMessage(error)
+        );
+    }
+}
+
+/** Cache a successful destination in memory and retain its handle across reloads. */
+async function rememberExportDestination(
+    storageKey: string | null,
+    handle: FileSystemFileHandle
+): Promise<void> {
+    destination = { storageKey, handle };
+    if (!storageKey) {
+        return;
+    }
+
+    try {
+        await set(storageKey, handle);
+    } catch (error: unknown) {
+        console.warn(
+            'Could not persist export destination:',
+            getErrorMessage(error)
+        );
+    }
+}
+
+/** Restore the cached destination for the active source URI when it remains writable. */
+async function getExportDestinationForFont(
+    currentFont: CurrentFont
+): Promise<FileSystemFileHandle | null> {
+    const storageKey = getExportDestinationStorageKey(currentFont);
+    if (destination?.storageKey === storageKey) {
+        return destination.handle;
+    }
+    destination = null;
+
+    if (!storageKey) {
+        return null;
+    }
+
+    try {
+        const handle = await get<FileSystemFileHandle>(storageKey);
+        if (!handle) {
+            return null;
+        }
+        if (!(await canWriteToDestination(handle))) {
+            await forgetExportDestination(storageKey);
+            return null;
+        }
+
+        destination = { storageKey, handle };
+        return handle;
+    } catch (error: unknown) {
+        console.warn(
+            'Could not restore export destination:',
+            getErrorMessage(error)
+        );
+        return null;
+    }
 }
 
 async function chooseDestination(
@@ -178,23 +299,30 @@ async function runBinaryFontExport(
     exportFeedbackReset = beginExportFeedback();
     try {
         const currentFont = getCurrentFont();
-        const previousDestination = getExportDestinationForFont(currentFont);
-        const handle =
-            !alwaysChooseDestination && previousDestination
-                ? previousDestination
-                : await chooseDestination(
-                      getSuggestedFilename(currentFont.path)
-                  );
+        const storageKey = getExportDestinationStorageKey(currentFont);
+        const previousDestination = alwaysChooseDestination
+            ? null
+            : await getExportDestinationForFont(currentFont);
+        const handle = previousDestination
+            ? previousDestination
+            : await chooseDestination(getSuggestedFilename(currentFont.path));
         if (!handle) {
             return;
         }
 
         const compiled = await compileFullFont();
-        const writable = await handle.createWritable();
-        await writable.write(new Uint8Array(compiled.bytes).buffer);
-        await writable.close();
+        try {
+            const writable = await handle.createWritable();
+            await writable.write(new Uint8Array(compiled.bytes).buffer);
+            await writable.close();
+        } catch (error: unknown) {
+            if (previousDestination) {
+                await forgetExportDestination(storageKey);
+            }
+            throw error;
+        }
 
-        destination = { font: currentFont, handle };
+        await rememberExportDestination(storageKey, handle);
 
         const metadata: ExportedBinaryFontMetadata = {
             byteLength: compiled.bytes.byteLength,
@@ -217,9 +345,6 @@ async function runBinaryFontExport(
         );
         console.log('Exported binary font:', metadata.filename);
     } catch (error: unknown) {
-        if (destination?.font === window.fontManager?.currentFont) {
-            destination = null;
-        }
         const message = getErrorMessage(error);
         console.error('Binary font export failed:', message);
         window.alert(`Unable to export binary font: ${message}`);

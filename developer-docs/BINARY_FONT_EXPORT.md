@@ -10,11 +10,18 @@ while opening a font, or as part of synchronization.
   recently chosen destination for the currently open font.
 - **File > Export binary font as...** (`Cmd+Shift+E` on macOS,
   `Ctrl+Shift+E` elsewhere) always opens the browser's save picker and replaces
-  that in-memory destination.
+    the retained destination.
 
-The destination is intentionally retained only for the current browser session
-and current font object. Switching fonts or reloading the page requires choosing
-a destination again. The browser File System Access API is required.
+Successful exports retain their `FileSystemFileHandle` in IndexedDB. Each handle
+uses the plugin-qualified source URI as its key, such as
+`disk:///fonts/Example.babelfont`; this keeps disk paths unambiguous, including
+the third slash before an absolute folder path. On a later export, the editor
+checks or requests read/write permission for the restored handle. If permission
+is denied or the handle is no longer usable, it discards that destination and
+opens the save picker instead. The browser File System Access API is required.
+
+`FileSystemFileHandle` values cannot be serialized into `localStorage`, so
+IndexedDB is required for this durable browser-side storage.
 
 ## Compilation behavior
 

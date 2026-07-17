@@ -7,6 +7,10 @@ describe('binary font export', () => {
     let showSaveFilePickerMock;
     let postMessageSpy;
     let currentFont;
+    let persistedDestinations;
+    let getPersistedDestinationMock;
+    let setPersistedDestinationMock;
+    let deletePersistedDestinationMock;
 
     async function flushAsyncWork() {
         await Promise.resolve();
@@ -21,8 +25,23 @@ describe('binary font export', () => {
 
         currentFont = {
             path: '/fonts/Example.babelfont',
-            changeVersion: 7
+            changeVersion: 7,
+            sourcePlugin: {
+                getId: () => 'disk'
+            }
         };
+        persistedDestinations = new Map();
+        getPersistedDestinationMock = jest.fn((key) =>
+            Promise.resolve(persistedDestinations.get(key))
+        );
+        setPersistedDestinationMock = jest.fn((key, value) => {
+            persistedDestinations.set(key, value);
+            return Promise.resolve();
+        });
+        deletePersistedDestinationMock = jest.fn((key) => {
+            persistedDestinations.delete(key);
+            return Promise.resolve();
+        });
         awaitStableWorkerStateMock = jest.fn().mockResolvedValue(undefined);
         bootstrapWorkerCacheFromFontStateMock = jest
             .fn()
@@ -70,6 +89,11 @@ describe('binary font export', () => {
                 error() {}
             }
         }));
+        jest.doMock('idb-keyval', () => ({
+            get: getPersistedDestinationMock,
+            set: setPersistedDestinationMock,
+            del: deletePersistedDestinationMock
+        }));
     });
 
     afterEach(() => {
@@ -78,6 +102,7 @@ describe('binary font export', () => {
         delete window.fontManager;
         jest.dontMock('../js/font-compilation');
         jest.dontMock('../js/logger');
+        jest.dontMock('idb-keyval');
     });
 
     function finishPicker() {
@@ -132,6 +157,63 @@ describe('binary font export', () => {
             window.location.origin,
             [expect.any(ArrayBuffer)]
         );
+        expect(setPersistedDestinationMock).toHaveBeenCalledWith(
+            'disk:///fonts/Example.babelfont',
+            expect.objectContaining({ name: 'Example.ttf' })
+        );
+    });
+
+    test('restores the plugin-qualified destination after switching sources', async () => {
+        const { exportBinaryFont } = require('../js/binary-font-export.ts');
+        const originalFont = currentFont;
+
+        const firstExport = exportBinaryFont();
+        await flushAsyncWork();
+        finishPicker();
+        await firstExport;
+
+        currentFont = {
+            path: '/fonts/Other.babelfont',
+            changeVersion: 8,
+            sourcePlugin: {
+                getId: () => 'disk'
+            }
+        };
+        window.fontManager.currentFont = currentFont;
+        const otherExport = exportBinaryFont();
+        await flushAsyncWork();
+        finishPicker();
+        await otherExport;
+
+        window.fontManager.currentFont = originalFont;
+        await exportBinaryFont();
+
+        expect(showSaveFilePickerMock).toHaveBeenCalledTimes(2);
+        expect(getPersistedDestinationMock).toHaveBeenLastCalledWith(
+            'disk:///fonts/Example.babelfont'
+        );
+        expect(createWritableMock).toHaveBeenCalledTimes(3);
+    });
+
+    test('replaces a restored destination when write permission is denied', async () => {
+        persistedDestinations.set('disk:///fonts/Example.babelfont', {
+            name: 'Unavailable.ttf',
+            createWritable: createWritableMock,
+            queryPermission: jest.fn().mockResolvedValue('denied'),
+            requestPermission: jest.fn().mockResolvedValue('denied')
+        });
+
+        const { exportBinaryFont } = require('../js/binary-font-export.ts');
+        const exportPromise = exportBinaryFont();
+        await flushAsyncWork();
+        await flushAsyncWork();
+        finishPicker();
+        await exportPromise;
+
+        expect(deletePersistedDestinationMock).toHaveBeenCalledWith(
+            'disk:///fonts/Example.babelfont'
+        );
+        expect(showSaveFilePickerMock).toHaveBeenCalledTimes(1);
     });
 
     test('export as always chooses a new destination', async () => {
