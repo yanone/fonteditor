@@ -275,6 +275,107 @@ describe('get_editor_state text-buffer interpretation', () => {
         expect(popup.textContent).not.toContain('live tool call');
     });
 
+    test('renders replace_python_text_in_editor diffs inline in chat', async () => {
+        const agent = new AIAgent();
+        agent.promptInput.value = 'Update script';
+        agent.messagesContainer = document.getElementById('agent-messages');
+        const oldText = [
+            '# Show init/medi/fina glyphs',
+            '# Keywords: arabic, positional, initial, medial, final',
+            '',
+            'GROUPS = {',
+            "    'init': {'description': 'Initial forms (.init)', 'color': '#E65100'},",
+            "    'medi': {'description': 'Medial forms (.medi)', 'color': '#1565C0'},",
+            "    'fina': {'description': 'Final forms (.fina)', 'color': '#2E7D32'}",
+            '}',
+            '',
+            '',
+            'def filter_glyphs(font):',
+            '    for glyph in font.glyphs:'
+        ].join('\n');
+        const newText = [
+            '# Show init/medi/fina/isol glyphs',
+            '# Keywords: arabic, positional, initial, medial, final, isolated',
+            '',
+            'GROUPS = {',
+            "    'init': {'description': 'Initial forms (.init)', 'color': '#E65100'},",
+            "    'medi': {'description': 'Medial forms (.medi)', 'color': '#1565C0'},",
+            "    'fina': {'description': 'Final forms (.fina)', 'color': '#2E7D32'},",
+            "    'isol': {'description': 'Isolated forms (.isol)', 'color': '#6A1B9A'}",
+            '}',
+            '',
+            '',
+            'def filter_glyphs(font):',
+            '    for glyph in font.glyphs:'
+        ].join('\n');
+        agent.streamRound = jest
+            .fn()
+            .mockResolvedValueOnce({
+                text: '',
+                toolCalls: [
+                    {
+                        id: 'tool-1',
+                        function: {
+                            name: 'replace_python_text_in_editor',
+                            arguments: JSON.stringify({
+                                old_text: oldText,
+                                new_text: newText,
+                                expected_revision: 'revision-before-edit'
+                            })
+                        }
+                    }
+                ],
+                done: true
+            })
+            .mockResolvedValueOnce({
+                text: 'Done.',
+                toolCalls: [],
+                done: true
+            });
+        agent.executeToolCall = jest
+            .fn()
+            .mockResolvedValue(
+                [
+                    'Edited /Counterpunch/Scripts/example.py (general-script)',
+                    'Revision: revision-after-edit',
+                    'Modified, not saved',
+                    '',
+                    '@@ Script Editor @@',
+                    '-raw fallback should not be displayed',
+                    '+raw fallback should not be displayed'
+                ].join('\n')
+            );
+
+        await agent.sendPrompt();
+
+        const inlineDiff = agent.messagesContainer.querySelector(
+            '.agent-python-edit-diff'
+        );
+        expect(inlineDiff).not.toBeNull();
+        expect(inlineDiff.textContent).toContain('Python edit diff');
+        expect(inlineDiff.textContent).toContain(
+            '# Show init/medi/fina glyphs'
+        );
+        expect(inlineDiff.textContent).toContain(
+            '# Show init/medi/fina/isol glyphs'
+        );
+        expect(inlineDiff.textContent).toContain(
+            "    'isol': {'description': 'Isolated forms (.isol)', 'color': '#6A1B9A'}"
+        );
+        expect(inlineDiff.textContent).toContain('unchanged lines hidden');
+        expect(inlineDiff.textContent).not.toContain(
+            'raw fallback should not be displayed'
+        );
+        expect(
+            inlineDiff.querySelectorAll('.agent-python-edit-diff-row-added')
+                .length
+        ).toBeGreaterThan(0);
+        expect(
+            inlineDiff.querySelectorAll('.agent-python-edit-diff-row-removed')
+                .length
+        ).toBeGreaterThan(0);
+    });
+
     test('rejects execute_python_code without invoking Python', async () => {
         const wrappedRunPythonAsync = jest.fn();
         const originalRunPythonAsync = jest.fn();

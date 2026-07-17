@@ -1576,6 +1576,248 @@ class AIAgent {
         return outputEl;
     }
 
+    private createInlinePythonEditDiffElement(
+        toolResult: string,
+        args?: { old_text?: string; new_text?: string }
+    ): HTMLElement {
+        const outputEl = document.createElement('div');
+        outputEl.className = 'agent-python-edit-diff';
+        outputEl.style.cssText =
+            'margin:4px 0 8px 20px;padding:8px;border:1px solid var(--border-primary);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:11px;line-height:1.5;';
+
+        const diffStart = toolResult.indexOf('@@ Script Editor @@');
+        const summary =
+            diffStart >= 0 ? toolResult.slice(0, diffStart).trim() : '';
+        const title = document.createElement('div');
+        title.textContent = 'Python edit diff';
+        title.style.cssText = 'font-weight:600;margin-bottom:4px';
+        outputEl.appendChild(title);
+
+        if (summary) {
+            const summaryEl = document.createElement('div');
+            summaryEl.textContent = summary;
+            summaryEl.style.cssText =
+                'margin-bottom:6px;color:var(--text-secondary);white-space:pre-wrap';
+            outputEl.appendChild(summaryEl);
+        }
+
+        const hasLineInputs =
+            typeof args?.old_text === 'string' &&
+            typeof args?.new_text === 'string';
+        if (hasLineInputs) {
+            const rows = this.createPythonLineDiffRows(
+                args.old_text || '',
+                args.new_text || ''
+            );
+            outputEl.appendChild(this.renderPythonLineDiffRows(rows));
+        } else {
+            const diff =
+                diffStart >= 0
+                    ? toolResult.slice(diffStart).trim()
+                    : toolResult.trim();
+            const pre = document.createElement('pre');
+            pre.textContent = diff;
+            pre.style.cssText =
+                'margin:0;white-space:pre-wrap;word-break:break-word;font-size:10px;font-family:var(--font-families-mono);tab-size:4';
+            outputEl.appendChild(pre);
+        }
+        return outputEl;
+    }
+
+    private createPythonLineDiffRows(
+        oldText: string,
+        newText: string
+    ): Array<{
+        type: 'context' | 'removed' | 'added' | 'omitted';
+        oldLine?: number;
+        newLine?: number;
+        text: string;
+    }> {
+        const oldLines = oldText.split(/\r?\n/);
+        const newLines = newText.split(/\r?\n/);
+        const lengths = Array.from(
+            { length: oldLines.length + 1 },
+            () => Array(newLines.length + 1).fill(0) as number[]
+        );
+
+        for (let oldIndex = oldLines.length - 1; oldIndex >= 0; oldIndex--) {
+            for (
+                let newIndex = newLines.length - 1;
+                newIndex >= 0;
+                newIndex--
+            ) {
+                lengths[oldIndex][newIndex] =
+                    oldLines[oldIndex] === newLines[newIndex]
+                        ? lengths[oldIndex + 1][newIndex + 1] + 1
+                        : Math.max(
+                              lengths[oldIndex + 1][newIndex],
+                              lengths[oldIndex][newIndex + 1]
+                          );
+            }
+        }
+
+        const rows: Array<{
+            type: 'context' | 'removed' | 'added' | 'omitted';
+            oldLine?: number;
+            newLine?: number;
+            text: string;
+        }> = [];
+        let oldIndex = 0;
+        let newIndex = 0;
+        while (oldIndex < oldLines.length || newIndex < newLines.length) {
+            if (
+                oldIndex < oldLines.length &&
+                newIndex < newLines.length &&
+                oldLines[oldIndex] === newLines[newIndex]
+            ) {
+                rows.push({
+                    type: 'context',
+                    oldLine: oldIndex + 1,
+                    newLine: newIndex + 1,
+                    text: oldLines[oldIndex]
+                });
+                oldIndex++;
+                newIndex++;
+            } else if (
+                newIndex < newLines.length &&
+                (oldIndex >= oldLines.length ||
+                    lengths[oldIndex][newIndex + 1] >
+                        lengths[oldIndex + 1][newIndex])
+            ) {
+                rows.push({
+                    type: 'added',
+                    newLine: newIndex + 1,
+                    text: newLines[newIndex]
+                });
+                newIndex++;
+            } else {
+                rows.push({
+                    type: 'removed',
+                    oldLine: oldIndex + 1,
+                    text: oldLines[oldIndex]
+                });
+                oldIndex++;
+            }
+        }
+
+        return this.collapsePythonDiffContextRows(rows);
+    }
+
+    private collapsePythonDiffContextRows(
+        rows: Array<{
+            type: 'context' | 'removed' | 'added' | 'omitted';
+            oldLine?: number;
+            newLine?: number;
+            text: string;
+        }>
+    ): Array<{
+        type: 'context' | 'removed' | 'added' | 'omitted';
+        oldLine?: number;
+        newLine?: number;
+        text: string;
+    }> {
+        const contextRadius = 2;
+        const changedIndexes = rows
+            .map((row, index) => (row.type === 'context' ? -1 : index))
+            .filter((index) => index >= 0);
+        if (changedIndexes.length === 0) return rows;
+
+        const keep = new Set<number>();
+        for (const changedIndex of changedIndexes) {
+            for (
+                let index = Math.max(0, changedIndex - contextRadius);
+                index <=
+                Math.min(rows.length - 1, changedIndex + contextRadius);
+                index++
+            ) {
+                keep.add(index);
+            }
+        }
+
+        const collapsed: Array<{
+            type: 'context' | 'removed' | 'added' | 'omitted';
+            oldLine?: number;
+            newLine?: number;
+            text: string;
+        }> = [];
+        let omittedCount = 0;
+        for (let index = 0; index < rows.length; index++) {
+            if (keep.has(index) || rows[index].type !== 'context') {
+                if (omittedCount > 0) {
+                    collapsed.push({
+                        type: 'omitted',
+                        text: `${omittedCount} unchanged line${
+                            omittedCount === 1 ? '' : 's'
+                        } hidden`
+                    });
+                    omittedCount = 0;
+                }
+                collapsed.push(rows[index]);
+            } else {
+                omittedCount++;
+            }
+        }
+        if (omittedCount > 0) {
+            collapsed.push({
+                type: 'omitted',
+                text: `${omittedCount} unchanged line${
+                    omittedCount === 1 ? '' : 's'
+                } hidden`
+            });
+        }
+        return collapsed;
+    }
+
+    private renderPythonLineDiffRows(
+        rows: Array<{
+            type: 'context' | 'removed' | 'added' | 'omitted';
+            oldLine?: number;
+            newLine?: number;
+            text: string;
+        }>
+    ): HTMLElement {
+        const list = document.createElement('div');
+        list.style.cssText =
+            'display:flex;flex-direction:column;gap:1px;font-family:var(--font-families-mono);font-size:10px;tab-size:4;';
+
+        for (const row of rows) {
+            const line = document.createElement('div');
+            line.className = `agent-python-edit-diff-row agent-python-edit-diff-row-${row.type}`;
+            const marker = document.createElement('span');
+            const text = document.createElement('span');
+
+            line.style.cssText =
+                'display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px;padding:2px 6px;border-radius:4px;white-space:pre-wrap;word-break:break-word;';
+            marker.style.cssText =
+                'user-select:none;color:var(--text-tertiary);text-align:right;';
+            text.textContent = row.text;
+
+            if (row.type === 'added') {
+                line.style.background =
+                    'color-mix(in srgb, var(--accent-green) 16%, transparent)';
+                line.style.borderLeft = '3px solid var(--accent-green)';
+                marker.textContent = `+${row.newLine || ''}`;
+            } else if (row.type === 'removed') {
+                line.style.background =
+                    'color-mix(in srgb, var(--accent-red) 16%, transparent)';
+                line.style.borderLeft = '3px solid var(--accent-red)';
+                marker.textContent = `-${row.oldLine || ''}`;
+            } else if (row.type === 'omitted') {
+                line.style.color = 'var(--text-tertiary)';
+                line.style.fontStyle = 'italic';
+                marker.textContent = '...';
+            } else {
+                line.style.color = 'var(--text-secondary)';
+                marker.textContent = ` ${row.oldLine || row.newLine || ''}`;
+            }
+
+            line.append(marker, text);
+            list.appendChild(line);
+        }
+
+        return list;
+    }
+
     parseOpenTypeSearchTerms(query: string): string[] {
         return query
             .toLowerCase()
@@ -3850,6 +4092,18 @@ if '_agent_original_stdout' in dir():
                             }
 
                             (bodyDiv as HTMLDivElement).appendChild(line);
+                            if (
+                                toolCall.function.name ===
+                                    'replace_python_text_in_editor' &&
+                                !toolResult.startsWith('Error:')
+                            ) {
+                                (bodyDiv as HTMLDivElement).appendChild(
+                                    this.createInlinePythonEditDiffElement(
+                                        toolResult,
+                                        args
+                                    )
+                                );
+                            }
                             this.scrollToBottomIfNear();
                         } else {
                             try {
