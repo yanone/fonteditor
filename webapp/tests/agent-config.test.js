@@ -8,15 +8,22 @@ describe('agent configuration', () => {
         expect(AGENT_SYSTEM_PROMPT).toContain('before sending a new prompt');
     });
 
-    test('requires the Python authoring guide before substantive Python edits', () => {
+    test('gives a literal Python document workflow before substantive edits', () => {
         expect(AGENT_SYSTEM_PROMPT).toContain(
-            'call python_authoring_guide for its kind'
+            'Follow this exact workflow for Python authoring'
+        );
+        expect(AGENT_SYSTEM_PROMPT).toContain('get_active_python_document');
+        expect(AGENT_SYSTEM_PROMPT).toContain(
+            'python_authoring_guide with that kind'
+        );
+        expect(AGENT_SYSTEM_PROMPT).toContain(
+            'validate_python_document after every create or replace'
         );
         const activeDocumentTool = AGENT_TOOLS.find(
             ({ function: tool }) => tool.name === 'get_active_python_document'
         );
         expect(activeDocumentTool.function.description).toContain(
-            'use the returned kind with python_authoring_guide'
+            'pass the returned kind to python_authoring_guide'
         );
         const guideTool = AGENT_TOOLS.find(
             ({ function: tool }) => tool.name === 'python_authoring_guide'
@@ -31,6 +38,9 @@ describe('agent configuration', () => {
         });
         expect(
             guideTool.function.parameters.properties.kind.description
-        ).toContain('general-script');
+        ).toContain('user runs from Script Editor');
+        expect(guideTool.function.description).toContain(
+            'handbook discovery is not required'
+        );
     });
 });

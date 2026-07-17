@@ -1303,8 +1303,8 @@ class AIAgent {
             'font-size:10px;line-height:1.4;color:var(--text-tertiary);';
         status.textContent =
             fieldEntries.length > 0
-                ? 'Fill parameters and run the live tool call.'
-                : 'Run the live tool call.';
+                ? 'Fill parameters, then invoke this tool.'
+                : 'Invoke this tool.';
         controls.appendChild(status);
 
         form.appendChild(controls);

@@ -261,6 +261,20 @@ describe('get_editor_state text-buffer interpretation', () => {
         }
     });
 
+    test('uses neutral invocation wording in the manual tool executor', () => {
+        const { AGENT_TOOLS } = require('../js/agent-config.ts');
+        const authoringGuide = AGENT_TOOLS.find(
+            ({ function: tool }) => tool.name === 'python_authoring_guide'
+        );
+        const agent = new AIAgent();
+        const popup = agent.createToolInvocationPopup(authoringGuide);
+
+        expect(popup.textContent).toContain(
+            'Fill parameters, then invoke this tool.'
+        );
+        expect(popup.textContent).not.toContain('live tool call');
+    });
+
     test('rejects execute_python_code without invoking Python', async () => {
         const wrappedRunPythonAsync = jest.fn();
         const originalRunPythonAsync = jest.fn();
