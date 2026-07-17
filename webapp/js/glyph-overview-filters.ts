@@ -1268,10 +1268,6 @@ export class GlyphOverviewFilterManager {
                     <span class="material-symbols-outlined">edit</span>
                     <span>Rename</span>
                 </div>
-                <div class="plugin-menu-item" data-action="locate">
-                    <span class="material-symbols-outlined">my_location</span>
-                    <span>Locate in Files</span>
-                </div>
                 <div class="plugin-menu-divider"></div>
                 <div class="plugin-menu-item plugin-menu-item-danger" data-action="delete">
                     <span class="material-symbols-outlined">delete</span>
@@ -1320,9 +1316,6 @@ export class GlyphOverviewFilterManager {
                                 case 'chat-session':
                                     await this.openOrCreateChatSession(plugin);
                                     break;
-                                case 'locate':
-                                    await this.locateFilterInFiles(filePath);
-                                    break;
                                 case 'open-script-editor':
                                     await this.openFilterInScriptEditor(
                                         filePath
@@ -1370,13 +1363,6 @@ export class GlyphOverviewFilterManager {
 
             tippyInstance.show();
         });
-    }
-
-    /**
-     * Locate a user filter file in the font file dialog
-     */
-    private async locateFilterInFiles(filePath: string): Promise<void> {
-        await (window as any).locatePathInFileDialog?.('disk', filePath);
     }
 
     /**
