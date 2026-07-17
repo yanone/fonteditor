@@ -130,6 +130,17 @@ type PythonSyntaxCheck = {
     text?: string;
 };
 
+type PythonDocumentKindInfo = {
+    kind: 'general-script' | 'glyph-filter' | null;
+    editorKind: 'general-script' | 'glyph-filter';
+    confidence:
+        | 'saved-path'
+        | 'editor-unsaved'
+        | 'content-inferred'
+        | 'unclassified-unsaved';
+    message: string;
+};
+
 const BINARY_FONT_SUMMARY_PATHS = [
     '/tables/head/unitsPerEm',
     '/tables/maxp/numGlyphs',
@@ -2565,7 +2576,6 @@ class AIAgent {
                     'Python syntax validation is not available yet. Wait for Pyodide to finish loading and validate again.'
             };
         }
-
         const sourceKey = '__counterpunch_agent_python_validation_source';
         globals.set(sourceKey, content);
         try {
@@ -2618,6 +2628,53 @@ __counterpunch_agent_validate_syntax(${sourceKey})`
                 globals.delete(sourceKey);
             }
         }
+    }
+
+    private getPythonDocumentKindInfo(state: {
+        kind?: string;
+        path?: string | null;
+        content?: string;
+    }): PythonDocumentKindInfo {
+        const editorKind =
+            state.kind === 'glyph-filter' ? 'glyph-filter' : 'general-script';
+        if (state.path) {
+            return {
+                kind: editorKind,
+                editorKind,
+                confidence: 'saved-path',
+                message: `Document kind is authoritative from saved path ${state.path}.`
+            };
+        }
+
+        const hasFilterFunction =
+            /^\s*def\s+filter_glyphs\s*\(\s*font\s*\)\s*:/m.test(
+                state.content || ''
+            );
+        if (editorKind === 'glyph-filter') {
+            return {
+                kind: 'glyph-filter',
+                editorKind,
+                confidence: 'editor-unsaved',
+                message:
+                    'Unsaved buffer is marked as a Glyph Overview filter in the editor, but it has no saved Counterpunch/Filters path yet.'
+            };
+        }
+        if (hasFilterFunction) {
+            return {
+                kind: 'glyph-filter',
+                editorKind,
+                confidence: 'content-inferred',
+                message:
+                    'Unsaved buffer has no saved path; it defines filter_glyphs(font), so it is treated as a likely Glyph Overview filter until saved or explicitly classified.'
+            };
+        }
+        return {
+            kind: null,
+            editorKind,
+            confidence: 'unclassified-unsaved',
+            message:
+                'Unsaved buffer has no saved Counterpunch/Scripts or Counterpunch/Filters path. The editor fallback is general-script, but the Agent must not treat that as authoritative; use the user request or ask before choosing a Python authoring guide.'
+        };
     }
 
     private createPythonDiff(oldText: string, newText: string): string {
@@ -2925,12 +2982,17 @@ if '_agent_original_stdout' in dir():
             }
             case 'get_active_python_document': {
                 const state = window.scriptEditor.getDocumentState();
+                const kindInfo = this.getPythonDocumentKindInfo(state);
                 const includeContent = args.include_content !== false;
                 const maxChars = Math.max(0, Number(args.max_chars) || 12000);
                 this.lastKnownScriptRevision = state.revision;
                 this.scriptStateInvalidated = false;
                 return JSON.stringify({
                     ...state,
+                    kind: kindInfo.kind,
+                    editorKind: kindInfo.editorKind,
+                    kindConfidence: kindInfo.confidence,
+                    kindMessage: kindInfo.message,
                     content: includeContent
                         ? state.content.slice(0, maxChars)
                         : undefined,
@@ -3073,13 +3135,14 @@ if '_agent_original_stdout' in dir():
             }
             case 'validate_python_document': {
                 const state = window.scriptEditor.getDocumentState();
+                const kindInfo = this.getPythonDocumentKindInfo(state);
                 const syntax = this.validatePythonSyntax(state.content || '');
                 const hasFilterFunction =
                     /^\s*def\s+filter_glyphs\s*\(\s*font\s*\)\s*:/m.test(
                         state.content
                     );
                 const structureValid =
-                    state.kind !== 'glyph-filter' || hasFilterFunction;
+                    kindInfo.kind !== 'glyph-filter' || hasFilterFunction;
                 const messages: string[] = [];
                 if (!syntax.valid) {
                     const location = syntax.line
@@ -3098,8 +3161,14 @@ if '_agent_original_stdout' in dir():
                         'Glyph filters must define filter_glyphs(font).'
                     );
                 }
+                if (kindInfo.confidence !== 'saved-path') {
+                    messages.push(kindInfo.message);
+                }
                 return JSON.stringify({
-                    kind: state.kind,
+                    kind: kindInfo.kind,
+                    editorKind: kindInfo.editorKind,
+                    kindConfidence: kindInfo.confidence,
+                    kindMessage: kindInfo.message,
                     revision: state.revision,
                     valid: syntax.valid && structureValid,
                     syntaxChecked: syntax.checked,

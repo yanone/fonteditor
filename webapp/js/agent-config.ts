@@ -463,7 +463,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'get_active_python_document',
             description:
-                'Read the current Script Editor buffer. This is the first call before editing an existing Python document. It returns its exact kind, saved path, revision, modified state, and optionally bounded content. Before creating or substantially editing Python, pass the returned kind to python_authoring_guide. This only reads the buffer; it never runs or saves Python.',
+                'Read the current Script Editor buffer. This is the first call before editing an existing Python document. It returns saved path, revision, modified state, optionally bounded content, and Python kind classification fields. For an unsaved buffer, kind can be null and editorKind may only be the editor fallback; inspect kindConfidence and kindMessage before choosing python_authoring_guide. This only reads the buffer; it never runs or saves Python.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -613,7 +613,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'replace_python_text_in_editor',
             description:
-                'Replace one exact unique text span in the current Script Editor buffer. First call get_active_python_document to obtain the current content and revision; before a substantial edit, call python_authoring_guide for the returned kind. Requires Agent editing to be enabled and the fresh revision from that read. After replacement, call validate_python_document. This changes only the unsaved buffer and returns a concise diff; it never saves or runs Python.',
+                'Replace one exact unique text span in the current Script Editor buffer. First call get_active_python_document to obtain the current content, revision, and kindConfidence; before a substantial edit, call python_authoring_guide only after the kind is clear from saved path, editor mark, content, or user intent. Requires Agent editing to be enabled and the fresh revision from that read. After replacement, call validate_python_document. This changes only the unsaved buffer and returns a concise diff; it never saves or runs Python.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -630,7 +630,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'validate_python_document',
             description:
-                'After create_python_draft_in_editor or replace_python_text_in_editor, perform non-executing validation of the current Script Editor buffer. This parses Python syntax with the Python compiler but does not execute the code object. Glyph filters must also define filter_glyphs(font). Report validation failures before proposing more edits. This never runs user code, imports the user document, or saves Python.',
+                'After create_python_draft_in_editor or replace_python_text_in_editor, perform non-executing validation of the current Script Editor buffer. This parses Python syntax with the Python compiler but does not execute the code object. The result includes kind, editorKind, kindConfidence, and kindMessage because unsaved pathless buffers can be unclassified even when the editor fallback is general-script. Glyph filters must also define filter_glyphs(font). Report validation failures or unclear kind classification before proposing more edits. This never runs user code, imports the user document, or saves Python.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -671,7 +671,7 @@ At the beginning of every prompt, call set_prompt_history_summary with a concise
 
 Every request includes the current editor state and whether Agent editing is allowed. Treat that permission as authoritative. When Agent editing is disabled, you may inspect the font and Python documents but must not modify font data or Script Editor buffers. If you decline an edit because of this permission, tell the user that they can enable editing with the pen button in the Agent title bar before sending a new prompt. You cannot change the permission yourself, and it remains frozen for the current prompt.
 
-Python-document boundary: Never execute Python with an Agent tool, never save a Python file, and never select a glyph filter. The user saves and runs general scripts in the Script Editor; the user selects glyph filters in Glyph Overview. Follow this exact workflow for Python authoring: (1) for an existing document, call get_active_python_document; for a new document, choose general-script for a reusable Script Editor script or glyph-filter for a Glyph Overview filter; (2) call python_authoring_guide with that kind before creating or substantially editing code; (3) if changing a buffer, confirm Agent editing is enabled, then create_python_draft_in_editor or replace_python_text_in_editor using the fresh revision; (4) call validate_python_document after every create or replace. Use list_python_files, search_python_files, and read_python_file only for saved managed files; use get_active_python_document only for the active unsaved buffer.
+Python-document boundary: Never execute Python with an Agent tool, never save a Python file, and never select a glyph filter. The user saves and runs general scripts in the Script Editor; the user selects glyph filters in Glyph Overview. Follow this exact workflow for Python authoring: (1) for an existing document, call get_active_python_document; for a new document, choose general-script for a reusable Script Editor script or glyph-filter for a Glyph Overview filter; (2) before creating or substantially editing code, call python_authoring_guide only after the kind is clear from a saved path, explicit editor mark, content structure, or user intent. If get_active_python_document or validate_python_document returns kind null or kindConfidence unclassified-unsaved, do not treat editorKind general-script as authoritative; ask the user or infer from the request before choosing a guide; (3) if changing a buffer, confirm Agent editing is enabled, then create_python_draft_in_editor or replace_python_text_in_editor using the fresh revision; (4) call validate_python_document after every create or replace. Use list_python_files, search_python_files, and read_python_file only for saved managed files; use get_active_python_document only for the active unsaved buffer.
 
 CRITICAL RULE: If the user prompt is not about the broad topic of fonts and font engineering, or about how to use the Counterpunch app, or type design in general, then politely REFUSE to answer the question and let the user know what topics you can help with. Do not answer questions about topics outside of font design and Counterpunch usage. Always steer the user back to font design and using the app."
 `;

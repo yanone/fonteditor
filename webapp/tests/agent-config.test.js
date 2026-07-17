@@ -14,7 +14,10 @@ describe('agent configuration', () => {
         );
         expect(AGENT_SYSTEM_PROMPT).toContain('get_active_python_document');
         expect(AGENT_SYSTEM_PROMPT).toContain(
-            'python_authoring_guide with that kind'
+            'call python_authoring_guide only after the kind is clear'
+        );
+        expect(AGENT_SYSTEM_PROMPT).toContain(
+            'do not treat editorKind general-script as authoritative'
         );
         expect(AGENT_SYSTEM_PROMPT).toContain(
             'validate_python_document after every create or replace'
@@ -23,7 +26,7 @@ describe('agent configuration', () => {
             ({ function: tool }) => tool.name === 'get_active_python_document'
         );
         expect(activeDocumentTool.function.description).toContain(
-            'pass the returned kind to python_authoring_guide'
+            'inspect kindConfidence and kindMessage'
         );
         const guideTool = AGENT_TOOLS.find(
             ({ function: tool }) => tool.name === 'python_authoring_guide'

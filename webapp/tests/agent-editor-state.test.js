@@ -395,6 +395,7 @@ describe('get_editor_state text-buffer interpretation', () => {
         window.scriptEditor = {
             getDocumentState: jest.fn(() => ({
                 kind: 'general-script',
+                path: '/Counterpunch/Scripts/example.py',
                 revision: 'revision-valid',
                 content: 'print("not run during validation")'
             }))
@@ -415,6 +416,9 @@ describe('get_editor_state text-buffer interpretation', () => {
             syntaxChecked: true,
             syntaxValid: true,
             structureValid: true,
+            kind: 'general-script',
+            editorKind: 'general-script',
+            kindConfidence: 'saved-path',
             message:
                 'Python syntax and static structure are valid. Python was not run.'
         });
@@ -428,6 +432,70 @@ describe('get_editor_state text-buffer interpretation', () => {
         ).toBe(undefined);
         expect(wrappedRunPython).not.toHaveBeenCalled();
         expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
+    });
+
+    test('reports pathless default Python buffers as unclassified', async () => {
+        window.pyodide = {
+            _originalRunPython: jest.fn(() =>
+                JSON.stringify({
+                    valid: true,
+                    message: 'Python syntax is valid.'
+                })
+            ),
+            globals: {
+                set: jest.fn(),
+                delete: jest.fn()
+            }
+        };
+        window.scriptEditor = {
+            getDocumentState: jest.fn(() => ({
+                kind: 'general-script',
+                path: null,
+                revision: 'script-0',
+                content: 'print("unsaved")'
+            }))
+        };
+        const agent = new AIAgent();
+
+        const activeDocument = JSON.parse(
+            await agent.executeToolCall({
+                function: {
+                    name: 'get_active_python_document',
+                    arguments: '{}'
+                }
+            })
+        );
+        const validation = JSON.parse(
+            await agent.executeToolCall({
+                function: {
+                    name: 'validate_python_document',
+                    arguments: '{}'
+                }
+            })
+        );
+
+        expect(activeDocument).toMatchObject({
+            kind: null,
+            editorKind: 'general-script',
+            kindConfidence: 'unclassified-unsaved'
+        });
+        expect(activeDocument.kindMessage).toContain(
+            'editor fallback is general-script'
+        );
+        expect(validation).toMatchObject({
+            kind: null,
+            editorKind: 'general-script',
+            kindConfidence: 'unclassified-unsaved',
+            valid: true,
+            syntaxValid: true,
+            structureValid: true
+        });
+        expect(validation.message).toContain(
+            'editor fallback is general-script'
+        );
+        expect(validation.message).toContain(
+            'must not treat that as authoritative'
+        );
     });
 
     test('reports Python syntax errors from validation', async () => {
