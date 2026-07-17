@@ -884,6 +884,21 @@ def filter_glyphs(font):
         );
     }
 
+    async function confirmProceedWithOpen(): Promise<boolean> {
+        if (!isModified) {
+            return true;
+        }
+
+        const save = confirm(
+            'You have unsaved changes. Do you want to save before opening a file?'
+        );
+        if (!save) {
+            return true;
+        }
+
+        return await handleSave();
+    }
+
     /**
      * Handle Open file
      */
@@ -901,17 +916,8 @@ def filter_glyphs(font):
             return;
         }
 
-        // Check for unsaved changes
-        if (isModified) {
-            const save = confirm(
-                'You have unsaved changes. Do you want to save before opening a new file?'
-            );
-            if (save) {
-                const saved = await handleSave();
-                if (!saved) {
-                    return;
-                }
-            }
+        if (!(await confirmProceedWithOpen())) {
+            return;
         }
 
         try {
@@ -1150,6 +1156,10 @@ def filter_glyphs(font):
      */
     async function openFile(path: string, pluginId: string): Promise<boolean> {
         try {
+            if (!(await confirmProceedWithOpen())) {
+                return false;
+            }
+
             const plugin = getPluginById(pluginId);
             if (!plugin) {
                 throw new Error('Plugin not found: ' + pluginId);

@@ -1370,19 +1370,6 @@ export class GlyphOverviewFilterManager {
      */
     private async openFilterInScriptEditor(filePath: string): Promise<void> {
         if (window.scriptEditor && window.scriptEditor.openFile) {
-            // Check if already open
-            if (
-                window.scriptEditor.currentFilePath === filePath &&
-                window.scriptEditor.currentPluginId === 'disk'
-            ) {
-                // Just switch to scripts view
-                const scriptView = document.getElementById('view-scripts');
-                if (scriptView) {
-                    scriptView.click();
-                }
-                return;
-            }
-
             try {
                 await window.scriptEditor.openFile(filePath, 'disk');
                 console.log(`Opened ${filePath} in Script Editor`);

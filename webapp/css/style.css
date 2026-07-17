@@ -2524,7 +2524,11 @@ kbd + kbd {
 
 .script-modified-indicator {
     color: var(--accent-orange);
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
     font-size: 10px;
+    line-height: 1;
     margin-right: 2px;
 }
 

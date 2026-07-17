@@ -1529,20 +1529,6 @@ async function openInScriptEditor(path: string) {
     const pluginId = fileSystemCache.currentPlugin.getId();
 
     if (window.scriptEditor && window.scriptEditor.openFile) {
-        // Check if this file is already open
-        if (
-            window.scriptEditor.currentFilePath === path &&
-            window.scriptEditor.currentPluginId === pluginId
-        ) {
-            alert('This file is already open in the Script Editor.');
-            // Switch to scripts view
-            const scriptView = document.getElementById('view-scripts');
-            if (scriptView) {
-                scriptView.click();
-            }
-            return;
-        }
-
         try {
             await window.scriptEditor.openFile(path, pluginId);
             console.log(
