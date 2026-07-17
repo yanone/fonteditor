@@ -5,6 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const prettier = require('prettier');
 
 const tokensPath = path.join(__dirname, '../css/tokens.json');
 const outputPath = path.join(__dirname, '../css/tokens.css');
@@ -57,9 +58,6 @@ function flattenTokens(obj, prefix = '') {
     return vars;
 }
 
-/**
- * Format CSS variable declarations
- */
 function formatVars(vars) {
     return vars
         .map((v) => {
@@ -68,12 +66,12 @@ function formatVars(vars) {
         .join('\n');
 }
 
-// Generate CSS
-const globalVars = flattenTokens(tokens.global);
-const darkColorVars = flattenTokens(tokens.dark?.colors || {});
-const lightColorVars = flattenTokens(tokens.light?.colors || {});
+async function main() {
+    const globalVars = flattenTokens(tokens.global);
+    const darkColorVars = flattenTokens(tokens.dark?.colors || {});
+    const lightColorVars = flattenTokens(tokens.light?.colors || {});
 
-const css = `/* Auto-generated from tokens.json - DO NOT EDIT MANUALLY */
+    const css = `/* Auto-generated from tokens.json - DO NOT EDIT MANUALLY */
 /* Run: node scripts/generate-css-tokens.js */
 
 /* Global tokens (theme-independent) */
@@ -92,8 +90,23 @@ ${formatVars(lightColorVars)}
 }
 `;
 
-fs.writeFileSync(outputPath, css);
-console.log(`Generated ${outputPath}`);
-console.log(`  - ${globalVars.length} global tokens`);
-console.log(`  - ${darkColorVars.length} dark theme tokens`);
-console.log(`  - ${lightColorVars.length} light theme tokens`);
+    const prettierConfig =
+        (await prettier.resolveConfig(outputPath, {
+            config: path.join(__dirname, '../.prettierrc')
+        })) ?? {};
+    const formattedCss = await prettier.format(css, {
+        ...prettierConfig,
+        filepath: outputPath
+    });
+
+    fs.writeFileSync(outputPath, formattedCss);
+    console.log(`Generated ${outputPath}`);
+    console.log(`  - ${globalVars.length} global tokens`);
+    console.log(`  - ${darkColorVars.length} dark theme tokens`);
+    console.log(`  - ${lightColorVars.length} light theme tokens`);
+}
+
+main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+});
