@@ -23,6 +23,11 @@ const console = new Logger('ScriptEditor');
         isModified: boolean;
     };
 
+    const SCRIPT_CONTENT_STORAGE_KEY = 'python_script';
+    const SCRIPT_URI_STORAGE_KEY = 'python_script_uri';
+    const SCRIPT_SAVED_CONTENT_STORAGE_KEY = 'python_script_saved_content';
+    const SCRIPT_TIMESTAMP_STORAGE_KEY = 'python_script_timestamp';
+
     const GENERAL_SCRIPT_TEMPLATE = '# New Python script\n';
     const GLYPH_FILTER_TEMPLATE = `# "New Filter" Filter
 # Define your filter function below
@@ -101,6 +106,10 @@ def filter_glyphs(font):
         documentKind = kind;
     }
 
+    function persistSavedContent(): void {
+        localStorage.setItem(SCRIPT_SAVED_CONTENT_STORAGE_KEY, savedContent);
+    }
+
     /**
      * Update the modified indicator in UI
      */
@@ -161,7 +170,7 @@ def filter_glyphs(font):
 
         // Update localStorage
         localStorage.setItem(
-            'python_script_uri',
+            SCRIPT_URI_STORAGE_KEY,
             `${currentPluginId}://${newPath}`
         );
 
@@ -217,11 +226,14 @@ def filter_glyphs(font):
 
         // Load saved script from localStorage
         const savedScript =
-            localStorage.getItem('python_script') ||
+            localStorage.getItem(SCRIPT_CONTENT_STORAGE_KEY) ||
             '# Write your Python script here...\n';
+        const restoredSavedContent = localStorage.getItem(
+            SCRIPT_SAVED_CONTENT_STORAGE_KEY
+        );
 
         // Restore file association from localStorage
-        const restoredUri = localStorage.getItem('python_script_uri');
+        const restoredUri = localStorage.getItem(SCRIPT_URI_STORAGE_KEY);
         if (restoredUri) {
             const match = restoredUri.match(/^([^:]+):\/\/(.*)$/);
             if (match) {
@@ -259,7 +271,7 @@ def filter_glyphs(font):
         editor.setTheme(getInitialTheme());
         editor.session.setMode('ace/mode/python');
         editor.setValue(savedScript, -1); // -1 moves cursor to start
-        savedContent = savedScript;
+        savedContent = restoredSavedContent ?? savedScript;
 
         // Make editor globally accessible for theme updates
         window.scriptEditor = editor;
@@ -325,10 +337,19 @@ def filter_glyphs(font):
 
         // Save to localStorage on change and track modifications
         editor.session.on('change', function () {
-            localStorage.setItem('python_script', editor.getValue());
+            localStorage.setItem(SCRIPT_CONTENT_STORAGE_KEY, editor.getValue());
             checkModified();
             recordDocumentChange();
         });
+
+        const hasPersistedSavedBaseline = restoredSavedContent !== null;
+        const initialModified = currentFilePath
+            ? savedScript !== savedContent
+            : hasPersistedSavedBaseline
+              ? savedScript !== savedContent
+              : savedScript !== GENERAL_SCRIPT_TEMPLATE;
+
+        setModified(initialModified);
 
         // Initialize file menu
         initFileMenu();
@@ -352,11 +373,13 @@ def filter_glyphs(font):
         });
 
         editor.commands.addCommand({
-            name: 'saveFile',
+            name: 'fontSaveShortcutPassthrough',
             bindKey: { win: 'Ctrl-S', mac: 'Command-S' },
             exec: function () {
-                handleSave();
-            }
+                return false;
+            },
+            readOnly: true,
+            passEvent: true
         });
 
         // Remove default Cmd+K binding to prevent conflicts with global shortcut
@@ -420,14 +443,6 @@ def filter_glyphs(font):
                 event.preventDefault();
                 event.stopPropagation();
                 runScript();
-                return;
-            }
-
-            // Cmd+S - Save file
-            if (cmdKey && !shiftKey && !altKey && code === 'KeyS') {
-                event.preventDefault();
-                event.stopPropagation();
-                handleSave();
                 return;
             }
         });
@@ -536,7 +551,7 @@ def filter_glyphs(font):
                                 // Compare file timestamp with localStorage timestamp
                                 const localStorageTimestamp =
                                     localStorage.getItem(
-                                        'python_script_timestamp'
+                                        SCRIPT_TIMESTAMP_STORAGE_KEY
                                     );
                                 const shouldReload =
                                     !localStorageTimestamp ||
@@ -544,11 +559,22 @@ def filter_glyphs(font):
                                         parseInt(localStorageTimestamp);
 
                                 if (shouldReload) {
-                                    console.log(
-                                        '[ScriptEditor]',
-                                        'File changed while app was closed - reloading from disk'
-                                    );
-                                    await reloadFileFromDisk();
+                                    if (isModified) {
+                                        console.log(
+                                            '[ScriptEditor]',
+                                            'File changed while app was closed - keeping unsaved buffer and showing reload'
+                                        );
+                                        hasExternalChanges = true;
+                                        updateReloadButton();
+                                        lastModifiedTime =
+                                            fileInfo.lastModified;
+                                    } else {
+                                        console.log(
+                                            '[ScriptEditor]',
+                                            'File changed while app was closed - reloading from disk'
+                                        );
+                                        await reloadFileFromDisk();
+                                    }
                                 } else {
                                     console.log(
                                         '[ScriptEditor]',
@@ -655,11 +681,6 @@ def filter_glyphs(font):
             ? '<span class="script-modified-indicator">●</span>'
             : '';
 
-        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-        const cmdKey = isMac
-            ? '<span class="material-symbols-outlined">keyboard_command_key</span>'
-            : 'Ctrl+';
-
         let html = `<div class="script-file-menu">`;
 
         // File path header
@@ -696,7 +717,6 @@ def filter_glyphs(font):
                 <div class="script-file-menu-item" data-action="save">
                     <span class="material-symbols-outlined">save</span>
                     <span>Save</span>
-                    <span class="script-file-menu-shortcut">${cmdKey}S</span>
                 </div>
             `;
         } else {
@@ -704,7 +724,6 @@ def filter_glyphs(font):
                 <div class="script-file-menu-item disabled" title="No file path - use Save As or open a file first">
                     <span class="material-symbols-outlined">save</span>
                     <span>Save</span>
-                    <span class="script-file-menu-shortcut">${cmdKey}S</span>
                 </div>
             `;
         }
@@ -731,25 +750,6 @@ def filter_glyphs(font):
                 <div class="script-file-menu-item" data-action="revert-saved">
                     <span class="material-symbols-outlined">undo</span>
                     <span>Revert to Saved</span>
-                </div>
-            `;
-        }
-
-        // Locate in Files (only if file has a path and is from disk plugin)
-        const canLocate =
-            currentFilePath !== null && currentPluginId === 'disk';
-        if (canLocate) {
-            html += `
-                <div class="script-file-menu-item" data-action="locate">
-                    <span class="material-symbols-outlined">my_location</span>
-                    <span>Locate in Files</span>
-                </div>
-            `;
-        } else {
-            html += `
-                <div class="script-file-menu-item disabled" title="No file open from disk">
-                    <span class="material-symbols-outlined">my_location</span>
-                    <span>Locate in Files</span>
                 </div>
             `;
         }
@@ -796,9 +796,6 @@ def filter_glyphs(font):
                         case 'revert-saved':
                             revertToSaved();
                             break;
-                        case 'locate':
-                            await handleLocateInFiles();
-                            break;
                     }
                 });
             }
@@ -829,6 +826,7 @@ def filter_glyphs(font):
         // Clear editor
         editor.setValue(GENERAL_SCRIPT_TEMPLATE, -1);
         savedContent = editor.getValue();
+        persistSavedContent();
         currentFilePath = null;
         currentPluginId = null;
         documentKind = 'general-script';
@@ -836,8 +834,8 @@ def filter_glyphs(font):
         setModified(false);
 
         // Clear file association from localStorage
-        localStorage.removeItem('python_script_uri');
-        localStorage.setItem('python_script', editor.getValue());
+        localStorage.removeItem(SCRIPT_URI_STORAGE_KEY);
+        localStorage.setItem(SCRIPT_CONTENT_STORAGE_KEY, editor.getValue());
 
         console.log('[ScriptEditor]', 'New file created');
 
@@ -937,6 +935,7 @@ def filter_glyphs(font):
             await adapter.writeFile(currentFilePath, data);
 
             savedContent = content;
+            persistSavedContent();
             hasExternalChanges = false;
             setModified(false);
 
@@ -949,7 +948,7 @@ def filter_glyphs(font):
                     lastModifiedTime = fileInfo.lastModified;
                     // Save timestamp to localStorage
                     localStorage.setItem(
-                        'python_script_timestamp',
+                        SCRIPT_TIMESTAMP_STORAGE_KEY,
                         fileInfo.lastModified.toString()
                     );
                     console.log(
@@ -1109,18 +1108,6 @@ def filter_glyphs(font):
     }
 
     /**
-     * Handle Locate in Files
-     * Switches to Files view and navigates to the current file
-     */
-    async function handleLocateInFiles(): Promise<void> {
-        if (!currentFilePath || currentPluginId !== 'disk') {
-            return;
-        }
-
-        await (window as any).locatePathInFileDialog?.('disk', currentFilePath);
-    }
-
-    /**
      * Open a file from a given path and plugin
      * Can be called externally (e.g., from Files view context menu)
      */
@@ -1146,6 +1133,7 @@ def filter_glyphs(font):
             // Update editor
             editor.setValue(content, -1);
             savedContent = content;
+            persistSavedContent();
             currentFilePath = path;
             currentPluginId = pluginId;
             documentKind = getPathKind(path) || 'general-script';
@@ -1159,14 +1147,17 @@ def filter_glyphs(font):
             setModified(false);
 
             // Save to localStorage for persistence (content and file association)
-            localStorage.setItem('python_script', content);
-            localStorage.setItem('python_script_uri', `${pluginId}://${path}`);
+            localStorage.setItem(SCRIPT_CONTENT_STORAGE_KEY, content);
+            localStorage.setItem(
+                SCRIPT_URI_STORAGE_KEY,
+                `${pluginId}://${path}`
+            );
 
             // Save file timestamp
             const fileInfo = await getFileInfo(adapter, path);
             if (fileInfo) {
                 localStorage.setItem(
-                    'python_script_timestamp',
+                    SCRIPT_TIMESTAMP_STORAGE_KEY,
                     fileInfo.lastModified.toString()
                 );
             }
@@ -1533,20 +1524,21 @@ def filter_glyphs(font):
             editor.session.setScrollTop(scrollTop);
 
             savedContent = content;
+            persistSavedContent();
             hasExternalChanges = false;
             setModified(false);
 
             console.log('[ScriptEditor]', 'File reloaded from disk');
 
             // Update localStorage
-            localStorage.setItem('python_script', content);
+            localStorage.setItem(SCRIPT_CONTENT_STORAGE_KEY, content);
 
             // Save current file timestamp
             const fileInfo = await getFileInfo(adapter, currentFilePath);
             if (fileInfo) {
                 lastModifiedTime = fileInfo.lastModified;
                 localStorage.setItem(
-                    'python_script_timestamp',
+                    SCRIPT_TIMESTAMP_STORAGE_KEY,
                     fileInfo.lastModified.toString()
                 );
             }
@@ -1660,8 +1652,9 @@ def filter_glyphs(font):
                 -1
             );
             savedContent = '';
+            persistSavedContent();
             setModified(true);
-            localStorage.removeItem('python_script_uri');
+            localStorage.removeItem(SCRIPT_URI_STORAGE_KEY);
         },
         revertToSaved: revertToSaved,
         replaceExactText: (

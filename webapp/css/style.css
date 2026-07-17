@@ -2523,7 +2523,7 @@ kbd + kbd {
 }
 
 .script-modified-indicator {
-    color: var(--accent-yellow);
+    color: var(--accent-orange);
     font-size: 10px;
     margin-right: 2px;
 }
@@ -2577,7 +2577,7 @@ kbd + kbd {
 }
 
 .script-file-menu-path .script-modified-indicator {
-    color: var(--accent-yellow);
+    color: var(--accent-orange);
 }
 
 .script-file-menu-item {
@@ -2607,20 +2607,6 @@ kbd + kbd {
 .script-file-menu-item .material-symbols-outlined {
     font-size: 16px;
     color: var(--text-secondary);
-}
-
-.script-file-menu-shortcut {
-    margin-left: auto;
-    font-family: var(--font-families-mono);
-    font-size: 10px;
-    color: var(--text-faint);
-    display: flex;
-    align-items: center;
-}
-
-.script-file-menu-shortcut .material-symbols-outlined {
-    font-size: 12px;
-    color: var(--text-faint);
 }
 
 /* Official Pyodide Console Styles */
