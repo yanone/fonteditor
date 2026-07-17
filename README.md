@@ -60,7 +60,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ OpenType feature code editor
 - ✅ OpenType feature code error display inline
 - ✅ Hot-reloading fonts on external changes (Chrome/Chromium only)
-- ✅ Fontspector integration (glyph-level messages later)
+- ✅ Explicit binary font export
 - ✅ Open fonts in PWA directly
 - ◻️ Interactive demo
 - ✅ Basic documentation

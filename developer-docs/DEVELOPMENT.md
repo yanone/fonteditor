@@ -156,7 +156,6 @@ Timeline instrumentation uses User Timing entries with the `cp:` prefix.
 - `cp:font.open*` for file read, convert, and open dispatch flow
 - `cp:font.openSession` and `cp:font.lifecycle.*` for post-open initialization phases
 - `cp:font.compileEditing`, `cp:font.compileTyping`, and `cp:font.compileFull` for compile stages
-- `cp:font.fontspectorInference` for QA check timing
 - `cp:fontCompilation.*` for main-thread worker bridge and compile request lifecycle
 - `cp:font.worker.*` for worker-side phases such as init, compile, open, outlines, and cache operations
 

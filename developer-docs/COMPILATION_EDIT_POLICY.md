@@ -10,7 +10,7 @@ If you change compilation behavior, update this document in the same change and 
 - Keep the incremental worker path hot: incremental layer patching, cached babelfont reuse, cached subset reuse, and the editing subset target before fontc.
 - Preserve a trailing full compile after interactive edits so layout-sensitive state returns to the fully correct font.
 - Avoid accidental regressions where an optimized compile mode still exists in code but stops being scheduled.
-- Only the main window runs full-font compilation and Fontspector; linked windows must not schedule or execute either.
+- Full binary fonts are compiled only for explicit user export or isolated agent analysis; no background full-font monitor runs after edits or on startup.
 
 ## Source Of Truth
 
@@ -21,7 +21,6 @@ The policy is implemented primarily in these files:
 - `webapp/js/font-manager.ts`
 - `webapp/js/font-compilation.ts`
 - `webapp/js/fontc-worker.ts`
-- `webapp/js/full-font-compile-manager.ts`
 - `webapp/js/compiled-edit-funnel.ts` — single post-commit reaction owner
 
 When these files disagree with this document, treat that as a bug and reconcile them immediately.
@@ -30,14 +29,14 @@ When these files disagree with this document, treat that as a bug and reconcile 
 
 1. Active mouse drags must continue triggering live editing compiles.
 2. Active mouse drags must not trigger full compiles or the full babelfont JSON sync that feeds those full compiles while the pointer is still down.
-3. Background full-font QC work must not start while an outline drag is active; the shared worker must remain available for editing compiles and outline fetches.
+3. Full binary compilation is explicit-only and must not be scheduled by editing, startup, or synchronization paths.
 4. Interactive keyboard edits must still compile live.
 5. Interactive enriched edits must still schedule a trailing debounced full compile after the interaction settles.
 6. Interactive edit-time flows must keep the Rust worker congruent via incremental Yjs updates only. Edit-time Rust promotion is incremental-Yjs-only; worker-cache JSON patch batches, full babelfont JSON resends, and full Yjs-state resends are not part of the steady-state editing path.
 7. Editing compiles must continue using the subsetted `editing` target before fontc.
 8. Text input uses its own subset-only fast path and still schedules a deferred full compile after typing settles.
 9. Full compiles remain the correctness fallback after interactive editing or when an edit type does not have a specialized fast path.
-10. Linked windows must not run full-font compilation or Fontspector; only the main window may schedule and execute them. The `full-font-compile-manager` checks `windowRole.isMainWindow()` at every scheduling entry point and suppresses the monitor loop for linked windows.
+10. Linked windows must not schedule background full binary compilation. Explicit export and agent analysis seed their isolated worker from settled committed state.
 11. Every interactive commit MUST keep the JS and Rust documents aligned through the shared Yjs transaction stream. Full-font `storeFontJson`, `seedYdoc`, `initYdoc`, or any other full-document crossing MUST stay at zero during steady-state editing, undo, redo, Python execution, feature-code commits, and linked-window edit replay. Edit-time compiles must wait for the already-emitted incremental Yjs worker update instead of forcing any full-document resend. Layer-scoped outline, anchor, sidebearing, component, guide, and visual layer packets MUST carry `layerTargets` to Rust so `apply_yjs_update` can patch canonical and subset caches from the same sparse Yjs delta without a second direct layer update or whole-glyph cache serialization.
 12. Every committed Yjs packet, local or remote, MUST enter one shared serialized committed-change funnel for post-commit reactions. That funnel owns committed edit-type inference, editing-compile wakeup, and overview invalidation. Sender-local save helpers may prepare model state and arm trailing debounces, but they MUST NOT run a separate committed compile or committed `glyphChanged` path in parallel.
 13. Missing replay metadata, worker-sync rejection, or any other edit-time inconsistency MUST be treated as a bug in the incremental pipeline, not as justification for a full-document repair path. Normal editing has no escape hatches.
@@ -212,7 +211,7 @@ Every committed Yjs packet, local or remote, enters `processCommittedEdit()` in 
 | Compile context          | Set by edit handlers AND `saveLayerData` AND `requestCommittedEditingFontCompile` (chain of overwrites)                        | Request-scoped. The committed funnel passes an explicit context object derived from the current Yjs packet, including request-scoped worker-freshness proof, into the compile request; the live-drag funnel may use the global context only as a short-lived scratchpad and then clears it. |
 | Compile context lifetime | Global mutable `lastChangeSource` / `lastEditType` could be overwritten while an earlier compile was still pending             | Each editing compile request snapshots its context by `compileRequestVersion`; live drag requests clear the global context immediately after requesting their compile                                                                                                                       |
 | Deferred full compile    | `FontManager.scheduleFullCompileDebounce()` — 500ms timer outside the funnel, could race with committed-change funnel          | `CompiledEditFunnel.armDeferredFullCompile()` — integrated timer inside the funnel, fires a `processCommittedEdit('deferred-full', null)` call that enters the same serialized queue.                                                                                                       |
-| `markDirty`              | Called `fullCompileManager.checkAndSchedule()` as a side channel                                                               | Only marks font as changed for pre-commit interactive saves. The full-compile manager's 200ms monitor interval detects the `changeVersion` increment naturally; editing compiles are requested by live-drag refreshes or the committed-change funnel.                                       |
+| `markDirty`              | Scheduled a background full-font QC check as a side channel                                                                    | Only marks font as changed for pre-commit interactive saves. Editing compiles are requested by live-drag refreshes or the committed-change funnel; full binary compilation is explicit-only.                                                                                                |
 | `saveLayerData`          | Called `scheduleFullCompileDebounce()` for interactive edit types                                                              | No longer calls `scheduleFullCompileDebounce()` — the funnel's deferred timer handles this.                                                                                                                                                                                                 |
 | Dragging live refresh    | Set compile context via scattered refresh loops                                                                                | Routed through `LiveDragEditFunnel`, which may set request-scoped live drag compile context only long enough to request the drag-time compile and then clears it immediately; committed compile context still belongs to `CompiledEditFunnel`.                                              |
 | Guide edits              | Called `saveLayerData('mouse-drag-guide')` during drag, setting `lastChangeSource = 'mouse-drag-guide'`, `lastEditType = null` | No `saveLayerData` during drag. On mouseup, Yjs commit → funnel detects `'guide'` edit type → skips compilation entirely.                                                                                                                                                                   |
@@ -324,7 +323,7 @@ This ordering is mandatory because tests and post-commit consumers may inspect
 state where the editor layer and Yjs delta are current but `babelfontData`
 still contains the pre-edit layer is a bug.
 
-While the pointer is still down for a mouse drag, the live editing compile path must remain active. What must stay suppressed is only the full-compile side: full compile execution itself and the JSON/model sync required to feed that full compile. Mid-drag pauses may continue to produce editing compiles, but must not flush `pendingBabelfontJsonSyncAfterDrag` or run full-font compilation until the drag ends.
+While the pointer is still down for a mouse drag, the live editing compile path must remain active. What must stay suppressed is only the trailing full editing-compile side and the JSON/model sync required to feed it. Mid-drag pauses may continue to produce editing compiles, but must not flush `pendingBabelfontJsonSyncAfterDrag` until the drag ends.
 
 Outline point/component drags now mirror the anchor-drag pattern during the active drag: they keep the model current, batch-refresh the edited layer plus visible metrics-key dependents into a sparse preview layer overlay with `stageLiveDragPreviewFromModel()` / `applyPreviewLayerOverlay`, and request recompilation without routing every drag tick through `saveLayerData()`. The final `saveLayerData('mouse-drag-outline')` still fires on mouseup for Yjs/collaboration sync, undo history, authoritative worker cache mutation, and the trailing full compile baseline.
 
@@ -341,14 +340,6 @@ The deferred full compile timer lives inside `CompiledEditFunnel.armDeferredFull
 If an outline or anchor drag is still active when the timer fires, it re-arms itself and waits until the drag has ended before flushing `pendingBabelfontJsonSyncAfterDrag`. Flushing the pending JSON/model sync during an active drag is a regression because it can commit a stale mid-drag state into the trailing full-compile baseline and break undo.
 
 The timer is cancelled and re-armed on every fast-path edit (`'outline'`, `'anchor'`, `'kerning-value'`, `'kerning-groups'`) that enters the funnel. This means rapid edits only trigger one deferred full compile after the last edit + 500ms delay.
-
-Separately, active mouse drags must not let the full-font compile path run. The editing compile manager remains active during drag; only the trailing full compile and full-font compile manager must stay deferred until mouseup.
-
-### Background full-font QC while dragging
-
-The background full-font compile manager shares the same worker as interactive editing compiles and explicit glyph outline fetches. When an outline drag is active, background full-font QC must stay deferred. Otherwise the worker can be monopolized by `compileFromJson` and Fontspector work mid-drag, causing the following editing compile to block behind background jobs.
-
-The monitor loop may continue polling while editing is idle, and it should resume full-font compilation as soon as the drag ends so Fontspector and the full-compile indicator catch up to the current font version, including after Python-driven edits.
 
 ### Text input
 
@@ -495,9 +486,7 @@ Text input changes the shaping subset rather than the font data. It therefore by
 
 ### Linked windows
 
-Linked windows share the same font model as the main window via Y.Doc sync. They need editing compiles for live canvas feedback but must not duplicate the expensive full-font compilation and Fontspector QC work that the main window already performs.
-
-**Full-font compile suppression:** The `full-font-compile-manager` enforces `windowRole.isMainWindow()` in `scheduleCompilation`, `checkAndSchedule`, `runCompilationLoop`, `setEnabled`, and the startup monitor loop. Linked windows report Fontspector status as `idle` and never start the monitor interval.
+Linked windows share the same font model as the main window via Y.Doc sync. They need editing compiles for live canvas feedback, while binary export and agent analysis use an isolated worker seeded from settled committed state on demand.
 
 **Committed-change funnel:** Committed local packets and committed remote packets both enter the same serialized post-commit funnel. Local packets enter it immediately after the authoritative Yjs update is emitted. Remote packets enter it immediately after the update is applied. The shared funnel owns compile wake-up and overview invalidation for both origins so sender and receiver windows react to the same committed metadata instead of maintaining parallel reaction code. The funnel is implemented by `CompiledEditFunnel.processCommittedEdit()` (`webapp/js/compiled-edit-funnel.ts`), which replaces the previous `requestCommittedEditingFontCompile` function.
 
@@ -536,12 +525,12 @@ The following are required and should be covered by tests or explicit review whe
 8. Live sidebearing edits with cascading metrics keys use `stageLiveDragPreviewFromModel` / `applyPreviewLayerOverlay` for the active drag/no-bridge refresh path instead of `refreshGlyphsAfterModelBatch` or `forceFullWorkerCacheUpdate`, and skip `rebuildAutomaticComposites` for downstream automatic-composite layers that only need width updates. Committed property-panel sidebearing key edits with `PatchSyncEngine` active rely on the sparse Yjs update and shared committed-change funnel instead of issuing a second local refresh batch.
 9. Undo/redo of anchor edits uses `anchor-only` compilation mode and the already-forwarded sparse Yjs update (not full `storeFontJson`) when the history item carries `workerReplayTargets` for downstream auto-composite layers.
 10. Undo/redo of sidebearing edits uses the stamped `keyboard-sidebearing` committed compile context, requests an immediate `full` editing compile, and still relies on the already-forwarded sparse Yjs update when the history item carries `workerReplayTargets` for downstream layers affected by metrics-key cascades.
-11. Linked windows never schedule or execute full-font compilation or Fontspector; only the main window does.
+11. No editing, startup, or synchronization path schedules full binary compilation; binary export and agent analysis are explicit isolated operations.
 12. Linked windows recompile their own editing font on remote changes using the same packet-stamped committed compile context as the originating edit: anchor packets stay `anchor-only`, outline packets stay `outline-only`, and committed sidebearing packets run `full`.
 13. OpenType feature source edits auto-compile on blur and after 5 seconds of typing idle, while cancelling the pending idle timer when an immediate commit already ran.
 14. Every processed editing compile clears its captured `lastChangeSource` / `lastEditType` context unless a newer compile request has replaced it. The cleanup requirement applies uniformly to mouse, keyboard, undo, and redo for outline, anchor, component, and sidebearing edits.
 15. Guide edits (both layer-scope and master-scope) do not trigger any font compilation. They are detected by `inferCommittedEditTypeFromEntries` as `'guide'` type, and the funnel skips them.
-16. `markDirty` does not call `fullCompileManager.checkAndSchedule`. The full-compile manager's 200ms monitor interval detects `changeVersion` increments naturally. This eliminates a redundant side-channel compile trigger.
+16. `markDirty` does not schedule full binary compilation. It preserves only dirty-state and editing compile-request bookkeeping.
 17. `saveLayerData` does not call `scheduleFullCompileDebounce`. The deferred full compile is owned by `CompiledEditFunnel.armDeferredFullCompile()` and enters the same serialized queue as all other compile requests.
 
 ## Change Control

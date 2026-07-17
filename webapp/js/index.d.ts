@@ -211,25 +211,6 @@ declare global {
             };
         };
 
-        // From full-font-compile-manager.ts
-        fullCompileManager: {
-            checkAndSchedule: () => void;
-            scheduleCompilation: (delayMs?: number) => void;
-            setEnabled: (enabled: boolean) => void;
-            getProfile: () => string;
-            setProfile: (profile: string) => boolean;
-            getAvailableProfiles: () => string[];
-            getStatus: () => {
-                isEnabled: boolean;
-                isCompiling: boolean;
-                lastObservedVersion: number;
-                lastCompiledVersion: number;
-                lastObservedPath: string | null;
-                lastCompiledPath: string | null;
-                selectedProfile: string;
-            };
-        };
-
         // From cache-manager.js
         cacheManager: CacheManager;
         cacheStats: () => Record<string, unknown>;

@@ -2,8 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import {
     waitForCanvasReady,
     waitForFontLoaded,
-    focusView,
-    waitForFontspectorReady
+    focusView
 } from './helpers/snapshot-helper';
 import {
     ensureLocalCollabServices,
@@ -675,86 +674,6 @@ async function waitForCloudPageReady(page: Page): Promise<void> {
 async function waitForWindowSyncReady(page: Page): Promise<void> {
     await page.waitForFunction(() => !!(window as any).windowSync, {
         timeout: 15000
-    });
-}
-
-async function waitForFullFontCompileReady(page: Page): Promise<void> {
-    await page.waitForFunction(
-        () => {
-            const testWindow = window as any;
-            const fullCompileStatus =
-                testWindow.fullCompileManager?.getStatus?.() || null;
-            const currentFont = testWindow.fontManager?.currentFont || null;
-
-            if (!fullCompileStatus || !currentFont) {
-                return false;
-            }
-
-            if (!fullCompileStatus.isEnabled || fullCompileStatus.isCompiling) {
-                return false;
-            }
-
-            const currentPath = currentFont.path || null;
-            const currentVersion = currentFont.changeVersion;
-
-            return (
-                fullCompileStatus.lastCompiledPath === currentPath &&
-                fullCompileStatus.lastCompiledVersion >= currentVersion
-            );
-        },
-        { timeout: 20000 }
-    );
-}
-
-async function installFullFontEventTracker(page: Page): Promise<void> {
-    await page.evaluate(() => {
-        const testWindow = window as any;
-        if (testWindow.__fullFontEventTrackerInstalled) {
-            return;
-        }
-
-        testWindow.__fullFontEventTrackerInstalled = true;
-        testWindow.__fullFontEventTrackerEvents = [];
-
-        window.addEventListener('fullFontCompiled', (event: Event) => {
-            const detail = (event as CustomEvent).detail || {};
-            testWindow.__fullFontEventTrackerEvents.push({
-                type: 'fullFontCompiled',
-                changeVersion: detail.changeVersion ?? null
-            });
-        });
-    });
-}
-
-async function resetFullFontEventTracker(page: Page): Promise<void> {
-    await page.evaluate(() => {
-        const testWindow = window as any;
-        testWindow.__fullFontEventTrackerEvents = [];
-        testWindow.__fullFontEventTrackerBaselineVersion =
-            testWindow.fontManager?.currentFont?.changeVersion ?? null;
-    });
-}
-
-async function getFullFontEventTrackerSnapshot(page: Page): Promise<{
-    baselineVersion: number | null;
-    currentChangeVersion: number | null;
-    fullFontCompiledCount: number;
-}> {
-    return page.evaluate(() => {
-        const testWindow = window as any;
-        const events = Array.isArray(testWindow.__fullFontEventTrackerEvents)
-            ? testWindow.__fullFontEventTrackerEvents
-            : [];
-
-        return {
-            baselineVersion:
-                testWindow.__fullFontEventTrackerBaselineVersion ?? null,
-            currentChangeVersion:
-                testWindow.fontManager?.currentFont?.changeVersion ?? null,
-            fullFontCompiledCount: events.filter(
-                (entry: { type?: string }) => entry?.type === 'fullFontCompiled'
-            ).length
-        };
     });
 }
 
@@ -3034,7 +2953,7 @@ test.describe('Local cloud collaboration', () => {
         await sourceContext.close();
     });
 
-    test('opening a second browser context does not recompile an idle cloud peer', async ({
+    test('opening a second browser context does not mutate an idle cloud peer', async ({
         browser
     }) => {
         test.setTimeout(240000);
@@ -3064,10 +2983,7 @@ test.describe('Local cloud collaboration', () => {
         expect(assetId).toBeTruthy();
         await waitForCloudConnected(sourcePage);
         await waitForAuthenticatedCloudSession(sourcePage);
-        await waitForFullFontCompileReady(sourcePage);
-        await installFullFontEventTracker(sourcePage);
         const sourceBridgeShaBeforeJoin = await getBridgeStateSha(sourcePage);
-        await resetFullFontEventTracker(sourcePage);
 
         await targetPage.goto('/?test=true');
         await waitForCanvasReady(targetPage);
@@ -3079,18 +2995,10 @@ test.describe('Local cloud collaboration', () => {
         await waitForFontLoaded(targetPage);
         await waitForCloudConnected(targetPage);
         await waitForAuthenticatedCloudSession(targetPage);
-        await waitForFullFontCompileReady(targetPage);
-        await waitForFullFontCompileReady(sourcePage);
         await sourcePage.waitForTimeout(1500);
 
-        const trackerSnapshot =
-            await getFullFontEventTrackerSnapshot(sourcePage);
         const sourceBridgeShaAfterJoin = await getBridgeStateSha(sourcePage);
 
-        expect(trackerSnapshot.currentChangeVersion).toBe(
-            trackerSnapshot.baselineVersion
-        );
-        expect(trackerSnapshot.fullFontCompiledCount).toBe(0);
         expect(sourceBridgeShaAfterJoin).toBe(sourceBridgeShaBeforeJoin);
 
         await sourceContext.close();

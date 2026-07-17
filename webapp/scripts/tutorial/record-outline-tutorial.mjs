@@ -82,14 +82,8 @@ async function waitForOpenSessionReady(page, expectedFilename) {
             ).length;
             const startupBlocked =
                 window.autoCompileManager?.getStatus?.()?.isStartupBlocked;
-            const fullCompileEnabled =
-                window.fullCompileManager?.getStatus?.()?.isEnabled;
 
-            return (
-                startupReleasedMarkCount > 0 &&
-                startupBlocked === false &&
-                fullCompileEnabled === true
-            );
+            return startupReleasedMarkCount > 0 && startupBlocked === false;
         },
         { timeout: 30000 }
     );

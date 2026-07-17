@@ -9,7 +9,6 @@ import {
     waitForCanvasReady,
     waitForFeatureCompilationError,
     waitForFontLoaded,
-    waitForFontspectorReady,
     waitForOpenSessionReady,
     waitForOverviewTilesRendered
 } from './helpers/snapshot-helper';
@@ -79,8 +78,7 @@ test.describe('Font Editor Basic Workflow', () => {
     const takeWindowSnapshot = async (
         page: any,
         snapshotNumber: string,
-        label: string,
-        options?: { maskFontspector?: boolean }
+        label: string
     ) => {
         await page.waitForTimeout(100);
         const snapshot = await captureSnapshot(page, label);
@@ -90,19 +88,6 @@ test.describe('Font Editor Basic Workflow', () => {
             expect
         );
         const maskLocators = [page.locator('#console-container')];
-        if (options?.maskFontspector) {
-            const fontspectorMask = page.locator(
-                '#font-qc-summary-section, .font-qc-summary'
-            );
-            if ((await fontspectorMask.count()) > 0) {
-                maskLocators.push(fontspectorMask.first());
-            } else {
-                // Fallback keeps masking visible even if Fontspector markup changes.
-                maskLocators.push(
-                    page.locator('#view-editor .view-sidebar-right')
-                );
-            }
-        }
         // Mask the terminal emulator inside the Konsole view: it computes
         // column widths programmatically, so sub-pixel font metric differences
         // across macOS versions produce different line breaks.
@@ -422,14 +407,12 @@ test.describe('Font Editor Basic Workflow', () => {
         );
         await waitForOpenSessionReady(page, 'YanoneKaffeesatz.glyphspackage');
         await waitForOverviewTilesRendered(page);
-        await waitForFontspectorReady(page, 'YanoneKaffeesatz.glyphspackage');
         await page.waitForTimeout(300);
 
         await takeWindowSnapshot(
             page,
             'yanone-01',
-            'yanone-glyphspackage-opened',
-            { maskFontspector: true }
+            'yanone-glyphspackage-opened'
         );
     });
 
@@ -1206,16 +1189,6 @@ test.describe('Font Editor Basic Workflow', () => {
         await page.waitForTimeout(120);
 
         const screenshot20Masks = [page.locator('#console-container')];
-        const screenshot20FontspectorMask = page.locator(
-            '#font-qc-summary-section, .font-qc-summary'
-        );
-        if ((await screenshot20FontspectorMask.count()) > 0) {
-            screenshot20Masks.push(screenshot20FontspectorMask.first());
-        } else {
-            screenshot20Masks.push(
-                page.locator('#view-editor .view-sidebar-right')
-            );
-        }
 
         await expect(page).toHaveScreenshot(
             '20-fustat-a-umlaut-stack-preview-window.png',

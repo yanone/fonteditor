@@ -49,10 +49,6 @@ pub use batch_yjs_ops::{add_master_with_interpolated_layers_yjs, reinterpolate_m
 // Glyph outlines module
 mod glyph_outlines;
 
-// Fontspector QC module
-mod fontspector;
-pub use fontspector::run_fontspector;
-
 // Global storage for cached fonts
 // Use a Mutex to allow safe mutable access from multiple calls
 

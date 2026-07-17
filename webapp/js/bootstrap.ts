@@ -44,31 +44,15 @@ function summarizeStartupEvent(
             path: detail.path ?? null,
             sourcePluginId: detail.sourcePluginId ?? null,
             canvasReady: detail.canvasReady ?? null,
-            startupFinalizeStarted: detail.startupFinalizeStarted ?? null,
-            scheduleFullCompile: detail.scheduleFullCompile ?? null
+            startupFinalizeStarted: detail.startupFinalizeStarted ?? null
         };
     }
 
-    if (eventName === 'fontspectorUpdated') {
-        return {
-            status: detail.status ?? null,
-            changeVersion: detail.changeVersion ?? null,
-            error: detail.error ?? null,
-            profile: detail.profile ?? null,
-            checks: Array.isArray(detail.checks) ? detail.checks.length : null,
-            summary: detail.summary ?? null
-        };
-    }
-
-    if (
-        eventName === 'editingFontCompiled' ||
-        eventName === 'fullFontCompiled'
-    ) {
+    if (eventName === 'editingFontCompiled') {
         return {
             changeVersion: detail.changeVersion ?? null,
             duration: detail.duration ?? null,
-            error: detail.error ?? null,
-            qcSummary: detail.qcSummary ?? null
+            error: detail.error ?? null
         };
     }
 
@@ -84,9 +68,7 @@ function registerStartupEventLogging(): void {
         'fontModelReady',
         'canvasInitialReady',
         'editingFontCompiled',
-        'fontReady',
-        'fullFontCompiled',
-        'fontspectorUpdated'
+        'fontReady'
     ];
 
     for (const eventName of startupEvents) {
@@ -521,7 +503,6 @@ import './editor-plugins-ui';
 import './editor-stack-preview-menu';
 import './example-loader';
 import './file-browser';
-import './full-font-compile-manager';
 import './font-info'; // Font info view manager (Names/Features tabs)
 import './font-interpolation';
 import './font-manager';

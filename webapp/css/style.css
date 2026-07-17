@@ -634,11 +634,17 @@ kbd + kbd {
     opacity: 0;
     pointer-events: none;
     z-index: 10;
-    transition: opacity 0.3s ease;
+    transition:
+        opacity 0.3s ease,
+        color 0.15s ease;
 }
 
 .file-dirty-indicator.visible {
     opacity: 1;
+}
+
+.file-dirty-indicator.exporting {
+    color: var(--accent-blue);
 }
 
 .current-font-display {

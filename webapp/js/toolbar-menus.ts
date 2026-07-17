@@ -13,6 +13,7 @@ import {
     triggerUndo
 } from './window-buttons';
 import { getPendingUpdate } from './update-manager';
+import { exportBinaryFont, exportBinaryFontAs } from './binary-font-export';
 
 const console = new Logger('ToolbarMenus');
 
@@ -89,6 +90,7 @@ function setupHandlers(
 function getFileMenuItems(): ToolbarMenuItem[] {
     const saveButton = window.saveButton;
     const pending = getPendingUpdate();
+    const hasFontOpen = !!window.fontManager?.currentFont;
 
     const items: ToolbarMenuItem[] = [];
 
@@ -158,6 +160,20 @@ function getFileMenuItems(): ToolbarMenuItem[] {
             action: async () => {
                 await window.showFontFileDialog?.({ mode: 'save-as' });
             }
+        },
+        {
+            label: 'Export binary font',
+            icon: 'download',
+            shortcut: '⌘E',
+            disabled: !hasFontOpen,
+            action: exportBinaryFont
+        },
+        {
+            label: 'Export binary font as…',
+            icon: 'save_as',
+            shortcut: '⌘⇧E',
+            disabled: !hasFontOpen,
+            action: exportBinaryFontAs
         }
     );
 
@@ -332,6 +348,16 @@ function installGlobalShortcuts(): void {
                 event.stopPropagation();
                 event.stopImmediatePropagation();
                 void window.showFontFileDialog?.({ mode: 'save-as' });
+                return;
+            }
+
+            if (key === 'e' && window.fontManager?.currentFont) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+                void (event.shiftKey
+                    ? exportBinaryFontAs()
+                    : exportBinaryFont());
             }
         },
         true

@@ -116,12 +116,6 @@ export const validate_feature_source_with_full_filter_pipeline: (
     a: any
 ) => [number, number];
 export const version: () => [number, number];
-export const run_fontspector: (
-    a: number,
-    b: number,
-    c: number,
-    d: number
-) => [number, number, number, number];
 export const get_font_axes: (
     a: number,
     b: number

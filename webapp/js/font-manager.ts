@@ -73,12 +73,6 @@ export type GlyphData = {
     axesOrder: string[];
 };
 
-export type FontQCSummary = {
-    fails: number;
-    warns: number;
-    infos: number;
-};
-
 export type RustBatchLayerTarget = {
     glyphName: string;
     layerId: string;
@@ -464,11 +458,6 @@ class OpenedFont {
                 options?.compileContext
             );
         }
-        // Wake the full-font Q:C/ monitor so Fontspector catches up without
-        // waiting for the 200 ms polling interval. The editing-font compile
-        // is NOT triggered here — it runs through the Yjs committed-change
-        // funnel (CompiledEditFunnel.processCommittedEdit) instead.
-        window.fullCompileManager?.checkAndSchedule?.();
     }
 
     /**
@@ -593,8 +582,6 @@ class FontManager {
     openedFonts: Map<string, OpenedFont>; // Record of fontId to OpenedFont
     currentFontId: string | null = null;
     editingFont: Uint8Array | null;
-    fullFont: Uint8Array | null;
-    fullFontQcSummary: FontQCSummary | null;
     currentText: string;
     selectedFeatures: string[];
     isCompiling: boolean;
@@ -683,8 +670,6 @@ class FontManager {
         this.dirtyIndicator = null;
         this.openedFonts = new Map<string, OpenedFont>();
         this.editingFont = null; // Uint8Array of compiled editing font
-        this.fullFont = null; // Uint8Array of compiled full font
-        this.fullFontQcSummary = null;
         this.currentText = '';
         this.selectedFeatures = [];
         this.isCompiling = false;
@@ -1476,8 +1461,6 @@ class FontManager {
         this.openedFonts.clear();
         this.currentFontId = null;
         this.editingFont = null;
-        this.fullFont = null;
-        this.fullFontQcSummary = null;
         this.glyphOrderCache = null;
         this.closureCache = null;
         this.editingSubsetSnapshotGlyphs = [];
@@ -1891,8 +1874,6 @@ class FontManager {
         window.currentFontModel = newFont.fontModel;
 
         this.editingFont = null;
-        this.fullFont = null;
-        this.fullFontQcSummary = null;
         this.glyphOrderCache = null; // Clear cache for new font
         this.closureCache = null;
         this.editingSubsetSnapshotGlyphs = [];
@@ -3220,7 +3201,6 @@ class FontManager {
      */
     saveFontsToFileSystem() {
         this.saveEditingFontToFileSystem();
-        this.saveFullFontToFileSystem();
     }
 
     /**
@@ -3240,33 +3220,6 @@ class FontManager {
                 new File(
                     [this.editingFont as Uint8Array<ArrayBuffer>],
                     '_debug_editing_font.ttf',
-                    { type: 'font/ttf' }
-                )
-            ],
-            {
-                directory: '/user',
-                pluginId: 'memory'
-            }
-        );
-    }
-
-    /**
-     * Save full font to file system
-     */
-    saveFullFontToFileSystem() {
-        if (!APP_SETTINGS.FONT_MANAGER?.SAVE_DEBUG_FONTS) {
-            return; // Feature disabled in settings
-        }
-
-        if (!this.fullFont) {
-            return;
-        }
-
-        window.uploadFiles(
-            [
-                new File(
-                    [this.fullFont as Uint8Array<ArrayBuffer>],
-                    '_debug_full_font.ttf',
                     { type: 'font/ttf' }
                 )
             ],
@@ -6115,7 +6068,6 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         startupInteractivityReleased = true;
 
         window.autoCompileManager?.setStartupBlocked?.(false);
-        window.fullCompileManager?.setEnabled?.(true);
 
         emitOpenLifecycle(openSessionId, 'startupInteractivityReleased', {
             reason
@@ -6147,22 +6099,18 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             }
 
             emitOpenLifecycle(openSessionId, 'startupStateReady');
-            releaseStartupGates(openSessionId, 'canvas+state-ready', true);
+            releaseStartupGates(openSessionId, 'canvas+state-ready');
         } catch (error) {
             console.warn(
                 '[FontManager]',
                 'Startup state restore failed before fontReady; continuing:',
                 error
             );
-            releaseStartupGates(openSessionId, 'canvas+state-error', true);
+            releaseStartupGates(openSessionId, 'canvas+state-error');
         }
     };
 
-    const releaseStartupGates = (
-        openSessionId: string,
-        reason: string,
-        scheduleFullCompile: boolean
-    ) => {
+    const releaseStartupGates = (openSessionId: string, reason: string) => {
         if (startupReleased) {
             return;
         }
@@ -6187,16 +6135,10 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
         if (!startupInteractivityReleased) {
             window.autoCompileManager?.setStartupBlocked?.(false);
-            window.fullCompileManager?.setEnabled?.(true);
-        }
-
-        if (scheduleFullCompile) {
-            window.fullCompileManager?.scheduleCompilation?.(0);
         }
 
         emitOpenLifecycle(openSessionId, 'startupReleased', {
-            reason,
-            scheduleFullCompile
+            reason
         });
 
         if (!startupInteractivityReleased) {
@@ -6241,9 +6183,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         fullFontCompilation.pendingStoreFontJsonPromise = null;
         fullFontCompilation.lastEditingSubsetKey = null;
 
-        // Prioritize first-open UX over continuous background recompiles/QC.
         window.autoCompileManager?.setStartupBlocked?.(true);
-        window.fullCompileManager?.setEnabled?.(false);
 
         // Load font into font manager
         await fontManager!.loadFont(
@@ -6321,20 +6261,16 @@ window.addEventListener('fontLoaded', async (event: Event) => {
                     .finally(() => {
                         releaseStartupGates(
                             openSessionId,
-                            'startup-ready-timeout',
-                            true
+                            'startup-ready-timeout'
                         );
                     });
                 return;
             }
 
-            releaseStartupGates(openSessionId, 'startup-ready-timeout', true);
+            releaseStartupGates(openSessionId, 'startup-ready-timeout');
         }, 8000);
-
-        // Full compile + QC is intentionally deferred until canvas reports
-        // initial text + zoom readiness.
     } catch (error) {
-        releaseStartupGates('open-unknown', 'error', false);
+        releaseStartupGates('open-unknown', 'error');
         timelineMark('font.openSession.error');
 
         console.error('[FontManager]', 'Failed to initialize font manager:');

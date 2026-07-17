@@ -656,138 +656,6 @@ export async function waitForFontLoaded(page: any) {
 }
 
 /**
- * Wait for first Fontspector QC results to be ready for the currently opened file
- */
-export async function waitForFontspectorReady(
-    page: any,
-    expectedFilename: string,
-    options: { allowObservedPendingCompile?: boolean } = {}
-) {
-    // First, wait until the expected file is the active one
-    await page.waitForFunction(
-        (filename: string) => {
-            const testWindow = window as any;
-            const editorFile =
-                testWindow.stateManager?.getStateSnapshot?.()?.state
-                    ?.editor_file || '';
-            return editorFile.includes(filename);
-        },
-        expectedFilename,
-        { timeout: 15000 }
-    );
-
-    // Then wait for fontspector readiness.
-    // Guard against race conditions where the event fired before listener setup.
-    await page.evaluate(
-        ({
-            allowObservedPendingCompile
-        }: {
-            allowObservedPendingCompile: boolean;
-        }) => {
-            const testWindow = window as any;
-            testWindow.__waitForFontspectorAllowObservedPendingCompile =
-                !!allowObservedPendingCompile;
-            return new Promise<void>((resolve, reject) => {
-                const isReady = () => {
-                    const fullCompileStatus =
-                        testWindow.fullCompileManager?.getStatus?.() || null;
-                    const currentFont =
-                        testWindow.fontManager?.currentFont || null;
-
-                    if (!fullCompileStatus || !currentFont) {
-                        return false;
-                    }
-
-                    if (
-                        !fullCompileStatus.isEnabled ||
-                        fullCompileStatus.isCompiling
-                    ) {
-                        return false;
-                    }
-
-                    const currentPath = currentFont.path || null;
-                    const currentVersion = currentFont.changeVersion;
-
-                    return (
-                        fullCompileStatus.lastCompiledPath === currentPath &&
-                        fullCompileStatus.lastCompiledVersion >= currentVersion
-                    );
-                };
-
-                const isObservedPendingCompile = () => {
-                    const fullCompileStatus =
-                        testWindow.fullCompileManager?.getStatus?.() || null;
-                    const currentFont =
-                        testWindow.fontManager?.currentFont || null;
-
-                    if (!fullCompileStatus || !currentFont) {
-                        return false;
-                    }
-
-                    const currentPath = currentFont.path || null;
-                    const currentVersion = currentFont.changeVersion;
-
-                    return (
-                        fullCompileStatus.isCompiling &&
-                        fullCompileStatus.lastObservedPath === currentPath &&
-                        fullCompileStatus.lastObservedVersion >= currentVersion
-                    );
-                };
-
-                const handler = (event: Event) => {
-                    const detail = (event as CustomEvent).detail;
-                    if (detail?.status === 'ready' || isReady()) {
-                        window.clearTimeout(timeoutId);
-                        window.removeEventListener(
-                            'fontspectorUpdated',
-                            handler
-                        );
-                        resolve();
-                    }
-                };
-
-                if (isReady()) {
-                    resolve();
-                    return;
-                }
-
-                const timeoutId = window.setTimeout(() => {
-                    window.removeEventListener('fontspectorUpdated', handler);
-                    if (
-                        testWindow.__waitForFontspectorAllowObservedPendingCompile &&
-                        isObservedPendingCompile()
-                    ) {
-                        resolve();
-                        return;
-                    }
-                    const fullCompileStatus =
-                        testWindow.fullCompileManager?.getStatus?.() || null;
-                    const currentFont =
-                        testWindow.fontManager?.currentFont || null;
-                    reject(
-                        new Error(
-                            `Timed out waiting for fontspectorUpdated ready status: ${JSON.stringify(
-                                {
-                                    fullCompileStatus,
-                                    currentFontPath: currentFont?.path || null,
-                                    currentFontVersion:
-                                        currentFont?.changeVersion ?? null
-                                }
-                            )}`
-                        )
-                    );
-                }, 15000);
-
-                window.addEventListener('fontspectorUpdated', handler);
-            });
-        },
-        {
-            allowObservedPendingCompile: !!options.allowObservedPendingCompile
-        }
-    );
-}
-
-/**
  * Wait until startup gates are released for the current open session.
  * This corresponds to font.openSession ending after both canvas and
  * overview initial readiness are complete.
@@ -817,14 +685,8 @@ export async function waitForOpenSessionReady(
 
             const startupBlocked =
                 window.autoCompileManager?.getStatus?.()?.isStartupBlocked;
-            const fullCompileEnabled =
-                window.fullCompileManager?.getStatus?.()?.isEnabled;
 
-            return (
-                startupReleasedMarkCount > 0 &&
-                startupBlocked === false &&
-                fullCompileEnabled === true
-            );
+            return startupReleasedMarkCount > 0 && startupBlocked === false;
         },
         { timeout: 20000 }
     );

@@ -1162,15 +1162,8 @@ async function expectMainWindowScreenshot(
     page: Page,
     fileName: string
 ): Promise<void> {
-    const mask = [
-        page.locator('#font-qc-summary-section'),
-        page.locator('.font-qc-summary'),
-        page.locator('#glyph-editor-sidebar.font-qc-expanded')
-    ];
-
     await expect(page).toHaveScreenshot(fileName, {
         maxDiffPixelRatio: 0.07,
-        mask,
         maskColor: '#ff00ff'
     });
 }

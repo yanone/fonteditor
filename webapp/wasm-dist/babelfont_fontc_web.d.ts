@@ -393,11 +393,6 @@ export function reinterpolate_layer_yjs(
 
 export function reinterpolate_master_layers_yjs(master_id: string): any;
 
-export function run_fontspector(
-    font_bytes: Uint8Array,
-    profile: string
-): string;
-
 /**
  * Serialize a babelfont JSON string to a UFO file-tree as JSON.
  *
@@ -567,12 +562,6 @@ export interface InitOutput {
         a: any
     ) => [number, number];
     readonly version: () => [number, number];
-    readonly run_fontspector: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number, number];
     readonly get_font_axes: (
         a: number,
         b: number
