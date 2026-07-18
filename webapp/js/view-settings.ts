@@ -39,13 +39,6 @@ const VIEW_SETTINGS = {
             displayModifiers: ['⌘', '⇧'],
             secondaryBehavior: 'expandToTarget'
         },
-        'view-assistant': {
-            // Assistant view
-            key: 'a',
-            modifiers: { cmd: true, shift: true },
-            displayModifiers: ['⌘', '⇧'],
-            secondaryBehavior: 'expandToTarget'
-        },
         'view-agent': {
             // Agent view
             key: 'g',
@@ -104,11 +97,6 @@ const VIEW_SETTINGS = {
             // Overview view (no secondary resize)
             width: 0.33,
             height: 0.7
-        },
-        'view-assistant': {
-            // Assistant view (no secondary resize)
-            width: 0.33,
-            height: 0.5
         },
         'view-agent': {
             // Agent view (no secondary resize)

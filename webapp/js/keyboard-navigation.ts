@@ -1000,7 +1000,7 @@
     }
 
     /**
-     * Blur all bottom view editors (console, scripts, assistant)
+     * Blur all bottom view editors (console, scripts, agent)
      */
     function blurBottomViewEditors() {
         // Blur console terminal
@@ -1026,10 +1026,9 @@
             }
         }
 
-        // Blur AI assistant textarea
-        const assistantPrompt = document.getElementById('ai-prompt');
-        if (assistantPrompt) {
-            assistantPrompt.blur();
+        const agentPrompt = document.getElementById('agent-prompt');
+        if (agentPrompt) {
+            agentPrompt.blur();
         }
     }
 
@@ -1170,9 +1169,9 @@
                 }, 100);
             }
 
-            // If activating console, blur the assistant's text field and focus terminal
+            // If activating console, blur the agent's text field and focus terminal
             if (viewId === 'view-console') {
-                const prompt = document.getElementById('ai-prompt');
+                const prompt = document.getElementById('agent-prompt');
                 if (prompt) {
                     prompt.blur();
                 }
@@ -1253,34 +1252,6 @@
                         }, 500);
                     }, 50);
                 }
-            }
-
-            // If activating assistant, focus and scroll
-            if (viewId === 'view-assistant') {
-                // Wait for expansion animation to complete before focusing
-                const settings = getViewSettings();
-                const delay = settings?.animation?.enabled
-                    ? settings.animation.duration + 50 // Wait for animation + small buffer
-                    : 100; // No animation, use short delay
-
-                setTimeout(() => {
-                    // Focus text field if activated via keyboard OR if view was expanded from collapsed state
-                    if (viaKeyboard || wasExpanded) {
-                        const prompt = document.getElementById('ai-prompt');
-                        if (prompt) {
-                            prompt.focus();
-                            prompt.click();
-                        }
-
-                        // Scroll to bottom when activated via keyboard
-                        const viewContent = document.querySelector(
-                            '#view-assistant .view-content'
-                        );
-                        if (viewContent) {
-                            viewContent.scrollTop = viewContent.scrollHeight;
-                        }
-                    }
-                }, delay);
             }
 
             // If activating agent, focus prompt
@@ -1629,11 +1600,12 @@
             }
         }
 
-        // Cmd+Alt+N - Start new chat (only when assistant view is focused)
+        // Cmd+Alt+N - Start new chat (only when agent view is focused)
         if (cmdKey && event.altKey && key === 'n') {
-            if (currentFocusedView === 'view-assistant') {
+            if (currentFocusedView === 'view-agent') {
                 event.preventDefault();
-                const newChatBtn = document.getElementById('ai-new-chat-btn');
+                const newChatBtn =
+                    document.getElementById('agent-new-chat-btn');
                 if (newChatBtn) {
                     newChatBtn.click();
                 }

@@ -12,14 +12,12 @@ type AuthUser = {
 
 type AuthSubscription = {
     isAdvanced?: boolean;
-    canUseAssistant?: boolean;
     canUseAgent?: boolean;
     productId?: string | null;
     [key: string]: unknown;
 };
 
 type AuthCapabilities = {
-    canUseAssistant?: boolean;
     canUseAgent?: boolean;
     [key: string]: unknown;
 };

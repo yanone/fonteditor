@@ -4123,11 +4123,11 @@ if '_agent_original_stdout' in dir():
                         await new Promise((r) =>
                             setTimeout(r, 500 * this._reconnectAttempts)
                         );
-                        // Remove the notice before retry so the seam is seamless
+                        // Remove the notice before retry.
                         reconnMsg.remove();
-                        // Retry SAME round into SAME shell —
+                        // Retry the same round into the same shell;
                         // conversationMessages now ends with the partial
-                        // assistant response, so the model picks up from
+                        // model response, so the model picks up from
                         // where it left off
                         currentRoundIndex--; // undo the increment
                         continue;

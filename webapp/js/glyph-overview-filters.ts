@@ -1295,10 +1295,6 @@ export class GlyphOverviewFilterManager {
         // Build menu HTML (using same structure as file-browser context menus)
         const menuHtml = `
             <div class="plugin-menu">
-                <div class="plugin-menu-item" data-action="chat-session">
-                    <span class="material-symbols-outlined">attach_file</span>
-                    <span>Open Chat Session</span>
-                </div>
                 <div class="plugin-menu-item" data-action="open-script-editor">
                     <span class="material-symbols-outlined">code</span>
                     <span>Open in Script Editor</span>
@@ -1352,9 +1348,6 @@ export class GlyphOverviewFilterManager {
                             element.classList.remove('context-menu-active');
 
                             switch (action) {
-                                case 'chat-session':
-                                    await this.openOrCreateChatSession(plugin);
-                                    break;
                                 case 'open-script-editor':
                                     await this.openFilterInScriptEditor(
                                         filePath
@@ -2619,24 +2612,6 @@ def filter_glyphs(font):
                     newName
                 );
 
-                // Update chat session link if one exists
-                if (window.aiAssistant?.sessionManager) {
-                    const sessionManager = window.aiAssistant.sessionManager;
-                    const linkedPath = sessionManager.getLinkedFilePath();
-                    if (linkedPath === filePath) {
-                        const parentPath = filePath.substring(
-                            0,
-                            filePath.lastIndexOf('/')
-                        );
-                        const newPath = parentPath + '/' + newName;
-                        sessionManager.setLinkedFilePath(newPath);
-                        console.log(
-                            '[GlyphOverviewFilters] Updated chat session link to:',
-                            newPath
-                        );
-                    }
-                }
-
                 // File system observer will detect the rename and refresh automatically
             } catch (error: any) {
                 console.error(
@@ -2704,18 +2679,6 @@ def filter_glyphs(font):
                 this.clearActiveFilter();
             }
 
-            // Clear chat session link if one exists for this file
-            if (window.aiAssistant?.sessionManager) {
-                const sessionManager = window.aiAssistant.sessionManager;
-                const linkedPath = sessionManager.getLinkedFilePath();
-                if (linkedPath === filePath) {
-                    sessionManager.setLinkedFilePath(null);
-                    console.log(
-                        '[GlyphOverviewFilters] Cleared chat session link'
-                    );
-                }
-            }
-
             // File system observer will automatically detect the deletion and refresh
             // No need to manually call discoverUserFilters() here
         } catch (error: any) {
@@ -2725,98 +2688,6 @@ def filter_glyphs(font):
             );
             alert(`Error deleting filter: ${error.message}`);
         }
-    }
-
-    /**
-     * Open or create chat session for a filter file
-     */
-    private async openOrCreateChatSession(
-        plugin: GlyphFilterPlugin
-    ): Promise<void> {
-        const filePath = plugin.filePath;
-        if (!filePath) return;
-
-        // Check if AI assistant is available
-        if (!window.aiAssistant || !window.aiAssistant.sessionManager) {
-            alert('AI Assistant not available');
-            return;
-        }
-
-        const aiAssistant = window.aiAssistant;
-        const sessionManager = aiAssistant.sessionManager;
-
-        // Check if there's already a session linked to this file
-        const currentLinkedPath = sessionManager.getLinkedFilePath();
-        if (currentLinkedPath === filePath && sessionManager.currentChatId) {
-            // Already in this session, just switch to assistant view
-            const assistantView = document.getElementById('view-assistant');
-            if (assistantView) {
-                assistantView.click();
-            }
-            return;
-        }
-
-        // Start a new chat session for this file
-        // Confirm if there's an active chat
-        if (sessionManager.currentChatId && aiAssistant.messages.length > 0) {
-            if (
-                !confirm(
-                    'Start a new chat for this filter? The current chat will be saved.'
-                )
-            ) {
-                return;
-            }
-        }
-
-        // Reset chat state
-        sessionManager.currentChatId = null;
-        sessionManager.isContextLocked = true; // Lock to glyphfilter context
-        sessionManager.setLinkedFilePath(filePath);
-        aiAssistant.messages = [];
-        aiAssistant.messagesContainer.innerHTML = '';
-        localStorage.removeItem('ai_last_chat_id');
-
-        // Set context to glyphfilter
-        aiAssistant.setContext('glyphfilter');
-
-        // Add a system message indicating the linked file
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'ai-message ai-message-system';
-
-        const fileName = filePath.split('/').pop();
-        messageDiv.innerHTML = `
-            <div class="ai-system-message">
-                <span class="ai-context-display-icon ai-context-tag-glyphfilter"><span class="material-symbols-outlined">filter_alt</span></span>
-                <div>
-                    <strong>Glyph Filter Context selected</strong>
-                    <p>Creating or editing glyph filter: ${fileName}</p>
-                </div>
-            </div>
-        `;
-
-        aiAssistant.messagesContainer.appendChild(messageDiv);
-        sessionManager.updateFilePathDisplay();
-        aiAssistant.scrollToBottom();
-
-        // Show input container
-        const inputContainer = document.getElementById('ai-input-container');
-        if (inputContainer) {
-            inputContainer.style.display = 'flex';
-        }
-
-        // Switch to assistant view
-        const assistantView = document.getElementById('view-assistant');
-        if (assistantView) {
-            assistantView.click();
-        }
-
-        // Focus the input
-        aiAssistant.promptInput.focus();
-
-        console.log(
-            '[GlyphOverviewFilters] Started chat session for:',
-            filePath
-        );
     }
 
     /**

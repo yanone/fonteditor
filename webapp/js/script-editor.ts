@@ -1343,11 +1343,6 @@ def filter_glyphs(font):
                     fullTraceback
                 );
             }
-
-            // Notify the AI assistant about the error
-            if (window.aiAssistant && window.aiAssistant.addErrorFixMessage) {
-                window.aiAssistant.addErrorFixMessage(fullTraceback, code);
-            }
         } finally {
             // Re-enable the run button
             updateRunButtonState();

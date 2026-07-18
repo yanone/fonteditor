@@ -1,6 +1,5 @@
 import TabLifecycleManager from './tab-lifecycle';
 import ThemeSwitcher from './theme-switcher';
-import AIAssistant from './ai-assistant';
 import AIAgent from './ai-agent';
 import CacheManager from './cache-manager';
 import type { FontCompilation } from './font-compilation';
@@ -126,9 +125,8 @@ declare global {
         BUILD_HASH_SHORT: string | null;
         WORKTREE_NAME: string;
 
-        // From ai-assistant.js
-        aiAssistant: AIAssistant;
-        aiAgent: AIAssistant;
+        // From ai-agent.ts
+        aiAgent: AIAgent;
 
         // From file-browser.ts
         showFontFileDialog:
@@ -605,12 +603,6 @@ declare global {
 
         // From theme-switcher.js
         themeSwitcher: ThemeSwitcher;
-
-        // From chat-session-manager.ts
-        ChatSessionManager: {
-            new (aiAssistant: AIAssistant): object;
-            getContextIconHTML(contextType: string): string;
-        };
 
         // From translations.ts
         translations: {

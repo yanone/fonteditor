@@ -13,7 +13,6 @@ npm run dev
 
 Useful development-only helpers:
 
-- Load the assistant test conversation with `?assistant_style_test`
 - Trigger end-to-end error reporting tests from DevTools with `window.triggerRuntimeErrorForTesting()` and `window.triggerUnhandledRejectionForTesting()`
 
 ## Local Testing vs. CI

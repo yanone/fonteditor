@@ -33,9 +33,7 @@
     --message-bg: rgba(255, 255, 255, 0.1);
     --custom-cursor-color: rgba(255, 255, 255, 0.8);
     --ai-error-text: #ff3300;
-    --ai-assistant-text: rgba(180, 180, 180, 1);
     --ai-error-bg: rgba(255, 51, 0, 0.1);
-    --ai-assistant-bg: rgba(200, 150, 255, 0.3);
     --ai-user-text: rgba(150, 220, 255, 1);
     --ai-user-bg: rgba(100, 200, 255, 0.3);
     --ai-system-bg: rgba(255, 255, 0, 0.1);
@@ -71,7 +69,6 @@
     --glyph-tile-selected-active: #4a4a4a;
     --glyph-tile-selected-inactive: #3b3b3b;
     --view-editor: #00aeef;
-    --view-assistant: #ef4136;
     --view-agent: #ef4136;
     --view-console: #fbc540;
     --view-files: #be1e2d;
@@ -113,9 +110,7 @@
     --message-bg: rgba(0, 0, 0, 0.08);
     --custom-cursor-color: rgba(0, 0, 0, 0.8);
     --ai-error-text: #cc2600;
-    --ai-assistant-text: rgba(80, 80, 80, 1);
     --ai-error-bg: rgba(200, 40, 0, 0.1);
-    --ai-assistant-bg: rgba(120, 0, 200, 0.12);
     --ai-user-text: rgba(0, 70, 140, 1);
     --ai-user-bg: rgba(0, 120, 200, 0.12);
     --ai-system-bg: rgba(200, 200, 0, 0.1);
@@ -153,7 +148,6 @@
     --glyph-tile-selected-active: #e3e3e3;
     --glyph-tile-selected-inactive: #dbdbdb;
     --view-editor: #00aeef;
-    --view-assistant: #ef4136;
     --view-agent: #ef4136;
     --view-console: #fbc540;
     --view-files: #be1e2d;
