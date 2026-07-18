@@ -91,7 +91,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ◻️ Kerning list UI
 - ✅ Automatic glyph metric updates
 - ✅ Automatic glyph composition
-- ◻️ Font export
+- ✅ Font export
 - ◻️ Source saving
 
 ### v0.4

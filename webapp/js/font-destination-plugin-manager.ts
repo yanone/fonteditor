@@ -25,6 +25,11 @@ type GitHubReleaseAsset = {
     browser_download_url: string;
 };
 
+type EntryPointDiscoveryResult = {
+    destinations: unknown[];
+    errors: string[];
+};
+
 export type FontDestinationManifest = {
     packageName: string;
     entryPoint: string;
@@ -120,6 +125,10 @@ function getWheelDistributionName(wheelPath: string): string | null {
         .slice(0, separator)
         .replace(/[-_.]+/g, '-')
         .toLowerCase();
+}
+
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
 
 /** Parse and validate a Font Destination manifest without executing package code. */
@@ -260,7 +269,9 @@ async function fetchReleaseAsset(
         { cache: 'no-store' }
     );
     if (!response.ok) {
-        throw new Error(`GitHub release download failed (${response.status}).`);
+        throw new Error(
+            `Could not download release asset ${asset} from ${repository} (${response.status}).`
+        );
     }
     return response;
 }
@@ -268,11 +279,17 @@ async function fetchReleaseAsset(
 /** Manage discoverable Font Destination wheels stored in the selected Disk folder. */
 export class FontDestinationPluginManager {
     private installedDestinations: InstalledFontDestination[] = [];
+    private diagnostics: string[] = [];
     private openDestinations = new Map<string, OpenFontDestination>();
 
     /** Return the destinations discovered in the current Pyodide runtime. */
     getInstalledDestinations(): InstalledFontDestination[] {
         return [...this.installedDestinations];
+    }
+
+    /** Return non-fatal plugin install or metadata diagnostics for the UI. */
+    getDiagnostics(): string[] {
+        return [...this.diagnostics];
     }
 
     /** Check the connected Disk folder and its Plugins subfolder. */
@@ -371,9 +388,17 @@ export class FontDestinationPluginManager {
             );
         }
 
-        const release = await fetchJson(
-            `https://api.github.com/repos/${manifest.releaseRepository}/releases/latest`
-        );
+        this.diagnostics = [];
+        let release: unknown;
+        try {
+            release = await fetchJson(
+                `https://api.github.com/repos/${manifest.releaseRepository}/releases/latest`
+            );
+        } catch (error: unknown) {
+            throw new Error(
+                `Could not read the latest GitHub release for ${manifest.releaseRepository}. Publish a release containing a wheel named ${manifest.wheelAssetPrefix}*.whl and its checksum, or check that the repository is public. ${getErrorMessage(error)}`
+            );
+        }
         const assets = extractReleaseAssets(release);
         const wheel = assets.find(
             (asset) =>
@@ -382,7 +407,7 @@ export class FontDestinationPluginManager {
         );
         if (!wheel) {
             throw new Error(
-                'The latest release does not contain the declared wheel.'
+                `The latest release for ${manifest.releaseRepository} does not contain a wheel whose filename starts with ${manifest.wheelAssetPrefix} and ends with .whl.`
             );
         }
         const checksum = assets.find(
@@ -391,7 +416,7 @@ export class FontDestinationPluginManager {
         );
         if (!checksum) {
             throw new Error(
-                'The latest release does not contain the wheel checksum.'
+                `The latest release for ${manifest.releaseRepository} contains ${wheel.name}, but not the required checksum asset ${wheel.name}${manifest.checksumAssetSuffix}.`
             );
         }
 
@@ -406,13 +431,45 @@ export class FontDestinationPluginManager {
             .toLowerCase();
         if ((await sha256(bytes)) !== expectedChecksum) {
             throw new Error(
-                'Plugin wheel checksum does not match its release asset.'
+                `Checksum mismatch for ${wheel.name}. The downloaded wheel does not match ${checksum.name}.`
             );
         }
 
-        await adapter.writeFile(`${PLUGINS_DIRECTORY}/${wheel.name}`, bytes);
-        await this.installWheelIntoPyodide(wheel.name, bytes);
-        await this.discoverInstalledDestinations();
+        const wheelPath = `${PLUGINS_DIRECTORY}/${wheel.name}`;
+        await adapter.writeFile(wheelPath, bytes);
+        try {
+            await this.installWheelIntoPyodide(wheel.name, bytes);
+            await this.discoverInstalledDestinations(false);
+            if (
+                !this.installedDestinations.some(
+                    (destination) => destination.pluginId === manifest.pluginId
+                )
+            ) {
+                throw new Error(
+                    `Installed wheel ${wheel.name} did not expose Font Destination metadata for pluginId ${manifest.pluginId}. Check entry point ${manifest.entryPoint}.`
+                );
+            }
+        } catch (error: unknown) {
+            try {
+                await this.uninstallWheelFromPyodide(wheelPath);
+            } catch (cleanupError: unknown) {
+                console.warn(
+                    'Could not clean up failed Font Destination runtime install:',
+                    getErrorMessage(cleanupError)
+                );
+            }
+            try {
+                await adapter.deleteItem(wheelPath, false);
+            } catch (cleanupError: unknown) {
+                console.warn(
+                    'Could not delete failed Font Destination wheel:',
+                    getErrorMessage(cleanupError)
+                );
+            }
+            throw new Error(
+                `Could not install ${manifest.name}: ${getErrorMessage(error)}`
+            );
+        }
     }
 
     /** Remove a wheel; the next Pyodide initialization makes removal effective. */
@@ -433,18 +490,30 @@ export class FontDestinationPluginManager {
         if (!adapter || (await adapter.checkPermission?.()) !== 'granted') {
             return;
         }
+        this.diagnostics = [];
         for (const file of await this.getInstalledWheelFiles()) {
-            const contents = await adapter.readFile(file.path);
-            await this.installWheelIntoPyodide(
-                file.path.split('/').pop() || 'plugin.whl',
-                toUint8Array(contents)
-            );
+            try {
+                const contents = await adapter.readFile(file.path);
+                await this.installWheelIntoPyodide(
+                    file.path.split('/').pop() || 'plugin.whl',
+                    toUint8Array(contents)
+                );
+            } catch (error: unknown) {
+                const message = `Could not restore ${file.path}: ${getErrorMessage(error)}`;
+                this.diagnostics.push(message);
+                console.warn(message);
+            }
         }
-        await this.discoverInstalledDestinations();
+        await this.discoverInstalledDestinations(false);
     }
 
     /** Re-read Python entry points when the Tools menu opens. */
-    async discoverInstalledDestinations(): Promise<void> {
+    async discoverInstalledDestinations(
+        resetDiagnostics = true
+    ): Promise<void> {
+        if (resetDiagnostics) {
+            this.diagnostics = [];
+        }
         const pyodide = getPyodide();
         if (!pyodide) {
             this.installedDestinations = [];
@@ -472,6 +541,7 @@ def normalize_distribution_name(name):
 
 entries = entry_points(group=${JSON.stringify(ENTRY_POINT_GROUP)})
 destinations = []
+errors = []
 for entry in entries:
     try:
         distribution = entry.dist.metadata["Name"]
@@ -481,16 +551,23 @@ for entry in entries:
         metadata = plugin.metadata()
         destinations.append(metadata)
     except Exception as error:
-        print(f"[FontDestinationPlugins] Could not load {entry.name}: {error}")
-destinations
+        message = f"Could not load {entry.name}: {error}"
+        print(f"[FontDestinationPlugins] {message}")
+        errors.append(message)
+{"destinations": destinations, "errors": errors}
 `)) as PyodideProxy;
         try {
             const values = result?.toJs
                 ? result.toJs({ dict_converter: Object.fromEntries })
                 : result;
-            this.installedDestinations = Array.isArray(values)
-                ? values.flatMap((value) =>
-                      this.parseInstalledDestination(value)
+            const discovery = this.parseEntryPointDiscoveryResult(values);
+            this.diagnostics.push(...discovery.errors);
+            this.installedDestinations = discovery.destinations.length
+                ? discovery.destinations.flatMap((value, index) =>
+                      this.parseInstalledDestination(
+                          value,
+                          `Installed Font Destination metadata ${index + 1}`
+                      )
                   )
                 : [];
         } finally {
@@ -549,11 +626,33 @@ destinations
         }
     }
 
-    private parseInstalledDestination(
+    private parseEntryPointDiscoveryResult(
         value: unknown
+    ): EntryPointDiscoveryResult {
+        if (Array.isArray(value)) {
+            return { destinations: value, errors: [] };
+        }
+        if (!isRecord(value)) {
+            return { destinations: [], errors: [] };
+        }
+        const destinations = Array.isArray(value.destinations)
+            ? value.destinations
+            : [];
+        const errors = Array.isArray(value.errors)
+            ? value.errors.filter(
+                  (error): error is string => typeof error === 'string'
+              )
+            : [];
+        return { destinations, errors };
+    }
+
+    private parseInstalledDestination(
+        value: unknown,
+        source = 'Installed Font Destination metadata'
     ): InstalledFontDestination[] {
         try {
             if (!isRecord(value)) {
+                this.diagnostics.push(`${source} is not an object.`);
                 return [];
             }
             const destinationUrl = getRequiredString(value, 'destinationUrl');
@@ -572,7 +671,8 @@ destinations
                     imageUrl: getOptionalHttpsUrl(value, 'imageUrl')
                 }
             ];
-        } catch {
+        } catch (error: unknown) {
+            this.diagnostics.push(`${source}: ${getErrorMessage(error)}`);
             return [];
         }
     }

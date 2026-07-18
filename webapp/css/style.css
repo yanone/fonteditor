@@ -5688,6 +5688,26 @@ kbd + kbd {
     justify-self: start;
 }
 
+.plugin-manager-diagnostics {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 12px;
+    padding: 10px;
+    border: 1px solid var(--accent-yellow);
+    border-radius: 4px;
+    background: var(--background-secondary);
+}
+
+.plugin-manager-diagnostics h4,
+.plugin-manager-diagnostics p {
+    margin: 0;
+}
+
+.plugin-manager-diagnostics h4 {
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
 .plugin-manager-section h4 {
     margin: 0 0 12px;
     color: var(--text-primary);

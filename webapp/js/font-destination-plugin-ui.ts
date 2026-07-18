@@ -65,6 +65,10 @@ async function renderPluginManager(content: HTMLElement): Promise<void> {
         const section = document.createElement('section');
         section.className = 'plugin-manager-section';
         section.appendChild(createTextElement('h4', 'Font Destinations'));
+        const diagnostics = fontDestinationPluginManager.getDiagnostics();
+        if (diagnostics.length) {
+            section.appendChild(createPluginDiagnostics(diagnostics));
+        }
 
         if (!catalogue.length) {
             section.appendChild(
@@ -142,6 +146,16 @@ function createPluginStorageNotice(
         }
     });
     notice.appendChild(action);
+    return notice;
+}
+
+function createPluginDiagnostics(messages: string[]): HTMLElement {
+    const notice = document.createElement('section');
+    notice.className = 'plugin-manager-diagnostics';
+    notice.appendChild(createTextElement('h4', 'Plugin Diagnostics'));
+    for (const message of messages) {
+        notice.appendChild(createTextElement('p', message));
+    }
     return notice;
 }
 

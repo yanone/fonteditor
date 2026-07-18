@@ -2,6 +2,30 @@ describe('Font Destination plugins', () => {
     let originalFetch;
     let originalOpen;
 
+    const createInstallManifest = () => ({
+        packageName: 'example-package',
+        entryPoint: 'example',
+        pluginId: 'example',
+        name: 'Example',
+        description: 'Example destination',
+        destinationUrl: 'https://example.com/receiver',
+        targetOrigin: 'https://example.com',
+        repositoryUrl: 'https://github.com/example/repository',
+        imageUrl: null,
+        releaseRepository: 'example/repository',
+        wheelAssetPrefix: 'example-',
+        checksumAssetSuffix: '.sha256'
+    });
+
+    const installDiskAdapter = (overrides = {}) => ({
+        deleteItem: jest.fn().mockResolvedValue(undefined),
+        fileExists: jest.fn().mockResolvedValue(true),
+        requestPermission: jest.fn().mockResolvedValue('granted'),
+        scanDirectory: jest.fn().mockResolvedValue({}),
+        writeFile: jest.fn().mockResolvedValue(undefined),
+        ...overrides
+    });
+
     beforeEach(() => {
         jest.resetModules();
         originalFetch = global.fetch;
@@ -278,6 +302,340 @@ describe('Font Destination plugins', () => {
             } else {
                 delete global.crypto;
             }
+        }
+    });
+
+    test('reports a contextual error when a manifest has no GitHub release yet', async () => {
+        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
+        const originalGetPlugin = pluginRegistry.get;
+        const adapter = installDiskAdapter();
+        pluginRegistry.get = jest.fn((id) =>
+            id === 'disk'
+                ? {
+                      getAdapter: () => adapter,
+                      isReady: jest.fn().mockResolvedValue(true)
+                  }
+                : null
+        );
+        global.fetch = jest.fn().mockResolvedValueOnce({
+            ok: false,
+            status: 404
+        });
+        const {
+            FontDestinationPluginManager
+        } = require('../js/font-destination-plugin-manager.ts');
+
+        try {
+            await expect(
+                new FontDestinationPluginManager().install(
+                    createInstallManifest()
+                )
+            ).rejects.toThrow('Could not read the latest GitHub release');
+            expect(adapter.writeFile).not.toHaveBeenCalled();
+        } finally {
+            pluginRegistry.get = originalGetPlugin;
+        }
+    });
+
+    test('reports when the latest release has no matching wheel', async () => {
+        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
+        const originalGetPlugin = pluginRegistry.get;
+        const adapter = installDiskAdapter();
+        pluginRegistry.get = jest.fn((id) =>
+            id === 'disk'
+                ? {
+                      getAdapter: () => adapter,
+                      isReady: jest.fn().mockResolvedValue(true)
+                  }
+                : null
+        );
+        global.fetch = jest.fn().mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: async () => ({ assets: [] })
+        });
+        const {
+            FontDestinationPluginManager
+        } = require('../js/font-destination-plugin-manager.ts');
+
+        try {
+            await expect(
+                new FontDestinationPluginManager().install(
+                    createInstallManifest()
+                )
+            ).rejects.toThrow('does not contain a wheel whose filename starts');
+            expect(adapter.writeFile).not.toHaveBeenCalled();
+        } finally {
+            pluginRegistry.get = originalGetPlugin;
+        }
+    });
+
+    test('reports when the latest release has no checksum asset', async () => {
+        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
+        const originalGetPlugin = pluginRegistry.get;
+        const adapter = installDiskAdapter();
+        pluginRegistry.get = jest.fn((id) =>
+            id === 'disk'
+                ? {
+                      getAdapter: () => adapter,
+                      isReady: jest.fn().mockResolvedValue(true)
+                  }
+                : null
+        );
+        global.fetch = jest.fn().mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                assets: [
+                    {
+                        name: 'example-1.0.0.whl',
+                        browser_download_url: 'https://example.com/wheel'
+                    }
+                ]
+            })
+        });
+        const {
+            FontDestinationPluginManager
+        } = require('../js/font-destination-plugin-manager.ts');
+
+        try {
+            await expect(
+                new FontDestinationPluginManager().install(
+                    createInstallManifest()
+                )
+            ).rejects.toThrow('required checksum asset');
+            expect(adapter.writeFile).not.toHaveBeenCalled();
+        } finally {
+            pluginRegistry.get = originalGetPlugin;
+        }
+    });
+
+    test('reports checksum mismatches before writing the wheel', async () => {
+        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
+        const originalGetPlugin = pluginRegistry.get;
+        const originalCrypto = Object.getOwnPropertyDescriptor(
+            global,
+            'crypto'
+        );
+        const adapter = installDiskAdapter();
+        pluginRegistry.get = jest.fn((id) =>
+            id === 'disk'
+                ? {
+                      getAdapter: () => adapter,
+                      isReady: jest.fn().mockResolvedValue(true)
+                  }
+                : null
+        );
+        Object.defineProperty(global, 'crypto', {
+            configurable: true,
+            value: {
+                subtle: {
+                    digest: jest
+                        .fn()
+                        .mockResolvedValue(new Uint8Array([0]).buffer)
+                }
+            }
+        });
+        global.fetch = jest
+            .fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    assets: [
+                        {
+                            name: 'example-1.0.0.whl',
+                            browser_download_url: 'https://example.com/wheel'
+                        },
+                        {
+                            name: 'example-1.0.0.whl.sha256',
+                            browser_download_url: 'https://example.com/checksum'
+                        }
+                    ]
+                })
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+            })
+            .mockResolvedValueOnce({ ok: true, text: async () => 'ff' });
+        const {
+            FontDestinationPluginManager
+        } = require('../js/font-destination-plugin-manager.ts');
+
+        try {
+            await expect(
+                new FontDestinationPluginManager().install(
+                    createInstallManifest()
+                )
+            ).rejects.toThrow('Checksum mismatch');
+            expect(adapter.writeFile).not.toHaveBeenCalled();
+        } finally {
+            pluginRegistry.get = originalGetPlugin;
+            if (originalCrypto) {
+                Object.defineProperty(global, 'crypto', originalCrypto);
+            } else {
+                delete global.crypto;
+            }
+        }
+    });
+
+    test('rolls back the stored wheel when Python installation fails', async () => {
+        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
+        const originalGetPlugin = pluginRegistry.get;
+        const originalCrypto = Object.getOwnPropertyDescriptor(
+            global,
+            'crypto'
+        );
+        const originalPyodide = window.pyodide;
+        const adapter = installDiskAdapter();
+        pluginRegistry.get = jest.fn((id) =>
+            id === 'disk'
+                ? {
+                      getAdapter: () => adapter,
+                      isReady: jest.fn().mockResolvedValue(true)
+                  }
+                : null
+        );
+        window.pyodide = {
+            FS: { mkdirTree: jest.fn(), writeFile: jest.fn() },
+            runPythonAsync: jest
+                .fn()
+                .mockRejectedValueOnce(new Error('bad wheel'))
+                .mockRejectedValueOnce(new Error('not installed'))
+        };
+        const checksum =
+            '039058c6f2c0cb492c533b0a4d14ef77a9c0cba4c3973c0c1e9945b39d6f5a3f';
+        Object.defineProperty(global, 'crypto', {
+            configurable: true,
+            value: {
+                subtle: {
+                    digest: jest
+                        .fn()
+                        .mockResolvedValue(
+                            new Uint8Array(
+                                checksum
+                                    .match(/.{2}/g)
+                                    .map((value) => Number.parseInt(value, 16))
+                            ).buffer
+                        )
+                }
+            }
+        });
+        global.fetch = jest
+            .fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    assets: [
+                        {
+                            name: 'example-1.0.0.whl',
+                            browser_download_url: 'https://example.com/wheel'
+                        },
+                        {
+                            name: 'example-1.0.0.whl.sha256',
+                            browser_download_url: 'https://example.com/checksum'
+                        }
+                    ]
+                })
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+            })
+            .mockResolvedValueOnce({ ok: true, text: async () => checksum });
+        const {
+            FontDestinationPluginManager
+        } = require('../js/font-destination-plugin-manager.ts');
+
+        try {
+            await expect(
+                new FontDestinationPluginManager().install(
+                    createInstallManifest()
+                )
+            ).rejects.toThrow('Could not install Example: bad wheel');
+            expect(adapter.writeFile).toHaveBeenCalledWith(
+                '/Plugins/example-1.0.0.whl',
+                new Uint8Array([1, 2, 3])
+            );
+            expect(adapter.deleteItem).toHaveBeenCalledWith(
+                '/Plugins/example-1.0.0.whl',
+                false
+            );
+        } finally {
+            pluginRegistry.get = originalGetPlugin;
+            window.pyodide = originalPyodide;
+            if (originalCrypto) {
+                Object.defineProperty(global, 'crypto', originalCrypto);
+            } else {
+                delete global.crypto;
+            }
+        }
+    });
+
+    test('continues restoring stored wheels after one wheel fails', async () => {
+        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
+        const originalGetPlugin = pluginRegistry.get;
+        const originalPyodide = window.pyodide;
+        const adapter = installDiskAdapter({
+            checkPermission: jest.fn().mockResolvedValue('granted'),
+            readFile: jest
+                .fn()
+                .mockResolvedValueOnce(new Uint8Array([1]))
+                .mockResolvedValueOnce(new Uint8Array([2])),
+            scanDirectory: jest.fn().mockResolvedValue({
+                '/Plugins/bad-1.0.0.whl': {
+                    is_dir: false,
+                    path: '/Plugins/bad-1.0.0.whl'
+                },
+                '/Plugins/good-1.0.0.whl': {
+                    is_dir: false,
+                    path: '/Plugins/good-1.0.0.whl'
+                }
+            })
+        });
+        pluginRegistry.get = jest.fn((id) =>
+            id === 'disk' ? { getAdapter: () => adapter } : null
+        );
+        window.pyodide = {
+            FS: { mkdirTree: jest.fn(), writeFile: jest.fn() },
+            runPythonAsync: jest
+                .fn()
+                .mockRejectedValueOnce(new Error('bad wheel'))
+                .mockResolvedValueOnce(undefined)
+                .mockResolvedValueOnce({
+                    destinations: [
+                        {
+                            pluginId: 'good',
+                            name: 'Good',
+                            description: 'Good destination',
+                            destinationUrl: 'https://example.com/good',
+                            targetOrigin: 'https://example.com',
+                            repositoryUrl:
+                                'https://github.com/example/repository',
+                            imageUrl: null
+                        }
+                    ],
+                    errors: []
+                })
+        };
+        const {
+            FontDestinationPluginManager
+        } = require('../js/font-destination-plugin-manager.ts');
+
+        try {
+            const manager = new FontDestinationPluginManager();
+            await manager.reinstallStoredPlugins();
+            expect(manager.getInstalledDestinations()).toEqual([
+                expect.objectContaining({ pluginId: 'good' })
+            ]);
+            expect(manager.getDiagnostics()).toEqual([
+                expect.stringContaining('/Plugins/bad-1.0.0.whl')
+            ]);
+        } finally {
+            pluginRegistry.get = originalGetPlugin;
+            window.pyodide = originalPyodide;
         }
     });
 
