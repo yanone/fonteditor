@@ -747,10 +747,7 @@ class AIAssistant {
     }
 
     canUseAssistant() {
-        return (
-            this.subscription?.canUseAssistant === true ||
-            this.subscription?.canUseAgent === true
-        );
+        return this.subscription?.canUseAssistant === true;
     }
 
     getWebsiteURL() {

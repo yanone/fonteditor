@@ -12,14 +12,12 @@ type AuthUser = {
 
 type AuthSubscription = {
     isAdvanced?: boolean;
-    canUseAgent?: boolean;
     canUseAssistant?: boolean;
     productId?: string | null;
     [key: string]: unknown;
 };
 
 type AuthCapabilities = {
-    canUseAgent?: boolean;
     canUseAssistant?: boolean;
     [key: string]: unknown;
 };
@@ -200,16 +198,12 @@ class AuthManager {
                           ...data.capabilities,
                           canUseAssistant:
                               data.capabilities?.canUseAssistant ??
-                              data.subscription.canUseAssistant ??
-                              data.capabilities?.canUseAgent ??
-                              data.subscription.canUseAgent
+                              data.subscription.canUseAssistant
                       }
                     : data.capabilities
                       ? {
                             ...data.capabilities,
-                            canUseAssistant:
-                                data.capabilities.canUseAssistant ??
-                                data.capabilities.canUseAgent
+                            canUseAssistant: data.capabilities.canUseAssistant
                         }
                       : null;
                 this.credits = data.credits;
