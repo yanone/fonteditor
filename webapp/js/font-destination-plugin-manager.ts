@@ -34,7 +34,7 @@ export type FontDestinationManifest = {
     destinationUrl: string;
     targetOrigin: string;
     repositoryUrl: string;
-    iconUrl: string | null;
+    imageUrl: string | null;
     releaseRepository: string;
     wheelAssetPrefix: string;
     checksumAssetSuffix: string;
@@ -47,7 +47,7 @@ export type InstalledFontDestination = {
     destinationUrl: string;
     targetOrigin: string;
     repositoryUrl: string;
-    iconUrl: string | null;
+    imageUrl: string | null;
 };
 
 export type PluginStorageStatus =
@@ -96,6 +96,17 @@ function getRequiredString(record: JsonRecord, key: string): string {
 function getOptionalString(record: JsonRecord, key: string): string | null {
     const value = record[key];
     return typeof value === 'string' && value ? value : null;
+}
+
+function getOptionalHttpsUrl(record: JsonRecord, key: string): string | null {
+    const value = getOptionalString(record, key);
+    if (!value) {
+        return null;
+    }
+    if (new URL(value).protocol !== 'https:') {
+        throw new Error(`Plugin manifest ${key} must be an HTTPS URL.`);
+    }
+    return value;
 }
 
 /** Return the normalized distribution name encoded in a wheel filename. */
@@ -151,7 +162,7 @@ export function parseFontDestinationManifest(
         destinationUrl,
         targetOrigin,
         repositoryUrl: getRequiredString(destination, 'repositoryUrl'),
-        iconUrl: getOptionalString(destination, 'iconUrl'),
+        imageUrl: getOptionalHttpsUrl(destination, 'imageUrl'),
         releaseRepository: getRequiredString(release, 'repository'),
         wheelAssetPrefix: getRequiredString(release, 'wheelAssetPrefix'),
         checksumAssetSuffix: getRequiredString(release, 'checksumAssetSuffix')
@@ -558,7 +569,7 @@ destinations
                     destinationUrl,
                     targetOrigin,
                     repositoryUrl: getRequiredString(value, 'repositoryUrl'),
-                    iconUrl: getOptionalString(value, 'iconUrl')
+                    imageUrl: getOptionalHttpsUrl(value, 'imageUrl')
                 }
             ];
         } catch {

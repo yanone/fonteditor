@@ -156,19 +156,20 @@ function createPluginRow(
     const row = document.createElement('article');
     row.className = 'plugin-manager-row';
 
-    if (manifest.iconUrl) {
-        row.classList.add('plugin-manager-row-has-icon');
-        const icon = document.createElement('img');
-        icon.className = 'plugin-manager-icon';
-        icon.src = manifest.iconUrl;
-        icon.alt = '';
-        row.appendChild(icon);
-    }
-
     const details = document.createElement('div');
     details.className = 'plugin-manager-details';
     details.appendChild(createTextElement('h5', manifest.name));
     details.appendChild(createTextElement('p', manifest.description));
+    if (manifest.imageUrl) {
+        const image = document.createElement('img');
+        image.className = 'plugin-manager-image';
+        image.alt = `${manifest.name} preview`;
+        image.crossOrigin = 'anonymous';
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        image.src = manifest.imageUrl;
+        details.appendChild(image);
+    }
     const repository = document.createElement('a');
     repository.href = manifest.repositoryUrl;
     repository.target = '_blank';

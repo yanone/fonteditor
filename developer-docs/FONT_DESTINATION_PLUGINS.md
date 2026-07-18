@@ -46,6 +46,10 @@ The important manifest fields are:
 - `fontDestination.entryPoint`: Python entry point name from the wheel.
 - `fontDestination.destinationUrl`: browser receiver page to embed.
 - `fontDestination.targetOrigin`: exact origin of that receiver page.
+- `fontDestination.imageUrl`: optional HTTPS image shown below the plugin
+  description in the Plugin Manager. Use a GitHub Pages URL or raw image URL,
+  not a GitHub `blob` page. The image host must allow anonymous CORS requests;
+  GitHub Pages does this with `Access-Control-Allow-Origin: *`.
 - `release.repository`: GitHub repository that publishes the wheel release.
 - `release.wheelAssetPrefix` and `release.checksumAssetSuffix`: asset matching
   rules for the downloadable wheel and SHA-256 checksum.
@@ -79,7 +83,7 @@ counterpunch_font_destination_plugins
 The entry point constructs a `FontDestinationPlugin` and returns serializable
 metadata through `metadata()`. The metadata contains `pluginId`, `name`,
 `description`, `destinationUrl`, `targetOrigin`, `repositoryUrl`, and optional
-`iconUrl`. The destination URL's origin must exactly equal `targetOrigin`.
+`imageUrl`. The destination URL's origin must exactly equal `targetOrigin`.
 
 Minimal metadata class:
 
@@ -93,7 +97,7 @@ class FontDestinationPlugin:
 			'destinationUrl': 'https://example.com/counterpunch-receiver/',
 			'targetOrigin': 'https://example.com',
 			'repositoryUrl': 'https://github.com/example/my-font-destination',
-			'iconUrl': None,
+      'imageUrl': 'https://example.com/plugin-preview.png',
 		}
 ```
 

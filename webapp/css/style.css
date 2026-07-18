@@ -5698,24 +5698,14 @@ kbd + kbd {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 14px;
-    align-items: center;
+    align-items: start;
     min-width: 0;
     padding: 14px 8px 14px 0;
     border-top: 1px solid var(--border-primary);
 }
 
-.plugin-manager-row-has-icon {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-}
-
 .plugin-manager-row:first-of-type {
     border-top: 0;
-}
-
-.plugin-manager-icon {
-    width: 32px;
-    height: 32px;
-    object-fit: contain;
 }
 
 .plugin-manager-details h5,
@@ -5726,6 +5716,15 @@ kbd + kbd {
 
 .plugin-manager-details {
     min-width: 0;
+}
+
+.plugin-manager-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-top: 8px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
 }
 
 .plugin-manager-details h5 {

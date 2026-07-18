@@ -30,7 +30,8 @@ describe('Font Destination plugins', () => {
                 description: 'Example destination',
                 destinationUrl: 'https://example.com/receiver',
                 targetOrigin: 'https://example.com',
-                repositoryUrl: 'https://github.com/example/repository'
+                repositoryUrl: 'https://github.com/example/repository',
+                imageUrl: 'https://example.com/plugin-preview.png'
             },
             release: {
                 repository: 'example/repository',
@@ -41,6 +42,9 @@ describe('Font Destination plugins', () => {
 
         expect(manifest.pluginId).toBe('example');
         expect(manifest.targetOrigin).toBe('https://example.com');
+        expect(manifest.imageUrl).toBe(
+            'https://example.com/plugin-preview.png'
+        );
     });
 
     test('rejects manifests whose destination origin does not match its URL', () => {
@@ -180,7 +184,7 @@ describe('Font Destination plugins', () => {
                         destinationUrl: 'https://example.com/receiver',
                         targetOrigin: 'https://example.com',
                         repositoryUrl: 'https://github.com/example/repository',
-                        iconUrl: null
+                        imageUrl: null
                     }
                 ])
         };
@@ -240,7 +244,7 @@ describe('Font Destination plugins', () => {
                 destinationUrl: 'https://example.com/receiver',
                 targetOrigin: 'https://example.com',
                 repositoryUrl: 'https://github.com/example/repository',
-                iconUrl: null,
+                imageUrl: null,
                 releaseRepository: 'example/repository',
                 wheelAssetPrefix: 'example-',
                 checksumAssetSuffix: '.sha256'
@@ -401,7 +405,7 @@ describe('Font Destination plugins', () => {
             destinationUrl: 'https://example.com/receiver',
             targetOrigin: 'https://example.com',
             repositoryUrl: 'https://github.com/example/repository',
-            iconUrl: null
+            imageUrl: null
         };
 
         manager.openDestination(destination);
