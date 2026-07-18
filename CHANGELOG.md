@@ -1,5 +1,6 @@
 # Unreleased
 
+- **Font Destination Plugins** Added installable Font Destination plugins that let third-party browser apps receive exported binary fonts from Counterpunch. The Plugin Manager discovers manifests from GitHub, verifies and installs release wheels into the selected Storage Folder, shows plugin descriptions with responsive preview images, and lists installed destinations under Tools. Font delivery now uses a same-origin bridge with a credentialless receiver iframe so Counterpunch can stay cross-origin isolated while forwarding exported TTF bytes safely. Added developer documentation and a reusable example receiver helper for third-party integrations.
 - **Font Info: Names** Implemented editing of font names, general info, custom OT values, masters, instances, axes
 - **Text-Mode Kerning Workflow**: Added user documentation for text-mode kerning, including pair selection, inline editing, kerning-group chips, and keyboard nudging. The current kerning UI now limits each glyph to one kerning group per side, and disables the add-group button once that side already has a group.
 - **AI Assistan Streaming** Instead of waiting for the entire chat assistant response to finish before displaying it, the replies are now streamed akin to other AI chat excperiences, which is a much more pleasant experience.
