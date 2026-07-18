@@ -4,6 +4,7 @@
 import type { FileSystemAdapter } from './file-system-adapter';
 import { OPFSAdapter, NativeAdapter } from './file-system-adapter';
 import { Logger } from './logger';
+import { dispatchManagedFileChanged } from './managed-file-events';
 
 const console = new Logger('FilesystemPlugins');
 
@@ -415,6 +416,12 @@ export class DiskPlugin extends FilesystemPlugin {
                             detail: { records }
                         })
                     );
+                    dispatchManagedFileChanged({
+                        pluginId: this.getId(),
+                        source: 'file-system-observer',
+                        records,
+                        internalWrite: false
+                    });
                 }
             );
 

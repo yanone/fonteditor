@@ -14,6 +14,12 @@ import {
     setupMenuKeyboardNav
 } from './tippy-utils';
 import { GlyphFilterWorkerClient } from './glyph-filter-worker-client';
+import {
+    MANAGED_FILE_CHANGED_EVENT,
+    extractManagedChangedPaths,
+    normalizeManagedPath,
+    type ManagedFileChangedDetail
+} from './managed-file-events';
 
 const console = new Logger('GlyphOverviewFilters');
 
@@ -123,11 +129,192 @@ export class GlyphOverviewFilterManager {
     private pendingAutoUpdatePluginKeywords: Set<string> = new Set();
     private autoUpdateFlushScheduled: boolean = false;
     private userFilterScanGeneration: number = 0;
+    private pendingUserFilterChangeRecords: unknown[] = [];
+    private pendingUserFilterChangePaths: Set<string> = new Set();
+    private userFilterChangeFlushScheduled: boolean = false;
+    private managedFileChangeListener: EventListener;
 
     constructor() {
         this.rootNode = this.buildEmptyTree();
         this.userFiltersNode = this.buildUserFiltersTree();
         this.loadActiveState();
+        this.managedFileChangeListener = (event: Event) => {
+            const detail = (event as CustomEvent<ManagedFileChangedDetail>)
+                .detail;
+            if (!detail || detail.pluginId !== 'disk') {
+                return;
+            }
+
+            const paths = extractManagedChangedPaths(detail);
+            if (
+                paths.length > 0 &&
+                !paths.some((path) => this.isUserFilterPath(path))
+            ) {
+                return;
+            }
+
+            this.queueUserFilterFileChangeRefresh({
+                paths,
+                records: detail.records || []
+            });
+        };
+        window.addEventListener(
+            MANAGED_FILE_CHANGED_EVENT,
+            this.managedFileChangeListener
+        );
+    }
+
+    private normalizeFilterPath(path: string): string {
+        return normalizeManagedPath(path);
+    }
+
+    private isUserFilterPath(path: string): boolean {
+        const normalizedPath = this.normalizeFilterPath(path);
+        const filtersRoot = this.normalizeFilterPath(this.USER_FILTERS_PATH);
+        return (
+            normalizedPath === filtersRoot ||
+            normalizedPath.startsWith(`${filtersRoot}/`)
+        );
+    }
+
+    private isPythonFilterPath(path: string): boolean {
+        return this.isUserFilterPath(path) && path.endsWith('.py');
+    }
+
+    private queueUserFilterFileChangeRefresh({
+        paths = [],
+        records = []
+    }: {
+        paths?: string[];
+        records?: unknown[];
+    }): void {
+        let isRelevant = false;
+
+        for (const path of paths) {
+            if (this.isUserFilterPath(path)) {
+                isRelevant = true;
+                this.pendingUserFilterChangePaths.add(
+                    this.normalizeFilterPath(path)
+                );
+            }
+        }
+
+        for (const record of records) {
+            if (!record || typeof record !== 'object') {
+                continue;
+            }
+
+            const changedRecord = record as any;
+            const changedName = changedRecord.changedHandle?.name || '';
+            if (
+                changedName.endsWith('.py') ||
+                changedRecord.type === 'appeared' ||
+                changedRecord.type === 'disappeared' ||
+                changedRecord.type === 'moved'
+            ) {
+                isRelevant = true;
+                this.pendingUserFilterChangeRecords.push(record);
+            }
+        }
+
+        if (!isRelevant || this.userFilterChangeFlushScheduled) {
+            return;
+        }
+
+        this.userFilterChangeFlushScheduled = true;
+        queueMicrotask(() => {
+            void this.flushUserFilterFileChangeRefresh();
+        });
+    }
+
+    private async flushUserFilterFileChangeRefresh(): Promise<void> {
+        this.userFilterChangeFlushScheduled = false;
+
+        const records = this.pendingUserFilterChangeRecords.splice(0);
+        const changedPaths = [...this.pendingUserFilterChangePaths];
+        this.pendingUserFilterChangePaths.clear();
+
+        if (!records.length && !changedPaths.length) {
+            return;
+        }
+
+        const movedPy: { oldName: string; newName: string }[] = [];
+        const modifiedPy = new Set<string>();
+
+        for (const record of records) {
+            if (!record || typeof record !== 'object') {
+                continue;
+            }
+
+            const changedRecord = record as any;
+            const name = changedRecord.changedHandle?.name || '';
+            if (!name.endsWith('.py')) {
+                continue;
+            }
+
+            if (changedRecord.type === 'moved') {
+                const oldPath = changedRecord.relativePathMovedFrom;
+                if (oldPath && oldPath.length > 0) {
+                    movedPy.push({
+                        oldName: oldPath[oldPath.length - 1],
+                        newName: name
+                    });
+                }
+            } else if (changedRecord.type === 'modified') {
+                modifiedPy.add(name.replace(/\.py$/, ''));
+            }
+        }
+
+        const activeUserFilterKeyword = this.activeFilter?.isUserFilter
+            ? this.activeFilter.keyword
+            : null;
+        const activeUserFilterDisplayName = this.activeFilter?.isUserFilter
+            ? this.activeFilter.display_name
+            : null;
+        const activeUserFilterPath = this.activeFilter?.isUserFilter
+            ? this.activeFilter.filePath
+            : null;
+
+        let renamedToName: string | null = null;
+        if (movedPy.length > 0 && activeUserFilterDisplayName) {
+            for (const moved of movedPy) {
+                const oldDisplayName = moved.oldName.replace(/\.py$/, '');
+                if (activeUserFilterDisplayName === oldDisplayName) {
+                    renamedToName = moved.newName.replace(/\.py$/, '');
+                    break;
+                }
+            }
+        }
+
+        const activeFilterModifiedByPath =
+            !!activeUserFilterPath &&
+            changedPaths.some(
+                (path) =>
+                    this.isPythonFilterPath(path) &&
+                    this.normalizeFilterPath(path) ===
+                        this.normalizeFilterPath(activeUserFilterPath)
+            );
+        const activeFilterModifiedByName =
+            !!activeUserFilterDisplayName &&
+            modifiedPy.has(activeUserFilterDisplayName);
+        const activeFilterModified =
+            activeFilterModifiedByPath || activeFilterModifiedByName;
+
+        console.log(
+            '[GlyphOverviewFilters]',
+            'User filter file change detected, refreshing user filters',
+            { activeUserFilterKeyword, changedPaths, movedPy }
+        );
+
+        await this.discoverUserFilters(true, renamedToName);
+
+        if (
+            (renamedToName || activeFilterModified) &&
+            this.activeFilter?.isUserFilter
+        ) {
+            this.invalidatePluginCache(this.activeFilter);
+            await this.runFilter(this.activeFilter);
+        }
     }
 
     private isDiskAdapterLike(adapter: unknown): adapter is NativeAdapter {
@@ -849,29 +1036,11 @@ export class GlyphOverviewFilterManager {
 
                     // Check if any .py files were affected
                     let needsRefresh = false;
-                    const movedPy: { oldName: string; newName: string }[] = [];
-                    const disappearedPy: string[] = [];
-                    const appearedPy: string[] = [];
-                    const modifiedPy: string[] = [];
 
                     for (const record of records) {
                         const name = record.changedHandle?.name || '';
                         if (name.endsWith('.py')) {
                             needsRefresh = true;
-                            if (record.type === 'disappeared') {
-                                disappearedPy.push(name);
-                            } else if (record.type === 'appeared') {
-                                appearedPy.push(name);
-                            } else if (record.type === 'moved') {
-                                // For moved/renamed files, relativePathMovedFrom contains the old path
-                                const oldPath = record.relativePathMovedFrom;
-                                if (oldPath && oldPath.length > 0) {
-                                    const oldName = oldPath[oldPath.length - 1];
-                                    movedPy.push({ oldName, newName: name });
-                                }
-                            } else if (record.type === 'modified') {
-                                modifiedPy.push(name);
-                            }
                         } else if (
                             record.type === 'appeared' ||
                             record.type === 'disappeared'
@@ -885,84 +1054,7 @@ export class GlyphOverviewFilterManager {
                             '[GlyphOverviewFilters]',
                             'File system change detected, refreshing user filters'
                         );
-                        console.log(
-                            '[GlyphOverviewFilters]',
-                            'Moved .py files:',
-                            movedPy
-                        );
-
-                        // Remember active user filter info
-                        const activeUserFilterKeyword = this.activeFilter
-                            ?.isUserFilter
-                            ? this.activeFilter.keyword
-                            : null;
-                        const activeUserFilterDisplayName = this.activeFilter
-                            ?.isUserFilter
-                            ? this.activeFilter.display_name
-                            : null;
-
-                        console.log(
-                            '[GlyphOverviewFilters]',
-                            'Active user filter keyword:',
-                            activeUserFilterKeyword,
-                            'display_name:',
-                            activeUserFilterDisplayName
-                        );
-
-                        // Detect rename from 'moved' records
-                        let renamedToName: string | null = null;
-                        if (movedPy.length > 0 && activeUserFilterDisplayName) {
-                            // Check if any moved file matches the active filter
-                            for (const moved of movedPy) {
-                                const oldDisplayName = moved.oldName.replace(
-                                    /\.py$/,
-                                    ''
-                                );
-                                console.log(
-                                    '[GlyphOverviewFilters]',
-                                    'Checking moved: oldName =',
-                                    oldDisplayName,
-                                    'vs activeUserFilterDisplayName =',
-                                    activeUserFilterDisplayName
-                                );
-                                if (
-                                    activeUserFilterDisplayName ===
-                                    oldDisplayName
-                                ) {
-                                    renamedToName = moved.newName.replace(
-                                        /\.py$/,
-                                        ''
-                                    );
-                                    console.log(
-                                        '[GlyphOverviewFilters]',
-                                        `Detected rename of active filter: ${oldDisplayName} -> ${renamedToName}`
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-
-                        // discoverUserFilters updates counts for ALL user filters
-                        // Skip observer setup since we're already observing
-                        // Pass renamedToName so it can find the renamed filter
-                        await this.discoverUserFilters(true, renamedToName);
-
-                        // Check if active filter was modified
-                        const activeFilterModified =
-                            activeUserFilterDisplayName &&
-                            modifiedPy.some(
-                                (name) =>
-                                    name.replace(/\.py$/, '') ===
-                                    activeUserFilterDisplayName
-                            );
-
-                        // Run the filter if it was renamed or modified
-                        if (
-                            (renamedToName || activeFilterModified) &&
-                            this.activeFilter?.isUserFilter
-                        ) {
-                            await this.runFilter(this.activeFilter);
-                        }
+                        this.queueUserFilterFileChangeRefresh({ records });
                     }
                 }
             );

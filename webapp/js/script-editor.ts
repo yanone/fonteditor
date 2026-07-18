@@ -14,6 +14,7 @@ import {
     type ScriptDocumentKind
 } from './python-document-kind';
 import { DISK_ROOT_PATHS } from './disk-root-paths';
+import { dispatchManagedFileChanged } from './managed-file-events';
 
 const console = new Logger('ScriptEditor');
 
@@ -1023,6 +1024,13 @@ def filter_glyphs(font):
                     }
                 })
             );
+
+            dispatchManagedFileChanged({
+                pluginId: currentPluginId,
+                source: 'script-editor-save',
+                paths: [currentFilePath],
+                internalWrite: true
+            });
 
             return true;
         } catch (error: any) {
