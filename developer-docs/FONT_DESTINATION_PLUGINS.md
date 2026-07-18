@@ -48,7 +48,7 @@ The important manifest fields are:
 - `fontDestination.targetOrigin`: exact origin of that receiver page.
 - `release.repository`: GitHub repository that publishes the wheel release.
 - `release.wheelAssetPrefix` and `release.checksumAssetSuffix`: asset matching
-	rules for the downloadable wheel and SHA-256 checksum.
+  rules for the downloadable wheel and SHA-256 checksum.
 
 ## Installation
 
@@ -109,8 +109,8 @@ After installing its message listener, a receiver must notify its parent frame:
 
 ```js
 window.parent.postMessage(
-	{ type: 'counterpunch:font-destination-ready', version: 1 },
-	'https://editor.counterpunch.space'
+    { type: "counterpunch:font-destination-ready", version: 1 },
+    "https://editor.counterpunch.space",
 );
 ```
 
@@ -126,17 +126,17 @@ Export message shape:
 
 ```ts
 type BinaryFontExportMessage = {
-	type: 'counterpunch:binary-font-exported';
-	version: 1;
-	bytes: ArrayBuffer;
-	metadata?: {
-		filename?: string;
-		byteLength?: number;
-		format?: 'ttf';
-		mimeType?: string;
-		changeVersion?: number;
-		timeTakenMs?: number;
-	};
+    type: "counterpunch:binary-font-exported";
+    version: 1;
+    bytes: ArrayBuffer;
+    metadata?: {
+        filename?: string;
+        byteLength?: number;
+        format?: "ttf";
+        mimeType?: string;
+        changeVersion?: number;
+        timeTakenMs?: number;
+    };
 };
 ```
 
@@ -144,30 +144,30 @@ Minimal receiver code:
 
 ```js
 const editorOrigins = new Set([
-		'https://editor.counterpunch.space',
-		'https://preview.editor.counterpunch.space'
+    "https://editor.counterpunch.space",
+    "https://preview.editor.counterpunch.space",
 ]);
 
-window.addEventListener('message', (event) => {
-		const message = event.data;
-		if (
-				!editorOrigins.has(event.origin) ||
-				message?.type !== 'counterpunch:binary-font-exported' ||
-				message.version !== 1 ||
-				!(message.bytes instanceof ArrayBuffer)
-		) {
-				return;
-		}
+window.addEventListener("message", (event) => {
+    const message = event.data;
+    if (
+        !editorOrigins.has(event.origin) ||
+        message?.type !== "counterpunch:binary-font-exported" ||
+        message.version !== 1 ||
+        !(message.bytes instanceof ArrayBuffer)
+    ) {
+        return;
+    }
 
-		// message.bytes is transferable binary font data.
-		// message.metadata includes filename, byteLength, format, mimeType,
-		// changeVersion, and timeTakenMs when available.
-		receiveFont(message.bytes, message.metadata || {});
+    // message.bytes is transferable binary font data.
+    // message.metadata includes filename, byteLength, format, mimeType,
+    // changeVersion, and timeTakenMs when available.
+    receiveFont(message.bytes, message.metadata || {});
 });
 
 window.parent.postMessage(
-		{ type: 'counterpunch:font-destination-ready', version: 1 },
-		'https://editor.counterpunch.space'
+    { type: "counterpunch:font-destination-ready", version: 1 },
+    "https://editor.counterpunch.space",
 );
 ```
 
@@ -178,12 +178,12 @@ helper and provide only an `onFont({ bytes, metadata })` callback.
 ## Efficient Receiver Design
 
 - Register the message listener before doing expensive UI work, then send the
-	ready message immediately.
+  ready message immediately.
 - Treat every accepted message as a new receipt, even when the font name and
-	table data are unchanged. Show a receipt timestamp, counter, byte hash, or
-	exported `changeVersion` so users can see that a new export arrived.
+  table data are unchanged. Show a receipt timestamp, counter, byte hash, or
+  exported `changeVersion` so users can see that a new export arrived.
 - Keep only the current font unless your product explicitly needs history.
-	Counterpunch already transfers a fresh `ArrayBuffer` for each open
-	destination.
+  Counterpunch already transfers a fresh `ArrayBuffer` for each open
+  destination.
 - Validate by origin, message type, protocol version, and `ArrayBuffer`. Do not
-	validate by `event.source`; browser isolation can proxy it.
+  validate by `event.source`; browser isolation can proxy it.
