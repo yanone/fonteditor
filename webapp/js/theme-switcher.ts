@@ -170,6 +170,7 @@ import { DiskPlugin, pluginRegistry } from './filesystem-plugins';
             const isOpen = this.settingsPanel?.classList.toggle('open');
             if (isOpen) {
                 void this.updateDiskRootSetting();
+                void window.authManager?.checkAuthStatus?.();
             }
         }
 

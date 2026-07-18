@@ -3089,7 +3089,7 @@ if '_agent_original_stdout' in dir():
                         state.content
                     );
                 const structureValid =
-                    kindInfo.kind !== 'glyph-filter' || hasFilterFunction;
+                    kindInfo.editorKind !== 'glyph-filter' || hasFilterFunction;
                 const messages: string[] = [];
                 if (!syntax.valid) {
                     const location = syntax.line
@@ -3814,6 +3814,7 @@ if '_agent_original_stdout' in dir():
     async streamRound(
         messages: any[],
         onChunk: (text: string) => void,
+        billingRunId: string,
         signal?: AbortSignal,
         previousGenerationIds?: string[]
     ): Promise<any> {
@@ -3827,7 +3828,8 @@ if '_agent_original_stdout' in dir():
             messages,
             tools: AGENT_TOOLS,
             systemPrompt: await this.getRuntimeSystemPrompt(),
-            stream: true
+            stream: true,
+            billingRunId
         };
         if (previousGenerationIds && previousGenerationIds.length > 0) {
             body.previousGenerationIds = previousGenerationIds;
@@ -3966,6 +3968,7 @@ if '_agent_original_stdout' in dir():
         this.abortController = abortController;
         const signal = abortController.signal;
         let roundTexts: string[] = [];
+        const billingRunId = `agent-billing-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         // Track generationIds across retry legs for cumulative cost reporting
         const previousGenerationIds: string[] = [];
 
@@ -4016,6 +4019,7 @@ if '_agent_original_stdout' in dir():
                         }
                         this.scrollToBottomIfNear();
                     },
+                    billingRunId,
                     signal,
                     previousGenerationIds.length > 0
                         ? [...previousGenerationIds]

@@ -44,6 +44,6 @@ export function getPythonDocumentKindInfo(state: {
         confidence: 'unclassified-unsaved',
         message: state.path
             ? 'This buffer has unsaved edits and no longer defines filter_glyphs(font), so it is not treated as a Glyph Overview filter until saved.'
-            : 'Unsaved buffer has no saved Counterpunch/Filters path and does not define filter_glyphs(font), so it is not treated as a Glyph Overview filter.'
+            : `Unsaved buffer has no saved Counterpunch/Filters path and does not define filter_glyphs(font), so it is not treated as a Glyph Overview filter; editor fallback is ${editorKind}, but callers must not treat that as authoritative.`
     };
 }
