@@ -3,6 +3,9 @@
  * Handles light/dark/auto theme switching with OS preference detection
  */
 
+import { changeDiskRootFolder } from './file-browser';
+import { DiskPlugin, pluginRegistry } from './filesystem-plugins';
+
 (function () {
     'use strict';
 
@@ -18,6 +21,8 @@
         settingsBtn: HTMLElement | null;
         settingsPanel: HTMLElement | null;
         settingsCloseBtn: HTMLElement | null;
+        diskRootName: HTMLElement | null;
+        diskRootChangeButton: HTMLButtonElement | null;
         themeOptions: NodeListOf<HTMLElement>;
         mediaQuery: MediaQueryList;
 
@@ -26,6 +31,12 @@
             this.settingsPanel = document.getElementById('settings-panel');
             this.settingsCloseBtn =
                 document.getElementById('settings-close-btn');
+            this.diskRootName = document.getElementById(
+                'settings-disk-root-name'
+            );
+            this.diskRootChangeButton = document.getElementById(
+                'settings-disk-root-change-btn'
+            ) as HTMLButtonElement | null;
             this.themeOptions = document.querySelectorAll('.theme-option');
             this.mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
@@ -55,6 +66,19 @@
             this.settingsCloseBtn?.addEventListener('click', () =>
                 this.closeSettings()
             );
+            this.diskRootChangeButton?.addEventListener('click', async () => {
+                this.diskRootChangeButton!.disabled = true;
+                try {
+                    await changeDiskRootFolder({ source: 'settings' });
+                    await this.updateDiskRootSetting();
+                } finally {
+                    this.diskRootChangeButton!.disabled = false;
+                }
+            });
+            window.addEventListener('diskFolderAccessChanged', () => {
+                void this.updateDiskRootSetting();
+            });
+            void this.updateDiskRootSetting();
 
             // Click anywhere outside to close
             document.addEventListener('click', (e: MouseEvent) => {
@@ -143,7 +167,29 @@
         }
 
         toggleSettings() {
-            this.settingsPanel?.classList.toggle('open');
+            const isOpen = this.settingsPanel?.classList.toggle('open');
+            if (isOpen) {
+                void this.updateDiskRootSetting();
+            }
+        }
+
+        /** Render the currently selected user-controlled Disk root. */
+        async updateDiskRootSetting(): Promise<void> {
+            const diskPlugin = pluginRegistry.get('disk');
+            const directoryName =
+                diskPlugin instanceof DiskPlugin && (await diskPlugin.isReady())
+                    ? diskPlugin.getDirectoryName()
+                    : null;
+            if (this.diskRootName) {
+                this.diskRootName.textContent = directoryName || 'Not selected';
+                this.diskRootName.title =
+                    directoryName || 'No Disk root selected';
+            }
+            if (this.diskRootChangeButton) {
+                this.diskRootChangeButton.textContent = directoryName
+                    ? 'Change Folder'
+                    : 'Choose Folder';
+            }
         }
 
         closeSettings() {

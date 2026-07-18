@@ -120,7 +120,7 @@ async function refreshFilterPlugins() {
 }
 
 async function refreshOverviewSidebarForDiskAccessChange() {
-    if (!window.glyphOverviewFilterManager?.isLoaded()) {
+    if (!window.glyphOverviewFilterManager) {
         return;
     }
 
@@ -480,7 +480,13 @@ window.addEventListener('fontReady', (event: Event) => {
     );
 });
 
-window.addEventListener('diskFolderAccessChanged', async () => {
+window.addEventListener('diskFolderAccessChanged', async (event: Event) => {
+    const detail = (event as CustomEvent<{ userFiltersRefreshed?: boolean }>)
+        .detail;
+    if (detail?.userFiltersRefreshed) {
+        return;
+    }
+
     await refreshOverviewSidebarForDiskAccessChange();
 });
 

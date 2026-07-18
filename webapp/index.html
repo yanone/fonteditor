@@ -320,6 +320,16 @@
                         >
                     </button>
                     <button
+                        id="toolbar-tools-menu-btn"
+                        class="toolbar-menu-trigger"
+                        title="Tools"
+                    >
+                        <span>Tools</span>
+                        <span class="material-symbols-outlined"
+                            >expand_more</span
+                        >
+                    </button>
+                    <button
                         id="toolbar-developer-menu-btn"
                         class="toolbar-menu-trigger"
                         title="Developer"
@@ -1529,6 +1539,29 @@
             </div>
         </div>
 
+        <!-- Plugin Manager Modal -->
+        <div
+            class="info-popup-overlay"
+            id="plugin-manager-modal"
+            style="display: none"
+        >
+            <div class="info-popup plugin-manager-popup">
+                <div class="info-popup-header">
+                    <h3>Plugin Manager</h3>
+                    <button
+                        class="info-popup-close"
+                        id="plugin-manager-modal-close-btn"
+                    >
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <div
+                    class="info-popup-content"
+                    id="plugin-manager-modal-content"
+                ></div>
+            </div>
+        </div>
+
         <!-- Agent Info Modal -->
         <div
             class="info-popup-overlay"
@@ -1841,6 +1874,33 @@
                         <div class="settings-item-description">
                             Choose between light, dark, or automatic theme based
                             on your system preferences
+                        </div>
+                    </div>
+                    <div class="settings-item">
+                        <label
+                            class="settings-item-label"
+                            for="settings-disk-root-change-btn"
+                        >
+                            Storage Folder
+                        </label>
+                        <div class="settings-folder-control">
+                            <span
+                                id="settings-disk-root-name"
+                                class="settings-folder-name"
+                                title="No Disk root selected"
+                                >Not selected</span
+                            >
+                            <button
+                                id="settings-disk-root-change-btn"
+                                class="settings-folder-action"
+                                type="button"
+                            >
+                                Choose Folder
+                            </button>
+                        </div>
+                        <div class="settings-item-description">
+                            Choose where Counterpunch keeps your plugins,
+                            filters, and scripts. You can change this anytime.
                         </div>
                     </div>
                     <div class="settings-item">

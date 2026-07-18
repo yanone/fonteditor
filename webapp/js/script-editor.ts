@@ -13,6 +13,7 @@ import {
     getPythonDocumentKindInfo,
     type ScriptDocumentKind
 } from './python-document-kind';
+import { DISK_ROOT_PATHS } from './disk-root-paths';
 
 const console = new Logger('ScriptEditor');
 
@@ -74,10 +75,10 @@ def filter_glyphs(font):
 
     function getPathKind(path: string | null): ScriptDocumentKind | null {
         if (!path) return null;
-        if (path.startsWith('/Counterpunch/Filters/')) {
+        if (path.startsWith(`${DISK_ROOT_PATHS.filters}/`)) {
             return 'glyph-filter';
         }
-        if (path.startsWith('/Counterpunch/Scripts/')) {
+        if (path.startsWith(`${DISK_ROOT_PATHS.scripts}/`)) {
             return 'general-script';
         }
         return null;
@@ -1087,8 +1088,8 @@ def filter_glyphs(font):
             } else {
                 startFolder =
                     documentKind === 'glyph-filter'
-                        ? '/Counterpunch/Filters'
-                        : '/Counterpunch/Scripts';
+                        ? DISK_ROOT_PATHS.filters
+                        : DISK_ROOT_PATHS.scripts;
             }
 
             const path = await plugin.showSaveFilePicker({

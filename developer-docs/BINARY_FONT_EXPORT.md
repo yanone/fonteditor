@@ -10,7 +10,7 @@ while opening a font, or as part of synchronization.
   recently chosen destination for the currently open font.
 - **File > Export binary font as...** (`Cmd+Shift+E` on macOS,
   `Ctrl+Shift+E` elsewhere) always opens the browser's save picker and replaces
-    the retained destination.
+  the retained destination.
 
 Successful exports retain their `FileSystemFileHandle` in IndexedDB. Each handle
 uses the plugin-qualified source URI as its key, such as
@@ -57,6 +57,13 @@ window.postMessage(
 );
 ```
 
-`postMessage` notifies listeners in the same window only. It does not broadcast
-to independently opened tabs or third-party applications. The bytes buffer is
-transferred, so a receiver should consume the supplied `ArrayBuffer` directly.
+The exporting window always receives its own message. It also sends a separate
+transferred bytes buffer to every Font Destination that the user explicitly
+opened from **Tools > Font Destinations** in the current editor session. Each
+destination receives the message at the exact origin declared by its installed
+plugin. Closing the destination stops delivery until the user opens it again.
+
+Opening a Font Destination never compiles or exports a font. Destinations only
+receive a message after a later successful explicit export. Each receiver gets
+its own `ArrayBuffer`, so it can consume the supplied bytes without affecting
+other listeners.

@@ -73,6 +73,7 @@ declare global {
         createHarfBuzz: any; // HarfBuzz.js
         hbjs: any; // HarfBuzz.js
         hbInit: () => Promise<void>; // HarfBuzz.js
+        initFontEditor: () => Promise<boolean>;
 
         // From index.html helper functions
         isDevelopment: () => boolean;

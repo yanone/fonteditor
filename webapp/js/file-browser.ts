@@ -2325,17 +2325,22 @@ function updateOpenFolderPromptForDetachedLaunch() {
     buttonLabelElement.textContent = 'Select Folder';
 }
 
-async function selectDiskFolder() {
+/**
+ * Change the selected Disk root while preserving the current Disk-context
+ * refresh, observer setup, and dependent-view notifications.
+ */
+export async function changeDiskRootFolder(options?: {
+    startIn?: FileSystemHandle;
+    source?: 'attach' | 'settings';
+}): Promise<boolean> {
     try {
-        const plugin = fileSystemCache.currentPlugin;
+        const plugin = pluginRegistry.get('disk');
         if (!(plugin instanceof DiskPlugin)) {
-            console.error('[FileBrowser]', 'Current plugin is not DiskPlugin');
-            return;
+            console.error('[FileBrowser]', 'DiskPlugin is not available');
+            return false;
         }
 
-        const success = await plugin.showSetupUI({
-            startIn: detachedLaunchFileHandle || undefined
-        });
+        const success = await plugin.showSetupUI({ startIn: options?.startIn });
         if (success) {
             let targetPath = '/';
             const currentFont = window.fontManager?.currentFont;
@@ -2383,35 +2388,52 @@ async function selectDiskFolder() {
             updateOpenFolderPromptForDetachedLaunch();
             hideOpenFolderUI();
 
+            // The selected NativeAdapter handle now points at the new root.
+            // Refresh user-created Python filters before notifying dependent UI.
+            await window.glyphOverviewFilterManager?.discoverUserFilters();
+
             window.dispatchEvent(
                 new CustomEvent('diskFolderAccessChanged', {
                     detail: {
                         hasDiskAccess: true,
-                        source: 'attach'
+                        source: options?.source || 'attach',
+                        userFiltersRefreshed: true
                     }
                 })
             );
 
-            fileSystemCache.currentPath = targetPath;
-            await navigateToPath(targetPath);
+            if (fileSystemCache.currentPlugin.getId() === 'disk') {
+                fileSystemCache.currentPath = targetPath;
+                await navigateToPath(targetPath);
 
-            setTimeout(() => {
-                const fileTree = document.getElementById('file-tree');
-                const currentFontItem = fileTree?.querySelector(
-                    '.file-item.current-font'
-                );
-                if (currentFontItem) {
-                    (currentFontItem as HTMLElement).scrollIntoView({
-                        block: 'center',
-                        behavior: 'auto'
-                    });
-                }
-            }, 100);
+                setTimeout(() => {
+                    const fileTree = document.getElementById('file-tree');
+                    const currentFontItem = fileTree?.querySelector(
+                        '.file-item.current-font'
+                    );
+                    if (currentFontItem) {
+                        (currentFontItem as HTMLElement).scrollIntoView({
+                            block: 'center',
+                            behavior: 'auto'
+                        });
+                    }
+                }, 100);
+            }
         }
+        return success;
     } catch (error: unknown) {
         console.error('[FileBrowser]', 'Error selecting folder:', error);
         alert(`Error selecting folder: ${getErrorMessage(error)}`);
+        return false;
     }
+}
+
+/** Open the Disk folder picker from the File Browser. */
+async function selectDiskFolder(): Promise<void> {
+    await changeDiskRootFolder({
+        startIn: detachedLaunchFileHandle || undefined,
+        source: 'attach'
+    });
 }
 
 function showFileTree() {

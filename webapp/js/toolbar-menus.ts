@@ -14,6 +14,8 @@ import {
 } from './window-buttons';
 import { getPendingUpdate } from './update-manager';
 import { exportBinaryFont, exportBinaryFontAs } from './binary-font-export';
+import { fontDestinationPluginManager } from './font-destination-plugin-manager';
+import { showFontDestinationPluginManager } from './font-destination-plugin-ui';
 
 const console = new Logger('ToolbarMenus');
 
@@ -23,7 +25,8 @@ type ToolbarMenuItem = {
     shortcut?: string;
     disabled?: boolean;
     separator?: boolean;
-    action: () => Promise<void>;
+    children?: ToolbarMenuItem[];
+    action?: () => Promise<void>;
 };
 
 function escapeHtml(text: string): string {
@@ -32,16 +35,22 @@ function escapeHtml(text: string): string {
     return div.innerHTML;
 }
 
-function createMenuHtml(items: ToolbarMenuItem[]): string {
+function createMenuHtml(items: ToolbarMenuItem[], prefix = ''): string {
     const renderedItems = items
-        .map((item) => {
+        .map((item, index) => {
             if (item.separator) {
                 return '<div class="plugin-menu-separator"></div>';
             }
 
+            const menuId = `${prefix}${index}`;
+
             const disabledClass = item.disabled ? ' disabled' : '';
+            const submenuClass = item.children ? ' has-submenu' : '';
             const renderedShortcut = item.shortcut
                 ? `<span class="plugin-menu-shortcut">${escapeHtml(item.shortcut)}</span>`
+                : '';
+            const renderedSubmenu = item.children
+                ? `<div class="toolbar-menu-submenu">${createMenuHtml(item.children, `${menuId}.`)}</div><span class="material-symbols-outlined toolbar-menu-chevron">chevron_right</span>`
                 : '';
 
             // The update item gets a dot indicator instead of a material icon
@@ -53,17 +62,35 @@ function createMenuHtml(items: ToolbarMenuItem[]): string {
                 iconHtml = `<span class="material-symbols-outlined">${escapeHtml(item.icon)}</span>`;
             }
 
+            const submenuAria = item.children ? ' aria-expanded="false"' : '';
             return `
-                <div class="plugin-menu-item toolbar-menu-item${disabledClass}" data-label="${escapeHtml(item.label)}">
+                <div class="plugin-menu-item toolbar-menu-item${disabledClass}${submenuClass}" data-menu-id="${menuId}" data-label="${escapeHtml(item.label)}"${submenuAria}>
                     ${iconHtml}
                     <span>${escapeHtml(item.label)}</span>
                     ${renderedShortcut}
+                    ${renderedSubmenu}
                 </div>
             `;
         })
         .join('');
 
     return `<div class="plugin-menu toolbar-menu">${renderedItems}</div>`;
+}
+
+function getItemByMenuId(
+    items: ToolbarMenuItem[],
+    menuId: string
+): ToolbarMenuItem | null {
+    let current: ToolbarMenuItem | undefined;
+    let currentItems = items;
+    for (const segment of menuId.split('.')) {
+        current = currentItems[Number(segment)];
+        if (!current) {
+            return null;
+        }
+        currentItems = current.children || [];
+    }
+    return current || null;
 }
 
 function setupHandlers(
@@ -75,14 +102,24 @@ function setupHandlers(
         return;
     }
 
-    menu.querySelectorAll('.toolbar-menu-item:not(.disabled)').forEach(
-        (element, index) => {
-            element.addEventListener('click', async () => {
-                instance.hide();
-                await items[index].action();
-            });
-        }
-    );
+    menu.querySelectorAll<HTMLElement>(
+        '.toolbar-menu-item:not(.disabled)'
+    ).forEach((element) => {
+        element.addEventListener('click', async (event) => {
+            const item = getItemByMenuId(items, element.dataset.menuId || '');
+            if (!item) {
+                return;
+            }
+            event.stopPropagation();
+            if (item.children) {
+                const isOpen = element.classList.toggle('submenu-open');
+                element.setAttribute('aria-expanded', String(isOpen));
+                return;
+            }
+            instance.hide();
+            await item.action?.();
+        });
+    });
 
     setupMenuKeyboardNav(menu);
 }
@@ -213,6 +250,34 @@ function getWindowMenuItems(): ToolbarMenuItem[] {
     ];
 }
 
+function getToolsMenuItems(): ToolbarMenuItem[] {
+    const destinations =
+        fontDestinationPluginManager.getInstalledDestinations();
+    const items: ToolbarMenuItem[] = [
+        {
+            label: 'Plugin Manager',
+            icon: 'extension',
+            action: showFontDestinationPluginManager
+        }
+    ];
+
+    if (destinations.length) {
+        items.push({ label: '', icon: '', separator: true });
+        items.push({
+            label: 'Font Destinations',
+            icon: 'send',
+            children: destinations.map((destination) => ({
+                label: destination.name,
+                icon: 'open_in_new',
+                action: async () => {
+                    fontDestinationPluginManager.openDestination(destination);
+                }
+            }))
+        });
+    }
+    return items;
+}
+
 function getDeveloperMenuItems(): ToolbarMenuItem[] {
     const items: ToolbarMenuItem[] = [];
 
@@ -267,7 +332,8 @@ function getDeveloperMenuItems(): ToolbarMenuItem[] {
 function createToolbarMenu(
     buttonId: string,
     backdropClassName: string,
-    itemFactory: () => ToolbarMenuItem[]
+    itemFactory: () => ToolbarMenuItem[],
+    refresh?: () => Promise<void>
 ): void {
     const button = document.getElementById(buttonId) as HTMLElement | null;
     if (!button) {
@@ -292,6 +358,15 @@ function createToolbarMenu(
             window.requestAnimationFrame(() =>
                 setupHandlers(currentInstance, items)
             );
+            if (refresh) {
+                void refresh().then(() => {
+                    const refreshedItems = itemFactory();
+                    currentInstance.setContent(createMenuHtml(refreshedItems));
+                    window.requestAnimationFrame(() =>
+                        setupHandlers(currentInstance, refreshedItems)
+                    );
+                });
+            }
         }
     });
 
@@ -379,6 +454,12 @@ function initToolbarMenus(): void {
         'toolbar-window-menu-btn',
         'toolbar-window-menu-backdrop',
         getWindowMenuItems
+    );
+    createToolbarMenu(
+        'toolbar-tools-menu-btn',
+        'toolbar-tools-menu-backdrop',
+        getToolsMenuItems,
+        () => fontDestinationPluginManager.discoverInstalledDestinations()
     );
     createToolbarMenu(
         'toolbar-developer-menu-btn',

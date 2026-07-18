@@ -28,6 +28,7 @@ import {
     runAgentPythonExecution
 } from './agent-execution-context';
 import { awaitStableWorkerState } from './font-compilation';
+import { DISK_ROOT_PATHS } from './disk-root-paths';
 import {
     getPythonDocumentKindInfo,
     type PythonDocumentKindInfo
@@ -2453,15 +2454,15 @@ class AIAgent {
     private isManagedPythonPath(path: string): boolean {
         return (
             path.endsWith('.py') &&
-            (path.startsWith('/Counterpunch/Scripts/') ||
-                path.startsWith('/Counterpunch/Filters/'))
+            (path.startsWith(`${DISK_ROOT_PATHS.scripts}/`) ||
+                path.startsWith(`${DISK_ROOT_PATHS.filters}/`))
         );
     }
 
     private getPythonDocumentKind(
         path: string
     ): 'general-script' | 'glyph-filter' {
-        return path.startsWith('/Counterpunch/Filters/')
+        return path.startsWith(`${DISK_ROOT_PATHS.filters}/`)
             ? 'glyph-filter'
             : 'general-script';
     }
@@ -2513,10 +2514,10 @@ class AIAgent {
         }
         const roots =
             collection === 'scripts'
-                ? ['/Counterpunch/Scripts']
+                ? [DISK_ROOT_PATHS.scripts]
                 : collection === 'filters'
-                  ? ['/Counterpunch/Filters']
-                  : ['/Counterpunch/Scripts', '/Counterpunch/Filters'];
+                  ? [DISK_ROOT_PATHS.filters]
+                  : [DISK_ROOT_PATHS.scripts, DISK_ROOT_PATHS.filters];
         const files: Array<{
             path: string;
             kind: 'general-script' | 'glyph-filter';
@@ -3000,7 +3001,7 @@ if '_agent_original_stdout' in dir():
                 const path = String(args.path || '');
                 if (!this.isManagedPythonPath(path)) {
                     throw new Error(
-                        'Python files must be under /Counterpunch/Scripts or /Counterpunch/Filters.'
+                        `Python files must be under ${DISK_ROOT_PATHS.scripts} or ${DISK_ROOT_PATHS.filters}.`
                     );
                 }
                 const active = window.scriptEditor.getDocumentState();
@@ -3038,7 +3039,7 @@ if '_agent_original_stdout' in dir():
                 const path = String(args.path || '');
                 if (!this.isManagedPythonPath(path)) {
                     throw new Error(
-                        'Python files must be under /Counterpunch/Scripts or /Counterpunch/Filters.'
+                        `Python files must be under ${DISK_ROOT_PATHS.scripts} or ${DISK_ROOT_PATHS.filters}.`
                     );
                 }
                 const opened = await window.scriptEditor.openFile(path, 'disk');

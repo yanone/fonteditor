@@ -4,6 +4,7 @@ import {
     fullFontCompilation
 } from './font-compilation';
 import { del, get, set } from 'idb-keyval';
+import { fontDestinationPluginManager } from './font-destination-plugin-manager';
 import { Logger } from './logger';
 
 const console = new Logger('BinaryFontExport');
@@ -342,6 +343,10 @@ async function runBinaryFontExport(
             },
             window.location.origin,
             [messageBytes.buffer]
+        );
+        fontDestinationPluginManager.deliverExportedFont(
+            compiled.bytes,
+            metadata
         );
         console.log('Exported binary font:', metadata.filename);
     } catch (error: unknown) {

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Font Destination</title>
+        <style>
+            html,
+            body,
+            iframe {
+                border: 0;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+                width: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <script>
+            const destinationUrl = new URLSearchParams(
+                window.location.search
+            ).get('destinationUrl');
+
+            if (destinationUrl) {
+                const destination = new URL(destinationUrl);
+                const destinationOrigin = destination.origin;
+                destination.searchParams.set(
+                    'counterpunchCacheVersion',
+                    Date.now().toString()
+                );
+
+                const destinationFrame = document.createElement('iframe');
+                destinationFrame.setAttribute('credentialless', '');
+                destinationFrame.title = document.title;
+
+                let destinationReady = false;
+                let pendingExport = null;
+
+                // Forward from this popup realm so the receiver sees its parent.
+                const forwardToDestination = (message) => {
+                    const transfer =
+                        message?.bytes instanceof ArrayBuffer
+                            ? [message.bytes]
+                            : [];
+                    destinationFrame.contentWindow?.postMessage(
+                        message,
+                        destinationOrigin,
+                        transfer
+                    );
+                };
+
+                window.addEventListener('message', (event) => {
+                    if (
+                        event.source === window.opener &&
+                        event.origin === window.location.origin
+                    ) {
+                        if (destinationReady) {
+                            forwardToDestination(event.data);
+                        } else {
+                            pendingExport = event.data;
+                        }
+                        return;
+                    }
+
+                    if (
+                        event.source === destinationFrame.contentWindow &&
+                        event.origin === destinationOrigin &&
+                        event.data?.type ===
+                            'counterpunch:font-destination-ready' &&
+                        event.data.version === 1
+                    ) {
+                        destinationReady = true;
+                        if (pendingExport) {
+                            forwardToDestination(pendingExport);
+                            pendingExport = null;
+                        }
+                    }
+                });
+
+                document.body.append(destinationFrame);
+                destinationFrame.src = destination.href;
+            }
+        </script>
+    </body>
+</html>

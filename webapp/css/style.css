@@ -5441,6 +5441,45 @@ kbd + kbd {
     font-size: 18px;
 }
 
+.settings-folder-control {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+}
+
+.settings-folder-name {
+    min-width: 0;
+    overflow: hidden;
+    padding: 8px 10px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 20px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-folder-action {
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background-color: var(--input-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 8px 10px;
+}
+
+.settings-folder-action:hover:not(:disabled) {
+    border-color: var(--border-secondary);
+    background-color: var(--background-active);
+}
+
+.settings-folder-action:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
 /* Memory Display in Settings */
 .memory-display-settings {
     display: flex;
@@ -5618,6 +5657,139 @@ kbd + kbd {
     font-size: 13px;
     line-height: 1.6;
     color: var(--text-tertiary);
+}
+
+.plugin-manager-popup {
+    max-width: 680px;
+    max-width: min(680px, calc(100vw - 32px));
+}
+
+.plugin-manager-section {
+    min-width: 0;
+}
+
+.plugin-manager-storage-notice {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+}
+
+.plugin-manager-storage-notice h4,
+.plugin-manager-storage-notice p {
+    margin: 0;
+}
+
+.plugin-manager-storage-notice h4 {
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.plugin-manager-storage-notice .plugin-manager-action {
+    justify-self: start;
+}
+
+.plugin-manager-section h4 {
+    margin: 0 0 12px;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.plugin-manager-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    min-width: 0;
+    padding: 14px 8px 14px 0;
+    border-top: 1px solid var(--border-primary);
+}
+
+.plugin-manager-row-has-icon {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.plugin-manager-row:first-of-type {
+    border-top: 0;
+}
+
+.plugin-manager-icon {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+}
+
+.plugin-manager-details h5,
+.plugin-manager-details p {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.plugin-manager-details {
+    min-width: 0;
+}
+
+.plugin-manager-details h5 {
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.plugin-manager-details p {
+    margin-top: 3px;
+}
+
+.plugin-manager-details a {
+    display: inline-block;
+    margin-top: 5px;
+    color: var(--accent-blue);
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+.plugin-manager-action {
+    min-width: 78px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-primary);
+    font-family: var(--font-families-sans);
+    cursor: pointer;
+    padding: 6px 8px;
+}
+
+.plugin-manager-action:hover:not(:disabled) {
+    background: var(--button-hover);
+    border-color: var(--border-hover);
+}
+
+.toolbar-menu-item.has-submenu {
+    position: relative;
+}
+
+.toolbar-menu {
+    overflow: visible;
+}
+
+.toolbar-menu-chevron {
+    margin-left: auto;
+}
+
+.toolbar-menu-submenu {
+    position: absolute;
+    top: -5px;
+    left: calc(100% + 5px);
+    display: none;
+    min-width: 210px;
+    padding: 5px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--modal-bg);
+    box-shadow: 0 8px 24px var(--modal-overlay);
+}
+
+.toolbar-menu-item.has-submenu:hover > .toolbar-menu-submenu,
+.toolbar-menu-item.has-submenu:focus-within > .toolbar-menu-submenu,
+.toolbar-menu-item.has-submenu.submenu-open > .toolbar-menu-submenu {
+    display: block;
 }
 
 .info-popup-content h4 {

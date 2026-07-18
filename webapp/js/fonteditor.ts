@@ -5,6 +5,7 @@ const {
     markFontEditorReady,
     markFontEditorReadyFailed
 } = require('./editor-startup-ready.js');
+import { fontDestinationPluginManager } from './font-destination-plugin-manager';
 
 type WheelsManifest = {
     wheels: string[];
@@ -120,6 +121,17 @@ async function initFontEditor() {
         const fonteditorCode = await fonteditorModule.text();
         await window.pyodide.runPython(fonteditorCode);
         console.log('[FontEditor]', 'fonteditor.py module loaded');
+
+        // Stored third-party wheels are restored only when their Disk permission persists.
+        try {
+            await fontDestinationPluginManager.reinstallStoredPlugins();
+        } catch (error) {
+            console.warn(
+                '[FontEditor]',
+                'Failed to restore stored Font Destination plugins:',
+                error
+            );
+        }
 
         console.log('[FontEditor]', 'FontEditor initialized successfully');
 

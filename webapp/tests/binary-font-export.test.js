@@ -11,6 +11,7 @@ describe('binary font export', () => {
     let getPersistedDestinationMock;
     let setPersistedDestinationMock;
     let deletePersistedDestinationMock;
+    let deliverExportedFontMock;
 
     async function flushAsyncWork() {
         await Promise.resolve();
@@ -42,6 +43,7 @@ describe('binary font export', () => {
             persistedDestinations.delete(key);
             return Promise.resolve();
         });
+        deliverExportedFontMock = jest.fn();
         awaitStableWorkerStateMock = jest.fn().mockResolvedValue(undefined);
         bootstrapWorkerCacheFromFontStateMock = jest
             .fn()
@@ -94,6 +96,11 @@ describe('binary font export', () => {
             set: setPersistedDestinationMock,
             del: deletePersistedDestinationMock
         }));
+        jest.doMock('../js/font-destination-plugin-manager', () => ({
+            fontDestinationPluginManager: {
+                deliverExportedFont: deliverExportedFontMock
+            }
+        }));
     });
 
     afterEach(() => {
@@ -103,6 +110,7 @@ describe('binary font export', () => {
         jest.dontMock('../js/font-compilation');
         jest.dontMock('../js/logger');
         jest.dontMock('idb-keyval');
+        jest.dontMock('../js/font-destination-plugin-manager');
     });
 
     function finishPicker() {
@@ -161,6 +169,7 @@ describe('binary font export', () => {
             'disk:///fonts/Example.babelfont',
             expect.objectContaining({ name: 'Example.ttf' })
         );
+        expect(deliverExportedFontMock).toHaveBeenCalledTimes(2);
     });
 
     test('restores the plugin-qualified destination after switching sources', async () => {
@@ -214,6 +223,29 @@ describe('binary font export', () => {
             'disk:///fonts/Example.babelfont'
         );
         expect(showSaveFilePickerMock).toHaveBeenCalledTimes(1);
+    });
+
+    test('delivers a binary only after its writable stream closes', async () => {
+        const closeMock = jest.fn().mockResolvedValue(undefined);
+        createWritableMock.mockResolvedValueOnce({
+            write: jest.fn().mockResolvedValue(undefined),
+            close: closeMock
+        });
+        const { exportBinaryFont } = require('../js/binary-font-export.ts');
+
+        const exportPromise = exportBinaryFont();
+        await flushAsyncWork();
+        finishPicker();
+        await exportPromise;
+
+        expect(closeMock).toHaveBeenCalledTimes(1);
+        expect(deliverExportedFontMock).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            expect.objectContaining({ filename: 'Example.ttf' })
+        );
+        expect(closeMock.mock.invocationCallOrder[0]).toBeLessThan(
+            deliverExportedFontMock.mock.invocationCallOrder[0]
+        );
     });
 
     test('export as always chooses a new destination', async () => {

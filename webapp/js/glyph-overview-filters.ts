@@ -6,6 +6,7 @@ import 'tippy.js/dist/tippy.css';
 import { Logger } from './logger';
 import { pluginRegistry } from './filesystem-plugins';
 import { NativeAdapter } from './file-system-adapter';
+import { DISK_ROOT_PATHS } from './disk-root-paths';
 import {
     getOrCreateBackdrop,
     addTippyBackdropSupport,
@@ -106,7 +107,7 @@ export class GlyphOverviewFilterManager {
     private rootNode: TreeNode;
     private userFiltersNode: TreeNode;
     private readonly STORAGE_KEY = 'glyphFilterActive';
-    private readonly USER_FILTERS_PATH = '/Counterpunch/Filters';
+    private readonly USER_FILTERS_PATH = DISK_ROOT_PATHS.filters;
     private readonly FILTER_TIMEOUT_MS = 5000;
     private fileSystemObserver: any = null; // FileSystemObserver instance
     private observerSupported: boolean = 'FileSystemObserver' in window;
@@ -121,6 +122,7 @@ export class GlyphOverviewFilterManager {
     private autoUpdateListeners: Map<string, EventListener> = new Map();
     private pendingAutoUpdatePluginKeywords: Set<string> = new Set();
     private autoUpdateFlushScheduled: boolean = false;
+    private userFilterScanGeneration: number = 0;
 
     constructor() {
         this.rootNode = this.buildEmptyTree();
@@ -585,7 +587,7 @@ export class GlyphOverviewFilterManager {
     }
 
     /**
-     * Discover user-defined filters from /Counterpunch/Filters/ on disk
+     * Discover user-defined filters from /Filters/ in the selected Disk folder
      * @param skipObserverSetup - If true, skip setting up file system observer (used when called from observer callback)
      * @param renamedToDisplayName - If provided, look for filter with this display_name when keyword match fails (for renames)
      */
@@ -593,6 +595,10 @@ export class GlyphOverviewFilterManager {
         skipObserverSetup: boolean = false,
         renamedToDisplayName: string | null = null
     ): Promise<void> {
+        const scanGeneration = ++this.userFilterScanGeneration;
+        const isCurrentScan = () =>
+            scanGeneration === this.userFilterScanGeneration;
+
         // Remember active user filter keyword to restore after reload
         const activeUserFilterKeyword = this.activeFilter?.isUserFilter
             ? this.activeFilter.keyword
@@ -606,14 +612,18 @@ export class GlyphOverviewFilterManager {
         const diskPlugin = pluginRegistry.get('disk');
         if (!diskPlugin) {
             console.log('Disk plugin not available');
-            this.renderSidebar();
+            if (isCurrentScan()) {
+                this.renderSidebar();
+            }
             return;
         }
 
         const adapter = diskPlugin.getAdapter();
         if (!this.isDiskAdapterLike(adapter)) {
             console.log('Disk adapter is not NativeAdapter');
-            this.renderSidebar();
+            if (isCurrentScan()) {
+                this.renderSidebar();
+            }
             return;
         }
 
@@ -621,18 +631,26 @@ export class GlyphOverviewFilterManager {
         if (!adapter.hasDirectory()) {
             await adapter.initialize();
         }
+        if (!isCurrentScan()) {
+            return;
+        }
 
         // Check if disk folder is selected
         if (!adapter.hasDirectory()) {
             console.log('No disk folder selected');
-            this.renderSidebar();
+            if (isCurrentScan()) {
+                this.renderSidebar();
+            }
             return;
         }
 
         try {
-            // Check if /Counterpunch/Filters exists
+            // Check if /Filters exists
             const filtersPath = this.USER_FILTERS_PATH;
             const exists = await adapter.fileExists(filtersPath);
+            if (!isCurrentScan()) {
+                return;
+            }
             if (!exists) {
                 console.log(`${filtersPath} does not exist`);
                 this.renderSidebar();
@@ -641,6 +659,9 @@ export class GlyphOverviewFilterManager {
 
             // Scan for .py files recursively (max 3 levels)
             const files = await adapter.listFilesRecursive(filtersPath, 3);
+            if (!isCurrentScan()) {
+                return;
+            }
             const pyFiles = files.filter((f) => f.path.endsWith('.py'));
 
             console.log(`Found ${pyFiles.length} user filter file(s)`);
@@ -649,12 +670,15 @@ export class GlyphOverviewFilterManager {
                 try {
                     // Read file content
                     const content = await adapter.readFile(file.path);
+                    if (!isCurrentScan()) {
+                        return;
+                    }
                     const code =
                         typeof content === 'string'
                             ? content
                             : new TextDecoder().decode(content);
 
-                    // Extract relative path from /Counterpunch/Filters/
+                    // Extract relative path from /Filters/
                     const relativePath = file.path
                         .substring(filtersPath.length + 1)
                         .replace(/\.py$/, '');
@@ -704,6 +728,10 @@ export class GlyphOverviewFilterManager {
                 this.userFilters.map((f) => f.display_name)
             );
 
+            if (!isCurrentScan()) {
+                return;
+            }
+
             // Restore active user filter reference if it still exists
             if (activeUserFilterKeyword) {
                 let restoredFilter = this.userFilters.find(
@@ -727,11 +755,15 @@ export class GlyphOverviewFilterManager {
                     if (allGlyphsFilter) {
                         this.activeFilter = allGlyphsFilter;
                         // Run the filter to update glyph overview
-                        if (window.currentFontModel) {
+                        if (window.currentFontModel && isCurrentScan()) {
                             await this.runFilter(allGlyphsFilter);
                         }
                     }
                 }
+            }
+
+            if (!isCurrentScan()) {
+                return;
             }
 
             // Re-render sidebar
@@ -741,17 +773,24 @@ export class GlyphOverviewFilterManager {
             if (window.currentFontModel) {
                 for (const filter of this.userFilters) {
                     await this.runPluginForCount(filter);
+                    if (!isCurrentScan()) {
+                        return;
+                    }
                 }
             }
 
             // Set up file system observer for auto-refresh (skip if called from observer)
-            if (!skipObserverSetup) {
+            if (!skipObserverSetup && isCurrentScan()) {
                 await this.setupFileSystemObserver(adapter);
             }
         } catch (error) {
-            console.error('Error discovering user filters:', error);
+            if (isCurrentScan()) {
+                console.error('Error discovering user filters:', error);
+            }
         } finally {
-            this.refreshAutoUpdateListeners();
+            if (isCurrentScan()) {
+                this.refreshAutoUpdateListeners();
+            }
         }
     }
 
@@ -1182,7 +1221,7 @@ export class GlyphOverviewFilterManager {
         node: TreeNode,
         container: HTMLElement
     ): void {
-        // Render root-level plugins first (filters directly in /Counterpunch/Filters/)
+        // Render root-level plugins first (filters directly in /Filters/)
         // Sort alphabetically
         const sortedPlugins = [...node.plugins].sort((a, b) =>
             a.display_name.localeCompare(b.display_name, undefined, {

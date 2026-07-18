@@ -122,4 +122,42 @@ describe('OverviewView initial active glyph sync', () => {
         ]);
         expect(renderGlyphOutlines).not.toHaveBeenCalled();
     });
+
+    test('re-scans user glyph filters after a Disk root change before filters finish loading', async () => {
+        const discoverUserFilters = jest.fn().mockResolvedValue(undefined);
+        window.glyphOverviewFilterManager = {
+            discoverUserFilters,
+            initialize: jest.fn(),
+            isLoaded: jest.fn().mockReturnValue(false)
+        };
+
+        require('../js/overview-view');
+        discoverUserFilters.mockClear();
+
+        window.dispatchEvent(new CustomEvent('diskFolderAccessChanged'));
+        await Promise.resolve();
+
+        expect(discoverUserFilters).toHaveBeenCalled();
+    });
+
+    test('does not duplicate a user-filter scan completed by the folder picker', async () => {
+        const discoverUserFilters = jest.fn().mockResolvedValue(undefined);
+        window.glyphOverviewFilterManager = {
+            discoverUserFilters,
+            initialize: jest.fn(),
+            isLoaded: jest.fn().mockReturnValue(true)
+        };
+
+        require('../js/overview-view');
+        discoverUserFilters.mockClear();
+
+        window.dispatchEvent(
+            new CustomEvent('diskFolderAccessChanged', {
+                detail: { userFiltersRefreshed: true }
+            })
+        );
+        await Promise.resolve();
+
+        expect(discoverUserFilters).not.toHaveBeenCalled();
+    });
 });

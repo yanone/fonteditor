@@ -441,17 +441,19 @@ When changing compilation scheduling, compile-mode selection, worker cache inval
 
 The `editor` repo lives inside `/Users/yanone/Code/Counterpunch/` alongside several related repositories. These are all separate git repos that together form the Counterpunch ecosystem:
 
-| Directory | Description |
-|-----------|-------------|
-| `babelfont-rs/` | Rust workspace providing a unified font source file library. Loads, manipulates, and converts fonts between UFO, DesignSpace, Glyphs, FontLab VFJ, and its own JSON format. Includes sub-crates for font merging (`fontmerge`) and SR-AEF support. |
-| `cf-compactor/` | Cloudflare Worker for Yjs document compaction in collaborative editing rooms. Exposes a `/room/:id/compact` endpoint to compact and garbage-collect Yjs document state. |
-| `collab/` | Cloudflare Worker for managing collaborative font editing rooms. Provides the real-time collaboration backend (room creation, health/status endpoints) that the editor's multi-user features connect to. |
-| `glyphslib-rs/` | Rust workspace (with `glyphslib` and `openstep-plist` sub-crates) for reading, writing, and converting Glyphs.app font source files (`.glyphs` and `.glyphspackage`, v2 and v3). The Rust counterpart of the Python `glyphslib` library. |
-| `marketing/` | Marketing assets, including a feature-benefit matrix image. |
-| `norad/` | Rust crate (from the Linebender project) for reading, writing, and manipulating UFO (Unified Font Object) files. Provides typed data structures corresponding to the UFO 3 specification. |
-| `website/` | Counterpunch's public-facing website and user dashboard. Cloudflare Pages application with a full backend (D1 database, Stripe subscriptions, API endpoints) and a frontend providing account management, documentation, and editor integration. |
+| Directory                         | Description                                                                                                                                                                                                                                        |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `babelfont-rs/`                   | Rust workspace providing a unified font source file library. Loads, manipulates, and converts fonts between UFO, DesignSpace, Glyphs, FontLab VFJ, and its own JSON format. Includes sub-crates for font merging (`fontmerge`) and SR-AEF support. |
+| `cf-compactor/`                   | Cloudflare Worker for Yjs document compaction in collaborative editing rooms. Exposes a `/room/:id/compact` endpoint to compact and garbage-collect Yjs document state.                                                                            |
+| `collab/`                         | Cloudflare Worker for managing collaborative font editing rooms. Provides the real-time collaboration backend (room creation, health/status endpoints) that the editor's multi-user features connect to.                                           |
+| `glyphslib-rs/`                   | Rust workspace (with `glyphslib` and `openstep-plist` sub-crates) for reading, writing, and converting Glyphs.app font source files (`.glyphs` and `.glyphspackage`, v2 and v3). The Rust counterpart of the Python `glyphslib` library.           |
+| `marketing/`                      | Marketing assets, including a feature-benefit matrix image.                                                                                                                                                                                        |
+| `norad/`                          | Rust crate (from the Linebender project) for reading, writing, and manipulating UFO (Unified Font Object) files. Provides typed data structures corresponding to the UFO 3 specification.                                                          |
+| `website/`                        | Counterpunch's public-facing website and user dashboard. Cloudflare Pages application with a full backend (D1 database, Stripe subscriptions, API endpoints) and a frontend providing account management, documentation, and editor integration.   |
+| `fontdestination-example-plugin/` | Reference Font Destination plugin: a versioned Python wheel plus a GitHub Pages receiver for Counterpunch binary-font export messages.                                                                                                             |
 
 <!-- gitnexus:start -->
+
 # GitNexus — Code Intelligence
 
 This project is indexed by GitNexus as **editor** (21395 symbols, 40966 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
@@ -475,52 +477,54 @@ This project is indexed by GitNexus as **editor** (21395 symbols, 40966 relation
 
 ## Resources
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/editor/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/editor/clusters` | All functional areas |
-| `gitnexus://repo/editor/processes` | All execution flows |
-| `gitnexus://repo/editor/process/{name}` | Step-by-step execution trace |
+| Resource                                | Use for                                  |
+| --------------------------------------- | ---------------------------------------- |
+| `gitnexus://repo/editor/context`        | Codebase overview, check index freshness |
+| `gitnexus://repo/editor/clusters`       | All functional areas                     |
+| `gitnexus://repo/editor/processes`      | All execution flows                      |
+| `gitnexus://repo/editor/process/{name}` | Step-by-step execution trace             |
 
 ## CLI
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Task                                         | Read this skill file                                        |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
+| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
+| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
+| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
+| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->
 
 <!-- gortex:communities:start -->
 <!-- gortex:skills:start -->
+
 ## Community Skills
 
-| Area | Description | Skill |
-|------|-------------|-------|
-| Js Glyph Canvas 2 Dirs | 2049 symbols | `/gortex-js-glyph-canvas-2-dirs` |
-| Js 1 Dirs Log | 1442 symbols | `/gortex-js-1-dirs-log` |
-| Js Fontinfomanager | 950 symbols | `/gortex-js-fontinfomanager` |
-| Js Map | 822 symbols | `/gortex-js-map` |
-| Js Patchsyncengine | 749 symbols | `/gortex-js-patchsyncengine` |
-| Playwright Report U3 | 660 symbols | `/gortex-playwright-report-u3` |
-| Js 3 Dirs | 632 symbols | `/gortex-js-3-dirs` |
-| Js Executetoolcall | 506 symbols | `/gortex-js-executetoolcall` |
-| Js 1 Dirs Glyphcanvas | 480 symbols | `/gortex-js-1-dirs-glyphcanvas` |
-| Js Clonenodedata | 465 symbols | `/gortex-js-clonenodedata` |
-| Js Glyphoverview | 462 symbols | `/gortex-js-glyphoverview` |
-| Js Cloudadapter | 435 symbols | `/gortex-js-cloudadapter` |
-| Js 1 Dirs Glyphoverviewfiltermanager | 420 symbols | `/gortex-js-1-dirs-glyphoverviewfiltermanager` |
-| Js Glyph Canvas Textruneditor | 368 symbols | `/gortex-js-glyph-canvas-textruneditor` |
-| Js Resolvemetricskey | 323 symbols | `/gortex-js-resolvemetricskey` |
-| Js Has | 303 symbols | `/gortex-js-has` |
-| Js 1 Dirs Max | 297 symbols | `/gortex-js-1-dirs-max` |
-| Js Compileeditingfont | 273 symbols | `/gortex-js-compileeditingfont` |
-| Babelfont Fontc Build Src 1 Dirs Get | 259 symbols | `/gortex-babelfont-fontc-build-src-1-dirs-get` |
-| Js Applyautomaticcompositiontolaye | 259 symbols | `/gortex-js-applyautomaticcompositiontolaye` |
+| Area                                 | Description  | Skill                                          |
+| ------------------------------------ | ------------ | ---------------------------------------------- |
+| Js Glyph Canvas 2 Dirs               | 2049 symbols | `/gortex-js-glyph-canvas-2-dirs`               |
+| Js 1 Dirs Log                        | 1442 symbols | `/gortex-js-1-dirs-log`                        |
+| Js Fontinfomanager                   | 950 symbols  | `/gortex-js-fontinfomanager`                   |
+| Js Map                               | 822 symbols  | `/gortex-js-map`                               |
+| Js Patchsyncengine                   | 749 symbols  | `/gortex-js-patchsyncengine`                   |
+| Playwright Report U3                 | 660 symbols  | `/gortex-playwright-report-u3`                 |
+| Js 3 Dirs                            | 632 symbols  | `/gortex-js-3-dirs`                            |
+| Js Executetoolcall                   | 506 symbols  | `/gortex-js-executetoolcall`                   |
+| Js 1 Dirs Glyphcanvas                | 480 symbols  | `/gortex-js-1-dirs-glyphcanvas`                |
+| Js Clonenodedata                     | 465 symbols  | `/gortex-js-clonenodedata`                     |
+| Js Glyphoverview                     | 462 symbols  | `/gortex-js-glyphoverview`                     |
+| Js Cloudadapter                      | 435 symbols  | `/gortex-js-cloudadapter`                      |
+| Js 1 Dirs Glyphoverviewfiltermanager | 420 symbols  | `/gortex-js-1-dirs-glyphoverviewfiltermanager` |
+| Js Glyph Canvas Textruneditor        | 368 symbols  | `/gortex-js-glyph-canvas-textruneditor`        |
+| Js Resolvemetricskey                 | 323 symbols  | `/gortex-js-resolvemetricskey`                 |
+| Js Has                               | 303 symbols  | `/gortex-js-has`                               |
+| Js 1 Dirs Max                        | 297 symbols  | `/gortex-js-1-dirs-max`                        |
+| Js Compileeditingfont                | 273 symbols  | `/gortex-js-compileeditingfont`                |
+| Babelfont Fontc Build Src 1 Dirs Get | 259 symbols  | `/gortex-babelfont-fontc-build-src-1-dirs-get` |
+| Js Applyautomaticcompositiontolaye   | 259 symbols  | `/gortex-js-applyautomaticcompositiontolaye`   |
+
 <!-- gortex:skills:end -->
 
 <!-- gortex:communities:end -->

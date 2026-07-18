@@ -33,6 +33,7 @@ jest.mock('../js/glyph-filter-worker-client', () => ({
 
 const { GlyphOverviewFilterManager } = require('../js/glyph-overview-filters');
 const { GlyphFilterWorkerClient } = require('../js/glyph-filter-worker-client');
+const { pluginRegistry } = require('../js/filesystem-plugins');
 
 describe('GlyphOverviewFilterManager auto-update events', () => {
     let manager;
@@ -263,5 +264,50 @@ describe('GlyphOverviewFilterManager All Glyphs behavior', () => {
         expect(manager.glyphOverview.setActiveFilter).toHaveBeenCalledWith(
             null
         );
+    });
+});
+
+describe('GlyphOverviewFilterManager Storage Folder changes', () => {
+    let manager;
+
+    beforeEach(() => {
+        localStorage.clear();
+        manager = new GlyphOverviewFilterManager();
+        manager.sidebarContainer = document.createElement('div');
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
+    });
+
+    test('does not restore filters from an older folder scan after the new folder has no Filters directory', async () => {
+        let resolveOldFolderFiles;
+        const oldFolderFiles = new Promise((resolve) => {
+            resolveOldFolderFiles = resolve;
+        });
+        const adapter = {
+            hasDirectory: jest.fn(() => true),
+            initialize: jest.fn().mockResolvedValue(true),
+            fileExists: jest
+                .fn()
+                .mockResolvedValueOnce(true)
+                .mockResolvedValueOnce(false),
+            listFilesRecursive: jest.fn().mockReturnValueOnce(oldFolderFiles),
+            readFile: jest.fn()
+        };
+        jest.spyOn(pluginRegistry, 'get').mockReturnValue({
+            getAdapter: () => adapter
+        });
+
+        const oldFolderScan = manager.discoverUserFilters();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        await manager.discoverUserFilters();
+        resolveOldFolderFiles([{ path: '/Filters/old-filter.py' }]);
+        await oldFolderScan;
+
+        expect(manager.userFilters).toEqual([]);
+        expect(manager.userFiltersNode.plugins).toEqual([]);
     });
 });

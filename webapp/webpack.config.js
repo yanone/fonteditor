@@ -110,6 +110,10 @@ module.exports = {
                 { from: 'assets', to: 'assets' },
                 { from: 'wasm-dist', to: 'wasm-dist' },
                 { from: 'coi-serviceworker.js', to: 'coi-serviceworker.js' },
+                {
+                    from: 'font-destination-bridge.html',
+                    to: 'font-destination-bridge.html'
+                },
                 { from: 'manifest.json', to: 'manifest.json' },
                 { from: 'examples', to: 'examples' },
                 { from: 'py', to: 'py' },
