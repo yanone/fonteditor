@@ -119,9 +119,9 @@ export interface ChangeLogEntry {
     compileChangeSource?: string | null;
     /** Compile edit type stamped onto the committed packet by the producer */
     compileEditType?: string | null;
-    /** Concise agent-provided description of a grouped prompt. */
+    /** Concise assistant-provided description of a grouped prompt. */
     historySummary?: string | null;
-    /** Presentation-only key that groups agent prompt commits in history UI. */
+    /** Presentation-only key that groups assistant prompt commits in history UI. */
     promptGroupId?: string | null;
     /** Optional features-editor target type for scoped history */
     historyTargetType: HistoryTargetType | null;

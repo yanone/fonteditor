@@ -103,7 +103,7 @@ describe('collaboration-message scaffold', () => {
                 windowId: 'sender-window',
                 windowRoleLabel: 'linked-2',
                 historyItemId: 'history-undo-1',
-                promptGroupId: 'agent-prompt-1',
+                promptGroupId: 'assistant-prompt-1',
                 historyAction: 'undo',
                 targetHistoryItemId: 'history-change-1',
                 transactionLabel: 'Undo',
@@ -143,7 +143,7 @@ describe('collaboration-message scaffold', () => {
                 windowId: 'sender-window',
                 windowRoleLabel: 'linked-2',
                 historyItemId: 'sender-window:history-undo-1',
-                promptGroupId: 'agent-prompt-1',
+                promptGroupId: 'assistant-prompt-1',
                 historyAction: 'undo',
                 targetHistoryItemId: 'sender-window:history-change-1',
                 transactionLabel: 'Undo',
@@ -168,7 +168,7 @@ describe('collaboration-message scaffold', () => {
                 windowId: 'sender-window',
                 windowRoleLabel: 'main',
                 historyItemId: 'python-call-1',
-                promptGroupId: 'agent-prompt-1',
+                promptGroupId: 'assistant-prompt-1',
                 transactionLabel: 'Python script',
                 transactionId: 1,
                 op: 'set',
@@ -182,7 +182,7 @@ describe('collaboration-message scaffold', () => {
                 windowId: 'sender-window',
                 windowRoleLabel: 'main',
                 historyItemId: 'python-call-2',
-                promptGroupId: 'agent-prompt-1',
+                promptGroupId: 'assistant-prompt-1',
                 transactionLabel: 'Python script',
                 transactionId: 2,
                 op: 'set',
@@ -206,7 +206,7 @@ describe('collaboration-message scaffold', () => {
         ).toEqual(['python-call-1', 'python-call-2']);
         expect(
             envelopes.map((envelope) => envelope.metadata.promptGroupId)
-        ).toEqual(['agent-prompt-1', 'agent-prompt-1']);
+        ).toEqual(['assistant-prompt-1', 'assistant-prompt-1']);
     });
 
     test('omits redundant per-change replay targets when packet metadata already matches', () => {

@@ -1,6 +1,6 @@
 import TabLifecycleManager from './tab-lifecycle';
 import ThemeSwitcher from './theme-switcher';
-import AIAgent from './ai-agent';
+import AIAssistant from './ai-assistant';
 import CacheManager from './cache-manager';
 import type { FontCompilation } from './font-compilation';
 import FontManager from './font-manager';
@@ -125,8 +125,8 @@ declare global {
         BUILD_HASH_SHORT: string | null;
         WORKTREE_NAME: string;
 
-        // From ai-agent.ts
-        aiAgent: AIAgent;
+        // From ai-assistant.ts
+        aiAssistant: AIAssistant;
 
         // From file-browser.ts
         showFontFileDialog:

@@ -1,46 +1,46 @@
 const {
-    assertAgentFontEditAllowed,
-    getActiveAgentPythonExecution,
-    isAgentPythonExecutionActive,
-    runAgentPythonExecution,
-    setActiveAgentPythonExecution
-} = require('../js/agent-execution-context.ts');
+    assertAssistantFontEditAllowed,
+    getActiveAssistantPythonExecution,
+    isAssistantPythonExecutionActive,
+    runAssistantPythonExecution,
+    setActiveAssistantPythonExecution
+} = require('../js/assistant-execution-context.ts');
 
-describe('agent execution context', () => {
-    afterEach(() => setActiveAgentPythonExecution(null));
+describe('assistant execution context', () => {
+    afterEach(() => setActiveAssistantPythonExecution(null));
 
     test('rejects persistent font edits during a frozen read-only prompt', () => {
-        setActiveAgentPythonExecution({
+        setActiveAssistantPythonExecution({
             id: 'prompt-1',
             allowFontEdits: false,
             historySummary: null
         });
 
-        expect(isAgentPythonExecutionActive()).toBe(true);
-        expect(getActiveAgentPythonExecution()?.id).toBe('prompt-1');
-        expect(assertAgentFontEditAllowed).toThrow(
-            'Agent font editing is disabled for this prompt'
+        expect(isAssistantPythonExecutionActive()).toBe(true);
+        expect(getActiveAssistantPythonExecution()?.id).toBe('prompt-1');
+        expect(assertAssistantFontEditAllowed).toThrow(
+            'Assistant font editing is disabled for this prompt'
         );
     });
 
     test('allows persistent font edits only when the frozen prompt permits them', () => {
-        setActiveAgentPythonExecution({
+        setActiveAssistantPythonExecution({
             id: 'prompt-2',
             allowFontEdits: true,
             historySummary: 'Adjust the width'
         });
 
-        expect(assertAgentFontEditAllowed).not.toThrow();
+        expect(assertAssistantFontEditAllowed).not.toThrow();
     });
 
-    test('serializes agent Python executions and clears their active context', async () => {
+    test('serializes assistant Python executions and clears their active context', async () => {
         let releaseFirstExecution;
         const firstExecution = new Promise((resolve) => {
             releaseFirstExecution = resolve;
         });
         const order = [];
 
-        const first = runAgentPythonExecution(
+        const first = runAssistantPythonExecution(
             {
                 id: 'prompt-1',
                 allowFontEdits: true,
@@ -52,7 +52,7 @@ describe('agent execution context', () => {
                 order.push('first-finish');
             }
         );
-        const second = runAgentPythonExecution(
+        const second = runAssistantPythonExecution(
             {
                 id: 'prompt-2',
                 allowFontEdits: true,
@@ -69,6 +69,6 @@ describe('agent execution context', () => {
         await Promise.all([first, second]);
 
         expect(order).toEqual(['first-start', 'first-finish', 'second-start']);
-        expect(isAgentPythonExecutionActive()).toBe(false);
+        expect(isAssistantPythonExecutionActive()).toBe(false);
     });
 });

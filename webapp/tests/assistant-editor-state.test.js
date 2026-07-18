@@ -5,23 +5,23 @@ jest.mock('tippy.js', () => ({
 jest.mock('tippy.js/dist/tippy.css', () => ({}), { virtual: true });
 
 describe('get_editor_state text-buffer interpretation', () => {
-    let AIAgent;
+    let AIAssistant;
 
     beforeAll(() => {
         document.body.innerHTML = `
-            <textarea id="agent-prompt"></textarea>
-            <button id="agent-send-btn"></button>
-            <div id="agent-messages"></div>
-            <div id="agent-chat-container"></div>
-            <div id="agent-login-container"></div>
-            <div id="agent-subscription-container"></div>
+            <textarea id="assistant-prompt"></textarea>
+            <button id="assistant-send-btn"></button>
+            <div id="assistant-messages"></div>
+            <div id="assistant-chat-container"></div>
+            <div id="assistant-login-container"></div>
+            <div id="assistant-subscription-container"></div>
         `;
         window.authManager = {
             checkAuthStatus: jest.fn().mockResolvedValue(null),
             subscription: null,
             onAuthStateChanged: null
         };
-        AIAgent = require('../js/ai-agent').default;
+        AIAssistant = require('../js/ai-assistant').default;
     });
 
     beforeEach(() => {
@@ -53,9 +53,9 @@ describe('get_editor_state text-buffer interpretation', () => {
     });
 
     test('reports a single slash exactly as raw state rather than inferring an escape pair', async () => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: { name: 'get_editor_state', arguments: '{}' }
             })
         );
@@ -85,9 +85,9 @@ describe('get_editor_state text-buffer interpretation', () => {
             explicitGlyphTokens: []
         };
 
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: { name: 'get_editor_state', arguments: '{}' }
             })
         );
@@ -111,9 +111,9 @@ describe('get_editor_state text-buffer interpretation', () => {
             explicitGlyphTokens: [{ name: 'ten', start: 1, end: 5 }]
         };
 
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: { name: 'get_editor_state', arguments: '{}' }
             })
         );
@@ -149,9 +149,9 @@ describe('get_editor_state text-buffer interpretation', () => {
             ]
         };
 
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: { name: 'get_editor_state', arguments: '{}' }
             })
         );
@@ -169,15 +169,15 @@ describe('get_editor_state text-buffer interpretation', () => {
         window.patchSyncEngine = {
             updatePromptHistorySummary: jest.fn()
         };
-        const agent = new AIAgent();
-        agent.activePromptContext = {
+        const assistant = new AIAssistant();
+        assistant.activePromptContext = {
             id: 'prompt-1',
             allowFontEdits: true,
-            historySummary: 'Agent changes'
+            historySummary: 'Assistant changes'
         };
 
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: {
                     name: 'set_prompt_history_summary',
                     arguments: JSON.stringify({ summary: 'Update glyphs' })
@@ -187,7 +187,9 @@ describe('get_editor_state text-buffer interpretation', () => {
             'Prompt history summary will be used for subsequent edits.'
         );
 
-        expect(agent.activePromptContext.historySummary).toBe('Update glyphs');
+        expect(assistant.activePromptContext.historySummary).toBe(
+            'Update glyphs'
+        );
     });
 
     test('loads the detailed Python authoring guide for each document kind', async () => {
@@ -197,10 +199,10 @@ describe('get_editor_state text-buffer interpretation', () => {
             text: jest.fn().mockResolvedValue('authoring guide')
         });
         global.fetch = fetchMock;
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: {
                     name: 'python_authoring_guide',
                     arguments: JSON.stringify({ kind: 'general-script' })
@@ -208,7 +210,7 @@ describe('get_editor_state text-buffer interpretation', () => {
             })
         ).resolves.toBe('authoring guide');
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: {
                     name: 'python_authoring_guide',
                     arguments: JSON.stringify({ kind: 'glyph-filter' })
@@ -216,7 +218,7 @@ describe('get_editor_state text-buffer interpretation', () => {
             })
         ).resolves.toBe('authoring guide');
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: {
                     name: 'python_authoring_guide',
                     arguments: JSON.stringify({ kind: 'other' })
@@ -238,16 +240,16 @@ describe('get_editor_state text-buffer interpretation', () => {
     });
 
     test('renders every enum parameter as a selectable tool-executor field', () => {
-        const { AGENT_TOOLS } = require('../js/agent-config.ts');
-        const agent = new AIAgent();
-        const toolsWithEnums = AGENT_TOOLS.filter(({ function: tool }) =>
+        const { ASSISTANT_TOOLS } = require('../js/assistant-config.ts');
+        const assistant = new AIAssistant();
+        const toolsWithEnums = ASSISTANT_TOOLS.filter(({ function: tool }) =>
             Object.values(tool.parameters.properties || {}).some((schema) =>
                 Array.isArray(schema.enum)
             )
         );
 
         for (const tool of toolsWithEnums) {
-            const popup = agent.createToolInvocationPopup(tool);
+            const popup = assistant.createToolInvocationPopup(tool);
             for (const [name, schema] of Object.entries(
                 tool.function.parameters.properties
             )) {
@@ -262,12 +264,12 @@ describe('get_editor_state text-buffer interpretation', () => {
     });
 
     test('uses neutral invocation wording in the manual tool executor', () => {
-        const { AGENT_TOOLS } = require('../js/agent-config.ts');
-        const authoringGuide = AGENT_TOOLS.find(
+        const { ASSISTANT_TOOLS } = require('../js/assistant-config.ts');
+        const authoringGuide = ASSISTANT_TOOLS.find(
             ({ function: tool }) => tool.name === 'python_authoring_guide'
         );
-        const agent = new AIAgent();
-        const popup = agent.createToolInvocationPopup(authoringGuide);
+        const assistant = new AIAssistant();
+        const popup = assistant.createToolInvocationPopup(authoringGuide);
 
         expect(popup.textContent).toContain(
             'Fill parameters, then invoke this tool.'
@@ -276,9 +278,10 @@ describe('get_editor_state text-buffer interpretation', () => {
     });
 
     test('renders replace_python_text_in_editor diffs inline in chat', async () => {
-        const agent = new AIAgent();
-        agent.promptInput.value = 'Update script';
-        agent.messagesContainer = document.getElementById('agent-messages');
+        const assistant = new AIAssistant();
+        assistant.promptInput.value = 'Update script';
+        assistant.messagesContainer =
+            document.getElementById('assistant-messages');
         const oldText = [
             '# Show init/medi/fina glyphs',
             '# Keywords: arabic, positional, initial, medial, final',
@@ -308,7 +311,7 @@ describe('get_editor_state text-buffer interpretation', () => {
             'def filter_glyphs(font):',
             '    for glyph in font.glyphs:'
         ].join('\n');
-        agent.streamRound = jest
+        assistant.streamRound = jest
             .fn()
             .mockResolvedValueOnce({
                 text: '',
@@ -332,7 +335,7 @@ describe('get_editor_state text-buffer interpretation', () => {
                 toolCalls: [],
                 done: true
             });
-        agent.executeToolCall = jest
+        assistant.executeToolCall = jest
             .fn()
             .mockResolvedValue(
                 [
@@ -346,10 +349,10 @@ describe('get_editor_state text-buffer interpretation', () => {
                 ].join('\n')
             );
 
-        await agent.sendPrompt();
+        await assistant.sendPrompt();
 
-        const inlineDiff = agent.messagesContainer.querySelector(
-            '.agent-python-edit-diff'
+        const inlineDiff = assistant.messagesContainer.querySelector(
+            '.assistant-python-edit-diff'
         );
         expect(inlineDiff).not.toBeNull();
         expect(inlineDiff.textContent).toContain('Python edit diff');
@@ -367,12 +370,13 @@ describe('get_editor_state text-buffer interpretation', () => {
             'raw fallback should not be displayed'
         );
         expect(
-            inlineDiff.querySelectorAll('.agent-python-edit-diff-row-added')
+            inlineDiff.querySelectorAll('.assistant-python-edit-diff-row-added')
                 .length
         ).toBeGreaterThan(0);
         expect(
-            inlineDiff.querySelectorAll('.agent-python-edit-diff-row-removed')
-                .length
+            inlineDiff.querySelectorAll(
+                '.assistant-python-edit-diff-row-removed'
+            ).length
         ).toBeGreaterThan(0);
     });
 
@@ -400,10 +404,10 @@ describe('get_editor_state text-buffer interpretation', () => {
                 content: 'print("not run during validation")'
             }))
         };
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: {
                     name: 'validate_python_document',
                     arguments: '{}'
@@ -428,7 +432,7 @@ describe('get_editor_state text-buffer interpretation', () => {
             )
         );
         expect(
-            globals.get('__counterpunch_agent_python_validation_source')
+            globals.get('__counterpunch_assistant_python_validation_source')
         ).toBe(undefined);
         expect(wrappedRunPython).not.toHaveBeenCalled();
         expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
@@ -455,10 +459,10 @@ describe('get_editor_state text-buffer interpretation', () => {
                 content: 'print("unsaved")'
             }))
         };
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         const activeDocument = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: {
                     name: 'get_active_python_document',
                     arguments: '{}'
@@ -466,7 +470,7 @@ describe('get_editor_state text-buffer interpretation', () => {
             })
         );
         const validation = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: {
                     name: 'validate_python_document',
                     arguments: '{}'
@@ -522,10 +526,10 @@ describe('get_editor_state text-buffer interpretation', () => {
                 content: 'def filter_glyphs(font)\n    yield {}'
             }))
         };
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: {
                     name: 'validate_python_document',
                     arguments: '{}'
@@ -560,16 +564,16 @@ describe('get_editor_state text-buffer interpretation', () => {
             runPythonAsync: wrappedRunPythonAsync,
             _originalRunPythonAsync: originalRunPythonAsync
         };
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: {
                     name: 'execute_python_code',
                     arguments: JSON.stringify({ code: 'print("test")' })
                 }
             })
-        ).rejects.toThrow('Agent tools do not execute Python code.');
+        ).rejects.toThrow('Assistant tools do not execute Python code.');
 
         expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
         expect(originalRunPythonAsync).not.toHaveBeenCalled();
@@ -585,26 +589,28 @@ describe('get_editor_state text-buffer interpretation', () => {
             })),
             replaceExactText
         };
-        const agent = new AIAgent();
-        agent.allowFontEdits = true;
-        const meta = agent.createToolCallMetaElement(
+        const assistant = new AIAssistant();
+        assistant.allowFontEdits = true;
+        const meta = assistant.createToolCallMetaElement(
             'replace_python_text_in_editor',
             { old_text: 'old text', new_text: 'new text' },
             'Edited /Counterpunch/Scripts/example.py (general-script)\nRevision: revision-after-edit\nModified, not saved',
             '1 ms'
         );
 
-        meta.querySelector('[aria-label="Revert this Agent edit"]').click();
+        meta.querySelector('[aria-label="Revert this Assistant edit"]').click();
 
         expect(replaceExactText).toHaveBeenCalledWith(
             'new text',
             'old text',
             'revision-after-edit'
         );
-        expect(meta.textContent).toContain('Agent edit reverted, not saved.');
+        expect(meta.textContent).toContain(
+            'Assistant edit reverted, not saved.'
+        );
     });
 
-    test('does not revert a Python tool edit while Agent editing is disabled', () => {
+    test('does not revert a Python tool edit while Assistant editing is disabled', () => {
         const replaceExactText = jest.fn();
         window.scriptEditor = {
             getDocumentState: jest.fn(() => ({
@@ -612,20 +618,20 @@ describe('get_editor_state text-buffer interpretation', () => {
             })),
             replaceExactText
         };
-        const agent = new AIAgent();
-        agent.allowFontEdits = false;
-        const meta = agent.createToolCallMetaElement(
+        const assistant = new AIAssistant();
+        assistant.allowFontEdits = false;
+        const meta = assistant.createToolCallMetaElement(
             'replace_python_text_in_editor',
             { old_text: 'old text', new_text: 'new text' },
             'Edited /Counterpunch/Scripts/example.py (general-script)\nRevision: revision-after-edit\nModified, not saved',
             '1 ms'
         );
 
-        meta.querySelector('[aria-label="Revert this Agent edit"]').click();
+        meta.querySelector('[aria-label="Revert this Assistant edit"]').click();
 
         expect(replaceExactText).not.toHaveBeenCalled();
         expect(meta.textContent).toContain(
-            'Enable editing in the Agent title bar before reverting.'
+            'Enable editing in the Assistant title bar before reverting.'
         );
     });
 });

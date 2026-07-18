@@ -367,7 +367,7 @@ test('activation keeps user-sized widths and still persists focus order', async 
     await activateView(page, 'K', 'view-console');
     const bottomBeforeHistory = await getViewWidths(page, [
         'view-history',
-        'view-agent',
+        'view-assistant',
         'view-scripts',
         'view-console'
     ]);
@@ -375,7 +375,7 @@ test('activation keeps user-sized widths and still persists focus order', async 
     await activateView(page, 'H', 'view-history');
     const bottomAfterHistory = await getViewWidths(page, [
         'view-history',
-        'view-agent',
+        'view-assistant',
         'view-scripts',
         'view-console'
     ]);
@@ -388,7 +388,8 @@ test('activation keeps user-sized widths and still persists focus order', async 
     ).toBeLessThanOrEqual(4);
     expect(
         Math.abs(
-            bottomAfterHistory['view-agent'] - bottomBeforeHistory['view-agent']
+            bottomAfterHistory['view-assistant'] -
+                bottomBeforeHistory['view-assistant']
         )
     ).toBeLessThanOrEqual(4);
     expect(

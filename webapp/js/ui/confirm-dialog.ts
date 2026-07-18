@@ -1,7 +1,7 @@
 /**
  * Confirm Dialog — reusable save/discard/cancel dialog
  *
- * Uses the existing .info-popup-overlay + .info-popup pattern (Agent Info /
+ * Uses the existing .info-popup-overlay + .info-popup pattern (Assistant Info /
  * Keyboard Shortcuts modals) and .localized-string-modal-button button styles.
  */
 

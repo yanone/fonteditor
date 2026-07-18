@@ -16,9 +16,9 @@ import {
 } from './collaboration-message';
 import { getCommittedChangeRefreshPromise } from './change-bridge-init';
 import {
-    isAgentPythonExecutionActive,
-    setActiveAgentPythonExecutionCommit
-} from './agent-execution-context';
+    isAssistantPythonExecutionActive,
+    setActiveAssistantPythonExecutionCommit
+} from './assistant-execution-context';
 
 const console = new Logger('PythonPostExecution');
 
@@ -369,9 +369,9 @@ export function commitPythonExecutionSyntheticChanges(
             if (
                 didApplyOperations &&
                 commitResult &&
-                isAgentPythonExecutionActive()
+                isAssistantPythonExecutionActive()
             ) {
-                setActiveAgentPythonExecutionCommit(
+                setActiveAssistantPythonExecutionCommit(
                     outcome.succeeded ? 'committed' : 'partial',
                     getCommittedChangeRefreshPromise()
                 );

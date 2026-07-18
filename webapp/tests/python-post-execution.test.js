@@ -10,10 +10,10 @@ describe('Python post-execution synthetic commit alignment', () => {
         });
 
         let moduleExports;
-        let agentExecutionContext;
+        let assistantExecutionContext;
         jest.isolateModules(() => {
             moduleExports = require('../js/python-post-execution');
-            agentExecutionContext = require('../js/agent-execution-context.ts');
+            assistantExecutionContext = require('../js/assistant-execution-context.ts');
         });
 
         Object.defineProperty(document, 'readyState', {
@@ -21,7 +21,7 @@ describe('Python post-execution synthetic commit alignment', () => {
             value: originalReadyState
         });
 
-        return { ...moduleExports, agentExecutionContext };
+        return { ...moduleExports, assistantExecutionContext };
     }
 
     function loadModuleImmediately() {
@@ -287,10 +287,10 @@ describe('Python post-execution synthetic commit alignment', () => {
         );
     });
 
-    test('closes an agent Python transaction so its committed funnel can run', () => {
+    test('closes an assistant Python transaction so its committed funnel can run', () => {
         const {
             commitPythonExecutionSyntheticChanges,
-            agentExecutionContext: { setActiveAgentPythonExecution }
+            assistantExecutionContext: { setActiveAssistantPythonExecution }
         } = loadModule();
         const currentFont = {
             babelfontJson: '',
@@ -308,7 +308,7 @@ describe('Python post-execution synthetic commit alignment', () => {
             endTransaction: jest.fn()
         };
 
-        setActiveAgentPythonExecution({
+        setActiveAssistantPythonExecution({
             id: 'prompt-1',
             allowFontEdits: true,
             historySummary: 'Adjust OpenType features'
@@ -328,7 +328,7 @@ describe('Python post-execution synthetic commit alignment', () => {
                 bridge
             );
         } finally {
-            setActiveAgentPythonExecution(null);
+            setActiveAssistantPythonExecution(null);
         }
 
         expect(bridge.applySyntheticChangeSet).toHaveBeenCalledTimes(1);
@@ -395,11 +395,11 @@ describe('Python post-execution synthetic commit alignment', () => {
         receiver.destroy();
     });
 
-    test('starts each agent Python execution with the prompt history identity', () => {
+    test('starts each assistant Python execution with the prompt history identity', () => {
         jest.resetModules();
         const {
-            setActiveAgentPythonExecution
-        } = require('../js/agent-execution-context.ts');
+            setActiveAssistantPythonExecution
+        } = require('../js/assistant-execution-context.ts');
         require('../js/python-ui-sync.ts');
         const bridge = {
             beginTransaction: jest.fn(),
@@ -412,7 +412,7 @@ describe('Python post-execution synthetic commit alignment', () => {
             }
         };
 
-        setActiveAgentPythonExecution({
+        setActiveAssistantPythonExecution({
             id: 'prompt-1',
             allowFontEdits: true,
             historySummary: 'Reorder features'
@@ -422,7 +422,7 @@ describe('Python post-execution synthetic commit alignment', () => {
                 'features[0], features[1] = features[1], features[0]'
             );
         } finally {
-            setActiveAgentPythonExecution(null);
+            setActiveAssistantPythonExecution(null);
         }
 
         expect(bridge.beginTransaction).toHaveBeenCalledWith(
@@ -455,7 +455,7 @@ describe('Python post-execution synthetic commit alignment', () => {
     test('commits one prompt-owned feature reorder update with one undo step', () => {
         const {
             commitPythonExecutionSyntheticChanges,
-            agentExecutionContext: { setActiveAgentPythonExecution }
+            assistantExecutionContext: { setActiveAssistantPythonExecution }
         } = loadModule();
         const { PatchSyncEngine } = require('../js/patch-sync-engine');
         const { yDocToJson } = require('../js/change-bridge-ydoc');
@@ -509,7 +509,7 @@ describe('Python post-execution synthetic commit alignment', () => {
             promptGroupId: 'prompt-feature-reorder',
             historySummary: 'Reorder features'
         });
-        setActiveAgentPythonExecution({
+        setActiveAssistantPythonExecution({
             id: 'prompt-feature-reorder',
             allowFontEdits: true,
             historySummary: 'Reorder features'
@@ -530,7 +530,7 @@ describe('Python post-execution synthetic commit alignment', () => {
                 sender
             );
         } finally {
-            setActiveAgentPythonExecution(null);
+            setActiveAssistantPythonExecution(null);
         }
 
         sender.beginTransaction('Update feature code', null, {
@@ -538,7 +538,7 @@ describe('Python post-execution synthetic commit alignment', () => {
             promptGroupId: 'prompt-feature-reorder',
             historySummary: 'Reorder features'
         });
-        setActiveAgentPythonExecution({
+        setActiveAssistantPythonExecution({
             id: 'prompt-feature-reorder',
             allowFontEdits: true,
             historySummary: 'Reorder features'
@@ -559,7 +559,7 @@ describe('Python post-execution synthetic commit alignment', () => {
                 sender
             );
         } finally {
-            setActiveAgentPythonExecution(null);
+            setActiveAssistantPythonExecution(null);
         }
 
         expect(emittedUpdates).toHaveLength(2);

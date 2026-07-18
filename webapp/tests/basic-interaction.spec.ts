@@ -1090,7 +1090,7 @@ test.describe('Font Editor Basic Workflow', () => {
         // Collapse bottom row views so screenshot framing stays consistent.
         const bottomViewsToCollapse = [
             { label: 'history', viewId: 'view-history' },
-            { label: 'agent', viewId: 'view-agent' },
+            { label: 'assistant', viewId: 'view-assistant' },
             { label: 'scripts', viewId: 'view-scripts' },
             { label: 'console', viewId: 'view-console' }
         ];

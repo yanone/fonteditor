@@ -1,16 +1,16 @@
-// AI Agent for Font Editing Knowledge
+// AI Assistant for Font Editing Knowledge
 // Streaming multi-round tool calling entirely on the client.
 // Each round is one streaming request per tool-call cycle.
-// Tools and instructions live in agent-config.ts.
+// Tools and instructions live in assistant-config.ts.
 
 import { resolveWebsiteURL } from './website-url';
 import { Logger } from './logger';
 import {
-    AGENT_TOOLS,
-    AGENT_SYSTEM_PROMPT,
-    AgentTool,
+    ASSISTANT_TOOLS,
+    ASSISTANT_SYSTEM_PROMPT,
+    AssistantTool,
     UsageMetrics
-} from './agent-config';
+} from './assistant-config';
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import { getTheme } from './tippy-utils';
@@ -22,11 +22,11 @@ import {
 } from './opentype-features';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import {
-    AgentPromptExecutionContext,
-    awaitActiveAgentPythonExecutionSettled,
-    getActiveAgentPythonExecution,
-    runAgentPythonExecution
-} from './agent-execution-context';
+    AssistantPromptExecutionContext,
+    awaitActiveAssistantPythonExecutionSettled,
+    getActiveAssistantPythonExecution,
+    runAssistantPythonExecution
+} from './assistant-execution-context';
 import { awaitStableWorkerState } from './font-compilation';
 import { DISK_ROOT_PATHS } from './disk-root-paths';
 import {
@@ -34,8 +34,8 @@ import {
     type PythonDocumentKindInfo
 } from './python-document-kind';
 
-const console = new Logger('AIAgent');
-const DEFAULT_PROMPT_HISTORY_SUMMARY = 'Agent changes';
+const console = new Logger('AIAssistant');
+const DEFAULT_PROMPT_HISTORY_SUMMARY = 'Assistant changes';
 
 type BinaryFontWorkerState = {
     awaitWorkerDocumentSync?: () => Promise<void>;
@@ -616,7 +616,7 @@ function getBinaryFontRuntime(): BinaryFontRuntime {
     return window as unknown as BinaryFontRuntime;
 }
 
-function isAgentEditPreviewActive(): boolean {
+function isAssistantEditPreviewActive(): boolean {
     const outlineEditor = window.glyphCanvas?.outlineEditor;
     return Boolean(
         outlineEditor?.draggingSomething ||
@@ -629,7 +629,7 @@ function assertBinaryFontMainWindow(toolName: string): void {
     if (window.windowRole && !window.windowRole.isMainWindow()) {
         throw new Error(`${toolName} is only available in the main window.`);
     }
-    if (isAgentEditPreviewActive()) {
+    if (isAssistantEditPreviewActive()) {
         throw new Error(
             `${toolName} is unavailable while an edit preview is active. Retry after the edit commits.`
         );
@@ -647,7 +647,7 @@ async function prepareBinaryFontAnalysisWorker(
         editingCompiler,
         getFontRevisionKey
     );
-    if (isAgentEditPreviewActive()) {
+    if (isAssistantEditPreviewActive()) {
         throw new Error(
             'Binary-font analysis is unavailable while an edit preview is active. Retry after the edit commits.'
         );
@@ -690,7 +690,7 @@ function getBinaryFontAnalysisWorkerState(
     };
 }
 
-class AIAgent {
+class AIAssistant {
     [key: string]: any;
 
     messagesContainer: HTMLElement | null;
@@ -711,7 +711,7 @@ class AIAgent {
     sessionTotals: UsageMetrics;
     binaryFontApiDocsViewed: boolean;
     allowFontEdits: boolean;
-    activePromptContext: AgentPromptExecutionContext | null;
+    activePromptContext: AssistantPromptExecutionContext | null;
     promptTransactionOpen: boolean;
     promptInterrupted: boolean;
     lastKnownScriptRevision: string | null;
@@ -735,7 +735,7 @@ class AIAgent {
         this.sessionTotals = {};
         this.binaryFontApiDocsViewed = false;
         this.allowFontEdits =
-            localStorage.getItem('agentAllowFontEdits') === 'true';
+            localStorage.getItem('assistantAllowFontEdits') === 'true';
         this.activePromptContext = null;
         this.promptTransactionOpen = false;
         this.promptInterrupted = false;
@@ -746,8 +746,11 @@ class AIAgent {
         this.checkAuthenticationStatus();
     }
 
-    canUseAgent() {
-        return this.subscription?.canUseAgent === true;
+    canUseAssistant() {
+        return (
+            this.subscription?.canUseAssistant === true ||
+            this.subscription?.canUseAgent === true
+        );
     }
 
     getWebsiteURL() {
@@ -783,10 +786,14 @@ class AIAgent {
     }
 
     updateAuthUI() {
-        const chatContainer = document.getElementById('agent-chat-container');
-        const loginContainer = document.getElementById('agent-login-container');
+        const chatContainer = document.getElementById(
+            'assistant-chat-container'
+        );
+        const loginContainer = document.getElementById(
+            'assistant-login-container'
+        );
         const subscriptionContainer = document.getElementById(
-            'agent-subscription-container'
+            'assistant-subscription-container'
         );
         if (!chatContainer || !loginContainer || !subscriptionContainer) return;
 
@@ -794,7 +801,7 @@ class AIAgent {
             chatContainer.style.display = 'none';
             loginContainer.style.display = 'flex';
             subscriptionContainer.style.display = 'none';
-        } else if (!this.canUseAgent()) {
+        } else if (!this.canUseAssistant()) {
             chatContainer.style.display = 'none';
             loginContainer.style.display = 'none';
             subscriptionContainer.style.display = 'flex';
@@ -807,17 +814,21 @@ class AIAgent {
 
     initUI() {
         this.promptInput = document.getElementById(
-            'agent-prompt'
+            'assistant-prompt'
         ) as HTMLTextAreaElement | null;
-        this.sendButton = document.getElementById('agent-send-btn');
-        this.messagesContainer = document.getElementById('agent-messages');
-        this.chatContainer = document.getElementById('agent-chat-container');
-        this.loginContainer = document.getElementById('agent-login-container');
+        this.sendButton = document.getElementById('assistant-send-btn');
+        this.messagesContainer = document.getElementById('assistant-messages');
+        this.chatContainer = document.getElementById(
+            'assistant-chat-container'
+        );
+        this.loginContainer = document.getElementById(
+            'assistant-login-container'
+        );
         this.subscriptionContainer = document.getElementById(
-            'agent-subscription-container'
+            'assistant-subscription-container'
         );
         if (!this.sendButton || !this.promptInput || !this.messagesContainer) {
-            console.warn('Agent UI elements not found');
+            console.warn('Assistant UI elements not found');
             return;
         }
 
@@ -832,7 +843,7 @@ class AIAgent {
             }
         });
 
-        const loginBtn = document.getElementById('agent-login-btn');
+        const loginBtn = document.getElementById('assistant-login-btn');
         if (loginBtn)
             loginBtn.addEventListener('click', () => {
                 window.location.href =
@@ -841,7 +852,7 @@ class AIAgent {
                     encodeURIComponent(window.location.href);
             });
 
-        const accountBtn = document.getElementById('agent-account-btn');
+        const accountBtn = document.getElementById('assistant-account-btn');
         if (accountBtn)
             accountBtn.addEventListener('click', () => {
                 window.location.href =
@@ -851,22 +862,22 @@ class AIAgent {
             });
 
         document
-            .getElementById('agent-new-chat-btn')
+            .getElementById('assistant-new-chat-btn')
             ?.addEventListener('click', () => this.newChat());
 
         const editToggle = document.getElementById(
-            'agent-edit-toggle'
+            'assistant-edit-toggle'
         ) as HTMLButtonElement | null;
         editToggle?.addEventListener('click', () => {
             if (this.isStreaming) return;
             this.allowFontEdits = !this.allowFontEdits;
             localStorage.setItem(
-                'agentAllowFontEdits',
+                'assistantAllowFontEdits',
                 String(this.allowFontEdits)
             );
-            this.updateAgentEditToggle();
+            this.updateAssistantEditToggle();
         });
-        this.updateAgentEditToggle();
+        this.updateAssistantEditToggle();
 
         window.addEventListener('scriptEditorDocumentChanged', (event) => {
             const state = (event as CustomEvent<{ revision: string }>).detail;
@@ -879,7 +890,7 @@ class AIAgent {
         });
 
         document
-            .getElementById('agent-stop-btn')
+            .getElementById('assistant-stop-btn')
             ?.addEventListener('click', () => this.interruptPrompt());
 
         this.promptInput.addEventListener('input', () => {
@@ -891,9 +902,9 @@ class AIAgent {
         this.setupInfoModal();
     }
 
-    updateAgentEditToggle() {
+    updateAssistantEditToggle() {
         const editToggle = document.getElementById(
-            'agent-edit-toggle'
+            'assistant-edit-toggle'
         ) as HTMLButtonElement | null;
         if (!editToggle) return;
 
@@ -901,8 +912,8 @@ class AIAgent {
         const isLocked = this.isStreaming;
         const stateLabel = editsAllowed ? 'on' : 'off';
         const label = isLocked
-            ? `Agent edits are ${stateLabel} for this prompt and locked`
-            : `Agent edits are ${stateLabel}`;
+            ? `Assistant edits are ${stateLabel} for this prompt and locked`
+            : `Assistant edits are ${stateLabel}`;
 
         editToggle.classList.toggle('active', editsAllowed);
         editToggle.classList.toggle('locked', isLocked);
@@ -931,23 +942,23 @@ class AIAgent {
             this.scriptStateInvalidated = true;
         }
         const staleScriptNotice = this.scriptStateInvalidated
-            ? '\n\nSCRIPT STATE NOTICE: The Script Editor changed after the Agent last read it. The buffer is authoritative; read the active Python document before proposing or applying another script edit.'
+            ? '\n\nSCRIPT STATE NOTICE: The Script Editor changed after the Assistant last read it. The buffer is authoritative; read the active Python document before proposing or applying another script edit.'
             : '';
-        return `${AGENT_SYSTEM_PROMPT}\n\nCURRENT PROMPT PERMISSION: Agent editing is ${promptContext?.allowFontEdits ? 'allowed' : 'disabled'} for this prompt.${staleScriptNotice}\n\nCURRENT EDITOR STATE:\n${editorState}`;
+        return `${ASSISTANT_SYSTEM_PROMPT}\n\nCURRENT PROMPT PERMISSION: Assistant editing is ${promptContext?.allowFontEdits ? 'allowed' : 'disabled'} for this prompt.${staleScriptNotice}\n\nCURRENT EDITOR STATE:\n${editorState}`;
     }
 
     setupInfoModal() {
-        const btn = document.getElementById('agent-info-btn');
-        const modal = document.getElementById('agent-info-modal');
-        const close = document.getElementById('agent-info-modal-close-btn');
-        const content = document.getElementById('agent-info-modal-content');
+        const btn = document.getElementById('assistant-info-btn');
+        const modal = document.getElementById('assistant-info-modal');
+        const close = document.getElementById('assistant-info-modal-close-btn');
+        const content = document.getElementById('assistant-info-modal-content');
         if (!btn || !modal || !close || !content) return;
 
-        const createLiveToolButton = (tool: AgentTool) => {
+        const createLiveToolButton = (tool: AssistantTool) => {
             const properties = this.getToolParameterProperties(tool);
             const hasParameters = Object.keys(properties).length > 0;
             const infoBtn = document.createElement('button');
-            infoBtn.className = 'agent-tool-call-info-btn';
+            infoBtn.className = 'assistant-tool-call-info-btn';
             infoBtn.textContent = 'ⓘ';
             infoBtn.title = hasParameters
                 ? 'Configure and run tool'
@@ -1000,7 +1011,7 @@ class AIAgent {
         };
 
         content.innerHTML = '';
-        for (const tool of AGENT_TOOLS) {
+        for (const tool of ASSISTANT_TOOLS) {
             const section = document.createElement('div');
             section.className = 'ai-info-section';
             section.style.marginBottom = '16px';
@@ -1081,14 +1092,14 @@ class AIAgent {
         });
     }
 
-    getToolParameterProperties(tool: AgentTool): Record<string, any> {
+    getToolParameterProperties(tool: AssistantTool): Record<string, any> {
         return ((tool.function.parameters as any)?.properties || {}) as Record<
             string,
             any
         >;
     }
 
-    getToolRequiredParameters(tool: AgentTool): Set<string> {
+    getToolRequiredParameters(tool: AssistantTool): Set<string> {
         const required = (tool.function.parameters as any)?.required;
         return new Set(Array.isArray(required) ? required : []);
     }
@@ -1173,7 +1184,7 @@ class AIAgent {
     }
 
     collectToolInvocationArguments(
-        tool: AgentTool,
+        tool: AssistantTool,
         fields: Record<
             string,
             HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
@@ -1209,7 +1220,7 @@ class AIAgent {
     }
 
     createToolInvocationPopup(
-        tool: AgentTool,
+        tool: AssistantTool,
         options: { autoRun?: boolean } = {}
     ): HTMLElement {
         const properties = this.getToolParameterProperties(tool);
@@ -1398,12 +1409,12 @@ class AIAgent {
         return wrapper;
     }
 
-    createAgentMessageShell() {
+    createAssistantMessageShell() {
         const messageDiv = document.createElement('div');
-        messageDiv.className = 'agent-message agent-message-agent';
+        messageDiv.className = 'assistant-message assistant-message-assistant';
 
         const header = document.createElement('div');
-        header.className = 'agent-message-header';
+        header.className = 'assistant-message-header';
         header.style.display = 'flex';
         header.style.alignItems = 'center';
         header.style.gap = '6px';
@@ -1413,7 +1424,7 @@ class AIAgent {
         label.style.alignItems = 'center';
         label.style.gap = '4px';
         label.innerHTML =
-            '<span class="material-symbols-outlined">robot_2</span> Agent';
+            '<span class="material-symbols-outlined">robot_2</span> Assistant';
         header.appendChild(label);
 
         messageDiv.appendChild(header);
@@ -1531,8 +1542,8 @@ class AIAgent {
             '<span class="material-symbols-outlined">code</span>';
         const revertButton = document.createElement('button');
         revertButton.type = 'button';
-        revertButton.title = 'Revert this Agent edit';
-        revertButton.setAttribute('aria-label', 'Revert this Agent edit');
+        revertButton.title = 'Revert this Assistant edit';
+        revertButton.setAttribute('aria-label', 'Revert this Assistant edit');
         revertButton.innerHTML =
             '<span class="material-symbols-outlined">undo</span>';
         const status = document.createElement('span');
@@ -1544,14 +1555,14 @@ class AIAgent {
         revertButton.addEventListener('click', () => {
             if (!this.allowFontEdits) {
                 status.textContent =
-                    'Enable editing in the Agent title bar before reverting.';
+                    'Enable editing in the Assistant title bar before reverting.';
                 return;
             }
             const scriptEditor = window.scriptEditor;
             const state = scriptEditor?.getDocumentState();
             if (!scriptEditor || !state || state.revision !== revision) {
                 status.textContent =
-                    'The script changed since this Agent edit. Use the Script Editor recovery controls instead.';
+                    'The script changed since this Assistant edit. Use the Script Editor recovery controls instead.';
                 return;
             }
             try {
@@ -1563,7 +1574,7 @@ class AIAgent {
                 this.lastKnownScriptRevision = restored.revision;
                 this.scriptStateInvalidated = false;
                 revertButton.disabled = true;
-                status.textContent = 'Agent edit reverted, not saved.';
+                status.textContent = 'Assistant edit reverted, not saved.';
             } catch (error) {
                 status.textContent = (error as Error).message;
             }
@@ -1595,7 +1606,7 @@ class AIAgent {
         args?: { old_text?: string; new_text?: string }
     ): HTMLElement {
         const outputEl = document.createElement('div');
-        outputEl.className = 'agent-python-edit-diff';
+        outputEl.className = 'assistant-python-edit-diff';
         outputEl.style.cssText =
             'margin:4px 0 8px 20px;padding:8px;border:1px solid var(--border-primary);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:11px;line-height:1.5;';
 
@@ -1796,7 +1807,7 @@ class AIAgent {
 
         for (const row of rows) {
             const line = document.createElement('div');
-            line.className = `agent-python-edit-diff-row agent-python-edit-diff-row-${row.type}`;
+            line.className = `assistant-python-edit-diff-row assistant-python-edit-diff-row-${row.type}`;
             const marker = document.createElement('span');
             const text = document.createElement('span');
 
@@ -2355,7 +2366,7 @@ class AIAgent {
 
             if (this.toolCallHasNoArguments(call.args)) {
                 const infoBtn = document.createElement('button');
-                infoBtn.className = 'agent-tool-call-info-btn';
+                infoBtn.className = 'assistant-tool-call-info-btn';
                 infoBtn.textContent = 'ⓘ';
                 infoBtn.title = 'Show tool output';
                 this.attachPopup(
@@ -2389,13 +2400,13 @@ class AIAgent {
 
     ensureHeaderToolCallsButton(header: HTMLElement, toolCalls: any[]) {
         let button = header.querySelector(
-            '.agent-message-info-btn'
+            '.assistant-message-info-btn'
         ) as HTMLButtonElement | null;
 
         if (!button) {
             button = document.createElement('button');
             button.className =
-                'agent-tool-call-info-btn agent-message-info-btn';
+                'assistant-tool-call-info-btn assistant-message-info-btn';
             button.textContent = 'ⓘ';
             button.title = 'Show tool calls';
             button.style.marginLeft = '2px';
@@ -2411,20 +2422,20 @@ class AIAgent {
         button.style.display = toolCalls.length > 0 ? 'inline-flex' : 'none';
     }
 
-    addMessage(role: 'user' | 'agent' | 'error', content: string) {
+    addMessage(role: 'user' | 'assistant' | 'error', content: string) {
         if (!this.messagesContainer) return;
         const msgDiv = document.createElement('div');
-        msgDiv.className = `agent-message agent-message-${role}`;
+        msgDiv.className = `assistant-message assistant-message-${role}`;
         msgDiv.style.whiteSpace = 'pre-wrap';
         const header = document.createElement('div');
-        header.className = 'agent-message-header';
+        header.className = 'assistant-message-header';
         if (role === 'user') {
             header.innerHTML =
                 '<span class="material-symbols-outlined">person</span> You';
             msgDiv.appendChild(header);
             msgDiv.appendChild(document.createTextNode(content));
-        } else if (role === 'agent') {
-            const shell = this.createAgentMessageShell();
+        } else if (role === 'assistant') {
+            const shell = this.createAssistantMessageShell();
             shell.body.innerHTML =
                 typeof marked !== 'undefined'
                     ? marked.parse(content)
@@ -2443,10 +2454,10 @@ class AIAgent {
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
     }
 
-    private requireAgentEditPermission(): void {
+    private requireAssistantEditPermission(): void {
         if (!this.activePromptContext?.allowFontEdits) {
             throw new Error(
-                'Enable editing in the Agent title bar before changing Python code.'
+                'Enable editing in the Assistant title bar before changing Python code.'
             );
         }
     }
@@ -2570,14 +2581,14 @@ class AIAgent {
                     'Python syntax validation is not available yet. Wait for Pyodide to finish loading and validate again.'
             };
         }
-        const sourceKey = '__counterpunch_agent_python_validation_source';
+        const sourceKey = '__counterpunch_assistant_python_validation_source';
         globals.set(sourceKey, content);
         try {
             const rawResult = runPython.call(
                 pyodide,
                 `import json
 
-def __counterpunch_agent_validate_syntax(source):
+def __counterpunch_assistant_validate_syntax(source):
     try:
         compile(source, "<script-editor>", "exec")
     except SyntaxError as exc:
@@ -2590,7 +2601,7 @@ def __counterpunch_agent_validate_syntax(source):
         })
     return json.dumps({"valid": True, "message": "Python syntax is valid."})
 
-__counterpunch_agent_validate_syntax(${sourceKey})`
+__counterpunch_assistant_validate_syntax(${sourceKey})`
             );
             const parsed = JSON.parse(String(rawResult || '{}'));
             return {
@@ -2643,7 +2654,7 @@ __counterpunch_agent_validate_syntax(${sourceKey})`
         const { name, arguments: argsStr } = toolCall.function;
         const args = JSON.parse(argsStr || '{}');
         if (name === 'execute_python_code') {
-            throw new Error('Agent tools do not execute Python code.');
+            throw new Error('Assistant tools do not execute Python code.');
         }
         switch (name) {
             case 'handbook_toc':
@@ -2873,9 +2884,9 @@ __counterpunch_agent_validate_syntax(${sourceKey})`
 
                 const promptContext = this.activePromptContext;
                 if (!promptContext) {
-                    throw new Error('No agent prompt is currently running');
+                    throw new Error('No assistant prompt is currently running');
                 }
-                return await runAgentPythonExecution(
+                return await runAssistantPythonExecution(
                     promptContext,
                     async () => {
                         let output = '';
@@ -2885,31 +2896,32 @@ __counterpunch_agent_validate_syntax(${sourceKey})`
                             await runInternalPythonAsync(`
 import sys
 from io import StringIO
-_agent_output_buffer = StringIO()
-_agent_original_stdout = sys.stdout
-sys.stdout = _agent_output_buffer
+_assistant_output_buffer = StringIO()
+_assistant_original_stdout = sys.stdout
+sys.stdout = _assistant_output_buffer
                             `);
                             await pyodide.runPythonAsync(code);
-                            await awaitActiveAgentPythonExecutionSettled();
+                            await awaitActiveAssistantPythonExecutionSettled();
                             output = await runInternalPythonAsync(`
-output = _agent_output_buffer.getvalue()
-sys.stdout = _agent_original_stdout
-del _agent_output_buffer
-del _agent_original_stdout
+output = _assistant_output_buffer.getvalue()
+sys.stdout = _assistant_original_stdout
+del _assistant_output_buffer
+del _assistant_original_stdout
 output
                     `);
                         } catch (err: any) {
-                            const execution = getActiveAgentPythonExecution();
-                            await awaitActiveAgentPythonExecutionSettled();
+                            const execution =
+                                getActiveAssistantPythonExecution();
+                            await awaitActiveAssistantPythonExecutionSettled();
                             // Restore stdout on error
                             try {
                                 await runInternalPythonAsync(`
-if '_agent_original_stdout' in dir():
-    sys.stdout = _agent_original_stdout
+if '_assistant_original_stdout' in dir():
+    sys.stdout = _assistant_original_stdout
                         `);
                             } catch (cleanupError) {
                                 console.warn(
-                                    'Could not restore agent Python stdout after an execution error',
+                                    'Could not restore assistant Python stdout after an execution error',
                                     cleanupError
                                 );
                             }
@@ -3047,7 +3059,7 @@ if '_agent_original_stdout' in dir():
                 return JSON.stringify(window.scriptEditor.getDocumentState());
             }
             case 'create_python_draft_in_editor': {
-                this.requireAgentEditPermission();
+                this.requireAssistantEditPermission();
                 const kind = args.kind;
                 if (kind !== 'general-script' && kind !== 'glyph-filter') {
                     throw new Error(
@@ -3061,7 +3073,7 @@ if '_agent_original_stdout' in dir():
                 return JSON.stringify(state);
             }
             case 'replace_python_text_in_editor': {
-                this.requireAgentEditPermission();
+                this.requireAssistantEditPermission();
                 const oldText = String(args.old_text || '');
                 const newText = String(args.new_text || '');
                 if (!oldText) throw new Error('old_text is required.');
@@ -3272,7 +3284,7 @@ if '_agent_original_stdout' in dir():
                     throw new Error('Missing required parameter: summary');
                 }
                 if (!this.activePromptContext) {
-                    throw new Error('No agent prompt is currently running');
+                    throw new Error('No assistant prompt is currently running');
                 }
                 this.activePromptContext.historySummary = summary;
                 return 'Prompt history summary will be used for subsequent edits.';
@@ -3649,7 +3661,7 @@ if '_agent_original_stdout' in dir():
                 }
                 const result = await analysisCompiler.compileBinaryFont(
                     target,
-                    'agent-binary-font.ttf',
+                    'assistant-binary-font.ttf',
                     getBinaryFontAnalysisWorkerState(analysisCompiler)
                 );
                 const fontHash = String(result.fontHash || '').trim();
@@ -3826,7 +3838,7 @@ if '_agent_original_stdout' in dir():
 
         const body: Record<string, any> = {
             messages,
-            tools: AGENT_TOOLS,
+            tools: ASSISTANT_TOOLS,
             systemPrompt: await this.getRuntimeSystemPrompt(),
             stream: true,
             billingRunId
@@ -3837,7 +3849,7 @@ if '_agent_original_stdout' in dir():
 
         let response: Response;
         try {
-            response = await fetch(`${this.getWebsiteURL()}/api/ai/agent`, {
+            response = await fetch(`${this.getWebsiteURL()}/api/ai/assistant`, {
                 method: 'POST',
                 credentials: 'include',
                 headers,
@@ -3946,13 +3958,13 @@ if '_agent_original_stdout' in dir():
         this.promptInput.style.height = 'auto';
         this.isStreaming = true;
         this.activePromptContext = {
-            id: `agent-prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            id: `assistant-prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
             allowFontEdits: this.allowFontEdits,
             historySummary: DEFAULT_PROMPT_HISTORY_SUMMARY
         };
         this.promptTransactionOpen = false;
         this.promptInterrupted = false;
-        this.updateAgentEditToggle();
+        this.updateAssistantEditToggle();
         if (this.sendButton)
             (this.sendButton as HTMLButtonElement).disabled = true;
         this.showStreamIndicator();
@@ -3968,7 +3980,7 @@ if '_agent_original_stdout' in dir():
         this.abortController = abortController;
         const signal = abortController.signal;
         let roundTexts: string[] = [];
-        const billingRunId = `agent-billing-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const billingRunId = `assistant-billing-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         // Track generationIds across retry legs for cumulative cost reporting
         const previousGenerationIds: string[] = [];
 
@@ -3981,7 +3993,7 @@ if '_agent_original_stdout' in dir():
 
             const ensureMessageShell = () => {
                 if (!messageDiv) {
-                    const shell = this.createAgentMessageShell();
+                    const shell = this.createAssistantMessageShell();
                     messageDiv = shell.messageDiv;
                     headerDiv = shell.header;
                     bodyDiv = shell.body;
@@ -4002,11 +4014,11 @@ if '_agent_original_stdout' in dir():
                             (roundTexts[currentRoundIndex] || '') + chunk;
                         const bd = bodyDiv as HTMLDivElement;
                         let textContainer = bd.querySelector(
-                            '.agent-round-text:last-child'
+                            '.assistant-round-text:last-child'
                         ) as HTMLDivElement | null;
                         if (!textContainer) {
                             textContainer = document.createElement('div');
-                            textContainer.className = 'agent-round-text';
+                            textContainer.className = 'assistant-round-text';
                             bd.appendChild(textContainer);
                         }
                         if (typeof marked !== 'undefined') {
@@ -4075,11 +4087,11 @@ if '_agent_original_stdout' in dir():
                     const metricsStr = this.formatUsageMetrics(roundUsage);
                     if (metricsStr) {
                         const roundTextEl = bd.querySelector(
-                            '.agent-round-text:last-child'
+                            '.assistant-round-text:last-child'
                         ) as HTMLElement | null;
                         if (roundTextEl) {
                             const metricsEl = document.createElement('div');
-                            metricsEl.className = 'agent-round-metrics';
+                            metricsEl.className = 'assistant-round-metrics';
                             metricsEl.textContent = metricsStr;
                             roundTextEl.insertAdjacentElement(
                                 'afterend',
@@ -4114,7 +4126,7 @@ if '_agent_original_stdout' in dir():
                     this._reconnectAttempts++;
                     if (this._reconnectAttempts <= 3) {
                         const reconnMsg = document.createElement('div');
-                        reconnMsg.className = 'agent-connection-dropped';
+                        reconnMsg.className = 'assistant-connection-dropped';
                         reconnMsg.textContent = `🔄 Reconnecting... (attempt ${this._reconnectAttempts}/3)`;
                         const appendTarget: HTMLElement | null =
                             bodyDiv || this.messagesContainer;
@@ -4134,7 +4146,7 @@ if '_agent_original_stdout' in dir():
                     }
                     // Max retries exhausted — give up
                     const exhaustedMsg = document.createElement('div');
-                    exhaustedMsg.className = 'agent-connection-dropped';
+                    exhaustedMsg.className = 'assistant-connection-dropped';
                     exhaustedMsg.textContent =
                         '⚠️ Connection lost after 3 retries. Type "continue" to resume.';
                     const appendTarget: HTMLElement | null =
@@ -4144,7 +4156,7 @@ if '_agent_original_stdout' in dir():
                     this.isStreaming = false;
                     this.finishPromptTransaction();
                     this.activePromptContext = null;
-                    this.updateAgentEditToggle();
+                    this.updateAssistantEditToggle();
                     if (this.sendButton)
                         (this.sendButton as HTMLButtonElement).disabled = false;
                     if (this.promptInput) this.promptInput.focus();
@@ -4153,7 +4165,7 @@ if '_agent_original_stdout' in dir():
                 }
 
                 if (result.toolCalls && result.toolCalls.length > 0) {
-                    // Ensure the agent message container exists even when the model
+                    // Ensure the assistant message container exists even when the model
                     // responds with only a tool call and no preamble text
                     ensureMessageShell();
 
@@ -4180,11 +4192,11 @@ if '_agent_original_stdout' in dir():
                         // so it appears chronologically between Round 1 text and Round 2 text
                         if (bodyDiv) {
                             const line = document.createElement('div');
-                            line.className = 'agent-tool-call-line';
+                            line.className = 'assistant-tool-call-line';
                             line.textContent = `📖 Calling ${toolCall.function.name}`;
 
                             const infoBtn = document.createElement('button');
-                            infoBtn.className = 'agent-tool-call-info-btn';
+                            infoBtn.className = 'assistant-tool-call-info-btn';
                             infoBtn.textContent = 'ⓘ';
                             line.appendChild(infoBtn);
 
@@ -4272,7 +4284,7 @@ if '_agent_original_stdout' in dir():
                     this.abortController = null;
                     this.finishPromptTransaction();
                     this.activePromptContext = null;
-                    this.updateAgentEditToggle();
+                    this.updateAssistantEditToggle();
                     if (this.sendButton)
                         (this.sendButton as HTMLButtonElement).disabled = false;
                     if (this.promptInput) this.promptInput.focus();
@@ -4294,7 +4306,7 @@ if '_agent_original_stdout' in dir():
                 }
             } else {
                 this.addMessage('error', err.message || 'Network error');
-                console.error('[AIAgent]', 'Request failed:', err);
+                console.error('[AIAssistant]', 'Request failed:', err);
             }
         }
 
@@ -4302,7 +4314,7 @@ if '_agent_original_stdout' in dir():
         this.isStreaming = false;
         this.finishPromptTransaction(this.promptInterrupted);
         this.activePromptContext = null;
-        this.updateAgentEditToggle();
+        this.updateAssistantEditToggle();
         if (this.sendButton)
             (this.sendButton as HTMLButtonElement).disabled = false;
         if (this.promptInput) this.promptInput.focus();
@@ -4325,25 +4337,25 @@ if '_agent_original_stdout' in dir():
     showInitialStatus() {
         if (!this.messagesContainer) return;
         const el = document.createElement('div');
-        el.id = 'agent-initial-status';
-        el.className = 'agent-tool-call-line';
+        el.id = 'assistant-initial-status';
+        el.className = 'assistant-tool-call-line';
         el.textContent = '💭 Understanding your question...';
         this.messagesContainer.appendChild(el);
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
     }
 
     showStreamIndicator() {
-        const el = document.getElementById('agent-stream-indicator');
+        const el = document.getElementById('assistant-stream-indicator');
         if (el) el.style.display = 'flex';
     }
 
     hideStreamIndicator() {
-        const el = document.getElementById('agent-stream-indicator');
+        const el = document.getElementById('assistant-stream-indicator');
         if (el) el.style.display = 'none';
     }
 
     clearInitialStatus() {
-        document.getElementById('agent-initial-status')?.remove();
+        document.getElementById('assistant-initial-status')?.remove();
     }
 
     scrollToBottomIfNear(threshold = 150) {
@@ -4444,7 +4456,7 @@ if '_agent_original_stdout' in dir():
     }
 
     updateSessionMetricsBar(): void {
-        const bar = document.getElementById('agent-session-metrics');
+        const bar = document.getElementById('assistant-session-metrics');
         if (!bar) return;
         const s = this.sessionTotals;
         const hasData =
@@ -4480,10 +4492,10 @@ if '_agent_original_stdout' in dir():
     }
 }
 
-function initAgent() {
+function initAssistant() {
     const checkReady = () => {
         if (window.authManager) {
-            window.aiAgent = new AIAgent();
+            window.aiAssistant = new AIAssistant();
         } else {
             setTimeout(checkReady, 100);
         }
@@ -4492,7 +4504,7 @@ function initAgent() {
 }
 
 if (document.readyState === 'loading')
-    document.addEventListener('DOMContentLoaded', initAgent);
-else initAgent();
+    document.addEventListener('DOMContentLoaded', initAssistant);
+else initAssistant();
 
-export default AIAgent;
+export default AIAssistant;

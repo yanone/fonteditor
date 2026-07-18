@@ -498,7 +498,7 @@ describe('Integration: set-start-point and reverse-direction byte budgets', () =
     });
 });
 
-describe('Agent prompt transaction metadata', () => {
+describe('Assistant prompt transaction metadata', () => {
     test('preserves keyed glyph maps and collection order through undo and redo', () => {
         const fontJson = makeTestFont();
         const secondLayer = JSON.parse(
@@ -588,25 +588,25 @@ describe('Agent prompt transaction metadata', () => {
 
     test('upgrades the default prompt summary before one buffered commit', () => {
         const fontJson = makeTestFont();
-        const bridge = new PatchSyncEngine('agent-prompt-metadata');
+        const bridge = new PatchSyncEngine('assistant-prompt-metadata');
         bridge.initFromJson(fontJson);
 
-        bridge.beginTransaction('Agent changes', null, {
-            promptGroupId: 'agent-prompt-1',
-            historySummary: 'Agent changes'
+        bridge.beginTransaction('Assistant changes', null, {
+            promptGroupId: 'assistant-prompt-1',
+            historySummary: 'Assistant changes'
         });
-        bridge.applySyntheticChangeSet('Agent changes', [
+        bridge.applySyntheticChangeSet('Assistant changes', [
             {
                 op: 'set',
                 path: ['format_specific', 'source'],
                 oldValue: undefined,
-                newValue: 'agent'
+                newValue: 'assistant'
             }
         ]);
 
         expect(
             bridge.updateTransactionMetadata(
-                'agent-prompt-1',
+                'assistant-prompt-1',
                 'Add source metadata (interrupted)',
                 'Add source metadata (interrupted)'
             )
@@ -618,7 +618,7 @@ describe('Agent prompt transaction metadata', () => {
             .find((item) => item.path === 'format_specific.source');
         expect(entry).toEqual(
             expect.objectContaining({
-                promptGroupId: 'agent-prompt-1',
+                promptGroupId: 'assistant-prompt-1',
                 transactionLabel: 'Add source metadata (interrupted)',
                 historySummary: 'Add source metadata (interrupted)'
             })
@@ -627,17 +627,17 @@ describe('Agent prompt transaction metadata', () => {
 
     test('commits direct and synthetic prompt edits as one labeled update', () => {
         const fontJson = makeTestFont();
-        const bridge = new PatchSyncEngine('agent-prompt-aggregation');
+        const bridge = new PatchSyncEngine('assistant-prompt-aggregation');
         bridge.initFromJson(fontJson);
         const localUpdates = jest.fn();
         bridge.onLocalUpdate(localUpdates);
 
-        bridge.beginTransaction('Agent changes', null, {
-            promptGroupId: 'agent-prompt-2',
-            historySummary: 'Agent changes'
+        bridge.beginTransaction('Assistant changes', null, {
+            promptGroupId: 'assistant-prompt-2',
+            historySummary: 'Assistant changes'
         });
         bridge.recordChange(['names'], 'familyName', 'TestFont', 'PromptFont');
-        bridge.applySyntheticChangeSet('Agent changes', [
+        bridge.applySyntheticChangeSet('Assistant changes', [
             {
                 op: 'set',
                 path: ['format_specific', 'source'],
@@ -647,7 +647,7 @@ describe('Agent prompt transaction metadata', () => {
         ]);
         expect(
             bridge.updateTransactionMetadata(
-                'agent-prompt-2',
+                'assistant-prompt-2',
                 'Edit font data',
                 'Edit font data'
             )
@@ -665,7 +665,7 @@ describe('Agent prompt transaction metadata', () => {
                 expect.objectContaining({
                     transactionLabel: 'Edit font data',
                     historySummary: 'Edit font data',
-                    promptGroupId: 'agent-prompt-2'
+                    promptGroupId: 'assistant-prompt-2'
                 })
             ])
         );

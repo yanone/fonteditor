@@ -444,9 +444,9 @@ export class PatchSyncEngine {
     private _nextHistoryItemId = 1;
     /** Current transaction-level history item ID */
     private _txHistoryItemId: string | null = null;
-    /** Optional summary for an agent-grouped history item. */
+    /** Optional summary for an assistant-grouped history item. */
     private _txHistorySummary: string | null = null;
-    /** Presentation-only group ID for an agent prompt. */
+    /** Presentation-only group ID for an assistant prompt. */
     private _txPromptGroupId: string | null = null;
     /** Optional explicit history target for the current transaction */
     private _txHistoryTarget: TransactionHistoryTarget | null = null;

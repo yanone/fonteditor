@@ -491,7 +491,7 @@ if (document.readyState === 'loading') {
 }
 
 import './auth-manager'; // Authentication with fonteditorwebsite
-import './ai-agent';
+import './ai-assistant';
 import './auto-compile-manager';
 import './cache-manager';
 import './canvas-plugin-manager';

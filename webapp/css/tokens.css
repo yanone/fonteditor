@@ -69,7 +69,7 @@
     --glyph-tile-selected-active: #4a4a4a;
     --glyph-tile-selected-inactive: #3b3b3b;
     --view-editor: #00aeef;
-    --view-agent: #ef4136;
+    --view-assistant: #ef4136;
     --view-console: #fbc540;
     --view-files: #be1e2d;
     --view-scripts: #f7941d;
@@ -148,7 +148,7 @@
     --glyph-tile-selected-active: #e3e3e3;
     --glyph-tile-selected-inactive: #dbdbdb;
     --view-editor: #00aeef;
-    --view-agent: #ef4136;
+    --view-assistant: #ef4136;
     --view-console: #fbc540;
     --view-files: #be1e2d;
     --view-scripts: #f7941d;

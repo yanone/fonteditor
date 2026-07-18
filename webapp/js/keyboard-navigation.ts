@@ -1000,7 +1000,7 @@
     }
 
     /**
-     * Blur all bottom view editors (console, scripts, agent)
+     * Blur all bottom view editors (console, scripts, assistant)
      */
     function blurBottomViewEditors() {
         // Blur console terminal
@@ -1026,9 +1026,9 @@
             }
         }
 
-        const agentPrompt = document.getElementById('agent-prompt');
-        if (agentPrompt) {
-            agentPrompt.blur();
+        const assistantPrompt = document.getElementById('assistant-prompt');
+        if (assistantPrompt) {
+            assistantPrompt.blur();
         }
     }
 
@@ -1169,9 +1169,9 @@
                 }, 100);
             }
 
-            // If activating console, blur the agent's text field and focus terminal
+            // If activating console, blur the assistant's text field and focus terminal
             if (viewId === 'view-console') {
-                const prompt = document.getElementById('agent-prompt');
+                const prompt = document.getElementById('assistant-prompt');
                 if (prompt) {
                     prompt.blur();
                 }
@@ -1254,8 +1254,8 @@
                 }
             }
 
-            // If activating agent, focus prompt
-            if (viewId === 'view-agent') {
+            // If activating assistant, focus prompt
+            if (viewId === 'view-assistant') {
                 const settings = getViewSettings();
                 const delay = settings?.animation?.enabled
                     ? settings.animation.duration + 50
@@ -1263,7 +1263,8 @@
 
                 setTimeout(() => {
                     if (viaKeyboard || wasExpanded) {
-                        const prompt = document.getElementById('agent-prompt');
+                        const prompt =
+                            document.getElementById('assistant-prompt');
                         if (prompt) {
                             prompt.focus();
                         }
@@ -1600,12 +1601,13 @@
             }
         }
 
-        // Cmd+Alt+N - Start new chat (only when agent view is focused)
+        // Cmd+Alt+N - Start new chat (only when assistant view is focused)
         if (cmdKey && event.altKey && key === 'n') {
-            if (currentFocusedView === 'view-agent') {
+            if (currentFocusedView === 'view-assistant') {
                 event.preventDefault();
-                const newChatBtn =
-                    document.getElementById('agent-new-chat-btn');
+                const newChatBtn = document.getElementById(
+                    'assistant-new-chat-btn'
+                );
                 if (newChatBtn) {
                     newChatBtn.click();
                 }

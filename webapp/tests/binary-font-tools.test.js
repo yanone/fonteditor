@@ -14,24 +14,24 @@ function createDeferred() {
     return { promise, resolve, reject };
 }
 
-describe('split binary-font agent tools', () => {
-    let AIAgent;
+describe('split binary-font assistant tools', () => {
+    let AIAssistant;
 
     beforeAll(() => {
         document.body.innerHTML = `
-            <textarea id="agent-prompt"></textarea>
-            <button id="agent-send-btn"></button>
-            <div id="agent-messages"></div>
-            <div id="agent-chat-container"></div>
-            <div id="agent-login-container"></div>
-            <div id="agent-subscription-container"></div>
+            <textarea id="assistant-prompt"></textarea>
+            <button id="assistant-send-btn"></button>
+            <div id="assistant-messages"></div>
+            <div id="assistant-chat-container"></div>
+            <div id="assistant-login-container"></div>
+            <div id="assistant-subscription-container"></div>
         `;
         window.authManager = {
             checkAuthStatus: jest.fn().mockResolvedValue(null),
             subscription: null,
             onAuthStateChanged: null
         };
-        AIAgent = require('../js/ai-agent').default;
+        AIAssistant = require('../js/ai-assistant').default;
     });
 
     beforeEach(() => {
@@ -224,8 +224,8 @@ describe('split binary-font agent tools', () => {
     test('compiles only after worker settlement, seeds the isolated worker, and returns a hash', async () => {
         const pendingUpdate = createDeferred();
         window.fontManager.workerCacheUpdatePromise = pendingUpdate.promise;
-        const agent = new AIAgent();
-        const toolCall = agent.executeToolCall({
+        const assistant = new AIAssistant();
+        const toolCall = assistant.executeToolCall({
             function: {
                 name: 'compile_binary_font',
                 arguments: JSON.stringify({ target: 'full' })
@@ -246,7 +246,7 @@ describe('split binary-font agent tools', () => {
             window.fullFontCompilation.compileBinaryFont
         ).toHaveBeenCalledWith(
             'full',
-            'agent-binary-font.ttf',
+            'assistant-binary-font.ttf',
             expect.objectContaining({
                 awaitWorkerDocumentSync: expect.any(Function),
                 hasWorkerCacheDocument: expect.any(Function)
@@ -257,10 +257,10 @@ describe('split binary-font agent tools', () => {
     });
 
     test('shape reads the requested hash and never compiles implicitly', async () => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: {
                     name: 'shape_binary_font',
                     arguments: JSON.stringify({
@@ -284,10 +284,10 @@ describe('split binary-font agent tools', () => {
     });
 
     test('describe_binary_font exposes supported collections and profiles', async () => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: {
                     name: 'describe_binary_font',
                     arguments: JSON.stringify({ path: '/tables/name' })
@@ -306,10 +306,10 @@ describe('split binary-font agent tools', () => {
     });
 
     test('list_binary_font_children returns actual name records', async () => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: {
                     name: 'list_binary_font_children',
                     arguments: JSON.stringify({
@@ -328,10 +328,10 @@ describe('split binary-font agent tools', () => {
     });
 
     test('search_binary_font_surface finds supported paths without a hash', async () => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: {
                     name: 'search_binary_font_surface',
                     arguments: JSON.stringify({
@@ -349,10 +349,10 @@ describe('split binary-font agent tools', () => {
     });
 
     test('search_binary_font_children finds listed children inside a compiled subtree', async () => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: {
                     name: 'search_binary_font_children',
                     arguments: JSON.stringify({
@@ -376,10 +376,10 @@ describe('split binary-font agent tools', () => {
     });
 
     test('snapshot_binary_font bundles summary and names', async () => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         const result = JSON.parse(
-            await agent.executeToolCall({
+            await assistant.executeToolCall({
                 function: {
                     name: 'snapshot_binary_font',
                     arguments: JSON.stringify({
@@ -397,10 +397,10 @@ describe('split binary-font agent tools', () => {
     });
 
     test('subset target derives subset glyphs from text before compiling', async () => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: {
                     name: 'compile_binary_font',
                     arguments: JSON.stringify({
@@ -423,10 +423,10 @@ describe('split binary-font agent tools', () => {
     });
 
     test('subset target requires text', async () => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: {
                     name: 'compile_binary_font',
                     arguments: JSON.stringify({ target: 'subset' })
@@ -436,10 +436,10 @@ describe('split binary-font agent tools', () => {
     });
 
     test('rejects non-object feature input for shape_binary_font', async () => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: {
                     name: 'shape_binary_font',
                     arguments: JSON.stringify({
@@ -453,7 +453,7 @@ describe('split binary-font agent tools', () => {
     });
 
     test('inspection requires API docs, then preserves requested path order', async () => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
         const inspection = {
             function: {
                 name: 'inspect_binary_font',
@@ -465,17 +465,17 @@ describe('split binary-font agent tools', () => {
             }
         };
 
-        await expect(agent.executeToolCall(inspection)).rejects.toThrow(
+        await expect(assistant.executeToolCall(inspection)).rejects.toThrow(
             'binary_font_api_docs'
         );
-        await agent.executeToolCall({
+        await assistant.executeToolCall({
             function: {
                 name: 'binary_font_api_docs',
                 arguments: '{}'
             }
         });
 
-        await expect(agent.executeToolCall(inspection)).resolves.toBe(
+        await expect(assistant.executeToolCall(inspection)).resolves.toBe(
             JSON.stringify({ values: [1000, 42] })
         );
         expect(
@@ -494,7 +494,7 @@ describe('split binary-font agent tools', () => {
         'shape_binary_font',
         'inspect_binary_font'
     ])('rejects %s in a linked window or active preview', async (name) => {
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
         const args =
             name === 'compile_binary_font'
                 ? {}
@@ -507,7 +507,7 @@ describe('split binary-font agent tools', () => {
 
         window.windowRole.isMainWindow.mockReturnValue(false);
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: { name, arguments: JSON.stringify(args) }
             })
         ).rejects.toThrow('main window');
@@ -515,7 +515,7 @@ describe('split binary-font agent tools', () => {
         window.windowRole.isMainWindow.mockReturnValue(true);
         window.glyphCanvas.outlineEditor.draggingSomething = true;
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: { name, arguments: JSON.stringify(args) }
             })
         ).rejects.toThrow('edit preview');
@@ -525,10 +525,10 @@ describe('split binary-font agent tools', () => {
         window.fullFontCompilation.getDebugCachedFontBytes.mockRejectedValue(
             new Error('Debug cached font bytes not found')
         );
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: {
                     name: 'shape_binary_font',
                     arguments: JSON.stringify({
@@ -547,10 +547,10 @@ describe('split binary-font agent tools', () => {
         window.fontCompilation.awaitWorkerDocumentSync.mockRejectedValue(
             new Error('worker document sync failed')
         );
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: {
                     name: 'compile_binary_font',
                     arguments: '{}'
@@ -564,10 +564,10 @@ describe('split binary-font agent tools', () => {
 
     test('fails closed when the editing worker cache is not ready', async () => {
         window.fontCompilation.hasWorkerCacheDocument.mockReturnValue(false);
-        const agent = new AIAgent();
+        const assistant = new AIAssistant();
 
         await expect(
-            agent.executeToolCall({
+            assistant.executeToolCall({
                 function: {
                     name: 'compile_binary_font',
                     arguments: '{}'
@@ -582,8 +582,8 @@ describe('split binary-font agent tools', () => {
     test('rejects a preview that starts while worker state settles', async () => {
         const pendingUpdate = createDeferred();
         window.fontManager.workerCacheUpdatePromise = pendingUpdate.promise;
-        const agent = new AIAgent();
-        const toolCall = agent.executeToolCall({
+        const assistant = new AIAssistant();
+        const toolCall = assistant.executeToolCall({
             function: {
                 name: 'compile_binary_font',
                 arguments: '{}'

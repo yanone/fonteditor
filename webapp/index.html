@@ -611,11 +611,11 @@
 
             <!-- Bottom row with six views -->
             <div class="bottom-row">
-                <div class="view view-agent" id="view-agent">
+                <div class="view view-assistant" id="view-assistant">
                     <div class="view-title-bar">
                         <div class="view-title-left">
                             <div class="view-title-heading">
-                                <span class="view-title-name">Agent</span>
+                                <span class="view-title-name">Assistant</span>
                                 <span class="view-title-shortcut"
                                     ><span class="material-symbols-outlined"
                                         >keyboard_command_key</span
@@ -626,9 +626,9 @@
                             </div>
                             <div class="view-title-actions">
                                 <button
-                                    id="agent-info-btn"
+                                    id="assistant-info-btn"
                                     class="view-title-action-btn"
-                                    title="Agent tools and capabilities"
+                                    title="Assistant tools and capabilities"
                                 >
                                     <span class="material-symbols-outlined"
                                         >question_mark</span
@@ -638,10 +638,10 @@
                         </div>
                         <div class="view-title-right">
                             <button
-                                id="agent-edit-toggle"
-                                class="view-title-button agent-edit-toggle"
-                                title="Agent edits are off"
-                                aria-label="Agent edits are off"
+                                id="assistant-edit-toggle"
+                                class="view-title-button assistant-edit-toggle"
+                                title="Assistant edits are off"
+                                aria-label="Assistant edits are off"
                                 aria-pressed="false"
                             >
                                 <span class="material-symbols-outlined"
@@ -649,9 +649,9 @@
                                 >
                             </button>
                             <button
-                                id="agent-new-chat-btn"
+                                id="assistant-new-chat-btn"
                                 class="view-title-button"
-                                title="Start a new agent chat"
+                                title="Start a new assistant chat"
                             >
                                 <span class="material-symbols-outlined"
                                     >add</span
@@ -661,7 +661,10 @@
                     </div>
                     <div class="view-content">
                         <!-- Login prompt for unauthenticated users -->
-                        <div id="agent-login-container" style="display: none">
+                        <div
+                            id="assistant-login-container"
+                            style="display: none"
+                        >
                             <div class="ai-login-content">
                                 <span
                                     class="material-symbols-outlined ai-login-icon"
@@ -670,10 +673,10 @@
                                 <h2>Sign In Required</h2>
                                 <p>
                                     You need to sign in with an active
-                                    subscription to use the Agent.
+                                    subscription to use the Assistant.
                                 </p>
                                 <button
-                                    id="agent-login-btn"
+                                    id="assistant-login-btn"
                                     class="ai-login-button"
                                 >
                                     <span class="material-symbols-outlined"
@@ -690,7 +693,7 @@
 
                         <!-- Subscription required message -->
                         <div
-                            id="agent-subscription-container"
+                            id="assistant-subscription-container"
                             style="display: none"
                         >
                             <div class="ai-login-content">
@@ -700,11 +703,11 @@
                                 >
                                 <h2>Advanced Subscription Required</h2>
                                 <p>
-                                    The Agent is available with an Advanced
+                                    The Assistant is available with an Advanced
                                     subscription.
                                 </p>
                                 <button
-                                    id="agent-account-btn"
+                                    id="assistant-account-btn"
                                     class="ai-login-button"
                                 >
                                     <span class="material-symbols-outlined"
@@ -713,41 +716,46 @@
                                     Manage Account
                                 </button>
                                 <p class="ai-login-note">
-                                    Upgrade to Advanced to access the Agent.
+                                    Upgrade to Advanced to access the Assistant.
                                 </p>
                             </div>
                         </div>
 
                         <!-- Chat interface for authenticated users -->
-                        <div id="agent-chat-container" style="display: none">
-                            <div id="agent-messages"></div>
-                            <div id="agent-input-container">
-                                <div id="agent-prompt-wrapper">
+                        <div
+                            id="assistant-chat-container"
+                            style="display: none"
+                        >
+                            <div id="assistant-messages"></div>
+                            <div id="assistant-input-container">
+                                <div id="assistant-prompt-wrapper">
                                     <textarea
-                                        id="agent-prompt"
-                                        placeholder="Ask the Agent about the font or app..."
+                                        id="assistant-prompt"
+                                        placeholder="Ask the Assistant about the font or app..."
                                         data-1p-ignore
                                     ></textarea>
                                 </div>
-                                <div class="agent-input-controls">
+                                <div class="assistant-input-controls">
                                     <button
-                                        id="agent-send-btn"
-                                        class="agent-send-button"
+                                        id="assistant-send-btn"
+                                        class="assistant-send-button"
                                     >
                                         <span class="material-symbols-outlined"
                                             >robot_2</span
                                         >
-                                        Ask Agent
+                                        Ask Assistant
                                     </button>
                                     <div
-                                        id="agent-stream-indicator"
-                                        class="agent-stream-indicator"
+                                        id="assistant-stream-indicator"
+                                        class="assistant-stream-indicator"
                                         style="display: none"
                                     >
-                                        <div class="agent-stream-spinner"></div>
+                                        <div
+                                            class="assistant-stream-spinner"
+                                        ></div>
                                         <button
-                                            id="agent-stop-btn"
-                                            class="agent-stop-button"
+                                            id="assistant-stop-btn"
+                                            class="assistant-stop-button"
                                             title="Stop generating"
                                         >
                                             <span
@@ -756,7 +764,7 @@
                                             >
                                         </button>
                                     </div>
-                                    <span id="agent-session-metrics"></span>
+                                    <span id="assistant-session-metrics"></span>
                                 </div>
                             </div>
                         </div>
@@ -1208,23 +1216,26 @@
             </div>
         </div>
 
-        <!-- Agent Info Modal -->
+        <!-- Assistant Info Modal -->
         <div
             class="info-popup-overlay"
-            id="agent-info-modal"
+            id="assistant-info-modal"
             style="display: none"
         >
             <div class="info-popup">
                 <div class="info-popup-header">
-                    <h3>Agent Tools and Capabilities</h3>
+                    <h3>Assistant Tools and Capabilities</h3>
                     <button
                         class="info-popup-close"
-                        id="agent-info-modal-close-btn"
+                        id="assistant-info-modal-close-btn"
                     >
                         <span class="material-symbols-outlined">close</span>
                     </button>
                 </div>
-                <div class="info-popup-content" id="agent-info-modal-content">
+                <div
+                    class="info-popup-content"
+                    id="assistant-info-modal-content"
+                >
                     <!-- Populated by JavaScript -->
                 </div>
             </div>
@@ -1487,7 +1498,7 @@
                                     style="margin-top: 8px"
                                 >
                                     Login with your Counterpunch account to use
-                                    the Agent
+                                    the Assistant
                                 </div>
                             </div>
                         </div>

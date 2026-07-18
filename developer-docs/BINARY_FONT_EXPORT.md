@@ -30,7 +30,7 @@ chain to settle. It snapshots the committed Yjs state, seeds the separate
 `fullFontCompilation` worker, and compiles the `user` target. Export never
 mutates or recompiles the editing worker.
 
-This same isolated full-font worker is also used by agent binary-analysis tools.
+This same isolated full-font worker is also used by assistant binary-analysis tools.
 It is not an automatic quality-control or background compilation lane.
 
 ## Window notification

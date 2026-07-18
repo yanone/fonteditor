@@ -36,7 +36,7 @@ describe('FeaturesManager setEnabledFeatures', () => {
         delete window.currentFontModel;
     });
 
-    test('reuses feature button clicks for agent-style bulk updates', async () => {
+    test('reuses feature button clicks for assistant-style bulk updates', async () => {
         const manager = new FeaturesManager();
         const changeSpy = jest.fn();
         manager.on('change', changeSpy);

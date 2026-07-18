@@ -13,12 +13,14 @@ type AuthUser = {
 type AuthSubscription = {
     isAdvanced?: boolean;
     canUseAgent?: boolean;
+    canUseAssistant?: boolean;
     productId?: string | null;
     [key: string]: unknown;
 };
 
 type AuthCapabilities = {
     canUseAgent?: boolean;
+    canUseAssistant?: boolean;
     [key: string]: unknown;
 };
 
@@ -195,10 +197,20 @@ class AuthManager {
                 this.subscription = data.subscription
                     ? {
                           ...data.subscription,
-                          ...data.capabilities
+                          ...data.capabilities,
+                          canUseAssistant:
+                              data.capabilities?.canUseAssistant ??
+                              data.subscription.canUseAssistant ??
+                              data.capabilities?.canUseAgent ??
+                              data.subscription.canUseAgent
                       }
                     : data.capabilities
-                      ? { ...data.capabilities }
+                      ? {
+                            ...data.capabilities,
+                            canUseAssistant:
+                                data.capabilities.canUseAssistant ??
+                                data.capabilities.canUseAgent
+                        }
                       : null;
                 this.credits = data.credits;
                 console.log('[Auth] User authenticated:', this.user.email);

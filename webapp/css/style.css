@@ -1389,8 +1389,8 @@ kbd + kbd {
     color: var(--view-scripts);
 }
 
-.view-agent .view-title-name {
-    color: var(--view-agent);
+.view-assistant .view-title-name {
+    color: var(--view-assistant);
 }
 
 .view-history .view-title-name {
@@ -1426,13 +1426,13 @@ kbd + kbd {
     border-left-color: var(--text-secondary);
 }
 
-.view-title-button.agent-edit-toggle.active {
+.view-title-button.assistant-edit-toggle.active {
     background-color: var(--background-primary);
     border-left-color: var(--border-primary);
     color: var(--text-primary) !important;
 }
 
-.view-title-button.agent-edit-toggle {
+.view-title-button.assistant-edit-toggle {
     align-self: stretch;
     box-sizing: border-box;
     justify-content: center;
@@ -1440,16 +1440,16 @@ kbd + kbd {
     padding: 0 8px;
 }
 
-.view-title-button.agent-edit-toggle:not(.active) {
+.view-title-button.assistant-edit-toggle:not(.active) {
     color: var(--text-secondary) !important;
 }
 
-.view-title-button.agent-edit-toggle:disabled {
+.view-title-button.assistant-edit-toggle:disabled {
     cursor: default;
     opacity: 0.65;
 }
 
-.view-title-button.agent-edit-toggle.locked {
+.view-title-button.assistant-edit-toggle.locked {
     opacity: 0.65;
 }
 
@@ -3782,21 +3782,21 @@ kbd + kbd {
     font-style: italic;
 }
 
-/* ======================== AGENT VIEW ======================== */
+/* ======================== ASSISTANT VIEW ======================== */
 
-.view-agent .view-content {
+.view-assistant .view-content {
     margin-left: 0;
     margin-right: 0;
 }
 
-#agent-chat-container {
+#assistant-chat-container {
     display: none;
     flex-direction: column;
     height: 100%;
 }
 
-#agent-login-container,
-#agent-subscription-container {
+#assistant-login-container,
+#assistant-subscription-container {
     display: none;
     flex-direction: column;
     align-items: center;
@@ -3805,7 +3805,7 @@ kbd + kbd {
     padding: 40px 20px;
 }
 
-#agent-messages {
+#assistant-messages {
     flex: 1;
     overflow-y: auto;
     padding: 12px;
@@ -3816,12 +3816,12 @@ kbd + kbd {
     scrollbar-width: thin;
 }
 
-#agent-messages::-webkit-scrollbar {
+#assistant-messages::-webkit-scrollbar {
     width: 0;
     display: none;
 }
 
-#agent-input-container {
+#assistant-input-container {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -3832,12 +3832,12 @@ kbd + kbd {
     border-top: 1px solid var(--border-primary);
 }
 
-#agent-prompt-wrapper {
+#assistant-prompt-wrapper {
     position: relative;
     width: 100%;
 }
 
-#agent-prompt {
+#assistant-prompt {
     width: 100%;
     min-height: 34px;
     max-height: 120px;
@@ -3854,22 +3854,22 @@ kbd + kbd {
     box-sizing: border-box;
 }
 
-#agent-prompt::placeholder {
+#assistant-prompt::placeholder {
     color: var(--text-tertiary);
 }
 
-#agent-prompt:focus {
-    border-color: var(--view-agent);
+#assistant-prompt:focus {
+    border-color: var(--view-assistant);
 }
 
-.agent-input-controls {
+.assistant-input-controls {
     display: flex;
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
 }
 
-#agent-session-metrics {
+#assistant-session-metrics {
     display: none;
     margin-left: auto;
     font-size: 10px;
@@ -3879,7 +3879,7 @@ kbd + kbd {
     white-space: nowrap;
 }
 
-.agent-send-button {
+.assistant-send-button {
     align-self: flex-start;
     display: flex;
     align-items: center;
@@ -3896,33 +3896,33 @@ kbd + kbd {
     transition: all 0.15s ease;
 }
 
-.agent-send-button:hover:not(:disabled) {
+.assistant-send-button:hover:not(:disabled) {
     background-color: var(--input-bg);
     color: var(--text-primary);
     border-color: var(--text-primary);
 }
 
-.agent-send-button:active:not(:disabled) {
+.assistant-send-button:active:not(:disabled) {
     background-color: var(--border-primary);
 }
 
-.agent-send-button:disabled {
+.assistant-send-button:disabled {
     opacity: 0.4;
     cursor: not-allowed;
 }
 
-.agent-send-button .material-symbols-outlined {
+.assistant-send-button .material-symbols-outlined {
     font-size: 18px;
 }
 
-.agent-input-controls .agent-status {
+.assistant-input-controls .assistant-status {
     font-size: 11px;
     color: var(--text-tertiary);
     margin-left: auto;
 }
 
-/* Agent Message Styles */
-.agent-message {
+/* Assistant Message Styles */
+.assistant-message {
     padding: 8px 12px;
     border-radius: 4px;
     font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
@@ -3931,7 +3931,7 @@ kbd + kbd {
     overflow-wrap: break-word;
 }
 
-.agent-message-user {
+.assistant-message-user {
     background-color: var(--background-secondary);
     /* border: 1px solid var(--border-secondary); */
     color: var(--text-primary);
@@ -3939,25 +3939,25 @@ kbd + kbd {
     max-width: 85%;
 }
 
-.agent-message-agent {
+.assistant-message-assistant {
     color: var(--text-primary);
     align-self: flex-start;
     max-width: 100%;
 }
 
-.agent-message-agent p {
+.assistant-message-assistant p {
     margin: 4px 0;
 }
 
-.agent-message-agent p:first-child {
+.assistant-message-assistant p:first-child {
     margin-top: 0;
 }
 
-.agent-message-agent p:last-child {
+.assistant-message-assistant p:last-child {
     margin-bottom: 0;
 }
 
-.agent-message-agent pre {
+.assistant-message-assistant pre {
     background: var(--code-bg);
     border: 1px solid var(--border-primary);
     border-radius: 4px;
@@ -3967,44 +3967,44 @@ kbd + kbd {
     line-height: 1.4;
 }
 
-.agent-message-agent code {
+.assistant-message-assistant code {
     font-family: var(--font-families-mono);
     font-size: 11px;
 }
 
-.agent-message-agent code:not(pre code) {
+.assistant-message-assistant code:not(pre code) {
     background: var(--code-bg);
     padding: 1px 4px;
     border-radius: 3px;
 }
 
-.agent-message-agent ul,
-.agent-message-agent ol {
+.assistant-message-assistant ul,
+.assistant-message-assistant ol {
     margin: 4px 0;
     padding-left: 20px;
 }
 
-.agent-message-agent h1,
-.agent-message-agent h2,
-.agent-message-agent h3,
-.agent-message-agent h4 {
+.assistant-message-assistant h1,
+.assistant-message-assistant h2,
+.assistant-message-assistant h3,
+.assistant-message-assistant h4 {
     margin: 8px 0 4px;
     font-weight: 500;
     color: var(--text-primary);
 }
 
-.agent-message-agent h1 {
+.assistant-message-assistant h1 {
     font-size: 14px;
 }
-.agent-message-agent h2 {
+.assistant-message-assistant h2 {
     font-size: 13px;
 }
-.agent-message-agent h3 {
+.assistant-message-assistant h3 {
     font-size: 12px;
 }
 
 /* Per-round usage metrics (dev mode only) */
-.agent-round-metrics {
+.assistant-round-metrics {
     font-size: 10px;
     color: var(--text-tertiary);
     padding: 1px 0 4px 0;
@@ -4013,7 +4013,7 @@ kbd + kbd {
 }
 
 /* Tool-call line — sits between round-text containers in chronological order */
-.agent-tool-call-line {
+.assistant-tool-call-line {
     font-size: 10px;
     color: var(--text-tertiary);
     font-style: italic;
@@ -4023,7 +4023,7 @@ kbd + kbd {
     gap: 4px;
 }
 
-.agent-tool-call-info-btn {
+.assistant-tool-call-info-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -4041,33 +4041,33 @@ kbd + kbd {
     flex-shrink: 0;
 }
 
-.agent-tool-call-info-btn:hover {
+.assistant-tool-call-info-btn:hover {
     opacity: 1;
     color: var(--text-primary);
 }
 
-.agent-message-header {
+.assistant-message-header {
     margin-bottom: 10px;
 }
 
-.agent-message-header .material-symbols-outlined {
+.assistant-message-header .material-symbols-outlined {
     font-size: 14px;
 }
 
-/* Agent Messages Scrollbar */
-#agent-messages::-webkit-scrollbar {
+/* Assistant Messages Scrollbar */
+#assistant-messages::-webkit-scrollbar {
     width: 0;
     display: none;
 }
 
-#agent-messages hr {
+#assistant-messages hr {
     border: none;
     border-top: 1px solid var(--border-primary);
     margin: 12px 0;
 }
 
-/* Agent Thinking indicator */
-.agent-thinking {
+/* Assistant Thinking indicator */
+.assistant-thinking {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -4076,17 +4076,17 @@ kbd + kbd {
     font-size: 11px;
 }
 
-.agent-thinking .spinner {
+.assistant-thinking .spinner {
     width: 12px;
     height: 12px;
     border: 2px solid var(--border-primary);
-    border-top: 2px solid var(--view-agent);
+    border-top: 2px solid var(--view-assistant);
     border-radius: 50%;
-    animation: agent-spin 0.8s linear infinite;
+    animation: assistant-spin 0.8s linear infinite;
 }
 
-/* Inline tool-call status line inside the agent message */
-.agent-tool-call-line {
+/* Inline tool-call status line inside the assistant message */
+.assistant-tool-call-line {
     font-size: 10px;
     color: var(--text-faint);
     font-style: italic;
@@ -4101,37 +4101,37 @@ kbd + kbd {
     margin-bottom: 14px;
 }
 
-.agent-tool-call-line button {
+.assistant-tool-call-line button {
     appearance: none;
 }
 
-.agent-tool-call-line + .agent-tool-call-line {
+.assistant-tool-call-line + .assistant-tool-call-line {
     margin-top: -10px;
 }
 
-.agent-tool-call-line button {
+.assistant-tool-call-line button {
     appearance: none;
     border: none;
     background: transparent;
 }
 
-@keyframes agent-spin {
+@keyframes assistant-spin {
     to {
         transform: rotate(360deg);
     }
 }
 
 /* Error state */
-.agent-message-error {
+.assistant-message-error {
     background-color: rgba(239, 65, 54, 0.1);
-    border: 1px solid var(--view-agent);
-    color: var(--view-agent);
+    border: 1px solid var(--view-assistant);
+    color: var(--view-assistant);
     align-self: flex-start;
     max-width: 100%;
 }
 
-/* Agent stream indicator (spinner + stop button) */
-.agent-connection-dropped {
+/* Assistant stream indicator (spinner + stop button) */
+.assistant-connection-dropped {
     padding: 8px 12px;
     margin: 4px 0;
     background: rgba(239, 65, 54, 0.08);
@@ -4142,24 +4142,24 @@ kbd + kbd {
     text-align: center;
 }
 
-#agent-stream-indicator {
+#assistant-stream-indicator {
     display: flex;
     align-items: center;
     gap: 6px;
     margin-left: auto;
 }
 
-.agent-stream-spinner {
+.assistant-stream-spinner {
     width: 14px;
     height: 14px;
     border: 2px solid var(--border-primary);
-    border-top: 2px solid var(--view-agent);
+    border-top: 2px solid var(--view-assistant);
     border-radius: 50%;
-    animation: agent-spin 0.8s linear infinite;
+    animation: assistant-spin 0.8s linear infinite;
     flex-shrink: 0;
 }
 
-.agent-stop-button {
+.assistant-stop-button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -4174,17 +4174,17 @@ kbd + kbd {
     transition: all 0.15s ease;
 }
 
-.agent-stop-button:hover {
-    color: var(--view-agent);
-    border-color: var(--view-agent);
+.assistant-stop-button:hover {
+    color: var(--view-assistant);
+    border-color: var(--view-assistant);
     background-color: rgba(239, 65, 54, 0.1);
 }
 
-.agent-stop-button .material-symbols-outlined {
+.assistant-stop-button .material-symbols-outlined {
     font-size: 16px;
 }
 
-/* ======================== END AGENT VIEW ======================== */
+/* ======================== END ASSISTANT VIEW ======================== */
 
 /* Diff Review Modal */
 .diff-modal {
