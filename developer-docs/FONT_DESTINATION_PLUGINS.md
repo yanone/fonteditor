@@ -24,6 +24,9 @@ binary-export message after the receiver says it is ready.
 For receiver authors this means: implement one `postMessage` listener and one
 ready signal. You do not need to know about the editor internals.
 
+Reference implementation:
+https://github.com/counterpunchspace/fontdestination-example-plugin
+
 ## Discovery
 
 The Plugin Manager uses Counterpunch's reusable editor-origin-gated GitHub code
@@ -53,6 +56,31 @@ The important manifest fields are:
 - `release.repository`: GitHub repository that publishes the wheel release.
 - `release.wheelAssetPrefix` and `release.checksumAssetSuffix`: asset matching
   rules for the downloadable wheel and SHA-256 checksum.
+
+The example repository's manifest currently looks like this:
+
+```json
+{
+  "schema": "counterpunch-plugin-manifest:v1",
+  "package": "fontdestination-example-plugin",
+  "provides": ["counterpunch-plugin:font-destination:v1"],
+  "fontDestination": {
+    "entryPoint": "example_fontdestination",
+    "pluginId": "example-font-destination",
+    "name": "Example Font Destination",
+    "description": "Opens a small browser receiver that displays basic information about each exported binary font.",
+    "destinationUrl": "https://counterpunchspace.github.io/fontdestination-example-plugin/",
+    "targetOrigin": "https://counterpunchspace.github.io",
+    "repositoryUrl": "https://github.com/counterpunchspace/fontdestination-example-plugin",
+    "imageUrl": "https://counterpunchspace.github.io/fontdestination-example-plugin/plugin-preview.png"
+  },
+  "release": {
+    "repository": "counterpunchspace/fontdestination-example-plugin",
+    "wheelAssetPrefix": "fontdestination_example_plugin-",
+    "checksumAssetSuffix": ".sha256"
+  }
+}
+```
 
 ## Installation
 
@@ -85,20 +113,39 @@ metadata through `metadata()`. The metadata contains `pluginId`, `name`,
 `description`, `destinationUrl`, `targetOrigin`, `repositoryUrl`, and optional
 `imageUrl`. The destination URL's origin must exactly equal `targetOrigin`.
 
-Minimal metadata class:
+The example package exposes this metadata class:
 
 ```py
+"""Metadata exposed to Counterpunch through Python entry-point discovery."""
+
+
 class FontDestinationPlugin:
-	def metadata(self):
-		return {
-			'pluginId': 'my-font-destination',
-			'name': 'My Font Destination',
-			'description': 'Receives Counterpunch binary-font exports.',
-			'destinationUrl': 'https://example.com/counterpunch-receiver/',
-			'targetOrigin': 'https://example.com',
-			'repositoryUrl': 'https://github.com/example/my-font-destination',
-      'imageUrl': 'https://example.com/plugin-preview.png',
-		}
+    """Describe the example browser receiver without handling font bytes itself."""
+
+    # Keep these values in sync with counterpunch-plugin.json. Counterpunch uses
+    # this metadata after installing the wheel to populate Tools > Font Destinations.
+    plugin_id = "example-font-destination"
+    name = "Example Font Destination"
+    description = (
+        "Opens a small browser receiver that displays basic information about "
+        "each exported binary font."
+    )
+    destination_url = "https://counterpunchspace.github.io/fontdestination-example-plugin/"
+    target_origin = "https://counterpunchspace.github.io"
+    repository_url = "https://github.com/counterpunchspace/fontdestination-example-plugin"
+    image_url = "https://counterpunchspace.github.io/fontdestination-example-plugin/plugin-preview.png"
+
+    def metadata(self) -> dict[str, str | None]:
+        """Return serializable metadata used by Counterpunch's Tools menu."""
+        return {
+            "pluginId": self.plugin_id,
+            "name": self.name,
+            "description": self.description,
+            "destinationUrl": self.destination_url,
+            "targetOrigin": self.target_origin,
+            "repositoryUrl": self.repository_url,
+            "imageUrl": self.image_url,
+        }
 ```
 
 ## Receiver Contract
@@ -144,40 +191,115 @@ type BinaryFontExportMessage = {
 };
 ```
 
-Minimal receiver code:
+The example site keeps the protocol in
+`site/counterpunch-font-destination.js` and the app-specific rendering in
+`site/app.js`. The reusable helper is the code below:
 
 ```js
-const editorOrigins = new Set([
+(function () {
+  // Keep this list narrow. These are the only editor origins allowed to send
+  // binary font exports to this receiver.
+  const DEFAULT_EDITOR_ORIGINS = [
     "https://editor.counterpunch.space",
     "https://preview.editor.counterpunch.space",
-]);
+    "https://localhost:8000",
+    "https://localhost:8789",
+  ];
 
-window.addEventListener("message", (event) => {
-    const message = event.data;
-    if (
-        !editorOrigins.has(event.origin) ||
-        message?.type !== "counterpunch:binary-font-exported" ||
-        message.version !== 1 ||
-        !(message.bytes instanceof ArrayBuffer)
-    ) {
+  function isBinaryFontExport(message) {
+    return (
+      message &&
+      message.type === "counterpunch:binary-font-exported" &&
+      message.version === 1 &&
+      message.bytes instanceof ArrayBuffer
+    );
+  }
+
+  function register(options) {
+    const editorOrigins = new Set(
+      options.editorOrigins || DEFAULT_EDITOR_ORIGINS,
+    );
+    const onFont = options.onFont;
+
+    window.addEventListener("message", (event) => {
+      // Validate by origin and payload shape. Do not compare
+      // event.source with window.parent; COOP/COEP can proxy it.
+      if (!editorOrigins.has(event.origin)) {
         return;
+      }
+
+      const message = event.data;
+      if (!isBinaryFontExport(message)) {
+        return;
+      }
+
+      onFont({
+        bytes: message.bytes,
+        metadata: message.metadata || {},
+        origin: event.origin,
+        rawMessage: message,
+      });
+    });
+
+    if (window.parent !== window) {
+      // Tell Counterpunch's bridge it can deliver queued exports.
+      for (const editorOrigin of editorOrigins) {
+        window.parent.postMessage(
+          {
+            type: "counterpunch:font-destination-ready",
+            version: 1,
+          },
+          editorOrigin,
+        );
+      }
     }
+  }
 
-    // message.bytes is transferable binary font data.
-    // message.metadata includes filename, byteLength, format, mimeType,
-    // changeVersion, and timeTakenMs when available.
-    receiveFont(message.bytes, message.metadata || {});
-});
-
-window.parent.postMessage(
-    { type: "counterpunch:font-destination-ready", version: 1 },
-    "https://editor.counterpunch.space",
-);
+  window.CounterpunchFontDestination = {
+    defaultEditorOrigins: DEFAULT_EDITOR_ORIGINS,
+    register,
+  };
+})();
 ```
 
-The example receiver wraps this in
-`site/counterpunch-font-destination.js`; third-party receivers may copy that
-helper and provide only an `onFont({ bytes, metadata })` callback.
+Third-party receivers may copy this file unchanged and replace only their app
+code. In the example app, `site/app.js` consumes it like this:
+
+```js
+window.CounterpunchFontDestination.register({
+  onFont({ bytes, metadata }) {
+    receiptCount += 1;
+    const receiptDetails = {
+      "Receipt number": receiptCount,
+      "Received at": new Date().toLocaleTimeString(),
+      "Counterpunch change version": metadata.changeVersion ?? "Unavailable",
+      "File name": metadata.filename || "Unavailable",
+      "Byte size": metadata.byteLength || bytes.byteLength,
+    };
+    statusDot.classList.add("received");
+
+    try {
+      const inspection = inspectFont(bytes);
+      statusElement.textContent = metadata.filename || "Font received";
+      renderDetails({
+        ...receiptDetails,
+        "sfnt version": inspection.sfntVersion,
+        "Family name": inspection.familyName,
+        "Full name": inspection.fullName,
+        "Units per em": inspection.unitsPerEm,
+        "Glyph count": inspection.glyphCount,
+        Tables: inspection.tables,
+      });
+    } catch (error) {
+      statusElement.textContent = "Unable to inspect font";
+      renderDetails({
+        ...receiptDetails,
+        Error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+});
+```
 
 ## Efficient Receiver Design
 
