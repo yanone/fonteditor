@@ -25,6 +25,9 @@
             if (destinationUrl) {
                 const destination = new URL(destinationUrl);
                 const destinationOrigin = destination.origin;
+
+                // Reopening a destination should refresh the receiver and its assets,
+                // even when the bridge window itself keeps this same URL.
                 destination.searchParams.set(
                     'counterpunchCacheVersion',
                     Date.now().toString()
