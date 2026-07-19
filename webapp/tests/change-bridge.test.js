@@ -2428,6 +2428,187 @@ describe('Transactions', () => {
         ).toBe(125);
     });
 
+    test('explicit layer snapshot sync emits dependent layer delta despite aliased font JSON', () => {
+        const { bridge, fontJson } = createTestBridge(
+            'explicit-layer-snapshot-sync'
+        );
+        const receiverFontJson = cloneValue(fontJson);
+        const receiverBridge = new ChangeBridge(
+            'explicit-layer-snapshot-receiver'
+        );
+        let lastUpdate = null;
+        let lastEntries = null;
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(bridge.getFullState());
+        bridge.onLocalUpdate((update, _message, changeLogEntries) => {
+            lastUpdate = update;
+            lastEntries = changeLogEntries;
+        });
+        const receiverLayerMap = receiverBridge.fontMap
+            .get('glyphs')
+            .get('B')
+            .get('layers')
+            .get('layer-2');
+        const sourceLayer = fontJson.glyphs[0].layers[0];
+        const dependentLayer = fontJson.glyphs[1].layers[0];
+        const receiverDependentLayer = receiverFontJson.glyphs[1].layers[0];
+        dependentLayer.shapes.push({
+            reference: 'acutecomb',
+            transform: {
+                translation: [118, 83],
+                scale: [1, 1],
+                rotation: 0,
+                skew: [0, 0],
+                order: 'Glyphs'
+            },
+            format_specific: { seed: true }
+        });
+        receiverDependentLayer.shapes.push(
+            cloneValue(dependentLayer.shapes[1])
+        );
+
+        bridge.syncLayersFromJson(
+            [{ glyphName: 'B', layerId: 'layer-2' }],
+            'Seed dependent component'
+        );
+        receiverBridge.applyRemoteUpdate(lastUpdate, lastEntries);
+        const logStart = bridge.getChangeLog().length;
+
+        sourceLayer.shapes[0].nodes[1].y = 760;
+        const dependentSnapshot = JSON.parse(JSON.stringify(dependentLayer));
+        dependentSnapshot.shapes[1].transform.translation = [-122, -32];
+        dependentLayer.shapes[1].transform.translation = [-122, -32];
+
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: sourceLayer
+                },
+                {
+                    glyphName: 'B',
+                    layerId: 'layer-2',
+                    layerJson: dependentSnapshot
+                }
+            ],
+            'Drag point',
+            undefined,
+            undefined,
+            null,
+            [
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'B', layerId: 'layer-2' }
+            ],
+            'mouse-drag-outline',
+            'mouse-drag-outline',
+            'outline'
+        );
+
+        const log = bridge.getChangeLog().slice(logStart);
+        expect(log.map((entry) => entry.path)).toContain(
+            'glyphs.A:layers.layer-1:shapes.0.nodes'
+        );
+        expect(log.map((entry) => entry.path)).toEqual(
+            expect.arrayContaining([
+                'glyphs.B:layers.layer-2:shapes.1.transform.translation.0',
+                'glyphs.B:layers.layer-2:shapes.1.transform.translation.1'
+            ])
+        );
+        expect(
+            cloneValue(
+                getYPath(bridge.fontMap, [
+                    'glyphs',
+                    'B',
+                    'layers',
+                    'layer-2',
+                    'shapes',
+                    1,
+                    'transform',
+                    'translation'
+                ])
+            )
+        ).toEqual([-122, -32]);
+        expect(log.every((entry) => entry.workerReplayTargets.length)).toBe(
+            true
+        );
+        expect(lastEntries).toEqual(log);
+
+        receiverBridge.applyRemoteUpdate(lastUpdate, lastEntries);
+        expect(receiverFontJson.glyphs[0].layers[0].shapes[0].nodes[1].y).toBe(
+            760
+        );
+        expect(
+            receiverFontJson.glyphs[1].layers[0].shapes[1].transform.translation
+        ).toEqual([-122, -32]);
+        expect(
+            receiverBridge.fontMap
+                .get('glyphs')
+                .get('B')
+                .get('layers')
+                .get('layer-2')
+        ).toBe(receiverLayerMap);
+
+        receiverBridge.destroy();
+    });
+
+    test('explicit no-op layer snapshot sync still emits replay metadata update', () => {
+        const { bridge, fontJson } = createTestBridge(
+            'explicit-layer-snapshot-metadata-only'
+        );
+        const layer = fontJson.glyphs[0].layers[0];
+        const localUpdates = [];
+        const workerUpdates = [];
+        bridge.onLocalUpdate((update, _message, changeLogEntries) => {
+            localUpdates.push({ update, changeLogEntries });
+        });
+        bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+            workerUpdates.push({ update, changeLogEntries });
+        });
+
+        const logStart = bridge.getChangeLog().length;
+
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: cloneValue(layer)
+                }
+            ],
+            'Drag point',
+            undefined,
+            undefined,
+            null,
+            [
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'B', layerId: 'layer-2' }
+            ],
+            'mouse-drag-outline',
+            'mouse-drag-outline',
+            'outline'
+        );
+
+        expect(bridge.getChangeLog()).toHaveLength(logStart);
+        expect(localUpdates).toHaveLength(1);
+        expect(workerUpdates).toHaveLength(1);
+        expect(Array.from(localUpdates[0].update)).toEqual([0, 0]);
+        expect(localUpdates[0].changeLogEntries).toEqual([
+            expect.objectContaining({
+                path: 'glyphs.A:layers.layer-1',
+                compileChangeSource: 'mouse-drag-outline',
+                compileEditType: 'outline',
+                workerReplayTargets: [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'B', layerId: 'layer-2' }
+                ]
+            })
+        ]);
+        expect(workerUpdates[0].changeLogEntries).toEqual(
+            localUpdates[0].changeLogEntries
+        );
+    });
+
     test('layer sync point edit stays granular when pruned optional layer keys disappear', () => {
         const { bridge, fontJson } = createTestBridge(
             'granular-layer-sync-pruned'
@@ -4160,6 +4341,75 @@ describe('WindowSync', () => {
         syncA.destroy();
         syncB.destroy();
         syncRx.destroy();
+
+        test('metadata-only no-op layer snapshot broadcasts replay targets to receiver worker', () => {
+            const fontJson1 = makeMinimalFont();
+            const bridge1 = new ChangeBridge('metadata-noop-sender');
+            bridge1.initFromJson(fontJson1);
+
+            const bridge2 = new ChangeBridge('metadata-noop-receiver');
+            bridge2.applyFullState(bridge1.getFullState());
+            bridge2.setFontJson(cloneValue(fontJson1));
+
+            const sync1 = new WindowSync(bridge1, 'font-channel-metadata-noop');
+            const sync2 = new WindowSync(bridge2, 'font-channel-metadata-noop');
+            const receiverWorkerUpdates = [];
+            bridge2.setYjsWorkerCallback((update, changeLogEntries) => {
+                receiverWorkerUpdates.push({ update, changeLogEntries });
+            });
+
+            const receiverLogStart = bridge2.getChangeLog().length;
+
+            bridge1.syncLayerSnapshotsFromJson(
+                [
+                    {
+                        glyphName: 'A',
+                        layerId: 'layer-1',
+                        layerJson: cloneValue(fontJson1.glyphs[0].layers[0])
+                    }
+                ],
+                'Drag point',
+                undefined,
+                undefined,
+                null,
+                [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'B', layerId: 'layer-2' }
+                ],
+                'mouse-drag-outline',
+                'mouse-drag-outline',
+                'outline'
+            );
+
+            flushTimers();
+
+            expect(receiverWorkerUpdates).toHaveLength(1);
+            expect(Array.from(receiverWorkerUpdates[0].update)).toEqual([0, 0]);
+            expect(receiverWorkerUpdates[0].changeLogEntries).toEqual([
+                expect.objectContaining({
+                    path: 'glyphs.A:layers.layer-1',
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' },
+                        { glyphName: 'B', layerId: 'layer-2' }
+                    ]
+                })
+            ]);
+            expect(bridge2.getChangeLog()).toHaveLength(receiverLogStart + 1);
+            expect(
+                getYPath(bridge2.fontMap, [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'width'
+                ])
+            ).toBe(600);
+
+            sync1.destroy();
+            sync2.destroy();
+            bridge1.destroy();
+            bridge2.destroy();
+        });
         bridgeA.destroy();
         bridgeB.destroy();
         receiver.destroy();

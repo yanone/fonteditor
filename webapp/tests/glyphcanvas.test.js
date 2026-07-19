@@ -5,6 +5,8 @@ const {
     Layer,
     DecomposedAffineTransform
 } = require('../js/babelfont-model');
+const { PatchSyncEngine } = require('../js/patch-sync-engine');
+const { yDocToJson } = require('../js/change-bridge-ydoc');
 const fontManager = require('../js/font-manager').default;
 const { fontInterpolation } = require('../js/font-interpolation');
 const {
@@ -80,6 +82,160 @@ function createDefaultInterpolatedLayer(location = {}) {
         _verticalMetrics: {},
         _interpolationLocation: { ...location }
     };
+}
+
+const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
+
+function makeAutomaticAnchorCascadeFont() {
+    return {
+        upm: 1000,
+        version: [1, 0],
+        names: { family_name: { en: 'Automatic Anchor Cascade' } },
+        axes: [],
+        masters: [
+            {
+                id: 'layer-1',
+                name: { en: 'Regular' },
+                location: {},
+                guides: [],
+                metrics: {},
+                kerning: {},
+                custom_ot_values: {},
+                format_specific: {}
+            }
+        ],
+        instances: [],
+        glyphs: [
+            {
+                name: 'a',
+                production_name: 'a',
+                category: 'Base',
+                codepoints: [97],
+                exported: true,
+                layers: [
+                    {
+                        id: 'layer-1',
+                        width: 600,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'layer-1'
+                        },
+                        shapes: [
+                            {
+                                nodes: [
+                                    { type: 'l', x: 100, y: 0 },
+                                    { type: 'l', x: 300, y: 500 },
+                                    { type: 'l', x: 500, y: 0 }
+                                ],
+                                closed: true
+                            }
+                        ],
+                        anchors: [{ name: 'top', x: 300, y: 720 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'dieresiscomb',
+                production_name: 'dieresiscomb',
+                category: 'Mark',
+                codepoints: [776],
+                exported: true,
+                layers: [
+                    {
+                        id: 'layer-1',
+                        width: 300,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'layer-1'
+                        },
+                        shapes: [
+                            {
+                                nodes: [
+                                    { type: 'l', x: 80, y: 0 },
+                                    { type: 'l', x: 150, y: 80 },
+                                    { type: 'l', x: 220, y: 0 }
+                                ],
+                                closed: true
+                            }
+                        ],
+                        anchors: [{ name: '_top', x: 150, y: 0 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'adieresis',
+                production_name: 'adieresis',
+                category: 'Base',
+                codepoints: [228],
+                exported: true,
+                layers: [
+                    {
+                        id: 'layer-1',
+                        width: 600,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'layer-1'
+                        },
+                        shapes: [
+                            {
+                                reference: 'a',
+                                transform: {
+                                    translation: [0, 0],
+                                    scale: [1, 1],
+                                    rotation: 0,
+                                    skew: [0, 0],
+                                    order: 'RestOfTheWorld'
+                                },
+                                format_specific: {
+                                    [GLYPHS_COMPONENT_ALIGNMENT_KEY]: 1
+                                }
+                            },
+                            {
+                                reference: 'dieresiscomb',
+                                transform: {
+                                    translation: [150, 720],
+                                    scale: [1, 1],
+                                    rotation: 0,
+                                    skew: [0, 0],
+                                    order: 'RestOfTheWorld'
+                                },
+                                format_specific: {
+                                    [GLYPHS_COMPONENT_ALIGNMENT_KEY]: 1
+                                }
+                            }
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            }
+        ],
+        features: { classes: {}, prefixes: {}, features: [] },
+        format_specific: {}
+    };
+}
+
+function getLayerFromFontJson(fontJson, glyphName, layerId = 'layer-1') {
+    const glyph = fontJson.glyphs.find((entry) => entry.name === glyphName);
+    return glyph?.layers.find((layer) => layer.id === layerId);
+}
+
+function getComponentTranslation(layer, reference) {
+    const component = layer.shapes.find(
+        (shape) => shape.reference === reference
+    );
+    const transform = component?.transform;
+    return Array.isArray(transform)
+        ? [transform[4], transform[5]]
+        : transform?.translation;
 }
 
 let defaultInterpolateGlyphSpy;
@@ -10119,13 +10275,13 @@ describe('GlyphCanvas anchor movement', () => {
                     shapes: []
                 };
             });
-        const syncLayersFromJson = jest.fn();
+        const syncLayerSnapshotsFromJson = jest.fn();
         currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue(currentFont);
 
         window.patchSyncEngine = {
-            syncLayersFromJson,
+            syncLayerSnapshotsFromJson,
             syncGlyphFromJson: jest.fn(),
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
@@ -10178,10 +10334,20 @@ describe('GlyphCanvas anchor movement', () => {
             expect(
                 currentFont.babelfontData.glyphs[1].layers[0].shapes
             ).not.toEqual(staleStoredShapes);
-            expect(syncLayersFromJson).toHaveBeenCalledWith(
+            expect(syncLayerSnapshotsFromJson).toHaveBeenCalledWith(
                 [
-                    { glyphName: 'a', layerId: 'layer-1' },
-                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                    expect.objectContaining({
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        layerJson: expect.objectContaining({
+                            id: 'layer-1'
+                        })
+                    }),
+                    expect.objectContaining({
+                        glyphName: 'adieresis',
+                        layerId: 'layer-1',
+                        layerJson: serializedDependentLayer
+                    })
                 ],
                 'Drag anchor',
                 undefined,
@@ -10201,9 +10367,140 @@ describe('GlyphCanvas anchor movement', () => {
         }
     });
 
+    test('all-automatic adieresis keeps recomposed mark placement after dragging a top anchor', () => {
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const fontData = makeAutomaticAnchorCascadeFont();
+        const bridge = new PatchSyncEngine('automatic-adieresis-anchor-drag');
+        bridge.initFromJson(fontData);
+        const currentFont = {
+            babelfontData: fontData,
+            babelfontJson: JSON.stringify(fontData),
+            fontModel: Font.fromData(fontData),
+            syncJsonFromModel() {
+                this.babelfontJson = this.fontModel.toJSONString();
+            }
+        };
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+
+        window.patchSyncEngine = bridge;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = getLayerFromFontJson(
+            currentFont.babelfontData,
+            'a'
+        );
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'a' }
+        ]);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        let step = 'start';
+
+        try {
+            step = 'assert automatic layer';
+            const adieresisLayerModel = currentFont.fontModel
+                .findGlyph('adieresis')
+                .findLayerById('layer-1');
+            expect(adieresisLayerModel.isAutomaticAlignedLayer()).toBe(true);
+
+            step = 'capture original adieresis placement';
+            const originalAdieresisLayer = getLayerFromFontJson(
+                currentFont.babelfontData,
+                'adieresis'
+            );
+            const originalMarkTranslation = getComponentTranslation(
+                originalAdieresisLayer,
+                'dieresiscomb'
+            );
+
+            step = 'move selected top anchor';
+            expect(canvas.outlineEditor.moveSelectedAnchors(0, 80)).toBe(true);
+            expect(canvas.outlineEditor._anchorAffectedGlyphNames).toEqual(
+                new Set(['a', 'adieresis'])
+            );
+
+            step = 'read live adieresis placement';
+            const liveAdieresisLayer = currentFont.fontModel
+                .findGlyph('adieresis')
+                .findLayerById('layer-1')
+                .toJSON();
+            const liveMarkTranslation = getComponentTranslation(
+                liveAdieresisLayer,
+                'dieresiscomb'
+            );
+            expect(liveMarkTranslation).toEqual([150, 800]);
+            expect(liveMarkTranslation).not.toEqual(originalMarkTranslation);
+
+            step = 'rebuild and sync model json';
+            canvas.outlineEditor._anchorAffectedGlyphNames =
+                canvas.outlineEditor.rebuildAutomaticCompositesForCurrentEditedGlyph();
+            currentFont.syncJsonFromModel();
+
+            step = 'compute recomposition closure';
+            const sourceTarget = [{ glyphName: 'a', layerId: 'layer-1' }];
+            const closure = canvas.outlineEditor.computeRecompositionClosure({
+                sourceTargets: sourceTarget,
+                editKinds: new Set(['anchor']),
+                scope: 'all'
+            });
+            const replayTargets =
+                closure.allTargets.length > 0
+                    ? closure.allTargets
+                    : sourceTarget;
+
+            step = 'commit current glyph to ydoc';
+            canvas.outlineEditor._syncCurrentGlyphToYDoc(
+                'Drag anchor',
+                undefined,
+                undefined,
+                null,
+                {
+                    changedLayerTargets: replayTargets,
+                    workerReplayTargets: replayTargets
+                },
+                {
+                    editSource: 'mouse-drag-anchor',
+                    changeSource: 'mouse-drag-anchor',
+                    editType: 'anchor'
+                }
+            );
+
+            step = 'assert local committed adieresis placement';
+            const committedAdieresisLayer = getLayerFromFontJson(
+                currentFont.babelfontData,
+                'adieresis'
+            );
+            expect(
+                getComponentTranslation(committedAdieresisLayer, 'dieresiscomb')
+            ).toEqual(liveMarkTranslation);
+            expect(
+                getComponentTranslation(committedAdieresisLayer, 'dieresiscomb')
+            ).not.toEqual(originalMarkTranslation);
+
+            step = 'assert ydoc committed adieresis placement';
+            const yDocAdieresisLayer = getLayerFromFontJson(
+                yDocToJson(bridge.fontMap),
+                'adieresis'
+            );
+            expect(
+                getComponentTranslation(yDocAdieresisLayer, 'dieresiscomb')
+            ).toEqual(liveMarkTranslation);
+            expect(
+                getComponentTranslation(yDocAdieresisLayer, 'dieresiscomb')
+            ).not.toEqual(originalMarkTranslation);
+        } catch (error) {
+            throw new Error(
+                `automatic adieresis anchor-drag regression failed during ${step}: ${error.message}`
+            );
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+        }
+    });
+
     test('synces only direct layer JSON while preserving broader replay metadata', () => {
         const originalPatchSyncEngine = window.patchSyncEngine;
-        const syncLayersFromJson = jest.fn();
+        const syncLayerSnapshotsFromJson = jest.fn();
         currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue({
@@ -10234,12 +10531,29 @@ describe('GlyphCanvas anchor movement', () => {
                     ]
                 },
                 fontModel: {
-                    findGlyph: jest.fn(() => null)
+                    findGlyph: jest.fn((glyphName) =>
+                        glyphName === 'a'
+                            ? {
+                                  findLayerById: jest.fn((layerId) =>
+                                      layerId === 'layer-1'
+                                          ? {
+                                                toJSON: jest.fn(() => ({
+                                                    id: 'layer-1',
+                                                    width: 500,
+                                                    shapes: [],
+                                                    anchors: []
+                                                }))
+                                            }
+                                          : null
+                                  )
+                              }
+                            : null
+                    )
                 }
             });
 
         window.patchSyncEngine = {
-            syncLayersFromJson,
+            syncLayerSnapshotsFromJson,
             syncGlyphFromJson: jest.fn(),
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
@@ -10275,8 +10589,19 @@ describe('GlyphCanvas anchor movement', () => {
                 }
             );
 
-            expect(syncLayersFromJson).toHaveBeenCalledWith(
-                [{ glyphName: 'a', layerId: 'layer-1' }],
+            expect(syncLayerSnapshotsFromJson).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        layerJson: expect.objectContaining({
+                            id: 'layer-1',
+                            width: 500,
+                            shapes: [],
+                            anchors: []
+                        })
+                    })
+                ],
                 'Drag point',
                 undefined,
                 undefined,
@@ -10435,7 +10760,7 @@ describe('GlyphCanvas anchor movement', () => {
             });
 
         window.patchSyncEngine = {
-            syncLayersFromJson,
+            syncLayerSnapshotsFromJson: syncLayersFromJson,
             syncGlyphFromJson: jest.fn(),
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
@@ -10456,8 +10781,22 @@ describe('GlyphCanvas anchor movement', () => {
 
             expect(syncLayersFromJson).toHaveBeenCalledWith(
                 [
-                    { glyphName: 'a', layerId: 'layer-1' },
-                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                    expect.objectContaining({
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        layerJson: expect.objectContaining({
+                            id: 'layer-1',
+                            width: 500
+                        })
+                    }),
+                    expect.objectContaining({
+                        glyphName: 'adieresis',
+                        layerId: 'layer-1',
+                        layerJson: expect.objectContaining({
+                            id: 'layer-1',
+                            width: 600
+                        })
+                    })
                 ],
                 'Arrow key',
                 undefined,

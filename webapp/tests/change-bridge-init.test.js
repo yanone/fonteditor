@@ -2872,7 +2872,7 @@ describe('bridge Yjs worker callback', () => {
         );
     });
 
-    test('outline edit forwards with invalidateLayoutClosure false and non-empty changedGlyphs', async () => {
+    test('source-only outline edit forwards without invalidating layout closure', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
@@ -2902,6 +2902,8 @@ describe('bridge Yjs worker callback', () => {
         bridge._yjsWorkerCallback(new Uint8Array([7, 7]), [
             {
                 path: 'glyphs.A.layers.layer-1.shapes.0.nodes.0.x',
+                compileChangeSource: 'mouse-drag-outline',
+                compileEditType: 'outline',
                 workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
             }
         ]);
@@ -2922,6 +2924,71 @@ describe('bridge Yjs worker callback', () => {
                 type: 'applyYjsUpdate',
                 changedGlyphs: ['A'],
                 layerTargets: [{ glyphName: 'A', layerId: 'layer-1' }],
+                invalidateLayoutClosure: false
+            })
+        );
+    });
+
+    test('outline edit with dependent replay targets preserves layout closure while forwarding targets', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+        const hasWorkerCacheDocumentSpy = jest
+            .spyOn(fullFontCompilation, 'hasWorkerCacheDocument')
+            .mockReturnValue(true);
+        const fullWorkerUpdateSpy = jest
+            .spyOn(fullFontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = {
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const bridge = initializeBridgeHarness();
+        workerSeedSpy.mockClear();
+        fullWorkerUpdateSpy.mockClear();
+
+        bridge._yjsWorkerCallback(new Uint8Array([7, 9]), [
+            {
+                path: 'glyphs.a.layers.layer-1.shapes.0.nodes',
+                compileChangeSource: 'mouse-drag-outline',
+                compileEditType: 'outline',
+                workerReplayTargets: [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ]
+            }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            ['a'],
+            expect.objectContaining({
+                invalidateLayoutClosure: false,
+                layerTargets: [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ]
+            })
+        );
+        expect(hasWorkerCacheDocumentSpy).toHaveBeenCalled();
+        expect(fullWorkerUpdateSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                changedGlyphs: ['a'],
+                layerTargets: [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ],
                 invalidateLayoutClosure: false
             })
         );
@@ -3540,6 +3607,22 @@ describe('shouldInvalidateLayoutClosureForCommittedEntries', () => {
         const result =
             changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
                 { path: 'glyphs.A.layers.layer-1.shapes.0.nodes.0.x' }
+            ]);
+        expect(result).toBe(false);
+    });
+
+    test('returns false for outline edits with dependent replay targets', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                {
+                    path: 'glyphs.a.layers.layer-1.shapes.0.nodes',
+                    compileChangeSource: 'mouse-drag-outline',
+                    compileEditType: 'outline',
+                    workerReplayTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' },
+                        { glyphName: 'adieresis', layerId: 'layer-1' }
+                    ]
+                }
             ]);
         expect(result).toBe(false);
     });

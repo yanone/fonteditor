@@ -18113,13 +18113,12 @@ export class OutlineEditor {
      *   2. Called saveLayerData() to persist to the model and babelfontData
      *   3. Computed the recomposition closure via computeRecompositionClosure()
      *
-     * This method receives the pre-computed closure targets, merges
-     * dependent model layers into babelfontData so the bridge sees current
-     * data for all targets, then commits the full set to Yjs via
-     * syncLayersFromJson.  The complete closure (allTargets) is stamped
-     * as workerReplayTargets metadata on every change-log entry so the
-     * Rust worker refreshes the subset/font/filter cache for every
-     * affected glyph, not just the ones whose Yjs data changed.
+     * This method receives the pre-computed closure targets, collects explicit
+     * next-layer snapshots for every changed target, then commits those
+     * snapshots to Yjs.  The complete closure (allTargets) is stamped as
+     * workerReplayTargets metadata on every change-log entry so the Rust worker
+     * refreshes the subset/font/filter cache for every affected glyph, not just
+     * the ones whose Yjs data changed.
      *
      * @param label        Human-readable edit label for the history view.
      * @param oldValue     Previous state description for undo/redo display.
@@ -18183,77 +18182,81 @@ export class OutlineEditor {
 
         if (
             changedLayerTargets.length &&
-            typeof window.patchSyncEngine.syncLayersFromJson === 'function'
+            typeof window.patchSyncEngine.syncLayerSnapshotsFromJson ===
+                'function'
         ) {
-            // SaveLayerData repointed the bridge snapshot (babelfontData) with
-            // only the directly edited layer.  Cascade-affected downstream layers
-            // were updated in the font model but NOT in babelfontData.  Merge
-            // those downstream layers into babelfontData now so the bridge's
-            // syncLayersFromJson delta computation sees current data for ALL
-            // targets and generates correct Yjs patches for every affected layer.
-            // Without this merge, syncLayersFromJson compares stale
-            // babelfontData against Yjs, sees no diff for downstream layers,
-            // and silently drops the cascade — breaking undo, collaboration,
-            // and subsequent worker-cache-right compiles.
+            const layerSnapshots: Array<{
+                glyphName: string;
+                layerId: string;
+                layerJson: unknown;
+            }> = [];
             const fontModel = fontManager.currentFont?.fontModel;
+            const storedGlyphs = fontManager.currentFont?.babelfontData?.glyphs;
             if (fontModel) {
                 for (const target of changedLayerTargets) {
-                    if (
-                        target.glyphName === editedGlyphName &&
-                        target.layerId === activeLayerId
-                    ) {
-                        continue; // Already saved by saveLayerData
-                    }
                     const modelGlyph = fontModel.findGlyph(target.glyphName);
                     const modelLayer = modelGlyph?.findLayerById?.(
                         target.layerId
                     );
                     if (!modelLayer) continue;
-                    const storedGlyph =
-                        fontManager.currentFont?.babelfontData?.glyphs?.find(
-                            (g: any) => g.name === target.glyphName
-                        );
-                    if (!storedGlyph) continue;
-                    const storedLayerIndex = storedGlyph.layers?.findIndex(
-                        (l: any) => l.id === target.layerId
-                    );
-                    if (
-                        storedLayerIndex === undefined ||
-                        storedLayerIndex < 0
-                    ) {
-                        continue;
-                    }
+                    const modelLayerJson =
+                        typeof modelLayer.toJSON === 'function'
+                            ? modelLayer.toJSON()
+                            : modelLayer;
                     const serializedLayer =
                         fontManager.serializeLayerForCommittedSync(
                             target.glyphName,
                             target.layerId,
-                            modelLayer.toJSON()
+                            modelLayerJson
                         );
                     if (!serializedLayer) {
                         continue;
                     }
-                    storedGlyph.layers[storedLayerIndex] = serializedLayer;
+                    const storedGlyph = Array.isArray(storedGlyphs)
+                        ? storedGlyphs.find(
+                              (glyph: any) => glyph?.name === target.glyphName
+                          )
+                        : null;
+                    const storedLayers = storedGlyph?.layers;
+                    const storedLayerIndex = Array.isArray(storedLayers)
+                        ? storedLayers.findIndex(
+                              (layer: any) => layer?.id === target.layerId
+                          )
+                        : -1;
+                    if (storedLayerIndex < 0) {
+                        throw new Error(
+                            `[OutlineEditor] Missing stored layer ${target.glyphName}/${target.layerId} for committed layer snapshot sync.`
+                        );
+                    }
+                    storedLayers[storedLayerIndex] = serializedLayer;
+                    layerSnapshots.push({
+                        glyphName: target.glyphName,
+                        layerId: target.layerId,
+                        layerJson: serializedLayer
+                    });
                 }
             }
 
-            // Diff only the layers whose committed JSON actually changed.
-            // Replay targets stay metadata-only so downstream caches can still
-            // refresh broader dependent glyph closures without widening the
-            // authoritative Yjs mutation set.
-            window.patchSyncEngine.syncLayersFromJson(
-                changedLayerTargets,
-                label,
-                oldValue,
-                newValue,
-                visualAnchorSide,
-                replayTargets,
-                compileMetadata?.editSource ??
-                    compileMetadata?.changeSource ??
-                    null,
-                compileMetadata?.changeSource ?? null,
-                compileMetadata?.editType ?? null
-            );
-            return;
+            if (layerSnapshots.length) {
+                // Diff only the layers whose committed JSON actually changed.
+                // Replay targets stay metadata-only so downstream caches can still
+                // refresh broader dependent glyph closures without widening the
+                // authoritative Yjs mutation set.
+                window.patchSyncEngine.syncLayerSnapshotsFromJson(
+                    layerSnapshots,
+                    label,
+                    oldValue,
+                    newValue,
+                    visualAnchorSide,
+                    replayTargets,
+                    compileMetadata?.editSource ??
+                        compileMetadata?.changeSource ??
+                        null,
+                    compileMetadata?.changeSource ?? null,
+                    compileMetadata?.editType ?? null
+                );
+                return;
+            }
         }
 
         window.patchSyncEngine.syncGlyphFromJson(

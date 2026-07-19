@@ -66,6 +66,10 @@ const console = new Logger('PatchSyncEngine');
 type Unsafe = ReturnType<typeof JSON.parse>;
 type YjsUpdate = Uint8Array<ArrayBufferLike>;
 
+type LayerSnapshotSyncTarget = WorkerReplayTarget & {
+    layerJson: unknown;
+};
+
 export type { ChangeLogEntry } from './change-log';
 
 export type LocalUpdateListener = (
@@ -1288,85 +1292,24 @@ export class PatchSyncEngine {
             const storageLayerJson = this._encodeNodeArraysForStorage(
                 layerJson
             ) as Record<string, unknown>;
-
-            const yLayerMap = layersMap.get(layerId);
-            // Build a delta: diff _fontJson layer against current Y.Doc state.
-            // For layers not yet in Yjs (e.g. newly added master) the old state
-            // is null — all fields are included and _applyLayerDelta will create
-            // the entry from scratch.  For existing layers only changed fields
-            // are included (sparse delta).
-            const yLayerJson = yLayerMap ? fromYType(yLayerMap) : null;
-            if (!yLayerJson) {
-                operations.push({
-                    op: 'set' as ChangeOp,
-                    path: ['glyphs', glyphName, 'layers', layerId],
-                    oldValue: null,
-                    newValue: cloneHistoryValue(storageLayerJson),
-                    editSource: editSource ?? compileChangeSource ?? null,
-                    compileChangeSource,
-                    compileEditType,
-                    visualAnchorSide,
-                    workerReplayTargets,
-                    applyPath: ['glyphs', glyphName, 'layers', layerId],
-                    applyNewValue: storageLayerJson,
-                    applyMode: 'layer-snapshot' as BatchApplyMode
-                });
-                continue;
-            }
-
-            const previousLayer = yLayerJson as Record<string, unknown>;
-            if (
-                this._shouldUseGranularSingleLayerSync(
+            operations.push(
+                ...this._buildLayerSyncOperations(
                     glyphName,
                     layerId,
-                    previousLayer,
-                    storageLayerJson
+                    layersMap,
+                    storageLayerJson,
+                    label,
+                    oldValue,
+                    newValue,
+                    {
+                        editSource: editSource ?? compileChangeSource ?? null,
+                        compileChangeSource,
+                        compileEditType,
+                        visualAnchorSide,
+                        workerReplayTargets
+                    }
                 )
-            ) {
-                this._adoptIndexedLayerIds(previousLayer, storageLayerJson);
-                operations.push(
-                    ...this._buildGranularLayerSyncOperations(
-                        glyphName,
-                        layerId,
-                        previousLayer,
-                        storageLayerJson,
-                        {
-                            editSource:
-                                editSource ?? compileChangeSource ?? null,
-                            compileChangeSource,
-                            compileEditType,
-                            visualAnchorSide,
-                            workerReplayTargets
-                        }
-                    )
-                );
-                continue;
-            }
-
-            const sparseLayerDelta = this._buildSparseLayerDelta(
-                previousLayer,
-                storageLayerJson,
-                layerId
             );
-            if (!sparseLayerDelta) {
-                continue;
-            }
-
-            operations.push({
-                op: 'set' as ChangeOp,
-                path: ['glyphs', glyphName, 'layers', layerId],
-                oldValue: oldValue ?? glyphName,
-                newValue: newValue ?? label,
-                editSource: editSource ?? compileChangeSource ?? null,
-                compileChangeSource,
-                compileEditType,
-                visualAnchorSide,
-                workerReplayTargets,
-                applyPath: ['glyphs', glyphName, 'layers', layerId],
-                applyOldValue: sparseLayerDelta.oldValues,
-                applyNewValue: sparseLayerDelta.delta,
-                applyMode: 'layer-snapshot' as BatchApplyMode
-            });
         }
 
         if (!operations.length) {
@@ -1380,6 +1323,255 @@ export class PatchSyncEngine {
                 .map((target) => `${target.glyphName}/${target.layerId}`)
                 .join(', ')} (${label}) [batched fast path]`
         );
+    }
+
+    /**
+     * Sync explicit changed-layer snapshots into Y.Doc in one transaction.
+     * Use this when the caller already has committed next-layer JSON and the
+     * bridge's shared `_fontJson` reference may alias mutable editor storage.
+     */
+    syncLayerSnapshotsFromJson(
+        layerTargets: LayerSnapshotSyncTarget[],
+        label: string,
+        oldValue?: string,
+        newValue?: string,
+        visualAnchorSide?: 'left' | 'right' | null,
+        workerReplayTargets?: WorkerReplayTarget[],
+        editSource?: string | null,
+        compileChangeSource?: string | null,
+        compileEditType?: string | null
+    ): void {
+        if (this._suppressRecording || this._isSyncing) {
+            return;
+        }
+
+        const uniqueTargets: LayerSnapshotSyncTarget[] = [];
+        const seenTargets = new Set<string>();
+        for (const target of layerTargets) {
+            if (!target.glyphName || !target.layerId || !target.layerJson) {
+                continue;
+            }
+            const key = `${target.glyphName}@@${target.layerId}`;
+            if (seenTargets.has(key)) {
+                continue;
+            }
+            seenTargets.add(key);
+            uniqueTargets.push(target);
+        }
+
+        if (!uniqueTargets.length) {
+            return;
+        }
+
+        const glyphsMap = this.fontMap.get('glyphs') as
+            Y.Map<unknown> | undefined;
+        if (!glyphsMap) {
+            return;
+        }
+
+        const operations: TransactionBufferedOperation[] = [];
+        for (const { glyphName, layerId, layerJson } of uniqueTargets) {
+            const glyphMap = glyphsMap.get(glyphName) as
+                Y.Map<unknown> | undefined;
+            if (!glyphMap) {
+                continue;
+            }
+
+            const layersMap = glyphMap.get('layers') as
+                Y.Map<unknown> | undefined;
+            if (!layersMap) {
+                continue;
+            }
+
+            const storageLayerJson = this._encodeNodeArraysForStorage(
+                layerJson
+            ) as Record<string, unknown>;
+            operations.push(
+                ...this._buildLayerSyncOperations(
+                    glyphName,
+                    layerId,
+                    layersMap,
+                    storageLayerJson,
+                    label,
+                    oldValue,
+                    newValue,
+                    {
+                        editSource: editSource ?? compileChangeSource ?? null,
+                        compileChangeSource,
+                        compileEditType,
+                        visualAnchorSide,
+                        workerReplayTargets
+                    }
+                )
+            );
+        }
+
+        if (!operations.length) {
+            this._emitMetadataOnlyLayerSnapshotUpdate(
+                uniqueTargets,
+                label,
+                oldValue,
+                newValue,
+                visualAnchorSide,
+                workerReplayTargets,
+                editSource,
+                compileChangeSource,
+                compileEditType
+            );
+            return;
+        }
+
+        const wasInTransaction = this._txDepth > 0;
+        const commitResult = this._queueOrCommitOperations(operations, label);
+        if (!wasInTransaction && !commitResult) {
+            this._emitMetadataOnlyLayerSnapshotUpdate(
+                uniqueTargets,
+                label,
+                oldValue,
+                newValue,
+                visualAnchorSide,
+                workerReplayTargets,
+                editSource,
+                compileChangeSource,
+                compileEditType
+            );
+            return;
+        }
+
+        console.log(
+            `Layer snapshot sync committed for ${uniqueTargets
+                .map((target) => `${target.glyphName}/${target.layerId}`)
+                .join(', ')} (${label}) [batched fast path]`
+        );
+    }
+
+    private _emitMetadataOnlyLayerSnapshotUpdate(
+        uniqueTargets: LayerSnapshotSyncTarget[],
+        label: string,
+        oldValue: string | undefined,
+        newValue: string | undefined,
+        visualAnchorSide: 'left' | 'right' | null | undefined,
+        workerReplayTargets: WorkerReplayTarget[] | undefined,
+        editSource: string | null | undefined,
+        compileChangeSource: string | null | undefined,
+        compileEditType: string | null | undefined
+    ): void {
+        const normalizedReplayTargets =
+            normalizeWorkerReplayTargets(workerReplayTargets);
+        if (!normalizedReplayTargets.length) {
+            return;
+        }
+
+        const update = Y.encodeStateAsUpdate(
+            this.yDoc,
+            Y.encodeStateVector(this.yDoc)
+        );
+        const timestamp = Date.now();
+        const historyItemId = this._createHistoryItemId();
+        const changeLogEntries = uniqueTargets.map((target) =>
+            createLogEntry({
+                timestamp,
+                windowId: this.windowId,
+                windowRoleLabel: this._getWindowRoleLabel(),
+                historyItemId,
+                historyAction: 'change',
+                transactionLabel: label,
+                transactionId: null,
+                op: 'set',
+                path: `glyphs.${target.glyphName}:layers.${target.layerId}`,
+                oldValue: oldValue ?? target.glyphName,
+                newValue: newValue ?? label,
+                replayOldValue: undefined,
+                replayNewValue: undefined,
+                editSource: editSource ?? compileChangeSource ?? null,
+                compileChangeSource: compileChangeSource ?? null,
+                compileEditType: compileEditType ?? null,
+                visualAnchorSide: visualAnchorSide ?? null,
+                workerReplayTargets: normalizedReplayTargets
+            })
+        );
+
+        this._lastLocalUpdateLogIndex = this._changeLog.length;
+        this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
+        this._emitLocalUpdate(update, changeLogEntries);
+    }
+
+    private _buildLayerSyncOperations(
+        glyphName: string,
+        layerId: string,
+        layersMap: Y.Map<unknown>,
+        storageLayerJson: Record<string, unknown>,
+        label: string,
+        oldValue: string | undefined,
+        newValue: string | undefined,
+        metadata: LayerSyncMetadata
+    ): TransactionBufferedOperation[] {
+        const yLayerMap = layersMap.get(layerId);
+        const yLayerJson = yLayerMap ? fromYType(yLayerMap) : null;
+        if (!yLayerJson) {
+            return [
+                {
+                    op: 'set' as ChangeOp,
+                    path: ['glyphs', glyphName, 'layers', layerId],
+                    oldValue: null,
+                    newValue: cloneHistoryValue(storageLayerJson),
+                    editSource: metadata.editSource,
+                    compileChangeSource: metadata.compileChangeSource,
+                    compileEditType: metadata.compileEditType,
+                    visualAnchorSide: metadata.visualAnchorSide,
+                    workerReplayTargets: metadata.workerReplayTargets,
+                    applyPath: ['glyphs', glyphName, 'layers', layerId],
+                    applyNewValue: storageLayerJson,
+                    applyMode: 'layer-snapshot' as BatchApplyMode
+                }
+            ];
+        }
+
+        const previousLayer = yLayerJson as Record<string, unknown>;
+        if (
+            this._shouldUseGranularSingleLayerSync(
+                glyphName,
+                layerId,
+                previousLayer,
+                storageLayerJson
+            )
+        ) {
+            this._adoptIndexedLayerIds(previousLayer, storageLayerJson);
+            return this._buildGranularLayerSyncOperations(
+                glyphName,
+                layerId,
+                previousLayer,
+                storageLayerJson,
+                metadata
+            );
+        }
+
+        const sparseLayerDelta = this._buildSparseLayerDelta(
+            previousLayer,
+            storageLayerJson,
+            layerId
+        );
+        if (!sparseLayerDelta) {
+            return [];
+        }
+
+        return [
+            {
+                op: 'set' as ChangeOp,
+                path: ['glyphs', glyphName, 'layers', layerId],
+                oldValue: oldValue ?? glyphName,
+                newValue: newValue ?? label,
+                editSource: metadata.editSource,
+                compileChangeSource: metadata.compileChangeSource,
+                compileEditType: metadata.compileEditType,
+                visualAnchorSide: metadata.visualAnchorSide,
+                workerReplayTargets: metadata.workerReplayTargets,
+                applyPath: ['glyphs', glyphName, 'layers', layerId],
+                applyOldValue: sparseLayerDelta.oldValues,
+                applyNewValue: sparseLayerDelta.delta,
+                applyMode: 'layer-snapshot' as BatchApplyMode
+            }
+        ];
     }
 
     private _buildGranularLayerSyncOperations(
@@ -1976,75 +2168,27 @@ export class PatchSyncEngine {
         const storageLayerJson = this._encodeNodeArraysForStorage(
             layerJson
         ) as Record<string, unknown>;
-
-        const yLayerJson = fromYType(yLayerMap);
-        const previousLayer = yLayerJson as Record<string, unknown>;
-
-        if (
-            this._shouldUseGranularSingleLayerSync(
-                glyphName,
-                layerId,
-                previousLayer,
-                storageLayerJson
-            )
-        ) {
-            this._adoptIndexedLayerIds(previousLayer, storageLayerJson);
-
-            const operations = this._buildGranularLayerSyncOperations(
-                glyphName,
-                layerId,
-                previousLayer,
-                storageLayerJson,
-                {
-                    editSource: editSource ?? compileChangeSource ?? null,
-                    compileChangeSource,
-                    compileEditType,
-                    visualAnchorSide,
-                    workerReplayTargets
-                }
-            );
-
-            if (!operations.length) {
-                return false;
-            }
-
-            this._queueOrCommitOperations(operations, label);
-
-            console.log(
-                `Glyph sync committed for ${glyphName} layer ${layerId} (${label}) [fast path]`
-            );
-            return true;
-        }
-
-        const sparseLayerDelta = this._buildSparseLayerDelta(
-            previousLayer,
+        const operations = this._buildLayerSyncOperations(
+            glyphName,
+            layerId,
+            layersMap,
             storageLayerJson,
-            layerId
+            label,
+            oldValue,
+            newValue,
+            {
+                editSource: editSource ?? compileChangeSource ?? null,
+                compileChangeSource,
+                compileEditType,
+                visualAnchorSide,
+                workerReplayTargets
+            }
         );
-        if (!sparseLayerDelta) {
+        if (!operations.length) {
             return false;
         }
 
-        this._queueOrCommitOperations(
-            [
-                {
-                    op: 'set' as ChangeOp,
-                    path: ['glyphs', glyphName, 'layers', layerId],
-                    oldValue: oldValue ?? glyphName,
-                    newValue: newValue ?? label,
-                    editSource: editSource ?? compileChangeSource ?? null,
-                    compileChangeSource,
-                    compileEditType,
-                    visualAnchorSide,
-                    workerReplayTargets,
-                    applyPath: ['glyphs', glyphName, 'layers', layerId],
-                    applyOldValue: sparseLayerDelta.oldValues,
-                    applyNewValue: sparseLayerDelta.delta,
-                    applyMode: 'layer-snapshot'
-                }
-            ],
-            label
-        );
+        this._queueOrCommitOperations(operations, label);
 
         console.log(
             `Glyph sync committed for ${glyphName} layer ${layerId} (${label}) [fast path]`
@@ -3891,6 +4035,18 @@ export class PatchSyncEngine {
             this._lastLocalUpdateLogIndex = this._changeLog.length;
             if (exactCommitUpdate.length > 0) {
                 this._emitLocalUpdate(exactCommitUpdate, changeLogEntries);
+            } else if (
+                changeLogEntries.some(
+                    (entry) => entry.workerReplayTargets.length > 0
+                )
+            ) {
+                this._emitLocalUpdate(
+                    Y.encodeStateAsUpdate(
+                        this.yDoc,
+                        Y.encodeStateVector(this.yDoc)
+                    ),
+                    changeLogEntries
+                );
             }
         }
 
