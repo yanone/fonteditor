@@ -13,6 +13,7 @@
 
 import type { Babelfont } from './babelfont';
 import { setYPath } from './change-bridge-ydoc';
+import { parseNodeString, serializeNodeArray } from './node-encoding';
 
 /**
  * Generate a stable unique identifier for CRDT addressing.
@@ -34,6 +35,45 @@ function ensureNodeId(node: { id?: string }): string {
         node.id = generateStableId();
     }
     return node.id;
+}
+
+function parseRuntimeNodeArray(nodes: unknown): Babelfont.Node[] {
+    return parseNodeString(nodes).map((node) => ({
+        ...(node as unknown as Babelfont.Node)
+    }));
+}
+
+function decodeShapeNodesForRuntime(shapes: Unsafe[]): Unsafe[] {
+    let changed = false;
+    const decodedShapes = shapes.map((shape) => {
+        if (!shape || typeof shape !== 'object' || Array.isArray(shape)) {
+            return shape;
+        }
+
+        const shapeRecord = shape as Record<string, Unsafe>;
+        const wrappedPath =
+            shapeRecord.Path &&
+            typeof shapeRecord.Path === 'object' &&
+            !Array.isArray(shapeRecord.Path)
+                ? (shapeRecord.Path as Record<string, Unsafe>)
+                : null;
+        const pathRecord = wrappedPath || shapeRecord;
+        if (typeof pathRecord.nodes !== 'string') {
+            return shape;
+        }
+
+        changed = true;
+        const decodedPath = {
+            ...pathRecord,
+            nodes: parseRuntimeNodeArray(pathRecord.nodes)
+        };
+
+        return wrappedPath
+            ? ({ ...shapeRecord, Path: decodedPath } as Unsafe)
+            : (decodedPath as Unsafe);
+    });
+
+    return changed ? decodedShapes : shapes;
 }
 
 /**
@@ -2866,16 +2906,10 @@ function recordPathChangeAndMarkDirty(
 }
 
 /**
- * Record a granular id-based change for a path's nodes array.
+ * Record a path-level node-string change for a path's runtime nodes array.
  *
- * Decomposes a whole-nodes-array change into:
- * - One `nodeOrder` diff (minimal LCS-based reorder via setYPath)
- * - Per-node field Sets for changed x/y/nodetype/smooth
- * - `recordAdd` for new nodes (not in old array)
- * - `recordRemove` for deleted nodes (not in new array)
- *
- * This replaces the old `recordAndMarkDirty(this, 'nodes', old, new)`
- * whole-array recording for all structural path operations.
+ * Resting Y.Doc/font storage keeps upstream babelfont node strings, so runtime
+ * node mutations commit as a single `nodes` string update at the path boundary.
  */
 function recordGranularNodesChange(
     basePath: (string | number)[],
@@ -2892,106 +2926,11 @@ function recordGranularNodesChange(
         return;
     }
 
-    const oldOrder = oldNodes.map((n) => ensureNodeId(n));
-    const newOrder = newNodes.map((n) => ensureNodeId(n));
-    const oldIds = new Set(oldOrder);
-    const newIds = new Set(newOrder);
-
-    // Build old field data map for diffing (only for nodes that survive)
-    const oldFieldData = new Map<
-        string,
-        {
-            x: number;
-            y: number;
-            nodetype: Babelfont.NodeType;
-            smooth: boolean | undefined;
-        }
-    >(
-        oldNodes
-            .filter((n) => newIds.has(ensureNodeId(n)))
-            .map(
-                (n) =>
-                    [
-                        ensureNodeId(n),
-                        {
-                            x: n.x,
-                            y: n.y,
-                            nodetype: n.nodetype,
-                            smooth: n.smooth
-                        }
-                    ] as [
-                        string,
-                        {
-                            x: number;
-                            y: number;
-                            nodetype: Babelfont.NodeType;
-                            smooth: boolean | undefined;
-                        }
-                    ]
-            )
-    );
-
-    // Record order change — setYPath diffs the nodeOrder Y.Array
-    // minimally via diffYArrayOrder.
     recordPathChangeAndMarkDirty(
-        [...basePath, 'nodeOrder'],
-        oldOrder,
-        newOrder
+        [...basePath, 'nodes'],
+        serializeNodeArray(oldNodes),
+        serializeNodeArray(newNodes)
     );
-
-    // Record field-level changes for nodes in both old and new
-    for (const node of newNodes) {
-        const oldData = oldFieldData.get(ensureNodeId(node));
-        if (!oldData) continue;
-        if (oldData.x !== node.x) {
-            recordPathChangeAndMarkDirty(
-                [...basePath, 'nodesById', ensureNodeId(node), 'x'],
-                oldData.x,
-                node.x
-            );
-        }
-        if (oldData.y !== node.y) {
-            recordPathChangeAndMarkDirty(
-                [...basePath, 'nodesById', ensureNodeId(node), 'y'],
-                oldData.y,
-                node.y
-            );
-        }
-        if (oldData.nodetype !== node.nodetype) {
-            recordPathChangeAndMarkDirty(
-                [...basePath, 'nodesById', ensureNodeId(node), 'nodetype'],
-                oldData.nodetype,
-                node.nodetype
-            );
-        }
-        if (oldData.smooth !== node.smooth) {
-            recordPathChangeAndMarkDirty(
-                [...basePath, 'nodesById', ensureNodeId(node), 'smooth'],
-                oldData.smooth,
-                node.smooth
-            );
-        }
-    }
-
-    // Record additions (nodes in new but not in old)
-    for (const node of newNodes) {
-        if (!oldIds.has(ensureNodeId(node))) {
-            recordAddAndMarkDirty(
-                [...basePath, 'nodesById', ensureNodeId(node)],
-                { ...node }
-            );
-        }
-    }
-
-    // Record removals (nodes in old but not in new)
-    for (const node of oldNodes) {
-        if (!newIds.has(ensureNodeId(node))) {
-            recordRemoveAndMarkDirty(
-                [...basePath, 'nodesById', ensureNodeId(node)],
-                { ...node }
-            );
-        }
-    }
 }
 
 function recomputeMetricsKeysForModelLayer(
@@ -4057,9 +3996,21 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set x(value: number) {
-        const old = this.data.x;
+        const path = this.parent();
+        const oldNodes =
+            path instanceof Path
+                ? path.toJSON().nodes.map((node) => cloneNodeData(node))
+                : null;
         this.data.x = value;
-        recordAndMarkDirty(this, 'x', old, value);
+        if (path instanceof Path && oldNodes) {
+            recordGranularNodesChange(
+                path.getPath(),
+                oldNodes,
+                path.toJSON().nodes
+            );
+        } else {
+            markFontDirty();
+        }
         recomputeMetricsKeysForSelectableObject(this);
     }
 
@@ -4068,9 +4019,21 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set y(value: number) {
-        const old = this.data.y;
+        const path = this.parent();
+        const oldNodes =
+            path instanceof Path
+                ? path.toJSON().nodes.map((node) => cloneNodeData(node))
+                : null;
         this.data.y = value;
-        recordAndMarkDirty(this, 'y', old, value);
+        if (path instanceof Path && oldNodes) {
+            recordGranularNodesChange(
+                path.getPath(),
+                oldNodes,
+                path.toJSON().nodes
+            );
+        } else {
+            markFontDirty();
+        }
         recomputeMetricsKeysForSelectableObject(this);
     }
 
@@ -4079,9 +4042,21 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set nodetype(value: Babelfont.NodeType) {
-        const old = this.data.nodetype;
+        const path = this.parent();
+        const oldNodes =
+            path instanceof Path
+                ? path.toJSON().nodes.map((node) => cloneNodeData(node))
+                : null;
         this.data.nodetype = value;
-        recordAndMarkDirty(this, 'nodetype', old, value);
+        if (path instanceof Path && oldNodes) {
+            recordGranularNodesChange(
+                path.getPath(),
+                oldNodes,
+                path.toJSON().nodes
+            );
+        } else {
+            markFontDirty();
+        }
     }
 
     get smooth(): boolean | undefined {
@@ -4089,9 +4064,21 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set smooth(value: boolean | undefined) {
-        const old = this.data.smooth;
+        const path = this.parent();
+        const oldNodes =
+            path instanceof Path
+                ? path.toJSON().nodes.map((node) => cloneNodeData(node))
+                : null;
         this.data.smooth = value;
-        recordAndMarkDirty(this, 'smooth', old, value);
+        if (path instanceof Path && oldNodes) {
+            recordGranularNodesChange(
+                path.getPath(),
+                oldNodes,
+                path.toJSON().nodes
+            );
+        } else {
+            markFontDirty();
+        }
     }
 
     toString(): string {
@@ -4111,6 +4098,14 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     private _nodeWrappers: Node[] | null = null;
 
+    private getMutableNodeArray(): Babelfont.Node[] {
+        if (!Array.isArray(this.data.nodes)) {
+            this.data.nodes = parseRuntimeNodeArray(this.data.nodes);
+            this._nodeWrappers = null;
+        }
+        return this.data.nodes;
+    }
+
     private withLayerFingerprintChangeEvent<T>(fn: () => T): T {
         const layer = getPathOwningLayer(this);
         const previousFingerprint = layer?.fingerprint ?? null;
@@ -4126,7 +4121,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     get nodes(): Node[] {
-        const nodeArray = this.data.nodes;
+        const nodeArray = this.getMutableNodeArray();
 
         // Create wrapper objects if needed
         if (
@@ -4145,7 +4140,9 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     set nodes(value: Babelfont.Node[]) {
         this.withLayerFingerprintChangeEvent(() => {
-            const old = this.data.nodes;
+            const old = this.getMutableNodeArray().map((node) =>
+                cloneNodeData(node)
+            );
             this.data.nodes = value;
             this._nodeWrappers = null; // Invalidate cache
             recordGranularNodesChange(this.getPath(), old, value);
@@ -4192,7 +4189,8 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         smooth?: boolean
     ): Node {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
             const nodeData: Babelfont.Node = {
                 id: generateStableId(),
                 x,
@@ -4205,10 +4203,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
             nodeArray.splice(index, 0, nodeData);
             this._nodeWrappers = null; // Invalidate cache
-            recordAddAndMarkDirty(
-                [...this.getPath(), 'nodes', index],
-                nodeData
-            );
+            recordGranularNodesChange(this.getPath(), oldNodes, nodeArray);
             return new Node(nodeArray, index, this);
         });
     }
@@ -4220,7 +4215,8 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      */
     removeNode(index: number): void {
         this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
             const removedNode = nodeArray[index];
             if (removedNode === undefined) {
                 return;
@@ -4228,10 +4224,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
             nodeArray.splice(index, 1);
             this._nodeWrappers = null; // Invalidate cache
-            recordRemoveAndMarkDirty(
-                [...this.getPath(), 'nodes', index],
-                removedNode
-            );
+            recordGranularNodesChange(this.getPath(), oldNodes, nodeArray);
         });
     }
 
@@ -4247,12 +4240,18 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         nodetype: Babelfont.NodeType = 'Line' as Babelfont.NodeType,
         smooth?: boolean
     ): Node {
-        return this.insertNode(this.data.nodes.length, x, y, nodetype, smooth);
+        return this.insertNode(
+            this.getMutableNodeArray().length,
+            x,
+            y,
+            nodetype,
+            smooth
+        );
     }
 
     _addPoint(segmentId: number, t: number): number | null {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             const descriptors = buildPathSegmentDescriptors({
                 nodes: nodeArray,
                 closed: this.closed
@@ -4297,7 +4296,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return null;
             }
 
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             const oldNodes = nodeArray.map((node) => cloneNodeData(node));
             let nextNodes: Babelfont.Node[];
             let insertedNodeIndex: number;
@@ -4350,7 +4349,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return false;
             }
 
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             if (nodeArray.length < 3) {
                 return false;
             }
@@ -4397,7 +4396,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return false;
             }
 
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             if (nodeArray.length < 2) {
                 return false;
             }
@@ -4451,7 +4450,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return false;
             }
 
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             if (nodeArray.length < 3) {
                 return false;
             }
@@ -4500,7 +4499,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return null;
             }
 
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             const splitNodes = splitOpenPathNodeArray(nodeArray, nodeIndex);
             if (!splitNodes) {
                 return null;
@@ -4528,7 +4527,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return false;
             }
 
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             if (nodeArray.length < 2) {
                 return false;
             }
@@ -4542,34 +4541,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 return false;
             }
 
-            // Capture old order (array of ids) and old node field data
-            // for granular diffing.  We do NOT clone the nodes for the
-            // rotation — we reorder the existing objects so that `.id`
-            // identity is preserved.  normalizePathNodeArray clones
-            // internally (preserving ids), so the final nextNodes has
-            // new objects with the same ids.
-            const oldOrder = nodeArray.map((n) => ensureNodeId(n));
-            const oldFieldData = new Map<
-                string,
-                { nodetype: Babelfont.NodeType; smooth: boolean | undefined }
-            >(
-                nodeArray.map(
-                    (n) =>
-                        [
-                            ensureNodeId(n),
-                            {
-                                nodetype: n.nodetype,
-                                smooth: n.smooth
-                            }
-                        ] as [
-                            string,
-                            {
-                                nodetype: Babelfont.NodeType;
-                                smooth: boolean | undefined;
-                            }
-                        ]
-                )
-            );
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
 
             // Rotate the existing node objects (preserving ids)
             const rotated = [
@@ -4581,49 +4553,8 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
             this.data.nodes = nextNodes;
             this._nodeWrappers = null;
 
-            const newOrder = nextNodes.map((n) => ensureNodeId(n));
             const basePath = this.getPath();
-
-            // Record order-only change (the "prize": zero node-data
-            // writes for a pure rotation).  setYPath diffs the
-            // nodeOrder Y.Array minimally via diffYArrayOrder.
-            recordPathChangeAndMarkDirty(
-                [...basePath, 'nodeOrder'],
-                oldOrder,
-                newOrder
-            );
-
-            // Record any field changes from normalization (rare for
-            // closed-path rotations — normalization is typically a
-            // no-op since neighbor relationships are circular).
-            for (const node of nextNodes) {
-                const oldData = oldFieldData.get(ensureNodeId(node));
-                if (!oldData) continue;
-                if (oldData.nodetype !== node.nodetype) {
-                    recordPathChangeAndMarkDirty(
-                        [
-                            ...basePath,
-                            'nodesById',
-                            ensureNodeId(node),
-                            'nodetype'
-                        ],
-                        oldData.nodetype,
-                        node.nodetype
-                    );
-                }
-                if (oldData.smooth !== node.smooth) {
-                    recordPathChangeAndMarkDirty(
-                        [
-                            ...basePath,
-                            'nodesById',
-                            ensureNodeId(node),
-                            'smooth'
-                        ],
-                        oldData.smooth,
-                        node.smooth
-                    );
-                }
-            }
+            recordGranularNodesChange(basePath, oldNodes, nextNodes);
 
             return true;
         });
@@ -4631,34 +4562,12 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _reverseDirection(): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             if (nodeArray.length < 2) {
                 return false;
             }
 
-            // Capture old order and field data for granular diffing.
-            const oldOrder = nodeArray.map((n) => ensureNodeId(n));
-            const oldFieldData = new Map<
-                string,
-                { nodetype: Babelfont.NodeType; smooth: boolean | undefined }
-            >(
-                nodeArray.map(
-                    (n) =>
-                        [
-                            ensureNodeId(n),
-                            {
-                                nodetype: n.nodetype,
-                                smooth: n.smooth
-                            }
-                        ] as [
-                            string,
-                            {
-                                nodetype: Babelfont.NodeType;
-                                smooth: boolean | undefined;
-                            }
-                        ]
-                )
-            );
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
 
             const descriptors = buildPathSegmentDescriptors({
                 nodes: nodeArray,
@@ -4743,51 +4652,8 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
             this.data.nodes = normalizedNodes;
             this._nodeWrappers = null;
 
-            // Granular id-based recording: order change + any field
-            // changes from normalization/nodetype overrides.  For a
-            // closed path with all-Line nodes, this is a pure order-
-            // only change (zero node-data writes).  For paths with
-            // curves or open paths, some nodetype/smooth fields may
-            // also change — those are recorded as individual leaf Sets.
-            const newOrder = normalizedNodes.map((n) => ensureNodeId(n));
             const basePath = this.getPath();
-
-            recordPathChangeAndMarkDirty(
-                [...basePath, 'nodeOrder'],
-                oldOrder,
-                newOrder
-            );
-
-            // Record field-level changes (nodetype, smooth) by diffing
-            // old vs new node data, matched by id.
-            for (const node of normalizedNodes) {
-                const oldData = oldFieldData.get(ensureNodeId(node));
-                if (!oldData) continue;
-                if (oldData.nodetype !== node.nodetype) {
-                    recordPathChangeAndMarkDirty(
-                        [
-                            ...basePath,
-                            'nodesById',
-                            ensureNodeId(node),
-                            'nodetype'
-                        ],
-                        oldData.nodetype,
-                        node.nodetype
-                    );
-                }
-                if (oldData.smooth !== node.smooth) {
-                    recordPathChangeAndMarkDirty(
-                        [
-                            ...basePath,
-                            'nodesById',
-                            ensureNodeId(node),
-                            'smooth'
-                        ],
-                        oldData.smooth,
-                        node.smooth
-                    );
-                }
-            }
+            recordGranularNodesChange(basePath, oldNodes, normalizedNodes);
 
             return true;
         });
@@ -4795,7 +4661,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _convertLineSegmentToCurve(segmentId: number): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             const descriptors = buildPathSegmentDescriptors({
                 nodes: nodeArray,
                 closed: this.closed
@@ -4827,7 +4693,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     _canSlideSmoothOnCurve(nodeIndex: number): boolean {
-        const nodeArray = this.data.nodes;
+        const nodeArray = this.getMutableNodeArray();
         const targetNode = nodeArray[nodeIndex];
 
         if (
@@ -4859,7 +4725,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         targetPoint: { x: number; y: number }
     ): { insertedNodeIndex: number; changed: boolean; t: number } | null {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             const oldNodes = nodeArray.map((node) => cloneNodeData(node));
             const mutation = buildSmoothPointSlideMutation(
                 nodeArray,
@@ -4900,7 +4766,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         t: number
     ): { insertedNodeIndex: number; changed: boolean; t: number } | null {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             const oldNodes = nodeArray.map((node) => cloneNodeData(node));
             const mutation = buildSmoothPointSlideMutationAtT(
                 nodeArray,
@@ -4944,7 +4810,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      */
     _deleteNode(nodeIndex: number): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             if (nodeIndex < 0 || nodeIndex >= nodeArray.length) {
                 return false;
             }
@@ -4970,7 +4836,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _deleteNodes(nodeIndices: number[]): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
-            const nodeArray = this.data.nodes;
+            const nodeArray = this.getMutableNodeArray();
             const validNodeIndices = [...new Set(nodeIndices)]
                 .filter(
                     (nodeIndex) =>
@@ -5030,7 +4896,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     toString(): string {
         const closedStr = this.closed ? 'closed' : 'open';
-        const nodeCount = this.data.nodes.length;
+        const nodeCount = this.getMutableNodeArray().length;
         return `<Path ${closedStr} ${nodeCount} nodes>`;
     }
 }
@@ -5815,7 +5681,7 @@ export class Layer extends ArrayElementBase {
             this.data.vertWidth = layerData.vertWidth;
         }
         if (layerData.shapes !== undefined) {
-            this.data.shapes = layerData.shapes;
+            this.data.shapes = decodeShapeNodesForRuntime(layerData.shapes);
         }
         if (layerData.anchors !== undefined) {
             this.data.anchors = layerData.anchors;
@@ -12143,7 +12009,8 @@ export class Font extends ModelBase {
                                 ? value.Path
                                 : null;
                         if (pathPayload) {
-                            const result = { ...pathPayload };
+                            const { id: _id, ...result } = pathPayload;
+                            result.nodes = serializeNodeArray(result.nodes);
                             // Ensure `closed` field
                             if (!('closed' in result)) {
                                 result.closed = false;
@@ -12160,7 +12027,7 @@ export class Font extends ModelBase {
                                 ? value.Component
                                 : null;
                         if (componentPayload) {
-                            const result = { ...componentPayload };
+                            const { id: _id, ...result } = componentPayload;
                             // Convert array-format transforms to DecomposedAffine objects
                             // Rust expects {translation, scale, rotation, skew, order}, not [a,b,c,d,tx,ty]
                             if (Array.isArray(result.transform)) {
@@ -12178,19 +12045,27 @@ export class Font extends ModelBase {
                         hasFlatComponentFields &&
                         Array.isArray(value.transform)
                     ) {
+                        const { id: _id, ...result } = value;
                         return {
-                            ...value,
+                            ...result,
                             transform: DecomposedAffineTransform.fromAffine(
                                 value.transform
                             )
                         };
                     }
 
+                    if (hasFlatComponentFields && 'id' in value) {
+                        const { id: _id, ...result } = value;
+                        return result;
+                    }
+
                     // Ensure `closed` field for flat Path shapes (Y.Doc roundtrip can lose it)
-                    if (hasFlatPathFields && !('closed' in value)) {
+                    if (hasFlatPathFields) {
+                        const { id: _id, ...result } = value;
                         return {
-                            ...value,
-                            closed: false
+                            ...result,
+                            nodes: serializeNodeArray(value.nodes),
+                            closed: 'closed' in value ? value.closed : false
                         };
                     }
                 }

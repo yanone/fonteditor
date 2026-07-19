@@ -7,18 +7,18 @@ type SidebearingLayerSnapshot = {
 };
 
 type SidebearingVisualTarget = {
-    viewportManager?: {
-        panX: number;
-        scale: number;
-    } | null;
     textRunEditor?: {
+        computePrecedingAdvanceDelta?(
+            glyphAdvances: Record<string, number>
+        ): number;
         refreshGlyphAdvancesLive(
             glyphAdvances: Record<string, number>,
             options?: { render?: boolean }
         ): boolean;
-        computePrecedingAdvanceDelta?(
-            glyphAdvances: Record<string, number>
-        ): number;
+    } | null;
+    viewportManager?: {
+        panX: number;
+        scale: number;
     } | null;
     syncCurrentOutlineLayerDataFromModel?(
         layer: SidebearingLayerSnapshot
@@ -75,6 +75,34 @@ export function inferSidebearingSideFromHistoryItem(
     return null;
 }
 
+export function refreshLiveGlyphAdvancesWithSelectedGlyphAnchor(
+    target: SidebearingVisualTarget,
+    glyphAdvances: Record<string, number>,
+    options: { render?: boolean } = {}
+): boolean {
+    const precedingDelta =
+        target.textRunEditor?.computePrecedingAdvanceDelta?.(glyphAdvances) ??
+        0;
+    const advancesRefreshed =
+        target.textRunEditor?.refreshGlyphAdvancesLive(
+            glyphAdvances,
+            options
+        ) ?? false;
+
+    const viewportManager = target.viewportManager;
+    if (
+        advancesRefreshed &&
+        Number.isFinite(precedingDelta) &&
+        Math.abs(precedingDelta) > 0.01 &&
+        viewportManager &&
+        Number.isFinite(viewportManager.scale)
+    ) {
+        viewportManager.panX -= precedingDelta * viewportManager.scale;
+    }
+
+    return advancesRefreshed;
+}
+
 export function applyLiveSidebearingVisualSync(
     target: SidebearingVisualTarget,
     options: {
@@ -100,11 +128,6 @@ export function applyLiveSidebearingVisualSync(
         return { widthDelta, advancesRefreshed: false };
     }
 
-    if (options.side === 'left' && target.viewportManager) {
-        target.viewportManager.panX -=
-            widthDelta * target.viewportManager.scale;
-    }
-
     const liveGlyphAdvances =
         options.glyphAdvances && Object.keys(options.glyphAdvances).length > 0
             ? options.glyphAdvances
@@ -112,26 +135,13 @@ export function applyLiveSidebearingVisualSync(
               ? { [options.glyphName]: nextWidth }
               : null;
 
-    // Snapshot preceding-glyph advance delta BEFORE refreshing the buffer,
-    // so the current ax values still reflect the pre-update state.
-    const precedingDelta = liveGlyphAdvances
-        ? (target.textRunEditor?.computePrecedingAdvanceDelta?.(
-              liveGlyphAdvances
-          ) ?? 0)
-        : 0;
-
     const advancesRefreshed =
         !!liveGlyphAdvances &&
-        !!target.textRunEditor?.refreshGlyphAdvancesLive(liveGlyphAdvances, {
-            render: options.render
-        });
-
-    // Compensate panX for advance changes in glyphs preceding the active
-    // glyph in the buffer (e.g. downstream metrics-key cascades).
-    if (Math.abs(precedingDelta) > 0.01 && target.viewportManager) {
-        target.viewportManager.panX -=
-            precedingDelta * target.viewportManager.scale;
-    }
+        refreshLiveGlyphAdvancesWithSelectedGlyphAnchor(
+            target,
+            liveGlyphAdvances,
+            { render: options.render }
+        );
 
     return { widthDelta, advancesRefreshed };
 }

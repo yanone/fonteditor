@@ -34,6 +34,7 @@ import {
     applyLiveSidebearingVisualSync,
     formatSidebearingHistoryValue,
     getSidebearingTransactionLabel,
+    refreshLiveGlyphAdvancesWithSelectedGlyphAnchor,
     type SidebearingSide
 } from '../sidebearing-utils';
 import { LiveDragEditFunnel } from '../live-drag-edit-funnel';
@@ -3054,8 +3055,6 @@ export class OutlineEditor {
     cmdKeyPressed: boolean = false;
     canvas: HTMLCanvasElement | null = null;
 
-    autoPanAnchorScreen: { x: number; y: number } | null = null;
-    autoPanEnabled: boolean = true;
     glyphStack: string = '';
     private static readonly MISSING_INTERPOLATION_LAYER_ID =
         'missing_interpolation';
@@ -3737,14 +3736,20 @@ export class OutlineEditor {
             return allowedGlyphNames.size > sizeBefore;
         };
         const affectedGlyphNames = new Set<string>([glyphName]);
-        const seedGlyphNames = new Set<string>([glyphName]);
+        const metricsKeySeedGlyphNames = new Set<string>([glyphName]);
 
         if (options?.rebuildAutomaticComposites) {
+            const rebuiltGlyphNames = new Set<string>();
             for (const affectedGlyphName of this.rebuildAutomaticCompositesForCurrentEditedGlyph(
-                allowedGlyphNames ? { allowedGlyphNames } : undefined
+                {
+                    ...(allowedGlyphNames ? { allowedGlyphNames } : undefined),
+                    rebuiltGlyphNames
+                }
             )) {
                 affectedGlyphNames.add(affectedGlyphName);
-                seedGlyphNames.add(affectedGlyphName);
+            }
+            for (const rebuiltGlyphName of rebuiltGlyphNames) {
+                metricsKeySeedGlyphNames.add(rebuiltGlyphName);
             }
         }
 
@@ -3755,7 +3760,7 @@ export class OutlineEditor {
                 ...(options?.rebuildAutomaticComposites
                     ? {
                           skipAutomaticCompositeRebuild: true,
-                          seedGlyphNames
+                          seedGlyphNames: metricsKeySeedGlyphNames
                       }
                     : undefined)
             }
@@ -3767,16 +3772,22 @@ export class OutlineEditor {
             options?.rebuildAutomaticComposites &&
             extendAutomaticCompositionDragScope(affectedGlyphNames)
         ) {
-            const expandedSeedGlyphNames = new Set<string>(affectedGlyphNames);
+            const expandedMetricsKeySeedGlyphNames = new Set<string>([
+                glyphName
+            ]);
+            const rebuiltGlyphNames = new Set<string>();
 
             for (const affectedGlyphName of this.rebuildAutomaticCompositesForCurrentEditedGlyph(
                 {
                     ...(allowedGlyphNames ? { allowedGlyphNames } : undefined),
-                    changedGlyphNames: affectedGlyphNames
+                    changedGlyphNames: affectedGlyphNames,
+                    rebuiltGlyphNames
                 }
             )) {
                 affectedGlyphNames.add(affectedGlyphName);
-                expandedSeedGlyphNames.add(affectedGlyphName);
+            }
+            for (const rebuiltGlyphName of rebuiltGlyphNames) {
+                expandedMetricsKeySeedGlyphNames.add(rebuiltGlyphName);
             }
 
             for (const affectedGlyphName of this.recomputeMetricsKeysForGlyph(
@@ -3784,7 +3795,7 @@ export class OutlineEditor {
                 {
                     ...(allowedGlyphNames ? { allowedGlyphNames } : undefined),
                     skipAutomaticCompositeRebuild: true,
-                    seedGlyphNames: expandedSeedGlyphNames
+                    seedGlyphNames: expandedMetricsKeySeedGlyphNames
                 }
             )) {
                 affectedGlyphNames.add(affectedGlyphName);
@@ -3852,7 +3863,8 @@ export class OutlineEditor {
                       render: false
                   }).advancesRefreshed
                 : Object.keys(glyphAdvances).length > 0 &&
-                  !!this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive(
+                  refreshLiveGlyphAdvancesWithSelectedGlyphAnchor(
+                      this.glyphCanvas,
                       glyphAdvances,
                       { render: false }
                   )
@@ -4700,6 +4712,7 @@ export class OutlineEditor {
         limitToDragVisibleGlyphs?: boolean;
         allowedGlyphNames?: Set<string>;
         changedGlyphNames?: Iterable<string>;
+        rebuiltGlyphNames?: Set<string>;
     }): Set<string> {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const currentLayerId = this.getCurrentLayerId();
@@ -4781,6 +4794,7 @@ export class OutlineEditor {
                 }
             )) {
                 affectedGlyphNames.add(affectedGlyphName);
+                options?.rebuiltGlyphNames?.add(affectedGlyphName);
             }
         };
 
@@ -5266,7 +5280,7 @@ export class OutlineEditor {
             anchorScreen.y - currentScreenPos.y;
     }
 
-    private refreshKeyedMetricsViewportAnchor(
+    private refreshKeyedMetricsAfterStructuralEdit(
         affectedGlyphNames: Set<string>,
         anchorScreen: {
             x: number;
@@ -5274,10 +5288,6 @@ export class OutlineEditor {
         } | null
     ): void {
         this.syncCurrentExactLayerDataFromModel();
-
-        if (!anchorScreen) {
-            return;
-        }
 
         const currentLayerId = this.getCurrentLayerId();
         const currentLayerModel = this.getCurrentLayerModel();
@@ -5294,7 +5304,8 @@ export class OutlineEditor {
                 masterId
             );
             if (Object.keys(glyphAdvances).length > 0) {
-                this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive(
+                refreshLiveGlyphAdvancesWithSelectedGlyphAnchor(
+                    this.glyphCanvas,
                     glyphAdvances,
                     { render: false }
                 );
@@ -9000,10 +9011,6 @@ export class OutlineEditor {
         // Remember if preview was already on (from keyboard toggle)
         this.previewModeBeforeSlider = this.isPreviewMode;
 
-        // Capture anchor point BEFORE setting interpolating flag
-        // This ensures correct bounding box is used for auto-panning
-        this.captureAutoPanAnchor();
-
         // Set interpolating flag (don't change preview mode)
         this.isInterpolating = true;
 
@@ -9058,7 +9065,6 @@ export class OutlineEditor {
                 // This ensures that if the user switches glyphs, the new glyph will properly
                 // fetch its layer data in autoSelectMatchingLayer
                 this.isInterpolating = false;
-                this.autoPanAnchorScreen = null;
             } else if (this.layerData && this.layerData.isInterpolated) {
                 // No exact layer match - keep interpolated data
                 // Only restore if shapes are empty/missing
@@ -9072,7 +9078,6 @@ export class OutlineEditor {
                 // Still interpolating - only clear flags if animation is complete
                 if (!this.glyphCanvas.axesManager!.isAnimating) {
                     this.isInterpolating = false;
-                    this.autoPanAnchorScreen = null;
                 }
             }
 
@@ -9113,7 +9118,6 @@ export class OutlineEditor {
 
                 // Clear interpolating flag immediately since we're on an exact layer
                 this.isInterpolating = false;
-                this.autoPanAnchorScreen = null;
             }
 
             // If no exact layer match, keep showing interpolated data
@@ -15505,7 +15509,7 @@ export class OutlineEditor {
             currentGlyphModel.name
         );
 
-        this.refreshKeyedMetricsViewportAnchor(
+        this.refreshKeyedMetricsAfterStructuralEdit(
             affectedGlyphNames,
             bboxCenterAnchorScreen
         );
@@ -15602,7 +15606,7 @@ export class OutlineEditor {
 
         this.syncCurrentExactLayerDataFromModel();
 
-        this.refreshKeyedMetricsViewportAnchor(
+        this.refreshKeyedMetricsAfterStructuralEdit(
             affectedGlyphNames,
             bboxCenterAnchorScreen
         );
@@ -15726,7 +15730,7 @@ export class OutlineEditor {
             );
         }
 
-        this.refreshKeyedMetricsViewportAnchor(
+        this.refreshKeyedMetricsAfterStructuralEdit(
             affectedGlyphNames,
             bboxCenterAnchorScreen
         );
@@ -16147,6 +16151,8 @@ export class OutlineEditor {
             return false;
         }
 
+        const bboxCenterAnchorScreen =
+            this.getBoundingBoxCenterScreenPosition();
         const previousWidth = currentLayerData.width;
 
         if (side === 'left') {
@@ -16228,6 +16234,8 @@ export class OutlineEditor {
                 render: false
             }
         );
+
+        this.applyBoundingBoxCenterScreenAnchor(bboxCenterAnchorScreen);
 
         if (
             side === 'left' &&
@@ -16922,7 +16930,6 @@ export class OutlineEditor {
             [currentGlyphModel.name].filter(Boolean) as string[]
         );
         let bboxCenterAnchorScreen: { x: number; y: number } | null = null;
-
         if (deletedPathGeometry) {
             this.syncCurrentExactLayerDataFromModel();
             bboxCenterAnchorScreen = this.getBoundingBoxCenterScreenPosition();
@@ -16941,7 +16948,7 @@ export class OutlineEditor {
         this.syncCurrentExactLayerDataFromModel();
 
         if (deletedPathGeometry) {
-            this.refreshKeyedMetricsViewportAnchor(
+            this.refreshKeyedMetricsAfterStructuralEdit(
                 affectedGlyphNames,
                 bboxCenterAnchorScreen
             );
@@ -17142,25 +17149,17 @@ export class OutlineEditor {
             // Apply interpolated data via shared normalizer
             this.applyRustLayerData(interpolatedLayer, true);
 
-            // In editing mode, sync HarfBuzz to the current authoritative
-            // axis location (not the returned location, which may be stale).
-            // This ensures the text preview always reflects the latest slider position.
-            if (this.autoPanAnchorScreen !== null) {
-                const currentLocation =
-                    this.glyphCanvas.axesManager!.variationSettings;
-                // Sync HarfBuzz to current location
-                const textRun = this.glyphCanvas.textRunEditor;
-                if (
-                    textRun &&
-                    textRun.hbFont &&
-                    Object.keys(currentLocation).length > 0
-                ) {
-                    textRun.hbFont.setVariations(currentLocation);
-                    textRun.shapeText(true);
-                }
-
-                // Apply auto-pan adjustment now that text width is updated
-                this.applyAutoPanAdjustment();
+            // Keep HarfBuzz synchronized with the authoritative edit location.
+            const currentLocation =
+                this.glyphCanvas.axesManager!.variationSettings;
+            const textRun = this.glyphCanvas.textRunEditor;
+            if (
+                textRun &&
+                textRun.hbFont &&
+                Object.keys(currentLocation).length > 0
+            ) {
+                textRun.hbFont.setVariations(currentLocation);
+                textRun.shapeText(true);
             }
 
             // Render with the new interpolated data
@@ -17524,7 +17523,6 @@ export class OutlineEditor {
         // is a hard boundary — stale in-flight or incomplete interpolation results
         // must not apply after this point.
         this.isInterpolating = false;
-        this.autoPanAnchorScreen = null;
         this.clearQueuedInterpolationRequest();
         fontInterpolation.resetRequestTracking();
 
@@ -17584,9 +17582,6 @@ export class OutlineEditor {
             previousLayer,
             selectionTargetLayer
         );
-
-        // Capture anchor point before layer switch animation begins
-        this.captureAutoPanAnchor();
 
         // Immediately clear interpolated flag on existing data
         // to prevent rendering with monochrome colors
@@ -17727,9 +17722,6 @@ export class OutlineEditor {
             fontInterpolation.resetRequestTracking();
         }
 
-        // Clear auto-pan anchor since animation is complete
-        this.autoPanAnchorScreen = null;
-
         // Only handle interpolation mode here, not layer switches
         // Layer switches are handled in restoreTargetLayerDataAfterAnimating()
         if (this.isLayerSwitchAnimating) {
@@ -17757,7 +17749,6 @@ export class OutlineEditor {
             !this.glyphCanvas.axesManager?.isLoopAnimating
         ) {
             this.isInterpolating = false;
-            this.autoPanAnchorScreen = null;
         }
     }
 
@@ -17879,7 +17870,6 @@ export class OutlineEditor {
 
             // Clear the interpolating flag and render to display the new outlines
             this.isInterpolating = false;
-            this.autoPanAnchorScreen = null;
 
             if (this.active && !skipRender) {
                 this.glyphCanvas.updatePropertyPanel();
@@ -19116,36 +19106,6 @@ export class OutlineEditor {
         }
 
         return { glyphX, glyphY };
-    }
-
-    /**
-     * Capture the current bbox center as an anchor point in screen coordinates.
-     * This is called before starting an animation (slider or layer switch).
-     */
-    captureAutoPanAnchor() {
-        if (!this.autoPanEnabled) {
-            this.autoPanAnchorScreen = null;
-            return;
-        }
-
-        if (!this.active) {
-            this.autoPanAnchorScreen = null;
-            return;
-        }
-
-        this.autoPanAnchorScreen = this.getBoundingBoxCenterScreenPosition();
-    }
-
-    /**
-     * Adjust pan to keep the bbox center at the anchor point.
-     * This is called after interpolation updates the glyph.
-     */
-    applyAutoPanAdjustment() {
-        if (!this.autoPanEnabled || !this.autoPanAnchorScreen) {
-            return;
-        }
-
-        this.applyBoundingBoxCenterScreenAnchor(this.autoPanAnchorScreen);
     }
 
     calculateGlyphBoundingBox(): {

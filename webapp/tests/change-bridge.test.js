@@ -37,6 +37,7 @@ const {
 } = require('../js/change-log');
 const babelfontModel = require('../js/babelfont-model');
 const { Font, withSuppressedModelRecording } = babelfontModel;
+const { decodeNodeStringsForRuntime } = require('../js/node-encoding');
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -875,23 +876,23 @@ const COLLECTION_MUTATOR_TESTS = {
     'Path.insertNode': {
         isApplicable: (path) => path.nodes?.length > 1,
         invoke: (path) => path.insertNode(1, 175, 225, 'Line'),
-        expectedOp: 'add',
+        expectedOp: 'set',
         expectedPathFragment: (path) =>
-            `${joinPathWithGlyphSeparator(path.getPath())}.nodes.1`
+            `${joinPathWithGlyphSeparator(path.getPath())}.nodes`
     },
     'Path.removeNode': {
         isApplicable: (path) => path.nodes?.length > 0,
         invoke: (path) => path.removeNode(0),
-        expectedOp: 'remove',
+        expectedOp: 'set',
         expectedPathFragment: (path) =>
-            `${joinPathWithGlyphSeparator(path.getPath())}.nodes.0`
+            `${joinPathWithGlyphSeparator(path.getPath())}.nodes`
     },
     'Path.appendNode': {
         isApplicable: (path) => Array.isArray(path.nodes),
         invoke: (path) => path.appendNode(610, 10, 'Line'),
-        expectedOp: 'add',
-        expectedPathFragment: (path, logEntry) =>
-            `${joinPathWithGlyphSeparator(path.getPath())}.nodes.${findCollectionEntryIndex(path.data.nodes, logEntry.newValue)}`
+        expectedOp: 'set',
+        expectedPathFragment: (path) =>
+            `${joinPathWithGlyphSeparator(path.getPath())}.nodes`
     }
 };
 
@@ -1017,7 +1018,21 @@ function normalizeYValue(value) {
  *  indexed-map aware conversion (shapesById+shapeOrder → shapes, etc.) */
 function normalizeYDocValue(value) {
     if (value === undefined || value === null) return value;
-    return cloneValue(fromYType(value));
+    return decodeNodeStringsForRuntime(cloneValue(fromYType(value)));
+}
+
+function getYDocLayerNodeValue(
+    fontMap,
+    glyphName,
+    layerId,
+    shapeIndex,
+    nodeIndex,
+    property
+) {
+    const layer = normalizeYDocValue(
+        getYPath(fontMap, ['glyphs', glyphName, 'layers', layerId])
+    );
+    return layer?.shapes?.[shapeIndex]?.nodes?.[nodeIndex]?.[property];
 }
 
 const GENERIC_ACCESSOR_SPECS = collectWritableAccessorSpecs();
@@ -1316,7 +1331,7 @@ describe('change-bridge-ydoc', () => {
         expect(fromYType(map)).toEqual({ 0: 'a', 1: 'b' });
     });
 
-    test('setYPath creates indexed-map structure for shapes/nodes', () => {
+    test('setYPath applies logical node leaf paths to string-node storage', () => {
         const doc = new Y.Doc();
         const fontMap = doc.getMap('font');
 
@@ -1326,7 +1341,13 @@ describe('change-bridge-ydoc', () => {
             123
         );
 
-        // Indexed-map: shapesById+shapeOrder, not flat shapes Y.Array
+        const shapes = getYPath(fontMap, [
+            'glyphs',
+            'A',
+            'layers',
+            'layer-1',
+            'shapes'
+        ]);
         const shapesById = getYPath(fontMap, [
             'glyphs',
             'A',
@@ -1334,23 +1355,26 @@ describe('change-bridge-ydoc', () => {
             'layer-1',
             'shapesById'
         ]);
-        const shapeOrder = getYPath(fontMap, [
-            'glyphs',
-            'A',
-            'layers',
-            'layer-1',
-            'shapeOrder'
-        ]);
 
-        expect(shapesById).toBeInstanceOf(Y.Map);
-        expect(shapeOrder).toBeInstanceOf(Y.Array);
-        expect(shapeOrder.length).toBe(1);
+        expect(shapes).toBeInstanceOf(Y.Array);
+        expect(shapesById).toBeUndefined();
 
         // Verify the node was created with x=123
-        const layerJson = fromYType(
+        const layerJson = normalizeYDocValue(
             getYPath(fontMap, ['glyphs', 'A', 'layers', 'layer-1'])
         );
         expect(layerJson.shapes[0].nodes[0].x).toBe(123);
+        expect(
+            getYPath(fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes'
+            ])
+        ).toBe('123 0 l');
     });
 
     test('jsonToYDoc rejects wrapped shapes at ingress', () => {
@@ -2374,8 +2398,7 @@ describe('Transactions', () => {
 
         const log = bridge.getChangeLog();
         expect(log.map((entry) => entry.path)).toEqual([
-            'glyphs.A:layers.layer-1:shapes.0.nodes.0.x',
-            'glyphs.A:layers.layer-1:shapes.0.nodes.0.y'
+            'glyphs.A:layers.layer-1:shapes.0.nodes'
         ]);
         expect(
             log.some((entry) => entry.path === 'glyphs.A:layers.layer-1')
@@ -2398,20 +2421,10 @@ describe('Transactions', () => {
                 )
             )
         ).toBe(false);
-        expect(log.map((entry) => entry.replayOldValue)).toEqual([100, 0]);
-        expect(log.map((entry) => entry.replayNewValue)).toEqual([125, 15]);
+        expect(typeof log[0].replayOldValue).toBe('string');
+        expect(typeof log[0].replayNewValue).toBe('string');
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(125);
     });
 
@@ -2440,13 +2453,11 @@ describe('Transactions', () => {
         const log = bridge.getChangeLog();
         expect(log.map((entry) => entry.path)).toEqual([
             'glyphs.A:layers.layer-1:format_specific',
-            'glyphs.A:layers.layer-1:shapes.0.nodes.0.x',
-            'glyphs.A:layers.layer-1:shapes.0.nodes.0.y',
+            'glyphs.A:layers.layer-1:shapes.0.nodes',
             'glyphs.A:layers.layer-1:guides'
         ]);
         expect(log.map((entry) => entry.op)).toEqual([
             'remove',
-            'set',
             'set',
             'remove'
         ]);
@@ -2472,17 +2483,7 @@ describe('Transactions', () => {
             ])
         ).toBeUndefined();
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(125);
     });
 
@@ -2539,62 +2540,23 @@ describe('Transactions', () => {
     });
 
     test('net no-op point drag transaction does not emit history or Yjs changes', () => {
-        const { bridge } = createTestBridge('test-noop-drag');
+        const { bridge, font } = createTestBridge('test-noop-drag');
+        const node = font.glyphs[0].layers[0].shapes[0].asPath().nodes[0];
 
         bridge.beginTransaction('Drag point');
-        bridge.recordChange(
-            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
-            'x',
-            100,
-            120
-        );
-        bridge.recordChange(
-            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
-            'y',
-            0,
-            15
-        );
-        bridge.recordChange(
-            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
-            'x',
-            120,
-            100
-        );
-        bridge.recordChange(
-            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
-            'y',
-            15,
-            0
-        );
+        node.x = 120;
+        node.y = 15;
+        node.x = 100;
+        node.y = 0;
         bridge.endTransaction();
 
         expect(bridge.getChangeLog()).toHaveLength(0);
         expect(bridge.canUndo('A', 'layer-1')).toBe(false);
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(100);
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'y'
-            ])
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'y')
         ).toBe(0);
     });
 
@@ -2633,30 +2595,10 @@ describe('Transactions', () => {
             })
         );
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(100);
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'y'
-            ])
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'y')
         ).toBe(0);
     });
 
@@ -2918,19 +2860,12 @@ describe('Model setter change recording', () => {
                 : target.getPath().concat(spec.property);
             const log = bridge.getChangeLog();
 
-            // The `nodes` property now records granular id-based entries
-            // (nodeOrder + nodesById add/remove/field-set) instead of a
-            // single whole-array `nodes` entry.  Verify the Y.Doc state
-            // is correct rather than asserting a single change-log entry.
+            // The `nodes` property records one upstream string-node update.
             if (spec.property === 'nodes') {
                 expect(log.length).toBeGreaterThanOrEqual(1);
-                // The Y.Doc should have the updated nodes via the
-                // indexed-map structure.  Read the shape Y.Map and
-                // reconstruct the nodes array via fromYType.
-                const { fromYType } = require('../js/change-bridge-ydoc');
                 const shapePath = target.getPath();
                 const shapeYMap = getYPath(bridge.fontMap, shapePath);
-                const reconstructed = fromYType(shapeYMap);
+                const reconstructed = normalizeYDocValue(shapeYMap);
                 expect(reconstructed.nodes).toEqual(expectedValue);
             } else if (isMasterRtlKerning) {
                 expect(log).toHaveLength(2);
@@ -2960,6 +2895,22 @@ describe('Model setter change recording', () => {
                         getYPath(bridge.fontMap, ['format_specific'])
                     )
                 ).toEqual(cloneValue(font.format_specific));
+            } else if (spec.className === 'Node') {
+                expect(log).toHaveLength(1);
+                expect(log[0].property).toBe('nodes');
+                expect(typeof log[0].oldValue).toBe('string');
+                expect(typeof log[0].newValue).toBe('string');
+                const path = target.getPath();
+                expect(
+                    getYDocLayerNodeValue(
+                        bridge.fontMap,
+                        String(path[1]),
+                        String(path[3]),
+                        Number(path[5]),
+                        Number(path[7]),
+                        expectedProperty
+                    )
+                ).toEqual(expectedValue);
             } else {
                 expect(log).toHaveLength(1);
                 expect(log[0].property).toBe(expectedProperty);
@@ -3368,17 +3319,7 @@ describe('Model collection mutator change recording', () => {
             'glyphs.A:layers.layer-1:width'
         ]);
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(60);
         expect(
             getYPath(bridge.fontMap, [
@@ -3402,12 +3343,12 @@ describe('Model collection mutator change recording', () => {
         ).toBe(560);
     });
 
-    test('array nodes in Y.Doc support subsequent point edits', () => {
+    test('string nodes in Y.Doc support subsequent point edits', () => {
         const fontJson = makeMinimalFont();
         fontJson.glyphs[0].layers[0].shapes[0].nodes = [
-            { x: 100, y: 0, nodetype: 'Line' },
-            { x: 300, y: 700, nodetype: 'Line' },
-            { x: 500, y: 0, nodetype: 'Line' }
+            { x: 100, y: 0, nodetype: 'Line', smooth: false },
+            { x: 300, y: 700, nodetype: 'Line', smooth: false },
+            { x: 500, y: 0, nodetype: 'Line', smooth: false }
         ];
 
         const bridge = new ChangeBridge('array-node-edits');
@@ -3416,53 +3357,6 @@ describe('Model collection mutator change recording', () => {
         const font = Font.fromData(fontJson);
         const path = font.findGlyph('A').layers[0].shapes[0].asPath();
 
-        // Array nodes are stored verbatim in Y.Doc for per-node point edits.
-        // The indexed-map schema adds `id` fields to nodes; strip them for
-        // comparison with the original data.
-        const yDocNodes = normalizeYValue(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes'
-            ])
-        );
-        const strippedNodes = yDocNodes.map((n) => {
-            const { id, ...rest } = n;
-            return rest;
-        });
-        expect(strippedNodes).toEqual([
-            { x: 100, y: 0, nodetype: 'Line' },
-            { x: 300, y: 700, nodetype: 'Line' },
-            { x: 500, y: 0, nodetype: 'Line' }
-        ]);
-
-        const nodes = path.nodes;
-
-        expect(bridge.getChangeLog()).toHaveLength(0);
-        const yDocNodes2 = normalizeYValue(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes'
-            ])
-        );
-        expect(yDocNodes2.map(({ id, ...rest }) => rest)).toEqual([
-            { x: 100, y: 0, nodetype: 'Line' },
-            { x: 300, y: 700, nodetype: 'Line' },
-            { x: 500, y: 0, nodetype: 'Line' }
-        ]);
-
-        nodes[0].x = 120;
-
-        expect(bridge.getChangeLog()).toHaveLength(1);
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -3471,10 +3365,51 @@ describe('Model collection mutator change recording', () => {
                 'layer-1',
                 'shapes',
                 0,
-                'nodes',
-                0,
-                'x'
+                'nodes'
             ])
+        ).toBe('100 0 l 300 700 l 500 0 l');
+        expect(
+            normalizeYDocValue(
+                getYPath(bridge.fontMap, [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'shapes',
+                    0
+                ])
+            ).nodes
+        ).toEqual([
+            { x: 100, y: 0, nodetype: 'Line', smooth: false },
+            { x: 300, y: 700, nodetype: 'Line', smooth: false },
+            { x: 500, y: 0, nodetype: 'Line', smooth: false }
+        ]);
+
+        const nodes = path.nodes;
+
+        expect(bridge.getChangeLog()).toHaveLength(0);
+        expect(
+            normalizeYDocValue(
+                getYPath(bridge.fontMap, [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'shapes',
+                    0
+                ])
+            ).nodes
+        ).toEqual([
+            { x: 100, y: 0, nodetype: 'Line', smooth: false },
+            { x: 300, y: 700, nodetype: 'Line', smooth: false },
+            { x: 500, y: 0, nodetype: 'Line', smooth: false }
+        ]);
+
+        nodes[0].x = 120;
+
+        expect(bridge.getChangeLog()).toHaveLength(1);
+        expect(
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(120);
     });
 });
@@ -4274,7 +4209,7 @@ describe('WindowSync', () => {
         }
 
         function normalizeLayer(layer) {
-            const normalized = cloneValue(layer);
+            const normalized = decodeNodeStringsForRuntime(cloneValue(layer));
             delete normalized.id;
             delete normalized.name;
             const shapes =
@@ -4901,12 +4836,20 @@ describe('Sequential changes', () => {
         node.x = 130;
         const log = bridge.getChangeLog();
         expect(log).toHaveLength(3);
-        expect(log[0].oldValue).toBe(100);
-        expect(log[0].newValue).toBe(110);
-        expect(log[1].oldValue).toBe(110);
-        expect(log[1].newValue).toBe(120);
-        expect(log[2].oldValue).toBe(120);
-        expect(log[2].newValue).toBe(130);
+        expect(
+            log.map(
+                (entry) =>
+                    decodeNodeStringsForRuntime({ nodes: entry.oldValue })
+                        .nodes[0].x
+            )
+        ).toEqual([100, 110, 120]);
+        expect(
+            log.map(
+                (entry) =>
+                    decodeNodeStringsForRuntime({ nodes: entry.newValue })
+                        .nodes[0].x
+            )
+        ).toEqual([110, 120, 130]);
     });
 
     test('changes across different glyphs produce correct paths', () => {
@@ -5839,7 +5782,7 @@ describe('syncGlyphFromJson', () => {
         ).toBe(700);
     });
 
-    test('glyph snapshot replay preserves indexed layer array storage for undo and redo', () => {
+    test('glyph snapshot replay preserves string-node shape storage for undo and redo', () => {
         const { bridge, fontJson } = createTestBridge('test-1');
         const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
         const editedLayer = fontJson.glyphs[0].layers[0];
@@ -5850,19 +5793,22 @@ describe('syncGlyphFromJson', () => {
 
         bridge.undo('A');
         let layerMap = getYPath(bridge.fontMap, layerPath);
-        expect(layerMap.get('shapes')).toBeUndefined();
+        expect(layerMap.get('shapes')).toBeInstanceOf(Y.Array);
         expect(layerMap.get('anchors')).toBeUndefined();
-        expect(layerMap.get('shapesById')).toBeInstanceOf(Y.Map);
-        expect(layerMap.get('shapeOrder')).toBeInstanceOf(Y.Array);
+        expect(layerMap.get('shapesById')).toBeUndefined();
+        expect(layerMap.get('shapeOrder')).toBeUndefined();
         expect(layerMap.get('anchorsById')).toBeInstanceOf(Y.Map);
         expect(layerMap.get('anchorOrder')).toBeInstanceOf(Y.Array);
+        expect(layerMap.get('shapes').get(0).get('nodes')).toBe(
+            '100 0 line 300 700 line 500 0 line'
+        );
 
         bridge.redo('A');
         layerMap = getYPath(bridge.fontMap, layerPath);
-        expect(layerMap.get('shapes')).toBeUndefined();
+        expect(layerMap.get('shapes')).toBeInstanceOf(Y.Array);
         expect(layerMap.get('anchors')).toBeUndefined();
-        expect(layerMap.get('shapesById')).toBeInstanceOf(Y.Map);
-        expect(layerMap.get('shapeOrder')).toBeInstanceOf(Y.Array);
+        expect(layerMap.get('shapesById')).toBeUndefined();
+        expect(layerMap.get('shapeOrder')).toBeUndefined();
         expect(layerMap.get('anchorsById')).toBeInstanceOf(Y.Map);
         expect(layerMap.get('anchorOrder')).toBeInstanceOf(Y.Array);
         expect(normalizeYDocValue(layerMap).shapes[0].nodes[0].x).toBe(
@@ -6165,17 +6111,7 @@ describe('syncGlyphFromJson', () => {
             ])
         ).toBe('top');
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(150);
         expect(
             getYPath(bridge.fontMap, [
@@ -6249,17 +6185,7 @@ describe('syncGlyphFromJson', () => {
             ])
         ).toBe('top');
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(175);
     });
 
@@ -6355,7 +6281,7 @@ describe('syncGlyphFromJson', () => {
             ])
         ).toBe(originalSnapshot.width);
         expect(
-            cloneValue(
+            normalizeYDocValue(
                 getYPath(bridge.fontMap, [
                     'glyphs',
                     'A',
@@ -6366,7 +6292,7 @@ describe('syncGlyphFromJson', () => {
             )
         ).toEqual(originalSnapshot.anchors);
         expect(
-            cloneValue(
+            normalizeYDocValue(
                 getYPath(bridge.fontMap, [
                     'glyphs',
                     'A',
@@ -6583,14 +6509,16 @@ describe('syncGlyphFromJson', () => {
             })
         );
 
-        // Strip `id` fields added by the indexed-map schema for comparison
-        const stripIds = (nodes) => nodes.map(({ id, ...rest }) => rest);
-        expect(stripIds(fontJson.glyphs[0].layers[0].shapes[0].nodes)).toEqual(
-            stripIds(originalNodesByLayer[0])
-        );
-        expect(stripIds(fontJson.glyphs[0].layers[1].shapes[0].nodes)).toEqual(
-            stripIds(originalNodesByLayer[1])
-        );
+        const normalizeNodes = (nodes) =>
+            nodes.map(({ id, smooth, ...rest }) =>
+                smooth === false ? rest : { ...rest, smooth }
+            );
+        expect(
+            normalizeNodes(fontJson.glyphs[0].layers[0].shapes[0].nodes)
+        ).toEqual(normalizeNodes(originalNodesByLayer[0]));
+        expect(
+            normalizeNodes(fontJson.glyphs[0].layers[1].shapes[0].nodes)
+        ).toEqual(normalizeNodes(originalNodesByLayer[1]));
     });
 
     test('undo works after two consecutive syncs - each sync is a separate undo step', () => {
@@ -7173,17 +7101,7 @@ describe('syncGlyphFromJson', () => {
             ])
         ).toBe(320);
         expect(
-            getYPath(bridge2.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
+            getYDocLayerNodeValue(bridge2.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(100);
 
         sync1.destroy();
@@ -7299,14 +7217,14 @@ describe('syncGlyphFromJson', () => {
                 ])
             ).toBe(300);
             expect(
-                getYPath(receiverBridge.fontMap, [
-                    ...receiverLayerPath,
-                    'shapes',
+                getYDocLayerNodeValue(
+                    receiverBridge.fontMap,
+                    'A',
+                    'layer-1',
                     0,
-                    'nodes',
                     0,
                     'x'
-                ])
+                )
             ).toBe(nextX);
             expect(
                 receiverFontJson.glyphs[0].layers[0].shapes[0].nodes[0].x
@@ -7932,17 +7850,7 @@ describe('syncGlyphFromJson', () => {
             ])
         ).toBe(340);
         expect(
-            getYPath(bridge2.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
+            getYDocLayerNodeValue(bridge2.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(100);
 
         sync1.destroy();
@@ -8807,17 +8715,7 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
 
         // Confirm the Y.Doc now holds the new value
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(150);
 
         // Perform the undo — scope must be 'layer'
@@ -8832,17 +8730,7 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
 
         // Y.Doc should be reverted
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
+            getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(100);
 
         // Glyph B's layer object MUST be the same reference as before.

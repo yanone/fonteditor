@@ -137,31 +137,31 @@ Simultaneously, once a glyph’s sidebearing changes, all downstream glyphs who 
 
 Group any sidebearing changes of sidebearing inheritance in one history transaction and Yjs message. When a structural path operation triggers keyed realignment, keep the path operation itself and all resulting width changes of the active glyph and downstream dependent glyphs in that same single history transaction and Yjs message.
 
-Update canvas panning: When sidebearings of the active glyph change via explicit sidebearing edits, such as the dedicated sidebearing handles on canvas, the property panel text fields, or undo of those edits, anchor the opposite edge of the glyph on screen: If the RSB changes, anchor the canvas to the left edge of the glyph. If the LSB changes, anchor the canvas to the right edge of the glyph.
-When sidebearing changes are caused by keyed realignment during outline or component dragging, anchor the opposite edge of the active glyph layer on screen just like any other sidebearing edit: If the RSB changes, anchor the canvas to the left edge of the glyph. If the LSB changes, anchor the canvas to the right edge of the glyph.
-Reserve bbox-center anchoring for structural outline operations whose keyed realignment is applied only after the structure change is complete, such as inserting or deleting points, deleting whole paths, converting a straight segment to a curve, and opening or closing paths.
-Width adjustments and canvas anchoring must happen during one single animation frame so that no jiggle is visible on screen.
+Update canvas panning: When sidebearings of the active glyph change via explicit sidebearing edits, such as the dedicated sidebearing handles on canvas, the property panel text fields, or undo of those edits, preserve the active glyph layer's visual bounding-box center on screen during the repaint. Width adjustments, downstream metrics-key propagation, live advance refreshes, and this canvas anchoring must happen during one single animation frame so that no jiggle is visible on screen.
 
-The canvas must even be panned and anchored to the active glyph if only the right sidebearing gets edited and the width changes, because the entire line may contain other glyphs before it or repetitions of the same glyph whose width gets adjusted in the same transaction.
+When sidebearing changes are caused by keyed realignment during outline or component dragging, anchor the opposite edge of the active glyph layer on screen: If the RSB changes, anchor the canvas to the left edge of the glyph. If the LSB changes, anchor the canvas to the right edge of the glyph. Reserve bbox-center anchoring for explicit sidebearing edits and for structural outline operations whose keyed realignment is applied only after the structure change is complete, such as inserting or deleting points, deleting whole paths, converting a straight segment to a curve, and opening or closing paths.
 
-When a sidebearing changes, update the sidebearings of all inheriting downstream glyphs both in the object model as well as their advance widths in the harfbuzz buffer before repainting the canvas. This downstream propagation must include both explicit metrics-key inheritance and implicit automatic-alignment dependencies. For explicit sidebearing edits and keyed realignment during outline or component dragging, anchor the canvas to the opposite side of the sidebearing that changed during the repaint. For structural outline operations that trigger keyed realignment only after the structure update is complete, preserve the active glyph layer's bbox center on screen during that repaint.
-
-When downstream glyphs that appear **before** the active glyph in the harfbuzz buffer also change width (via metrics-key cascading), the active glyph's screen position shifts because its world position is the cumulative sum of all preceding advances. The viewport anchoring must account for those preceding-advance shifts as part of the same single-frame repaint so the active glyph remains visually stationary at its intended anchor point.
+When a sidebearing changes, update the sidebearings of all inheriting downstream glyphs both in the object model as well as their advance widths in the harfbuzz buffer before repainting the canvas. This downstream propagation must include both explicit metrics-key inheritance and implicit automatic-alignment dependencies. When downstream glyphs that appear **before** the active glyph in the harfbuzz buffer also change width, the viewport anchoring must account for those preceding-advance shifts as part of the same repaint so the active glyph remains visually stationary at its intended anchor point.
 
 ##### Tests
 
 **Test 1: Unkeyed Sidebearing Edits**
 
-For glyphs with no sidebearing keys, test that sidebearing edits via the handle by mouse, or via the handle by keyboard, or via the property panel text fields, always anchors the opposite glyph edge visually on the canvas. LSB edits anchor the right layer edge visually on screen, and RSB edits anchor the left layer edge visually on screen. Test a matrix of all edit input types and both sides.
+For glyphs with no sidebearing keys, test that sidebearing edits via the handle by mouse, via the handle by keyboard, and via the property panel text fields keep the active glyph layer's visual bounding-box center anchored on screen. Test a matrix of all edit input types and both sides.
 
 **Test 2: Keyed Sidebearing Edits**
 
-For glyphs with any of the defined sidebearing keys, test that outline or component drags anchor the opposite glyph edge visually on the canvas during keyed realignment. LSB changes anchor the right layer edge visually on screen, and RSB changes anchor the left layer edge visually on screen.
+For glyphs with any of the defined sidebearing keys, test that sidebearing handle edits keep the active glyph layer's visual bounding-box center anchored on screen while cascading metrics-key recompositions refresh dependent metrics and advances.
+For outline or component drags, test that keyed realignment anchors the opposite glyph edge visually on the canvas. LSB changes anchor the right layer edge visually on screen, and RSB changes anchor the left layer edge visually on screen.
 Test structural outline operations that trigger keyed realignment after the structure edit separately, and ensure those preserve the active glyph layer's visual bounding-box center on screen.
+
+**Test 3: Selected Glyph Anchoring**
+
+When a live advance refresh changes one or more glyphs before the active glyph in the text run, test that the appropriate active glyph anchor remains screen-stationary through the matching `panX` compensation. When no changed glyph precedes the active glyph, test that no preceding-advance compensation is applied.
 
 **Instructions for all sidebearing tests**
 
-Ensure that undo operations of the same edits result in the same edge anchoring as during edits, by storing in the history item which side got edited and using that for undo-time visual anchoring of the opposite edge.
+Ensure that undo operations of the same edits result in the same visual anchoring as during edits, by storing in the history item which side got edited and using that for undo-time visual anchoring.
 Ensure that ongoing mouse drags that take a break are not committing data to the history items such that an undo restores an already altered state. Undos must restore each state cleanly.
 
 #### Editing Components

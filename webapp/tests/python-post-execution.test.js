@@ -649,8 +649,10 @@ describe('Python post-execution synthetic commit alignment', () => {
         finalSnapshot.glyphs[0].note = 'after';
         finalSnapshot.glyphs[0].layers[0].width = 600;
         finalSnapshot.glyphs[0].layers[0].shapes = [
-            { id: 'shape-1', nodes: [], closed: false }
+            { id: 'shape-1', type: 'path', nodes: '', closed: false }
         ];
+        const receiverFinalSnapshot = JSON.parse(JSON.stringify(finalSnapshot));
+        receiverFinalSnapshot.glyphs[0].layers[0].shapes[0].nodes = [];
         const receiverFontJson = JSON.parse(
             JSON.stringify(normalizedBeforeSnapshot)
         );
@@ -710,7 +712,7 @@ describe('Python post-execution synthetic commit alignment', () => {
         for (const packet of emittedUpdates) {
             receiver.applyRemoteUpdate(packet.update, packet.entries);
         }
-        expect(receiverFontJson).toEqual(finalSnapshot);
+        expect(receiverFontJson).toEqual(receiverFinalSnapshot);
 
         sender.undo();
         const undoPacket = emittedUpdates.at(-1);
@@ -722,7 +724,7 @@ describe('Python post-execution synthetic commit alignment', () => {
         const redoPacket = emittedUpdates.at(-1);
         receiver.applyRemoteUpdate(redoPacket.update, redoPacket.entries);
         expect(yDocToJson(sender.fontMap)).toEqual(finalSnapshot);
-        expect(receiverFontJson).toEqual(finalSnapshot);
+        expect(receiverFontJson).toEqual(receiverFinalSnapshot);
 
         sender.destroy();
         receiver.destroy();

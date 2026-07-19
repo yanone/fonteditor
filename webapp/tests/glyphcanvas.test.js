@@ -516,6 +516,23 @@ describe('GlyphCanvas onMouseMove', () => {
         expect(canvas.outlineEditor.layerData.shapes[1].nodes[0].y).toBe(5);
     });
 
+    test('point dragging cancels stale canvas panning', () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.isDraggingCanvas = true;
+        canvas.lastMouseX = -1000;
+        canvas.lastMouseY = -1000;
+
+        canvas.onMouseMove({ clientX: 10, clientY: 20 });
+        canvas.onMouseMove({ clientX: 25, clientY: 15 });
+
+        expect(canvas.outlineEditor.layerData.shapes[1].nodes[0].x).toBe(15);
+        expect(canvas.outlineEditor.layerData.shapes[1].nodes[0].y).toBe(5);
+        expect(canvas.viewportManager.panX).toBe(0);
+        expect(canvas.viewportManager.panY).toBe(0);
+        expect(canvas.isDraggingCanvas).toBe(false);
+    });
+
     test('handles canvas panning when dragging', () => {
         canvas.isDraggingCanvas = true;
         canvas.lastMouseX = 10;
@@ -570,6 +587,30 @@ describe('GlyphCanvas onMouseDown', () => {
         canvas.outlineEditor.spaceKeyPressed = true;
         canvas.onMouseDown({ clientX: 10, clientY: 20, detail: 1 });
         expect(canvas.isDraggingCanvas).toBe(true);
+    });
+
+    test('outline drag mouse down clears stale canvas panning', async () => {
+        canvas.isDraggingCanvas = true;
+        jest.spyOn(canvas.outlineEditor, 'onSingleClick').mockImplementation(
+            async () => {
+                canvas.outlineEditor.active = true;
+                canvas.outlineEditor.isDraggingPoint = true;
+            }
+        );
+
+        await canvas.onMouseDown({
+            clientX: 10,
+            clientY: 20,
+            detail: 1,
+            button: 0,
+            shiftKey: false,
+            altKey: false,
+            ctrlKey: false,
+            metaKey: false
+        });
+
+        expect(canvas.outlineEditor.isDraggingPoint).toBe(true);
+        expect(canvas.isDraggingCanvas).toBe(false);
     });
 
     test('measurement drag takes precedence over marquee selection', () => {
@@ -2090,6 +2131,7 @@ describe('GlyphCanvas onMouseUp', () => {
             canvas.outlineEditor.lastGlyphX = null;
             canvas.outlineEditor.lastGlyphY = null;
             canvas.outlineEditor._lastDragSaveTime = 0;
+            canvas.viewportManager.panX = 100;
 
             canvas.outlineEditor._handleDrag({
                 clientX: 11,
@@ -2113,6 +2155,7 @@ describe('GlyphCanvas onMouseUp', () => {
             expect(applyMetricsKeysSpy).toHaveBeenCalledTimes(0);
             expect(saveLayerDataSpy).toHaveBeenCalledTimes(0);
             expect(scheduledFlushes).toHaveLength(1);
+            expect(canvas.viewportManager.panX).toBe(100);
 
             scheduledFlushes.shift()();
             await Promise.resolve();
@@ -2149,6 +2192,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 1,
                 'mouse-drag-outline'
             );
+            expect(canvas.viewportManager.panX).toBe(100);
         } finally {
             window.changeBridge = originalWindowChangeBridge;
             fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
@@ -3057,7 +3101,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         ).not.toHaveBeenCalled();
     });
 
-    test('commitPropertyPanelValue pans the viewport for left sidebearing edits', async () => {
+    test('commitPropertyPanelValue leaves the viewport unchanged for left sidebearing edits', async () => {
         const layer = {
             width: 500,
             isAutomaticAlignedLayer: jest.fn(() => false),
@@ -3099,7 +3143,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
 
         await canvas.commitPropertyPanelValue('left', '20');
 
-        expect(canvas.viewportManager.panX).toBe(60);
+        expect(canvas.viewportManager.panX).toBe(100);
     });
 
     test('commitPropertyPanelValue updates the visible outline before async refresh resolves', async () => {
@@ -3164,7 +3208,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
 
         const commitPromise = canvas.commitPropertyPanelValue('left', '==20');
 
-        expect(canvas.viewportManager.panX).toBe(60);
+        expect(canvas.viewportManager.panX).toBe(100);
         expect(canvas.outlineEditor.layerData.width).toBe(520);
         expect(canvas.render).toHaveBeenCalled();
 
@@ -4412,7 +4456,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
 
         expect(canvas.outlineEditor.layerData.width).toBe(485);
         expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(85);
-        expect(canvas.viewportManager.panX).toBe(130);
+        expect(canvas.viewportManager.panX).toBe(100);
     });
 
     test('sidebearing drags refresh live advances for keyed dependent glyphs', () => {
@@ -4771,7 +4815,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
                 ...glyph.findLayerById('layer-1').toJSON(),
                 isInterpolated: false
             };
-            const anchorScreen = getLayerBoundingBoxCenterScreen();
+            const beforePanX = canvas.viewportManager.panX;
             canvas.outlineEditor.pendingCommandPathEdit = {
                 didDraw: true,
                 didConvertLine: false
@@ -4785,10 +4829,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             expect(canvas.outlineEditor.layerData.width).toBe(
                 activeLayer.width
             );
-            const currentScreen = getLayerBoundingBoxCenterScreen();
-            expect(currentScreen).not.toBeNull();
-            expect(currentScreen.x).toBeCloseTo(anchorScreen.x, 2);
-            expect(currentScreen.y).toBeCloseTo(anchorScreen.y, 2);
+            expect(canvas.viewportManager.panX).toBe(beforePanX);
         } finally {
             updateWorkerFontCacheSpy.mockRestore();
             updateDirtyIndicatorSpy.mockRestore();
@@ -4911,12 +4952,9 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         const updateDirtyIndicatorSpy = jest
             .spyOn(fontManager, 'updateDirtyIndicator')
             .mockResolvedValue();
-        const bboxSpy = jest
-            .spyOn(canvas.outlineEditor, 'getBoundingBoxCenterScreenPosition')
-            .mockReturnValue({ x: 200, y: 120 });
-        const refreshViewportSpy = jest.spyOn(
+        const refreshMetricsSpy = jest.spyOn(
             canvas.outlineEditor,
-            'refreshKeyedMetricsViewportAnchor'
+            'refreshKeyedMetricsAfterStructuralEdit'
         );
         const previousChangeBridge = window.changeBridge;
         window.changeBridge = {
@@ -4938,6 +4976,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.getCurrentGlyphName = jest.fn(() => 'A');
         canvas.outlineEditor.currentGlyphName = 'A';
         canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.viewportManager.panX = 100;
         canvas.outlineEditor.layerData = {
             ...JSON.parse(JSON.stringify(currentLayer.toJSON())),
             isInterpolated: false
@@ -4961,10 +5000,8 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             expect(currentLayer.shapes).toHaveLength(1);
             expect(currentLayer.width).toBe(160);
             expect(dependentLayer.width).toBe(140);
-            expect(refreshViewportSpy).toHaveBeenCalledWith(expect.any(Set), {
-                x: 200,
-                y: 120
-            });
+            expect(refreshMetricsSpy).toHaveBeenCalledWith(expect.any(Set));
+            expect(canvas.viewportManager.panX).toBe(100);
             expect(
                 canvas.textRunEditor.refreshGlyphAdvancesLive
             ).toHaveBeenCalledWith(
@@ -4983,8 +5020,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             expect(window.changeBridge.endTransaction).toHaveBeenCalledTimes(1);
         } finally {
             window.changeBridge = previousChangeBridge;
-            refreshViewportSpy.mockRestore();
-            bboxSpy.mockRestore();
+            refreshMetricsSpy.mockRestore();
             updateWorkerFontCacheSpy.mockRestore();
             updateDirtyIndicatorSpy.mockRestore();
             currentFontSpy.mockRestore();
@@ -5012,7 +5048,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         expect(event.preventDefault).toHaveBeenCalled();
         expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(99);
         expect(canvas.outlineEditor.layerData.width).toBe(499);
-        expect(canvas.viewportManager.panX).toBe(102);
+        expect(canvas.viewportManager.panX).toBe(100);
     });
 
     test('Cmd+A selects all points, anchors, and components in the active layer', () => {
@@ -5185,7 +5221,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         ).toBe(80);
         expect(canvas.outlineEditor.layerData.anchors[0].x).toBe(100);
         expect(canvas.outlineEditor.layerData.width).toBe(480);
-        expect(canvas.viewportManager.panX).toBe(140);
+        expect(canvas.viewportManager.panX).toBe(100);
     });
 });
 
@@ -13932,7 +13968,6 @@ describe('OutlineEditor exact selected layers', () => {
         canvas.outlineEditor.currentGlyphName = 'A';
         canvas.outlineEditor.selectedLayerId = null;
         canvas.outlineEditor.isInterpolating = true;
-        canvas.outlineEditor.autoPanAnchorScreen = { x: 100, y: 200 };
         canvas.outlineEditor.layerData = {
             width: 520,
             shapes: [],
@@ -13951,7 +13986,6 @@ describe('OutlineEditor exact selected layers', () => {
         // After selectLayer, interpolation state must be fully cleared
         expect(canvas.outlineEditor.selectedLayerId).toBe('master-layer');
         expect(canvas.outlineEditor.isInterpolating).toBe(false);
-        expect(canvas.outlineEditor.autoPanAnchorScreen).toBe(null);
     });
 
     test('selectLayer clears interpolation state after play-loop animation', async () => {
@@ -13987,7 +14021,6 @@ describe('OutlineEditor exact selected layers', () => {
         // After selectLayer, interpolation state must be fully cleared
         expect(canvas.outlineEditor.selectedLayerId).toBe('master-layer');
         expect(canvas.outlineEditor.isInterpolating).toBe(false);
-        expect(canvas.outlineEditor.autoPanAnchorScreen).toBe(null);
     });
 
     test('createInterpolatedLayer routes structural layer additions through patch sync funnel', async () => {

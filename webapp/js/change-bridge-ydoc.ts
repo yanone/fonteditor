@@ -8,6 +8,7 @@
 
 import * as Y from 'yjs';
 import { generateStableId } from './babelfont-model';
+import { parseNodeString, serializeNodeArray } from './node-encoding';
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -74,14 +75,9 @@ function normalizeValueForYDocWrite(value: unknown): unknown {
     }
 
     if ('nodes' in record) {
-        if (!Array.isArray(record.nodes)) {
-            throw new TypeError(
-                'Path shape nodes must be an array before writing to Y.Doc.'
-            );
-        }
-
         return {
             ...record,
+            nodes: serializeNodeArray(record.nodes),
             closed: record.closed === undefined ? false : record.closed
         };
     }
@@ -117,9 +113,12 @@ function createYContainerForNextSegment(
 // ── JSON → Y.Doc ────────────────────────────────────────────────────
 
 /**
- * Convert a layer object to a Y.Map with indexed-map structure for
- * shapes, anchors, and guides. Each array becomes a `*ById` Y.Map
- * (keyed by stable id) + a `*Order` Y.Array (holding ids in sequence).
+ * Convert a layer object to a Y.Map.
+ *
+ * Shapes stay an upstream-truthful ordered array so path `nodes` remain compact
+ * strings in resting Y.Doc state. Anchors and guides keep the existing indexed
+ * map structure because their ids are editor/runtime metadata and this change
+ * only migrates path node storage.
  */
 function layerToYMap(layerData: Record<string, unknown>): Y.Map<unknown> {
     const map = new Y.Map<unknown>();
@@ -132,29 +131,8 @@ function layerToYMap(layerData: Record<string, unknown>): Y.Map<unknown> {
         map.set(k, toYType(v));
     }
 
-    // shapes → shapesById + shapeOrder
     if (Array.isArray(layerData.shapes)) {
-        const shapesById = new Y.Map<unknown>();
-        const shapeOrder = new Y.Array<unknown>();
-        for (const shape of layerData.shapes) {
-            // Reject wrapped shapes at ingress
-            if (
-                shape &&
-                typeof shape === 'object' &&
-                ('Path' in shape || 'Component' in shape)
-            ) {
-                throw new TypeError(
-                    'Wrapped shapes are not allowed before writing to Y.Doc.'
-                );
-            }
-            const inner = shape;
-            const shapeId = (inner as any)?.id ?? generateStableId();
-            (inner as any).id = shapeId;
-            shapesById.set(shapeId, toYType(inner));
-            shapeOrder.push([shapeId]);
-        }
-        map.set('shapesById', shapesById);
-        map.set('shapeOrder', shapeOrder);
+        map.set('shapes', toYType(layerData.shapes));
     }
 
     // anchors → anchorsById + anchorOrder
@@ -224,8 +202,10 @@ export function applyLayerDelta(
     for (const [key, value] of Object.entries(layerData)) {
         if (value === null || value === undefined) {
             layerMap.delete(key);
+        } else if (key === 'shapes' && Array.isArray(value)) {
+            layerMap.set(key, toYType(value));
         } else if (
-            (key === 'shapes' || key === 'anchors' || key === 'guides') &&
+            (key === 'anchors' || key === 'guides') &&
             Array.isArray(value)
         ) {
             applyIndexedMapArray(layerMap, key, value);
@@ -309,7 +289,7 @@ export function applyIndexedMapArray(
 /**
  * Recursively deep-merge a plain object into an existing Y.Map.
  * Preserves nested Y.Map/Y.Array containers where possible.
- * Indexed-map aware: handles `nodes`/`shapes`/`anchors`/`guides` arrays
+ * Indexed-map aware: handles `anchors`/`guides` arrays
  * via `applyIndexedMapArray` instead of replacing the *ById structure.
  */
 function mergeYMapContents(
@@ -321,13 +301,7 @@ function mergeYMapContents(
     // (kind, *ById, *Order) that aren't in the flat JSON.
     for (const [key, value] of Object.entries(nextRecord)) {
         const current = targetMap.get(key);
-        if (
-            (key === 'shapes' ||
-                key === 'anchors' ||
-                key === 'guides' ||
-                key === 'nodes') &&
-            Array.isArray(value)
-        ) {
+        if ((key === 'anchors' || key === 'guides') && Array.isArray(value)) {
             // Indexed-map array — use applyIndexedMapArray
             applyIndexedMapArray(targetMap, key, value);
         } else if (isYMap(current) && isPlainObject(value)) {
@@ -346,10 +320,9 @@ function mergeYMapContents(
  * Convert a plain JS value into a Y.Map, Y.Array, or primitive suitable
  * for insertion into a Y.Doc.
  *
- * Babelfont-aware: Path objects (with `nodes`) get `nodesById`+`nodeOrder`
- * indexed-map structure; Layer objects (with `shapes`) get `shapesById`+
- * `shapeOrder`, `anchorsById`+`anchorOrder`, `guidesById`+`guideOrder`.
- * This makes per-node/per-shape edits produce minimal Yjs deltas.
+ * Babelfont-aware: Path objects store upstream-truthful string `nodes`; Layer
+ * objects keep glyph/layer structure while storing shapes as plain ordered
+ * arrays and anchors/guides as indexed maps.
  */
 export function toYType(value: unknown): unknown {
     if (Array.isArray(value)) {
@@ -364,41 +337,6 @@ export function toYType(value: unknown): unknown {
             unknown
         >;
         const map = new Y.Map();
-
-        // Check if this is a Path (has nodes array) → indexed-map for nodes
-        if (
-            'nodes' in normalizedValue &&
-            Array.isArray(normalizedValue.nodes)
-        ) {
-            // Path shape: kind discriminator + indexed-map nodes
-            map.set('kind', 'Path');
-            const nodesById = new Y.Map<unknown>();
-            const nodeOrder = new Y.Array<unknown>();
-            for (const node of normalizedValue.nodes) {
-                const nodeId = (node as any)?.id ?? generateStableId();
-                (node as any).id = nodeId;
-                nodesById.set(nodeId, toYType(node));
-                nodeOrder.push([nodeId]);
-            }
-            map.set('nodesById', nodesById);
-            map.set('nodeOrder', nodeOrder);
-            if ('closed' in normalizedValue) {
-                map.set('closed', normalizedValue.closed);
-            }
-            if ('id' in normalizedValue) {
-                map.set('id', normalizedValue.id);
-            }
-            if (
-                'format_specific' in normalizedValue &&
-                normalizedValue.format_specific
-            ) {
-                map.set(
-                    'format_specific',
-                    toYType(normalizedValue.format_specific)
-                );
-            }
-            return map;
-        }
 
         // Check if this is a Layer (has shapes array) → indexed-map for shapes/anchors/guides
         if (
@@ -535,8 +473,7 @@ function fromYGlyphMap(glyphMap: Y.Map<unknown>): Record<string, unknown> {
 
 /**
  * Convert a Yjs shared type back into a plain JS value.
- * Reverses the indexed-map structure: `nodesById`+`nodeOrder` → `nodes` array,
- * `shapesById`+`shapeOrder` → `shapes` array, etc.
+ * Reverses Yjs shared types into upstream-truthful plain JSON.
  */
 export function fromYType(value: unknown): unknown {
     if (value instanceof Y.Map) {
@@ -546,56 +483,8 @@ export function fromYType(value: unknown): unknown {
             return fromYGlyphMap(value);
         }
 
-        // Check for indexed-map structure (nodesById + nodeOrder)
-        if (value.has('nodesById') && value.get('nodesById') instanceof Y.Map) {
-            const nodesById = value.get('nodesById') as Y.Map<unknown>;
-            const nodeOrder = value.get('nodeOrder');
-            const orderedIds: string[] =
-                nodeOrder instanceof Y.Array
-                    ? (nodeOrder.toArray() as string[])
-                    : [];
-            const nodes: unknown[] = [];
-            for (const nodeId of orderedIds) {
-                const nodeVal = nodesById.get(nodeId);
-                if (nodeVal === undefined) {
-                    throw new Error(
-                        `Indexed-map integrity error: nodeOrder references missing node id ${nodeId}.`
-                    );
-                }
-                const nodeObj = fromYType(nodeVal) as Record<string, unknown>;
-                // Ensure the id from the *ById key is present on the node
-                if (nodeObj && typeof nodeObj === 'object' && !nodeObj.id) {
-                    nodeObj.id = nodeId;
-                }
-                nodes.push(nodeObj);
-            }
-            obj.nodes = nodes;
-            if (value.has('closed'))
-                obj.closed = fromYType(value.get('closed'));
-            if (value.has('id')) obj.id = fromYType(value.get('id'));
-            if (value.has('format_specific'))
-                obj.format_specific = fromYType(value.get('format_specific'));
-            // Include any other keys not part of the indexed-map structure
-            value.forEach((v: unknown, k: string) => {
-                if (
-                    k !== 'nodesById' &&
-                    k !== 'nodeOrder' &&
-                    k !== 'nodes' &&
-                    k !== 'closed' &&
-                    k !== 'id' &&
-                    k !== 'format_specific' &&
-                    k !== 'kind'
-                ) {
-                    obj[k] = fromYType(v);
-                }
-            });
-            return obj;
-        }
-
         // Check for indexed-map structure (any *ById key indicates a layer)
         if (
-            (value.has('shapesById') &&
-                value.get('shapesById') instanceof Y.Map) ||
             (value.has('anchorsById') &&
                 value.get('anchorsById') instanceof Y.Map) ||
             (value.has('guidesById') &&
@@ -620,8 +509,8 @@ export function fromYType(value: unknown): unknown {
 }
 
 /**
- * Reverse `layerToYMap`: read a layer Y.Map with indexed-map structure
- * back into a flat layer object with `shapes`/`anchors`/`guides` arrays.
+ * Reverse `layerToYMap`: read a layer Y.Map back into a flat layer object with
+ * upstream-truthful `shapes` plus indexed-map-backed `anchors`/`guides` arrays.
  */
 function fromYLayerMap(layerMap: Y.Map<unknown>): Record<string, unknown> {
     const obj: Record<string, unknown> = {};
@@ -629,8 +518,6 @@ function fromYLayerMap(layerMap: Y.Map<unknown>): Record<string, unknown> {
     // Non-indexed-map keys
     layerMap.forEach((v: unknown, k: string) => {
         if (
-            k !== 'shapesById' &&
-            k !== 'shapeOrder' &&
             k !== 'anchorsById' &&
             k !== 'anchorOrder' &&
             k !== 'guidesById' &&
@@ -643,29 +530,9 @@ function fromYLayerMap(layerMap: Y.Map<unknown>): Record<string, unknown> {
         }
     });
 
-    // shapesById + shapeOrder → shapes array
-    const shapesById = layerMap.get('shapesById');
-    const shapeOrder = layerMap.get('shapeOrder');
-    if (shapesById instanceof Y.Map) {
-        const orderedIds: string[] =
-            shapeOrder instanceof Y.Array
-                ? (shapeOrder.toArray() as string[])
-                : [];
-        const shapes: unknown[] = [];
-        for (const shapeId of orderedIds) {
-            const shapeVal = (shapesById as Y.Map<unknown>).get(shapeId);
-            if (shapeVal === undefined) {
-                throw new Error(
-                    `Indexed-map integrity error: shapeOrder references missing shape id ${shapeId}.`
-                );
-            }
-            const shapeObj = fromYType(shapeVal) as Record<string, unknown>;
-            if (shapeObj && typeof shapeObj === 'object' && !shapeObj.id) {
-                shapeObj.id = shapeId;
-            }
-            shapes.push(shapeObj);
-        }
-        obj.shapes = shapes;
+    const shapes = layerMap.get('shapes');
+    if (shapes instanceof Y.Array) {
+        obj.shapes = fromYType(shapes);
     }
 
     // anchorsById + anchorOrder → anchors array
@@ -773,6 +640,7 @@ export function getYPath(
 ): unknown {
     let current: unknown = root;
     let i = 0;
+
     while (i < path.length) {
         const seg = path[i];
         if (current instanceof Y.Map) {
@@ -834,8 +702,6 @@ export function getYPath(
  * When a Y.Map has `shapesById`+`shapeOrder` instead of `shapes`, etc.
  */
 const INDEXED_MAP_KEYS: Record<string, { byId: string; order: string }> = {
-    shapes: { byId: 'shapesById', order: 'shapeOrder' },
-    nodes: { byId: 'nodesById', order: 'nodeOrder' },
     anchors: { byId: 'anchorsById', order: 'anchorOrder' },
     guides: { byId: 'guidesById', order: 'guideOrder' }
 };
@@ -1161,6 +1027,28 @@ export function setYPath(
     value: unknown
 ): void {
     if (path.length === 0) return;
+
+    const nodesSegmentIndex = path.lastIndexOf('nodes');
+    if (
+        nodesSegmentIndex >= 0 &&
+        nodesSegmentIndex === path.length - 3 &&
+        typeof path[nodesSegmentIndex + 1] === 'number' &&
+        typeof path[nodesSegmentIndex + 2] === 'string'
+    ) {
+        const nodesPath = path.slice(0, nodesSegmentIndex + 1);
+        const nodeIndex = Number(path[nodesSegmentIndex + 1]);
+        const property = String(path[nodesSegmentIndex + 2]);
+        const existingNodes = getYPath(root, nodesPath);
+        const nodes =
+            existingNodes === undefined ? [] : parseNodeString(existingNodes);
+        while (nodes.length <= nodeIndex) {
+            nodes.push({ x: 0, y: 0, nodetype: 'Line', smooth: false });
+        }
+        nodes[nodeIndex][property] = value;
+        setYPath(root, nodesPath, serializeNodeArray(nodes));
+        return;
+    }
+
     let current: unknown = root;
     let i = 0;
     // Navigate to the parent of the target

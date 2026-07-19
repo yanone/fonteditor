@@ -11,7 +11,7 @@ const {
     collaborationMessageKey
 } = require('../js/collaboration-message.ts');
 
-const TEST_YDOC_SCHEMA_VERSION = 2;
+const TEST_YDOC_SCHEMA_VERSION = 3;
 
 function createIndexedDbMock(seedRecords = []) {
     const records = new Map(
@@ -3083,7 +3083,7 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
             JSON.stringify({
                 type: 'auth-ok',
                 clientId: 'client-1',
-                roomSchemaVersion: 2
+                roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION
             })
         );
 
@@ -3134,7 +3134,7 @@ describe('R2 bootstrap (GET /state before WebSocket)', () => {
             JSON.stringify({
                 type: 'auth-ok',
                 clientId: 'client-1',
-                roomSchemaVersion: 2
+                roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION
             })
         );
 
@@ -3345,7 +3345,7 @@ describe('HTTP seed (POST /state for new rooms)', () => {
                 JSON.stringify({
                     type: 'auth-ok',
                     clientId: 'client-1',
-                    roomSchemaVersion: 2,
+                    roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION,
                     seedRequired: true
                 })
             );
@@ -3460,7 +3460,7 @@ describe('HTTP seed (POST /state for new rooms)', () => {
             JSON.stringify({
                 type: 'auth-ok',
                 clientId: 'client-1',
-                roomSchemaVersion: 2,
+                roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION,
                 seedRequired: true
             })
         );
@@ -3482,7 +3482,7 @@ describe('HTTP seed (POST /state for new rooms)', () => {
             JSON.stringify({
                 type: 'auth-ok',
                 clientId: 'client-2',
-                roomSchemaVersion: 2
+                roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION
             })
         );
 
@@ -3581,7 +3581,7 @@ describe('HTTP seed (POST /state for new rooms)', () => {
             JSON.stringify({
                 type: 'auth-ok',
                 clientId: 'client-1',
-                roomSchemaVersion: 2,
+                roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION,
                 seedRequired: true
             })
         );
@@ -3715,7 +3715,7 @@ describe('HTTP seed (POST /state for new rooms)', () => {
                 JSON.stringify({
                     type: 'auth-ok',
                     clientId: 'client-1',
-                    roomSchemaVersion: 2,
+                    roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION,
                     seedRequired: true
                 })
             );
@@ -3848,7 +3848,7 @@ describe('HTTP seed (POST /state for new rooms)', () => {
             JSON.stringify({
                 type: 'auth-ok',
                 clientId: 'client-1',
-                roomSchemaVersion: 2,
+                roomSchemaVersion: TEST_YDOC_SCHEMA_VERSION,
                 seedRequired: true
             })
         );

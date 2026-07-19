@@ -56,6 +56,10 @@ import {
 } from './collaboration-message';
 import { windowRole } from './window-role';
 import { withSuppressedModelRecording } from './babelfont-model';
+import {
+    decodeNodeStringsForRuntime,
+    encodeNodeArraysForStorage
+} from './node-encoding';
 
 const console = new Logger('PatchSyncEngine');
 
@@ -288,18 +292,11 @@ type LayerSyncMetadata = {
 };
 
 const INDEXED_ARRAY_ORDER_KEYS: Record<string, string> = {
-    shapes: 'shapeOrder',
-    nodes: 'nodeOrder',
     anchors: 'anchorOrder',
     guides: 'guideOrder'
 };
 
-const GRANULAR_LAYER_ARRAY_KEYS = new Set([
-    'shapes',
-    'nodes',
-    'anchors',
-    'guides'
-]);
+const GRANULAR_LAYER_ARRAY_KEYS = new Set(['anchors', 'guides']);
 
 function getLayerManagerKey(glyphName: string, layerId: string): string {
     return `${glyphName}@@${layerId}`;
@@ -1288,6 +1285,9 @@ export class PatchSyncEngine {
             if (!layerJson) {
                 continue;
             }
+            const storageLayerJson = this._encodeNodeArraysForStorage(
+                layerJson
+            ) as Record<string, unknown>;
 
             const yLayerMap = layersMap.get(layerId);
             // Build a delta: diff _fontJson layer against current Y.Doc state.
@@ -1301,14 +1301,14 @@ export class PatchSyncEngine {
                     op: 'set' as ChangeOp,
                     path: ['glyphs', glyphName, 'layers', layerId],
                     oldValue: null,
-                    newValue: cloneHistoryValue(layerJson),
+                    newValue: cloneHistoryValue(storageLayerJson),
                     editSource: editSource ?? compileChangeSource ?? null,
                     compileChangeSource,
                     compileEditType,
                     visualAnchorSide,
                     workerReplayTargets,
                     applyPath: ['glyphs', glyphName, 'layers', layerId],
-                    applyNewValue: layerJson,
+                    applyNewValue: storageLayerJson,
                     applyMode: 'layer-snapshot' as BatchApplyMode
                 });
                 continue;
@@ -1320,16 +1320,16 @@ export class PatchSyncEngine {
                     glyphName,
                     layerId,
                     previousLayer,
-                    layerJson
+                    storageLayerJson
                 )
             ) {
-                this._adoptIndexedLayerIds(previousLayer, layerJson);
+                this._adoptIndexedLayerIds(previousLayer, storageLayerJson);
                 operations.push(
                     ...this._buildGranularLayerSyncOperations(
                         glyphName,
                         layerId,
                         previousLayer,
-                        layerJson,
+                        storageLayerJson,
                         {
                             editSource:
                                 editSource ?? compileChangeSource ?? null,
@@ -1345,7 +1345,7 @@ export class PatchSyncEngine {
 
             const sparseLayerDelta = this._buildSparseLayerDelta(
                 previousLayer,
-                layerJson,
+                storageLayerJson,
                 layerId
             );
             if (!sparseLayerDelta) {
@@ -1634,7 +1634,6 @@ export class PatchSyncEngine {
         previousLayer: Record<string, unknown>,
         nextLayer: Record<string, unknown>
     ): void {
-        this._adoptIndexedArrayIds(previousLayer.shapes, nextLayer.shapes);
         this._adoptIndexedArrayIds(previousLayer.anchors, nextLayer.anchors);
         this._adoptIndexedArrayIds(previousLayer.guides, nextLayer.guides);
     }
@@ -1663,7 +1662,6 @@ export class PatchSyncEngine {
             if (!nextRecord.id && typeof previousRecord.id === 'string') {
                 nextRecord.id = previousRecord.id;
             }
-            this._adoptIndexedArrayIds(previousRecord.nodes, nextRecord.nodes);
         });
     }
 
@@ -1823,7 +1821,10 @@ export class PatchSyncEngine {
             }
 
             const yGlyphJson = yDocToJson(glyphMap);
-            if (this._isDeepEqual(yGlyphJson, glyphJson)) {
+            const storageGlyphJson = this._encodeNodeArraysForStorage(
+                glyphJson
+            ) as Record<string, unknown>;
+            if (this._isDeepEqual(yGlyphJson, storageGlyphJson)) {
                 continue;
             }
 
@@ -1834,7 +1835,7 @@ export class PatchSyncEngine {
             targets.push({
                 glyphName,
                 previousGlyphJson,
-                glyphJson
+                glyphJson: storageGlyphJson
             });
         }
 
@@ -1972,6 +1973,9 @@ export class PatchSyncEngine {
             (l: Record<string, unknown>) => l.id === layerId
         );
         if (!layerJson) return false;
+        const storageLayerJson = this._encodeNodeArraysForStorage(
+            layerJson
+        ) as Record<string, unknown>;
 
         const yLayerJson = fromYType(yLayerMap);
         const previousLayer = yLayerJson as Record<string, unknown>;
@@ -1981,16 +1985,16 @@ export class PatchSyncEngine {
                 glyphName,
                 layerId,
                 previousLayer,
-                layerJson
+                storageLayerJson
             )
         ) {
-            this._adoptIndexedLayerIds(previousLayer, layerJson);
+            this._adoptIndexedLayerIds(previousLayer, storageLayerJson);
 
             const operations = this._buildGranularLayerSyncOperations(
                 glyphName,
                 layerId,
                 previousLayer,
-                layerJson,
+                storageLayerJson,
                 {
                     editSource: editSource ?? compileChangeSource ?? null,
                     compileChangeSource,
@@ -2014,7 +2018,7 @@ export class PatchSyncEngine {
 
         const sparseLayerDelta = this._buildSparseLayerDelta(
             previousLayer,
-            layerJson,
+            storageLayerJson,
             layerId
         );
         if (!sparseLayerDelta) {
@@ -2842,7 +2846,9 @@ export class PatchSyncEngine {
             return;
         }
 
-        fontRecord[key] = cloneHistoryValue(fromYType(value));
+        fontRecord[key] = this._decodeNodeStringsForRuntime(
+            cloneHistoryValue(fromYType(value))
+        );
     }
 
     private _readNormalizedGlyphSnapshotFromYDoc(
@@ -2859,9 +2865,11 @@ export class PatchSyncEngine {
             return null;
         }
 
-        const glyphSnapshot = this._normalizeGlyphSnapshot(
-            fromYType(glyphMap),
-            existingGlyphSnapshot
+        const glyphSnapshot = this._decodeNodeStringsForRuntime(
+            this._normalizeGlyphSnapshot(
+                fromYType(glyphMap),
+                existingGlyphSnapshot
+            )
         ) as Unsafe;
         return glyphSnapshot;
     }
@@ -3492,10 +3500,12 @@ export class PatchSyncEngine {
             return false;
         }
 
-        const patchedLayer = this._normalizeLayerSnapshot(
-            scopeHint.layerId,
-            fromYType(layerMap),
-            layers[layerIdx]
+        const patchedLayer = this._decodeNodeStringsForRuntime(
+            this._normalizeLayerSnapshot(
+                scopeHint.layerId,
+                fromYType(layerMap),
+                layers[layerIdx]
+            )
         ) as Unsafe;
 
         if (
@@ -4669,6 +4679,14 @@ export class PatchSyncEngine {
         return value === undefined ? undefined : cloneHistoryValue(value);
     }
 
+    private _encodeNodeArraysForStorage(value: unknown): unknown {
+        return encodeNodeArraysForStorage(cloneHistoryValue(value));
+    }
+
+    private _decodeNodeStringsForRuntime(value: unknown): unknown {
+        return decodeNodeStringsForRuntime(cloneHistoryValue(value));
+    }
+
     private _canReplayHistoryItemDirectly(
         item: HistoryStackItem,
         direction: 'undo' | 'redo'
@@ -5679,14 +5697,10 @@ export class PatchSyncEngine {
                     layerMap.delete(key);
                 }
             } else {
-                // Shapes/anchors/guides are stored as indexed-maps
-                // (shapesById+shapeOrder, etc.) in the Y.Doc. Apply the
-                // array delta element-by-element via deep-merge so only
-                // changed shapes/nodes produce Yjs operations.
+                // Anchors/guides are stored as indexed maps. Shapes are stored
+                // as upstream-truthful plain arrays with string-node paths.
                 if (
-                    (key === 'shapes' ||
-                        key === 'anchors' ||
-                        key === 'guides') &&
+                    (key === 'anchors' || key === 'guides') &&
                     Array.isArray(value)
                 ) {
                     applyIndexedMapArrayToYMap(layerMap, key, value);

@@ -221,7 +221,8 @@ describe('TextRunEditor live advance refresh', () => {
 });
 
 describe('applyLiveSidebearingVisualSync', () => {
-    test('matches editing behavior for left sidebearings without forcing a render', () => {
+    test('leaves the viewport unchanged when no advance precedes the selected glyph', () => {
+        const computePrecedingAdvanceDelta = jest.fn(() => 0);
         const refreshGlyphAdvancesLive = jest.fn(() => true);
         const target = {
             viewportManager: {
@@ -229,6 +230,7 @@ describe('applyLiveSidebearingVisualSync', () => {
                 scale: 2
             },
             textRunEditor: {
+                computePrecedingAdvanceDelta,
                 refreshGlyphAdvancesLive
             }
         };
@@ -245,11 +247,75 @@ describe('applyLiveSidebearingVisualSync', () => {
             widthDelta: 20,
             advancesRefreshed: true
         });
-        expect(target.viewportManager.panX).toBe(60);
+        expect(target.viewportManager.panX).toBe(100);
+        expect(computePrecedingAdvanceDelta).toHaveBeenCalledWith({ a: 520 });
         expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
             { a: 520 },
             { render: false }
         );
+    });
+
+    test('keeps the selected glyph anchored after a preceding advance changes', () => {
+        const computePrecedingAdvanceDelta = jest.fn(() => 20);
+        const refreshGlyphAdvancesLive = jest.fn(() => true);
+        const target = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                computePrecedingAdvanceDelta,
+                refreshGlyphAdvancesLive
+            }
+        };
+
+        const result = applyLiveSidebearingVisualSync(target, {
+            glyphName: 'a',
+            side: 'right',
+            previousWidth: 500,
+            nextWidth: 520,
+            render: false
+        });
+
+        expect(result).toEqual({
+            widthDelta: 20,
+            advancesRefreshed: true
+        });
+        expect(target.viewportManager.panX).toBe(60);
+        expect(computePrecedingAdvanceDelta).toHaveBeenCalledWith({ a: 520 });
+        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
+            { a: 520 },
+            { render: false }
+        );
+    });
+
+    test('does not compensate when the live advance refresh does not apply', () => {
+        const computePrecedingAdvanceDelta = jest.fn(() => 20);
+        const refreshGlyphAdvancesLive = jest.fn(() => false);
+        const target = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                computePrecedingAdvanceDelta,
+                refreshGlyphAdvancesLive
+            }
+        };
+
+        const result = applyLiveSidebearingVisualSync(target, {
+            glyphName: 'a',
+            side: 'right',
+            previousWidth: 500,
+            nextWidth: 520,
+            render: false
+        });
+
+        expect(result).toEqual({
+            widthDelta: 20,
+            advancesRefreshed: false
+        });
+        expect(target.viewportManager.panX).toBe(100);
     });
 
     test('refreshes active and dependent glyph advances in one pass when provided', () => {
@@ -317,7 +383,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         jest.clearAllMocks();
     });
 
-    test('undoing a left sidebearing change keeps the glyph stationary and refreshes advances before repaint', async () => {
+    test('undoing a left sidebearing change refreshes advances without moving the viewport', async () => {
         const requestRepaintAfterCompile = jest.fn();
         const refreshGlyphAdvancesLive = jest.fn();
         const fetchLayerData = jest.fn().mockResolvedValue();
@@ -406,7 +472,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             { a: 520 },
             { render: false }
         );
-        expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(60);
+        expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(100);
         expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenCalledTimes(2);
         expect(render).toHaveBeenCalledTimes(1);
         expect(requestRepaintAfterCompile).not.toHaveBeenCalled();
@@ -759,7 +825,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             { 'a.alt': 520 },
             { render: false }
         ]);
-        expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(140);
+        expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(100);
     });
 
     test('undo point drag recomputes metrics-key dependents and refreshes their advances immediately', async () => {

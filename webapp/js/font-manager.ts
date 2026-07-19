@@ -51,6 +51,10 @@ import {
     beginStartupInteractionLock,
     endStartupInteractionLock
 } from './startup-interaction-lock';
+import {
+    decodeNodeStringsForRuntime,
+    serializeNodeArray
+} from './node-encoding';
 
 const console = new Logger('FontManager');
 
@@ -267,7 +271,9 @@ class OpenedFont {
         directoryHandle?: FileSystemDirectoryHandle
     ) {
         this.babelfontJson = babelfontJson;
-        this.babelfontData = JSON.parse(babelfontJson);
+        this.babelfontData = decodeNodeStringsForRuntime(
+            JSON.parse(babelfontJson)
+        );
         // Ensure every Node, Path, Component, Anchor, and Guide has a stable `id`
         // for CRDT addressing (indexed-map Y.Doc schema). Must run before any
         // Y.Doc or model initialization.
@@ -483,7 +489,7 @@ class OpenedFont {
     /**
      * Sync the JSON string from the object model data
      * Call this after making changes through the object model.
-     * Nodes are stored as arrays (the format babelfont-rs now accepts natively).
+     * Runtime nodes are arrays; serialized storage JSON uses upstream node strings.
      */
     syncJsonFromModel(): void {
         assertBabelfontLayerWidths(this.babelfontData, 'syncJsonFromModel');
@@ -2346,15 +2352,20 @@ class FontManager {
         const pathCandidate = hasPathWrapper ? shape.Path : shape;
 
         if ('nodes' in pathCandidate) {
-            if (!Array.isArray(pathCandidate.nodes)) {
+            if (
+                !Array.isArray(pathCandidate.nodes) &&
+                typeof pathCandidate.nodes !== 'string'
+            ) {
                 throw new TypeError(
-                    'Path shape nodes must be an array before Rust normalization.'
+                    'Path shape nodes must be an array or upstream string before Rust normalization.'
                 );
             }
 
             return {
                 ...(pathCandidate.id && { id: pathCandidate.id }),
-                nodes: pathCandidate.nodes,
+                nodes: decodeNodeStringsForRuntime({
+                    nodes: pathCandidate.nodes
+                }).nodes,
                 closed: pathCandidate.closed,
                 ...(pathCandidate.format_specific && {
                     format_specific: pathCandidate.format_specific
@@ -3900,15 +3911,18 @@ class FontManager {
                 typeof pathCandidate === 'object' &&
                 'nodes' in pathCandidate
             ) {
-                if (!Array.isArray(pathCandidate.nodes)) {
+                if (
+                    !Array.isArray(pathCandidate.nodes) &&
+                    typeof pathCandidate.nodes !== 'string'
+                ) {
                     throw new TypeError(
-                        'Path shape nodes must be an array before layer storage serialization.'
+                        'Path shape nodes must be an array or upstream string before layer storage serialization.'
                     );
                 }
 
                 return {
                     ...(pathCandidate.id && { id: pathCandidate.id }),
-                    nodes: pathCandidate.nodes,
+                    nodes: serializeNodeArray(pathCandidate.nodes),
                     closed:
                         pathCandidate.closed === undefined
                             ? false

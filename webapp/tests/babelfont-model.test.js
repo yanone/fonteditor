@@ -1386,6 +1386,24 @@ describe('Babelfont Object Model', () => {
     });
 
     describe('Sidebearing manipulation (lsb/rsb setters)', () => {
+        test('lsb setter translates runtime paths loaded from compact node strings', () => {
+            const testFont = makeFontWithSinglePath(
+                '0 0 l 100 0 l 100 100 l 0 100 l',
+                true
+            );
+            const layer = testFont.glyphs[0].layers[0];
+
+            layer.setDirectSidebearing('left', 25);
+
+            expect(layer.paths[0].nodes[0].x).toBe(25);
+            expect(layer.paths[0].nodes[1].x).toBe(125);
+            expect(layer.lsb).toBe(25);
+            const stored = JSON.parse(testFont.toJSONString());
+            expect(typeof stored.glyphs[0].layers[0].shapes[0].nodes).toBe(
+                'string'
+            );
+        });
+
         test('lsb setter should adjust width for paths', () => {
             const glyph = font.glyphs.find((g) => g.name === 'A'); // paths only
             const layer = glyph.layers[0];
@@ -4102,6 +4120,26 @@ describe('Babelfont Object Model', () => {
     });
 
     describe('Path._addPoint()', () => {
+        test('path structural edits accept compact node strings after layer bulk sync', () => {
+            const testFont = makeFontWithSinglePath([
+                { x: 0, y: 0, nodetype: 'Line' },
+                { x: 100, y: 0, nodetype: 'Line' }
+            ]);
+            const layer = testFont.glyphs[0].layers[0];
+
+            layer.syncFromEditorLayerData({
+                width: 500,
+                shapes: [{ nodes: '0 0 l 100 0 l', closed: false }],
+                anchors: []
+            });
+            const path = layer.paths[0];
+
+            expect(path._addPoint(0, 0.5)).toBe(1);
+            expect(path.nodes.map((node) => node.x)).toEqual([0, 50, 100]);
+            expect(path._deleteNode(1)).toBe(true);
+            expect(path.nodes.map((node) => node.x)).toEqual([0, 100]);
+        });
+
         test('inserts a new on-curve point into a line segment', () => {
             const testFont = makeFontWithSinglePath([
                 { x: 0, y: 0, nodetype: 'Line' },

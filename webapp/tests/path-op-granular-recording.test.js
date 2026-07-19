@@ -1,9 +1,9 @@
 /**
- * Tests for granular id-based change-log recording in model path operations.
+ * Tests for upstream-truthful string-node change-log recording in model path operations.
  *
- * Verifies Phase 2 of the Y.Doc Granular Schema Rewrite:
- * - _setStartNode records nodeOrder change (not whole nodes array)
- * - _setStartNode produces zero node-data entries for a pure rotation
+ * Verifies the upstream-truthful node storage migration:
+ * - _setStartNode records a path-level node string change
+ * - _setStartNode produces zero per-node field entries for a pure rotation
  * - Node identity (.id) is preserved through reorder operations
  */
 
@@ -139,7 +139,7 @@ describe('Path._setStartNode — granular id-based recording', () => {
         }
     });
 
-    test('records nodeOrder change, not whole nodes array', () => {
+    test('records nodes string change', () => {
         const fontJson = makeTestFont(5);
         ensureStableIds(fontJson);
         const font = new Font(fontJson);
@@ -162,34 +162,14 @@ describe('Path._setStartNode — granular id-based recording', () => {
         // Should have recorded at least one entry
         expect(bridge._calls.length).toBeGreaterThanOrEqual(1);
 
-        // Find the nodeOrder entry
-        const orderEntry = bridge._calls.find(
-            (c) => c.path[c.path.length - 1] === 'nodeOrder'
-        );
-        expect(orderEntry).toBeDefined();
-        expect(orderEntry.op).toBe('set');
-        expect(Array.isArray(orderEntry.oldVal)).toBe(true);
-        expect(Array.isArray(orderEntry.newVal)).toBe(true);
-        expect(orderEntry.oldVal.length).toBe(5);
-        expect(orderEntry.newVal.length).toBe(5);
-
-        // The old and new orders should have the same set of ids
-        const oldSet = new Set(orderEntry.oldVal);
-        const newSet = new Set(orderEntry.newVal);
-        expect(oldSet.size).toBe(5);
-        expect(newSet.size).toBe(5);
-        for (const id of oldSet) {
-            expect(newSet.has(id)).toBe(true);
-        }
-
-        // The new order should be a rotation of the old order
-        expect(orderEntry.newVal).not.toEqual(orderEntry.oldVal);
-
-        // Should NOT have a 'nodes' whole-array entry
         const nodesEntry = bridge._calls.find(
             (c) => c.path[c.path.length - 1] === 'nodes'
         );
-        expect(nodesEntry).toBeUndefined();
+        expect(nodesEntry).toBeDefined();
+        expect(nodesEntry.op).toBe('set');
+        expect(typeof nodesEntry.oldVal).toBe('string');
+        expect(typeof nodesEntry.newVal).toBe('string');
+        expect(nodesEntry.newVal).not.toEqual(nodesEntry.oldVal);
     });
 
     test('produces zero node-data entries for pure rotation', () => {
@@ -206,7 +186,7 @@ describe('Path._setStartNode — granular id-based recording', () => {
         path._setStartNode(3);
 
         // For a pure rotation of a closed path with Line nodes,
-        // normalization should be a no-op — only the order entry.
+        // normalization should be a no-op — only the path-level nodes entry.
         const nodeDataEntries = bridge._calls.filter((c) => {
             const last = c.path[c.path.length - 1];
             return (
@@ -289,7 +269,7 @@ describe('Path._reverseDirection — granular id-based recording', () => {
         }
     });
 
-    test('records nodeOrder change, not whole nodes array', () => {
+    test('records nodes string change', () => {
         const fontJson = makeTestFont(5);
         ensureStableIds(fontJson);
         const font = new Font(fontJson);
@@ -302,27 +282,13 @@ describe('Path._reverseDirection — granular id-based recording', () => {
 
         expect(result).toBe(true);
 
-        // Find the nodeOrder entry
-        const orderEntry = bridge._calls.find(
-            (c) => c.path[c.path.length - 1] === 'nodeOrder'
-        );
-        expect(orderEntry).toBeDefined();
-        expect(orderEntry.oldVal.length).toBe(5);
-        expect(orderEntry.newVal.length).toBe(5);
-
-        // Same set of ids, different order
-        const oldSet = new Set(orderEntry.oldVal);
-        const newSet = new Set(orderEntry.newVal);
-        for (const id of oldSet) {
-            expect(newSet.has(id)).toBe(true);
-        }
-        expect(orderEntry.newVal).not.toEqual(orderEntry.oldVal);
-
-        // Should NOT have a 'nodes' whole-array entry
         const nodesEntry = bridge._calls.find(
             (c) => c.path[c.path.length - 1] === 'nodes'
         );
-        expect(nodesEntry).toBeUndefined();
+        expect(nodesEntry).toBeDefined();
+        expect(typeof nodesEntry.oldVal).toBe('string');
+        expect(typeof nodesEntry.newVal).toBe('string');
+        expect(nodesEntry.newVal).not.toEqual(nodesEntry.oldVal);
     });
 
     test('produces zero node-data entries for closed path with Line nodes', () => {
@@ -405,50 +371,27 @@ describe('Integration: set-start-point and reverse-direction byte budgets', () =
         // Debug: check change-log
         const log = bridge.getChangeLog();
         expect(log.length).toBeGreaterThanOrEqual(1);
-        const orderEntry = log.find(
-            (e) => e.path && e.path.includes('nodeOrder')
+        const nodesEntry = log.find(
+            (e) => e.path && e.path.split(/[.:]/).at(-1) === 'nodes'
         );
-        expect(orderEntry).toBeDefined();
-
-        // Debug: check the recorded oldValue and newValue
-        const oldOrder = orderEntry.oldValue;
-        const newOrder = orderEntry.newValue;
-        expect(Array.isArray(oldOrder)).toBe(true);
-        expect(Array.isArray(newOrder)).toBe(true);
-        expect(oldOrder.length).toBe(20);
-        expect(newOrder.length).toBe(20);
-        // For a rotation at index 5: newOrder should be [old[5], old[6], ..., old[4]]
-        // i.e. newOrder[0] should equal oldOrder[5]
-        expect(newOrder[0]).toBe(oldOrder[5]);
+        expect(nodesEntry).toBeDefined();
+        expect(typeof nodesEntry.oldValue).toBe('string');
+        expect(typeof nodesEntry.newValue).toBe('string');
+        expect(nodesEntry.newValue).not.toEqual(nodesEntry.oldValue);
 
         const update = Y.encodeStateAsUpdate(bridge.yDoc, beforeSV);
 
-        // Budget: 20-node rotation → ~N id references, not a whole-glyph snapshot.
-        // A whole-glyph snapshot would be thousands of bytes.
-        expect(update.length).toBeLessThan(600);
+        // Budget: 20-node rotation → one compact node string, not a whole-glyph snapshot.
+        expect(update.length).toBeLessThan(900);
 
-        // Verify the Y.Doc state is correct — nodeOrder should be rotated
+        // Verify the Y.Doc state is correct — the first node is the former index 5.
         const layerMap = bridge.fontMap
             .get('glyphs')
             .get('A')
             .get('layers')
             .get('layer-1');
-        const shapesById = layerMap.get('shapesById');
-        let shapeMap = null;
-        shapesById.forEach((v) => {
-            shapeMap = v;
-        });
-        const nodeOrder = shapeMap.get('nodeOrder');
-        expect(nodeOrder.length).toBe(20);
-
-        // The first id in nodeOrder should be the id that was at index 5
-        const beforeIds = fontJson.glyphs[0].layers[0].shapes[0].nodes.map(
-            (n) => n.id
-        );
-        // Debug: check what nodeOrder actually contains vs what we expect
-        const afterIds = nodeOrder.toArray();
-        // Check if the newOrder from the change-log matches afterIds
-        expect(afterIds).toEqual(newOrder);
+        const shapeMap = layerMap.get('shapes').get(0);
+        expect(shapeMap.get('nodes').startsWith('1100 700 l')).toBe(true);
     });
 
     test('reverse direction on 20-node contour produces < 800 byte Yjs delta', () => {

@@ -61,7 +61,7 @@ const DEFAULT_PRODUCTION_ROOM_WORKER_URL =
     'https://fonts-room.fonteditor.workers.dev';
 const DEFAULT_LOCAL_ROOM_WORKER_URL = 'ws://localhost:8787';
 const CLOUD_ASSET_DELETED_MESSAGE = 'Cloud asset was deleted';
-const YDOC_SCHEMA_VERSION = 2;
+const YDOC_SCHEMA_VERSION = 3;
 const CLOUD_COLLAB_RELOAD_MESSAGE =
     'Please reload the editor to continue collaborating.';
 const CLOUD_COLLAB_FORMAT_CHANGED_MESSAGE =

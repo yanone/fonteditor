@@ -1,24 +1,45 @@
 const { runBridgeUndoRedo } = require('../../js/change-bridge-init');
+const { Layer } = require('../../js/babelfont-model');
 const fontManager = require('../../js/font-manager').default;
 
-function snapshotAdvanceEdges(target) {
+function snapshotLayerCenterScreen(target) {
+    const bbox = Layer.calculateBoundingBox(
+        target.outlineEditor.layerData,
+        true
+    );
+    if (!bbox) {
+        return null;
+    }
+
+    const glyphPosition = target.textRunEditor._getGlyphPosition(
+        target.textRunEditor.selectedGlyphIndex
+    );
+    const localCenterX = bbox.minX + bbox.width / 2;
+    const localCenterY = bbox.minY + bbox.height / 2;
+
+    return target.viewportManager.fontToScreenCoordinates(
+        glyphPosition.xPosition + glyphPosition.xOffset + localCenterX,
+        glyphPosition.yOffset + localCenterY
+    );
+}
+
+function expectLayerCenterAnchored(target, beforeCenter) {
+    const afterCenter = snapshotLayerCenterScreen(target);
+
+    expect(afterCenter.x).toBeCloseTo(beforeCenter.x, 5);
+    expect(afterCenter.y).toBeCloseTo(beforeCenter.y, 5);
+}
+
+function snapshotViewport(target) {
     return {
-        left: target.viewportManager.panX,
-        right:
-            target.viewportManager.panX +
-            target.outlineEditor.layerData.width * target.viewportManager.scale
+        panX: target.viewportManager.panX,
+        panY: target.viewportManager.panY,
+        scale: target.viewportManager.scale
     };
 }
 
-function expectAnchoredOppositeAdvanceEdge(target, beforeEdges, editedSide) {
-    const afterEdges = snapshotAdvanceEdges(target);
-
-    if (editedSide === 'left') {
-        expect(afterEdges.right).toBeCloseTo(beforeEdges.right, 5);
-        return;
-    }
-
-    expect(afterEdges.left).toBeCloseTo(beforeEdges.left, 5);
+function expectViewportUnchanged(target, beforeViewport) {
+    expect(snapshotViewport(target)).toEqual(beforeViewport);
 }
 
 function setupUnkeyedCanvas(canvas) {
@@ -30,6 +51,7 @@ function setupUnkeyedCanvas(canvas) {
     canvas.getCurrentGlyphName = jest.fn(() => 'a');
     canvas.viewportManager.scale = 2;
     canvas.viewportManager.panX = 100;
+    canvas.viewportManager.panY = 50;
     canvas.outlineEditor.layerData = {
         id: 'layer-1',
         width: 500,
@@ -52,10 +74,16 @@ function setupUnkeyedCanvas(canvas) {
     canvas.outlineEditor.performHitDetection = jest.fn();
     canvas.updatePropertyPanel = jest.fn();
     canvas.render = jest.fn();
+    canvas.textRunEditor.selectedGlyphIndex = 0;
+    canvas.textRunEditor._getGlyphPosition = jest.fn(() => ({
+        xPosition: 0,
+        xOffset: 0,
+        yOffset: 0
+    }));
     canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
 }
 
-describe('Sidebearing anchoring matrix', () => {
+describe('Sidebearing center anchoring matrix', () => {
     let canvas;
     let currentFontSpy;
 
@@ -76,36 +104,36 @@ describe('Sidebearing anchoring matrix', () => {
 
     test.each([
         {
-            label: 'mouse LSB handle drag anchors the right edge',
+            label: 'mouse LSB handle drag anchors the layer center',
             side: 'left',
             deltaX: 20
         },
         {
-            label: 'mouse RSB handle drag anchors the left edge',
+            label: 'mouse RSB handle drag anchors the layer center',
             side: 'right',
             deltaX: 20
         }
     ])('$label', ({ side, deltaX }) => {
-        const beforeEdges = snapshotAdvanceEdges(canvas);
+        const beforeCenter = snapshotLayerCenterScreen(canvas);
 
         canvas.outlineEditor.isDraggingSidebearing = true;
         canvas.outlineEditor.selectedSidebearingHandle = { side };
         canvas.outlineEditor._updateDraggedSidebearing(deltaX);
 
-        expectAnchoredOppositeAdvanceEdge(canvas, beforeEdges, side);
+        expectLayerCenterAnchored(canvas, beforeCenter);
     });
 
     test.each([
         {
-            label: 'keyboard LSB handle nudge anchors the right edge',
+            label: 'keyboard LSB handle nudge anchors the layer center',
             side: 'left'
         },
         {
-            label: 'keyboard RSB handle nudge anchors the left edge',
+            label: 'keyboard RSB handle nudge anchors the layer center',
             side: 'right'
         }
     ])('$label', ({ side }) => {
-        const beforeEdges = snapshotAdvanceEdges(canvas);
+        const beforeCenter = snapshotLayerCenterScreen(canvas);
 
         canvas.outlineEditor.selectedSidebearingHandle = { side };
         canvas.outlineEditor.onKeyDown({
@@ -116,30 +144,30 @@ describe('Sidebearing anchoring matrix', () => {
             preventDefault: jest.fn()
         });
 
-        expectAnchoredOppositeAdvanceEdge(canvas, beforeEdges, side);
+        expectLayerCenterAnchored(canvas, beforeCenter);
     });
 
     test.each([
         {
-            label: 'property panel LSB numeric edit anchors the right edge',
+            label: 'property panel LSB numeric edit anchors the layer center',
             side: 'left',
             value: '80'
         },
         {
-            label: 'property panel RSB numeric edit anchors the left edge',
+            label: 'property panel RSB numeric edit anchors the layer center',
             side: 'right',
             value: '120'
         }
     ])('$label', async ({ side, value }) => {
-        const beforeEdges = snapshotAdvanceEdges(canvas);
+        const beforeCenter = snapshotLayerCenterScreen(canvas);
 
         await canvas.commitPropertyPanelValue(side, value);
 
-        expectAnchoredOppositeAdvanceEdge(canvas, beforeEdges, side);
+        expectLayerCenterAnchored(canvas, beforeCenter);
     });
 });
 
-describe('Sidebearing undo visual anchoring', () => {
+describe('Sidebearing undo viewport stability', () => {
     const originalWindow = global.window;
     const originalGlyphCanvas = originalWindow.glyphCanvas;
     const originalFontManager = originalWindow.fontManager;
@@ -228,18 +256,9 @@ describe('Sidebearing undo visual anchoring', () => {
         return { glyphCanvas, refreshGlyphAdvancesLive };
     }
 
-    function snapshotUndoEdges(glyphCanvas, width) {
-        return {
-            left: glyphCanvas.viewportManager.panX,
-            right:
-                glyphCanvas.viewportManager.panX +
-                width * glyphCanvas.viewportManager.scale
-        };
-    }
-
     test.each([
         {
-            label: 'undo Set LSB keeps the right edge stationary',
+            label: 'undo Set LSB leaves the viewport unchanged',
             historyItem: {
                 transactionLabel: 'Set LSB',
                 entries: [{ oldValue: 'LEFT 100', newValue: 'LEFT 80' }]
@@ -247,7 +266,7 @@ describe('Sidebearing undo visual anchoring', () => {
             side: 'left'
         },
         {
-            label: 'undo Set RSB keeps the left edge stationary',
+            label: 'undo Set RSB leaves the viewport unchanged',
             historyItem: {
                 transactionLabel: 'Set RSB',
                 entries: [{ oldValue: 'RIGHT 100', newValue: 'RIGHT 120' }]
@@ -262,16 +281,11 @@ describe('Sidebearing undo visual anchoring', () => {
             previousWidth,
             nextWidth
         );
-        const beforeEdges = snapshotUndoEdges(glyphCanvas, previousWidth);
+        const beforeViewport = snapshotViewport(glyphCanvas);
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        const afterEdges = snapshotUndoEdges(glyphCanvas, nextWidth);
-        if (side === 'left') {
-            expect(afterEdges.right).toBeCloseTo(beforeEdges.right, 5);
-        } else {
-            expect(afterEdges.left).toBeCloseTo(beforeEdges.left, 5);
-        }
+        expectViewportUnchanged(glyphCanvas, beforeViewport);
         expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
             { a: nextWidth },
             { render: false }
@@ -280,11 +294,11 @@ describe('Sidebearing undo visual anchoring', () => {
 
     test.each([
         {
-            label: 'undo drag metadata with visualAnchorSide left keeps the right edge stationary',
+            label: 'undo drag metadata with visualAnchorSide left leaves the viewport unchanged',
             side: 'left'
         },
         {
-            label: 'undo drag metadata with visualAnchorSide right keeps the left edge stationary',
+            label: 'undo drag metadata with visualAnchorSide right leaves the viewport unchanged',
             side: 'right'
         }
     ])('$label', async ({ side }) => {
@@ -305,24 +319,13 @@ describe('Sidebearing undo visual anchoring', () => {
             previousWidth,
             nextWidth
         );
-        const beforeEdges = snapshotUndoEdges(glyphCanvas, previousWidth);
+        const beforeViewport = snapshotViewport(glyphCanvas);
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        const afterEdges = snapshotUndoEdges(glyphCanvas, nextWidth);
-        if (side === 'left') {
-            expect(afterEdges.right).toBeCloseTo(beforeEdges.right, 5);
-        } else {
-            expect(afterEdges.left).toBeCloseTo(beforeEdges.left, 5);
-        }
+        expectViewportUnchanged(glyphCanvas, beforeViewport);
     });
 
-    // Regression guard: a 'Set sidebearing' edit that cascades across many
-    // metrics-key dependents resolves to a font-scoped undo, so the bridge's
-    // appliedChange.glyphName and appliedChange.layerId are null. Visual
-    // anchoring must still pan the canvas using the active edited glyph/layer
-    // passed into runBridgeUndoRedo so the active glyph's opposite edge stays
-    // stationary on screen during undo and redo.
     function installFontScopedUndoHarness(
         historyItem,
         previousWidth,
@@ -400,11 +403,11 @@ describe('Sidebearing undo visual anchoring', () => {
 
     test.each([
         {
-            label: 'font-scoped undo of "Set sidebearing" left keeps the active glyph right edge stationary',
+            label: 'font-scoped undo of "Set sidebearing" left leaves the viewport unchanged',
             side: 'left'
         },
         {
-            label: 'font-scoped undo of "Set sidebearing" right keeps the active glyph left edge stationary',
+            label: 'font-scoped undo of "Set sidebearing" right leaves the viewport unchanged',
             side: 'right'
         }
     ])('$label', async ({ side }) => {
@@ -425,25 +428,20 @@ describe('Sidebearing undo visual anchoring', () => {
             previousWidth,
             nextWidth
         );
-        const beforeEdges = snapshotUndoEdges(glyphCanvas, previousWidth);
+        const beforeViewport = snapshotViewport(glyphCanvas);
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        const afterEdges = snapshotUndoEdges(glyphCanvas, nextWidth);
-        if (side === 'left') {
-            expect(afterEdges.right).toBeCloseTo(beforeEdges.right, 5);
-        } else {
-            expect(afterEdges.left).toBeCloseTo(beforeEdges.left, 5);
-        }
+        expectViewportUnchanged(glyphCanvas, beforeViewport);
     });
 
     test.each([
         {
-            label: 'font-scoped redo of "Set sidebearing" left keeps the active glyph right edge stationary',
+            label: 'font-scoped redo of "Set sidebearing" left leaves the viewport unchanged',
             side: 'left'
         },
         {
-            label: 'font-scoped redo of "Set sidebearing" right keeps the active glyph left edge stationary',
+            label: 'font-scoped redo of "Set sidebearing" right leaves the viewport unchanged',
             side: 'right'
         }
     ])('$label', async ({ side }) => {
@@ -466,15 +464,10 @@ describe('Sidebearing undo visual anchoring', () => {
             previousWidth,
             nextWidth
         );
-        const beforeEdges = snapshotUndoEdges(glyphCanvas, previousWidth);
+        const beforeViewport = snapshotViewport(glyphCanvas);
 
         await runBridgeUndoRedo('redo', 'a', 'a', 'layer-1', null);
 
-        const afterEdges = snapshotUndoEdges(glyphCanvas, nextWidth);
-        if (side === 'left') {
-            expect(afterEdges.right).toBeCloseTo(beforeEdges.right, 5);
-        } else {
-            expect(afterEdges.left).toBeCloseTo(beforeEdges.left, 5);
-        }
+        expectViewportUnchanged(glyphCanvas, beforeViewport);
     });
 });

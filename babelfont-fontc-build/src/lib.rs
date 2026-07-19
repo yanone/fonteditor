@@ -455,6 +455,165 @@ fn merge_sparse_layer_json(
     }
 }
 
+fn decode_node_type_token(token: &str) -> (String, bool) {
+    let (base, smooth) = token
+        .strip_suffix('s')
+        .map(|base| (base, true))
+        .unwrap_or((token, false));
+    let nodetype = match base {
+        "l" => "Line",
+        "c" => "Curve",
+        "q" => "QCurve",
+        "o" => "OffCurve",
+        other => other,
+    };
+    (nodetype.to_string(), smooth)
+}
+
+fn tokenize_node_string(nodes: &str) -> Result<Vec<String>, String> {
+    let chars: Vec<char> = nodes.chars().collect();
+    let mut tokens = Vec::new();
+    let mut index = 0;
+    while index < chars.len() {
+        while index < chars.len() && chars[index].is_whitespace() {
+            index += 1;
+        }
+        if index >= chars.len() {
+            break;
+        }
+
+        if chars[index] != '{' {
+            let start = index;
+            while index < chars.len() && !chars[index].is_whitespace() {
+                index += 1;
+            }
+            tokens.push(chars[start..index].iter().collect());
+            continue;
+        }
+
+        let start = index;
+        let mut depth = 0_i32;
+        let mut in_string = false;
+        let mut escaped = false;
+        while index < chars.len() {
+            let ch = chars[index];
+            if escaped {
+                escaped = false;
+                index += 1;
+                continue;
+            }
+            if ch == '\\' {
+                escaped = true;
+                index += 1;
+                continue;
+            }
+            if ch == '"' {
+                in_string = !in_string;
+                index += 1;
+                continue;
+            }
+            if !in_string {
+                if ch == '{' {
+                    depth += 1;
+                } else if ch == '}' {
+                    depth -= 1;
+                    if depth == 0 {
+                        index += 1;
+                        break;
+                    }
+                }
+            }
+            index += 1;
+        }
+        if depth != 0 || in_string {
+            return Err("malformed format_specific JSON token".to_string());
+        }
+        tokens.push(chars[start..index].iter().collect());
+    }
+    Ok(tokens)
+}
+
+fn decode_node_string_for_native_cache(nodes: &str) -> Result<serde_json::Value, String> {
+    let tokens = tokenize_node_string(nodes)?;
+    let mut index = 0;
+    let mut decoded = Vec::new();
+    while index < tokens.len() {
+        if index + 2 >= tokens.len() {
+            return Err("incomplete node record".to_string());
+        }
+        let x: f64 = tokens[index]
+            .parse()
+            .map_err(|_| "invalid node x coordinate".to_string())?;
+        index += 1;
+        let y: f64 = tokens[index]
+            .parse()
+            .map_err(|_| "invalid node y coordinate".to_string())?;
+        index += 1;
+        let (nodetype, smooth) = decode_node_type_token(&tokens[index]);
+        index += 1;
+
+        let mut node = serde_json::Map::new();
+        node.insert("x".to_string(), serde_json::json!(x));
+        node.insert("y".to_string(), serde_json::json!(y));
+        node.insert("nodetype".to_string(), serde_json::json!(nodetype));
+        node.insert("smooth".to_string(), serde_json::json!(smooth));
+        if tokens.get(index).is_some_and(|token| token.starts_with('{')) {
+            let format_specific = serde_json::from_str::<serde_json::Value>(&tokens[index])
+                .map_err(|err| format!("invalid node format_specific JSON: {err}"))?;
+            node.insert("format_specific".to_string(), format_specific);
+            index += 1;
+        }
+        decoded.push(serde_json::Value::Object(node));
+    }
+    Ok(serde_json::Value::Array(decoded))
+}
+
+fn decode_shape_node_strings_for_native_cache(value: &serde_json::Value) -> serde_json::Value {
+    let mut normalized = value.clone();
+    let Some(shapes) = normalized.as_array_mut() else {
+        return normalized;
+    };
+    for shape in shapes.iter_mut() {
+        let serde_json::Value::Object(shape_obj) = shape else {
+            continue;
+        };
+        let Some(nodes) = shape_obj.get("nodes").and_then(|nodes| nodes.as_str()) else {
+            continue;
+        };
+        if let Ok(decoded_nodes) = decode_node_string_for_native_cache(nodes) {
+            shape_obj.insert("nodes".to_string(), decoded_nodes);
+        }
+    }
+    normalized
+}
+
+fn decode_font_node_strings_for_native_cache(value: &serde_json::Value) -> serde_json::Value {
+    let mut normalized = value.clone();
+    let Some(glyphs) = normalized.get_mut("glyphs").and_then(|glyphs| glyphs.as_array_mut()) else {
+        return normalized;
+    };
+
+    for glyph in glyphs.iter_mut() {
+        let Some(layers) = glyph.get_mut("layers").and_then(|layers| layers.as_array_mut()) else {
+            continue;
+        };
+        for layer in layers.iter_mut() {
+            let Some(layer_obj) = layer.as_object_mut() else {
+                continue;
+            };
+            let Some(shapes) = layer_obj.get("shapes") else {
+                continue;
+            };
+            layer_obj.insert(
+                "shapes".to_string(),
+                decode_shape_node_strings_for_native_cache(shapes),
+            );
+        }
+    }
+
+    normalized
+}
+
 fn layer_field_from_json<T>(
     glyph_name: &str,
     layer_id: &str,
@@ -482,6 +641,7 @@ where
                 value.clone()
             }
         }
+        "shapes" => decode_shape_node_strings_for_native_cache(value),
         _ => value.clone(),
     };
 
@@ -2233,7 +2393,8 @@ fn store_font_from_value(json_value: serde_json::Value) -> Result<(), JsValue> {
     set_canonical_json_cache(json_value.clone());
 
     // Deserialize into babelfont::Font
-    let font: babelfont::Font = serde_json::from_value(json_value)
+    let native_json_value = decode_font_node_strings_for_native_cache(&json_value);
+    let font: babelfont::Font = serde_json::from_value(native_json_value)
         .map_err(|e| JsValue::from_str(&format!("Font deserialization error: {}", e)))?;
 
     // Build FeatureFile before acquiring FONT_CACHE lock to avoid re-entrant lock
@@ -3946,6 +4107,40 @@ mod tests {
     }
 
     #[test]
+    fn store_font_from_value_accepts_upstream_string_nodes_for_native_cache() {
+        let previous_canonical = CANONICAL_JSON_CACHE.lock().unwrap().clone();
+        let previous_index = CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap().clone();
+        let previous_font_cache = FONT_CACHE.lock().unwrap().clone();
+        let previous_font_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
+        let previous_font_cache_epoch = FONT_CACHE_BUILT_AT_EPOCH.load(Ordering::Relaxed);
+
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        font_json["glyphs"][0]["layers"][0]["shapes"] = json!([
+            {
+                "nodes": "0 0 l 100 0 l 100 100 l 0 100 l",
+                "closed": true
+            }
+        ]);
+
+        store_font_from_value(font_json.clone()).unwrap();
+
+        assert_eq!(
+            CANONICAL_JSON_CACHE.lock().unwrap().as_ref(),
+            Some(&font_json)
+        );
+        let font_cache = FONT_CACHE.lock().unwrap();
+        let layer = &font_cache.as_ref().unwrap().glyphs[0].layers[0];
+        assert_eq!(layer.shapes.len(), 1);
+        drop(font_cache);
+
+        *CANONICAL_JSON_CACHE.lock().unwrap() = previous_canonical;
+        *CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap() = previous_index;
+        *FONT_CACHE.lock().unwrap() = previous_font_cache;
+        FONT_CACHE_EPOCH.store(previous_font_epoch, Ordering::Relaxed);
+        FONT_CACHE_BUILT_AT_EPOCH.store(previous_font_cache_epoch, Ordering::Relaxed);
+    }
+
+    #[test]
     fn replace_glyph_json_entry_updates_shifted_indices_after_removal() {
         let mut font_json = json!({
             "glyphs": [
@@ -4343,7 +4538,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_yjs_update_indexed_node_patch_refreshes_active_subset_caches() {
+    fn apply_yjs_update_string_node_patch_refreshes_active_subset_caches() {
         clear_font_cache();
 
         let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
@@ -4370,7 +4565,6 @@ mod tests {
 
         let author_doc = Doc::new();
         let font_map = author_doc.get_or_insert_map("font");
-        let node_map: yrs::MapRef;
         {
             let mut txn = author_doc.transact_mut();
             let glyphs_map: yrs::MapRef =
@@ -4381,28 +4575,12 @@ mod tests {
             let layer_map: yrs::MapRef = layers_map.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
             layer_map.insert(&mut txn, "id", "layer-1");
             layer_map.insert(&mut txn, "width", Any::Number(600.0));
-            layer_map.insert(&mut txn, "shapeOrder", ArrayPrelim::from(vec![Any::String("shape-1".into())]));
-            let shapes_by_id: yrs::MapRef =
-                layer_map.insert(&mut txn, "shapesById", MapPrelim::<Any>::new());
-            let shape_map: yrs::MapRef =
-                shapes_by_id.insert(&mut txn, "shape-1", MapPrelim::<Any>::new());
-            shape_map.insert(&mut txn, "closed", Any::Bool(false));
-            shape_map.insert(
-                &mut txn,
-                "nodeOrder",
-                ArrayPrelim::from(vec![Any::String("node-1".into()), Any::String("node-2".into())]),
-            );
-            let nodes_by_id: yrs::MapRef =
-                shape_map.insert(&mut txn, "nodesById", MapPrelim::<Any>::new());
-            node_map = nodes_by_id.insert(&mut txn, "node-1", MapPrelim::<Any>::new());
-            node_map.insert(&mut txn, "x", Any::Number(10.0));
-            node_map.insert(&mut txn, "y", Any::Number(20.0));
-            node_map.insert(&mut txn, "nodetype", "Line");
-            let second_node_map: yrs::MapRef =
-                nodes_by_id.insert(&mut txn, "node-2", MapPrelim::<Any>::new());
-            second_node_map.insert(&mut txn, "x", Any::Number(30.0));
-            second_node_map.insert(&mut txn, "y", Any::Number(20.0));
-            second_node_map.insert(&mut txn, "nodetype", "Line");
+            let shapes = layer_map.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            let shape_map = yrs::MapPrelim::<Any>::from([
+                (String::from("nodes"), Any::String("10 20 l 30 20 l".into())),
+                (String::from("closed"), Any::Bool(false)),
+            ]);
+            shapes.insert(&mut txn, 0, shape_map);
             layer_map.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
         }
 
@@ -4412,7 +4590,13 @@ mod tests {
         let base_state_vector = author_doc.transact().state_vector();
         {
             let mut txn = author_doc.transact_mut();
-            node_map.insert(&mut txn, "x", Any::Number(25.0));
+            let glyphs_map = font_map.get(&txn, "glyphs").unwrap().cast::<yrs::MapRef>().unwrap();
+            let glyph_map = glyphs_map.get(&txn, "A").unwrap().cast::<yrs::MapRef>().unwrap();
+            let layers_map = glyph_map.get(&txn, "layers").unwrap().cast::<yrs::MapRef>().unwrap();
+            let layer_map = layers_map.get(&txn, "layer-1").unwrap().cast::<yrs::MapRef>().unwrap();
+            let shapes = layer_map.get(&txn, "shapes").unwrap().cast::<yrs::ArrayRef>().unwrap();
+            let shape_map = shapes.get(&txn, 0).unwrap().cast::<yrs::MapRef>().unwrap();
+            shape_map.insert(&mut txn, "nodes", "25 20 l 30 20 l");
         }
         let incremental_update = author_doc.transact().encode_diff_v1(&base_state_vector);
 
@@ -4439,13 +4623,13 @@ mod tests {
         assert!(FILTERED_FONT_CACHE.lock().unwrap().is_none());
         assert_eq!(
             CANONICAL_JSON_CACHE.lock().unwrap().as_ref().unwrap()["glyphs"][0]["layers"][0]
-                ["shapes"][0]["nodes"][0]["x"],
-            json!(25)
+                ["shapes"][0]["nodes"],
+            json!("25 20 l 30 20 l")
         );
         assert_eq!(
             SUBSET_JSON_CACHE.lock().unwrap().as_ref().unwrap().2["glyphs"][0]["layers"][0]
-                ["shapes"][0]["nodes"][0]["x"],
-            json!(25)
+                ["shapes"][0]["nodes"],
+            json!("25 20 l 30 20 l")
         );
         let subset_cache_json = serde_json::to_value(
             &SUBSET_FONT_CACHE.lock().unwrap().as_ref().unwrap().2,

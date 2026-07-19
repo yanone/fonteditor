@@ -575,12 +575,9 @@ class GlyphCanvas {
     textModeAutoPanAnchorScreen: { x: number; y: number } | null = null;
     textModeEscapeState: SavedVariationState = new SavedVariationState();
 
-    // Pending anchors for feature changes that trigger font recompilation
-    // These are applied after the editing font reloads to prevent glyph jumping
     pendingFeatureChangeAnchor: {
-        editing: { x: number; y: number } | null;
         text: { x: number; y: number } | null;
-    } = { editing: null, text: null };
+    } = { text: null };
 
     // Flag to suppress rendering during critical operations (e.g., layer data swap)
     renderSuppressed: boolean = false;
@@ -1118,14 +1115,7 @@ class GlyphCanvas {
                 'Features changed, re-running Stage 2 shaping'
             );
 
-            // Capture anchor before reshaping (cursor in text mode, bbox in editing mode)
-            if (
-                this.outlineEditor.active &&
-                this.outlineEditor.selectedLayerId
-            ) {
-                // Editing mode: capture bbox center before reshaping
-                this.outlineEditor.captureAutoPanAnchor();
-            } else {
+            if (!this.outlineEditor.active) {
                 // Text mode: capture cursor position before reshaping
                 this.captureTextModeAutoPanAnchor();
             }
@@ -1159,9 +1149,6 @@ class GlyphCanvas {
                 // Editing mode: fetch new layer data for the reshaped glyph.
                 await this.outlineEditor.fetchLayerData(true, newGlyphName); // Skip render
 
-                // Apply auto-pan adjustment and render
-                this.outlineEditor.applyAutoPanAdjustment();
-                this.outlineEditor.autoPanAnchorScreen = null;
                 this.updateComponentBreadcrumb();
                 this.render();
             } else {
@@ -1339,7 +1326,6 @@ class GlyphCanvas {
             if (this.outlineEditor.active) {
                 await this.outlineEditor.autoSelectMatchingLayer();
                 this.outlineEditor.isInterpolating = false;
-                this.outlineEditor.autoPanAnchorScreen = null;
                 this.render();
             }
         });
@@ -1394,9 +1380,6 @@ class GlyphCanvas {
                 // NOTE: autoSelectMatchingLayer() is already called inside restoreTargetLayerDataAfterAnimating()
                 // so we don't need to call it again here
 
-                // Clear auto-pan anchor now that animation is complete
-                this.outlineEditor.autoPanAnchorScreen = null;
-
                 this.textRunEditor!.shapeText();
                 this.textModeAutoPanAnchorScreen = null;
                 return;
@@ -1414,7 +1397,6 @@ class GlyphCanvas {
             if (this.outlineEditor.isInterpolating) {
                 if (!this.axesManager!.isSliderActive) {
                     this.outlineEditor.isInterpolating = false;
-                    this.outlineEditor.autoPanAnchorScreen = null;
                     this.textModeAutoPanAnchorScreen = null;
                 }
                 return;
@@ -1644,29 +1626,21 @@ class GlyphCanvas {
                     );
                 }
                 // Update breadcrumb (will hide it since component stack is now empty)
-                // Need to await doUIUpdate if we want to pan to glyph afterward
                 if (
                     fromKeyboard &&
                     wasInEditMode &&
                     ix >= 0 &&
                     previousIndex !== ix
                 ) {
-                    // Need to wait for layer data to be loaded before panning
                     await this.doUIUpdateAsync();
 
                     // Check if this selection is still current (not superseded by a newer one)
                     if (currentSequence !== this.glyphSelectionSequence) {
                         console.log(
-                            'Glyph selection superseded, skipping render/pan for sequence',
+                            'Glyph selection superseded, skipping render for sequence',
                             currentSequence
                         );
                         return;
-                    }
-
-                    // Only pan if we're on a layer (not interpolating)
-                    // If interpolating, panToGlyph will be called after interpolation completes
-                    if (this.outlineEditor.selectedLayerId !== null) {
-                        this.panToGlyph(ix);
                     }
                 } else {
                     // Not panning, just do regular UI update
@@ -1675,7 +1649,7 @@ class GlyphCanvas {
                     // Check if this selection is still current (not superseded by a newer one)
                     if (currentSequence !== this.glyphSelectionSequence) {
                         console.log(
-                            'Glyph selection superseded, skipping render/pan for sequence',
+                            'Glyph selection superseded, skipping render for sequence',
                             currentSequence
                         );
                         return;
@@ -1692,6 +1666,10 @@ class GlyphCanvas {
         if (e.button === 2) {
             return;
         }
+
+        // Start each pointer gesture from a clean pan state. Mouseup can be
+        // missed when a previous pan leaves the canvas/window.
+        this.isDraggingCanvas = false;
 
         // Focus the canvas when clicked
         this.canvas!.focus();
@@ -1747,6 +1725,11 @@ class GlyphCanvas {
 
         await this.outlineEditor.onSingleClick(e);
 
+        if (this.outlineEditor.draggingSomething) {
+            this.isDraggingCanvas = false;
+            return;
+        }
+
         // Check if clicking on text to position cursor (only in text edit mode, not on double-click or glyph)
         // Skip if hovering over a glyph since that might be a double-click to enter edit mode
         if (
@@ -1790,6 +1773,11 @@ class GlyphCanvas {
 
     onMouseMove(e: MouseEvent): void {
         this.outlineEditor.onMouseMove(e);
+
+        if (this.outlineEditor.draggingSomething) {
+            this.isDraggingCanvas = false;
+            return;
+        }
 
         // Handle measurement dragging
         if (this.measurementTool.isDragging) {
@@ -2463,7 +2451,6 @@ class GlyphCanvas {
         latestAppliedEditingRevision = -1;
         editingFontApplyQueue = Promise.resolve();
         this.textModeAutoPanAnchorScreen = null;
-        this.pendingFeatureChangeAnchor.editing = null;
         this.pendingFeatureChangeAnchor.text = null;
         this.renderSuppressed = false;
         this.hasDeferredRenderRequest = false;
@@ -6851,86 +6838,6 @@ class GlyphCanvas {
         };
     }
 
-    panToGlyph(glyphIndex: number): void {
-        // Pan to show a specific glyph (used when switching glyphs with cmd+left/right)
-        // Delegates to ViewportManager.panToGlyph
-
-        // Skip during slider interpolation - we use auto-pan instead
-        if (
-            this.outlineEditor.isInterpolating ||
-            !this.outlineEditor.active ||
-            glyphIndex < 0 ||
-            glyphIndex >= this.textRunEditor!.shapedGlyphs.length
-        ) {
-            console.log(
-                'panToGlyph: early return - not in edit mode or invalid index',
-                {
-                    isGlyphEditMode: this.outlineEditor.active,
-                    glyphIndex,
-                    shapedGlyphsLength: this.textRunEditor!.shapedGlyphs?.length
-                }
-            );
-            return;
-        }
-
-        const bounds = this.outlineEditor.calculateGlyphBoundingBox();
-        if (!bounds) {
-            console.log('panToGlyph: no bounds calculated');
-            return;
-        }
-
-        const rect = this.canvas!.getBoundingClientRect();
-
-        // Get glyph position in text run
-        const glyphPosition = this.textRunEditor!._getGlyphPosition(glyphIndex);
-
-        // If editing inside a component, transform the bounding box to glyph space
-        let transformedBounds = bounds;
-        if (this.outlineEditor.isEditingComponent()) {
-            const transform = this.outlineEditor.getAccumulatedTransform();
-            const [a, b, c, d, tx, ty] = transform;
-
-            // Transform all four corners of the bbox
-            const corners = [
-                { x: bounds.minX, y: bounds.minY },
-                { x: bounds.maxX, y: bounds.minY },
-                { x: bounds.minX, y: bounds.maxY },
-                { x: bounds.maxX, y: bounds.maxY }
-            ];
-
-            let minX = Infinity;
-            let minY = Infinity;
-            let maxX = -Infinity;
-            let maxY = -Infinity;
-
-            for (const corner of corners) {
-                const transformedX = a * corner.x + c * corner.y + tx;
-                const transformedY = b * corner.x + d * corner.y + ty;
-                minX = Math.min(minX, transformedX);
-                minY = Math.min(minY, transformedY);
-                maxX = Math.max(maxX, transformedX);
-                maxY = Math.max(maxY, transformedY);
-            }
-
-            transformedBounds = {
-                minX,
-                minY,
-                maxX,
-                maxY,
-                width: maxX - minX,
-                height: maxY - minY
-            };
-        }
-
-        // Delegate to ViewportManager
-        this.viewportManager!.panToGlyph(
-            transformedBounds,
-            glyphPosition,
-            rect,
-            this.render.bind(this)
-        );
-    }
-
     async updatePropertiesUI(options?: {
         skipAutoSelectMatchingLayer?: boolean;
     }): Promise<void> {
@@ -7889,9 +7796,7 @@ function setupFontLoadingListener() {
                         }
                     }
 
-                    const hasPendingAnchor =
-                        gc.pendingFeatureChangeAnchor.editing ||
-                        gc.pendingFeatureChangeAnchor.text;
+                    const hasPendingAnchor = gc.pendingFeatureChangeAnchor.text;
 
                     const setFontSpanId = timelineSpanStart(
                         'canvas.editingFontCompiled.setFont'
@@ -7911,17 +7816,7 @@ function setupFontLoadingListener() {
                         gc.textRunEditor.skipRenderingDuringFeatureChange = false;
                     }
 
-                    if (gc.pendingFeatureChangeAnchor.editing) {
-                        console.log(
-                            '[GlyphCanvas]',
-                            '   Applying pending editing mode anchor after font reload'
-                        );
-                        gc.outlineEditor.autoPanAnchorScreen =
-                            gc.pendingFeatureChangeAnchor.editing;
-                        gc.outlineEditor.applyAutoPanAdjustment();
-                        gc.outlineEditor.autoPanAnchorScreen = null;
-                        gc.pendingFeatureChangeAnchor.editing = null;
-                    } else if (gc.pendingFeatureChangeAnchor.text) {
+                    if (gc.pendingFeatureChangeAnchor.text) {
                         console.log(
                             '[GlyphCanvas]',
                             '   Applying pending text mode anchor after font reload'

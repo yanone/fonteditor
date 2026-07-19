@@ -13,6 +13,7 @@ const {
 } = require('../js/change-bridge-ydoc');
 const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
 const { sidebarErrorDisplay } = require('../js/sidebar-error-display');
+const { parseNodeString } = require('../js/node-encoding');
 
 function makeWorkerCacheStatus(overrides = {}) {
     return {
@@ -51,10 +52,14 @@ function stripLayerStableIds(layer) {
             ? layer.shapes.map((shape) => {
                   const nextShape = { ...shape };
                   delete nextShape.id;
-                  if (Array.isArray(nextShape.nodes)) {
-                      nextShape.nodes = nextShape.nodes.map((node) => ({
-                          ...node
-                      }));
+                  if (
+                      Array.isArray(nextShape.nodes) ||
+                      typeof nextShape.nodes === 'string'
+                  ) {
+                      nextShape.nodes = parseNodeString(nextShape.nodes).map(
+                          ({ id, smooth, ...node }) =>
+                              smooth === false ? node : { ...node, smooth }
+                      );
                   }
                   return nextShape;
               })
@@ -294,7 +299,9 @@ describe('FontManager saveLayerData', () => {
 
         const savedLayer = glyph.layers.find((entry) => entry.id === layer.id);
 
-        expect(savedLayer.shapes).toEqual(currentShapes);
+        expect(
+            stripLayerStableIds({ shapes: savedLayer.shapes }).shapes
+        ).toEqual(stripLayerStableIds({ shapes: currentShapes }).shapes);
         expect(savedLayer.shapes).not.toBe(staleStoredShapes);
         expect(savedLayer.anchors).toEqual([{ name: 'top', x: 180, y: 760 }]);
     });
@@ -416,7 +423,7 @@ describe('FontManager saveLayerData', () => {
         editedLayer.shapes = [
             {
                 ...cloneJson(layer.shapes[0]),
-                nodes: '97 89 l 420 80 l 420 620 l 80 620 l'
+                nodes: 42
             }
         ];
 
@@ -427,7 +434,9 @@ describe('FontManager saveLayerData', () => {
                 editedLayer,
                 'keyboard-outline'
             )
-        ).rejects.toThrow(/Path shape nodes must be an array/);
+        ).rejects.toThrow(
+            /Path shape nodes must be an array or upstream string/
+        );
 
         const savedLayer = fontManager.currentFont.babelfontData.glyphs
             .find((entry) => entry.name === 'a')
@@ -437,8 +446,12 @@ describe('FontManager saveLayerData', () => {
             .findLayerById(layer.id);
 
         expect(savedLayer).toBe(originalLayerRef);
-        expect(savedLayer.shapes).toEqual(layer.shapes);
-        expect(modelLayer.toJSON().shapes).toEqual(layer.shapes);
+        expect(stripLayerStableIds(savedLayer).shapes).toEqual(
+            stripLayerStableIds(layer).shapes
+        );
+        expect(stripLayerStableIds(modelLayer.toJSON()).shapes).toEqual(
+            stripLayerStableIds(layer).shapes
+        );
         expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
     });
 
@@ -537,9 +550,13 @@ describe('FontManager saveLayerData', () => {
             .findLayerById(layer.id);
 
         expect(savedLayer.width).toBe(originalWidth + 25);
-        expect(savedLayer.shapes).toEqual(originalShapes);
+        expect(stripLayerStableIds(savedLayer).shapes).toEqual(
+            stripLayerStableIds({ shapes: originalShapes }).shapes
+        );
         expect(savedLayer.anchors).toEqual(originalAnchors);
-        expect(modelLayer.toJSON().shapes).toEqual(originalShapes);
+        expect(stripLayerStableIds(modelLayer.toJSON()).shapes).toEqual(
+            stripLayerStableIds({ shapes: originalShapes }).shapes
+        );
         expect(modelLayer.toJSON().anchors).toEqual(originalAnchors);
     });
 
@@ -586,14 +603,14 @@ describe('FontManager saveLayerData', () => {
                     ...cloneJson(layer),
                     shapes: [
                         {
-                            nodes: '0 0 l 100 0 l',
+                            nodes: 42,
                             closed: false
                         }
                     ]
                 },
                 undefined
             )
-        ).toThrow(/Path shape nodes must be an array/);
+        ).toThrow(/Path shape nodes must be an array or upstream string/);
     });
 
     test('serializeLayerForStorage prunes semantically empty optional containers', () => {
@@ -901,7 +918,7 @@ describe('FontManager saveLayerData', () => {
         layer.shapes = [
             {
                 Path: {
-                    nodes: '0 0 l 100 0 l',
+                    nodes: 42,
                     closed: false
                 },
                 reference: 'acute',
@@ -909,14 +926,16 @@ describe('FontManager saveLayerData', () => {
                 isInterpolated: false
             },
             {
-                nodes: '0 0 l 50 50 l',
+                nodes: 42,
                 closed: false
             }
         ];
 
         await expect(
             fontManager.refreshGlyphsAfterModelBatch(['a'], layerId)
-        ).rejects.toThrow(/Path shape nodes must be an array/);
+        ).rejects.toThrow(
+            /Path shape nodes must be an array or upstream string/
+        );
         expect(sendMessageSpy).not.toHaveBeenCalled();
     });
 
@@ -2606,11 +2625,15 @@ describe('FontManager boundary-crossing budget', () => {
         const bridgeLayer = yDocToJson(bridgeDoc.getMap('font'))
             .glyphs.find((glyph) => glyph.name === glyphName)
             .layers.find((layer) => layer.id === layerId);
-        const pathIndex = bridgeLayer.shapes.findIndex((shape) =>
-            Array.isArray(shape.nodes)
+        const pathIndex = bridgeLayer.shapes.findIndex(
+            (shape) =>
+                Array.isArray(shape.nodes) || typeof shape.nodes === 'string'
         );
-        const bridgeNodeX = bridgeLayer.shapes[pathIndex].nodes[0].x + 101;
-        const staleNodeX = bridgeLayer.shapes[pathIndex].nodes[0].x - 101;
+        const bridgeNodes = parseNodeString(
+            bridgeLayer.shapes[pathIndex].nodes
+        );
+        const bridgeNodeX = bridgeNodes[0].x + 101;
+        const staleNodeX = bridgeNodes[0].x - 101;
         const serializeLayerForStorageSpy = jest.spyOn(
             fontManager,
             'serializeLayerForStorage'
@@ -2672,14 +2695,18 @@ describe('FontManager boundary-crossing budget', () => {
             const storedLayer = currentFont.babelfontData.glyphs
                 .find((glyph) => glyph.name === glyphName)
                 .layers.find((layer) => layer.id === layerId);
-            expect(storedLayer.shapes[pathIndex].nodes[0].x).toBe(bridgeNodeX);
+            expect(
+                parseNodeString(storedLayer.shapes[pathIndex].nodes)[0].x
+            ).toBe(bridgeNodeX);
 
             const workerLayer = yDocToJson(
                 fontManager.workerCacheYDoc.getMap('font')
             )
                 .glyphs.find((glyph) => glyph.name === glyphName)
                 .layers.find((layer) => layer.id === layerId);
-            expect(workerLayer.shapes[pathIndex].nodes[0].x).toBe(bridgeNodeX);
+            expect(
+                parseNodeString(workerLayer.shapes[pathIndex].nodes)[0].x
+            ).toBe(bridgeNodeX);
         } finally {
             serializeLayerForStorageSpy.mockRestore();
             fontManager.lastEditType = null;
@@ -2769,8 +2796,16 @@ describe('FontManager boundary-crossing budget', () => {
                     layerTargets: [{ glyphName: 'a', layerId }]
                 })
             );
-            expect(currentFont.babelfontData.glyphs).toContain(jsonGlyph);
-            expect(jsonGlyph.layers).toContainEqual(jsonLayer);
+            const storedGlyph = currentFont.babelfontData.glyphs.find(
+                (glyph) => glyph.name === jsonGlyph.name
+            );
+            const storedLayer = storedGlyph.layers.find(
+                (layer) => layer.id === layerId
+            );
+            expect(storedGlyph).toBeDefined();
+            expect(stripLayerStableIds(storedLayer)).toEqual(
+                stripLayerStableIds(jsonLayer)
+            );
         } finally {
             currentFont.fontModel.findGlyph = originalFindGlyph;
         }
@@ -4197,7 +4232,10 @@ describe('FontManager worker seed export', () => {
             );
             const firstLayer = firstGlyph.layers[0];
             const firstPathShape = firstLayer.shapes.find(
-                (shape) => !shape.reference && Array.isArray(shape.nodes)
+                (shape) =>
+                    !shape.reference &&
+                    (Array.isArray(shape.nodes) ||
+                        typeof shape.nodes === 'string')
             );
 
             expect(encodeBridgeState).toHaveBeenCalledTimes(1);
