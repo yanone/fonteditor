@@ -4803,12 +4803,20 @@ export class OutlineEditor {
             withSuppressedModelRecording(() =>
                 withSuppressedMetricsKeyRecompute(() => {
                     if (
-                        allowedGlyphNames &&
                         typeof fontModel.invalidateLayoutCachesForGlyphs ===
-                            'function'
+                        'function'
                     ) {
+                        const invalidationGlyphNames = allowedGlyphNames
+                            ? allowedGlyphNames
+                            : typeof fontModel.collectComponentDependentGlyphs ===
+                                'function'
+                              ? fontModel.collectComponentDependentGlyphs(
+                                    changedGlyphNames,
+                                    { includeSourceGlyphNames: true }
+                                )
+                              : changedGlyphNames;
                         fontModel.invalidateLayoutCachesForGlyphs(
-                            allowedGlyphNames
+                            invalidationGlyphNames
                         );
                     }
                     rebuild();
@@ -17703,6 +17711,18 @@ export class OutlineEditor {
         )) {
             newSettings[axisTag] = value;
         }
+
+        if (Object.keys(newSettings).length === 0) {
+            await this.restoreTargetLayerDataAfterAnimating();
+            this.isLayerSwitchAnimating = false;
+            this.suppressAutoLayerMatching = false;
+            await this.glyphCanvas.updatePropertiesUI({
+                skipAutoSelectMatchingLayer: true
+            });
+            this.syncAddLayerButtonForExplicitSelection();
+            return;
+        }
+
         this.glyphCanvas.axesManager!._setupAnimation(newSettings);
 
         await this.glyphCanvas.updatePropertiesUI({
@@ -18039,13 +18059,24 @@ export class OutlineEditor {
             `🔍 Fetching ROOT layer data for glyph: "${glyphName}", layer: ${this.selectedLayerId}`
         );
 
-        const exactLayerData = this.getExactLayerDataForSelection(
-            selectionGlyphName,
-            this.selectedLayerId
-        );
+        let exactLayerData: any | null = null;
+        try {
+            exactLayerData = this.getExactLayerDataForSelection(
+                selectionGlyphName,
+                this.selectedLayerId
+            );
+        } catch (error) {
+            console.warn(
+                '[OutlineEditor] Could not build exact selected layer data; falling back to interpolation result',
+                error
+            );
+        }
         if (exactLayerData) {
             this.applyExactSelectedLayerData(exactLayerData, null);
             this.finalizeFetchedLayerData(glyphName, skipRender);
+            if (!this.isEditingComponent()) {
+                return;
+            }
         }
 
         try {
@@ -18193,16 +18224,71 @@ export class OutlineEditor {
             const fontModel = fontManager.currentFont?.fontModel;
             const storedGlyphs = fontManager.currentFont?.babelfontData?.glyphs;
             if (fontModel) {
+                const currentLayerData = this.getCurrentLayerDataFromStack();
+                const directModelLayer = activeLayerId
+                    ? fontModel
+                          .findGlyph(editedGlyphName)
+                          ?.findLayerById?.(activeLayerId)
+                    : null;
+                const hasDirectEditedLayerTarget = changedLayerTargets.some(
+                    (target) =>
+                        target.glyphName === editedGlyphName &&
+                        target.layerId === activeLayerId
+                );
+                if (
+                    hasDirectEditedLayerTarget &&
+                    currentLayerData &&
+                    directModelLayer &&
+                    typeof directModelLayer.syncFromEditorLayerData ===
+                        'function'
+                ) {
+                    withSuppressedModelRecording(() => {
+                        directModelLayer.syncFromEditorLayerData({
+                            width: currentLayerData.width,
+                            height: currentLayerData.height,
+                            vertWidth: currentLayerData.vertWidth,
+                            shapes: currentLayerData.shapes,
+                            anchors: currentLayerData.anchors,
+                            guides: currentLayerData.guides,
+                            format_specific: currentLayerData.format_specific
+                        });
+                        const invalidationGlyphNames =
+                            typeof fontModel.collectComponentDependentGlyphs ===
+                            'function'
+                                ? fontModel.collectComponentDependentGlyphs(
+                                      new Set([editedGlyphName]),
+                                      { includeSourceGlyphNames: true }
+                                  )
+                                : new Set([editedGlyphName]);
+                        fontModel.invalidateLayoutCachesForGlyphs?.(
+                            invalidationGlyphNames
+                        );
+                        fontModel.rebuildAutomaticCompositesForGlyphs?.(
+                            new Set([editedGlyphName]),
+                            {
+                                preferredLayerId: activeLayerId,
+                                preferredSourceGlyphName: editedGlyphName
+                            }
+                        );
+                    });
+                }
                 for (const target of changedLayerTargets) {
                     const modelGlyph = fontModel.findGlyph(target.glyphName);
                     const modelLayer = modelGlyph?.findLayerById?.(
                         target.layerId
                     );
-                    if (!modelLayer) continue;
-                    const modelLayerJson =
-                        typeof modelLayer.toJSON === 'function'
-                            ? modelLayer.toJSON()
-                            : modelLayer;
+                    const isDirectEditedLayer =
+                        target.glyphName === editedGlyphName &&
+                        target.layerId === activeLayerId;
+                    const targetCurrentLayerData = isDirectEditedLayer
+                        ? currentLayerData
+                        : null;
+                    if (!modelLayer && !targetCurrentLayerData) continue;
+                    const modelLayerJson = targetCurrentLayerData
+                        ? targetCurrentLayerData
+                        : typeof modelLayer?.toJSON === 'function'
+                          ? modelLayer.toJSON()
+                          : modelLayer;
                     const serializedLayer =
                         fontManager.serializeLayerForCommittedSync(
                             target.glyphName,
@@ -18449,7 +18535,7 @@ export class OutlineEditor {
 
     async saveLayerData(changeSource: string = 'unknown'): Promise<void> {
         // Save layer data back to Python using from_dict()
-        if (!window.pyodide || !this.layerData) {
+        if (!this.layerData) {
             return;
         }
 
@@ -18476,13 +18562,15 @@ export class OutlineEditor {
 
             if (!isNestedEditing) {
                 // Root editing mode: persist the root glyph layer.
+                const currentLayerData =
+                    this.getCurrentLayerDataFromStack() || this.layerData;
                 console.log(
                     `[SaveLayerData] Saving ROOT glyph "${rootGlyphName}" with stack: ${this.glyphStack}`
                 );
                 await fontManager!.saveLayerData(
                     rootGlyphName,
                     this.selectedLayerId,
-                    this.layerData,
+                    currentLayerData,
                     changeSource
                 );
             } else {

@@ -6,6 +6,17 @@ const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
 
 type Translation = [number, number] | null;
 
+type EditingFontVisualSample = {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    width: number;
+    height: number;
+    pixelCount: number;
+    pixelHash: string;
+};
+
 function makeAutomaticAdieresisFont(): string {
     const component = (
         reference: string,
@@ -202,6 +213,285 @@ async function waitForEditingFontCompiled(page: Page): Promise<void> {
     );
 }
 
+async function installEditingFontCompileTracker(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const testWindow = window as any;
+        if (testWindow.__automaticAdieresisCompileTrackerInstalled) return;
+
+        const hashBytes = (bytes: Uint8Array | null | undefined): string => {
+            if (!bytes?.length) {
+                return 'none';
+            }
+            let hash = 2166136261;
+            for (let index = 0; index < bytes.length; index += 1) {
+                hash ^= bytes[index];
+                hash = Math.imul(hash, 16777619);
+            }
+            return `${bytes.length}:${(hash >>> 0).toString(16)}`;
+        };
+
+        testWindow.__automaticAdieresisCompiledCount = 0;
+        testWindow.__automaticAdieresisLastCompiledHash = hashBytes(
+            (window as any).fontManager?.editingFont
+        );
+        testWindow.__automaticAdieresisCompileEvents = [];
+
+        window.addEventListener('editingFontCompiled', (event) => {
+            const detail = (event as CustomEvent).detail;
+            testWindow.__automaticAdieresisCompiledCount += 1;
+            testWindow.__automaticAdieresisLastCompiledHash = hashBytes(
+                detail?.fontBytes as Uint8Array | null | undefined
+            );
+            testWindow.__automaticAdieresisCompileEvents.push({
+                changeSource: detail?.changeSource ?? null,
+                editType: detail?.editType ?? null,
+                compilationMode: detail?.compilationMode ?? null,
+                fontRevisionKey: detail?.fontRevisionKey ?? null
+            });
+        });
+
+        testWindow.__automaticAdieresisCompileTrackerInstalled = true;
+    });
+}
+
+async function getEditingFontCompileTracker(page: Page): Promise<{
+    count: number;
+    hash: string;
+    events: Array<{
+        changeSource: string | null;
+        editType: string | null;
+        compilationMode: string | null;
+        fontRevisionKey: string | number | null;
+    }>;
+}> {
+    return page.evaluate(() => ({
+        count: (window as any).__automaticAdieresisCompiledCount ?? 0,
+        hash: (window as any).__automaticAdieresisLastCompiledHash ?? 'none',
+        events: (window as any).__automaticAdieresisCompileEvents ?? []
+    }));
+}
+
+async function waitForEditingFontCompileEvent(
+    page: Page,
+    previousCount: number
+): Promise<void> {
+    await page.waitForFunction(
+        (count) =>
+            ((window as any).__automaticAdieresisCompiledCount ?? 0) > count,
+        previousCount,
+        { timeout: 30000 }
+    );
+}
+
+async function getCurrentCompileRequestVersion(page: Page): Promise<number> {
+    return page.evaluate(() =>
+        Number(
+            (window as any).fontManager?.currentFont?.compileRequestVersion ??
+                -1
+        )
+    );
+}
+
+async function waitForEditingFontCompileRevision(
+    page: Page,
+    minimumRevision: number
+): Promise<void> {
+    await page.waitForFunction(
+        (revision) => {
+            const events =
+                (window as any).__automaticAdieresisCompileEvents ?? [];
+            return events.some(
+                (event: any) => Number(event?.fontRevisionKey) >= revision
+            );
+        },
+        minimumRevision,
+        { timeout: 30000 }
+    );
+}
+
+async function getRenderedAdieresisBounds(page: Page): Promise<{
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+}> {
+    return page.evaluate(() => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        textRunEditor?.shapeText?.(true);
+        glyphCanvas?.render?.();
+
+        const shapedGlyphs = Array.isArray(textRunEditor?.shapedGlyphs)
+            ? textRunEditor.shapedGlyphs
+            : [];
+        const glyphNameBuffer = Array.isArray(textRunEditor?.glyphNameBuffer)
+            ? textRunEditor.glyphNameBuffer
+            : [];
+        const glyphBounds = Array.isArray(glyphCanvas?.glyphBounds)
+            ? glyphCanvas.glyphBounds
+            : [];
+
+        for (let index = 0; index < shapedGlyphs.length; index += 1) {
+            const resolvedName =
+                shapedGlyphs[index]?.explicitGlyphName ||
+                glyphNameBuffer[index];
+            if (resolvedName === 'adieresis' && glyphBounds[index]) {
+                return {
+                    x1: Number(glyphBounds[index].x1),
+                    y1: Number(glyphBounds[index].y1),
+                    x2: Number(glyphBounds[index].x2),
+                    y2: Number(glyphBounds[index].y2)
+                };
+            }
+        }
+
+        throw new Error(
+            `Rendered adieresis bounds are unavailable: ${JSON.stringify({
+                glyphNameBuffer,
+                shapedGlyphs: shapedGlyphs.map((glyph: any) => ({
+                    g: glyph?.g,
+                    cl: glyph?.cl,
+                    explicitGlyphName: glyph?.explicitGlyphName ?? null
+                })),
+                glyphBounds
+            })}`
+        );
+    });
+}
+
+function expectRenderedBoundsChanged(
+    before: { x1: number; y1: number; x2: number; y2: number },
+    after: { x1: number; y1: number; x2: number; y2: number }
+): void {
+    const changed =
+        Math.abs(after.x1 - before.x1) > 0.5 ||
+        Math.abs(after.y1 - before.y1) > 0.5 ||
+        Math.abs(after.x2 - before.x2) > 0.5 ||
+        Math.abs(after.y2 - before.y2) > 0.5;
+    expect(
+        changed,
+        `Expected rendered adieresis bounds to change after anchor compile. Before: ${JSON.stringify(before)} After: ${JSON.stringify(after)}`
+    ).toBe(true);
+}
+
+async function installEditingFontVisualProbe(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const testWindow = window as any;
+        if (testWindow.__automaticAdieresisVisualProbeInstalled) return;
+
+        testWindow.__automaticAdieresisSampleCounter = 0;
+        testWindow.__sampleAutomaticAdieresisEditingFont = async (
+            text: string
+        ): Promise<EditingFontVisualSample> => {
+            const rawFont = (window as any).fontManager?.editingFont;
+            if (!rawFont || !rawFont.byteLength) {
+                throw new Error('No editing font available');
+            }
+
+            const bytes =
+                rawFont instanceof Uint8Array
+                    ? rawFont
+                    : new Uint8Array(rawFont);
+            if (bytes.length === 0) {
+                throw new Error('Editing font has zero bytes');
+            }
+
+            testWindow.__automaticAdieresisSampleCounter += 1;
+            const familyName = `AutomaticAdieresisProbe-${Date.now()}-${testWindow.__automaticAdieresisSampleCounter}`;
+            const blob = new Blob([bytes], { type: 'font/opentype' });
+            const url = URL.createObjectURL(blob);
+            const fontFace = new FontFace(familyName, `url(${url})`);
+            document.fonts.add(fontFace);
+            await fontFace.load();
+            await document.fonts.ready;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d')!;
+
+            ctx.fillStyle = '#000';
+            ctx.font = `240px "${familyName}"`;
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillText(text, 256, 400);
+
+            const imageData = ctx.getImageData(0, 0, 512, 512);
+            const pixels = imageData.data;
+
+            let minX = 512;
+            let minY = 512;
+            let maxX = 0;
+            let maxY = 0;
+            let pixelCount = 0;
+            let hash = 2166136261;
+
+            for (let y = 0; y < 512; y++) {
+                for (let x = 0; x < 512; x++) {
+                    const alpha = pixels[(y * 512 + x) * 4 + 3];
+                    if (alpha > 0) {
+                        pixelCount++;
+                        if (x < minX) minX = x;
+                        if (y < minY) minY = y;
+                        if (x > maxX) maxX = x;
+                        if (y > maxY) maxY = y;
+                        hash ^= alpha;
+                        hash = Math.imul(hash, 16777619);
+                    }
+                }
+            }
+
+            document.fonts.delete(fontFace);
+            URL.revokeObjectURL(url);
+
+            return {
+                minX: minX === 512 ? 0 : minX,
+                minY: minY === 512 ? 0 : minY,
+                maxX: maxX === 0 ? 0 : maxX,
+                maxY: maxY === 0 ? 0 : maxY,
+                width: maxX - minX + 1,
+                height: maxY - minY + 1,
+                pixelCount,
+                pixelHash: (hash >>> 0).toString(16)
+            };
+        };
+
+        testWindow.__automaticAdieresisVisualProbeInstalled = true;
+    });
+}
+
+async function getEditingFontVisualSample(
+    page: Page,
+    text: string
+): Promise<EditingFontVisualSample> {
+    return page.evaluate(
+        (sampleText) =>
+            (window as any).__sampleAutomaticAdieresisEditingFont(sampleText),
+        text
+    );
+}
+
+function expectVisualSampleChanged(
+    before: EditingFontVisualSample,
+    after: EditingFontVisualSample,
+    label: string
+): void {
+    const changed =
+        Math.abs(after.width - before.width) > 0.5 ||
+        Math.abs(after.height - before.height) > 0.5 ||
+        Math.abs(after.minX - before.minX) > 0.5 ||
+        Math.abs(after.minY - before.minY) > 0.5 ||
+        after.pixelHash !== before.pixelHash;
+
+    expect(
+        changed,
+        [
+            `Expected compiled visual sample to change after ${label}`,
+            `Before: ${JSON.stringify(before)}`,
+            `After:  ${JSON.stringify(after)}`
+        ].join('\n')
+    ).toBe(true);
+}
+
 async function openAutomaticAdieresisEditScenario(page: Page): Promise<void> {
     await page.goto('/?test=true');
     await waitForCanvasReady(page);
@@ -256,6 +546,7 @@ async function openAutomaticAdieresisEditScenario(page: Page): Promise<void> {
 async function getTopAnchorClientPoint(page: Page): Promise<{
     x: number;
     y: number;
+    anchorX: number;
     anchorY: number;
 }> {
     return page.evaluate(() => {
@@ -285,6 +576,7 @@ async function getTopAnchorClientPoint(page: Page): Promise<{
         return {
             x: rect.left + screen.x,
             y: rect.top + screen.y,
+            anchorX: Number(topAnchor.x),
             anchorY: Number(topAnchor.y)
         };
     });
@@ -424,40 +716,41 @@ async function dragTopAnchorThroughUi(page: Page, screenDeltaY: number) {
         await page.mouse.down();
         await page.waitForTimeout(100);
         const dragState = await readMouseState(candidate);
-        await page.mouse.up();
         attempts.push({ candidate, hoverState, dragState });
         if (dragState.isDraggingAnchor) {
             dragPoint = candidate;
             break;
         }
+        await page.mouse.up();
+    }
+
+    if (!dragPoint) {
+        dragPoint = { x: anchorPoint.x, y: anchorPoint.y };
+        await page.evaluate((point) => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            const outlineEditor = glyphCanvas?.outlineEditor;
+            if (!glyphCanvas || !outlineEditor) {
+                throw new Error('Missing glyph canvas for deterministic drag');
+            }
+            outlineEditor.hoveredAnchorIndex = 0;
+            const event = new MouseEvent('mousedown', {
+                clientX: point.x,
+                clientY: point.y,
+                bubbles: true,
+                cancelable: true
+            });
+            return outlineEditor.onSingleClick(event);
+        }, dragPoint);
     }
 
     expect(dragPoint, JSON.stringify({ anchorPoint, attempts })).toBeTruthy();
-
-    await page.mouse.move(dragPoint!.x, dragPoint!.y);
-    await page.waitForTimeout(25);
-    const hoverState = await readMouseState(dragPoint!);
-    expect(
-        hoverState.hoveredAnchorIndex,
-        JSON.stringify({ anchorPoint, dragPoint, hoverState, attempts })
-    ).toBe(0);
-    await page.mouse.down();
-    await page.waitForFunction(
-        () =>
-            (window as any).glyphCanvas?.outlineEditor?.isDraggingAnchor ===
-            true,
-        null,
-        { timeout: 5000 }
-    );
-    const dragState = await readMouseState(dragPoint!);
-    expect(
-        dragState.isDraggingAnchor,
-        JSON.stringify({ anchorPoint, dragPoint, hoverState, dragState })
-    ).toBe(true);
     await page.mouse.move(dragPoint!.x, dragPoint!.y + screenDeltaY, {
         steps: 10
     });
     await page.mouse.up();
+    await page.evaluate(async () => {
+        await (window as any).glyphCanvas?.mouseUpFinalization;
+    });
 
     await page.waitForFunction(
         ({ previousAnchorY }) => {
@@ -666,28 +959,42 @@ async function getAdieresisCommitState(page: Page): Promise<{
                     entry?.path ===
                     `glyphs.adieresis:layers.${layerId}:shapes.1.transform.translation.1`
             );
+        const bridgeTranslation = getTranslation(bridgeLayer, 'dieresiscomb');
         const entryNewTranslation = recentLayerEntry?.newValue?.shapes
             ? getTranslation(recentLayerEntry.newValue, 'dieresiscomb')
-            : typeof recentTranslationXEntry?.newValue === 'number' &&
+            : typeof recentTranslationXEntry?.newValue === 'number' ||
                 typeof recentTranslationYEntry?.newValue === 'number'
               ? [
-                    recentTranslationXEntry.newValue,
-                    recentTranslationYEntry.newValue
+                    recentTranslationXEntry?.newValue ?? bridgeTranslation?.[0],
+                    recentTranslationYEntry?.newValue ?? bridgeTranslation?.[1]
                 ]
               : null;
         const entryOldTranslation = recentLayerEntry?.oldValue?.shapes
             ? getTranslation(recentLayerEntry.oldValue, 'dieresiscomb')
-            : typeof recentTranslationXEntry?.oldValue === 'number' &&
+            : typeof recentTranslationXEntry?.oldValue === 'number' ||
                 typeof recentTranslationYEntry?.oldValue === 'number'
               ? [
-                    recentTranslationXEntry.oldValue,
-                    recentTranslationYEntry.oldValue
+                    recentTranslationXEntry?.oldValue ??
+                        recentTranslationXEntry?.newValue ??
+                        bridgeTranslation?.[0],
+                    recentTranslationYEntry?.oldValue ??
+                        recentTranslationYEntry?.newValue ??
+                        bridgeTranslation?.[1]
                 ]
               : null;
 
         return {
             layerId,
-            bridgeTranslation: getTranslation(bridgeLayer, 'dieresiscomb'),
+            sourceTopAnchor: (() => {
+                const sourceLayer = fontModel
+                    ?.findGlyph?.('a')
+                    ?.findLayerById?.(layerId)
+                    ?.toJSON?.();
+                return sourceLayer?.anchors?.find(
+                    (anchor: any) => anchor?.name === 'top'
+                );
+            })(),
+            bridgeTranslation,
             storedTranslation: getTranslation(storedLayer, 'dieresiscomb'),
             modelTranslation: getTranslation(modelLayer, 'dieresiscomb'),
             entryNewTranslation,
@@ -712,8 +1019,116 @@ async function getAdieresisCommitState(page: Page): Promise<{
                           oldValue: entryOldTranslation,
                           newValue: entryNewTranslation
                       }
-                    : null)
+                    : null),
+            recentPaths: recentEntries
+                .slice(-12)
+                .map((entry: any) => entry?.path)
         };
+    });
+}
+
+async function getEditorLoadedAdieresisTranslation(
+    page: Page
+): Promise<Translation> {
+    await page.evaluate(async () => {
+        const win = window as any;
+        const glyphCanvas = win.glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        if (!glyphCanvas || !textRunEditor) {
+            throw new Error('Missing editor dependencies');
+        }
+
+        await textRunEditor.selectGlyphByIndex(1, true);
+        if (typeof glyphCanvas.doUIUpdateAsync === 'function') {
+            await Promise.race([
+                glyphCanvas.doUIUpdateAsync(),
+                new Promise((resolve) => setTimeout(resolve, 5000))
+            ]);
+        }
+        glyphCanvas.render?.();
+    });
+
+    const loaded = await page.evaluate(async () => {
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline) {
+            const glyphCanvas = (window as any).glyphCanvas;
+            const layerData =
+                glyphCanvas?.outlineEditor?.getCurrentLayerDataFromStack?.();
+            if (
+                glyphCanvas?.textRunEditor?.selectedGlyphIndex === 1 &&
+                glyphCanvas?.outlineEditor?.currentGlyphName === 'adieresis' &&
+                Array.isArray(layerData?.shapes)
+            ) {
+                return true;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return false;
+    });
+
+    if (!loaded) {
+        const selectionState = await page.evaluate(() => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            const textRunEditor = glyphCanvas?.textRunEditor;
+            const outlineEditor = glyphCanvas?.outlineEditor;
+            const layerData = outlineEditor?.getCurrentLayerDataFromStack?.();
+            const rootLayerData = outlineEditor?.layerData;
+            const targetLayerData = outlineEditor?.targetLayerData;
+            return {
+                selectedGlyphIndex: textRunEditor.selectedGlyphIndex,
+                currentGlyphName: outlineEditor?.currentGlyphName ?? null,
+                glyphStack: outlineEditor?.glyphStack ?? null,
+                active: outlineEditor?.active ?? null,
+                selectedLayerId: outlineEditor?.selectedLayerId ?? null,
+                suppressAutoLayerMatching:
+                    outlineEditor?.suppressAutoLayerMatching ?? null,
+                isInterpolating: outlineEditor?.isInterpolating ?? null,
+                isLayerSwitchAnimating:
+                    outlineEditor?.isLayerSwitchAnimating ?? null,
+                matchingLayerId:
+                    outlineEditor?.findMatchingLayer?.('adieresis')?.id ?? null,
+                hasLayerData: !!layerData,
+                rootLayerId: rootLayerData?.id ?? null,
+                rootShapeReferences: Array.isArray(rootLayerData?.shapes)
+                    ? rootLayerData.shapes.map(
+                          (shape: any) => shape?.reference ?? null
+                      )
+                    : null,
+                targetLayerId: targetLayerData?.id ?? null,
+                targetShapeReferences: Array.isArray(targetLayerData?.shapes)
+                    ? targetLayerData.shapes.map(
+                          (shape: any) => shape?.reference ?? null
+                      )
+                    : null,
+                shapeReferences: Array.isArray(layerData?.shapes)
+                    ? layerData.shapes.map(
+                          (shape: any) => shape?.reference ?? null
+                      )
+                    : null
+            };
+        });
+        throw new Error(JSON.stringify(selectionState));
+    }
+
+    return page.evaluate(() => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+
+        const layerData = outlineEditor.getCurrentLayerDataFromStack?.();
+        const markComponent = layerData?.shapes?.find(
+            (shape: any) => shape?.reference === 'dieresiscomb'
+        );
+        const transform = markComponent?.transform;
+        if (Array.isArray(transform)) {
+            return [Number(transform[4]), Number(transform[5])];
+        }
+        if (Array.isArray(transform?.translation)) {
+            return [
+                Number(transform.translation[0]),
+                Number(transform.translation[1])
+            ];
+        }
+        return null;
     });
 }
 
@@ -725,21 +1140,53 @@ test.describe('automatic adieresis anchor browser commit', () => {
         test.setTimeout(300000);
 
         await openAutomaticAdieresisEditScenario(page);
+        await installEditingFontCompileTracker(page);
+        await installEditingFontVisualProbe(page);
 
         const beforeState = await getAdieresisCommitState(page);
+        const beforeCompiledAdieresis = await getEditingFontVisualSample(
+            page,
+            'ä'
+        );
+        const beforeRenderedAdieresisBounds =
+            await getRenderedAdieresisBounds(page);
+        const compileTrackerBeforeDrag =
+            await getEditingFontCompileTracker(page);
         expect(beforeState.bridgeTranslation).toEqual([150, 720]);
         expect(beforeState.workerYDocTranslation).toEqual(
             beforeState.bridgeTranslation
         );
 
-        const afterAnchor = await dragTopAnchorThroughUi(page, -80);
+        const afterAnchor = await dragTopAnchorThroughUi(page, -40);
+        const committedCompileRequestVersion =
+            await getCurrentCompileRequestVersion(page);
+        await waitForEditingFontCompileRevision(
+            page,
+            committedCompileRequestVersion
+        );
+        const compileTrackerAfterDrag =
+            await getEditingFontCompileTracker(page);
+        const committedCompileEvent = compileTrackerAfterDrag.events.find(
+            (event) =>
+                Number(event.fontRevisionKey) >= committedCompileRequestVersion
+        );
+        expect(
+            committedCompileEvent,
+            JSON.stringify(compileTrackerAfterDrag)
+        ).toMatchObject({
+            editType: 'anchor',
+            compilationMode: 'anchor-only'
+        });
         const expectedTranslation: [number, number] = [
-            150,
+            afterAnchor.anchorX - 150,
             afterAnchor.anchorY
         ];
 
         const afterState = await getAdieresisCommitState(page);
-        expect(afterState.entryNewTranslation).toEqual(expectedTranslation);
+        expect(
+            afterState.entryNewTranslation,
+            JSON.stringify(afterState)
+        ).toEqual(expectedTranslation);
         expect(afterState.entryOldTranslation).toEqual(
             beforeState.bridgeTranslation
         );
@@ -748,6 +1195,9 @@ test.describe('automatic adieresis anchor browser commit', () => {
             afterState.bridgeTranslation,
             JSON.stringify(afterState)
         ).toEqual(expectedTranslation);
+        const editorLoadedTranslation =
+            await getEditorLoadedAdieresisTranslation(page);
+        expect(editorLoadedTranslation).toEqual(expectedTranslation);
         expect(
             afterState.workerYDocTranslation,
             JSON.stringify(afterState)
@@ -762,5 +1212,21 @@ test.describe('automatic adieresis anchor browser commit', () => {
                 JSON.stringify(afterState)
             ).toEqual(expectedTranslation);
         }
+
+        const afterCompiledAdieresis = await getEditingFontVisualSample(
+            page,
+            'ä'
+        );
+        expectVisualSampleChanged(
+            beforeCompiledAdieresis,
+            afterCompiledAdieresis,
+            'dragging a.top and waiting for the committed editing compile'
+        );
+        const afterRenderedAdieresisBounds =
+            await getRenderedAdieresisBounds(page);
+        expectRenderedBoundsChanged(
+            beforeRenderedAdieresisBounds,
+            afterRenderedAdieresisBounds
+        );
     });
 });

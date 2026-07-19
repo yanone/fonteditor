@@ -1834,9 +1834,15 @@ fn ydoc_layer_to_json<T: ReadTxn>(
         );
     }
 
-    // Reconstruct indexed-map structures back to flat arrays
-    // (shapesById+shapeOrder → shapes, etc.)
-    reconstruct_indexed_map_array(&mut layer_obj, "shapes", "shapesById", "shapeOrder");
+    // Reconstruct legacy indexed-map structures back to flat arrays. Current
+    // JS storage keeps shapes as the flat resting field, so prefer it over any
+    // stale shapesById/shapeOrder remnants that may still exist in old docs.
+    if !layer_obj.contains_key("shapes") {
+        reconstruct_indexed_map_array(&mut layer_obj, "shapes", "shapesById", "shapeOrder");
+    } else {
+        layer_obj.remove("shapesById");
+        layer_obj.remove("shapeOrder");
+    }
     reconstruct_indexed_map_array(&mut layer_obj, "anchors", "anchorsById", "anchorOrder");
     reconstruct_indexed_map_array(&mut layer_obj, "guides", "guidesById", "guideOrder");
 
@@ -3986,7 +3992,7 @@ pub fn save_font_as_ufo_entries(babelfont_json: &str) -> Result<String, JsValue>
 mod tests {
     use super::*;
     use serde_json::json;
-    use yrs::{Any, ArrayPrelim, Doc, Map, MapPrelim, StateVector, Transact};
+    use yrs::{Any, ArrayPrelim, Doc, Map, MapPrelim, StateVector, Transact, WriteTxn};
 
     const TEST_FONT_JSON: &str = r#"{
         "upm": 1000,
@@ -4409,6 +4415,36 @@ mod tests {
         );
         assert!(!layer.contains_key("shapesById"));
         assert!(!layer.contains_key("shapeOrder"));
+    }
+
+    #[test]
+    fn ydoc_layer_to_json_prefers_flat_shapes_over_legacy_indexed_shapes() {
+        let doc = yrs::Doc::new();
+        let mut txn = doc.transact_mut();
+        let root = txn.get_or_insert_map("root");
+        let layer: yrs::MapRef = root.insert(&mut txn, "layer", MapPrelim::<Any>::new());
+        let shapes = layer.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+        let current_shape: yrs::MapRef = shapes.push_back(&mut txn, MapPrelim::<Any>::new());
+        current_shape.insert(&mut txn, "id", "current");
+        current_shape.insert(&mut txn, "reference", "acutecomb");
+        let shapes_by_id: yrs::MapRef =
+            layer.insert(&mut txn, "shapesById", MapPrelim::<Any>::new());
+        let stale_shape: yrs::MapRef =
+            shapes_by_id.insert(&mut txn, "stale", MapPrelim::<Any>::new());
+        stale_shape.insert(&mut txn, "id", "stale");
+        stale_shape.insert(&mut txn, "reference", "dieresiscomb");
+        let shape_order = layer.insert(&mut txn, "shapeOrder", ArrayPrelim::from(Vec::<Any>::new()));
+        shape_order.push_back(&mut txn, "stale");
+
+        let layer_value = root.get(&txn, "layer").unwrap();
+        let layer_json = ydoc_layer_to_json("layer-1", layer_value, &txn);
+
+        assert_eq!(
+            layer_json.get("shapes"),
+            Some(&json!([{ "id": "current", "reference": "acutecomb" }]))
+        );
+        assert!(layer_json.get("shapesById").is_none());
+        assert!(layer_json.get("shapeOrder").is_none());
     }
 
     #[test]
