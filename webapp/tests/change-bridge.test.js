@@ -2477,7 +2477,6 @@ describe('Transactions', () => {
         sourceLayer.shapes[0].nodes[1].y = 760;
         const dependentSnapshot = JSON.parse(JSON.stringify(dependentLayer));
         dependentSnapshot.shapes[1].transform.translation = [-122, -32];
-        dependentLayer.shapes[1].transform.translation = [-122, -32];
 
         bridge.syncLayerSnapshotsFromJson(
             [
@@ -2528,6 +2527,10 @@ describe('Transactions', () => {
                     'translation'
                 ])
             )
+        ).toEqual([-122, -32]);
+        expect(
+            bridge.getFontJsonSnapshot().glyphs[1].layers[0].shapes[1].transform
+                .translation
         ).toEqual([-122, -32]);
         expect(log.every((entry) => entry.workerReplayTargets.length)).toBe(
             true

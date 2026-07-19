@@ -1423,6 +1423,11 @@ export class PatchSyncEngine {
 
         const wasInTransaction = this._txDepth > 0;
         const commitResult = this._queueOrCommitOperations(operations, label);
+        if (!wasInTransaction && commitResult?.workerReplayTargets.length) {
+            this._syncPatchedLayerTargetsFromYDoc(
+                commitResult.workerReplayTargets
+            );
+        }
         if (!wasInTransaction && !commitResult) {
             this._emitMetadataOnlyLayerSnapshotUpdate(
                 uniqueTargets,
@@ -1490,7 +1495,6 @@ export class PatchSyncEngine {
                 workerReplayTargets: normalizedReplayTargets
             })
         );
-
         this._lastLocalUpdateLogIndex = this._changeLog.length;
         this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
         this._emitLocalUpdate(update, changeLogEntries);
@@ -3735,6 +3739,30 @@ export class PatchSyncEngine {
                 modelLayer.invalidateContentCaches?.();
             }
         });
+    }
+
+    private _syncPatchedLayerTargetsFromYDoc(
+        scopeHints: Array<{ glyphName: string; layerId: string }>
+    ): void {
+        const normalizedScopeHints = normalizeWorkerReplayTargets(scopeHints);
+        if (!normalizedScopeHints.length || !this._fontJson) {
+            return;
+        }
+
+        const previousFingerprintSnapshot =
+            this._collectLayerFingerprintSnapshot(normalizedScopeHints);
+        const patchedScopeHints = normalizedScopeHints.filter((scopeHint) =>
+            this._patchLayerFromYDoc(scopeHint)
+        );
+        if (!patchedScopeHints.length) {
+            return;
+        }
+
+        this._syncPatchedLayersIntoObjectModel(patchedScopeHints);
+        this._emitLayerFingerprintChangedEvents(
+            previousFingerprintSnapshot,
+            this._collectLayerFingerprintSnapshot(normalizedScopeHints)
+        );
     }
 
     /**
