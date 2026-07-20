@@ -79,8 +79,8 @@ function decodeShapeNodesForRuntime(shapes: Unsafe[]): Unsafe[] {
 /**
  * Ensure every Node, Path, Component, Anchor, and Guide in the font has a stable `id`.
  * Called after font load / deserialization. Ids are generated for any element missing one;
- * existing ids are preserved. This is the prerequisite for the indexed-map Y.Doc schema
- * (nodesById, shapesById, etc.) where elements are addressed by stable id.
+ * existing ids are preserved. These ids support editor selection and the indexed-map
+ * Y.Doc schema for shapes, anchors, and guides.
  *
  * Mutates the raw font data in place. Does NOT record change-log entries — this is
  * a load-time normalization, not an edit.

@@ -207,6 +207,34 @@ describe('upstream-truthful Y.Doc node storage', () => {
         );
     });
 
+    test('setYPath rejects runtime node arrays', () => {
+        const { fontMap } = setupYDoc(makeTestFont());
+        const nodesPath = [
+            'glyphs',
+            'A',
+            'layers',
+            'layer-1',
+            'shapes',
+            0,
+            'nodes'
+        ];
+
+        expect(() =>
+            setYPath(fontMap, nodesPath, [
+                { x: 111, y: 222, nodetype: 'Move', smooth: false },
+                { x: 333, y: 444, nodetype: 'Line', smooth: false }
+            ])
+        ).toThrow('Y.Doc path nodes must be canonical babelfont strings.');
+
+        const shapeMap = getLayerMap(fontMap).get('shapes').get(0);
+        expect(shapeMap.get('nodes')).toBeInstanceOf(Y.Text);
+        expect(shapeMap.get('nodes').toString()).toBe(
+            '100 200 l 300 300 l 500 400 l'
+        );
+        expect(shapeMap.get('nodesById')).toBeUndefined();
+        expect(shapeMap.get('nodeOrder')).toBeUndefined();
+    });
+
     test('logical node replay stays string-backed in Y.Doc and editable in the runtime model', () => {
         const { fontMap } = setupYDoc(makeTestFont());
         setYPath(

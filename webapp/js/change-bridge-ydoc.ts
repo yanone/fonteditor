@@ -805,7 +805,6 @@ export { INDEXED_MAP_KEYS };
  * and apply a minimal diff instead of a full replace.
  */
 const ORDER_KEYS: Record<string, string> = {
-    nodeOrder: 'nodes',
     shapeOrder: 'shapes',
     anchorOrder: 'anchors',
     guideOrder: 'guides',
@@ -1156,7 +1155,7 @@ export function setYPath(
         if (current instanceof Y.Map) {
             const segStr = String(seg);
 
-            // Check for indexed-map keys (shapes/nodes/anchors/guides)
+            // Check for indexed-map keys (shapes/anchors/guides)
             // Always use the indexed-map structure for these keys,
             // creating it if it doesn't exist yet.
             if (typeof seg === 'string' && INDEXED_MAP_KEYS[segStr]) {
@@ -1260,11 +1259,12 @@ export function setYPath(
     const lastSeg = path[path.length - 1];
     const lastSegStr = String(lastSeg);
 
-    if (
-        current instanceof Y.Map &&
-        lastSegStr === 'nodes' &&
-        typeof value === 'string'
-    ) {
+    if (current instanceof Y.Map && lastSegStr === 'nodes') {
+        if (typeof value !== 'string') {
+            throw new TypeError(
+                'Y.Doc path nodes must be canonical babelfont strings.'
+            );
+        }
         const existingNodes = current.get('nodes');
         if (existingNodes instanceof Y.Text) {
             replaceYText(existingNodes, value);
@@ -1274,8 +1274,8 @@ export function setYPath(
         return;
     }
 
-    // Special case: when setting a *Order key (nodeOrder, shapeOrder,
-    // anchorOrder, guideOrder) on a Y.Map that already has the order
+    // Special case: when setting a *Order key (shapeOrder, anchorOrder,
+    // guideOrder) on a Y.Map that already has the order
     // array, apply a minimal LCS-based diff instead of replacing the
     // whole Y.Array. This is the key to granular reorder operations
     // (set start point, reverse direction) — the Yjs delta contains
@@ -1297,8 +1297,8 @@ export function setYPath(
         // Falls through to the generic set below.
     }
 
-    // Special case: when setting an indexed-map array key (shapes,
-    // anchors, guides, nodes) as the terminal segment on a Y.Map,
+    // Special case: when setting an indexed-map array key (shapes, anchors,
+    // guides) as the terminal segment on a Y.Map,
     // update the *ById+*Order structure instead of setting a flat
     // key. This handles layer-level shape/anchor/guide replacements
     // and path-level node replacements that arrive as whole-array
@@ -1371,7 +1371,7 @@ export function deleteYPath(
     }
 
     // Terminal indexed-map key deletion: when the last segment is an
-    // indexed-map key (shapes/anchors/guides/nodes) and the parent
+    // indexed-map key (shapes/anchors/guides) and the parent
     // Y.Map has the *ById+*Order structure, DELETE both keys so that
     // downstream readers (fromYType, _syncJsonFromYDoc) see the data
     // as absent (not empty). This preserves the merge semantics where

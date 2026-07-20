@@ -4509,19 +4509,7 @@ describe('WindowSync', () => {
                             return normalizedNode;
                         }
                     );
-                } else if (normalizedShape.nodesById) {
-                    normalizedShape.nodes = (
-                        normalizedShape.nodeOrder || []
-                    ).map((nodeId) => {
-                        const normalizedNode = cloneValue(
-                            normalizedShape.nodesById[nodeId]
-                        );
-                        delete normalizedNode.id;
-                        return normalizedNode;
-                    });
                 }
-                delete normalizedShape.nodesById;
-                delete normalizedShape.nodeOrder;
                 return normalizedShape;
             });
             delete normalized.anchorOrder;
