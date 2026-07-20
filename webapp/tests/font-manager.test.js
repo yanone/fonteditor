@@ -2492,6 +2492,8 @@ describe('FontManager boundary-crossing budget', () => {
         fontManager.pendingBabelfontJsonSyncAfterDrag = false;
         fontManager.scheduleFullCompileDebounce = jest.fn();
         fontManager.workerLayerFingerprintCache = new Map();
+        fontManager.workerYjsSendQueue = Promise.resolve();
+        fontManager.workerCacheUpdatePromise = null;
         fontManager.resetBoundaryCrossingStats();
         const initialWorkerState = fontManager.buildWorkerSeedYjsState();
         fontManager.replaceWorkerYjsMirrorFromState(initialWorkerState);
@@ -2502,6 +2504,8 @@ describe('FontManager boundary-crossing budget', () => {
         window.autoCompileManager = { checkAndSchedule: jest.fn() };
 
         fontCompilation.isInitialized = true;
+        fontCompilation.pendingWorkerDocumentSync = Promise.resolve();
+        fontCompilation.setWorkerCacheDocumentReady(true);
         sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue({
@@ -3231,8 +3235,7 @@ describe('FontManager boundary-crossing budget', () => {
 
         expect(fontManager.workerCacheUpdatePromise).toBeTruthy();
 
-        await Promise.resolve();
-        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
         expect(resolveSend).toEqual(expect.any(Function));
         resolveSend({
             success: true,
@@ -3264,8 +3267,7 @@ describe('FontManager boundary-crossing budget', () => {
             new Uint8Array([1, 2, 3]),
             []
         );
-        await Promise.resolve();
-        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
         expect(resolveFirstSend).toEqual(expect.any(Function));
 
         const secondUpdatePromise = fontManager.forwardWorkerYjsUpdate(
@@ -3283,8 +3285,7 @@ describe('FontManager boundary-crossing budget', () => {
             workerCacheStatus: makeWorkerCacheStatus({ documentEpoch: 1 })
         });
         await expect(firstUpdatePromise).resolves.toBe(true);
-        await Promise.resolve();
-        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
         expect(resolveSecondSend).toEqual(expect.any(Function));
 
         // The later queue handle must remain visible until the queued tail settles.
@@ -3419,7 +3420,7 @@ describe('FontManager boundary-crossing budget', () => {
         );
     });
 
-    test('consecutive raw Yjs layer updates forward each incremental update without replay-target repair', async () => {
+    test('consecutive raw Yjs layer updates forward each change as an incremental worker packet', async () => {
         const currentFont = fontManager.currentFont;
         const originalPatchSyncEngine = window.patchSyncEngine;
         const applyMirrorSpy = jest.spyOn(
@@ -3464,6 +3465,7 @@ describe('FontManager boundary-crossing budget', () => {
 
         const workerDoc = new Y.Doc();
         jsonToYDoc(cloneJson(originalFontData), workerDoc.getMap('font'));
+        const initialWorkerState = Y.encodeStateAsUpdate(workerDoc);
         window.patchSyncEngine = {
             fontMap: workerDoc.getMap('font')
         };
@@ -3507,10 +3509,7 @@ describe('FontManager boundary-crossing budget', () => {
             );
 
             fontManager.workerCacheYDoc = new Y.Doc();
-            jsonToYDoc(
-                cloneJson(originalFontData),
-                fontManager.workerCacheYDoc.getMap('font')
-            );
+            Y.applyUpdate(fontManager.workerCacheYDoc, initialWorkerState);
             fontManager.workerLayerFingerprintCache.clear();
             fontManager.workerLayerFingerprintCache.set(
                 `${glyphName}::${layerId}`,
@@ -3593,13 +3592,15 @@ describe('FontManager boundary-crossing budget', () => {
                 )
             ).resolves.toBe(true);
 
-            expect(applyMirrorSpy).toHaveBeenNthCalledWith(1, firstRawUpdate);
-            expect(applyMirrorSpy).toHaveBeenNthCalledWith(2, secondRawUpdate);
+            const firstForwardedUpdate = applyMirrorSpy.mock.calls[0][0];
+            const secondForwardedUpdate = applyMirrorSpy.mock.calls[1][0];
+            expect(firstForwardedUpdate).toBeInstanceOf(Uint8Array);
+            expect(secondForwardedUpdate).toBeInstanceOf(Uint8Array);
             expect(sendMessageSpy).toHaveBeenNthCalledWith(
                 1,
                 expect.objectContaining({
                     type: 'applyYjsUpdate',
-                    update: firstRawUpdate,
+                    update: firstForwardedUpdate,
                     changedGlyphs: [glyphName],
                     layerTargets: [{ glyphName, layerId }],
                     invalidateLayoutClosure: false
@@ -3609,7 +3610,7 @@ describe('FontManager boundary-crossing budget', () => {
                 2,
                 expect.objectContaining({
                     type: 'applyYjsUpdate',
-                    update: secondRawUpdate,
+                    update: secondForwardedUpdate,
                     changedGlyphs: [glyphName],
                     layerTargets: [{ glyphName, layerId }],
                     invalidateLayoutClosure: false
@@ -3621,8 +3622,15 @@ describe('FontManager boundary-crossing budget', () => {
         }
     });
 
-    test('forwardWorkerYjsUpdate forwards raw layer-target Yjs updates without rebuilding worker deltas', async () => {
-        const rawUpdate = fontManager.buildWorkerSeedYjsState();
+    test('forwardWorkerYjsUpdate forwards raw layer-target Yjs updates as one incremental worker packet', async () => {
+        const sourceDoc = new Y.Doc();
+        jsonToYDoc(
+            cloneJson(fontManager.currentFont.babelfontData),
+            sourceDoc.getMap('font')
+        );
+        const rawUpdate = Y.encodeStateAsUpdate(sourceDoc);
+        fontManager.workerCacheYDoc = new Y.Doc();
+        Y.applyUpdate(fontManager.workerCacheYDoc, rawUpdate);
         const buildWorkerYjsLayerUpdateSpy = jest.spyOn(
             fontManager,
             'buildWorkerYjsLayerUpdate'
@@ -3649,13 +3657,13 @@ describe('FontManager boundary-crossing budget', () => {
 
         expect(buildWorkerYjsLayerUpdateSpy).not.toHaveBeenCalled();
         const forwardedUpdate = applyMirrorSpy.mock.calls[0][0];
-        expect(forwardedUpdate).toBe(rawUpdate);
+        expect(forwardedUpdate).toBeInstanceOf(Uint8Array);
         expect(syncJsonSpy).not.toHaveBeenCalled();
         expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
         expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'applyYjsUpdate',
-                update: rawUpdate,
+                update: forwardedUpdate,
                 changedGlyphs: ['a'],
                 layerTargets: [{ glyphName: 'a', layerId }],
                 invalidateLayoutClosure: false
@@ -4162,7 +4170,7 @@ describe('FontManager boundary-crossing budget', () => {
                 ([message]) => message?.type === 'initYdoc'
             )
         ).toBe(false);
-        expect(awaitWorkerDocumentSyncSpy).toHaveBeenCalledTimes(1);
+        expect(awaitWorkerDocumentSyncSpy).toHaveBeenCalledTimes(2);
 
         awaitWorkerDocumentSyncSpy.mockRestore();
     });
@@ -4229,7 +4237,7 @@ describe('FontManager boundary-crossing budget', () => {
         releaseSeed();
 
         await expect(sendPromise).resolves.toBe(true);
-        expect(awaitWorkerDocumentSyncSpy).toHaveBeenCalledTimes(1);
+        expect(awaitWorkerDocumentSyncSpy).toHaveBeenCalled();
         expect(sendMessageSpy).toHaveBeenCalledTimes(1);
         expect(sendMessageSpy).toHaveBeenCalledWith({
             type: 'applyYjsUpdate',

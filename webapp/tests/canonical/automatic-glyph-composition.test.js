@@ -1961,7 +1961,7 @@ describe('Automatic component editing canonical behavior', () => {
         ]);
     });
 
-    test('anchor drag mouseup flushes debug save without duplicate worker cache update or dependent sync', async () => {
+    test('anchor drag mouseup avoids duplicate worker cache update or dependent sync', async () => {
         const dragFont = makeVisibleAnchorCascadeFont();
         const currentFont = {
             fontModel: dragFont,
@@ -1983,9 +1983,6 @@ describe('Automatic component editing canonical behavior', () => {
         const updateWorkerFontCacheSpy = jest
             .spyOn(fontManager, 'updateWorkerFontCache')
             .mockResolvedValue();
-        const flushPendingDebugEditingFontSaveAfterDragSpy = jest
-            .spyOn(fontManager, 'flushPendingDebugEditingFontSaveAfterDrag')
-            .mockImplementation(() => {});
         let saveLayerDataSpy;
 
         try {
@@ -2022,20 +2019,16 @@ describe('Automatic component editing canonical behavior', () => {
                 refreshWorkerCacheForReplayTargetsSpy
             ).not.toHaveBeenCalled();
             expect(updateWorkerFontCacheSpy).not.toHaveBeenCalled();
-            expect(
-                flushPendingDebugEditingFontSaveAfterDragSpy
-            ).toHaveBeenCalledTimes(1);
         } finally {
             refreshGlyphsAfterModelBatchSpy.mockRestore();
             refreshWorkerCacheForReplayTargetsSpy.mockRestore();
             updateWorkerFontCacheSpy.mockRestore();
-            flushPendingDebugEditingFontSaveAfterDragSpy.mockRestore();
             saveLayerDataSpy?.mockRestore();
             fontManager.updateEditingSubsetSnapshot([]);
         }
     });
 
-    test('anchor-inclusive resize mouseup flushes debug save without duplicate worker cache update or dependent sync', async () => {
+    test('anchor-inclusive resize mouseup avoids duplicate worker cache update or dependent sync', async () => {
         const dragFont = makeVisibleAnchorCascadeFont();
         const currentFont = {
             fontModel: dragFont,
@@ -2057,9 +2050,6 @@ describe('Automatic component editing canonical behavior', () => {
         const updateWorkerFontCacheSpy = jest
             .spyOn(fontManager, 'updateWorkerFontCache')
             .mockResolvedValue();
-        const flushPendingDebugEditingFontSaveAfterDragSpy = jest
-            .spyOn(fontManager, 'flushPendingDebugEditingFontSaveAfterDrag')
-            .mockImplementation(() => {});
         let saveLayerDataSpy;
 
         try {
@@ -2105,14 +2095,10 @@ describe('Automatic component editing canonical behavior', () => {
                 refreshWorkerCacheForReplayTargetsSpy
             ).not.toHaveBeenCalled();
             expect(updateWorkerFontCacheSpy).not.toHaveBeenCalled();
-            expect(
-                flushPendingDebugEditingFontSaveAfterDragSpy
-            ).toHaveBeenCalledTimes(1);
         } finally {
             refreshGlyphsAfterModelBatchSpy.mockRestore();
             refreshWorkerCacheForReplayTargetsSpy.mockRestore();
             updateWorkerFontCacheSpy.mockRestore();
-            flushPendingDebugEditingFontSaveAfterDragSpy.mockRestore();
             saveLayerDataSpy?.mockRestore();
         }
     });

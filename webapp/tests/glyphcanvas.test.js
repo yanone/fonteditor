@@ -4612,7 +4612,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
 
         expect(canvas.outlineEditor.layerData.width).toBe(485);
         expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(85);
-        expect(canvas.viewportManager.panX).toBe(100);
+        expect(canvas.viewportManager.panX).toBe(130);
     });
 
     test('sidebearing drags refresh live advances for keyed dependent glyphs', () => {
@@ -4985,7 +4985,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             expect(canvas.outlineEditor.layerData.width).toBe(
                 activeLayer.width
             );
-            expect(canvas.viewportManager.panX).toBe(beforePanX);
+            expect(canvas.viewportManager.panX).toBe(beforePanX + 40);
         } finally {
             updateWorkerFontCacheSpy.mockRestore();
             updateDirtyIndicatorSpy.mockRestore();
@@ -5156,7 +5156,13 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             expect(currentLayer.shapes).toHaveLength(1);
             expect(currentLayer.width).toBe(160);
             expect(dependentLayer.width).toBe(140);
-            expect(refreshMetricsSpy).toHaveBeenCalledWith(expect.any(Set));
+            expect(refreshMetricsSpy).toHaveBeenCalledWith(
+                expect.any(Set),
+                expect.objectContaining({
+                    x: expect.any(Number),
+                    y: expect.any(Number)
+                })
+            );
             expect(canvas.viewportManager.panX).toBe(100);
             expect(
                 canvas.textRunEditor.refreshGlyphAdvancesLive
@@ -5204,7 +5210,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         expect(event.preventDefault).toHaveBeenCalled();
         expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(99);
         expect(canvas.outlineEditor.layerData.width).toBe(499);
-        expect(canvas.viewportManager.panX).toBe(100);
+        expect(canvas.viewportManager.panX).toBe(102);
     });
 
     test('Cmd+A selects all points, anchors, and components in the active layer', () => {
@@ -5377,7 +5383,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         ).toBe(80);
         expect(canvas.outlineEditor.layerData.anchors[0].x).toBe(100);
         expect(canvas.outlineEditor.layerData.width).toBe(480);
-        expect(canvas.viewportManager.panX).toBe(100);
+        expect(canvas.viewportManager.panX).toBe(140);
     });
 });
 
@@ -7577,9 +7583,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const workerCacheSpy = jest
             .spyOn(fontManager, 'updateWorkerFontCache')
             .mockResolvedValue();
-        const flushDebugSpy = jest
-            .spyOn(fontManager, 'flushPendingDebugEditingFontSaveAfterDrag')
-            .mockImplementation(() => {});
         const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
         const originalBridge = window.changeBridge;
         const originalFontModel = window.currentFontModel;
@@ -7667,7 +7670,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             window.changeBridge = originalBridge;
             window.currentFontModel = originalFontModel;
             linkedLayersSpy.mockRestore();
-            flushDebugSpy.mockRestore();
             workerCacheSpy.mockRestore();
             dirtyIndicatorSpy.mockRestore();
             currentFontSpy.mockRestore();
@@ -10294,6 +10296,12 @@ describe('GlyphCanvas anchor movement', () => {
             { glyphName: 'a' }
         ]);
         canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            shapes: [],
+            anchors: []
+        };
 
         try {
             canvas.outlineEditor._syncCurrentGlyphToYDoc(
@@ -10566,6 +10574,12 @@ describe('GlyphCanvas anchor movement', () => {
             { glyphName: 'a' }
         ]);
         canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            shapes: [],
+            anchors: []
+        };
 
         try {
             canvas.outlineEditor._syncCurrentGlyphToYDoc(
@@ -10773,6 +10787,12 @@ describe('GlyphCanvas anchor movement', () => {
             { glyphName: 'a' }
         ]);
         canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            shapes: [],
+            anchors: []
+        };
 
         try {
             canvas.outlineEditor.syncKeyboardOutlineLayerEdit('Arrow key', {

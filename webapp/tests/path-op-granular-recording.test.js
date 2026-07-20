@@ -391,7 +391,9 @@ describe('Integration: set-start-point and reverse-direction byte budgets', () =
             .get('layers')
             .get('layer-1');
         const shapeMap = layerMap.get('shapes').get(0);
-        expect(shapeMap.get('nodes').startsWith('1100 700 l')).toBe(true);
+        expect(shapeMap.get('nodes').toString().startsWith('1100 700 l')).toBe(
+            true
+        );
     });
 
     test('reverse direction on 20-node contour produces < 800 byte Yjs delta', () => {

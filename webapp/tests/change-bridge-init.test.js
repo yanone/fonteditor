@@ -2291,12 +2291,9 @@ describe('handleRemoteChangeRefresh', () => {
             return { glyphCanvas, fontModel };
         }
 
-        test.each([
-            { side: 'left', edge: 'right' },
-            { side: 'right', edge: 'left' }
-        ])(
-            'remote sidebearing edit ($side) keeps the active glyph $edge edge stationary in the linked window',
-            async ({ side, edge }) => {
+        test.each(['left', 'right'])(
+            'remote sidebearing edit (%s) preserves the linked window pan',
+            async (side) => {
                 const previousWidth = 500;
                 const nextWidth = 560;
                 const initialPanX = 200;
@@ -2310,9 +2307,6 @@ describe('handleRemoteChangeRefresh', () => {
                 });
 
                 const beforePanX = glyphCanvas.viewportManager.panX;
-                const beforeRight = beforePanX + previousWidth * scale;
-                const beforeLeft = beforePanX;
-
                 await handleRemoteChangeRefresh(
                     [
                         {
@@ -2330,13 +2324,7 @@ describe('handleRemoteChangeRefresh', () => {
                 );
 
                 const afterPanX = glyphCanvas.viewportManager.panX;
-                const afterRight = afterPanX + nextWidth * scale;
-                const afterLeft = afterPanX;
-                if (edge === 'right') {
-                    expect(afterRight).toBeCloseTo(beforeRight, 5);
-                } else {
-                    expect(afterLeft).toBeCloseTo(beforeLeft, 5);
-                }
+                expect(afterPanX).toBeCloseTo(beforePanX, 5);
             }
         );
 

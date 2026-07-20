@@ -129,7 +129,7 @@ describe('node encoding boundary', () => {
 });
 
 describe('upstream-truthful Y.Doc node storage', () => {
-    test('Y.Doc stores shapes as an ordered array with string nodes', () => {
+    test('Y.Doc stores shapes as an ordered array with Y.Text nodes', () => {
         const { fontMap } = setupYDoc(makeTestFont());
         const layerMap = getLayerMap(fontMap);
 
@@ -140,7 +140,10 @@ describe('upstream-truthful Y.Doc node storage', () => {
         expect(shapes).toBeInstanceOf(Y.Array);
         const shapeMap = shapes.get(0);
         expect(shapeMap).toBeInstanceOf(Y.Map);
-        expect(shapeMap.get('nodes')).toBe('100 200 l 300 300 l 500 400 l');
+        expect(shapeMap.get('nodes')).toBeInstanceOf(Y.Text);
+        expect(shapeMap.get('nodes').toString()).toBe(
+            '100 200 l 300 300 l 500 400 l'
+        );
         expect(shapeMap.get('nodesById')).toBeUndefined();
         expect(shapeMap.get('nodeOrder')).toBeUndefined();
     });
@@ -154,7 +157,8 @@ describe('upstream-truthful Y.Doc node storage', () => {
         const layerMap = getLayerMap(fontMap);
         const shapeMap = layerMap.get('shapes').get(0);
 
-        expect(shapeMap.get('nodes')).toBe('100 200 l 300 400 cs');
+        expect(shapeMap.get('nodes')).toBeInstanceOf(Y.Text);
+        expect(shapeMap.get('nodes').toString()).toBe('100 200 l 300 400 cs');
         expect(yDocToJson(fontMap).glyphs[0].layers[0].shapes[0].nodes).toBe(
             '100 200 l 300 400 cs'
         );
@@ -177,7 +181,8 @@ describe('upstream-truthful Y.Doc node storage', () => {
         );
 
         const shapeMap = getLayerMap(fontMap).get('shapes').get(0);
-        expect(shapeMap.get('nodes')).toBe('111 222 l 333 444 l');
+        expect(shapeMap.get('nodes')).toBeInstanceOf(Y.Text);
+        expect(shapeMap.get('nodes').toString()).toBe('111 222 l 333 444 l');
         expect(shapeMap.get('nodesById')).toBeUndefined();
         expect(yDocToJson(fontMap).glyphs[0].layers[0].shapes[0].nodes).toBe(
             '111 222 l 333 444 l'
@@ -193,7 +198,10 @@ describe('upstream-truthful Y.Doc node storage', () => {
         );
 
         const shapeMap = getLayerMap(fontMap).get('shapes').get(0);
-        expect(shapeMap.get('nodes')).toBe('100 200 l 333 300 l 500 400 l');
+        expect(shapeMap.get('nodes')).toBeInstanceOf(Y.Text);
+        expect(shapeMap.get('nodes').toString()).toBe(
+            '100 200 l 333 300 l 500 400 l'
+        );
 
         const runtimeFont = Font.fromData(yDocToJson(fontMap));
         const path = runtimeFont.glyphs[0].layers[0].paths[0];
@@ -222,8 +230,36 @@ describe('upstream-truthful Y.Doc node storage', () => {
         });
 
         const shapeMap = getLayerMap(fontMap).get('shapes').get(0);
-        expect(shapeMap.get('nodes')).toBe('10 20 l 30 40 l');
+        expect(shapeMap.get('nodes')).toBeInstanceOf(Y.Text);
+        expect(shapeMap.get('nodes').toString()).toBe('10 20 l 30 40 l');
         expect(shapeMap.get('nodesById')).toBeUndefined();
+    });
+
+    test('node edits produce a compact Y.Text delta and preserve string JSON', () => {
+        const nodes = Array.from(
+            { length: 500 },
+            (_, index) => `${index * 10} ${index * 20} l`
+        ).join(' ');
+        const { yDoc, fontMap } = setupYDoc(makeTestFont(nodes));
+        const targetDoc = new Y.Doc();
+        const targetMap = targetDoc.getMap('font');
+        Y.applyUpdate(targetDoc, Y.encodeStateAsUpdate(yDoc));
+        const stateVector = Y.encodeStateVector(yDoc);
+        const nextNodes = nodes.replace('2500 5000 l', '2501 5000 l');
+
+        setYPath(
+            fontMap,
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes'],
+            nextNodes
+        );
+
+        const update = Y.encodeStateAsUpdate(yDoc, stateVector);
+        Y.applyUpdate(targetDoc, update);
+
+        expect(update.byteLength).toBeLessThan(nodes.length / 10);
+        expect(yDocToJson(targetMap).glyphs[0].layers[0].shapes[0].nodes).toBe(
+            nextNodes
+        );
     });
 });
 

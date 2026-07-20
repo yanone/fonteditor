@@ -1373,7 +1373,7 @@ describe('change-bridge-ydoc', () => {
                 'shapes',
                 0,
                 'nodes'
-            ])
+            ]).toString()
         ).toBe('123 0 l');
     });
 
@@ -3021,19 +3021,32 @@ describe('Model setter change recording', () => {
                 `introspection-${spec.className}-${spec.property}`
             );
             const target = resolveModelObject(font, spec);
-            const oldValue = cloneValue(target[spec.property]);
-            const candidateValue = mutateValue(oldValue);
             const isComponentAnchorAlias =
                 spec.className === 'Component' && spec.property === 'anchor';
+            const isComponentAutomaticAlignment =
+                spec.className === 'Component' &&
+                spec.property === 'automaticAlignment';
             const isMasterRtlKerning =
                 spec.className === 'Master' && spec.property === 'kerning_rtl';
+            const oldValue = cloneValue(
+                isComponentAutomaticAlignment
+                    ? target.format_specific
+                    : target[spec.property]
+            );
+            const candidateValue = mutateValue(target[spec.property]);
             const expectedProperty = isComponentAnchorAlias
                 ? 'componentAnchor'
-                : spec.property;
+                : isComponentAutomaticAlignment
+                  ? 'format_specific'
+                  : spec.property;
 
             target[spec.property] = cloneValue(candidateValue);
 
-            const expectedValue = cloneValue(target[spec.property]);
+            const expectedValue = cloneValue(
+                isComponentAutomaticAlignment
+                    ? target.format_specific
+                    : target[spec.property]
+            );
             const expectedYPath = isComponentAnchorAlias
                 ? target
                       .getPath()
@@ -3041,7 +3054,9 @@ describe('Model setter change recording', () => {
                           'format_specific',
                           'com.schriftgestalt.Glyphs.componentAnchor'
                       ])
-                : target.getPath().concat(spec.property);
+                : isComponentAutomaticAlignment
+                  ? target.getPath().concat('format_specific')
+                  : target.getPath().concat(spec.property);
             const log = bridge.getChangeLog();
 
             // The `nodes` property records one upstream string-node update.
@@ -3550,7 +3565,7 @@ describe('Model collection mutator change recording', () => {
                 'shapes',
                 0,
                 'nodes'
-            ])
+            ]).toString()
         ).toBe('100 0 l 300 700 l 500 0 l');
         expect(
             normalizeYDocValue(
@@ -4344,79 +4359,79 @@ describe('WindowSync', () => {
         syncA.destroy();
         syncB.destroy();
         syncRx.destroy();
-
-        test('metadata-only no-op layer snapshot broadcasts replay targets to receiver worker', () => {
-            const fontJson1 = makeMinimalFont();
-            const bridge1 = new ChangeBridge('metadata-noop-sender');
-            bridge1.initFromJson(fontJson1);
-
-            const bridge2 = new ChangeBridge('metadata-noop-receiver');
-            bridge2.applyFullState(bridge1.getFullState());
-            bridge2.setFontJson(cloneValue(fontJson1));
-
-            const sync1 = new WindowSync(bridge1, 'font-channel-metadata-noop');
-            const sync2 = new WindowSync(bridge2, 'font-channel-metadata-noop');
-            const receiverWorkerUpdates = [];
-            bridge2.setYjsWorkerCallback((update, changeLogEntries) => {
-                receiverWorkerUpdates.push({ update, changeLogEntries });
-            });
-
-            const receiverLogStart = bridge2.getChangeLog().length;
-
-            bridge1.syncLayerSnapshotsFromJson(
-                [
-                    {
-                        glyphName: 'A',
-                        layerId: 'layer-1',
-                        layerJson: cloneValue(fontJson1.glyphs[0].layers[0])
-                    }
-                ],
-                'Drag point',
-                undefined,
-                undefined,
-                null,
-                [
-                    { glyphName: 'A', layerId: 'layer-1' },
-                    { glyphName: 'B', layerId: 'layer-2' }
-                ],
-                'mouse-drag-outline',
-                'mouse-drag-outline',
-                'outline'
-            );
-
-            flushTimers();
-
-            expect(receiverWorkerUpdates).toHaveLength(1);
-            expect(Array.from(receiverWorkerUpdates[0].update)).toEqual([0, 0]);
-            expect(receiverWorkerUpdates[0].changeLogEntries).toEqual([
-                expect.objectContaining({
-                    path: 'glyphs.A:layers.layer-1',
-                    workerReplayTargets: [
-                        { glyphName: 'A', layerId: 'layer-1' },
-                        { glyphName: 'B', layerId: 'layer-2' }
-                    ]
-                })
-            ]);
-            expect(bridge2.getChangeLog()).toHaveLength(receiverLogStart + 1);
-            expect(
-                getYPath(bridge2.fontMap, [
-                    'glyphs',
-                    'A',
-                    'layers',
-                    'layer-1',
-                    'width'
-                ])
-            ).toBe(600);
-
-            sync1.destroy();
-            sync2.destroy();
-            bridge1.destroy();
-            bridge2.destroy();
-        });
         bridgeA.destroy();
         bridgeB.destroy();
         receiver.destroy();
         window.fontCompilation = originalFontCompilation;
+    });
+
+    test('metadata-only no-op layer snapshot broadcasts replay targets to receiver worker', () => {
+        const fontJson1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('metadata-noop-sender');
+        bridge1.initFromJson(fontJson1);
+
+        const bridge2 = new ChangeBridge('metadata-noop-receiver');
+        bridge2.applyFullState(bridge1.getFullState());
+        bridge2.setFontJson(cloneValue(fontJson1));
+
+        const sync1 = new WindowSync(bridge1, 'font-channel-metadata-noop');
+        const sync2 = new WindowSync(bridge2, 'font-channel-metadata-noop');
+        const receiverWorkerUpdates = [];
+        bridge2.setYjsWorkerCallback((update, changeLogEntries) => {
+            receiverWorkerUpdates.push({ update, changeLogEntries });
+        });
+
+        const receiverLogStart = bridge2.getChangeLog().length;
+
+        bridge1.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: cloneValue(fontJson1.glyphs[0].layers[0])
+                }
+            ],
+            'Drag point',
+            undefined,
+            undefined,
+            null,
+            [
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'B', layerId: 'layer-2' }
+            ],
+            'mouse-drag-outline',
+            'mouse-drag-outline',
+            'outline'
+        );
+
+        flushTimers();
+
+        expect(receiverWorkerUpdates).toHaveLength(1);
+        expect(Array.from(receiverWorkerUpdates[0].update)).toEqual([0, 0]);
+        expect(receiverWorkerUpdates[0].changeLogEntries).toEqual([
+            expect.objectContaining({
+                path: 'glyphs.A:layers.layer-1',
+                workerReplayTargets: [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'B', layerId: 'layer-2' }
+                ]
+            })
+        ]);
+        expect(bridge2.getChangeLog()).toHaveLength(receiverLogStart + 1);
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
     });
 
     test('linked-window a/adieresis fuzz keeps models and worker caches converged through undo/redo', () => {
@@ -6052,7 +6067,7 @@ describe('syncGlyphFromJson', () => {
         expect(layerMap.get('shapeOrder')).toBeUndefined();
         expect(layerMap.get('anchorsById')).toBeInstanceOf(Y.Map);
         expect(layerMap.get('anchorOrder')).toBeInstanceOf(Y.Array);
-        expect(layerMap.get('shapes').get(0).get('nodes')).toBe(
+        expect(layerMap.get('shapes').get(0).get('nodes').toString()).toBe(
             '100 0 line 300 700 line 500 0 line'
         );
 

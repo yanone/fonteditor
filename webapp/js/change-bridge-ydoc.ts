@@ -198,12 +198,43 @@ export function applyLayerDelta(
         return;
     }
 
+    const normalizedLayerData = normalizeValueForYDocWrite(layerData) as Record<
+        string,
+        unknown
+    >;
+
     // Deep-merge each key
-    for (const [key, value] of Object.entries(layerData)) {
+    for (const [key, value] of Object.entries(normalizedLayerData)) {
         if (value === null || value === undefined) {
             layerMap.delete(key);
         } else if (key === 'shapes' && Array.isArray(value)) {
-            layerMap.set(key, toYType(value));
+            const shapes = layerMap.get('shapes');
+            if (isYArray(shapes)) {
+                const sharedLength = Math.min(shapes.length, value.length);
+                for (let index = 0; index < sharedLength; index++) {
+                    const existingShape = shapes.get(index);
+                    const nextShape = value[index];
+                    if (isYMap(existingShape) && isPlainObject(nextShape)) {
+                        mergeYMapContents(
+                            existingShape,
+                            nextShape as Record<string, unknown>
+                        );
+                    } else {
+                        shapes.delete(index, 1);
+                        shapes.insert(index, [toYType(nextShape)]);
+                    }
+                }
+                if (shapes.length > value.length) {
+                    shapes.delete(value.length, shapes.length - value.length);
+                } else if (value.length > sharedLength) {
+                    shapes.insert(
+                        sharedLength,
+                        value.slice(sharedLength).map(toYType)
+                    );
+                }
+            } else {
+                layerMap.set(key, toYType(value));
+            }
         } else if (
             (key === 'anchors' || key === 'guides') &&
             Array.isArray(value)
@@ -296,14 +327,25 @@ function mergeYMapContents(
     targetMap: Y.Map<unknown>,
     nextRecord: Record<string, unknown>
 ): void {
+    const normalizedRecord = normalizeValueForYDocWrite(nextRecord) as Record<
+        string,
+        unknown
+    >;
+
     // Additive merge: only update keys present in nextRecord.
     // Do NOT delete absent keys — the Y.Map may have infrastructure keys
     // (kind, *ById, *Order) that aren't in the flat JSON.
-    for (const [key, value] of Object.entries(nextRecord)) {
+    for (const [key, value] of Object.entries(normalizedRecord)) {
         const current = targetMap.get(key);
         if ((key === 'anchors' || key === 'guides') && Array.isArray(value)) {
             // Indexed-map array — use applyIndexedMapArray
             applyIndexedMapArray(targetMap, key, value);
+        } else if (
+            key === 'nodes' &&
+            current instanceof Y.Text &&
+            typeof value === 'string'
+        ) {
+            replaceYText(current, value);
         } else if (isYMap(current) && isPlainObject(value)) {
             mergeYMapContents(current, value as Record<string, unknown>);
         } else {
@@ -347,7 +389,10 @@ export function toYType(value: unknown): unknown {
         }
 
         for (const [k, v] of Object.entries(normalizedValue)) {
-            map.set(k, toYType(v));
+            map.set(
+                k,
+                k === 'nodes' && typeof v === 'string' ? toYText(v) : toYType(v)
+            );
         }
         return map;
     }
@@ -476,6 +521,9 @@ function fromYGlyphMap(glyphMap: Y.Map<unknown>): Record<string, unknown> {
  * Reverses Yjs shared types into upstream-truthful plain JSON.
  */
 export function fromYType(value: unknown): unknown {
+    if (value instanceof Y.Text) {
+        return value.toString();
+    }
     if (value instanceof Y.Map) {
         const obj: Record<string, unknown> = {};
 
@@ -506,6 +554,49 @@ export function fromYType(value: unknown): unknown {
         return arr;
     }
     return value;
+}
+
+function toYText(value: string): Y.Text {
+    const text = new Y.Text();
+    if (value.length > 0) {
+        text.insert(0, value);
+    }
+    return text;
+}
+
+function replaceYText(text: Y.Text, nextValue: string): void {
+    const currentValue = text.toString();
+    if (currentValue === nextValue) {
+        return;
+    }
+
+    let start = 0;
+    const sharedLength = Math.min(currentValue.length, nextValue.length);
+    while (
+        start < sharedLength &&
+        currentValue.charCodeAt(start) === nextValue.charCodeAt(start)
+    ) {
+        start++;
+    }
+
+    let currentEnd = currentValue.length;
+    let nextEnd = nextValue.length;
+    while (
+        currentEnd > start &&
+        nextEnd > start &&
+        currentValue.charCodeAt(currentEnd - 1) ===
+            nextValue.charCodeAt(nextEnd - 1)
+    ) {
+        currentEnd--;
+        nextEnd--;
+    }
+
+    if (currentEnd > start) {
+        text.delete(start, currentEnd - start);
+    }
+    if (nextEnd > start) {
+        text.insert(start, nextValue.slice(start, nextEnd));
+    }
 }
 
 /**
@@ -1040,7 +1131,13 @@ export function setYPath(
         const property = String(path[nodesSegmentIndex + 2]);
         const existingNodes = getYPath(root, nodesPath);
         const nodes =
-            existingNodes === undefined ? [] : parseNodeString(existingNodes);
+            existingNodes === undefined
+                ? []
+                : parseNodeString(
+                      existingNodes instanceof Y.Text
+                          ? existingNodes.toString()
+                          : existingNodes
+                  );
         while (nodes.length <= nodeIndex) {
             nodes.push({ x: 0, y: 0, nodetype: 'Line', smooth: false });
         }
@@ -1162,6 +1259,20 @@ export function setYPath(
 
     const lastSeg = path[path.length - 1];
     const lastSegStr = String(lastSeg);
+
+    if (
+        current instanceof Y.Map &&
+        lastSegStr === 'nodes' &&
+        typeof value === 'string'
+    ) {
+        const existingNodes = current.get('nodes');
+        if (existingNodes instanceof Y.Text) {
+            replaceYText(existingNodes, value);
+        } else {
+            current.set('nodes', toYText(value));
+        }
+        return;
+    }
 
     // Special case: when setting a *Order key (nodeOrder, shapeOrder,
     // anchorOrder, guideOrder) on a Y.Map that already has the order

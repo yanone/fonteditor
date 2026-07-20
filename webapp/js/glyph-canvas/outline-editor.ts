@@ -18070,9 +18070,6 @@ export class OutlineEditor {
         if (exactLayerData) {
             this.applyExactSelectedLayerData(exactLayerData, null);
             this.finalizeFetchedLayerData(glyphName, skipRender);
-            if (!this.isEditingComponent()) {
-                return;
-            }
         }
 
         try {

@@ -2085,6 +2085,9 @@ describe('Babelfont Object Model', () => {
             const layer = font.findGlyph('dieresiscomb').layers[0];
             const [firstComponent, secondComponent] = layer.components;
 
+            firstComponent.format_specific = undefined;
+            secondComponent.format_specific = undefined;
+
             firstComponent.automaticAlignment = true;
             expect(firstComponent.automaticAlignment).toBe(true);
             expect(

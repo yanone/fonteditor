@@ -2391,6 +2391,48 @@ fn refresh_non_glyph_feature_caches_from_ydoc<T: ReadTxn>(txn: &T) -> Result<(),
     Ok(())
 }
 
+fn refresh_feature_related_caches_from_ydoc<T: ReadTxn>(txn: &T) -> Result<(), JsValue> {
+    let features_json = ydoc_get_top_level_json_with_txn("features", txn);
+
+    let mut canonical_missing = false;
+    {
+        let mut canonical_lock = CANONICAL_JSON_CACHE.lock().unwrap();
+        if let Some(ref mut canonical) = *canonical_lock {
+            replace_top_level_json_entry(canonical, "features", features_json.clone());
+        } else {
+            canonical_missing = true;
+        }
+    }
+
+    if canonical_missing {
+        return refresh_non_glyph_feature_caches_from_ydoc(txn);
+    }
+
+    {
+        let mut subset_lock = SUBSET_JSON_CACHE.lock().unwrap();
+        if let Some((_, subset_epoch, subset_json)) = subset_lock.as_mut() {
+            if replace_top_level_json_entry(subset_json, "features", features_json) {
+                *subset_epoch = subset_epoch.saturating_add(1);
+            }
+        }
+    }
+
+    *FONT_CACHE.lock().unwrap() = None;
+    *SUBSET_FONT_CACHE.lock().unwrap() = None;
+    *FILTERED_FONT_CACHE.lock().unwrap() = None;
+    *FEATURE_FILE_CACHE.lock().unwrap() = None;
+    *FEATURE_FEA_STRING_CACHE.lock().unwrap() = None;
+    LAYOUT_CLOSURE_CACHE.lock().unwrap().clear();
+    *LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
+
+    FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
+    FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+    SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+    FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
+
+    Ok(())
+}
+
 // ── store_font internal helpers ──────────────────────────────────────────────
 
 /// Internal: store a babelfont `serde_json::Value` in all Rust caches.
@@ -2628,9 +2670,8 @@ pub fn apply_preview_layer_overlay(
 pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<String, JsValue> {
     // YJS_ONLY when changedGlyphs is populated: targeted per-glyph
     // patching of CANONICAL_JSON_CACHE — no full rebuild.
-    // FULLJSON_INTERNAL_RUST (C1b/U5) when changedGlyphs is empty: falls to
-    // refresh_non_glyph_feature_caches_from_ydoc which does a full Y.Doc→JSON
-    // walk. Could target-patch only changed top-level keys (features, axes).
+    // FULLJSON_INTERNAL_RUST (C1b/U5) when changedGlyphs is empty and update
+    // metadata does not identify a top-level cache patch.
     let _span = PerfSpan::start("apply_yjs_update.total");
     clear_preview_overlay_internal();
 
@@ -2713,13 +2754,8 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                 .any(|hint| hint == "kerning-groups");
 
             if refresh_feature_caches {
-                // Font-level edits such as feature-code commits do not identify
-                // changed glyphs, but they still need the worker caches to stay
-                // in sync. Refresh the top-level features data directly from the
-                // Y.Doc and invalidate derived caches without forcing a full font
-                // JSON rebuild for every feature edit.
                 let _rebuild_span = PerfSpan::start("apply_yjs_update.feature_refresh");
-                refresh_non_glyph_feature_caches_from_ydoc(&txn)?;
+                refresh_feature_related_caches_from_ydoc(&txn)?;
             } else if refresh_masters || refresh_master_kerning || refresh_kern_groups {
                 if refresh_masters {
                     let _rebuild_span = PerfSpan::start("apply_yjs_update.masters_refresh");
@@ -4591,6 +4627,68 @@ mod tests {
                 ["width"],
             json!(610)
         );
+
+        clear_font_cache();
+    }
+
+    #[test]
+    fn apply_yjs_update_feature_code_patches_cached_json_without_full_rebuild() {
+        clear_font_cache();
+
+        let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        store_font_from_value(font_json.clone()).unwrap();
+        let subset_font: babelfont::Font = serde_json::from_value(font_json).unwrap();
+        store_subset_font_cache("A", &subset_font).unwrap();
+
+        let author_doc = Doc::new();
+        let font_map = author_doc.get_or_insert_map("font");
+        let classes_map: yrs::MapRef;
+        {
+            let mut txn = author_doc.transact_mut();
+            let features_map: yrs::MapRef =
+                font_map.insert(&mut txn, "features", MapPrelim::<Any>::new());
+            classes_map = features_map.insert(&mut txn, "classes", MapPrelim::<Any>::new());
+            features_map.insert(&mut txn, "prefixes", MapPrelim::<Any>::new());
+            features_map.insert(&mut txn, "features", ArrayPrelim::from(Vec::<Any>::new()));
+        }
+
+        let initial_update = author_doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let base_state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            classes_map.insert(&mut txn, "example", "sub A by A;");
+        }
+        let incremental_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+
+        let worker_doc = Doc::new();
+        {
+            let update = yrs::Update::decode_v1(initial_update.as_slice()).unwrap();
+            let mut txn = worker_doc.transact_mut();
+            txn.apply_update(update);
+        }
+        *Y_DOC.lock().unwrap() = Some(worker_doc);
+
+        apply_yjs_update(
+            incremental_update.as_slice(),
+            r#"{ "nonGlyphChangeHints": ["feature-code"] }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            CANONICAL_JSON_CACHE.lock().unwrap().as_ref().unwrap()["features"]["classes"]
+                ["example"],
+            json!("sub A by A;")
+        );
+        assert_eq!(
+            SUBSET_JSON_CACHE.lock().unwrap().as_ref().unwrap().2["features"]["classes"]
+                ["example"],
+            json!("sub A by A;")
+        );
+        assert!(FONT_CACHE.lock().unwrap().is_none());
+        assert!(SUBSET_FONT_CACHE.lock().unwrap().is_none());
+        assert!(FEATURE_FILE_CACHE.lock().unwrap().is_none());
 
         clear_font_cache();
     }
