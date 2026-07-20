@@ -430,6 +430,8 @@ When introducing, removing, renaming, or changing emitted JavaScript events, reg
 
 When changing compilation scheduling, compile-mode selection, worker cache invalidation, subset handling, or any other editing compile behavior, update `developer-docs/COMPILATION_EDIT_POLICY.md` in the same change and follow it as the normative policy document.
 
+When introducing, removing, renaming, or changing any class, method, property, or parameter in the font object model (`babelfont-model.ts`), regenerate `API.md` using `node generate-api-docs.mjs` (from repo root) so the API reference stays current. The same command is also available as `npm run generate-api-docs` from the repo root, or together with event docs via `npm run generate-docs`.
+
 ## Useful Resources
 
 - fontc: https://github.com/googlefonts/fontc
