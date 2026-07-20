@@ -4044,18 +4044,11 @@ class GlyphCanvas {
         component: Component,
         enabled: boolean
     ): boolean {
-        const alignmentValue = enabled ? 1 : -1;
-        const currentValue =
-            component.format_specific?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
-        if (currentValue === alignmentValue) {
+        if (component.automaticAlignment === enabled) {
             return false;
         }
 
-        const formatSpecific = {
-            ...(component.format_specific || {})
-        } as Record<string, unknown>;
-        formatSpecific[GLYPHS_COMPONENT_ALIGNMENT_KEY] = alignmentValue;
-        component.format_specific = formatSpecific;
+        component.automaticAlignment = enabled;
         return true;
     }
 

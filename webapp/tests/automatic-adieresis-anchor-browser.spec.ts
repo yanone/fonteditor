@@ -1,5 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
-import { focusView, waitForCanvasReady } from './helpers/snapshot-helper';
+import {
+    focusView,
+    waitForCanvasReady,
+    waitForOpenSessionReady
+} from './helpers/snapshot-helper';
 import { rectLineNodes } from './helpers/babelfont-test-data';
 
 const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
@@ -1511,6 +1515,146 @@ function makeMultiMasterAutomaticAdieresisFont(): string {
     });
 }
 
+async function openFustatAutomaticAdieresisEditScenario(
+    page: Page
+): Promise<void> {
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+
+    await page.evaluate(async () => {
+        await (window as any).showFontFileDialog?.({ mode: 'open' });
+    });
+
+    const fileDialog = page.locator('#font-file-dialog');
+    await fileDialog.waitFor({ state: 'visible' });
+    const fustatItem = fileDialog.locator(
+        '.file-item[data-name="Fustat.glyphs"]'
+    );
+    await fustatItem.waitFor({ state: 'visible' });
+    await fustatItem.dblclick();
+
+    await waitForOpenSessionReady(page, 'Fustat.glyphs');
+    await focusView(page, 'Meta+Shift+E', 'view-editor');
+
+    await page.evaluate(async () => {
+        const win = window as any;
+        const glyphCanvas = win.glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+        const fontManager = win.fontManager;
+        const stateManager = win.stateManager;
+        if (!glyphCanvas || !textRunEditor || !outlineEditor || !fontManager) {
+            throw new Error('Missing Fustat editor dependencies');
+        }
+
+        const text = 'a/adieresis';
+        if (stateManager) {
+            stateManager.editor_text_buffer = text;
+            stateManager.editor_cursor_position = 1;
+            stateManager.editor_mode = 'edit';
+        }
+        fontManager.currentText = text;
+        fontManager.updateEditingSubsetSnapshot?.([
+            'a',
+            'adieresis',
+            'dieresiscomb'
+        ]);
+        textRunEditor.setTextBuffer(text);
+        await textRunEditor.shapeText?.(true);
+        const adieresisIndex = textRunEditor.glyphNameBuffer?.findIndex(
+            (glyphName: string) => glyphName === 'adieresis'
+        );
+        if (typeof adieresisIndex !== 'number' || adieresisIndex < 0) {
+            throw new Error(
+                `Failed to shape Fustat adieresis: ${JSON.stringify(
+                    textRunEditor.glyphNameBuffer
+                )}`
+            );
+        }
+        await textRunEditor.selectGlyphByIndex(adieresisIndex, true);
+        outlineEditor.active = true;
+        outlineEditor.currentGlyphName = 'adieresis';
+        await glyphCanvas.enterGlyphEditModeAtCursor?.();
+        const layer = glyphCanvas.getSortedLayers?.()[0] || null;
+        if (!layer) {
+            throw new Error('Missing Fustat adieresis layer');
+        }
+        await outlineEditor.selectLayer(layer);
+        await glyphCanvas.doUIUpdateAsync?.();
+        glyphCanvas.render?.();
+    });
+
+    await page.evaluate(async () => {
+        const win = window as any;
+        const bridge = win.patchSyncEngine;
+        const font = win.currentFontModel;
+        const glyph = font?.findGlyph?.('adieresis');
+        if (!bridge || !font || !glyph) {
+            throw new Error('Missing Fustat automatic-alignment dependencies');
+        }
+
+        bridge.beginTransaction('Enable Fustat automatic alignment');
+        try {
+            for (const layer of glyph.layers || []) {
+                for (const component of layer.components || []) {
+                    component.automaticAlignment = true;
+                }
+            }
+            font.recomputeMetricsKeys?.(new Set([glyph.name]));
+        } finally {
+            bridge.endTransaction();
+        }
+
+        await win.fontManager?.workerCacheUpdatePromise;
+    });
+    await page.waitForFunction(
+        () => {
+            const font = (window as any).currentFontModel;
+            const layer = font?.findGlyph?.('adieresis')?.layers?.[0];
+            return (
+                layer?.isAutomaticAlignedLayer?.() === true &&
+                layer.components?.every(
+                    (component: any) => component?.automaticAlignment === true
+                )
+            );
+        },
+        { timeout: 15000 }
+    );
+
+    await page.evaluate(async () => {
+        const win = window as any;
+        const glyphCanvas = win.glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+        if (!glyphCanvas || !textRunEditor || !outlineEditor) {
+            throw new Error('Missing Fustat anchor editor dependencies');
+        }
+
+        await textRunEditor.shapeText?.(true);
+        const aIndex = textRunEditor.glyphNameBuffer?.findIndex(
+            (glyphName: string) => glyphName === 'a'
+        );
+        if (typeof aIndex !== 'number' || aIndex < 0) {
+            throw new Error(
+                `Failed to shape Fustat a: ${JSON.stringify(
+                    textRunEditor.glyphNameBuffer
+                )}`
+            );
+        }
+        await textRunEditor.selectGlyphByIndex(aIndex, true);
+        outlineEditor.active = true;
+        outlineEditor.currentGlyphName = 'a';
+        await glyphCanvas.enterGlyphEditModeAtCursor?.();
+        const layer = glyphCanvas.getSortedLayers?.()[0] || null;
+        if (!layer) {
+            throw new Error('Missing Fustat a layer');
+        }
+        await outlineEditor.selectLayer(layer);
+        await glyphCanvas.doUIUpdateAsync?.();
+        glyphCanvas.render?.();
+    });
+}
+
 test.describe('automatic adieresis anchor browser commit', () => {
     test('browser font/model state follows the committed adieresis layer after dragging a.top', async ({
         page
@@ -1767,5 +1911,67 @@ test.describe('automatic adieresis anchor browser commit', () => {
             beforeRenderedAdieresisBounds,
             afterRenderedAdieresisBounds
         );
+    });
+
+    test('Fustat model automatic alignment compiles a.top changes', async ({
+        page
+    }) => {
+        test.slow();
+        test.setTimeout(300000);
+
+        await openFustatAutomaticAdieresisEditScenario(page);
+        await installEditingFontCompileTracker(page);
+
+        const beforeState = await getAdieresisCommitState(page);
+        const compileTrackerBeforeDrag =
+            await getEditingFontCompileTracker(page);
+        expect(beforeState.bridgeTranslation).not.toBeNull();
+        expect(beforeState.modelTranslation).toEqual(
+            beforeState.bridgeTranslation
+        );
+        expect(beforeState.workerYDocTranslation).toEqual(
+            beforeState.bridgeTranslation
+        );
+        expect(beforeState.workerCanonicalTranslation).toEqual(
+            beforeState.bridgeTranslation
+        );
+
+        await commitTopAnchorMoveThroughEditor(page, -40);
+        const committedCompileRequestVersion =
+            await getCurrentCompileRequestVersion(page);
+        await waitForEditingFontCompileRevision(
+            page,
+            committedCompileRequestVersion
+        );
+        const compileTrackerAfterDrag =
+            await getEditingFontCompileTracker(page);
+        expect(compileTrackerAfterDrag.count).toBeGreaterThan(
+            compileTrackerBeforeDrag.count
+        );
+
+        const afterState = await getAdieresisCommitState(page);
+        expect(afterState.sourceTopAnchor?.y).not.toEqual(
+            beforeState.sourceTopAnchor?.y
+        );
+        expect(afterState.bridgeTranslation).not.toEqual(
+            beforeState.bridgeTranslation
+        );
+        expect(afterState.modelTranslation).toEqual(
+            afterState.bridgeTranslation
+        );
+        expect(afterState.storedTranslation).toEqual(
+            afterState.bridgeTranslation
+        );
+        expect(afterState.workerYDocTranslation).toEqual(
+            afterState.bridgeTranslation
+        );
+        expect(afterState.workerCanonicalTranslation).toEqual(
+            afterState.bridgeTranslation
+        );
+        if (afterState.workerSubsetTranslation !== null) {
+            expect(afterState.workerSubsetTranslation).toEqual(
+                afterState.bridgeTranslation
+            );
+        }
     });
 });

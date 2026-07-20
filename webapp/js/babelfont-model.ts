@@ -5033,6 +5033,29 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     /**
+     * Whether this component explicitly opts into Glyphs automatic alignment.
+     * Unlike isAutomaticAligned(), this is per-component metadata and does not
+     * depend on the rest of its containing layer.
+     */
+    get automaticAlignment(): boolean {
+        return hasExplicitAutomaticComponentAlignment(this);
+    }
+
+    set automaticAlignment(value: boolean) {
+        const nextValue = value ? 1 : -1;
+        if (
+            this.format_specific?.[GLYPHS_COMPONENT_ALIGNMENT_KEY] === nextValue
+        ) {
+            return;
+        }
+        this.format_specific = {
+            ...(this.format_specific || {}),
+            [GLYPHS_COMPONENT_ALIGNMENT_KEY]: nextValue
+        };
+        getLayerForSelectableObject(this)?.invalidateLayoutCache();
+    }
+
+    /**
      * Returns whether this component itself carries Glyphs' explicit manual
      * alignment metadata, independent of the layer's effective state.
      */

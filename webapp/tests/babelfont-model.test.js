@@ -2081,6 +2081,33 @@ describe('Babelfont Object Model', () => {
             expect(secondComponent.isAutomaticAligned()).toBe(false);
         });
 
+        test('Component.automaticAlignment persists explicit numeric Glyphs alignment', () => {
+            const layer = font.findGlyph('dieresiscomb').layers[0];
+            const [firstComponent, secondComponent] = layer.components;
+
+            firstComponent.automaticAlignment = true;
+            expect(firstComponent.automaticAlignment).toBe(true);
+            expect(
+                firstComponent.format_specific[
+                    'com.schriftgestalt.Glyphs.alignment'
+                ]
+            ).toBe(1);
+            expect(layer.isAutomaticAlignedLayer()).toBe(false);
+
+            secondComponent.automaticAlignment = true;
+            expect(secondComponent.automaticAlignment).toBe(true);
+            expect(layer.isAutomaticAlignedLayer()).toBe(true);
+
+            firstComponent.automaticAlignment = false;
+            expect(firstComponent.automaticAlignment).toBe(false);
+            expect(
+                firstComponent.format_specific[
+                    'com.schriftgestalt.Glyphs.alignment'
+                ]
+            ).toBe(-1);
+            expect(layer.isAutomaticAlignedLayer()).toBe(false);
+        });
+
         test('changing l rsb recomputes dependent glyph metrics', () => {
             const glyphL = metricsKeysFont.findGlyph('l');
             const glyphN = metricsKeysFont.findGlyph('n');
