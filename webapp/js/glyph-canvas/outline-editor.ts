@@ -3016,7 +3016,7 @@ export class OutlineEditor {
     currentGlyphName: string | null = null;
     glyphCanvas: GlyphCanvas;
     guidelinesVisible: boolean;
-    pairedLayerVisible: boolean = false;
+    pairedLayerVisible: boolean;
 
     selectedAnchors: number[] = [];
     selectedPoints: Point[] = [];
@@ -3084,6 +3084,8 @@ export class OutlineEditor {
     private strokeAwareScalingPreference: boolean = false;
 
     private readonly GUIDELINES_STORAGE_KEY = 'outlineEditorGuidelinesVisible';
+    private readonly PAIRED_LAYER_VISIBILITY_STORAGE_KEY =
+        'outlineEditorPairedLayerVisible';
 
     private readonly CANVAS_CONTEXT_MENU_BACKDROP_CLASS =
         'canvas-context-menu-backdrop';
@@ -3091,6 +3093,7 @@ export class OutlineEditor {
     constructor(glyphCanvas: GlyphCanvas) {
         this.glyphCanvas = glyphCanvas;
         this.guidelinesVisible = this.loadGuidelinesVisible();
+        this.pairedLayerVisible = this.loadPairedLayerVisible();
     }
 
     getLayerLinkGlyphName(glyphName: string | null = null): string | null {
@@ -3286,6 +3289,18 @@ export class OutlineEditor {
         }
     }
 
+    private loadPairedLayerVisible(): boolean {
+        try {
+            return (
+                localStorage.getItem(
+                    this.PAIRED_LAYER_VISIBILITY_STORAGE_KEY
+                ) === 'true'
+            );
+        } catch (_error) {
+            return false;
+        }
+    }
+
     setGuidelinesVisible(visible: boolean): void {
         this.guidelinesVisible = visible;
 
@@ -3474,6 +3489,14 @@ export class OutlineEditor {
 
     setPairedLayerVisible(visible: boolean): void {
         this.pairedLayerVisible = visible;
+        try {
+            localStorage.setItem(
+                this.PAIRED_LAYER_VISIBILITY_STORAGE_KEY,
+                visible ? 'true' : 'false'
+            );
+        } catch (_error) {
+            // Ignore localStorage access failures.
+        }
         window.dispatchEvent(
             new CustomEvent('outlinePairedLayerVisibilityChanged', {
                 detail: { visible }

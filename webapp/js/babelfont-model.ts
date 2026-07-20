@@ -7852,7 +7852,14 @@ export class Layer extends ArrayElementBase {
             this.data.shapes.push(shape);
             this._shapeWrappers = null; // Invalidate cache
             const index = this.data.shapes.length - 1;
-            recordAddAndMarkDirty([...this.getPath(), 'shapes', index], shape);
+            const { id: _id, ...storedShape } = shape as unknown as Record<
+                string,
+                unknown
+            >;
+            recordAddAndMarkDirty(
+                [...this.getPath(), 'shapes', index],
+                storedShape
+            );
             return new Shape(this.data.shapes, index, this);
         });
     }
@@ -9714,7 +9721,11 @@ export class Glyph extends ArrayElementBase {
             return existing;
         }
 
-        const background = this.addLayer(foreground.width);
+        const background = this.addLayer(
+            foreground.width,
+            cloneForHistory(foreground.master)
+        );
+        background.location = cloneForHistory(foreground.location);
         background.is_background = true;
         background.background_layer_id = foreground.id;
         foreground.background_layer_id = background.id;

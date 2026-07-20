@@ -3337,7 +3337,8 @@ class FontManager {
 
     /**
      * Validate canonical babelfont JSON before Rust compilation.
-     * Rejects wrapped shapes, non-array path nodes, and object-for-array drift.
+     * Rejects wrapped shapes, invalid path node values, and object-for-array drift.
+     * Canonical resting node strings and runtime node arrays both pass through unchanged.
      * Returns the validated JSON string unchanged.
      */
     private validateBabelfontJsonForRust(
@@ -3605,9 +3606,12 @@ class FontManager {
                 }
 
                 if ('nodes' in val) {
-                    if (!Array.isArray(val.nodes)) {
+                    if (
+                        !Array.isArray(val.nodes) &&
+                        typeof val.nodes !== 'string'
+                    ) {
                         throw new TypeError(
-                            `Path shape nodes must be an array before compile validation at ${path || 'root'}.`
+                            `Path shape nodes must be an array or upstream string before compile validation at ${path || 'root'}.`
                         );
                     }
                     if (!('closed' in val)) {

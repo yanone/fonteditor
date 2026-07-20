@@ -937,6 +937,8 @@ describe('Babelfont Object Model', () => {
             expect(background.id).not.toBe(virtualBackgroundId);
             expect(foreground.background_layer_id).toBe(background.id);
             expect(background.background_layer_id).toBe(foreground.id);
+            expect(background.master).toEqual(foreground.master);
+            expect(background.location).toEqual(foreground.location);
             expect(background.paths).toHaveLength(1);
             expect(() => background.addComponent('A')).toThrow(
                 'Background layers cannot contain components'

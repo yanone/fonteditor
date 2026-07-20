@@ -4864,7 +4864,42 @@ export class PatchSyncEngine {
     }
 
     private _encodeNodeArraysForStorage(value: unknown): unknown {
-        return encodeNodeArraysForStorage(cloneHistoryValue(value));
+        const stripShapeIds = (
+            candidate: unknown,
+            isShapeEntry = false
+        ): unknown => {
+            if (Array.isArray(candidate)) {
+                return candidate.map((item) =>
+                    stripShapeIds(item, isShapeEntry)
+                );
+            }
+            if (!candidate || typeof candidate !== 'object') {
+                return candidate;
+            }
+
+            const record = candidate as Record<string, unknown>;
+            const isPathOrComponent =
+                isShapeEntry &&
+                (Object.prototype.hasOwnProperty.call(record, 'nodes') ||
+                    Object.prototype.hasOwnProperty.call(record, 'reference'));
+            const storageRecord = isPathOrComponent
+                ? (() => {
+                      const { id: _id, ...shapeWithoutId } = record;
+                      return shapeWithoutId;
+                  })()
+                : { ...record };
+
+            return Object.fromEntries(
+                Object.entries(storageRecord).map(([key, item]) => [
+                    key,
+                    stripShapeIds(item, key === 'shapes')
+                ])
+            );
+        };
+
+        return stripShapeIds(
+            encodeNodeArraysForStorage(cloneHistoryValue(value))
+        );
     }
 
     private _decodeNodeStringsForRuntime(value: unknown): unknown {

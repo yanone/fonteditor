@@ -370,9 +370,21 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
     });
 
     test('drawOutlineEditor renders a paired ghost from serialized path nodes', () => {
-        canvas.outlineEditor.setPairedLayerVisible(true);
-        jest.spyOn(canvas.outlineEditor, 'getPairedLayerModel').mockReturnValue(
+        canvas.outlineEditor.layerData.shapes = [
             {
+                nodes: [
+                    { x: 200, y: 0, nodetype: 'Line' },
+                    { x: 300, y: 0, nodetype: 'Line' },
+                    { x: 300, y: 700, nodetype: 'Line' },
+                    { x: 200, y: 700, nodetype: 'Line' }
+                ],
+                closed: true
+            }
+        ];
+        canvas.outlineEditor.setPairedLayerVisible(true);
+        const getPairedLayerModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getPairedLayerModel')
+            .mockReturnValue({
                 toJSON: () => ({
                     shapes: [
                         {
@@ -381,17 +393,46 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
                         }
                     ]
                 })
-            }
-        );
+            });
         canvas.renderer.ctx.moveTo.mockClear();
         canvas.renderer.ctx.lineTo.mockClear();
         canvas.renderer.ctx.stroke.mockClear();
+        const buildPathSpy = jest.spyOn(canvas.renderer, 'buildPathFromNodes');
+        const drawPairedLayerGhostSpy = jest.spyOn(
+            canvas.renderer,
+            'drawPairedLayerGhost'
+        );
 
         canvas.renderer.drawOutlineEditor();
 
+        expect(drawPairedLayerGhostSpy).toHaveBeenCalled();
+        expect(getPairedLayerModelSpy).toHaveBeenCalled();
         expect(canvas.renderer.ctx.moveTo).toHaveBeenCalledWith(100, 0);
         expect(canvas.renderer.ctx.lineTo).toHaveBeenCalledWith(400, 0);
         expect(canvas.renderer.ctx.stroke).toHaveBeenCalled();
+        const activePathIndex = buildPathSpy.mock.calls.findIndex(
+            ([nodes]) => nodes[0]?.x === 200
+        );
+        const pairedGhostPathIndex = buildPathSpy.mock.calls.findIndex(
+            ([nodes]) => nodes[0]?.x === 100
+        );
+        expect(pairedGhostPathIndex).toBeGreaterThan(activePathIndex);
+    });
+
+    test('persists paired layer visibility across canvas instances', () => {
+        const storageKey = 'outlineEditorPairedLayerVisible';
+        localStorage.removeItem(storageKey);
+
+        canvas.outlineEditor.setPairedLayerVisible(true);
+
+        expect(localStorage.getItem(storageKey)).toBe('true');
+
+        canvas.destroy();
+        canvas = new GlyphCanvas('test-container');
+
+        expect(canvas.outlineEditor.isPairedLayerVisible()).toBe(true);
+
+        localStorage.removeItem(storageKey);
     });
 
     test('anchor-only selection resize does not save during active drag', () => {

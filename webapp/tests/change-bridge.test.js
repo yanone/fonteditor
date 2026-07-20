@@ -817,14 +817,14 @@ const COLLECTION_MUTATOR_TESTS = {
         invoke: (layer) => layer.addPath(false),
         expectedOp: 'add',
         expectedPathFragment: (layer, logEntry) =>
-            `${joinPathWithGlyphSeparator(layer.getPath())}shapes.${findCollectionEntryIndex(layer.data.shapes, logEntry.newValue)}`
+            `${joinPathWithGlyphSeparator(layer.getPath())}shapes.${layer.data.shapes.length - 1}`
     },
     'Layer.addComponent': {
         isApplicable: (layer) => layer.id === 'layer-1',
         invoke: (layer) => layer.addComponent('B'),
         expectedOp: 'add',
         expectedPathFragment: (layer, logEntry) =>
-            `${joinPathWithGlyphSeparator(layer.getPath())}shapes.${findCollectionEntryIndex(layer.data.shapes, logEntry.newValue)}`
+            `${joinPathWithGlyphSeparator(layer.getPath())}shapes.${layer.data.shapes.length - 1}`
     },
     'Layer.removeShape': {
         isApplicable: (layer) =>
@@ -3014,19 +3014,122 @@ describe('Model setter change recording', () => {
         const foreground = glyph.findLayerById('layer-1');
         const background = foreground.backgroundLayer;
 
-        background.addPath();
+        const backgroundPath = background.addPath();
+        backgroundPath.appendNode(100, 200);
 
         const materialized = glyph.findLayerById(
             foreground.background_layer_id
         );
         expect(materialized).toBeDefined();
         expect(materialized.paths).toHaveLength(1);
+        const bridgeBackground = bridge
+            .getFontJsonSnapshot()
+            .glyphs.find((candidate) => candidate.name === 'A')
+            .layers.find((layer) => layer.id === materialized.id);
+        expect(bridgeBackground.master).toEqual(foreground.master);
+        expect(bridgeBackground.location).toEqual(foreground.location);
+        const rawBridgeBackground = fromYType(
+            getYPath(bridge.yDoc.getMap('font'), [
+                'glyphs',
+                'A',
+                'layers',
+                materialized.id
+            ])
+        );
+        expect(rawBridgeBackground.shapes[0]).toEqual({
+            nodes: '100 200 l',
+            closed: true
+        });
         expect(bridge.getChangeLog().map((entry) => entry.path)).toEqual(
             expect.arrayContaining([
                 expect.stringContaining(':is_background'),
                 expect.stringContaining(':background_layer_id'),
                 expect.stringContaining(':shapes.0')
             ])
+        );
+    });
+
+    test('structural glyph sync omits generated path IDs from Y.Doc storage', () => {
+        const { bridge, fontJson } = createTestBridge('structural-path');
+        const receiverFontJson = cloneValue(fontJson);
+        const receiverBridge = new ChangeBridge('structural-path-receiver');
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(bridge.getFullState());
+        let update;
+        let changeLogEntries;
+        bridge.onLocalUpdate((nextUpdate, _message, entries) => {
+            update = nextUpdate;
+            changeLogEntries = entries;
+        });
+        const glyph = fontJson.glyphs.find(
+            (candidate) => candidate.name === 'A'
+        );
+        const layer = glyph.layers.find(
+            (candidate) => candidate.id === 'layer-1'
+        );
+        layer.shapes = [
+            {
+                id: 'editor-only-path-id',
+                nodes: [{ x: 100, y: 200, nodetype: 'Line' }],
+                closed: false
+            }
+        ];
+
+        bridge.syncGlyphFromJson('A', 'Draw path');
+
+        const rawLayer = fromYType(
+            getYPath(bridge.yDoc.getMap('font'), [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1'
+            ])
+        );
+        expect(rawLayer.shapes).toEqual([
+            { nodes: '100 200 l', closed: false }
+        ]);
+
+        receiverBridge.applyRemoteUpdate(update, changeLogEntries);
+        expect(
+            receiverFontJson.glyphs
+                .find((candidate) => candidate.name === 'A')
+                .layers.find((candidate) => candidate.id === 'layer-1').shapes
+        ).toEqual([
+            {
+                nodes: [{ x: 100, y: 200, nodetype: 'Line', smooth: false }],
+                closed: false
+            }
+        ]);
+
+        receiverBridge.destroy();
+    });
+
+    test('structural background command-path sync stores a valid sibling shape', () => {
+        const { bridge, font } = createTestBridge('structural-background-path');
+        const glyph = font.findGlyph('A');
+        const foreground = glyph.findLayerById('layer-1');
+        const background = foreground.backgroundLayer;
+
+        withSuppressedModelRecording(() => {
+            const path = background.addPath(false);
+            path._appendLine({ x: 100, y: 200 });
+        });
+
+        bridge.syncGlyphFromJson('A', 'Draw path');
+
+        const rawBackground = fromYType(
+            getYPath(bridge.yDoc.getMap('font'), [
+                'glyphs',
+                'A',
+                'layers',
+                background.id
+            ])
+        );
+        expect(rawBackground).toEqual(
+            expect.objectContaining({
+                is_background: true,
+                shapes: [{ nodes: '100 200 m', closed: false }]
+            })
         );
     });
 

@@ -719,6 +719,35 @@ fn apply_sparse_layer_json_to_cached_layer(
     Ok(())
 }
 
+fn normalize_inserted_layer_for_native_cache(
+    layer_json: &serde_json::Value,
+    glyph_name: &str,
+    layer_id: &str,
+) -> Result<serde_json::Value, String> {
+    let mut native_layer_json = layer_json.clone();
+    if let Some(shapes) = native_layer_json
+        .get_mut("shapes")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for (shape_index, shape) in shapes.iter_mut().enumerate() {
+            let serde_json::Value::Object(shape_obj) = shape else {
+                continue;
+            };
+            let Some(nodes) = shape_obj.get("nodes").and_then(|nodes| nodes.as_str()) else {
+                continue;
+            };
+            let decoded_nodes = decode_node_string_for_native_cache(nodes).map_err(|e| {
+                format!(
+                    "Invalid resting path node string for {}::{} shape {}: {}",
+                    glyph_name, layer_id, shape_index, e
+                )
+            })?;
+            shape_obj.insert("nodes".to_string(), decoded_nodes);
+        }
+    }
+    Ok(native_layer_json)
+}
+
 fn replace_glyph_in_font_cache(
     font: &mut babelfont::Font,
     glyph_name: &str,
@@ -786,8 +815,11 @@ fn replace_layer_in_font_cache(
                     layer_json,
                 )?;
             } else {
+                let native_layer_json =
+                    normalize_inserted_layer_for_native_cache(layer_json, glyph_name, layer_id)
+                        .map_err(|e| JsValue::from_str(&e))?;
                 let layer: babelfont::Layer =
-                    serde_json::from_value(layer_json.clone()).map_err(|e| {
+                    serde_json::from_value(native_layer_json).map_err(|e| {
                         JsValue::from_str(&format!(
                             "Layer deserialization error for {}::{}: {}",
                             glyph_name, layer_id, e
@@ -966,11 +998,18 @@ fn subset_font_using_cached_fea(
     Ok(())
 }
 
+fn remove_background_layers_for_generation(font: &mut babelfont::Font) {
+    for glyph in font.glyphs.iter_mut() {
+        glyph.layers.retain(|layer| !layer.is_background);
+    }
+}
+
 fn apply_filter_pipeline(
     font: &babelfont::Font,
     options: &CompilationOptions,
 ) -> Result<babelfont::Font, JsValue> {
     let mut filtered = font.clone();
+    remove_background_layers_for_generation(&mut filtered);
 
     if options.drop_incompatible_paths {
         DropIncompatiblePaths
@@ -1697,6 +1736,7 @@ pub fn compile_babelfont(babelfont_json: &str, options: &JsValue) -> Result<Vec<
     let _parse_span = PerfSpan::start("compile_babelfont.parse_json");
     let mut font: babelfont::Font = serde_json::from_str(babelfont_json)
         .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+    remove_background_layers_for_generation(&mut font);
     drop(_parse_span);
 
     // Handle subset_glyphs option if present
@@ -3174,8 +3214,14 @@ pub fn interpolate_glyph(
     location_json: &str,
     extrapolate: bool,
 ) -> Result<String, JsValue> {
-    let font = get_or_rebuild_font_cache()?;
-    glyph_outlines::interpolate_glyph_json_cached(&font, glyph_name, location_json, extrapolate)
+    let mut interpolation_font = get_or_rebuild_font_cache()?;
+    remove_background_layers_for_generation(&mut interpolation_font);
+    glyph_outlines::interpolate_glyph_json_cached(
+        &interpolation_font,
+        glyph_name,
+        location_json,
+        extrapolate,
+    )
 }
 
 /// Get outlines for multiple glyphs with optional component flattening
@@ -3195,10 +3241,16 @@ pub fn get_glyphs_outlines(
     location_json: &str,
     flatten_components: bool,
 ) -> Result<String, JsValue> {
-    let font = get_or_rebuild_font_cache()?;
+    let mut interpolation_font = get_or_rebuild_font_cache()?;
+    remove_background_layers_for_generation(&mut interpolation_font);
     let glyph_names: Vec<String> = serde_json::from_str(glyph_names_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse glyph names: {}", e)))?;
-    glyph_outlines::get_glyphs_outlines(&font, &glyph_names, location_json, flatten_components)
+    glyph_outlines::get_glyphs_outlines(
+        &interpolation_font,
+        &glyph_names,
+        location_json,
+        flatten_components,
+    )
 }
 
 #[derive(serde::Deserialize)]
@@ -3980,6 +4032,7 @@ pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
 
     let _cache_read_span = PerfSpan::start("compile_cached_font.cache_read");
     let mut font_clone = get_or_rebuild_font_cache()?;
+    remove_background_layers_for_generation(&mut font_clone);
     drop(_cache_read_span);
 
     // Handle subset_glyphs option if present
@@ -4120,6 +4173,67 @@ mod tests {
             layout_closure_cache_key("17", "alef\u{1f}beh"),
             "17::alef\u{1f}beh"
         );
+    }
+
+    #[test]
+    fn background_layers_are_excluded_from_generation() {
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        let mut background_layer = font_json["glyphs"][0]["layers"][0].clone();
+        background_layer["id"] = json!("background-layer-1");
+        background_layer["is_background"] = json!(true);
+        background_layer["background_layer_id"] = json!("layer-1");
+        background_layer["shapes"] = json!([
+            {
+                "nodes": [
+                    { "x": 10, "y": 20, "nodetype": "Move" },
+                    { "x": 30, "y": 20, "nodetype": "Line" }
+                ],
+                "closed": false
+            }
+        ]);
+        font_json["glyphs"][0]["layers"]
+            .as_array_mut()
+            .unwrap()
+            .push(background_layer);
+
+        let font: babelfont::Font = serde_json::from_value(font_json).unwrap();
+        let options = CompilationOptions {
+            skip_kerning: false,
+            skip_features: false,
+            skip_metrics: false,
+            skip_outlines: false,
+            dont_use_production_names: true,
+            drop_incompatible_paths: false,
+            produce_varc_table: false,
+            debug_feature_file: None,
+        };
+
+        let mut compilation_font = font.clone();
+        remove_background_layers_for_generation(&mut compilation_font);
+        let filtered_font = apply_filter_pipeline(&font, &options)
+            .expect("shared compiler filter should remove background layers");
+
+        assert_eq!(font.glyphs[0].layers.len(), 2);
+        assert_eq!(compilation_font.glyphs[0].layers.len(), 1);
+        assert_eq!(filtered_font.glyphs[0].layers.len(), 1);
+        assert!(!compilation_font.glyphs[0].layers[0].is_background);
+        assert!(!filtered_font.glyphs[0].layers[0].is_background);
+        compile_with_feature_debug_context(
+            &filtered_font,
+            &options,
+            "background_layers_are_excluded_from_generation",
+        )
+        .expect("foreground-only compiler view should compile");
+
+        glyph_outlines::clear_outline_cache();
+        glyph_outlines::interpolate_glyph_json_cached(
+            &compilation_font,
+            "A",
+            r#"{ "wght": 400 }"#,
+            false,
+        )
+        .expect("foreground-only interpolation view should ignore background path structure");
+        glyph_outlines::clear_outline_cache();
     }
 
     #[test]
@@ -4939,6 +5053,70 @@ mod tests {
         );
 
         clear_font_cache();
+    }
+
+    #[test]
+    fn replace_layer_in_font_cache_decodes_string_nodes_for_inserted_layers() {
+        let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        let mut font: babelfont::Font = serde_json::from_value(font_json.clone()).unwrap();
+        let mut foreground_layer = font_json["glyphs"][0]["layers"][0].clone();
+        foreground_layer["id"] = json!("foreground-layer-2");
+        foreground_layer["shapes"] = json!([
+            {
+                "nodes": "10 20 m 30 20 l",
+                "closed": false
+            }
+        ]);
+        let mut background_layer = foreground_layer.clone();
+        background_layer["id"] = json!("background-layer-1");
+        background_layer["is_background"] = json!(true);
+        background_layer["background_layer_id"] = json!("layer-1");
+
+        assert!(replace_layer_in_font_cache(
+            &mut font,
+            "A",
+            "foreground-layer-2",
+            Some(&foreground_layer),
+        )
+        .unwrap());
+        assert!(replace_layer_in_font_cache(
+            &mut font,
+            "A",
+            "background-layer-1",
+            Some(&background_layer),
+        )
+        .unwrap());
+
+        for layer_id in ["foreground-layer-2", "background-layer-1"] {
+            let layer = font
+                .glyphs
+                .first()
+                .unwrap()
+                .layers
+                .iter()
+                .find(|layer| layer.id.as_deref() == Some(layer_id))
+                .unwrap();
+            assert_eq!(layer.shapes.len(), 1);
+            let babelfont::Shape::Path(path) = &layer.shapes[0] else {
+                panic!("expected inserted shape to be a path");
+            };
+            assert_eq!(path.nodes.len(), 2);
+            assert_eq!(path.nodes[0].x, 10.0);
+            assert_eq!(path.nodes[0].y, 20.0);
+        }
+    }
+
+    #[test]
+    fn replace_layer_in_font_cache_reports_malformed_inserted_node_strings() {
+        let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        let mut layer = font_json["glyphs"][0]["layers"][0].clone();
+        layer["id"] = json!("malformed-layer");
+        layer["shapes"] = json!([{ "nodes": "10 20", "closed": false }]);
+
+        let error = normalize_inserted_layer_for_native_cache(&layer, "A", "malformed-layer")
+            .unwrap_err();
+
+        assert!(error.contains("Invalid resting path node string for A::malformed-layer shape 0"));
     }
 
     #[test]

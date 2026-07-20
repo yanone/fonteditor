@@ -563,6 +563,20 @@ export interface InitOutput {
         a: any
     ) => [number, number];
     readonly version: () => [number, number];
+    readonly add_master_with_interpolated_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
+    readonly reinterpolate_layer_yjs: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number];
+    readonly reinterpolate_master_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
     readonly get_font_axes: (
         a: number,
         b: number
@@ -588,20 +602,6 @@ export interface InitOutput {
         a: number,
         b: number
     ) => [number, number, number, number];
-    readonly add_master_with_interpolated_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
-    readonly reinterpolate_layer_yjs: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number];
-    readonly reinterpolate_master_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (
         a: number,

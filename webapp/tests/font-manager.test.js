@@ -1230,6 +1230,22 @@ describe('FontManager editing subset inclusion', () => {
         });
     });
 
+    test('validateBabelfontJsonForRust preserves canonical path node strings', () => {
+        const fontData = cloneJson(fontManager.currentFont.babelfontData);
+        fontData.glyphs[0].layers[0].shapes = [
+            { nodes: '100 200 m', closed: false }
+        ];
+
+        const validatedJson = fontManager['validateBabelfontJsonForRust'](
+            JSON.stringify(fontData),
+            true
+        );
+
+        expect(JSON.parse(validatedJson).glyphs[0].layers[0].shapes[0]).toEqual(
+            { nodes: '100 200 m', closed: false }
+        );
+    });
+
     test('validateBabelfontJsonForRust rejects missing layer widths instead of synthesizing zero', () => {
         const fontData = cloneJson(fontManager.currentFont.babelfontData);
         delete fontData.glyphs[0].layers[0].width;
