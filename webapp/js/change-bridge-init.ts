@@ -2734,8 +2734,6 @@ function initializeBridge(detail: {
     // YJS_ONLY: Binary Yjs update forwarded to worker — no full JSON
     // crossing. changedGlyphs hint enables targeted Rust-side cache patching.
     bridge.setYjsWorkerCallback((update, changeLogEntries) => {
-        if (!fontCompilation?.isInitialized) return;
-
         // Extract affected glyph names from the change-log entries so Rust can
         // perform a targeted partial update instead of a full JSON rebuild.
         // ChangeLogEntry.path uses dot-delimited format: "glyphs.A.layers.uuid.shapes.0.nodes"
@@ -2781,18 +2779,12 @@ function initializeBridge(detail: {
 
     // Seed the Rust Y.Doc immediately after bridge initialisation so that the
     // YJS_ONLY: Binary Yjs state sent to worker for seedYdoc (N3).
-    if (
-        !window.windowRole?.isLinkedWindow?.() &&
-        fontCompilation?.isInitialized
-    ) {
-        // Use the bridge state (array-format nodes) — Rust now accepts arrays
-        // natively via the updated serde deserialization.
-        const fontManager = window.fontManager as
-            | (typeof window.fontManager & {
-                  buildWorkerSeedYjsState?: () => Uint8Array | null;
-              })
-            | undefined;
-        const state = fontManager?.buildWorkerSeedYjsState?.();
+    if (!window.windowRole?.isLinkedWindow?.()) {
+        const fontManager = window.fontManager;
+        // The worker must inherit this exact CRDT graph. A fresh Y.Doc rebuilt
+        // from the same JSON has different item identities, so later bridge
+        // deltas can remain pending or fail to update nested arrays.
+        const state = bridge.encodeBridgeState();
         if (!state?.length) {
             console.warn(
                 'Failed to build worker seed Yjs state for initial worker seed'
@@ -2801,10 +2793,9 @@ function initializeBridge(detail: {
         } else {
             fontManager?.replaceWorkerYjsMirrorFromState?.(state);
             void fontCompilation
-                .sendMessage({
-                    type: 'seedYdoc',
-                    state
-                })
+                .trackWorkerDocumentSync(
+                    fontCompilation.seedWorkerYDocFromState(state)
+                )
                 .catch((error) => {
                     console.warn(
                         'Failed to seed worker Y.Doc after bridge init',

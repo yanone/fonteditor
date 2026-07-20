@@ -2483,6 +2483,36 @@ describe('bridge Yjs worker callback', () => {
         expect(updateButtonState).toHaveBeenCalledTimes(1);
     });
 
+    test('seeds the worker from the authoritative bridge Y.Doc', async () => {
+        const replaceWorkerYjsMirrorFromState = jest.fn();
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'seedWorkerYDocFromState')
+            .mockResolvedValue();
+        const trackWorkerDocumentSyncSpy = jest.spyOn(
+            fontCompilation,
+            'trackWorkerDocumentSync'
+        );
+
+        fontCompilation.isInitialized = false;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = { replaceWorkerYjsMirrorFromState };
+
+        const bridge = initializeBridgeHarness();
+        await Promise.resolve();
+
+        const [seedState] = workerSeedSpy.mock.calls[0];
+        expect(seedState).toEqual(expect.any(Uint8Array));
+        expect(Array.from(seedState)).toEqual(
+            Array.from(bridge.encodeBridgeState())
+        );
+        expect(replaceWorkerYjsMirrorFromState).toHaveBeenCalledWith(seedState);
+        expect(trackWorkerDocumentSyncSpy).toHaveBeenCalledWith(
+            expect.any(Promise)
+        );
+    });
+
     test('forwards feature-code Yjs updates to Rust with empty glyph metadata', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
         const workerSeedSpy = jest

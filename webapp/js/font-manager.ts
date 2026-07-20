@@ -4402,6 +4402,17 @@ class FontManager {
         layerTargets: WorkerReplayTarget[] = []
     ): Promise<boolean> {
         const runSend = async (): Promise<boolean> => {
+            if (!fontCompilation) {
+                return false;
+            }
+
+            // Bridge initialization starts the authoritative worker seed
+            // asynchronously. A commit can arrive while that seed is in
+            // flight; queue its incremental delta behind the seed rather than
+            // dropping it before Rust has a compatible Y.Doc. This promise is
+            // already settled for the steady-state hot path.
+            await fontCompilation.awaitWorkerDocumentSync();
+
             if (!fontCompilation?.isInitialized) {
                 return false;
             }

@@ -4031,6 +4031,57 @@ describe('FontManager boundary-crossing budget', () => {
         );
     });
 
+    test('queues the first incremental update behind an in-flight worker seed', async () => {
+        let releaseSeed;
+        const seedSettled = new Promise((resolve) => {
+            releaseSeed = resolve;
+        });
+        const originalInitialized = fontCompilation.isInitialized;
+        const awaitWorkerDocumentSyncSpy = jest
+            .spyOn(fontCompilation, 'awaitWorkerDocumentSync')
+            .mockImplementation(() => seedSettled);
+
+        fontCompilation.isInitialized = false;
+        const sendPromise = fontManager.sendWorkerYjsUpdate(
+            new Uint8Array([0]),
+            ['a'],
+            false,
+            [],
+            [
+                {
+                    glyphName: 'a',
+                    layerId: '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+                }
+            ]
+        );
+
+        await Promise.resolve();
+        expect(sendMessageSpy).not.toHaveBeenCalled();
+
+        fontCompilation.isInitialized = true;
+        releaseSeed();
+
+        await expect(sendPromise).resolves.toBe(true);
+        expect(awaitWorkerDocumentSyncSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith({
+            type: 'applyYjsUpdate',
+            update: new Uint8Array([0]),
+            changedGlyphs: ['a'],
+            nonGlyphChangeHints: [],
+            layerTargets: [
+                {
+                    glyphName: 'a',
+                    layerId: '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+                }
+            ],
+            invalidateLayoutClosure: false
+        });
+
+        awaitWorkerDocumentSyncSpy.mockRestore();
+        fontCompilation.isInitialized = originalInitialized;
+    });
+
     test('per-edit boundary cost stays flat across 50 sequential commits', async () => {
         const currentFont = fontManager.currentFont;
         const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';

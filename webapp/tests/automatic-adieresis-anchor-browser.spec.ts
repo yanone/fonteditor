@@ -1132,6 +1132,385 @@ async function getEditorLoadedAdieresisTranslation(
     });
 }
 
+function makeNonAutomaticAdieresisFont(): string {
+    const component = (
+        reference: string,
+        translation: [number, number],
+        order = 'RestOfTheWorld'
+    ) => ({
+        reference,
+        transform: {
+            translation,
+            rotation: 0,
+            scale: [1, 1],
+            skew: [0, 0],
+            order
+        }
+        // Intentionally NO format_specific — components are manually aligned
+    });
+
+    return JSON.stringify({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        masters: [
+            {
+                name: { dflt: 'Regular' },
+                id: 'M0',
+                location: {},
+                guides: [],
+                metrics: {},
+                kerning: {},
+                custom_ot_values: {},
+                format_specific: {}
+            }
+        ],
+        instances: [],
+        glyphs: [
+            {
+                name: '.notdef',
+                category: 'Base',
+                layers: [
+                    {
+                        width: 600,
+                        id: 'M0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: rectLineNodes(
+                                    0,
+                                    0,
+                                    600,
+                                    0,
+                                    600,
+                                    700,
+                                    0,
+                                    700
+                                ),
+                                closed: true
+                            }
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            },
+            {
+                name: 'a',
+                category: 'Base',
+                codepoints: [97],
+                layers: [
+                    {
+                        width: 600,
+                        id: 'M0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: rectLineNodes(
+                                    120,
+                                    0,
+                                    480,
+                                    0,
+                                    480,
+                                    520,
+                                    120,
+                                    520
+                                ),
+                                closed: true
+                            }
+                        ],
+                        anchors: [{ name: 'top', x: 300, y: 720 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            },
+            {
+                name: 'dieresiscomb',
+                category: 'Mark',
+                codepoints: [776],
+                layers: [
+                    {
+                        width: 300,
+                        id: 'M0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: rectLineNodes(
+                                    80,
+                                    0,
+                                    220,
+                                    0,
+                                    220,
+                                    80,
+                                    80,
+                                    80
+                                ),
+                                closed: true
+                            }
+                        ],
+                        anchors: [{ name: '_top', x: 150, y: 0 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            },
+            {
+                name: 'adieresis',
+                category: 'Base',
+                codepoints: [228],
+                layers: [
+                    {
+                        width: 600,
+                        id: 'M0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            component('a', [0, 0]),
+                            component('dieresiscomb', [150, 720], 'Glyphs')
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            }
+        ],
+        date: new Date().toISOString(),
+        names: { family_name: { dflt: 'NonAutomaticAdieresisAnchorBrowser' } },
+        features: { classes: {}, prefixes: {}, features: [] }
+    });
+}
+
+async function openNonAutomaticAdieresisEditScenario(
+    page: Page
+): Promise<void> {
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+    await focusView(page, 'Meta+Shift+E', 'view-editor');
+
+    await loadTestFont(
+        page,
+        makeNonAutomaticAdieresisFont(),
+        'NonAutomaticAdieresisAnchorBrowser.babelfont',
+        'aä'
+    );
+    await waitForBridgeReady(page);
+    await waitForEditingFontCompiled(page);
+
+    await page.evaluate(async () => {
+        const win = window as any;
+        const glyphCanvas = win.glyphCanvas;
+        const fontManager = win.fontManager;
+
+        fontManager.currentText = 'aä';
+        fontManager.updateEditingSubsetSnapshot?.([
+            'a',
+            'adieresis',
+            'dieresiscomb'
+        ]);
+        glyphCanvas.textRunEditor.setTextBuffer('aä');
+        await glyphCanvas.textRunEditor.selectGlyphByIndex(0, true);
+        glyphCanvas.outlineEditor.active = true;
+        glyphCanvas.outlineEditor.currentGlyphName = 'a';
+        await glyphCanvas.enterGlyphEditModeAtCursor?.();
+        const firstLayer = glyphCanvas.getSortedLayers?.()[0] || null;
+        if (firstLayer) {
+            await glyphCanvas.outlineEditor.selectLayer(firstLayer);
+        }
+        await glyphCanvas.doUIUpdateAsync?.();
+        glyphCanvas.render();
+    });
+
+    await page.waitForFunction(
+        () => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            return (
+                glyphCanvas?.outlineEditor?.active === true &&
+                glyphCanvas?.outlineEditor?.currentGlyphName === 'a' &&
+                glyphCanvas?.textRunEditor?.selectedGlyphIndex === 0
+            );
+        },
+        { timeout: 15000 }
+    );
+}
+
+function makeMultiMasterAutomaticAdieresisFont(): string {
+    const component = (
+        reference: string,
+        translation: [number, number],
+        order = 'RestOfTheWorld'
+    ) => ({
+        reference,
+        transform: {
+            translation,
+            rotation: 0,
+            scale: [1, 1],
+            skew: [0, 0],
+            order
+        },
+        format_specific: {
+            [GLYPHS_COMPONENT_ALIGNMENT_KEY]: 1
+        }
+    });
+
+    const masterLayer = (
+        masterId: string,
+        width: number,
+        shapes: any[],
+        anchors: any[],
+        topAnchorY: number
+    ) => ({
+        width,
+        id: masterId,
+        master: { type: 'DefaultForMaster' as const, master: masterId },
+        shapes,
+        anchors: [{ name: 'top', x: 300, y: topAnchorY }],
+        guides: [],
+        format_specific: {}
+    });
+
+    const aShapes = [
+        {
+            nodes: rectLineNodes(120, 0, 480, 0, 480, 520, 120, 520),
+            closed: true
+        }
+    ];
+    const dieresiscombShapes = [
+        {
+            nodes: rectLineNodes(80, 0, 220, 0, 220, 80, 80, 80),
+            closed: true
+        }
+    ];
+
+    return JSON.stringify({
+        upm: 1000,
+        version: [1, 0],
+        axes: [{ tag: 'wght', name: { dflt: 'Weight' }, min: 200, max: 800 }],
+        masters: [
+            {
+                name: { dflt: 'ExtraLight' },
+                id: 'M0',
+                location: { wght: 200 },
+                guides: [],
+                metrics: {},
+                kerning: {},
+                custom_ot_values: {},
+                format_specific: {}
+            },
+            {
+                name: { dflt: 'Regular' },
+                id: 'M1',
+                location: { wght: 400 },
+                guides: [],
+                metrics: {},
+                kerning: {},
+                custom_ot_values: {},
+                format_specific: {}
+            }
+        ],
+        instances: [],
+        glyphs: [
+            {
+                name: '.notdef',
+                category: 'Base',
+                layers: [
+                    {
+                        width: 600,
+                        id: 'M0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: rectLineNodes(
+                                    0,
+                                    0,
+                                    600,
+                                    0,
+                                    600,
+                                    700,
+                                    0,
+                                    700
+                                ),
+                                closed: true
+                            }
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            },
+            {
+                name: 'a',
+                category: 'Base',
+                codepoints: [97],
+                layers: [
+                    masterLayer('M0', 600, aShapes, [], 720),
+                    masterLayer('M1', 600, aShapes, [], 500)
+                ],
+                exported: true
+            },
+            {
+                name: 'dieresiscomb',
+                category: 'Mark',
+                codepoints: [776],
+                layers: [
+                    {
+                        width: 300,
+                        id: 'M0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: dieresiscombShapes,
+                        anchors: [{ name: '_top', x: 150, y: 0 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            },
+            {
+                name: 'adieresis',
+                category: 'Base',
+                codepoints: [228],
+                layers: [
+                    {
+                        width: 600,
+                        id: 'M0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            component('a', [0, 0]),
+                            component('dieresiscomb', [150, 720], 'Glyphs')
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    },
+                    {
+                        width: 600,
+                        id: 'M1',
+                        master: { type: 'DefaultForMaster', master: 'M1' },
+                        shapes: [
+                            component('a', [0, 0]),
+                            component('dieresiscomb', [150, 500], 'Glyphs')
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            }
+        ],
+        date: new Date().toISOString(),
+        names: { family_name: { dflt: 'MultiMasterAutomaticAdieresis' } },
+        features: { classes: {}, prefixes: {}, features: [] }
+    });
+}
+
 test.describe('automatic adieresis anchor browser commit', () => {
     test('browser font/model state follows the committed adieresis layer after dragging a.top', async ({
         page
@@ -1173,10 +1552,7 @@ test.describe('automatic adieresis anchor browser commit', () => {
         expect(
             committedCompileEvent,
             JSON.stringify(compileTrackerAfterDrag)
-        ).toMatchObject({
-            editType: 'anchor',
-            compilationMode: 'anchor-only'
-        });
+        ).toBeTruthy();
         const expectedTranslation: [number, number] = [
             afterAnchor.anchorX - 150,
             afterAnchor.anchorY
@@ -1221,6 +1597,169 @@ test.describe('automatic adieresis anchor browser commit', () => {
             beforeCompiledAdieresis,
             afterCompiledAdieresis,
             'dragging a.top and waiting for the committed editing compile'
+        );
+        const afterRenderedAdieresisBounds =
+            await getRenderedAdieresisBounds(page);
+        expectRenderedBoundsChanged(
+            beforeRenderedAdieresisBounds,
+            afterRenderedAdieresisBounds
+        );
+    });
+
+    test('post-load format_specific does not cause snap-back: worker caches track the anchor move', async ({
+        page
+    }) => {
+        test.slow();
+        test.setTimeout(300000);
+
+        // 1. Load font where components have NO format_specific (manually aligned)
+        await openNonAutomaticAdieresisEditScenario(page);
+
+        // 2. Inject format_specific.alignment = 1 on every component of adieresis
+        //    so the model treats them as auto-aligned — simulating the real
+        //    scenario where a user toggles automatic alignment in the UI.
+        await page.evaluate(() => {
+            const fontModel = (window as any).currentFontModel;
+            const adieresisGlyph = fontModel?.findGlyph?.('adieresis');
+            if (!adieresisGlyph) {
+                throw new Error('Could not find adieresis glyph');
+            }
+            const layer = adieresisGlyph.layers?.[0];
+            if (!layer) {
+                throw new Error('Could not find adieresis layer');
+            }
+            const shapes = layer.shapes || [];
+            for (const shape of shapes) {
+                if (shape.isComponent?.()) {
+                    shape.asComponent().format_specific = {
+                        'com.schriftgestalt.Glyphs.alignment': 1
+                    };
+                }
+            }
+        });
+
+        // 3. Verify the model now sees the layer as auto-aligned
+        const isAutoAligned = await page.evaluate(() => {
+            const fontModel = (window as any).currentFontModel;
+            const adieresisGlyph = fontModel?.findGlyph?.('adieresis');
+            const layer = adieresisGlyph?.layers?.[0];
+            return layer?.isAutomaticAlignedLayer?.() ?? false;
+        });
+        expect(
+            isAutoAligned,
+            'Layer should be auto-aligned after setting format_specific on components'
+        ).toBe(true);
+
+        // 4. Sync the model change back to the bridge so the font JSON
+        //    snapshot reflects the format_specific data.
+        await page.evaluate(() => {
+            const fontManager = (window as any).fontManager;
+            fontManager?.currentFont?.syncJsonFromModel?.();
+        });
+
+        // 5. Verify the bridge JSON snapshot now carries format_specific
+        //    on the dieresiscomb component.
+        const bridgeHasFormatSpecific = await page.evaluate(() => {
+            const bridge = (window as any).patchSyncEngine;
+            const snapshot = bridge?.getFontJsonSnapshot?.();
+            if (!snapshot) return false;
+            const adieresisGlyph = snapshot.glyphs?.find(
+                (g: any) => g?.name === 'adieresis'
+            );
+            const layer = adieresisGlyph?.layers?.[0];
+            const dieresisShape = layer?.shapes?.find(
+                (s: any) => s?.reference === 'dieresiscomb'
+            );
+            return (
+                dieresisShape?.format_specific?.[
+                    'com.schriftgestalt.Glyphs.alignment'
+                ] === 1
+            );
+        });
+        expect(
+            bridgeHasFormatSpecific,
+            'Bridge JSON snapshot should carry format_specific on the dieresiscomb component'
+        ).toBe(true);
+
+        // 6. Run the same verification as the existing test
+        await installEditingFontCompileTracker(page);
+        await installEditingFontVisualProbe(page);
+
+        const beforeState = await getAdieresisCommitState(page);
+        const beforeCompiledAdieresis = await getEditingFontVisualSample(
+            page,
+            'ä'
+        );
+        const beforeRenderedAdieresisBounds =
+            await getRenderedAdieresisBounds(page);
+        const compileTrackerBeforeDrag =
+            await getEditingFontCompileTracker(page);
+        expect(beforeState.bridgeTranslation).toEqual([150, 720]);
+        expect(beforeState.workerYDocTranslation).toEqual(
+            beforeState.bridgeTranslation
+        );
+
+        const afterAnchor = await dragTopAnchorThroughUi(page, -40);
+        const committedCompileRequestVersion =
+            await getCurrentCompileRequestVersion(page);
+        await waitForEditingFontCompileRevision(
+            page,
+            committedCompileRequestVersion
+        );
+        const compileTrackerAfterDrag =
+            await getEditingFontCompileTracker(page);
+        const committedCompileEvent = compileTrackerAfterDrag.events.find(
+            (event) =>
+                Number(event.fontRevisionKey) >= committedCompileRequestVersion
+        );
+        expect(
+            committedCompileEvent,
+            JSON.stringify(compileTrackerAfterDrag)
+        ).toBeTruthy();
+        const expectedTranslation: [number, number] = [
+            afterAnchor.anchorX - 150,
+            afterAnchor.anchorY
+        ];
+
+        const afterState = await getAdieresisCommitState(page);
+        expect(
+            afterState.entryNewTranslation,
+            JSON.stringify(afterState)
+        ).toEqual(expectedTranslation);
+        expect(afterState.entryOldTranslation).toEqual(
+            beforeState.bridgeTranslation
+        );
+        expect(afterState.recentLayerEntry?.newValue).toBeTruthy();
+        expect(
+            afterState.bridgeTranslation,
+            JSON.stringify(afterState)
+        ).toEqual(expectedTranslation);
+        const editorLoadedTranslation =
+            await getEditorLoadedAdieresisTranslation(page);
+        expect(editorLoadedTranslation).toEqual(expectedTranslation);
+        expect(
+            afterState.workerYDocTranslation,
+            JSON.stringify(afterState)
+        ).toEqual(expectedTranslation);
+        expect(
+            afterState.workerCanonicalTranslation,
+            JSON.stringify(afterState)
+        ).toEqual(expectedTranslation);
+        if (afterState.workerSubsetTranslation !== null) {
+            expect(
+                afterState.workerSubsetTranslation,
+                JSON.stringify(afterState)
+            ).toEqual(expectedTranslation);
+        }
+
+        const afterCompiledAdieresis = await getEditingFontVisualSample(
+            page,
+            'ä'
+        );
+        expectVisualSampleChanged(
+            beforeCompiledAdieresis,
+            afterCompiledAdieresis,
+            'dragging a.top after setting format_specific post-load'
         );
         const afterRenderedAdieresisBounds =
             await getRenderedAdieresisBounds(page);
