@@ -384,6 +384,7 @@ const GENERIC_MUTABLE_GETTER_EXCLUSIONS = new Set([
     'paths',
     'rsb',
     'shapes',
+    'backgroundLayer', // lazy transient wrapper, materialized only after a path edit
     'selection' // UI/editor selection snapshot on Layer
 ]);
 
@@ -518,6 +519,10 @@ function collectReachableModelObjects(root) {
 
             for (const [name, descriptor] of Object.entries(descriptors)) {
                 if (name === 'constructor') {
+                    continue;
+                }
+
+                if (name === 'backgroundLayer') {
                     continue;
                 }
 
@@ -3003,6 +3008,28 @@ describe('Transactions', () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Model setter change recording', () => {
+    test('materializing a background path records only incremental layer changes', () => {
+        const { bridge, font } = createTestBridge('background-path');
+        const glyph = font.findGlyph('A');
+        const foreground = glyph.findLayerById('layer-1');
+        const background = foreground.backgroundLayer;
+
+        background.addPath();
+
+        const materialized = glyph.findLayerById(
+            foreground.background_layer_id
+        );
+        expect(materialized).toBeDefined();
+        expect(materialized.paths).toHaveLength(1);
+        expect(bridge.getChangeLog().map((entry) => entry.path)).toEqual(
+            expect.arrayContaining([
+                expect.stringContaining(':is_background'),
+                expect.stringContaining(':background_layer_id'),
+                expect.stringContaining(':shapes.0')
+            ])
+        );
+    });
+
     test('introspection discovers method-returned wrappers', () => {
         expect(
             GENERIC_ACCESSOR_SPECS.some((spec) => spec.className === 'Path')

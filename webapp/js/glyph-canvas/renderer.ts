@@ -2,6 +2,7 @@ import { desaturateColor, toRgba } from '../design';
 import APP_SETTINGS from '../settings';
 import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 import { Logger } from '../logger';
+import { parseNodeString } from '../node-encoding';
 import { get_glyph_name } from '../../wasm-dist/babelfont_fontc_web';
 import {
     normalizeAffineTransform,
@@ -305,6 +306,13 @@ export class GlyphCanvasRenderer {
                 .trim();
         }
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        if (this.glyphCanvas.outlineEditor.isEditingBackgroundLayer()) {
+            this.ctx.fillStyle = computedStyle
+                .getPropertyValue('--accent-yellow')
+                .trim();
+            this.ctx.globalAlpha = 0.1;
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        }
         this.ctx.restore();
 
         // Apply transformation
@@ -1709,6 +1717,55 @@ export class GlyphCanvasRenderer {
             if (!rgbaMatch) {
                 this.ctx.globalAlpha = 1.0;
             }
+        }
+
+        const pairedLayerData =
+            this.glyphCanvas.outlineEditor.isPairedLayerVisible()
+                ? this.glyphCanvas.outlineEditor
+                      .getPairedLayerModel()
+                      ?.toJSON?.()
+                : null;
+        if (pairedLayerData?.shapes?.length) {
+            this.ctx.save();
+            this.ctx.globalAlpha = 0.35;
+            this.ctx.strokeStyle = getComputedStyle(
+                document.documentElement
+            ).getPropertyValue('--accent-yellow');
+            this.ctx.lineWidth = 1.5 * invScale;
+            pairedLayerData.shapes.forEach((shape: any) => {
+                if (!('nodes' in shape) || !shape.nodes?.length) {
+                    return;
+                }
+                const nodes: Babelfont.Node[] = parseNodeString(
+                    shape.nodes
+                ).map((node, index) => {
+                    const x = Number(node.x);
+                    const y = Number(node.y);
+                    const nodetype = node.nodetype;
+                    if (
+                        !Number.isFinite(x) ||
+                        !Number.isFinite(y) ||
+                        typeof nodetype !== 'string'
+                    ) {
+                        throw new TypeError(
+                            `Invalid paired-layer node at index ${index}.`
+                        );
+                    }
+                    return {
+                        x,
+                        y,
+                        nodetype: nodetype as Babelfont.Node['nodetype'],
+                        smooth: node.smooth === true
+                    };
+                });
+                this.ctx.beginPath();
+                this.buildPathFromNodes(nodes, Boolean(shape.closed));
+                if (shape.closed) {
+                    this.ctx.closePath();
+                }
+                this.ctx.stroke();
+            });
+            this.ctx.restore();
         }
 
         // Draw each shape (contour or component)

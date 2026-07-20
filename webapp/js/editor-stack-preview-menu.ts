@@ -35,6 +35,9 @@ function createStackPreviewMenuHtml(): string {
     const guidelinesVisible =
         window.glyphCanvas?.outlineEditor?.guidelinesVisible !== false;
     const guidelinesCheckmark = guidelinesVisible ? 'check' : '';
+    const pairedLayerVisible =
+        window.glyphCanvas?.outlineEditor?.isPairedLayerVisible() ?? false;
+    const pairedLayerCheckmark = pairedLayerVisible ? 'check' : '';
 
     return `
         <div class="plugin-menu" tabindex="0" role="menu" aria-label="Stack preview menu">
@@ -47,6 +50,11 @@ function createStackPreviewMenuHtml(): string {
                 <span class="plugin-menu-check material-symbols-outlined${guidelinesVisible ? '' : ' empty'}">${guidelinesCheckmark}</span>
                 <span>Guidelines</span>
                 <span class="plugin-menu-shortcut">⌘⌥G</span>
+            </div>
+            <div class="plugin-menu-item" data-action="toggle-paired-layer" role="menuitemcheckbox" aria-checked="${pairedLayerVisible}" tabindex="-1">
+                <span class="plugin-menu-check material-symbols-outlined${pairedLayerVisible ? '' : ' empty'}">${pairedLayerCheckmark}</span>
+                <span>Show Foreground/Background</span>
+                <span class="plugin-menu-shortcut">⌘⌥B</span>
             </div>
         </div>
     `;
@@ -124,6 +132,9 @@ function initEditorStackPreviewMenu(): void {
                 } else if (action === 'toggle-guidelines') {
                     window.glyphCanvas?.outlineEditor?.toggleGuidelinesVisible();
                     refreshStackPreviewMenuContent();
+                } else if (action === 'toggle-paired-layer') {
+                    window.glyphCanvas?.outlineEditor?.togglePairedLayerVisible();
+                    refreshStackPreviewMenuContent();
                 }
             });
         },
@@ -167,6 +178,10 @@ function initEditorStackPreviewMenu(): void {
     });
 
     window.addEventListener('outlineGuidelinesVisibilityChanged', () => {
+        refreshStackPreviewMenuContent();
+    });
+
+    window.addEventListener('outlinePairedLayerVisibilityChanged', () => {
         refreshStackPreviewMenuContent();
     });
 

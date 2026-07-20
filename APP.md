@@ -81,6 +81,16 @@ TODO: Undo doesn't work
 
 ### Layers
 
+#### Background Layers
+
+Every foreground layer has a paired background layer stored as a sibling raw layer. `Glyph.layers` remains foreground-only; `Layer.backgroundLayer` resolves the pair and returns an empty transient background until it receives its first path. That first path materializes the sibling and reciprocal layer IDs through the normal incremental Yjs edit path.
+
+Background layers contain paths only: they have no components, anchors, guides, metrics, compatibility, or interpolation behavior of their own. Their foreground layer supplies the displayed guides and width. Editing a background must remain a normal outline edit; neighbouring glyphs continue to use their normal interpolation.
+
+`cmd`+`shift`+`b` switches between paired foreground and background editing while retaining independent selections. Active background editing is visibly tinted faint yellow. `cmd`+`alt`+`b` toggles a faint, non-interactive rendering of the paired layer; only while visible do its on-curve nodes become snap candidates. This command is also available in the Editing View's View menu.
+
+`cmd`+`b` copies selected objects to the paired layer. Paths copy directly; copying foreground components to a background decomposes them to paths. Anchors and guides never copy into a background.
+
 #### Drawing New Outlines
 
 Pressing the `cmd` key and hovering the mouse over clear glyph space (not over existing outlines) will draw new paths point by point. Once a new path drawing is in progress (hovering line visible from last selected node to mouse pointer with `cmd` key pressed), prioritize extending the new path over adding nodes to existing paths when hovering over existing paths segments (but not open end points, see below). While `cmd` is pressed for drawing, prioritize drawing new points over hitting neighbouring glyphs as well, so drawing may continue outside the active glyph’s width. In that state, neighbouring glyphs must not be treated as hovered visually either. When closing a newly drawn path on its first point, preserve every explicitly drawn corner; only merge the endpoints into one node when the open path's start and end already sit on the same coordinates.

@@ -5583,6 +5583,7 @@ export class Layer extends ArrayElementBase {
     private _shapeWrappers: Shape[] | null = null;
     private _anchorWrappers: Anchor[] | null = null;
     private _guideWrappers: Guide[] | null = null;
+    private _virtualBackgroundOwner: Layer | null = null;
     private _cachedLayout: AutomaticCompositionLayout | null | undefined =
         undefined;
 
@@ -7745,6 +7746,67 @@ export class Layer extends ArrayElementBase {
         recordAndMarkDirty(this, 'background_layer_id', old, value);
     }
 
+    /**
+     * The paired background layer. Empty backgrounds are transient until a path
+     * is added, so merely accessing this property does not alter the glyph.
+     */
+    get backgroundLayer(): Layer {
+        if (this.is_background) {
+            if (this._virtualBackgroundOwner) {
+                return this._virtualBackgroundOwner;
+            }
+            const foreground = this.parent()?.layers?.find(
+                (layer: Layer) => layer.background_layer_id === this.id
+            );
+            return foreground || this;
+        }
+
+        const glyph = this.parent() as Glyph | null;
+        const existing = this.background_layer_id
+            ? glyph?.findLayerById(this.background_layer_id)
+            : undefined;
+        if (existing?.is_background) {
+            return existing;
+        }
+
+        const virtualBackground = new Layer(
+            [
+                {
+                    id: `background-${this.id || this._index}`,
+                    width: this.width,
+                    master: this.master,
+                    location: this.location,
+                    is_background: true,
+                    background_layer_id: this.id
+                }
+            ],
+            0,
+            glyph
+        );
+        virtualBackground._virtualBackgroundOwner = this;
+        return virtualBackground;
+    }
+
+    private ensureMaterializedBackgroundLayer(): void {
+        if (!this._virtualBackgroundOwner) {
+            return;
+        }
+
+        const owner = this._virtualBackgroundOwner;
+        const glyph = owner.parent() as Glyph | null;
+        if (!glyph) {
+            throw new Error(
+                'Cannot materialize a background layer without a glyph'
+            );
+        }
+
+        const background = glyph.addBackgroundLayer(owner);
+        this._parent = background._parent;
+        this._index = background._index;
+        this._parentObject = glyph;
+        this._virtualBackgroundOwner = null;
+    }
+
     get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
             this,
@@ -7780,6 +7842,10 @@ export class Layer extends ArrayElementBase {
      */
     addShape(shape: Babelfont.Shape): Shape {
         return this.withFingerprintChangeEvent(() => {
+            if (this.is_background && !('nodes' in shape)) {
+                throw new Error('Background layers can only contain paths');
+            }
+            this.ensureMaterializedBackgroundLayer();
             if (!this.data.shapes) {
                 this.data.shapes = [];
             }
@@ -7827,6 +7893,9 @@ export class Layer extends ArrayElementBase {
         reference: string,
         transform?: number[] | Babelfont.DecomposedAffine
     ): Component {
+        if (this.is_background) {
+            throw new Error('Background layers cannot contain components');
+        }
         const componentData: Babelfont.Component = {
             id: generateStableId(),
             reference,
@@ -8167,6 +8236,9 @@ export class Layer extends ArrayElementBase {
      * anchor = layer.addAnchor(250, 700, "top")
      */
     addAnchor(x: number, y: number, name?: string): Anchor {
+        if (this.is_background) {
+            throw new Error('Background layers cannot contain anchors');
+        }
         if (!this.data.anchors) {
             this.data.anchors = [];
         }
@@ -8189,6 +8261,9 @@ export class Layer extends ArrayElementBase {
         name?: string,
         color?: Babelfont.Color
     ): Guide {
+        if (this.is_background) {
+            throw new Error('Background layers cannot contain guides');
+        }
         if (!this.data.guides) {
             this.data.guides = [];
         }
@@ -9623,6 +9698,27 @@ export class Glyph extends ArrayElementBase {
             layerData
         );
         return new Layer(this.data.layers, this.data.layers.length - 1, this);
+    }
+
+    addBackgroundLayer(foreground: Layer): Layer {
+        if (foreground.is_background) {
+            throw new Error(
+                'A background layer cannot own another background layer'
+            );
+        }
+
+        const existing = foreground.background_layer_id
+            ? this.findLayerById(foreground.background_layer_id)
+            : undefined;
+        if (existing?.is_background) {
+            return existing;
+        }
+
+        const background = this.addLayer(foreground.width);
+        background.is_background = true;
+        background.background_layer_id = foreground.id;
+        foreground.background_layer_id = background.id;
+        return background;
     }
 
     /**

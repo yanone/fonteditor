@@ -1,14 +1,12 @@
 # Font Object Model API Documentation
 
-**Version:** v0.2.1
-
 _Auto-generated from JavaScript object model introspection_
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Class Reference](#class-reference)
-    - [Font](#font) - The main font class representing a complete font
+    - [Font](#font) -
     - [Glyph](#glyph) - Glyph in the font
     - [Layer](#layer) - Layer in a glyph representing a master or intermediate design
     - [Shape](#shape) - Shape wrapper that can contain either a Component or a Path
@@ -95,8 +93,6 @@ font = glyph.parent()     # Font object
 
 ## Font
 
-The main font class representing a complete font
-
 **Access:**
 
 ```python
@@ -110,11 +106,14 @@ font = Font()
 
 - **`upm`** (float | int)
 - **`version`** ([number, number])
+- **`axes`** (list[[Axis](#axis)] | None)
+- **`instances`** (list[[Instance](#instance)] | None)
+- **`masters`** (list[[Master](#master)] | None)
 - **`note`** (str | None)
 - **`date`** (str)
 - **`names`** (dict[str, dict[str, str] | None])
 - **`custom_ot_values`** (list[Unsafe] | None)
-- **`variation_sequences`** ( | dict | None)
+- **`variation_sequences`** (dict | None)
 - **`features`** (dict[str, Any])
 - **`first_kern_groups`** (dict | None)
 - **`second_kern_groups`** (dict | None)
@@ -123,9 +122,6 @@ font = Font()
 
 #### Read-Only Properties
 
-- **`axes`** (list[[Axis](#axis)] | None)
-- **`instances`** (list[[Instance](#instance)] | None)
-- **`masters`** (list[[Master](#master)] | None)
 - **`glyphs`** (list[[Glyph](#glyph)])
 
 ### Methods
@@ -157,6 +153,16 @@ glyph = font.findGlyphByCodepoint(0x0041)  # Find 'A'
 ```
 
 #### `invalidateReverseComponentIndex() -> None`
+
+#### `getGlyphNamesByLengthDesc() -> list[str]`
+
+Returns glyph names sorted by length descending, cached. Used by metrics-key
+parsing for longest-prefix matching. Cache is invalidated when glyphs are
+added/removed/renamed (see `invalidateReverseComponentIndex`).
+
+#### `findDirectGlyphsUsingComponent(componentGlyphName: str) -> list[str]`
+
+#### `collectComponentDependentGlyphs(componentGlyphNames: Iterable<string>, options: { includeSourceGlyphNames?: boolean; retainGlyphNames?: Set<string>; } | None = None) -> Set<string>`
 
 #### `invalidateLayoutCachesForGlyphs(glyphNames: Iterable<string>) -> None`
 
@@ -203,6 +209,10 @@ weight_axis = font.findAxisByTag("wght")
 #### `findMaster(id: str) -> [Master](#master) | None`
 
 Find a master by ID
+
+#### `addMaster(master: Babelfont.Master | None = None, options: AddMasterOptions | None = None) -> Promise<Master | null>`
+
+#### `removeMastersByIds(masterIds: list[str]) -> Promise<boolean>`
 
 #### `addGlyph(name: str, category: Babelfont.GlyphCategory | str) -> [Glyph](#glyph)`
 
@@ -322,6 +332,8 @@ Add a new layer to the glyph
 layer = glyph.addLayer(500)  # 500 units wide
 ```
 
+#### `addBackgroundLayer(foreground: [Layer](#layer)) -> [Layer](#layer)`
+
 #### `removeLayer(index: float | int) -> None`
 
 Remove a layer at the specified index
@@ -389,6 +401,8 @@ layer = glyph.layers[0]
 - **`paths`** (list[[Path](#path)]): Direct path objects in this layer, ready to use without Shape.asPath()
 - **`components`** (list[[Component](#component)]): Direct component objects in this layer, ready to use without Shape.asComponent()
 - **`anchors`** (list[[Anchor](#anchor)] | None)
+- **`backgroundLayer`** ([Layer](#layer)): The paired background layer. Empty backgrounds are transient until a path
+  is added, so merely accessing this property does not alter the glyph.
 - **`fingerprint`** (str): Returns a normalized outline-compatibility fingerprint for this layer.
   The fingerprint includes components, paths, and anchors, with anchors
   sorted by name and guides excluded.
@@ -411,6 +425,8 @@ Invalidate only the automatic composition layout cache.
 Cheaper than full invalidateContentCaches() when only
 anchor/composition state has changed (not shapes/guides).
 
+#### `getAutomaticCompositionSourceCacheKey() -> object`
+
 #### `syncFromEditorLayerData(layerData: { width: number; height?: number; vertWidth?: number; shapes?: Unsafe[]; anchors?: Unsafe[]; guides?: Unsafe[]; format_specific?: Record<string, Unsafe>; }) -> None`
 
 Bulk-sync mutable properties from the outline editor's working
@@ -420,6 +436,8 @@ for automatic-aligned layers.
 
 Must be called inside withSuppressedModelRecording so that the
 individual property mutations don't trigger recordAndMarkDirty.
+
+#### `clearEffectiveSidebearingKey(side: SidebearingSide) -> None`
 
 #### `setDirectSidebearing(side: SidebearingSide, value: float | int) -> None`
 
@@ -433,9 +451,9 @@ without scanning the full font. Use during interactive editing
 
 #### `getAutomaticComponentTargetAnchorOptions(component: [Component](#component)) -> list[str]`
 
-#### `rebuildAutomaticComposition() -> bool`
+#### `rebuildAutomaticComposition(sourceDataCache: WeakMap<object | None = None, AutomaticCompositionSourceData>) -> bool`
 
-#### `applyAutomaticCompositionToLayerData(layerData: { shapes?: Unsafe[]; width?: number; }) -> bool`
+#### `applyAutomaticCompositionToLayerData(layerData: { shapes?: Unsafe[]; width?: number; }, sourceDataCache: WeakMap<object | None = None, AutomaticCompositionSourceData>) -> bool`
 
 Apply automatic component anchoring and derived width to mutable layer
 data without mutating the model layer itself.
@@ -456,6 +474,8 @@ Get the resolved master object for this layer.
 Returns a Master only when this layer is a DefaultForMaster layer.
 
 #### `getComputedName() -> str`
+
+#### `findAnchor(anchorName: str) -> [Anchor](#anchor) | None`
 
 #### `addShape(shape: Babelfont.Shape) -> [Shape](#shape)`
 
@@ -610,29 +630,19 @@ path = layer.paths[0]
 
 ### Properties
 
-All properties are read/write:
+#### Read/Write Properties
 
 - **`nodes`** (list[[Node](#node)])
 - **`closed`** (bool)
 - **`format_specific`** (dict | None)
 
+#### Read-Only Properties
+
+- **`id`** (str | None): Stable identifier for CRDT addressing. Generated on load; preserved across edits.
+
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
-
-#### `parseNodesString(nodesStr: str) -> list[Babelfont.Node]`
-
-Parse nodes from babelfont-rs string format
-Format: "x1 y1 type x2 y2 type ..."
-Types: m, l, o, c, q (with optional 's' suffix for smooth)
-
-#### `mapNodeType(shortType: str) -> Babelfont.NodeType`
-
-Map short node type to Babelfont.NodeType
-
-#### `nodesToString(nodes: list[Babelfont.Node]) -> str`
-
-Convert nodes array back to compact string format for serialization
 
 #### `insertNode(index: float | int, x: float | int, y: float | int, nodetype: Babelfont.NodeType, smooth: bool | None = None) -> [Node](#node)`
 
@@ -681,13 +691,17 @@ node = path.nodes[0]
 
 ### Properties
 
-All properties are read/write:
+#### Read/Write Properties
 
 - **`selected`** (bool): Whether this node is selected in the active outline editor.
 - **`x`** (float | int)
 - **`y`** (float | int)
 - **`nodetype`** (Babelfont.NodeType)
 - **`smooth`** (bool | None)
+
+#### Read-Only Properties
+
+- **`id`** (str | None): Stable identifier for CRDT addressing. Generated on load; preserved across edits.
 
 ### Methods
 
@@ -709,20 +723,35 @@ component = layer.components[0]
 
 ### Properties
 
-All properties are read/write:
+#### Read/Write Properties
 
 - **`selected`** (bool): Whether this component is selected in the active outline editor.
 - **`reference`** (str)
 - **`transform`** (Babelfont.DecomposedAffine)
 - **`location`** (DesignspaceLocation | None)
 - **`anchor`** (str | None): Glyphs attachment anchor name stored in format_specific.
+- **`automaticAlignment`** (bool): Whether this component explicitly opts into Glyphs automatic alignment.
+  Unlike isAutomaticAligned(), this is per-component metadata and does not
+  depend on the rest of its containing layer.
 - **`format_specific`** (dict | None)
+
+#### Read-Only Properties
+
+- **`id`** (str | None): Stable identifier for CRDT addressing. Generated on load; preserved across edits.
 
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
 
 #### `isAutomaticAligned() -> bool`
+
+Returns whether every component in the containing layer explicitly opts
+into Glyphs automatic alignment.
+
+#### `hasExplicitManualAlignment() -> bool`
+
+Returns whether this component itself carries Glyphs' explicit manual
+alignment metadata, independent of the layer's effective state.
 
 #### `toAffineArray() -> list[float | int]`
 
@@ -750,13 +779,17 @@ anchor = layer.anchors[0]
 
 ### Properties
 
-All properties are read/write:
+#### Read/Write Properties
 
 - **`selected`** (bool): Whether this anchor is selected in the active outline editor.
 - **`x`** (float | int)
 - **`y`** (float | int)
 - **`name`** (str | None)
 - **`format_specific`** (dict | None)
+
+#### Read-Only Properties
+
+- **`id`** (str | None): Stable identifier for CRDT addressing. Generated on load; preserved across edits.
 
 ### Methods
 
@@ -780,13 +813,17 @@ guide = master.guides[0]
 
 ### Properties
 
-All properties are read/write:
+#### Read/Write Properties
 
 - **`selected`** (bool): Whether this guide is selected in the active outline editor.
 - **`pos`** (Babelfont.Position)
 - **`name`** (str | None)
 - **`color`** (Babelfont.Color | None)
 - **`format_specific`** (dict | None)
+
+#### Read-Only Properties
+
+- **`id`** (str | None): Stable identifier for CRDT addressing. Generated on load; preserved across edits.
 
 ### Methods
 
@@ -852,6 +889,7 @@ master = font.findMaster("master-id")
 - **`location`** (DesignspaceLocation | None)
 - **`metrics`** (dict)
 - **`kerning`** (dict)
+- **`kerning_rtl`** (dict)
 - **`custom_ot_values`** (list[Unsafe] | None)
 - **`format_specific`** (dict | None)
 
@@ -866,6 +904,10 @@ master = font.findMaster("master-id")
 #### `addGuide(pos: Babelfont.Position, name: str | None = None, color: Babelfont.Color | None = None) -> [Guide](#guide)`
 
 #### `removeGuide(index: float | int) -> None`
+
+#### `reinterpolateLayers() -> Promise<void>`
+
+#### `delete() -> Promise<boolean>`
 
 #### `toString() -> str`
 

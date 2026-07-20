@@ -884,6 +884,71 @@ describe('Babelfont Object Model', () => {
             expect(typeof layer.width).toBe('number');
         });
 
+        test('materializes a paired background only when it receives a path', () => {
+            const testFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: { en: 'Regular' },
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        layers: [
+                            {
+                                id: 'foreground',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                location: { wght: 500 },
+                                shapes: []
+                            }
+                        ]
+                    }
+                ]
+            });
+            const glyph = testFont.findGlyph('A');
+            const foreground = glyph.findLayerById('foreground');
+            const background = foreground.backgroundLayer;
+
+            expect(glyph.toJSON().layers).toHaveLength(1);
+            expect(background.is_background).toBe(true);
+            expect(background.width).toBe(500);
+            expect(background.id).not.toContain(':');
+            expect(background.master).toEqual(foreground.master);
+            expect(background.location).toEqual(foreground.location);
+            expect(background.backgroundLayer).toBe(foreground);
+            const virtualBackgroundId = background.id;
+
+            background.addPath();
+
+            expect(glyph.toJSON().layers).toHaveLength(2);
+            expect(background.id).not.toBe(virtualBackgroundId);
+            expect(foreground.background_layer_id).toBe(background.id);
+            expect(background.background_layer_id).toBe(foreground.id);
+            expect(background.paths).toHaveLength(1);
+            expect(() => background.addComponent('A')).toThrow(
+                'Background layers cannot contain components'
+            );
+            expect(() => background.addAnchor(0, 0, 'top')).toThrow(
+                'Background layers cannot contain anchors'
+            );
+            expect(() => background.addGuide({ x: 0, y: 0 })).toThrow(
+                'Background layers cannot contain guides'
+            );
+        });
+
         test('getComputedName returns Intermediate Layer for intermediate layers', () => {
             const testFont = Font.fromData({
                 upm: 1000,

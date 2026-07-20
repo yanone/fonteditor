@@ -152,6 +152,10 @@ body {
         color 0.3s ease;
 }
 
+.glyph-canvas-background-editing {
+    background-color: color-mix(in srgb, var(--accent-yellow) 10%, transparent);
+}
+
 input::placeholder,
 textarea::placeholder {
     color: var(--text-faint);

@@ -903,6 +903,28 @@ class GlyphCanvas {
             // Only exit preview mode on true blur events (window blur, etc.)
         });
 
+        // Background-layer commands remain available while another editor control has focus.
+        document.addEventListener(
+            'keydown',
+            (e) => {
+                if (
+                    window.glyphCanvas !== this ||
+                    !this.outlineEditor.active ||
+                    !(e.metaKey || e.ctrlKey) ||
+                    e.code !== 'KeyB' ||
+                    (!e.shiftKey && !e.altKey)
+                ) {
+                    return;
+                }
+
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                void this.outlineEditor.onKeyDown(e);
+            },
+            true
+        );
+
         // Capture Tab at the document level while the editor view is focused so
         // browser focus traversal cannot move to other HTML elements first.
         document.addEventListener(

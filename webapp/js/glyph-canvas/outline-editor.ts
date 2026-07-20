@@ -61,7 +61,8 @@ type Point = { contourIndex: number; nodeIndex: number };
 type SnapCandidate = {
     x: number;
     y: number;
-    source: 'active' | 'left' | 'right' | 'origin' | 'metric' | 'edge';
+    source:
+        'active' | 'paired' | 'left' | 'right' | 'origin' | 'metric' | 'edge';
 };
 type ActiveSnapTarget = {
     xSource: SnapCandidate | null;
@@ -3015,6 +3016,7 @@ export class OutlineEditor {
     currentGlyphName: string | null = null;
     glyphCanvas: GlyphCanvas;
     guidelinesVisible: boolean;
+    pairedLayerVisible: boolean = false;
 
     selectedAnchors: number[] = [];
     selectedPoints: Point[] = [];
@@ -3369,7 +3371,12 @@ export class OutlineEditor {
 
         for (const glyphName of candidateGlyphNames) {
             const glyph = this.getGlyphModelByName(glyphName);
-            if (glyph?.findLayerById?.(layerId)) {
+            const layer = glyph?.findLayerById?.(layerId);
+            const virtualBackground = layerId.startsWith('background-')
+                ? glyph?.findLayerById?.(layerId.slice('background-'.length))
+                      ?.backgroundLayer
+                : null;
+            if (layer || virtualBackground?.id === layerId) {
                 return { glyphName, glyph };
             }
         }
@@ -3417,7 +3424,112 @@ export class OutlineEditor {
             return null;
         }
 
-        return glyph.findLayerById?.(layerId) || null;
+        const layer = glyph.findLayerById?.(layerId);
+        if (layer) {
+            return layer;
+        }
+
+        if (layerId.startsWith('background-')) {
+            return glyph.findLayerById?.(layerId.slice('background-'.length))
+                ?.backgroundLayer;
+        }
+
+        return null;
+    }
+
+    isEditingBackgroundLayer(): boolean {
+        return !!this.getCurrentLayerModel()?.is_background;
+    }
+
+    isPairedLayerVisible(): boolean {
+        return this.pairedLayerVisible;
+    }
+
+    getPairedLayerModel(): any | null {
+        const currentLayer = this.getCurrentLayerModel();
+        return currentLayer?.backgroundLayer || null;
+    }
+
+    async toggleBackgroundLayerEditing(): Promise<boolean> {
+        const currentLayer = this.getCurrentLayerModel();
+        if (!currentLayer) {
+            return false;
+        }
+
+        await this.refreshSelectedLayerWithoutAnimation(
+            currentLayer.backgroundLayer
+        );
+        const isEditingBackground = this.isEditingBackgroundLayer();
+        this.glyphCanvas.canvas?.classList.toggle(
+            'glyph-canvas-background-editing',
+            isEditingBackground
+        );
+        window.dispatchEvent(
+            new CustomEvent('outlineBackgroundLayerModeChanged', {
+                detail: { isEditingBackground }
+            })
+        );
+        return isEditingBackground;
+    }
+
+    setPairedLayerVisible(visible: boolean): void {
+        this.pairedLayerVisible = visible;
+        window.dispatchEvent(
+            new CustomEvent('outlinePairedLayerVisibilityChanged', {
+                detail: { visible }
+            })
+        );
+        this.glyphCanvas.render();
+    }
+
+    togglePairedLayerVisible(): boolean {
+        const nextVisible = !this.pairedLayerVisible;
+        this.setPairedLayerVisible(nextVisible);
+        return nextVisible;
+    }
+
+    private copySelectedShapesToPairedLayer(): boolean {
+        const sourceLayer = this.getCurrentLayerModel();
+        if (!sourceLayer) {
+            return false;
+        }
+
+        const targetLayer = sourceLayer.backgroundLayer;
+        const selectedShapeIndexes = new Set(
+            this.selectedPoints.map((point) => point.contourIndex)
+        );
+        this.selectedComponents.forEach((index) =>
+            selectedShapeIndexes.add(index)
+        );
+        if (selectedShapeIndexes.size === 0) {
+            return false;
+        }
+
+        const pathData: Babelfont.Path[] = [];
+        selectedShapeIndexes.forEach((shapeIndex) => {
+            const shape = sourceLayer.shapes?.[shapeIndex];
+            if (!shape) {
+                return;
+            }
+            if (shape.isPath?.()) {
+                pathData.push(shape.asPath().toJSON());
+            } else if (!targetLayer.is_background && shape.isComponent?.()) {
+                pathData.push(...shape.asComponent().getTransformedPaths());
+            } else if (targetLayer.is_background && shape.isComponent?.()) {
+                pathData.push(...shape.asComponent().getTransformedPaths());
+            }
+        });
+
+        pathData.forEach((pathData) => {
+            const path = targetLayer.addPath(Boolean(pathData.closed));
+            path.nodes = JSON.parse(JSON.stringify(pathData.nodes || []));
+        });
+        if (pathData.length === 0) {
+            return false;
+        }
+
+        this.glyphCanvas.render();
+        return true;
     }
 
     private isAutomaticComposedLayer(): boolean {
@@ -7159,6 +7271,20 @@ export class OutlineEditor {
             }
         }
 
+        if (this.getCurrentLayerModel()?.is_background) {
+            const backgroundLayerData = this.cloneLayerData(
+                preservedExactNormalized || exactNormalized || {}
+            );
+            backgroundLayerData.shapes = Array.isArray(
+                backgroundLayerData.shapes
+            )
+                ? backgroundLayerData.shapes
+                : [];
+            backgroundLayerData.isInterpolated = false;
+            this.assignLayerData(backgroundLayerData, backgroundLayerData);
+            return;
+        }
+
         const exactLayerBase = interpolatedNormalized
             ? this.cloneLayerData(interpolatedNormalized)
             : this.layerData
@@ -7623,7 +7749,12 @@ export class OutlineEditor {
     ): any | null {
         const fontModel = fontManager.currentFont?.fontModel;
         const glyph = this.getGlyphModelByName(glyphName);
-        const layer = glyph?.findLayerById?.(layerId);
+        const layer =
+            glyph?.findLayerById?.(layerId) ||
+            (layerId.startsWith('background-')
+                ? glyph?.findLayerById?.(layerId.slice('background-'.length))
+                      ?.backgroundLayer
+                : null);
         const rawLayerData = layer?.toJSON?.();
 
         if (!fontModel || !rawLayerData) {
@@ -8475,7 +8606,12 @@ export class OutlineEditor {
         const glyph = owningGlyph?.glyph;
         if (!glyph?.layers) return null;
 
-        const layer = glyph.layers.find((l: any) => l.id === layerId);
+        const layer =
+            glyph.findLayerById?.(layerId) ||
+            (layerId.startsWith('background-')
+                ? glyph.findLayerById?.(layerId.slice('background-'.length))
+                      ?.backgroundLayer
+                : null);
         if (!layer) return null;
 
         const masters: Babelfont.Master[] = (fontModel.masters as any) || [];
@@ -10367,6 +10503,24 @@ export class OutlineEditor {
             });
         }
 
+        const pairedCandidates: SnapCandidate[] = [];
+        if (this.isPairedLayerVisible()) {
+            const pairedLayerData = this.getPairedLayerModel()?.toJSON?.();
+            pairedLayerData?.shapes?.forEach((shape: any) => {
+                const contour = getEditableContour(shape);
+                if (!contour) return;
+                contour.nodes.forEach((node) => {
+                    if (isOnCurveNode(node)) {
+                        pairedCandidates.push({
+                            x: node.x,
+                            y: node.y,
+                            source: 'paired'
+                        });
+                    }
+                });
+            });
+        }
+
         // Neighbor candidates (left + right adjacent glyphs)
         const leftCandidates: SnapCandidate[] = [];
         const rightCandidates: SnapCandidate[] = [];
@@ -10404,22 +10558,30 @@ export class OutlineEditor {
             ? [
                   originCandidate,
                   ...activeNonDragged,
+                  ...pairedCandidates,
                   ...leftCandidates,
                   ...rightCandidates
               ]
-            : [...activeNonDragged, ...leftCandidates, ...rightCandidates];
+            : [
+                  ...activeNonDragged,
+                  ...pairedCandidates,
+                  ...leftCandidates,
+                  ...rightCandidates
+              ];
         // Debug includes ALL active nodes (including dragged ones) + neighbors
         const debugCandidates = includeOriginCandidate
             ? [
                   originCandidate,
                   ...activeNonDragged,
                   ...activeDragged,
+                  ...pairedCandidates,
                   ...leftCandidates,
                   ...rightCandidates
               ]
             : [
                   ...activeNonDragged,
                   ...activeDragged,
+                  ...pairedCandidates,
                   ...leftCandidates,
                   ...rightCandidates
               ];
@@ -14941,6 +15103,14 @@ export class OutlineEditor {
             }
         });
 
+        if (
+            currentLayerModel.id &&
+            this.selectedLayerId !== currentLayerModel.id
+        ) {
+            this.selectedLayerId = currentLayerModel.id;
+            this.rebuildGlyphStackWithNewLayer(currentLayerModel.id);
+        }
+
         const pathIndex = currentLayerModel.paths.length - 1;
         const shapeIndex = (currentLayerModel.shapes?.length || 1) - 1;
         this.notePendingCommandPathEdit('draw');
@@ -17242,6 +17412,26 @@ export class OutlineEditor {
         ) {
             await this.flushPendingKeyboardPreviewCommit();
         }
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyB') {
+            e.preventDefault();
+            await this.toggleBackgroundLayerEditing();
+            return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.altKey && e.code === 'KeyB') {
+            e.preventDefault();
+            this.togglePairedLayerVisible();
+            return;
+        }
+        if (
+            (e.metaKey || e.ctrlKey) &&
+            !e.shiftKey &&
+            !e.altKey &&
+            e.code === 'KeyB'
+        ) {
+            e.preventDefault();
+            this.copySelectedShapesToPairedLayer();
+            return;
+        }
         // Handle space bar press to enter preview mode and enable panning
         if (e.code === 'Space') {
             e.preventDefault();
@@ -18187,6 +18377,15 @@ export class OutlineEditor {
             return;
         }
 
+        const activeModelLayer = activeLayerId
+            ? fontManager.currentFont?.fontModel
+                  ?.findGlyph(editedGlyphName)
+                  ?.findLayerById?.(activeLayerId)
+            : null;
+        if (activeLayerId?.startsWith('background-') && !activeModelLayer) {
+            return;
+        }
+
         // Build the full set of targets: directly edited layer + closure-derived targets.
         // The caller is responsible for supplying pre-computed complete closure targets.
         // This method does NOT perform additional dependent discovery — the shared
@@ -18552,6 +18751,23 @@ export class OutlineEditor {
                     ? parsed[0].glyphName
                     : this.glyphCanvas.getCurrentGlyphName();
             const isNestedEditing = this.isEditingComponent();
+
+            const activeLayerId =
+                this.getCurrentLayerId() || this.selectedLayerId;
+            const activeGlyphName = isNestedEditing
+                ? parsed[parsed.length - 1]?.glyphName
+                : rootGlyphName;
+            const activeStoredLayer = activeLayerId
+                ? fontManager.currentFont?.fontModel
+                      ?.findGlyph(activeGlyphName)
+                      ?.findLayerById(activeLayerId)
+                : null;
+            if (
+                activeLayerId?.startsWith('background-') &&
+                !activeStoredLayer
+            ) {
+                return;
+            }
 
             if (!isNestedEditing) {
                 // Root editing mode: persist the root glyph layer.

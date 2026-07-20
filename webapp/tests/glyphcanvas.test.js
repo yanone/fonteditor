@@ -369,6 +369,31 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
         expect(canvas.renderer.ctx.fillRect).toHaveBeenCalledTimes(3);
     });
 
+    test('drawOutlineEditor renders a paired ghost from serialized path nodes', () => {
+        canvas.outlineEditor.setPairedLayerVisible(true);
+        jest.spyOn(canvas.outlineEditor, 'getPairedLayerModel').mockReturnValue(
+            {
+                toJSON: () => ({
+                    shapes: [
+                        {
+                            nodes: '100 0 l 400 0 l 400 700 l 100 700 l',
+                            closed: true
+                        }
+                    ]
+                })
+            }
+        );
+        canvas.renderer.ctx.moveTo.mockClear();
+        canvas.renderer.ctx.lineTo.mockClear();
+        canvas.renderer.ctx.stroke.mockClear();
+
+        canvas.renderer.drawOutlineEditor();
+
+        expect(canvas.renderer.ctx.moveTo).toHaveBeenCalledWith(100, 0);
+        expect(canvas.renderer.ctx.lineTo).toHaveBeenCalledWith(400, 0);
+        expect(canvas.renderer.ctx.stroke).toHaveBeenCalled();
+    });
+
     test('anchor-only selection resize does not save during active drag', () => {
         const editor = canvas.outlineEditor;
         const layerData = {
@@ -12624,6 +12649,59 @@ describe('OutlineEditor exact selected layers', () => {
         }
     );
 
+    test('keeps an empty transient background empty when interpolation has foreground paths', async () => {
+        canvas.outlineEditor.selectedLayerId = 'background-master-layer';
+        canvas.outlineEditor.glyphStack = 'A@background-master-layer';
+
+        await canvas.outlineEditor.fetchLayerData(true);
+
+        expect(interpolateSpy).toHaveBeenCalled();
+        expect(canvas.outlineEditor.layerData.isInterpolated).toBe(false);
+        expect(canvas.outlineEditor.layerData.width).toBe(500);
+        expect(canvas.outlineEditor.layerData.shapes).toEqual([]);
+    });
+
+    test('switches directly to a materialized background with copied path data', async () => {
+        const fontModel = fontManager.currentFont.fontModel;
+        const glyph = fontModel.findGlyph('A');
+        const foreground = glyph.findLayerById('master-layer');
+        const background = foreground.backgroundLayer;
+        const copiedPath = background.addPath(true);
+        copiedPath.nodes = [
+            { x: 225, y: 0, nodetype: 'Line' },
+            { x: 375, y: 0, nodetype: 'Line' },
+            { x: 375, y: 500, nodetype: 'Line' },
+            { x: 225, y: 500, nodetype: 'Line' }
+        ];
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = foreground.id;
+        canvas.outlineEditor.glyphStack = `A@${foreground.id}`;
+        await canvas.outlineEditor.fetchLayerData(true);
+
+        await canvas.outlineEditor.toggleBackgroundLayerEditing();
+
+        expect(canvas.outlineEditor.isEditingBackgroundLayer()).toBe(true);
+        expect(canvas.outlineEditor.isLayerSwitchAnimating).toBe(false);
+        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(225);
+    });
+
+    test('does not save an unmaterialized transient background layer', async () => {
+        const saveLayerDataSpy = jest.spyOn(fontManager, 'saveLayerData');
+        canvas.outlineEditor.selectedLayerId = 'background-master-layer';
+        canvas.outlineEditor.glyphStack = 'A@background-master-layer';
+        canvas.outlineEditor.layerData = {
+            id: 'background-master-layer',
+            width: 500,
+            shapes: [],
+            isInterpolated: false
+        };
+
+        await canvas.outlineEditor.saveLayerData('mouse-drag-outline');
+
+        expect(saveLayerDataSpy).not.toHaveBeenCalled();
+    });
+
     test('keeps exact selected layer data editable when interpolation fails', async () => {
         const consoleErrorSpy = jest
             .spyOn(console, 'error')
@@ -15890,6 +15968,41 @@ describe('GlyphCanvas keyboard handling', () => {
         canvas.onKeyDown(downEvent);
 
         expect(canvas.outlineEditor.isPreviewMode).toBe(true);
+    });
+
+    test('background layer shortcuts are handled globally outside the canvas', () => {
+        window.glyphCanvas = canvas;
+        canvas.outlineEditor.active = true;
+        const toggleBackground = jest
+            .spyOn(canvas.outlineEditor, 'toggleBackgroundLayerEditing')
+            .mockResolvedValue();
+        const togglePaired = jest.spyOn(
+            canvas.outlineEditor,
+            'togglePairedLayerVisible'
+        );
+
+        const backgroundEvent = new KeyboardEvent('keydown', {
+            code: 'KeyB',
+            metaKey: true,
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true
+        });
+        document.dispatchEvent(backgroundEvent);
+
+        const pairedVisibilityEvent = new KeyboardEvent('keydown', {
+            code: 'KeyB',
+            metaKey: true,
+            altKey: true,
+            bubbles: true,
+            cancelable: true
+        });
+        document.dispatchEvent(pairedVisibilityEvent);
+
+        expect(backgroundEvent.defaultPrevented).toBe(true);
+        expect(pairedVisibilityEvent.defaultPrevented).toBe(true);
+        expect(toggleBackground).toHaveBeenCalledTimes(1);
+        expect(togglePaired).toHaveBeenCalledTimes(1);
     });
 
     test('Tab activates measurement immediately and suppresses default focus navigation', () => {
