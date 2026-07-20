@@ -101,6 +101,24 @@ describe('node encoding boundary', () => {
         ]);
     });
 
+    test('round-trips every upstream node type token, including open-path moves', () => {
+        const nodes = [
+            { x: 0, y: 0, nodetype: 'Move', smooth: false },
+            { x: 10, y: 20, nodetype: 'Move', smooth: true },
+            { x: 30, y: 40, nodetype: 'Line', smooth: false },
+            { x: 50, y: 60, nodetype: 'OffCurve', smooth: true },
+            { x: 70, y: 80, nodetype: 'Curve', smooth: false },
+            { x: 90, y: 100, nodetype: 'QCurve', smooth: true }
+        ];
+
+        expect(serializeNodeArray(nodes)).toBe(
+            '0 0 m 10 20 ms 30 40 l 50 60 os 70 80 c 90 100 qs'
+        );
+        expect(
+            parseNodeString('0 0 m 10 20 ms 30 40 l 50 60 os 70 80 c 90 100 qs')
+        ).toEqual(nodes);
+    });
+
     test('preserves node format_specific JSON during string round-trip', () => {
         const nodes = [
             {

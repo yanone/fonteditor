@@ -461,6 +461,7 @@ fn decode_node_type_token(token: &str) -> (String, bool) {
         .map(|base| (base, true))
         .unwrap_or((token, false));
     let nodetype = match base {
+        "m" => "Move",
         "l" => "Line",
         "c" => "Curve",
         "q" => "QCurve",
@@ -4202,6 +4203,17 @@ mod tests {
         *FONT_CACHE.lock().unwrap() = previous_font_cache;
         FONT_CACHE_EPOCH.store(previous_font_epoch, Ordering::Relaxed);
         FONT_CACHE_BUILT_AT_EPOCH.store(previous_font_cache_epoch, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn decode_node_string_for_native_cache_accepts_upstream_move_tokens() {
+        assert_eq!(
+            decode_node_string_for_native_cache("0 0 m 10 20 ms"),
+            Ok(json!([
+                { "x": 0.0, "y": 0.0, "nodetype": "Move", "smooth": false },
+                { "x": 10.0, "y": 20.0, "nodetype": "Move", "smooth": true }
+            ]))
+        );
     }
 
     #[test]

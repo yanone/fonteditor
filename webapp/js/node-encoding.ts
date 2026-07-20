@@ -26,6 +26,7 @@ function encodeNodeType(node: NodeRecord, index: number): string {
     }
 
     const suffix = node.smooth === true ? 's' : '';
+    if (rawType === 'Move') return `m${suffix}`;
     if (rawType === 'Line') return `l${suffix}`;
     if (rawType === 'Curve') return `c${suffix}`;
     if (rawType === 'QCurve') return `q${suffix}`;
@@ -40,6 +41,7 @@ function decodeNodeType(token: string): { nodetype: string; smooth: boolean } {
 
     const smooth = token.endsWith('s');
     const baseToken = smooth ? token.slice(0, -1) : token;
+    if (baseToken === 'm') return { nodetype: 'Move', smooth };
     if (baseToken === 'l') return { nodetype: 'Line', smooth };
     if (baseToken === 'c') return { nodetype: 'Curve', smooth };
     if (baseToken === 'q') return { nodetype: 'QCurve', smooth };
