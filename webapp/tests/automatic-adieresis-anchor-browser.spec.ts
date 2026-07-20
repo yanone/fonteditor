@@ -1920,6 +1920,29 @@ test.describe('automatic adieresis anchor browser commit', () => {
         test.setTimeout(300000);
 
         await openFustatAutomaticAdieresisEditScenario(page);
+        const rightNeighborSnapCandidateCount = await page.evaluate(() => {
+            const win = window as any;
+            const outlineEditor = win.glyphCanvas?.outlineEditor;
+            const glyph = win.currentFontModel?.findGlyph?.('a');
+            const layer =
+                glyph?.findLayerById?.(outlineEditor?.getCurrentLayerId?.()) ||
+                glyph?.layers?.[0];
+            const topAnchor = layer?.anchors?.find(
+                (anchor: any) => anchor?.name === 'top'
+            );
+            if (!outlineEditor || !topAnchor) {
+                throw new Error('Missing Fustat adjacent-snap dependencies');
+            }
+
+            const cache = outlineEditor._buildSnapCandidateCache({
+                x: Number(topAnchor.x),
+                y: Number(topAnchor.y)
+            });
+            return cache.debugCandidates.filter(
+                (candidate: any) => candidate.source === 'right'
+            ).length;
+        });
+        expect(rightNeighborSnapCandidateCount).toBeGreaterThan(0);
         await installEditingFontCompileTracker(page);
 
         const beforeState = await getAdieresisCommitState(page);

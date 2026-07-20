@@ -30,6 +30,7 @@ import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
 import type { DesignspaceLocation, UserspaceLocation } from '../locations';
 import { SavedVariationState } from '../saved-variation-state';
 import { normalizeAffineTransform } from '../glyph-path-geometry';
+import { parseNodeString } from '../node-encoding';
 import {
     applyLiveSidebearingVisualSync,
     formatSidebearingHistoryValue,
@@ -7319,14 +7320,10 @@ export class OutlineEditor {
                               }
 
                               if ('nodes' in shape) {
-                                  if (!Array.isArray(shape.nodes)) {
-                                      throw new TypeError(
-                                          '[OutlineEditor] Path shape nodes must be an array before interpolation payload serialization.'
-                                      );
-                                  }
-
                                   const serializedPath: Record<string, any> = {
-                                      nodes: this.cloneLayerData(shape.nodes)
+                                      nodes: this.cloneLayerData(
+                                          parseNodeString(shape.nodes)
+                                      )
                                   };
 
                                   if (shape.closed !== undefined) {
