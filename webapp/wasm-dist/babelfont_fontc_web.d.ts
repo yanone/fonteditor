@@ -128,6 +128,7 @@ export function compile_preview_cached_font_from_last_layout_closure(
  * returns:
  * - `canonicalLayer`: the layer JSON currently stored in CANONICAL_JSON_CACHE
  * - `subsetLayer`: the layer JSON currently stored in SUBSET_JSON_CACHE, if any
+ * - `fontCacheLayer`: the typed layer currently stored in FONT_CACHE, if any
  * - `ydocLayer`: the layer JSON currently readable from the Rust Y.Doc, if any
  *
  * The payload also includes the current `fontCacheEpoch` and subset metadata.
@@ -562,20 +563,6 @@ export interface InitOutput {
         a: any
     ) => [number, number];
     readonly version: () => [number, number];
-    readonly add_master_with_interpolated_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
-    readonly reinterpolate_layer_yjs: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number];
-    readonly reinterpolate_master_layers_yjs: (
-        a: number,
-        b: number
-    ) => [number, number, number];
     readonly get_font_axes: (
         a: number,
         b: number
@@ -601,6 +588,20 @@ export interface InitOutput {
         a: number,
         b: number
     ) => [number, number, number, number];
+    readonly add_master_with_interpolated_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
+    readonly reinterpolate_layer_yjs: (
+        a: number,
+        b: number,
+        c: number,
+        d: number
+    ) => [number, number, number];
+    readonly reinterpolate_master_layers_yjs: (
+        a: number,
+        b: number
+    ) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (
         a: number,

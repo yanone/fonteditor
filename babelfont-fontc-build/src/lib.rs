@@ -838,7 +838,8 @@ fn get_or_rebuild_font_cache() -> Result<babelfont::Font, JsValue> {
         .as_ref()
         .ok_or_else(|| JsValue::from_str("No font loaded. Open a font first."))?;
 
-    let font: babelfont::Font = serde_json::from_value(json_value.clone())
+    let native_json_value = decode_font_node_strings_for_native_cache(json_value);
+    let font: babelfont::Font = serde_json::from_value(native_json_value)
         .map_err(|e| JsValue::from_str(&format!("Font deserialization error: {}", e)))?;
 
     let mut cache = FONT_CACHE.lock().unwrap();
@@ -3184,6 +3185,7 @@ fn dump_lock_error(cache_name: &str) -> JsValue {
 /// returns:
 /// - `canonicalLayer`: the layer JSON currently stored in CANONICAL_JSON_CACHE
 /// - `subsetLayer`: the layer JSON currently stored in SUBSET_JSON_CACHE, if any
+/// - `fontCacheLayer`: the typed layer currently stored in FONT_CACHE, if any
 /// - `ydocLayer`: the layer JSON currently readable from the Rust Y.Doc, if any
 ///
 /// The payload also includes the current `fontCacheEpoch` and subset metadata.
@@ -3227,10 +3229,14 @@ pub fn dump_layer_state_json(layer_targets_json: &str) -> Result<String, JsValue
         let subset_index_lock = SUBSET_GLYPH_INDEX_CACHE
             .lock()
             .map_err(|_| dump_lock_error("SUBSET_GLYPH_INDEX_CACHE"))?;
+        let font_cache_lock = FONT_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("FONT_CACHE"))?;
 
         let has_ydoc = ydoc_lock.is_some();
         let has_canonical_cache = canonical_lock.is_some();
         let has_subset_cache = subset_lock.is_some();
+        let has_font_cache = font_cache_lock.is_some();
 
         let subset_metadata = subset_lock.as_ref().map(|(subset_key, subset_epoch, _)| {
             serde_json::json!({
@@ -3244,6 +3250,7 @@ pub fn dump_layer_state_json(layer_targets_json: &str) -> Result<String, JsValue
         let canonical_index = canonical_index_lock.as_ref();
         let subset_json = subset_lock.as_ref().map(|(_, _, subset_json)| subset_json);
         let subset_index = subset_index_lock.as_ref().map(|(_, index)| index);
+        let font_cache = font_cache_lock.as_ref();
 
         let dumps: Vec<serde_json::Value> = targets
             .iter()
@@ -3267,6 +3274,19 @@ pub fn dump_layer_state_json(layer_targets_json: &str) -> Result<String, JsValue
                 let ydoc_layer = ydoc_txn.as_ref().and_then(|txn| {
                     ydoc_get_layer_json_with_txn(&target.glyph_name, &target.layer_id, txn)
                 });
+                let font_cache_layer = font_cache
+                    .and_then(|font| {
+                        font.glyphs
+                            .iter()
+                            .find(|glyph| glyph.name.as_str() == target.glyph_name)
+                    })
+                    .and_then(|glyph| {
+                        glyph
+                            .layers
+                            .iter()
+                            .find(|layer| layer.id.as_deref() == Some(&target.layer_id))
+                    })
+                    .and_then(|layer| serde_json::to_value(layer).ok());
 
                 serde_json::json!({
                     "glyphName": target.glyph_name,
@@ -3276,6 +3296,7 @@ pub fn dump_layer_state_json(layer_targets_json: &str) -> Result<String, JsValue
                     "ydocPresent": ydoc_layer.is_some(),
                     "canonicalLayer": canonical_layer,
                     "subsetLayer": subset_layer,
+                    "fontCacheLayer": font_cache_layer,
                     "ydocLayer": ydoc_layer,
                 })
             })
@@ -3288,6 +3309,7 @@ pub fn dump_layer_state_json(layer_targets_json: &str) -> Result<String, JsValue
         "hasYDoc": has_ydoc,
         "hasCanonicalCache": has_canonical_cache,
         "hasSubsetCache": has_subset_cache,
+        "hasFontCache": has_font_cache,
         })
     };
 
@@ -4687,6 +4709,15 @@ mod tests {
         .unwrap();
         assert_eq!(
             subset_cache_json["glyphs"][0]["layers"][0]["shapes"][1]["transform"]
+                ["translation"],
+            json!([8.0, 119.0])
+        );
+        let font_cache_json = serde_json::to_value(
+            FONT_CACHE.lock().unwrap().as_ref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            font_cache_json["glyphs"][0]["layers"][0]["shapes"][1]["transform"]
                 ["translation"],
             json!([8.0, 119.0])
         );

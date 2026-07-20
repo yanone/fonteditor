@@ -7,6 +7,7 @@ const { fontCompilation } = require('../js/font-compilation');
 const { Font, withSuppressedModelRecording } = require('../js/babelfont-model');
 const {
     deleteYPath,
+    getYPath,
     jsonToYDoc,
     setYPath,
     yDocToJson
@@ -3670,6 +3671,172 @@ describe('FontManager boundary-crossing budget', () => {
         buildWorkerYjsLayerUpdateSpy.mockRestore();
         applyMirrorSpy.mockRestore();
         syncJsonSpy.mockRestore();
+    });
+
+    test('forwardWorkerYjsUpdate merges a missing replay layer into one incremental worker packet', async () => {
+        const currentFont = fontManager.currentFont;
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const originalFontData = cloneJson(currentFont.babelfontData);
+        const sourceGlyphName = 'a';
+        const dependentGlyphName = 'worker-replay-target';
+        const sourceGlyph = originalFontData.glyphs.find(
+            (glyph) => glyph.name === sourceGlyphName
+        );
+        const concreteLayers = sourceGlyph.layers.filter(
+            (layer) =>
+                Number.isFinite(layer.width) &&
+                layer.width > 0 &&
+                !layer.is_background &&
+                !layer.id.endsWith('.bg')
+        );
+        const [sourceLayer] = concreteLayers;
+        const dependentLayer = {
+            id: 'worker-replay-target-layer',
+            width: 500,
+            master: cloneJson(sourceLayer.master),
+            shapes: []
+        };
+        originalFontData.glyphs.push({
+            name: dependentGlyphName,
+            exported: false,
+            layers: [cloneJson(dependentLayer)]
+        });
+        const sourceWidth = sourceLayer.width + 17;
+        const dependentWidth = dependentLayer.width + 23;
+        const updatedFontData = cloneJson(originalFontData);
+        const updatedSourceLayer = updatedFontData.glyphs
+            .find((glyph) => glyph.name === sourceGlyphName)
+            .layers.find((layer) => layer.id === sourceLayer.id);
+        const updatedDependentLayer = updatedFontData.glyphs
+            .find((glyph) => glyph.name === dependentGlyphName)
+            .layers.find((layer) => layer.id === dependentLayer.id);
+        updatedSourceLayer.width = sourceWidth;
+        updatedDependentLayer.width = dependentWidth;
+
+        const bridgeDoc = new Y.Doc();
+        jsonToYDoc(originalFontData, bridgeDoc.getMap('font'));
+        const initialWorkerState = Y.encodeStateAsUpdate(bridgeDoc);
+        fontManager.replaceWorkerYjsMirrorFromState(initialWorkerState);
+        fontManager.workerLayerFingerprintCache.set('baseline::layer', 'base');
+        window.patchSyncEngine = { fontMap: bridgeDoc.getMap('font') };
+
+        bridgeDoc.transact(() => {
+            setYPath(
+                bridgeDoc.getMap('font'),
+                [
+                    'glyphs',
+                    dependentGlyphName,
+                    'layers',
+                    dependentLayer.id,
+                    'width'
+                ],
+                dependentWidth
+            );
+        });
+        // The source delta starts after this dependent mutation, so it cannot
+        // contain the already-materialized dependent layer.
+        const sourceStateVector = Y.encodeStateVector(bridgeDoc);
+        bridgeDoc.transact(() => {
+            setYPath(
+                bridgeDoc.getMap('font'),
+                ['glyphs', sourceGlyphName, 'layers', sourceLayer.id, 'width'],
+                sourceWidth
+            );
+        });
+        const sourceOnlyUpdate = Y.encodeStateAsUpdate(
+            bridgeDoc,
+            sourceStateVector
+        );
+        const staleWorkerDoc = new Y.Doc();
+        Y.applyUpdate(staleWorkerDoc, initialWorkerState);
+        const refreshReplayTargetsSpy = jest.spyOn(
+            fontManager,
+            'refreshWorkerCacheForReplayTargets'
+        );
+
+        currentFont.babelfontData = updatedFontData;
+        currentFont.babelfontJson = JSON.stringify(updatedFontData);
+        currentFont.fontModel = Font.fromData(cloneJson(updatedFontData));
+        fontManager.resetBoundaryCrossingStats();
+
+        try {
+            await expect(
+                fontManager.forwardWorkerYjsUpdate(
+                    sourceOnlyUpdate,
+                    [sourceGlyphName],
+                    {
+                        invalidateLayoutClosure: false,
+                        layerTargets: [
+                            {
+                                glyphName: dependentGlyphName,
+                                layerId: dependentLayer.id
+                            }
+                        ]
+                    }
+                )
+            ).resolves.toBe(true);
+
+            const getLayerWidth = (doc, glyphName, layerId) =>
+                getYPath(doc.getMap('font'), [
+                    'glyphs',
+                    glyphName,
+                    'layers',
+                    layerId,
+                    'width'
+                ]);
+            const forwardedUpdate = sendMessageSpy.mock.calls[0][0].update;
+
+            expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+            expect(sendMessageSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'applyYjsUpdate',
+                    update: expect.any(Uint8Array),
+                    changedGlyphs: [sourceGlyphName],
+                    layerTargets: [
+                        {
+                            glyphName: dependentGlyphName,
+                            layerId: dependentLayer.id
+                        }
+                    ],
+                    invalidateLayoutClosure: false
+                })
+            );
+            expect(forwardedUpdate).not.toBe(sourceOnlyUpdate);
+            expect(refreshReplayTargetsSpy).not.toHaveBeenCalled();
+            expect(
+                sendMessageSpy.mock.calls.some(
+                    ([message]) =>
+                        message?.type === 'storeFontJson' ||
+                        message?.type === 'seedYdoc' ||
+                        message?.type === 'initYdoc'
+                )
+            ).toBe(false);
+
+            Y.applyUpdate(staleWorkerDoc, forwardedUpdate);
+            expect(
+                getLayerWidth(
+                    staleWorkerDoc,
+                    dependentGlyphName,
+                    dependentLayer.id
+                )
+            ).toBe(dependentWidth);
+            expect(
+                getLayerWidth(
+                    fontManager.workerCacheYDoc,
+                    dependentGlyphName,
+                    dependentLayer.id
+                )
+            ).toBe(dependentWidth);
+            expect(fontManager.getBoundaryCrossingStats()).toEqual({
+                submitBatchCalls: 1,
+                layersTransmitted: 1,
+                glyphsTransmitted: 1,
+                fullFontCrossings: 0
+            });
+        } finally {
+            refreshReplayTargetsSpy.mockRestore();
+            window.patchSyncEngine = originalPatchSyncEngine;
+        }
     });
 
     test('forwardWorkerYjsUpdate falls back to model shapes when the bridge target is shape-empty', async () => {

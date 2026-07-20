@@ -12717,7 +12717,6 @@ export class OutlineEditor {
                     // committed-change funnel (onCommittedChange →
                     // handleCommittedChangeRefresh) for all drag types,
                     // so no separate dependent-glyph sync is needed here.
-                    fontManager.flushPendingDebugEditingFontSaveAfterDrag();
                 }
             } catch (error) {
                 endDragTransaction();

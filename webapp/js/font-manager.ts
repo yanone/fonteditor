@@ -2917,8 +2917,11 @@ class FontManager {
             // Hide any error messages in sidebar
             sidebarErrorDisplay.hideError();
 
-            // Save debug editing font unless we're actively dragging points/anchors/components
+            // Live drag previews are not commit-safe debug artifacts. Persist
+            // only the authoritative Yjs compile that follows the drag.
             const isOutlineDragActive = dragActiveAtRequest;
+            const isAuthoritativeCommittedCompile =
+                dataFreshnessModeAtRequest === 'authoritative-worker-yjs';
 
             const debugSaveSpanId = timelineSpanStart(
                 'font.compileEditing.debugFontSaveCheck',
@@ -2928,7 +2931,7 @@ class FontManager {
                     isOutlineDragActive
                 }
             );
-            if (isOutlineDragActive) {
+            if (isOutlineDragActive && !isAuthoritativeCommittedCompile) {
                 this.pendingDebugEditingFontSaveAfterDrag = true;
             } else {
                 this.saveEditingFontToFileSystem();
@@ -3239,27 +3242,6 @@ class FontManager {
                 pluginId: 'memory'
             }
         );
-    }
-
-    flushPendingDebugEditingFontSaveAfterDrag() {
-        if (!this.pendingDebugEditingFontSaveAfterDrag) {
-            return;
-        }
-
-        if (window.glyphCanvas?.outlineEditor?.draggingSomething) {
-            return;
-        }
-
-        if (this.currentFont?.needsRecompile) {
-            return;
-        }
-
-        if (!this.editingFont) {
-            return;
-        }
-
-        this.saveEditingFontToFileSystem();
-        this.pendingDebugEditingFontSaveAfterDrag = false;
     }
 
     /**
@@ -4840,8 +4822,58 @@ class FontManager {
             this.bootstrapWorkerYjsMirrorFromCurrentFont();
         }
 
+        let workerUpdate = update;
+        if (targetLayerUpdates?.updates.length) {
+            const workerMirrorAfterUpdate = this.cloneWorkerYjsMirror();
+            if (workerMirrorAfterUpdate) {
+                Y.applyUpdate(workerMirrorAfterUpdate, update);
+                const workerFontMap = workerMirrorAfterUpdate.getMap('font');
+                const missingReplayLayerUpdates = targetLayerUpdates.updates
+                    .map(({ glyphName, layerId, layerData }) => ({
+                        glyphName,
+                        layerId,
+                        normalized: this.normalizeLayerForRust(layerData)
+                    }))
+                    .filter(({ glyphName, layerId, normalized }) => {
+                        const workerLayer = getYPath(workerFontMap, [
+                            'glyphs',
+                            glyphName,
+                            'layers',
+                            layerId
+                        ]);
+                        if (!workerLayer) {
+                            return true;
+                        }
+                        const workerLayerData = fromYType(
+                            workerLayer
+                        ) as Babelfont.Layer;
+                        try {
+                            return (
+                                this.getLayerWorkerFingerprint(
+                                    workerLayerData
+                                ) !== this.getLayerWorkerFingerprint(normalized)
+                            );
+                        } catch (_error) {
+                            return true;
+                        }
+                    });
+                const replayLayerUpdate = this.buildWorkerYjsLayerUpdateForDoc(
+                    workerMirrorAfterUpdate,
+                    missingReplayLayerUpdates
+                );
+                if (replayLayerUpdate?.update.length) {
+                    // Preserve the original authoritative Yjs delta and append
+                    // only replay layers that the worker mirror still lacks.
+                    workerUpdate = Y.mergeUpdates([
+                        update,
+                        replayLayerUpdate.update
+                    ]);
+                }
+            }
+        }
+
         const sent = await this.sendWorkerYjsUpdate(
-            update,
+            workerUpdate,
             normalizedChangedGlyphs,
             options?.invalidateLayoutClosure !== false,
             normalizedNonGlyphChangeHints,
@@ -4853,7 +4885,7 @@ class FontManager {
             return false;
         }
 
-        this.applyWorkerYjsUpdateToMirror(update);
+        this.applyWorkerYjsUpdateToMirror(workerUpdate);
 
         for (const fingerprintKey of removedFingerprintKeys) {
             this.workerLayerFingerprintCache.delete(fingerprintKey);

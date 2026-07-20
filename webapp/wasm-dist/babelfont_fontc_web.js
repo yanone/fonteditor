@@ -300,6 +300,7 @@ export function compile_preview_cached_font_from_last_layout_closure(options) {
  * returns:
  * - `canonicalLayer`: the layer JSON currently stored in CANONICAL_JSON_CACHE
  * - `subsetLayer`: the layer JSON currently stored in SUBSET_JSON_CACHE, if any
+ * - `fontCacheLayer`: the typed layer currently stored in FONT_CACHE, if any
  * - `ydocLayer`: the layer JSON currently readable from the Rust Y.Doc, if any
  *
  * The payload also includes the current `fontCacheEpoch` and subset metadata.

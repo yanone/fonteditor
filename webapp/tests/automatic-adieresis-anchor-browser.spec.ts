@@ -275,6 +275,186 @@ async function getEditingFontCompileTracker(page: Page): Promise<{
     }));
 }
 
+async function installEditingWorkerPipelineTracker(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const testWindow = window as any;
+        if (testWindow.__automaticAdieresisWorkerPipelineTrackerInstalled) {
+            return;
+        }
+
+        const compiler = testWindow.fontCompilation;
+        if (!compiler || typeof compiler.sendMessage !== 'function') {
+            throw new Error('Editing worker message client is unavailable');
+        }
+
+        const hashBytes = (value: unknown): string | null => {
+            const bytes =
+                value instanceof Uint8Array
+                    ? value
+                    : value instanceof ArrayBuffer
+                      ? new Uint8Array(value)
+                      : ArrayBuffer.isView(value)
+                        ? new Uint8Array(
+                              value.buffer,
+                              value.byteOffset,
+                              value.byteLength
+                          )
+                        : null;
+            if (!bytes?.length) {
+                return null;
+            }
+            let hash = 2166136261;
+            for (let index = 0; index < bytes.length; index += 1) {
+                hash ^= bytes[index];
+                hash = Math.imul(hash, 16777619);
+            }
+            return `${bytes.length}:${(hash >>> 0).toString(16)}`;
+        };
+
+        testWindow.__automaticAdieresisWorkerPipelineEvents = [];
+        const originalSendMessage = compiler.sendMessage.bind(compiler);
+        compiler.sendMessage = async (message: any) => {
+            const isTrackedMessage =
+                message?.type === 'applyYjsUpdate' ||
+                message?.type === 'compileEditingCached';
+            const event = isTrackedMessage
+                ? {
+                      type: message.type,
+                      changedGlyphs: Array.isArray(message.changedGlyphs)
+                          ? [...message.changedGlyphs]
+                          : [],
+                      layerTargets: Array.isArray(message.layerTargets)
+                          ? message.layerTargets.map((target: any) => ({
+                                glyphName: target?.glyphName ?? null,
+                                layerId: target?.layerId ?? null
+                            }))
+                          : [],
+                      invalidateLayoutClosure:
+                          message.invalidateLayoutClosure ?? null,
+                      fontRevisionKey: message.fontRevisionKey ?? null,
+                      dragActive: message._dragActive ?? null,
+                      usePreviewLayerOverlay:
+                          message._usePreviewLayerOverlay ?? null,
+                      resultHash: null,
+                      workerCacheStatus: null
+                  }
+                : null;
+            if (event) {
+                testWindow.__automaticAdieresisWorkerPipelineEvents.push(event);
+            }
+
+            const response = await originalSendMessage(message);
+            if (event) {
+                event.resultHash = hashBytes(response?.result);
+                event.workerCacheStatus = response?.workerCacheStatus ?? null;
+            }
+            return response;
+        };
+        testWindow.__automaticAdieresisWorkerPipelineTrackerInstalled = true;
+    });
+}
+
+async function resetEditingWorkerPipelineTracker(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        (window as any).__automaticAdieresisWorkerPipelineEvents = [];
+    });
+}
+
+async function getEditingWorkerPipelineTracker(page: Page): Promise<{
+    events: Array<{
+        type: string;
+        changedGlyphs: string[];
+        layerTargets: Array<{
+            glyphName: string | null;
+            layerId: string | null;
+        }>;
+        invalidateLayoutClosure: boolean | null;
+        fontRevisionKey: string | number | null;
+        dragActive: boolean | null;
+        usePreviewLayerOverlay: boolean | null;
+        resultHash: string | null;
+        workerCacheStatus: {
+            documentEpoch?: number;
+            filterEpoch?: number;
+            subsetCacheEpoch?: number;
+        } | null;
+    }>;
+    filterEpoch: number | null;
+    subsetCacheEpoch: number | null;
+}> {
+    return page.evaluate(() => {
+        const fontManager = (window as any).fontManager;
+        return {
+            events:
+                (window as any).__automaticAdieresisWorkerPipelineEvents ?? [],
+            filterEpoch: Number.isFinite(fontManager?.lastWorkerFilterEpoch)
+                ? fontManager.lastWorkerFilterEpoch
+                : null,
+            subsetCacheEpoch: Number.isFinite(
+                fontManager?.lastWorkerSubsetCacheEpoch
+            )
+                ? fontManager.lastWorkerSubsetCacheEpoch
+                : null
+        };
+    });
+}
+
+async function installDebugEditingFontSaveTracker(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const testWindow = window as any;
+        if (testWindow.__automaticAdieresisDebugSaveTrackerInstalled) return;
+
+        if (typeof testWindow.uploadFiles !== 'function') {
+            throw new Error('Debug font upload handler is unavailable');
+        }
+        testWindow.APP_SETTINGS.FONT_MANAGER.SAVE_DEBUG_FONTS = true;
+        testWindow.__automaticAdieresisDebugSaveCount = 0;
+        testWindow.__automaticAdieresisDebugSaveFiles = [];
+        testWindow.uploadFiles = (files: File[]) => {
+            const debugFont = files.find(
+                (file) => file.name === '_debug_editing_font.ttf'
+            );
+            if (debugFont) {
+                testWindow.__automaticAdieresisDebugSaveCount += 1;
+                testWindow.__automaticAdieresisDebugSaveFiles.push(debugFont);
+            }
+        };
+        testWindow.__automaticAdieresisDebugSaveTrackerInstalled = true;
+    });
+}
+
+async function resetDebugEditingFontSaveCount(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        (window as any).__automaticAdieresisDebugSaveCount = 0;
+        (window as any).__automaticAdieresisDebugSaveFiles = [];
+    });
+}
+
+async function getDebugEditingFontSaveCount(page: Page): Promise<number> {
+    return page.evaluate(
+        () => (window as any).__automaticAdieresisDebugSaveCount ?? 0
+    );
+}
+
+async function savedDebugEditingFontMatchesCurrentFont(
+    page: Page
+): Promise<boolean> {
+    return page.evaluate(async () => {
+        const testWindow = window as any;
+        const savedFont = testWindow.__automaticAdieresisDebugSaveFiles?.[0];
+        const currentFont = testWindow.fontManager?.editingFont;
+        if (!savedFont || !currentFont) {
+            return false;
+        }
+
+        const savedBytes = new Uint8Array(await savedFont.arrayBuffer());
+        if (savedBytes.length !== currentFont.length) {
+            return false;
+        }
+        return savedBytes.every((value, index) => value === currentFont[index]);
+    });
+}
+
 async function waitForEditingFontCompileEvent(
     page: Page,
     previousCount: number
@@ -384,12 +564,12 @@ async function installEditingFontVisualProbe(page: Page): Promise<void> {
         if (testWindow.__automaticAdieresisVisualProbeInstalled) return;
 
         testWindow.__automaticAdieresisSampleCounter = 0;
-        testWindow.__sampleAutomaticAdieresisEditingFont = async (
+        const sampleFontBytes = async (
+            rawFont: Uint8Array | ArrayBuffer,
             text: string
         ): Promise<EditingFontVisualSample> => {
-            const rawFont = (window as any).fontManager?.editingFont;
             if (!rawFont || !rawFont.byteLength) {
-                throw new Error('No editing font available');
+                throw new Error('No compiled font available');
             }
 
             const bytes =
@@ -459,6 +639,12 @@ async function installEditingFontVisualProbe(page: Page): Promise<void> {
             };
         };
 
+        testWindow.__sampleAutomaticAdieresisEditingFont = async (
+            text: string
+        ): Promise<EditingFontVisualSample> =>
+            sampleFontBytes((window as any).fontManager?.editingFont, text);
+        testWindow.__sampleAutomaticAdieresisFontBytes = sampleFontBytes;
+
         testWindow.__automaticAdieresisVisualProbeInstalled = true;
     });
 }
@@ -472,6 +658,108 @@ async function getEditingFontVisualSample(
             (window as any).__sampleAutomaticAdieresisEditingFont(sampleText),
         text
     );
+}
+
+async function getCachedCompilationGlyphPath(
+    page: Page,
+    glyphName: string,
+    lane: 'canonical' | 'subset' | 'full-export'
+): Promise<string> {
+    return page.evaluate(
+        async ({ selectedGlyphName, selectedLane }) => {
+            const win = window as any;
+            const compiler =
+                selectedLane === 'full-export'
+                    ? win.fullFontCompilation
+                    : win.fontCompilation;
+            const textRunEditor = win.glyphCanvas?.textRunEditor;
+            if (!compiler || !textRunEditor?.fontBlob) {
+                throw new Error(
+                    'Compiled-glyph probe dependencies are unavailable'
+                );
+            }
+
+            if (selectedLane === 'full-export') {
+                await compiler.bootstrapWorkerCacheFromFontState(
+                    win.fontManager?.buildWorkerSeedYjsState?.()
+                );
+            }
+            const compiled =
+                selectedLane === 'canonical'
+                    ? await compiler.compileCached('user', 'cache-probe.ttf')
+                    : selectedLane === 'subset'
+                      ? await compiler.compileCommittedDebugFont(
+                            ['a', 'adieresis', 'dieresiscomb'],
+                            'subset-probe.ttf',
+                            'editing'
+                        )
+                      : await compiler.compileCached(
+                            'user',
+                            'export-probe.ttf'
+                        );
+            const originalFont = textRunEditor.fontBlob;
+            textRunEditor.swapFontBlob(compiled.result);
+            try {
+                const glyphId =
+                    textRunEditor.editingFontNameToGid?.get(selectedGlyphName);
+                if (!Number.isInteger(glyphId) || !textRunEditor.hbFont) {
+                    throw new Error(
+                        `Compiled glyph ${selectedGlyphName} is unavailable`
+                    );
+                }
+                return JSON.stringify(
+                    textRunEditor.hbFont.glyphToPath(glyphId)
+                );
+            } finally {
+                textRunEditor.swapFontBlob(originalFont);
+            }
+        },
+        { selectedGlyphName: glyphName, selectedLane: lane }
+    );
+}
+
+async function getEditingFontGlyphPathFromBytes(
+    page: Page,
+    glyphName: string
+): Promise<string> {
+    return page.evaluate((selectedGlyphName) => {
+        const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
+        const editingFont = (window as any).fontManager?.editingFont;
+        if (!textRunEditor?.fontBlob || !editingFont) {
+            throw new Error(
+                'In-memory editing font probe dependencies are unavailable'
+            );
+        }
+
+        const originalFont = textRunEditor.fontBlob;
+        textRunEditor.swapFontBlob(editingFont);
+        try {
+            const glyphId =
+                textRunEditor.editingFontNameToGid?.get(selectedGlyphName);
+            if (!Number.isInteger(glyphId) || !textRunEditor.hbFont) {
+                throw new Error(
+                    `In-memory editing glyph ${selectedGlyphName} is unavailable`
+                );
+            }
+            return JSON.stringify(textRunEditor.hbFont.glyphToPath(glyphId));
+        } finally {
+            textRunEditor.swapFontBlob(originalFont);
+        }
+    }, glyphName);
+}
+
+async function getCompiledGlyphPath(
+    page: Page,
+    glyphName: string
+): Promise<string> {
+    return page.evaluate((name) => {
+        const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
+        const glyphId = textRunEditor?.editingFontNameToGid?.get(name);
+        if (!Number.isInteger(glyphId) || !textRunEditor?.hbFont) {
+            throw new Error(`Compiled glyph path unavailable for ${name}`);
+        }
+        return JSON.stringify(textRunEditor.hbFont.glyphToPath(glyphId));
+    }, glyphName);
 }
 
 function expectVisualSampleChanged(
@@ -650,6 +938,47 @@ async function commitTopAnchorMoveThroughEditor(
 
         await fontManager.clearLiveDragPreview?.();
         glyphCanvas.render?.();
+    }, deltaY);
+}
+
+async function commitTopAnchorMoveThroughMouseUp(
+    page: Page,
+    deltaY: number
+): Promise<void> {
+    await page.evaluate(async (anchorDeltaY) => {
+        const win = window as any;
+        const glyphCanvas = win.glyphCanvas;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+        const bridge = win.patchSyncEngine;
+        if (!glyphCanvas || !outlineEditor || !bridge) {
+            throw new Error('Missing editor dependencies for anchor mouseup');
+        }
+
+        const layerData = outlineEditor.getCurrentLayerDataFromStack?.();
+        const topAnchorIndex = layerData?.anchors?.findIndex(
+            (anchor: any) => anchor?.name === 'top'
+        );
+        if (typeof topAnchorIndex !== 'number' || topAnchorIndex < 0) {
+            throw new Error('Missing top anchor on active glyph');
+        }
+
+        const layerId = outlineEditor.getCurrentLayerId?.() || 'M0';
+        outlineEditor.selectedLayerId = layerId;
+        outlineEditor.selectedAnchors = [topAnchorIndex];
+        outlineEditor.parseGlyphStack = () => [{ glyphName: 'a' }];
+        glyphCanvas.getCurrentGlyphName = () => 'a';
+        outlineEditor.isDraggingAnchor = true;
+        outlineEditor._dragType = 'anchor';
+        outlineEditor._hasMoved = false;
+        outlineEditor._preDragDesc = outlineEditor._buildAnchorDesc?.() ?? null;
+        bridge.beginTransaction('Drag anchor');
+
+        if (!outlineEditor.moveSelectedAnchors(0, anchorDeltaY)) {
+            bridge.endTransaction();
+            throw new Error('moveSelectedAnchors returned false');
+        }
+        outlineEditor._hasMoved = true;
+        await outlineEditor.onMouseUp(new MouseEvent('mouseup'));
     }, deltaY);
 }
 
@@ -879,6 +1208,7 @@ async function getAdieresisCommitState(page: Page): Promise<{
     workerYDocTranslation: Translation;
     workerCanonicalTranslation: Translation;
     workerSubsetTranslation: Translation;
+    workerFontCacheTranslation: Translation;
     recentLayerEntry: any;
 }> {
     return page.evaluate(async () => {
@@ -1013,6 +1343,10 @@ async function getAdieresisCommitState(page: Page): Promise<{
             ),
             workerSubsetTranslation: getTranslation(
                 workerTarget?.subsetLayer,
+                'dieresiscomb'
+            ),
+            workerFontCacheTranslation: getTranslation(
+                workerTarget?.fontCacheLayer,
                 'dieresiscomb'
             ),
             recentLayerEntry:
@@ -1665,6 +1999,7 @@ test.describe('automatic adieresis anchor browser commit', () => {
         await openAutomaticAdieresisEditScenario(page);
         await installEditingFontCompileTracker(page);
         await installEditingFontVisualProbe(page);
+        await installEditingWorkerPipelineTracker(page);
 
         const beforeState = await getAdieresisCommitState(page);
         const beforeCompiledAdieresis = await getEditingFontVisualSample(
@@ -1680,6 +2015,9 @@ test.describe('automatic adieresis anchor browser commit', () => {
             beforeState.bridgeTranslation
         );
 
+        const workerPipelineBeforeDrag =
+            await getEditingWorkerPipelineTracker(page);
+        await resetEditingWorkerPipelineTracker(page);
         const afterAnchor = await dragTopAnchorThroughUi(page, -40);
         const committedCompileRequestVersion =
             await getCurrentCompileRequestVersion(page);
@@ -1697,6 +2035,48 @@ test.describe('automatic adieresis anchor browser commit', () => {
             committedCompileEvent,
             JSON.stringify(compileTrackerAfterDrag)
         ).toBeTruthy();
+        const workerPipelineAfterDrag =
+            await getEditingWorkerPipelineTracker(page);
+        const committedWorkerUpdate = workerPipelineAfterDrag.events.find(
+            (event) =>
+                event.type === 'applyYjsUpdate' &&
+                event.changedGlyphs.includes('a') &&
+                event.layerTargets.some(
+                    (target) => target.glyphName === 'adieresis'
+                ) &&
+                event.workerCacheStatus !== null
+        );
+        expect(
+            committedWorkerUpdate,
+            JSON.stringify(workerPipelineAfterDrag)
+        ).toBeTruthy();
+        expect(committedWorkerUpdate?.invalidateLayoutClosure).toBe(false);
+        expect(
+            committedWorkerUpdate?.layerTargets.some(
+                (target) => target.glyphName === 'a'
+            )
+        ).toBe(true);
+        expect(
+            committedWorkerUpdate?.workerCacheStatus?.filterEpoch
+        ).toBeGreaterThan(workerPipelineBeforeDrag.filterEpoch ?? -1);
+        expect(
+            committedWorkerUpdate?.workerCacheStatus?.subsetCacheEpoch
+        ).toBeGreaterThan(0);
+
+        const committedWorkerCompile = workerPipelineAfterDrag.events.find(
+            (event) =>
+                event.type === 'compileEditingCached' &&
+                Number(event.fontRevisionKey) >=
+                    committedCompileRequestVersion &&
+                event.usePreviewLayerOverlay === false
+        );
+        expect(
+            committedWorkerCompile,
+            JSON.stringify(workerPipelineAfterDrag)
+        ).toBeTruthy();
+        expect(committedWorkerCompile?.resultHash).toEqual(
+            compileTrackerAfterDrag.hash
+        );
         const expectedTranslation: [number, number] = [
             afterAnchor.anchorX - 150,
             afterAnchor.anchorY
@@ -1944,11 +2324,38 @@ test.describe('automatic adieresis anchor browser commit', () => {
         });
         expect(rightNeighborSnapCandidateCount).toBeGreaterThan(0);
         await installEditingFontCompileTracker(page);
+        await installEditingFontVisualProbe(page);
+        await installDebugEditingFontSaveTracker(page);
+        await installEditingWorkerPipelineTracker(page);
 
         const beforeState = await getAdieresisCommitState(page);
+        const beforeCanonicalCache = await getCachedCompilationGlyphPath(
+            page,
+            'adieresis',
+            'canonical'
+        );
+        const beforeSubsetCache = await getCachedCompilationGlyphPath(
+            page,
+            'adieresis',
+            'subset'
+        );
+        const beforeFullExportCache = await getCachedCompilationGlyphPath(
+            page,
+            'adieresis',
+            'full-export'
+        );
+        const beforeEditingFontBytes = await getEditingFontGlyphPathFromBytes(
+            page,
+            'adieresis'
+        );
+        const beforeCompiledAdieresisPath = await getCompiledGlyphPath(
+            page,
+            'adieresis'
+        );
         const compileTrackerBeforeDrag =
             await getEditingFontCompileTracker(page);
         expect(beforeState.bridgeTranslation).not.toBeNull();
+        expect(beforeState.workerSubsetTranslation).not.toBeNull();
         expect(beforeState.modelTranslation).toEqual(
             beforeState.bridgeTranslation
         );
@@ -1958,8 +2365,15 @@ test.describe('automatic adieresis anchor browser commit', () => {
         expect(beforeState.workerCanonicalTranslation).toEqual(
             beforeState.bridgeTranslation
         );
+        expect(beforeState.workerFontCacheTranslation).toEqual(
+            beforeState.bridgeTranslation
+        );
 
-        await commitTopAnchorMoveThroughEditor(page, -40);
+        await resetDebugEditingFontSaveCount(page);
+        const workerPipelineBeforeDrag =
+            await getEditingWorkerPipelineTracker(page);
+        await resetEditingWorkerPipelineTracker(page);
+        await commitTopAnchorMoveThroughMouseUp(page, -40);
         const committedCompileRequestVersion =
             await getCurrentCompileRequestVersion(page);
         await waitForEditingFontCompileRevision(
@@ -1970,6 +2384,53 @@ test.describe('automatic adieresis anchor browser commit', () => {
             await getEditingFontCompileTracker(page);
         expect(compileTrackerAfterDrag.count).toBeGreaterThan(
             compileTrackerBeforeDrag.count
+        );
+        expect(compileTrackerAfterDrag.hash).not.toEqual(
+            compileTrackerBeforeDrag.hash
+        );
+        expect(await getDebugEditingFontSaveCount(page)).toBe(1);
+        expect(await savedDebugEditingFontMatchesCurrentFont(page)).toBe(true);
+        const workerPipelineAfterDrag =
+            await getEditingWorkerPipelineTracker(page);
+        const committedWorkerUpdate = workerPipelineAfterDrag.events.find(
+            (event) =>
+                event.type === 'applyYjsUpdate' &&
+                event.changedGlyphs.includes('a') &&
+                event.layerTargets.some(
+                    (target) => target.glyphName === 'adieresis'
+                ) &&
+                event.workerCacheStatus !== null
+        );
+        expect(
+            committedWorkerUpdate,
+            JSON.stringify(workerPipelineAfterDrag)
+        ).toBeTruthy();
+        expect(committedWorkerUpdate?.invalidateLayoutClosure).toBe(false);
+        expect(
+            committedWorkerUpdate?.layerTargets.some(
+                (target) => target.glyphName === 'a'
+            )
+        ).toBe(true);
+        expect(
+            committedWorkerUpdate?.workerCacheStatus?.filterEpoch
+        ).toBeGreaterThan(workerPipelineBeforeDrag.filterEpoch ?? -1);
+        expect(
+            committedWorkerUpdate?.workerCacheStatus?.subsetCacheEpoch
+        ).toBeGreaterThan(0);
+
+        const committedWorkerCompile = workerPipelineAfterDrag.events.find(
+            (event) =>
+                event.type === 'compileEditingCached' &&
+                Number(event.fontRevisionKey) >=
+                    committedCompileRequestVersion &&
+                event.usePreviewLayerOverlay === false
+        );
+        expect(
+            committedWorkerCompile,
+            JSON.stringify(workerPipelineAfterDrag)
+        ).toBeTruthy();
+        expect(committedWorkerCompile?.resultHash).toEqual(
+            compileTrackerAfterDrag.hash
         );
 
         const afterState = await getAdieresisCommitState(page);
@@ -1991,10 +2452,46 @@ test.describe('automatic adieresis anchor browser commit', () => {
         expect(afterState.workerCanonicalTranslation).toEqual(
             afterState.bridgeTranslation
         );
-        if (afterState.workerSubsetTranslation !== null) {
-            expect(afterState.workerSubsetTranslation).toEqual(
-                afterState.bridgeTranslation
-            );
-        }
+        expect(afterState.workerSubsetTranslation).toEqual(
+            afterState.bridgeTranslation
+        );
+        expect(afterState.workerFontCacheTranslation).toEqual(
+            afterState.bridgeTranslation
+        );
+
+        const afterCanonicalCache = await getCachedCompilationGlyphPath(
+            page,
+            'adieresis',
+            'canonical'
+        );
+        const afterSubsetCache = await getCachedCompilationGlyphPath(
+            page,
+            'adieresis',
+            'subset'
+        );
+        const afterFullExportCache = await getCachedCompilationGlyphPath(
+            page,
+            'adieresis',
+            'full-export'
+        );
+        const afterEditingFontBytes = await getEditingFontGlyphPathFromBytes(
+            page,
+            'adieresis'
+        );
+        expect(afterFullExportCache).not.toEqual(beforeFullExportCache);
+        expect(afterCanonicalCache).not.toEqual(beforeCanonicalCache);
+        expect(afterSubsetCache).not.toEqual(beforeSubsetCache);
+        expect(afterEditingFontBytes).not.toEqual(beforeEditingFontBytes);
+        expect(afterCanonicalCache).toEqual(afterFullExportCache);
+        expect(afterSubsetCache).toEqual(afterFullExportCache);
+        expect(afterEditingFontBytes).toEqual(afterFullExportCache);
+        const afterCompiledAdieresisPath = await getCompiledGlyphPath(
+            page,
+            'adieresis'
+        );
+        expect(afterCompiledAdieresisPath).not.toEqual(
+            beforeCompiledAdieresisPath
+        );
+        expect(afterCompiledAdieresisPath).toEqual(afterFullExportCache);
     });
 });
