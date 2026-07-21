@@ -16014,6 +16014,14 @@ export class OutlineEditor {
             return;
         }
 
+        if (currentLayerData.id !== currentLayerModel.id) {
+            // A virtual background receives a persisted sibling ID when its
+            // first path is added. Its old canvas snapshot belongs to the
+            // virtual ID, so replace it rather than merging across identities.
+            this.applyExactSelectedLayerData(rawLayerData);
+            return;
+        }
+
         const preferExactComponentTransforms =
             this.shouldPreferExactSelectedLayerComponentTransforms(
                 currentLayerModel

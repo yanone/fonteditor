@@ -419,6 +419,37 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
         expect(pairedGhostPathIndex).toBeGreaterThan(activePathIndex);
     });
 
+    test('drawOutlineEditor renders a paired ghost for an otherwise empty selected layer', () => {
+        canvas.outlineEditor.layerData.anchors = [];
+        canvas.outlineEditor.layerData.guides = [];
+        canvas.outlineEditor.setPairedLayerVisible(true);
+        const getPairedLayerModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getPairedLayerModel')
+            .mockReturnValue({
+                toJSON: () => ({
+                    shapes: [
+                        {
+                            nodes: '100 0 l 400 0 l 400 700 l 100 700 l',
+                            closed: true
+                        }
+                    ]
+                })
+            });
+        const drawPairedLayerGhostSpy = jest.spyOn(
+            canvas.renderer,
+            'drawPairedLayerGhost'
+        );
+        canvas.renderer.ctx.moveTo.mockClear();
+        canvas.renderer.ctx.lineTo.mockClear();
+
+        canvas.renderer.drawOutlineEditor();
+
+        expect(drawPairedLayerGhostSpy).toHaveBeenCalled();
+        expect(getPairedLayerModelSpy).toHaveBeenCalled();
+        expect(canvas.renderer.ctx.moveTo).toHaveBeenCalledWith(100, 0);
+        expect(canvas.renderer.ctx.lineTo).toHaveBeenCalledWith(400, 0);
+    });
+
     test('persists paired layer visibility across canvas instances', () => {
         const storageKey = 'outlineEditorPairedLayerVisible';
         localStorage.removeItem(storageKey);
@@ -12723,8 +12754,64 @@ describe('OutlineEditor exact selected layers', () => {
         await canvas.outlineEditor.toggleBackgroundLayerEditing();
 
         expect(canvas.outlineEditor.isEditingBackgroundLayer()).toBe(true);
+        expect(canvas.outlineEditor.getPairedLayerModel().id).toBe(
+            foreground.id
+        );
         expect(canvas.outlineEditor.isLayerSwitchAnimating).toBe(false);
         expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(225);
+    });
+
+    test('keeps drawing on a materialized background sibling after its first node', () => {
+        const fontModel = fontManager.currentFont.fontModel;
+        const glyph = fontModel.findGlyph('A');
+        const foreground = glyph.findLayerById('master-layer');
+        const virtualBackground = foreground.backgroundLayer;
+        const queueCompileSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'queueStructuralOutlineCompileFromModel'
+            )
+            .mockImplementation(() => {});
+        const transformSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 100, glyphY: 200 });
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = virtualBackground.id;
+        canvas.outlineEditor.glyphStack = `A@${virtualBackground.id}`;
+        canvas.outlineEditor.layerData = virtualBackground.toJSON();
+
+        try {
+            expect(canvas.outlineEditor['startNewPathDrawingSession']()).toBe(
+                true
+            );
+
+            const background = glyph.findLayerById(
+                foreground.background_layer_id
+            );
+            expect(background?.is_background).toBe(true);
+            expect(canvas.outlineEditor.selectedLayerId).toBe(background.id);
+            expect(canvas.outlineEditor.glyphStack).toBe(`A@${background.id}`);
+            expect(canvas.outlineEditor.layerData.id).toBe(background.id);
+            expect(canvas.outlineEditor.getCurrentLayerModel().id).toBe(
+                background.id
+            );
+
+            expect(
+                canvas.outlineEditor['appendLineToPathSession'](
+                    canvas.outlineEditor.activePathDrawingSession,
+                    { x: 150, y: 250 }
+                )
+            ).toBe(true);
+            expect(background.paths[0].nodes).toHaveLength(2);
+            expect(canvas.outlineEditor.selectedLayerId).toBe(background.id);
+            expect(canvas.outlineEditor.getCurrentLayerModel().id).toBe(
+                background.id
+            );
+        } finally {
+            transformSpy.mockRestore();
+            queueCompileSpy.mockRestore();
+        }
     });
 
     test('does not save an unmaterialized transient background layer', async () => {

@@ -1472,6 +1472,12 @@ export class GlyphCanvasRenderer {
         const currentLayerData =
             this.glyphCanvas.outlineEditor.getCurrentLayerDataFromStack();
         const visibleGuides = this.glyphCanvas.outlineEditor.getVisibleGuides();
+        const pairedLayerData =
+            this.glyphCanvas.outlineEditor.isPairedLayerVisible()
+                ? this.glyphCanvas.outlineEditor
+                      .getPairedLayerModel()
+                      ?.toJSON?.()
+                : null;
 
         // Skip rendering if there is nothing editable to show.
         if (
@@ -1480,7 +1486,8 @@ export class GlyphCanvasRenderer {
                 currentLayerData.shapes.length === 0) &&
                 (!currentLayerData.anchors ||
                     currentLayerData.anchors.length === 0) &&
-                visibleGuides.length === 0)
+                visibleGuides.length === 0 &&
+                !pairedLayerData?.shapes?.length)
         ) {
             console.log(
                 '[Renderer]',
