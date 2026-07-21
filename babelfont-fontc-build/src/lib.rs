@@ -4080,6 +4080,22 @@ pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
     Ok(compiled_font)
 }
 
+/// Serialize a babelfont JSON string as a Glyphs 3 source file.
+///
+/// Input: a babelfont JSON string (as produced by `open_font_file`).
+/// Output: the textual contents of a `.glyphs` file.
+#[wasm_bindgen]
+pub fn save_font_as_glyphs(babelfont_json: &str) -> Result<String, JsValue> {
+    let font: babelfont::Font = serde_json::from_str(babelfont_json).map_err(|e| {
+        JsValue::from_str(&format!("Failed to parse babelfont JSON: {}", e))
+    })?;
+
+    font.as_glyphslib()
+        .map_err(|e| JsValue::from_str(&format!("Failed to convert font to Glyphs: {:?}", e)))?
+        .to_string()
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize Glyphs file: {}", e)))
+}
+
 /// Serialize a babelfont JSON string to a UFO file-tree as JSON.
 ///
 /// Input: a babelfont JSON string (as produced by `open_font_file`).

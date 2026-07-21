@@ -105,6 +105,10 @@ export const prime_preview_layout_closure_cache: (
     c: number,
     d: number
 ) => [number, number, number];
+export const save_font_as_glyphs: (
+    a: number,
+    b: number
+) => [number, number, number, number];
 export const save_font_as_ufo_entries: (
     a: number,
     b: number

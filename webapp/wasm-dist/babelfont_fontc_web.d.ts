@@ -395,6 +395,14 @@ export function reinterpolate_layer_yjs(
 export function reinterpolate_master_layers_yjs(master_id: string): any;
 
 /**
+ * Serialize a babelfont JSON string as a Glyphs 3 source file.
+ *
+ * Input: a babelfont JSON string (as produced by `open_font_file`).
+ * Output: the textual contents of a `.glyphs` file.
+ */
+export function save_font_as_glyphs(babelfont_json: string): string;
+
+/**
  * Serialize a babelfont JSON string to a UFO file-tree as JSON.
  *
  * Input: a babelfont JSON string (as produced by `open_font_file`).
@@ -552,6 +560,10 @@ export interface InitOutput {
         c: number,
         d: number
     ) => [number, number, number];
+    readonly save_font_as_glyphs: (
+        a: number,
+        b: number
+    ) => [number, number, number, number];
     readonly save_font_as_ufo_entries: (
         a: number,
         b: number

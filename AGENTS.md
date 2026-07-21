@@ -368,6 +368,10 @@ Supported formats (via `font-manager.ts`):
 - `.vfj` - FontLab format
 - `.ufo`/`.designspace` - Planned
 
+Whenever file I/O behavior changes, update the Source File I/O overview in
+`README.md` in the same change, including every affected format's open/save
+status.
+
 ### Compilation Pipeline
 
 ```

@@ -12,7 +12,10 @@ const {
     setYPath,
     yDocToJson
 } = require('../js/change-bridge-ydoc');
-const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
+const {
+    open_font_file,
+    save_font_as_glyphs
+} = require('../wasm-dist/babelfont_fontc_web');
 const { sidebarErrorDisplay } = require('../js/sidebar-error-display');
 const { parseNodeString } = require('../js/node-encoding');
 
@@ -211,6 +214,47 @@ describe('FontManager saveLayerData', () => {
             type: 'AssociatedWithMaster',
             master: '3E7589AA-8194-470F-8E2F-13C1C581BE24'
         });
+    });
+
+    test('preserves background identity when exact editor data omits it', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const foreground = glyph.layers[0];
+        const background = {
+            ...cloneJson(foreground),
+            id: 'background-layer-a',
+            is_background: true,
+            background_layer_id: foreground.id,
+            shapes: [{ nodes: '100 200 m', closed: false }]
+        };
+        glyph.layers.push(background);
+
+        await fontManager.saveLayerData(
+            'a',
+            background.id,
+            {
+                id: background.id,
+                width: background.width,
+                master: background.master,
+                background_layer_id: foreground.id,
+                shapes: [{ nodes: '140 220 m', closed: false }]
+            },
+            'mouse-drag-outline'
+        );
+
+        const savedBackground = glyph.layers.find(
+            (layer) => layer.id === background.id
+        );
+        expect(savedBackground).toEqual(
+            expect.objectContaining({
+                is_background: true,
+                background_layer_id: foreground.id
+            })
+        );
+        expect(savedBackground.shapes[0].nodes[0]).toEqual(
+            expect.objectContaining({ x: 140, y: 220 })
+        );
     });
 
     test('interactive outline drag saves wait for the committed Yjs compile funnel', async () => {
@@ -2517,6 +2561,70 @@ describe('FontManager loadFont', () => {
                         layer.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
                 ).width
         ).toBeCloseTo(braceLayer.width);
+    });
+
+    test('writes a disk Glyphs source with Glyphs serialization', async () => {
+        const writable = {
+            write: jest.fn().mockResolvedValue(),
+            close: jest.fn().mockResolvedValue()
+        };
+        const fileHandle = {
+            queryPermission: jest.fn().mockResolvedValue('granted'),
+            requestPermission: jest.fn(),
+            createWritable: jest.fn().mockResolvedValue(writable)
+        };
+        const diskPlugin = {
+            getId: () => 'disk'
+        };
+
+        await fontManager.loadFont(
+            JSON.stringify(cloneJson(intermediateLayerData)),
+            '/user/intermediate_layer_on_a.glyphs',
+            diskPlugin,
+            fileHandle
+        );
+
+        const currentFont = fontManager.currentFont;
+        await currentFont.save();
+
+        expect(save_font_as_glyphs).toHaveBeenCalledWith(
+            currentFont.babelfontJson
+        );
+        expect(fileHandle.queryPermission).toHaveBeenCalledWith({
+            mode: 'readwrite'
+        });
+        expect(fileHandle.createWritable).toHaveBeenCalledTimes(1);
+        expect(writable.write).toHaveBeenCalledWith('glyphs = ();\n');
+        expect(writable.close).toHaveBeenCalledTimes(1);
+    });
+
+    test('refuses to overwrite unsupported disk source formats', async () => {
+        const writable = {
+            write: jest.fn(),
+            close: jest.fn()
+        };
+        const fileHandle = {
+            queryPermission: jest.fn(),
+            requestPermission: jest.fn(),
+            createWritable: jest.fn(() => writable)
+        };
+        const diskPlugin = {
+            getId: () => 'disk'
+        };
+
+        await fontManager.loadFont(
+            JSON.stringify(cloneJson(intermediateLayerData)),
+            '/user/intermediate_layer_on_a.vfj',
+            diskPlugin,
+            fileHandle
+        );
+
+        await expect(fontManager.currentFont.save()).rejects.toThrow(
+            'Cannot save /user/intermediate_layer_on_a.vfj in its original format'
+        );
+        expect(fileHandle.queryPermission).not.toHaveBeenCalled();
+        expect(fileHandle.createWritable).not.toHaveBeenCalled();
+        expect(writable.write).not.toHaveBeenCalled();
     });
 });
 

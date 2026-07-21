@@ -336,4 +336,6 @@ initBabelfontWasm.save_font_as_ufo_entries = jest.fn((babelfontJson) => {
     }
 });
 
+initBabelfontWasm.save_font_as_glyphs = jest.fn(() => 'glyphs = ();\n');
+
 module.exports = initBabelfontWasm;

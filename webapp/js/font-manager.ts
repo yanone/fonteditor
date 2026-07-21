@@ -12,7 +12,10 @@ import {
     requestOpenFontConversion,
     COMPILATION_TARGETS
 } from './font-compilation';
-import { get_glyph_order } from '../wasm-dist/babelfont_fontc_web';
+import {
+    get_glyph_order,
+    save_font_as_glyphs
+} from '../wasm-dist/babelfont_fontc_web';
 import type { Babelfont } from './babelfont';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
@@ -55,6 +58,7 @@ import {
     decodeNodeStringsForRuntime,
     serializeNodeArray
 } from './node-encoding';
+import { ensureWasmInitialized } from './wasm-init';
 
 const console = new Logger('FontManager');
 
@@ -533,6 +537,19 @@ class OpenedFont {
      */
     async save(): Promise<void> {
         const pluginId = this.sourcePlugin.getId();
+        const extension = this.path.split('.').pop()?.toLowerCase();
+        let serializedFont: string;
+
+        if (extension === 'babelfont') {
+            serializedFont = this.babelfontJson;
+        } else if (extension === 'glyphs') {
+            await ensureWasmInitialized();
+            serializedFont = save_font_as_glyphs(this.babelfontJson);
+        } else {
+            throw new Error(
+                `Cannot save ${this.path} in its original format: source saving currently supports .babelfont and .glyphs files.`
+            );
+        }
 
         // For disk plugin, need file handle and permission check
         if (pluginId === 'disk') {
@@ -556,7 +573,7 @@ class OpenedFont {
             // Write to file
             try {
                 const writable = await this.fileHandle.createWritable();
-                await writable.write(this.babelfontJson);
+                await writable.write(serializedFont);
                 await writable.close();
             } catch (error) {
                 if (error instanceof Error && error.name === 'SecurityError') {
@@ -569,7 +586,7 @@ class OpenedFont {
         } else {
             // For other plugins, use adapter's writeFile method
             const adapter = this.sourcePlugin.getAdapter();
-            await adapter.writeFile(this.path, this.babelfontJson);
+            await adapter.writeFile(this.path, serializedFont);
         }
 
         // Clear unsaved/sync flags after successful save
@@ -4039,9 +4056,11 @@ class FontManager {
             ...(layerData.layer_index !== undefined && {
                 layer_index: layerData.layer_index
             }),
-            ...(layerData.is_background !== undefined && {
-                is_background: layerData.is_background
-            }),
+            ...(layerData.is_background !== undefined
+                ? { is_background: layerData.is_background }
+                : originalLayer?.is_background === true
+                  ? { is_background: true }
+                  : {}),
             ...((layerData.background_layer_id ??
                 originalLayer?.background_layer_id) && {
                 background_layer_id:
