@@ -9,10 +9,11 @@ Try the editor live:
 
 ## Source File I/O
 
-Counterpunch converts opened source files into its Babelfont model for editing.
+Counterpunch converts opened source files into the Babelfont model for editing.
 Direct source saving is deliberately limited to formats with a browser-safe
 serializer; unsupported source formats fail instead of receiving Babelfont JSON
 under their original extension.
+Saving to UFO/DS and .glyphspackage is in development.
 
 | Format | Open | Save | Notes |
 | --- | --- | --- | --- |
