@@ -482,6 +482,84 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
         );
     });
 
+    test('keeps layer selection in the paired background while background mode is active', () => {
+        const foregroundLayer = {
+            id: 'foreground-layer',
+            is_background: false
+        };
+        const backgroundLayer = { id: 'background-layer', is_background: true };
+        foregroundLayer.backgroundLayer = backgroundLayer;
+        canvas.outlineEditor.isEditingBackgroundLayer = jest.fn(() => true);
+        canvas.outlineEditor.resolveLayerModel = jest.fn(() => foregroundLayer);
+
+        expect(
+            canvas.outlineEditor['resolveLayerForSelection']({
+                id: foregroundLayer.id
+            })
+        ).toBe(backgroundLayer);
+    });
+
+    test('uses the paired foreground as the background layer location source', () => {
+        const foregroundLayer = {
+            id: 'foreground-layer',
+            master: { master: 'master-1' },
+            location: { wght: 700 }
+        };
+        const backgroundLayer = {
+            id: 'foreground-layer.bg',
+            is_background: true,
+            backgroundLayer: foregroundLayer
+        };
+
+        expect(
+            canvas.outlineEditor['getLayerLocationSource'](backgroundLayer)
+        ).toBe(foregroundLayer);
+    });
+
+    test('cycles from the paired foreground row while editing a background', async () => {
+        const editor = canvas.outlineEditor;
+        canvas.getSortedLayers = jest.fn(() => [
+            { id: 'foreground-one' },
+            { id: 'foreground-two' }
+        ]);
+        editor.selectedLayerId = 'foreground-one.bg';
+        editor.isEditingBackgroundLayer = jest.fn(() => true);
+        editor.getPairedLayerModel = jest.fn(() => ({
+            id: 'foreground-one'
+        }));
+        editor.getFullLayerData = jest.fn((layerId) => ({ id: layerId }));
+        editor.selectLayer = jest.fn().mockResolvedValue(undefined);
+
+        await editor.cycleLayers(false);
+
+        expect(editor.getFullLayerData).toHaveBeenCalledWith('foreground-two');
+        expect(editor.selectLayer).toHaveBeenCalledWith({
+            id: 'foreground-two'
+        });
+    });
+
+    test('highlights the paired foreground list row while editing a background', () => {
+        const foregroundItem = document.createElement('div');
+        foregroundItem.setAttribute('data-master-id', 'master-1');
+        foregroundItem.setAttribute('data-layer-id', 'foreground-layer');
+        const otherItem = document.createElement('div');
+        otherItem.setAttribute('data-master-id', 'master-2');
+        otherItem.setAttribute('data-layer-id', 'other-layer');
+        const propertiesSection = document.createElement('div');
+        canvas.propertiesSection = propertiesSection;
+        propertiesSection.append(foregroundItem, otherItem);
+        canvas.outlineEditor.selectedLayerId = 'background-layer';
+        canvas.outlineEditor.isEditingBackgroundLayer = jest.fn(() => true);
+        canvas.outlineEditor.getPairedLayerModel = jest.fn(() => ({
+            id: 'foreground-layer'
+        }));
+
+        canvas.outlineEditor.updateLayerSelection();
+
+        expect(foregroundItem.classList.contains('selected')).toBe(true);
+        expect(otherItem.classList.contains('selected')).toBe(false);
+    });
+
     test('drawOutlineEditor renders a paired ghost from serialized path nodes', () => {
         canvas.outlineEditor.layerData.shapes = [
             {

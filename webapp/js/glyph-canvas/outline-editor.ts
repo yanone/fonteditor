@@ -5963,6 +5963,15 @@ export class OutlineEditor {
         );
     }
 
+    private resolveLayerForSelection(layer: any): any {
+        const resolvedLayer = this.resolveLayerModel(layer);
+        if (!this.isEditingBackgroundLayer() || resolvedLayer?.is_background) {
+            return resolvedLayer;
+        }
+
+        return resolvedLayer?.backgroundLayer || resolvedLayer;
+    }
+
     private cloneSelectionState(
         state: LayerSelectionState | null | undefined
     ): LayerSelectionState {
@@ -8667,19 +8676,25 @@ export class OutlineEditor {
                 : null);
         if (!layer) return null;
 
+        const locationLayer = this.getLayerLocationSource(layer);
         const masters: Babelfont.Master[] = (fontModel.masters as any) || [];
-        const masterIdToFind = layer.master?.master;
+        const masterIdToFind = locationLayer?.master?.master;
         const master = masters.find((m) => m.id === masterIdToFind);
         const hasLayerLocation =
-            !!layer.location && Object.keys(layer.location).length > 0;
+            !!locationLayer?.location &&
+            Object.keys(locationLayer.location).length > 0;
         const designLocation = hasLayerLocation
-            ? layer.location
+            ? locationLayer.location
             : master?.location;
 
         if (!designLocation) return null;
 
         const fontAxes = fontModel.axes || [];
         return designspaceToUserspace(designLocation, fontAxes as any);
+    }
+
+    private getLayerLocationSource(layer: any): any {
+        return layer?.is_background ? layer.backgroundLayer || layer : layer;
     }
 
     private getUserspaceLocationForLayerRecord(
@@ -8690,15 +8705,17 @@ export class OutlineEditor {
             return null;
         }
 
+        const locationLayer = this.getLayerLocationSource(layer);
         const masters: Babelfont.Master[] = (fontModel.masters as any) || [];
         const masterIdToFind =
-            (layer.master as Babelfont.Layer['master'] | undefined)?.master ||
-            null;
+            (locationLayer?.master as Babelfont.Layer['master'] | undefined)
+                ?.master || null;
         const master = masters.find((m) => m.id === masterIdToFind);
         const hasLayerLocation =
-            !!layer.location && Object.keys(layer.location).length > 0;
+            !!locationLayer?.location &&
+            Object.keys(locationLayer.location).length > 0;
         const designLocation = hasLayerLocation
-            ? layer.location
+            ? locationLayer.location
             : master?.location;
 
         if (!designLocation) {
@@ -17718,8 +17735,11 @@ export class OutlineEditor {
         }
         // Cycle through layers with Cmd+Up (previous) or Cmd+Down (next)
         // Find current layer index
+        const selectedLayerId = this.isEditingBackgroundLayer()
+            ? this.getPairedLayerModel()?.id || this.selectedLayerId
+            : this.selectedLayerId;
         const currentIndex = sortedLayers.findIndex(
-            (layer) => layer.id === this.selectedLayerId
+            (layer) => layer.id === selectedLayerId
         );
         if (currentIndex === -1) {
             // No layer selected. If we last had a brace layer selected, resume
@@ -17815,7 +17835,7 @@ export class OutlineEditor {
 
     async selectLayer(layer: Babelfont.Layer): Promise<void> {
         await this.flushPendingKeyboardPreviewCommit();
-        layer = this.resolveLayerModel(layer);
+        layer = this.resolveLayerForSelection(layer);
 
         this.cancelPendingLayerSwitchAnimation();
         this.suppressAutoLayerMatching = true;
@@ -18959,9 +18979,12 @@ export class OutlineEditor {
             this.glyphCanvas.propertiesSection.querySelectorAll(
                 '[data-master-id]'
             );
+        const selectedLayerId = this.isEditingBackgroundLayer()
+            ? this.getPairedLayerModel()?.id || this.selectedLayerId
+            : this.selectedLayerId;
         masterItems.forEach((item: any) => {
             const layerId = item.getAttribute('data-layer-id');
-            if (layerId === this.selectedLayerId) {
+            if (layerId === selectedLayerId) {
                 item.classList.add('selected');
             } else {
                 item.classList.remove('selected');

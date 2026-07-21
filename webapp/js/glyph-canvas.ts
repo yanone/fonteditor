@@ -2566,7 +2566,10 @@ class GlyphCanvas {
 
         const isEditMode = this.outlineEditor.active;
         const preselectedLayerId = isEditMode
-            ? this.outlineEditor.selectedLayerId ||
+            ? (this.outlineEditor.isEditingBackgroundLayer()
+                  ? this.outlineEditor.getPairedLayerModel()?.id
+                  : null) ||
+              this.outlineEditor.selectedLayerId ||
               this.outlineEditor.findMatchingLayer()?.id
             : null;
         console.log(
