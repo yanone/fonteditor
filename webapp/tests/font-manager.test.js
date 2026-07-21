@@ -1059,6 +1059,50 @@ describe('FontManager saveLayerData', () => {
         );
         expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
     });
+
+    test('updateWorkerFontCache batches a materialized background layer', async () => {
+        const currentFont = fontManager.currentFont;
+        const glyph = currentFont.fontModel.findGlyph('a');
+        const foreground = glyph.addLayer(600);
+        const background = glyph.addBackgroundLayer(foreground);
+        const path = background.addPath(false);
+        path._appendLine({ x: 100, y: 200 });
+        expect(glyph.layers.some((layer) => layer.id === background.id)).toBe(
+            false
+        );
+        expect(glyph.findLayerById(background.id)?.is_background).toBe(true);
+        const submitLayerUpdatesSpy = jest
+            .spyOn(fontManager, 'submitLayerUpdatesToWorkerCache')
+            .mockResolvedValue(true);
+
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+        window.glyphCanvas = {
+            outlineEditor: {
+                currentGlyphName: 'a',
+                selectedLayerId: background.id
+            },
+            getCurrentGlyphName: jest.fn(() => 'a')
+        };
+
+        try {
+            await fontManager.updateWorkerFontCache();
+
+            expect(submitLayerUpdatesSpy).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    glyphName: 'a',
+                    layerId: background.id,
+                    layerData: expect.objectContaining({
+                        id: background.id,
+                        is_background: true
+                    })
+                })
+            ]);
+            expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
+        } finally {
+            delete window.glyphCanvas;
+            submitLayerUpdatesSpy.mockRestore();
+        }
+    });
 });
 
 describe('FontManager editing subset inclusion', () => {

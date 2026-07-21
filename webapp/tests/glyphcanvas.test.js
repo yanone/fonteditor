@@ -12761,11 +12761,12 @@ describe('OutlineEditor exact selected layers', () => {
         expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(225);
     });
 
-    test('keeps drawing on a materialized background sibling after its first node', () => {
+    test('keeps a materialized background selected through drawing and final-path deletion', async () => {
         const fontModel = fontManager.currentFont.fontModel;
         const glyph = fontModel.findGlyph('A');
         const foreground = glyph.findLayerById('master-layer');
         const virtualBackground = foreground.backgroundLayer;
+        const originalPatchSyncEngine = window.patchSyncEngine;
         const queueCompileSpy = jest
             .spyOn(
                 canvas.outlineEditor,
@@ -12780,6 +12781,7 @@ describe('OutlineEditor exact selected layers', () => {
         canvas.outlineEditor.selectedLayerId = virtualBackground.id;
         canvas.outlineEditor.glyphStack = `A@${virtualBackground.id}`;
         canvas.outlineEditor.layerData = virtualBackground.toJSON();
+        window.patchSyncEngine = undefined;
 
         try {
             expect(canvas.outlineEditor['startNewPathDrawingSession']()).toBe(
@@ -12808,10 +12810,128 @@ describe('OutlineEditor exact selected layers', () => {
             expect(canvas.outlineEditor.getCurrentLayerModel().id).toBe(
                 background.id
             );
+
+            expect(
+                await canvas.outlineEditor.reconcileSelectionAfterModelSync({
+                    skipRender: true
+                })
+            ).toBe(false);
+            await canvas.outlineEditor.fetchLayerData(true);
+            expect(canvas.outlineEditor.selectedLayerId).toBe(background.id);
+            expect(canvas.outlineEditor.layerData.shapes).toHaveLength(1);
+
+            canvas.outlineEditor.selectedPoints = [
+                { contourIndex: 0, nodeIndex: 0 },
+                { contourIndex: 0, nodeIndex: 1 }
+            ];
+            await canvas.outlineEditor.deleteSelectedNodes();
+
+            expect(background.paths).toHaveLength(0);
+            expect(
+                await canvas.outlineEditor.reconcileSelectionAfterModelSync({
+                    skipRender: true
+                })
+            ).toBe(false);
+            await canvas.outlineEditor.fetchLayerData(true);
+            expect(canvas.outlineEditor.selectedLayerId).toBe(background.id);
+            expect(canvas.outlineEditor.glyphStack).toBe(`A@${background.id}`);
+            expect(canvas.outlineEditor.layerData).toEqual(
+                expect.objectContaining({ shapes: [] })
+            );
         } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
             transformSpy.mockRestore();
             queueCompileSpy.mockRestore();
         }
+    });
+
+    test('syncs a materialized background pair before its preview compile', () => {
+        const fontModel = fontManager.currentFont.fontModel;
+        const glyph = fontModel.findGlyph('A');
+        const foreground = glyph.findLayerById('master-layer');
+        const virtualBackground = foreground.backgroundLayer;
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const syncLayerSnapshotsFromJson = jest.fn();
+        const queueCompileSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'queueStructuralOutlineCompileFromModel'
+            )
+            .mockImplementation(() => {});
+        const transformSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 100, glyphY: 200 });
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = virtualBackground.id;
+        canvas.outlineEditor.glyphStack = `A@${virtualBackground.id}`;
+        canvas.outlineEditor.layerData = virtualBackground.toJSON();
+        window.patchSyncEngine = {
+            getFontJsonSnapshot: () => ({
+                glyphs: [{ name: 'A', layers: [foreground.toJSON()] }]
+            }),
+            beginTransaction,
+            endTransaction,
+            syncLayerSnapshotsFromJson
+        };
+
+        try {
+            expect(canvas.outlineEditor['startNewPathDrawingSession']()).toBe(
+                true
+            );
+
+            const background = glyph.findLayerById(
+                foreground.background_layer_id
+            );
+            expect(beginTransaction).toHaveBeenCalledWith('Draw path');
+            expect(endTransaction).toHaveBeenCalledTimes(1);
+            expect(syncLayerSnapshotsFromJson).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        glyphName: 'A',
+                        layerId: foreground.id
+                    }),
+                    expect.objectContaining({
+                        glyphName: 'A',
+                        layerId: background.id,
+                        layerJson: expect.objectContaining({
+                            is_background: true,
+                            shapes: expect.any(Array)
+                        })
+                    })
+                ]),
+                'Draw path'
+            );
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            transformSpy.mockRestore();
+            queueCompileSpy.mockRestore();
+        }
+    });
+
+    test('keeps a valid background selected during automatic layer matching', async () => {
+        const fontModel = fontManager.currentFont.fontModel;
+        const glyph = fontModel.findGlyph('A');
+        const foreground = glyph.findLayerById('master-layer');
+        const background = foreground.backgroundLayer;
+        background.addPath(true);
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = background.id;
+        canvas.outlineEditor.glyphStack = `A@${background.id}`;
+        canvas.outlineEditor.layerData = background.toJSON();
+
+        await canvas.outlineEditor.autoSelectMatchingLayer({
+            skipRender: true
+        });
+
+        expect(canvas.outlineEditor.selectedLayerId).toBe(background.id);
+        expect(canvas.outlineEditor.glyphStack).toBe(`A@${background.id}`);
+        expect(canvas.outlineEditor.getCurrentLayerModel().id).toBe(
+            background.id
+        );
     });
 
     test('does not save an unmaterialized transient background layer', async () => {

@@ -15151,6 +15151,7 @@ export class OutlineEditor {
             // a persisted sibling ID. Refresh the canvas snapshot as a whole
             // so later points and deletions stay on that sibling.
             this.syncCurrentExactLayerDataFromModel();
+            this.syncMaterializedBackgroundLayer(currentLayerModel);
         } else {
             this.syncCurrentContourDataFromModel(pathIndex, shapeIndex);
         }
@@ -15166,6 +15167,44 @@ export class OutlineEditor {
             'starting command path drawing'
         );
         return !!activePath;
+    }
+
+    private syncMaterializedBackgroundLayer(layer: any): void {
+        const bridge = window.patchSyncEngine;
+        const glyph = this.getCurrentGlyphModel();
+        const foregroundLayer = layer.background_layer_id
+            ? glyph?.findLayerById?.(layer.background_layer_id)
+            : null;
+        const bridgeGlyph = bridge
+            ?.getFontJsonSnapshot?.()
+            ?.glyphs?.find((glyphData: any) => glyphData.name === glyph?.name);
+
+        if (
+            !bridge ||
+            !glyph?.name ||
+            !foregroundLayer?.id ||
+            !layer?.id ||
+            bridgeGlyph?.layers?.some(
+                (layerData: any) => layerData.id === layer.id
+            ) ||
+            typeof bridge.syncLayerSnapshotsFromJson !== 'function'
+        ) {
+            return;
+        }
+
+        bridge.beginTransaction('Draw path');
+        try {
+            bridge.syncLayerSnapshotsFromJson(
+                [foregroundLayer, layer].map((layerModel: any) => ({
+                    glyphName: glyph.name,
+                    layerId: layerModel.id,
+                    layerJson: layerModel.toJSON()
+                })),
+                'Draw path'
+            );
+        } finally {
+            bridge.endTransaction();
+        }
     }
 
     private appendLineToPathSession(
@@ -18063,6 +18102,22 @@ export class OutlineEditor {
             rootGlyphName,
             activeGlyphName
         });
+
+        if (this.getCurrentLayerModel()?.is_background) {
+            if (!this.isInterpolating && !this.isLayerSwitchAnimating) {
+                await this.fetchLayerData(skipRender);
+                this.performHitDetection(null);
+            }
+
+            if (this.active && !skipRender) {
+                this.glyphCanvas.updatePropertyPanel();
+                this.glyphCanvas.render();
+            }
+
+            this.updateLayerSelection();
+            this.glyphCanvas.updatePropertyPanel();
+            return;
+        }
 
         const matchingLayer = this.findMatchingLayer(activeGlyphName);
 

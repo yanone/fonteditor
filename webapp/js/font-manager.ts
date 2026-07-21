@@ -5579,9 +5579,8 @@ class FontManager {
                 const currentGlyph = this.currentFont.fontModel?.glyphs?.find(
                     (glyph: any) => glyph?.name === currentGlyphName
                 );
-                const currentLayer = currentGlyph?.layers?.find(
-                    (layer: any) => layer?.id === currentLayerId
-                );
+                const currentLayer =
+                    currentGlyph?.findLayerById?.(currentLayerId);
 
                 if (currentLayer) {
                     try {
