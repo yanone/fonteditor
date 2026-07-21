@@ -144,6 +144,68 @@ describe('Python post-execution synthetic commit alignment', () => {
         expect(bridge.endTransaction).not.toHaveBeenCalled();
     });
 
+    test('emits one scoped Yjs packet for one canonical Python node change', () => {
+        const { commitPythonExecutionSyntheticChanges } = loadModule();
+        const { PatchSyncEngine } = require('../js/patch-sync-engine');
+        const beforeSnapshot = {
+            glyphs: [
+                {
+                    name: 'a',
+                    layers: [
+                        {
+                            id: 'default',
+                            shapes: [
+                                {
+                                    type: 'path',
+                                    nodes: '0 0 m 100 0 l',
+                                    closed: false
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        };
+        const afterSnapshot = JSON.parse(JSON.stringify(beforeSnapshot));
+        afterSnapshot.glyphs[0].layers[0].shapes[0].nodes = '0 100 m 100 0 l';
+        const bridge = new PatchSyncEngine('python-one-node-packet');
+        bridge.initFromJson(beforeSnapshot);
+        const emittedUpdates = [];
+        bridge.onLocalUpdate((update, _message, entries) => {
+            emittedUpdates.push({ update, entries });
+        });
+        bridge.beginTransaction('Python script');
+        const releaseRecordingSuppression = bridge.beginRecordingSuppression();
+
+        commitPythonExecutionSyntheticChanges(
+            {
+                babelfontJson: JSON.stringify(afterSnapshot),
+                syncJsonFromModel: jest.fn()
+            },
+            {
+                transactionStarted: true,
+                beforeFontDataJson: JSON.stringify(beforeSnapshot),
+                label: 'Python script',
+                releaseRecordingSuppression
+            },
+            bridge
+        );
+
+        expect(emittedUpdates).toHaveLength(1);
+        expect(emittedUpdates[0].entries).toEqual([
+            expect.objectContaining({
+                op: 'set',
+                path: 'glyphs.a:layers.default:shapes',
+                workerReplayTargets: [{ glyphName: 'a', layerId: 'default' }]
+            })
+        ]);
+        expect(
+            emittedUpdates[0].entries.some((entry) => entry.path === 'font')
+        ).toBe(false);
+
+        bridge.destroy();
+    });
+
     test('closes the Python transaction when canonicalization fails', () => {
         const { commitPythonExecutionSyntheticChanges } = loadModule();
         const currentFont = {
@@ -406,9 +468,50 @@ describe('Python post-execution synthetic commit alignment', () => {
             setRecordingSuppressed: jest.fn()
         };
         window.patchSyncEngine = bridge;
+        const canonicalSnapshot = {
+            glyphs: [
+                {
+                    name: 'a',
+                    layers: [
+                        {
+                            id: 'default',
+                            shapes: [
+                                {
+                                    type: 'path',
+                                    nodes: 'l 0 0',
+                                    closed: false
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        };
+        const syncJsonFromModel = jest.fn(function () {
+            this.babelfontJson = JSON.stringify(canonicalSnapshot);
+        });
         window.fontManager = {
             currentFont: {
-                babelfontData: { glyphs: [] }
+                babelfontData: {
+                    glyphs: [
+                        {
+                            name: 'a',
+                            layers: [
+                                {
+                                    id: 'default',
+                                    shapes: [
+                                        {
+                                            type: 'path',
+                                            nodes: [[0, 0, 'l']]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+                babelfontJson: null,
+                syncJsonFromModel
             }
         };
 
@@ -435,6 +538,35 @@ describe('Python post-execution synthetic commit alignment', () => {
             }
         );
         expect(bridge.setRecordingSuppressed).toHaveBeenCalledWith(true);
+        expect(syncJsonFromModel).toHaveBeenCalledTimes(1);
+        expect(window.pythonExecutionHistoryContext.beforeFontDataJson).toBe(
+            JSON.stringify(canonicalSnapshot)
+        );
+    });
+
+    test('does not begin a Python bridge transaction when snapshot serialization fails', () => {
+        jest.resetModules();
+        require('../js/python-ui-sync.ts');
+        const bridge = {
+            beginTransaction: jest.fn(),
+            beginRecordingSuppression: jest.fn(),
+            setRecordingSuppressed: jest.fn()
+        };
+        window.patchSyncEngine = bridge;
+        window.fontManager = {
+            currentFont: {
+                syncJsonFromModel: jest.fn(() => {
+                    throw new Error('cannot serialize font');
+                })
+            }
+        };
+
+        expect(() =>
+            window.beforePythonExecution('Layer().width += 1')
+        ).toThrow('cannot serialize font');
+        expect(bridge.beginTransaction).not.toHaveBeenCalled();
+        expect(bridge.beginRecordingSuppression).not.toHaveBeenCalled();
+        expect(bridge.setRecordingSuppressed).not.toHaveBeenCalled();
     });
 
     test('does not stack the post-execution commit hook after module reinitialization', async () => {

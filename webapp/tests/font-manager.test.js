@@ -3,6 +3,7 @@ const path = require('path');
 const Y = require('yjs');
 
 const fontManager = require('../js/font-manager').default;
+const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
 const { fontCompilation } = require('../js/font-compilation');
 const { Font, withSuppressedModelRecording } = require('../js/babelfont-model');
 const {
@@ -5148,5 +5149,182 @@ describe('Cloud disconnect on font switch', () => {
         expect(adapter._bridge).toBeNull();
         expect(window.cloudPlugin._cloudAdapter).toBeNull();
         expect(window.cloudPlugin._activeAssetId).toBeNull();
+    });
+});
+
+describe('FontManager external source reload', () => {
+    let originalOpenedFonts;
+    let originalCurrentFontId;
+    let originalPatchSyncEngine;
+    let originalSaveButton;
+    let originalSendMessage;
+
+    beforeEach(() => {
+        originalOpenedFonts = fontManager.openedFonts;
+        originalCurrentFontId = fontManager.currentFontId;
+        originalPatchSyncEngine = window.patchSyncEngine;
+        originalSaveButton = window.saveButton;
+        originalSendMessage = fontCompilation.sendMessage;
+        delete window.saveButton;
+    });
+
+    afterEach(() => {
+        fontManager.openedFonts = originalOpenedFonts;
+        fontManager.currentFontId = originalCurrentFontId;
+        window.patchSyncEngine = originalPatchSyncEngine;
+        window.saveButton = originalSaveButton;
+        fontCompilation.sendMessage = originalSendMessage;
+    });
+
+    test('uses one bridge transaction instead of storeFontJson', async () => {
+        const originalData = loadFontFile(
+            path.join(
+                __dirname,
+                '..',
+                'examples',
+                'intermediate_layer_on_a.glyphs'
+            )
+        );
+        originalData.note = '';
+        const openedFont = {
+            babelfontJson: JSON.stringify(originalData),
+            babelfontData: originalData,
+            path: '/fonts/external-change.glyphs',
+            sourcePlugin: { getId: () => 'disk' }
+        };
+        const bridge = new ChangeBridge('font-manager-external-reload');
+        bridge.initFromJson(openedFont.babelfontData);
+        window.patchSyncEngine = bridge;
+        fontManager.openedFonts = new Map([['external-font', openedFont]]);
+        fontManager.currentFontId = 'external-font';
+
+        const sourceData = cloneJson(originalData);
+        sourceData.note = 'Changed outside Counterpunch';
+        const emittedUpdates = [];
+        bridge.onLocalUpdate((update) => emittedUpdates.push(update));
+
+        const loadSourceSpy = jest
+            .spyOn(fontManager, 'loadBabelfontJsonFromSource')
+            .mockResolvedValue(JSON.stringify(sourceData));
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'awaitWorkerCacheUpdate')
+            .mockResolvedValue();
+        const compileSpy = jest
+            .spyOn(fontManager, 'compileEditingFont')
+            .mockResolvedValue();
+        const displaySpy = jest
+            .spyOn(fontManager, 'updateFontDisplay')
+            .mockResolvedValue();
+        const dirtySpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const sendMessageSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({});
+
+        await expect(
+            fontManager.reloadCurrentFontFromSource({ preserveUiState: false })
+        ).resolves.toBe(true);
+
+        expect(loadSourceSpy).toHaveBeenCalledWith(openedFont);
+        expect(emittedUpdates).toHaveLength(1);
+        expect(workerCacheSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).not.toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'storeFontJson' })
+        );
+        expect(fontManager.currentFont).toBe(openedFont);
+        expect(openedFont.babelfontData.note).toBe(
+            'Changed outside Counterpunch'
+        );
+        expect(compileSpy).toHaveBeenCalledTimes(1);
+        expect(displaySpy).toHaveBeenCalledTimes(1);
+        expect(dirtySpy).toHaveBeenCalledTimes(1);
+
+        loadSourceSpy.mockRestore();
+        workerCacheSpy.mockRestore();
+        compileSpy.mockRestore();
+        displaySpy.mockRestore();
+        dirtySpy.mockRestore();
+        sendMessageSpy.mockRestore();
+        bridge.destroy();
+    });
+
+    test('reloads one external source node as one scoped Yjs shape change', async () => {
+        const originalData = loadFontFile(
+            path.join(__dirname, '..', 'examples', 'ManufacturedKink.babelfont')
+        );
+        const sourceData = cloneJson(originalData);
+        const targetGlyph = sourceData.glyphs.find(
+            (glyph) => glyph.name === '.notdef'
+        );
+        const targetLayer = targetGlyph.layers.find(
+            (layer) => layer.id === 'L1'
+        );
+        const targetShape = targetLayer.shapes[0];
+        const targetNodes = parseNodeString(targetShape.nodes);
+        const beforeY = targetNodes[0].y;
+        targetNodes[0].y += 100;
+        targetShape.nodes = targetNodes;
+
+        const sourceAdapter = {
+            readFile: jest.fn().mockResolvedValue(JSON.stringify(sourceData))
+        };
+        const openedFont = {
+            babelfontJson: JSON.stringify(originalData),
+            babelfontData: originalData,
+            path: '/fonts/ManufacturedKink.babelfont',
+            sourcePlugin: {
+                getId: () => 'external-test',
+                getAdapter: () => sourceAdapter
+            }
+        };
+        const bridge = new ChangeBridge('font-manager-node-reload');
+        bridge.initFromJson(openedFont.babelfontData);
+        window.patchSyncEngine = bridge;
+        fontManager.openedFonts = new Map([['external-font', openedFont]]);
+        fontManager.currentFontId = 'external-font';
+
+        const emittedUpdates = [];
+        bridge.onLocalUpdate((update, _message, entries) => {
+            emittedUpdates.push({ update, entries });
+        });
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'awaitWorkerCacheUpdate')
+            .mockResolvedValue();
+        const compileSpy = jest
+            .spyOn(fontManager, 'compileEditingFont')
+            .mockResolvedValue();
+        const displaySpy = jest
+            .spyOn(fontManager, 'updateFontDisplay')
+            .mockResolvedValue();
+        const dirtySpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+
+        await expect(
+            fontManager.reloadCurrentFontFromSource({ preserveUiState: false })
+        ).resolves.toBe(true);
+
+        expect(sourceAdapter.readFile).toHaveBeenCalledWith(
+            '/fonts/ManufacturedKink.babelfont'
+        );
+        expect(emittedUpdates).toHaveLength(1);
+        expect(emittedUpdates[0].entries).toEqual([
+            expect.objectContaining({
+                op: 'set',
+                path: 'glyphs..notdef:layers.L1:shapes',
+                workerReplayTargets: [{ glyphName: '.notdef', layerId: 'L1' }]
+            })
+        ]);
+        expect(
+            parseNodeString(emittedUpdates[0].entries[0].newValue[0].nodes)[0].y
+        ).toBe(beforeY + 100);
+        expect(workerCacheSpy).toHaveBeenCalledTimes(1);
+
+        workerCacheSpy.mockRestore();
+        compileSpy.mockRestore();
+        displaySpy.mockRestore();
+        dirtySpy.mockRestore();
+        bridge.destroy();
     });
 });

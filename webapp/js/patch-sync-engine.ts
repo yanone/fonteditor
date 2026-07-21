@@ -60,6 +60,7 @@ import {
     decodeNodeStringsForRuntime,
     encodeNodeArraysForStorage
 } from './node-encoding';
+import { diffFontDataToPatchPairs } from './font-data-diff';
 
 const console = new Logger('PatchSyncEngine');
 
@@ -135,7 +136,8 @@ type SyntheticChangeOperation = {
     workerReplayTargets?: WorkerReplayTarget[];
 };
 
-export type BatchApplyMode = 'default' | 'glyph-snapshot' | 'layer-snapshot';
+export type BatchApplyMode =
+    'default' | 'font-snapshot' | 'glyph-snapshot' | 'layer-snapshot';
 
 export type TransactionBufferedOperation = SyntheticChangeOperation & {
     applyPath?: (string | number)[];
@@ -149,6 +151,11 @@ export type TransactionCommitResult = {
     workerReplayTargets: WorkerReplayTarget[];
     changedGlyphNames: string[];
     changedLayerIds: string[];
+};
+
+export type ExternalSourceReloadResult = {
+    status: 'committed' | 'noop' | 'stale';
+    commit: TransactionCommitResult | null;
 };
 
 type TransactionFinalizer = (
@@ -171,6 +178,13 @@ const HISTORY_REPLAY_ORIGIN = 'history-replay';
 const FONT_EDIT_ORIGIN = 'font-edit';
 const GLYPH_EDIT_ORIGIN = 'glyph-edit';
 const LAYER_EDIT_ORIGIN_PREFIX = 'layer-edit:';
+
+function stateVectorsEqual(left: Uint8Array, right: Uint8Array): boolean {
+    return (
+        left.length === right.length &&
+        left.every((value, index) => value === right[index])
+    );
+}
 
 type UndoTarget = {
     glyphName: string | null;
@@ -1043,6 +1057,91 @@ export class PatchSyncEngine {
             }),
             label
         );
+    }
+
+    /**
+     * Commit an externally edited source snapshot through the regular Yjs
+     * change path. The caller supplies the state vector captured before the
+     * asynchronous source read so a concurrent local or remote edit cannot be
+     * overwritten by the disk snapshot.
+     */
+    applyExternalSourceReload(
+        fontSnapshot: unknown,
+        expectedStateVector: Uint8Array
+    ): ExternalSourceReloadResult {
+        if (
+            !this._fontJson ||
+            this._suppressRecording ||
+            this._isSyncing ||
+            this._isApplyingRemote ||
+            this._txDepth > 0 ||
+            !stateVectorsEqual(
+                expectedStateVector,
+                Y.encodeStateVector(this.yDoc)
+            )
+        ) {
+            return { status: 'stale', commit: null };
+        }
+
+        const previousSnapshot = yDocToJson(this.fontMap);
+        const normalizedPreviousSnapshot = this._normalizeFontSnapshot(
+            previousSnapshot,
+            previousSnapshot
+        );
+        const storageFontSnapshot =
+            this._encodeNodeArraysForStorage(fontSnapshot);
+        const nextSnapshot = this._normalizeFontSnapshot(
+            storageFontSnapshot,
+            previousSnapshot
+        );
+        if (this._isDeepEqual(normalizedPreviousSnapshot, nextSnapshot)) {
+            return { status: 'noop', commit: null };
+        }
+
+        const commit = this._queueOrCommitOperations(
+            diffFontDataToPatchPairs(
+                normalizedPreviousSnapshot,
+                nextSnapshot
+            ).map(({ forward, inverse }) => {
+                const path = forward.path;
+                const newValue =
+                    forward.op === 'remove' ? undefined : forward.value;
+                const oldValue =
+                    inverse.op === 'remove' ? undefined : inverse.value;
+                const isObjectValue =
+                    !!newValue &&
+                    typeof newValue === 'object' &&
+                    !Array.isArray(newValue);
+                const isGlyphRoot = this._isGlyphRootPath(path);
+                const isLayerRoot =
+                    path.length === 4 &&
+                    path[0] === 'glyphs' &&
+                    path[2] === 'layers';
+
+                return {
+                    op:
+                        forward.op === 'replace'
+                            ? ('set' as ChangeOp)
+                            : forward.op,
+                    path,
+                    oldValue,
+                    newValue,
+                    applyMode:
+                        isObjectValue && isGlyphRoot
+                            ? ('glyph-snapshot' as BatchApplyMode)
+                            : isObjectValue && isLayerRoot
+                              ? ('layer-snapshot' as BatchApplyMode)
+                              : 'default'
+                };
+            }),
+            'Reload external source',
+            true
+        );
+
+        return {
+            status: commit ? 'committed' : 'noop',
+            commit
+        };
     }
 
     // ── Transactions ─────────────────────────────────────────────
@@ -2715,6 +2814,10 @@ export class PatchSyncEngine {
             }
 
             const topLevelKey = pathSegments[0];
+            if (topLevelKey === 'font') {
+                syncEntireFont = true;
+                continue;
+            }
             if (topLevelKey !== 'glyphs') {
                 topLevelKeys.add(topLevelKey);
                 continue;
@@ -3105,7 +3208,7 @@ export class PatchSyncEngine {
         }
 
         for (const entry of remoteEntries) {
-            if (entry.op !== 'remove') {
+            if (entry.op !== 'remove' || entry.historyAction === 'undo') {
                 continue;
             }
 
@@ -3842,7 +3945,8 @@ export class PatchSyncEngine {
 
     private _queueOrCommitOperations(
         operations: TransactionBufferedOperation[],
-        label?: string | null
+        label?: string | null,
+        synchronizeJsonBeforeEmit = false
     ): TransactionCommitResult | null {
         const normalizedOperations = operations
             .filter((operation) => operation.path.length > 0)
@@ -3866,7 +3970,11 @@ export class PatchSyncEngine {
             normalizedOperations,
             label ?? null,
             null,
-            null
+            null,
+            undefined,
+            undefined,
+            undefined,
+            synchronizeJsonBeforeEmit
         );
     }
 
@@ -3930,7 +4038,8 @@ export class PatchSyncEngine {
         historyItemId?: string | null,
         historyTarget?: TransactionHistoryTarget | null,
         promptGroupId?: string | null,
-        historySummary?: string | null
+        historySummary?: string | null,
+        synchronizeJsonBeforeEmit = false
     ): TransactionCommitResult | null {
         const normalizedOperations = operations.filter(
             (operation) => operation.path.length > 0
@@ -3968,7 +4077,8 @@ export class PatchSyncEngine {
         // need the reduction to filter them out.
         const effectiveOperations =
             finalizedOperations.length === 1 &&
-            (finalizedOperations[0].applyMode === 'layer-snapshot' ||
+            (finalizedOperations[0].applyMode === 'font-snapshot' ||
+                finalizedOperations[0].applyMode === 'layer-snapshot' ||
                 finalizedOperations[0].applyMode === 'glyph-snapshot')
                 ? finalizedOperations
                 : this._reduceToNetChangingOperations(finalizedOperations);
@@ -4048,6 +4158,11 @@ export class PatchSyncEngine {
             }, scopeInfo.origin);
         } finally {
             this._suppressAutomaticLocalUpdateEmission = false;
+        }
+
+        if (synchronizeJsonBeforeEmit) {
+            this._syncJsonFromYDoc(null);
+            this._onAfterSync?.();
         }
 
         const exactCommitUpdate = Y.encodeStateAsUpdate(
@@ -4233,6 +4348,15 @@ export class PatchSyncEngine {
     private _applyBufferedOperation(
         operation: TransactionBufferedOperation
     ): void {
+        if (operation.applyMode === 'font-snapshot') {
+            this._applyFontSnapshot(
+                operation.applyNewValue === undefined
+                    ? operation.newValue
+                    : operation.applyNewValue
+            );
+            return;
+        }
+
         const applyPath = this._toYDocPath(
             operation.applyPath ?? operation.path
         );
@@ -4806,11 +4930,15 @@ export class PatchSyncEngine {
 
         this.yDoc.transact(() => {
             for (const entry of entries) {
-                const path = this._toYDocPath(this._parseEntryPath(entry.path));
                 const replayValue = this._getHistoryReplayValue(
                     entry,
                     direction
                 );
+                if (entry.path === 'font') {
+                    this._applyFontSnapshot(replayValue);
+                    continue;
+                }
+                const path = this._toYDocPath(this._parseEntryPath(entry.path));
                 if (this._isGlyphRootPath(path) && replayValue) {
                     this._applyGlyphSnapshot(String(path[1]), replayValue);
                     continue;
@@ -5207,6 +5335,64 @@ export class PatchSyncEngine {
         glyphMap.forEach((_value: unknown, key: string) => {
             if (!glyphKeys.has(key)) {
                 glyphMap?.delete(key);
+            }
+        });
+    }
+
+    private _applyFontSnapshot(fontSnapshot: unknown): void {
+        if (
+            !fontSnapshot ||
+            typeof fontSnapshot !== 'object' ||
+            Array.isArray(fontSnapshot)
+        ) {
+            return;
+        }
+
+        const normalizedSnapshot = this._normalizeFontSnapshot(
+            fontSnapshot,
+            this._fontJson
+        ) as Record<string, unknown>;
+        const nextGlyphs = this._coerceFontGlyphSnapshots(
+            normalizedSnapshot.glyphs
+        );
+        const nextGlyphNames = new Set<string>();
+
+        for (const glyph of nextGlyphs) {
+            const glyphName =
+                glyph && typeof glyph === 'object'
+                    ? String((glyph as Record<string, unknown>).name || '')
+                    : '';
+            if (!glyphName) {
+                continue;
+            }
+            nextGlyphNames.add(glyphName);
+            this._applyGlyphSnapshot(glyphName, glyph);
+        }
+
+        const glyphsMap = this.fontMap.get('glyphs');
+        if (glyphsMap instanceof Y.Map) {
+            glyphsMap.forEach((_value: unknown, glyphName: string) => {
+                if (!nextGlyphNames.has(glyphName)) {
+                    glyphsMap.delete(glyphName);
+                }
+            });
+        }
+        setYPath(this.fontMap, ['glyphOrder'], [...nextGlyphNames]);
+
+        const nextKeys = new Set(Object.keys(normalizedSnapshot));
+        for (const [key, value] of Object.entries(normalizedSnapshot)) {
+            if (key === 'glyphs' || key === 'glyphOrder') {
+                continue;
+            }
+            this._replaceYMapEntry(this.fontMap, key, value);
+        }
+        this.fontMap.forEach((_value: unknown, key: string) => {
+            if (
+                key !== 'glyphs' &&
+                key !== 'glyphOrder' &&
+                !nextKeys.has(key)
+            ) {
+                this.fontMap.delete(key);
             }
         });
     }

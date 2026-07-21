@@ -1804,6 +1804,8 @@ class FontManager {
         const previousEditingFont = this.editingFont;
         const previousGlyphOrderCache = this.glyphOrderCache;
         const previousClosureCache = this.closureCache;
+        const bridge = window.patchSyncEngine;
+        const bridgeStateVector = bridge?.encodeBridgeStateVector();
 
         this.isExternalReloading = true;
         beginLoadingCursor();
@@ -1813,27 +1815,45 @@ class FontManager {
                 await this.loadBabelfontJsonFromSource(previousOpenedFont);
 
             this.recordFullFontCrossing();
-            const storeResult = await fontCompilation.sendMessage({
-                type: 'storeFontJson',
-                babelfontJson
-            });
-            if (storeResult?.error) {
-                throw new Error(
-                    `Failed to cache externally reloaded font: ${storeResult.error}`
+            let reloadedFont = previousOpenedFont;
+            if (bridge && bridgeStateVector) {
+                const reloadedFontData = decodeNodeStringsForRuntime(
+                    JSON.parse(babelfontJson)
                 );
+                ensureStableIds(reloadedFontData);
+                const reloadResult = bridge.applyExternalSourceReload(
+                    reloadedFontData,
+                    bridgeStateVector
+                );
+                if (reloadResult.status === 'stale') {
+                    return false;
+                }
+
+                if (reloadResult.status === 'committed') {
+                    await this.awaitWorkerCacheUpdate();
+                }
+            } else {
+                const storeResult = await fontCompilation.sendMessage({
+                    type: 'storeFontJson',
+                    babelfontJson
+                });
+                if (storeResult?.error) {
+                    throw new Error(
+                        `Failed to cache externally reloaded font: ${storeResult.error}`
+                    );
+                }
+
+                reloadedFont = new OpenedFont(
+                    babelfontJson,
+                    previousOpenedFont.path,
+                    previousOpenedFont.sourcePlugin,
+                    previousOpenedFont.fileHandle,
+                    previousOpenedFont.directoryHandle
+                );
+                this.openedFonts.set(previousFontId, reloadedFont);
+                this.currentFontId = previousFontId;
+                this.bootstrapWorkerYjsMirrorFromCurrentFont();
             }
-
-            const reloadedFont = new OpenedFont(
-                babelfontJson,
-                previousOpenedFont.path,
-                previousOpenedFont.sourcePlugin,
-                previousOpenedFont.fileHandle,
-                previousOpenedFont.directoryHandle
-            );
-
-            this.openedFonts.set(previousFontId, reloadedFont);
-            this.currentFontId = previousFontId;
-            this.bootstrapWorkerYjsMirrorFromCurrentFont();
 
             this.editingFont = null;
             this.glyphOrderCache = null;

@@ -19,6 +19,7 @@ import {
     isAssistantPythonExecutionActive,
     setActiveAssistantPythonExecutionCommit
 } from './assistant-execution-context';
+import { diffFontDataToPatchPairs } from './font-data-diff';
 
 const console = new Logger('PythonPostExecution');
 
@@ -55,21 +56,6 @@ export type PythonExecutionOutcome = {
     succeeded: boolean;
 };
 
-function cloneJsonValue<T>(value: T): T {
-    if (value === undefined) {
-        return value;
-    }
-    return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function valuesDiffer(a: unknown, b: unknown): boolean {
-    return JSON.stringify(a) !== JSON.stringify(b);
-}
-
 type JsonPatchPair = {
     forward: JsonPatchOperation;
     inverse: JsonPatchOperation;
@@ -89,169 +75,22 @@ function toJsonPointerPath(path: (string | number)[]): string {
 
 function diffFontDataToJsonPatchPairs(
     beforeValue: unknown,
-    afterValue: unknown,
-    path: (string | number)[] = [],
-    collectionKind: 'glyphs' | 'layers' | null = null,
-    patchPairs: JsonPatchPair[] = []
+    afterValue: unknown
 ): JsonPatchPair[] {
-    if (beforeValue === undefined && afterValue === undefined) {
-        return patchPairs;
-    }
-
-    if (beforeValue === undefined) {
-        patchPairs.push({
+    return diffFontDataToPatchPairs(beforeValue, afterValue).map(
+        ({ forward, inverse }) => ({
             forward: {
-                op: 'add',
-                path: toJsonPointerPath(path),
-                value: cloneJsonValue(afterValue)
+                op: forward.op,
+                path: toJsonPointerPath(forward.path),
+                value: forward.value
             },
             inverse: {
-                op: 'remove',
-                path: toJsonPointerPath(path)
+                op: inverse.op,
+                path: toJsonPointerPath(inverse.path),
+                value: inverse.value
             }
-        });
-        return patchPairs;
-    }
-
-    if (afterValue === undefined) {
-        patchPairs.push({
-            forward: {
-                op: 'remove',
-                path: toJsonPointerPath(path)
-            },
-            inverse: {
-                op: 'add',
-                path: toJsonPointerPath(path),
-                value: cloneJsonValue(beforeValue)
-            }
-        });
-        return patchPairs;
-    }
-
-    if (Array.isArray(beforeValue) && Array.isArray(afterValue)) {
-        if (collectionKind === 'glyphs' || collectionKind === 'layers') {
-            const keyField = collectionKind === 'glyphs' ? 'name' : 'id';
-            const beforeEntries = beforeValue.flatMap((item) => {
-                if (!isPlainObject(item)) {
-                    return [];
-                }
-                const key = String(item[keyField] ?? '');
-                return key
-                    ? ([[key, item]] as Array<
-                          [string, Record<string, unknown>]
-                      >)
-                    : [];
-            });
-            const afterEntries = afterValue.flatMap((item) => {
-                if (!isPlainObject(item)) {
-                    return [];
-                }
-                const key = String(item[keyField] ?? '');
-                return key
-                    ? ([[key, item]] as Array<
-                          [string, Record<string, unknown>]
-                      >)
-                    : [];
-            });
-            const beforeMap = new Map<string, Record<string, unknown>>(
-                beforeEntries
-            );
-            const afterMap = new Map<string, Record<string, unknown>>(
-                afterEntries
-            );
-            const keys = new Set<string>([
-                ...beforeMap.keys(),
-                ...afterMap.keys()
-            ]);
-            for (const key of keys) {
-                diffFontDataToJsonPatchPairs(
-                    beforeMap.get(key),
-                    afterMap.get(key),
-                    [...path, key],
-                    null,
-                    patchPairs
-                );
-            }
-
-            const beforeOrder = beforeEntries.map(([key]) => key);
-            const afterOrder = afterEntries.map(([key]) => key);
-            if (valuesDiffer(beforeOrder, afterOrder)) {
-                const orderPath =
-                    collectionKind === 'glyphs'
-                        ? ['glyphOrder']
-                        : [...path.slice(0, -1), 'layerOrder'];
-                patchPairs.push({
-                    forward: {
-                        op: 'replace',
-                        path: toJsonPointerPath(orderPath),
-                        value: afterOrder
-                    },
-                    inverse: {
-                        op: 'replace',
-                        path: toJsonPointerPath(orderPath),
-                        value: beforeOrder
-                    }
-                });
-            }
-            return patchPairs;
-        }
-
-        if (valuesDiffer(beforeValue, afterValue)) {
-            patchPairs.push({
-                forward: {
-                    op: 'replace',
-                    path: toJsonPointerPath(path),
-                    value: cloneJsonValue(afterValue)
-                },
-                inverse: {
-                    op: 'replace',
-                    path: toJsonPointerPath(path),
-                    value: cloneJsonValue(beforeValue)
-                }
-            });
-        }
-        return patchPairs;
-    }
-
-    if (isPlainObject(beforeValue) && isPlainObject(afterValue)) {
-        const keys = new Set([
-            ...Object.keys(beforeValue),
-            ...Object.keys(afterValue)
-        ]);
-        for (const key of keys) {
-            const nextCollectionKind =
-                key === 'glyphs'
-                    ? 'glyphs'
-                    : key === 'layers'
-                      ? 'layers'
-                      : null;
-            diffFontDataToJsonPatchPairs(
-                beforeValue[key],
-                afterValue[key],
-                [...path, key],
-                nextCollectionKind,
-                patchPairs
-            );
-        }
-        return patchPairs;
-    }
-
-    if (valuesDiffer(beforeValue, afterValue)) {
-        patchPairs.push({
-            forward: {
-                op: 'replace',
-                path: toJsonPointerPath(path),
-                value: cloneJsonValue(afterValue)
-            },
-            inverse: {
-                op: 'replace',
-                path: toJsonPointerPath(path),
-                value: cloneJsonValue(beforeValue)
-            }
-        });
-    }
-
-    return patchPairs;
+        })
+    );
 }
 
 function createNamedPatchPairsFromJsonSnapshots(

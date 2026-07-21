@@ -11,22 +11,12 @@ let dirtyCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function createNormalizedFontSnapshot(): string | null {
     const currentFont = window.fontManager?.currentFont;
-    if (!currentFont?.babelfontData) {
+    if (!currentFont) {
         return null;
     }
 
-    const snapshot = JSON.parse(JSON.stringify(currentFont.babelfontData));
-    for (const glyph of snapshot.glyphs || []) {
-        for (const layer of glyph.layers || []) {
-            for (const shape of layer.shapes || []) {
-                if (Array.isArray(shape?.nodes) && !('closed' in shape)) {
-                    shape.closed = false;
-                }
-            }
-        }
-    }
-
-    return JSON.stringify(snapshot);
+    currentFont.syncJsonFromModel();
+    return currentFont.babelfontJson || null;
 }
 
 /**

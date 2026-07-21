@@ -9552,4 +9552,370 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         bridge.destroy();
         peerBridge.destroy();
     });
+
+    test('external source reload emits one Yjs packet, preserves layer maps, and is undoable on a peer', () => {
+        const senderJson = makeMinimalFont();
+        const receiverJson = cloneValue(senderJson);
+        const senderBridge = new ChangeBridge('external-reload-sender');
+        const receiverBridge = new ChangeBridge('external-reload-receiver');
+        senderBridge.initFromJson(senderJson);
+        receiverBridge.setFontJson(receiverJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+
+        const workerUpdates = [];
+        const emittedUpdates = [];
+        senderBridge.setYjsWorkerCallback((update, entries) => {
+            workerUpdates.push({ update, entries });
+        });
+        senderBridge.onLocalUpdate((update, _message, entries) => {
+            emittedUpdates.push({ update, entries });
+            receiverBridge.applyRemoteUpdate(update, entries);
+        });
+
+        const layerMapBefore = getYPath(senderBridge.fontMap, [
+            'glyphs',
+            'A',
+            'layers',
+            'layer-1'
+        ]);
+        const sourceSnapshot = cloneValue(senderBridge.getFontJsonSnapshot());
+        sourceSnapshot.note = 'Changed outside Counterpunch';
+        sourceSnapshot.glyphs[0].layers[0].width = 777;
+        const result = senderBridge.applyExternalSourceReload(
+            sourceSnapshot,
+            senderBridge.encodeBridgeStateVector()
+        );
+
+        expect(result.status).toBe('committed');
+        expect(emittedUpdates).toHaveLength(1);
+        expect(workerUpdates).toHaveLength(1);
+        expect(workerUpdates[0].update).toBe(emittedUpdates[0].update);
+        expect(workerUpdates[0].entries).toEqual(emittedUpdates[0].entries);
+        expect(emittedUpdates[0].entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    transactionLabel: 'Reload external source',
+                    path: 'note',
+                    oldValue: '',
+                    newValue: 'Changed outside Counterpunch'
+                }),
+                expect.objectContaining({
+                    transactionLabel: 'Reload external source',
+                    path: 'glyphs.A:layers.layer-1:width',
+                    oldValue: 600,
+                    newValue: 777
+                })
+            ])
+        );
+        expect(
+            emittedUpdates[0].entries.some((entry) => entry.path === 'font')
+        ).toBe(false);
+        expect(
+            emittedUpdates[0].entries.every(
+                (entry) =>
+                    !entry.replayOldValue?.glyphs &&
+                    !entry.replayNewValue?.glyphs
+            )
+        ).toBe(true);
+        expect(
+            getYPath(senderBridge.fontMap, ['glyphs', 'A', 'layers', 'layer-1'])
+        ).toBe(layerMapBefore);
+        expect(senderJson.note).toBe('Changed outside Counterpunch');
+        expect(senderJson.glyphs[0].layers[0].width).toBe(777);
+        expect(getYPath(receiverBridge.fontMap, ['note'])).toBe(
+            'Changed outside Counterpunch'
+        );
+        expect(receiverJson.note).toBe(senderJson.note);
+        expect(receiverJson.glyphs[0].layers[0].width).toBe(777);
+
+        expect(senderBridge.undo()).not.toBeNull();
+        expect(getYPath(senderBridge.fontMap, ['note'])).toBe('');
+        expect(senderJson.note).toBe('');
+        expect(senderJson.glyphs[0].layers[0].width).toBe(600);
+        expect(receiverJson.note).toBe('');
+        expect(receiverJson.glyphs[0].layers[0].width).toBe(600);
+
+        expect(senderBridge.redo()).not.toBeNull();
+        expect(senderJson.note).toBe('Changed outside Counterpunch');
+        expect(senderJson.glyphs[0].layers[0].width).toBe(777);
+        expect(receiverJson.note).toBe(senderJson.note);
+        expect(receiverJson.glyphs[0].layers[0].width).toBe(777);
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('external source reload ignores unchanged default-layer names', () => {
+        const fontJson = makeMinimalFont();
+        const secondGlyph = cloneValue(fontJson.glyphs[0]);
+        secondGlyph.name = 'B';
+        secondGlyph.layers[0].id = 'layer-2';
+        fontJson.glyphs.push(secondGlyph);
+
+        const bridge = new ChangeBridge('external-reload-canonical-names');
+        bridge.initFromJson(fontJson);
+        const workerUpdates = [];
+        bridge.setYjsWorkerCallback((_update, entries) => {
+            workerUpdates.push(entries);
+        });
+
+        const sourceSnapshot = cloneValue(bridge.getFontJsonSnapshot());
+        sourceSnapshot.glyphs[0].layers[0].width = 777;
+
+        expect(
+            bridge.applyExternalSourceReload(
+                sourceSnapshot,
+                bridge.encodeBridgeStateVector()
+            ).status
+        ).toBe('committed');
+
+        expect(workerUpdates).toHaveLength(1);
+        expect(workerUpdates[0].map((entry) => entry.path)).toEqual([
+            'glyphs.A:layers.layer-1:width'
+        ]);
+        expect(
+            workerUpdates[0].flatMap((entry) => entry.workerReplayTargets || [])
+        ).toEqual([{ glyphName: 'A', layerId: 'layer-1' }]);
+
+        bridge.destroy();
+    });
+
+    test('external source reload diffs against Y.Doc, not stale model projection', () => {
+        const fontJson = makeMinimalFont();
+        const secondGlyph = cloneValue(fontJson.glyphs[0]);
+        secondGlyph.name = 'B';
+        secondGlyph.layers[0].id = 'layer-2';
+        fontJson.glyphs.push(secondGlyph);
+
+        const bridge = new ChangeBridge('external-reload-authoritative-diff');
+        bridge.initFromJson(fontJson);
+        const workerUpdates = [];
+        bridge.setYjsWorkerCallback((_update, entries) => {
+            workerUpdates.push(entries);
+        });
+
+        // Simulate runtime/model-only fields that have not been committed to
+        // Y.Doc. They must not be interpreted as external source removals.
+        for (const glyph of fontJson.glyphs) {
+            for (const layer of glyph.layers) {
+                layer.runtimeOnlyExpansion = { selected: true };
+            }
+        }
+
+        const sourceSnapshot = yDocToJson(bridge.fontMap);
+        sourceSnapshot.glyphs[0].layers[0].width = 777;
+
+        expect(
+            bridge.applyExternalSourceReload(
+                sourceSnapshot,
+                bridge.encodeBridgeStateVector()
+            ).status
+        ).toBe('committed');
+
+        expect(workerUpdates).toHaveLength(1);
+        expect(workerUpdates[0].map((entry) => entry.path)).toEqual([
+            'glyphs.A:layers.layer-1:width'
+        ]);
+        expect(
+            workerUpdates[0].flatMap((entry) => entry.workerReplayTargets || [])
+        ).toEqual([{ glyphName: 'A', layerId: 'layer-1' }]);
+        expect(fontJson.glyphs[1].layers[0].runtimeOnlyExpansion).toEqual({
+            selected: true
+        });
+
+        bridge.destroy();
+    });
+
+    test('external source reload records keyed glyph additions, removals, and order without a font snapshot', () => {
+        const senderJson = makeMinimalFont();
+        const receiverJson = cloneValue(senderJson);
+        const senderBridge = new ChangeBridge(
+            'external-reload-structure-sender'
+        );
+        const receiverBridge = new ChangeBridge(
+            'external-reload-structure-receiver'
+        );
+        senderBridge.initFromJson(senderJson);
+        receiverBridge.setFontJson(receiverJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+
+        const emittedUpdates = [];
+        senderBridge.onLocalUpdate((update, _message, entries) => {
+            emittedUpdates.push({ update, entries });
+            receiverBridge.applyRemoteUpdate(update, entries);
+        });
+
+        const sourceSnapshot = cloneValue(senderBridge.getFontJsonSnapshot());
+        sourceSnapshot.glyphs = [
+            {
+                ...cloneValue(sourceSnapshot.glyphs[0]),
+                name: 'C',
+                production_name: 'C',
+                codepoints: [67],
+                layers: [
+                    {
+                        ...cloneValue(sourceSnapshot.glyphs[0].layers[0]),
+                        id: 'layer-3'
+                    }
+                ]
+            },
+            {
+                ...cloneValue(sourceSnapshot.glyphs[0]),
+                layers: [
+                    {
+                        ...cloneValue(sourceSnapshot.glyphs[0].layers[0]),
+                        id: 'layer-4',
+                        width: 720
+                    }
+                ]
+            }
+        ];
+
+        expect(
+            senderBridge.applyExternalSourceReload(
+                sourceSnapshot,
+                senderBridge.encodeBridgeStateVector()
+            ).status
+        ).toBe('committed');
+
+        expect(emittedUpdates).toHaveLength(1);
+        expect(emittedUpdates[0].entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ op: 'remove', path: 'glyphs.B' }),
+                expect.objectContaining({ op: 'add', path: 'glyphs.C' }),
+                expect.objectContaining({
+                    op: 'remove',
+                    path: 'glyphs.A:layers.layer-1:'
+                }),
+                expect.objectContaining({
+                    op: 'add',
+                    path: 'glyphs.A:layers.layer-4:'
+                }),
+                expect.objectContaining({
+                    op: 'set',
+                    path: 'glyphs.A:layerOrder',
+                    newValue: ['layer-4']
+                }),
+                expect.objectContaining({
+                    op: 'set',
+                    path: 'glyphOrder',
+                    newValue: ['C', 'A']
+                })
+            ])
+        );
+        expect(
+            emittedUpdates[0].entries.some((entry) => entry.path === 'font')
+        ).toBe(false);
+        expect(
+            buildHistoryStackItems(senderBridge.getChangeLog(), {
+                includeUndone: true
+            })
+        ).toHaveLength(1);
+        expect(senderJson.glyphs.map((glyph) => glyph.name)).toEqual([
+            'C',
+            'A'
+        ]);
+        expect(receiverJson.glyphs.map((glyph) => glyph.name)).toEqual([
+            'C',
+            'A'
+        ]);
+        expect(senderJson.glyphs[1].layers.map((layer) => layer.id)).toEqual([
+            'layer-4'
+        ]);
+        expect(receiverJson.glyphs[1].layers.map((layer) => layer.id)).toEqual([
+            'layer-4'
+        ]);
+
+        expect(senderBridge.undo()).not.toBeNull();
+        expect(senderJson.glyphs.map((glyph) => glyph.name)).toEqual([
+            'A',
+            'B'
+        ]);
+        expect(receiverJson.glyphs.map((glyph) => glyph.name)).toEqual([
+            'A',
+            'B'
+        ]);
+        expect(senderJson.glyphs[0].layers.map((layer) => layer.id)).toEqual([
+            'layer-1'
+        ]);
+        expect(receiverJson.glyphs[0].layers.map((layer) => layer.id)).toEqual([
+            'layer-1'
+        ]);
+
+        expect(senderBridge.redo()).not.toBeNull();
+        expect(senderJson.glyphs.map((glyph) => glyph.name)).toEqual([
+            'C',
+            'A'
+        ]);
+        expect(receiverJson.glyphs.map((glyph) => glyph.name)).toEqual([
+            'C',
+            'A'
+        ]);
+        expect(senderJson.glyphs[1].layers.map((layer) => layer.id)).toEqual([
+            'layer-4'
+        ]);
+        expect(receiverJson.glyphs[1].layers.map((layer) => layer.id)).toEqual([
+            'layer-4'
+        ]);
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('external source reload compacts runtime path nodes in Y.Doc storage', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('external-reload-node-storage');
+        bridge.initFromJson(fontJson);
+        const sourceSnapshot = cloneValue(fontJson);
+        sourceSnapshot.glyphs[0].layers[0].shapes[0].nodes[1].x = 325;
+
+        expect(
+            bridge.applyExternalSourceReload(
+                sourceSnapshot,
+                bridge.encodeBridgeStateVector()
+            ).status
+        ).toBe('committed');
+
+        const rawLayer = fromYType(
+            getYPath(bridge.fontMap, ['glyphs', 'A', 'layers', 'layer-1'])
+        );
+        expect(typeof rawLayer.shapes[0].nodes).toBe('string');
+        expect(rawLayer.shapes[0].nodes).toContain('325');
+        expect(fontJson.glyphs[0].layers[0].shapes[0].nodes[1].x).toBe(325);
+
+        bridge.destroy();
+    });
+
+    test('external source reload rejects a snapshot when its baseline state vector is stale', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('external-reload-stale');
+        bridge.initFromJson(fontJson);
+        const staleStateVector = bridge.encodeBridgeStateVector();
+        const emittedUpdates = [];
+        bridge.onLocalUpdate((update) => emittedUpdates.push(update));
+
+        fontJson.note = 'Local edit won the race';
+        bridge.applySyntheticChangeSet('Local note change', [
+            {
+                op: 'set',
+                path: ['note'],
+                oldValue: '',
+                newValue: 'Local edit won the race'
+            }
+        ]);
+        emittedUpdates.length = 0;
+
+        const sourceSnapshot = cloneValue(fontJson);
+        sourceSnapshot.note = 'Stale disk content';
+        const result = bridge.applyExternalSourceReload(
+            sourceSnapshot,
+            staleStateVector
+        );
+
+        expect(result).toEqual({ status: 'stale', commit: null });
+        expect(fontJson.note).toBe('Local edit won the race');
+        expect(emittedUpdates).toHaveLength(0);
+
+        bridge.destroy();
+    });
 });
