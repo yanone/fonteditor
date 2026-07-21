@@ -12870,7 +12870,9 @@ describe('OutlineEditor exact selected layers', () => {
         canvas.outlineEditor.layerData = virtualBackground.toJSON();
         window.patchSyncEngine = {
             getFontJsonSnapshot: () => ({
-                glyphs: [{ name: 'A', layers: [foreground.toJSON()] }]
+                // The bridge JSON reference aliases the model, so it already
+                // sees the materialized sibling before Y.Doc does.
+                glyphs: [{ name: 'A', layers: glyph.data.layers }]
             }),
             beginTransaction,
             endTransaction,
@@ -12948,6 +12950,47 @@ describe('OutlineEditor exact selected layers', () => {
         await canvas.outlineEditor.saveLayerData('mouse-drag-outline');
 
         expect(saveLayerDataSpy).not.toHaveBeenCalled();
+    });
+
+    test('saves the materialized background named by the active stack', async () => {
+        const fontModel = fontManager.currentFont.fontModel;
+        const glyph = fontModel.findGlyph('A');
+        const foreground = glyph.findLayerById('master-layer');
+        const background = foreground.backgroundLayer;
+        background.addPath(true);
+        const saveLayerDataSpy = jest
+            .spyOn(fontManager, 'saveLayerData')
+            .mockResolvedValue(undefined);
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = foreground.id;
+        canvas.outlineEditor.glyphStack = `A@${background.id}`;
+        canvas.outlineEditor.layerData = {
+            ...background.toJSON(),
+            isInterpolated: false
+        };
+
+        try {
+            await canvas.outlineEditor.saveLayerData('mouse-drag-outline');
+
+            expect(saveLayerDataSpy).toHaveBeenCalledWith(
+                'A',
+                background.id,
+                expect.objectContaining({
+                    id: background.id,
+                    is_background: true
+                }),
+                'mouse-drag-outline'
+            );
+            expect(
+                await canvas.outlineEditor.reconcileSelectionAfterModelSync({
+                    skipRender: true
+                })
+            ).toBe(false);
+            expect(canvas.outlineEditor.selectedLayerId).toBe(background.id);
+        } finally {
+            saveLayerDataSpy.mockRestore();
+        }
     });
 
     test('keeps exact selected layer data editable when interpolation fails', async () => {

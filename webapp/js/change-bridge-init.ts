@@ -1481,7 +1481,10 @@ async function refreshRustWorkerCache(
     const parsedStack = oe?.parseGlyphStack?.() || [];
     const refreshRootGlyphName =
         rootGlyphName ?? parsedStack[0]?.glyphName ?? undefined;
-    const selectedLayerId = oe?.selectedLayerId ?? undefined;
+    const selectedLayerId =
+        parsedStack[parsedStack.length - 1]?.layerId ??
+        oe?.selectedLayerId ??
+        undefined;
 
     const currentFont = window.fontManager?.currentFont;
     if (!currentFont || !fontCompilation?.isInitialized) {
@@ -2358,6 +2361,13 @@ export async function handleCommittedChangeRefresh(
         if (window.fontManager) {
             window.fontManager.pendingCommittedKeyboardDriftCheckAfterDrag = false;
         }
+
+        const replayTargets = collectReplayTargetsFromEntries(entries);
+        await refreshCanvasFromCommittedModelSync(undefined, undefined, {
+            ...(replayTargets.length > 0
+                ? { workerReplayTargets: replayTargets }
+                : {})
+        });
 
         const { editType, changeSource } =
             localCompileContext ?? resolveLocalCommittedCompileContext(entries);

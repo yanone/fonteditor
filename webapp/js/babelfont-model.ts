@@ -9279,7 +9279,7 @@ export class Layer extends ArrayElementBase {
      */
     _getLinkedLayers(): Layer[] {
         const glyph = this.parent() as Glyph | null;
-        if (!glyph || !this.linked) {
+        if (!glyph || this.is_background || !this.linked) {
             return [];
         }
 
@@ -9287,6 +9287,7 @@ export class Layer extends ArrayElementBase {
         const linkedLayers = (glyph.layers || []).filter(
             (layer) =>
                 !areSameModelObject(layer, this) &&
+                !layer.is_background &&
                 layer.linked !== false &&
                 layer.fingerprint === referenceFingerprint
         );

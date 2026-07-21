@@ -8990,6 +8990,7 @@ export class OutlineEditor {
         }
 
         if (this.getCurrentLayerModel()) {
+            this.selectedLayerId = currentLayerId;
             return false;
         }
 
@@ -15175,18 +15176,12 @@ export class OutlineEditor {
         const foregroundLayer = layer.background_layer_id
             ? glyph?.findLayerById?.(layer.background_layer_id)
             : null;
-        const bridgeGlyph = bridge
-            ?.getFontJsonSnapshot?.()
-            ?.glyphs?.find((glyphData: any) => glyphData.name === glyph?.name);
 
         if (
             !bridge ||
             !glyph?.name ||
             !foregroundLayer?.id ||
             !layer?.id ||
-            bridgeGlyph?.layers?.some(
-                (layerData: any) => layerData.id === layer.id
-            ) ||
             typeof bridge.syncLayerSnapshotsFromJson !== 'function'
         ) {
             return;
@@ -18852,6 +18847,10 @@ export class OutlineEditor {
 
             const activeLayerId =
                 this.getCurrentLayerId() || this.selectedLayerId;
+            if (!activeLayerId) {
+                console.warn('No active layer resolved - cannot save');
+                return;
+            }
             const activeGlyphName = isNestedEditing
                 ? parsed[parsed.length - 1]?.glyphName
                 : rootGlyphName;
@@ -18876,7 +18875,7 @@ export class OutlineEditor {
                 );
                 await fontManager!.saveLayerData(
                     rootGlyphName,
-                    this.selectedLayerId,
+                    activeLayerId,
                     currentLayerData,
                     changeSource
                 );

@@ -3139,7 +3139,7 @@ describe('Model setter change recording', () => {
         );
     });
 
-    test('layer sync inserts a new background sibling without a glyph snapshot', () => {
+    test('explicit layer snapshot inserts a new background sibling without a glyph snapshot', () => {
         const { bridge, fontJson } = createTestBridge(
             'background-layer-insert'
         );
@@ -3172,8 +3172,14 @@ describe('Model setter change recording', () => {
         };
 
         glyph.layers.push(background);
-        bridge.syncLayersFromJson(
-            [{ glyphName: 'A', layerId: background.id }],
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: background.id,
+                    layerJson: background
+                }
+            ],
             'Draw path'
         );
 
@@ -3238,6 +3244,12 @@ describe('Model setter change recording', () => {
                 background.id
             ])
         ).toBeUndefined();
+        receiverBridge.applyRemoteUpdate(update, changeLogEntries);
+        expect(
+            receiverFontJson.glyphs
+                .find((candidate) => candidate.name === 'A')
+                .layers.find((layer) => layer.id === background.id)
+        ).toBeUndefined();
 
         bridge.redo('A');
         expect(
@@ -3254,6 +3266,91 @@ describe('Model setter change recording', () => {
                 is_background: true,
                 shapes: [{ nodes: '100 200 l', closed: false }]
             })
+        );
+        receiverBridge.applyRemoteUpdate(update, changeLogEntries);
+        expect(
+            receiverFontJson.glyphs
+                .find((candidate) => candidate.name === 'A')
+                .layers.find((layer) => layer.id === background.id)
+        ).toEqual(
+            expect.objectContaining({
+                is_background: true,
+                background_layer_id: foreground.id
+            })
+        );
+
+        receiverBridge.destroy();
+    });
+
+    test('full-state bootstrap retains a background sibling materialized in an aliased sender model', () => {
+        const { bridge, fontJson } = createTestBridge(
+            'background-layer-bootstrap-sender'
+        );
+        const receiverFontJson = makeMinimalFont();
+        const receiverBridge = new ChangeBridge(
+            'background-layer-bootstrap-receiver'
+        );
+        receiverBridge.setFontJson(receiverFontJson);
+
+        const glyph = fontJson.glyphs.find(
+            (candidate) => candidate.name === 'A'
+        );
+        const foreground = glyph.layers.find((layer) => layer.id === 'layer-1');
+        const background = {
+            id: 'background-layer-1',
+            width: foreground.width,
+            master: foreground.master,
+            location: foreground.location,
+            is_background: true,
+            background_layer_id: foreground.id,
+            shapes: [
+                { nodes: [{ x: 100, y: 200, nodetype: 'Line' }], closed: false }
+            ]
+        };
+        foreground.background_layer_id = background.id;
+
+        // fontJson is the bridge's mutable JSON reference, so the new sibling
+        // is visible there before the Y.Doc receives its insert operation.
+        glyph.layers.push(background);
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: foreground.id,
+                    layerJson: foreground
+                },
+                {
+                    glyphName: 'A',
+                    layerId: background.id,
+                    layerJson: background
+                }
+            ],
+            'Draw path'
+        );
+
+        receiverBridge.applyFullState(bridge.getFullState());
+        const receiverLayers = receiverFontJson.glyphs.find(
+            (candidate) => candidate.name === 'A'
+        ).layers;
+
+        expect(receiverLayers).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: foreground.id,
+                    background_layer_id: background.id
+                }),
+                expect.objectContaining({
+                    id: background.id,
+                    is_background: true,
+                    background_layer_id: foreground.id,
+                    shapes: [
+                        expect.objectContaining({
+                            closed: false,
+                            nodes: [expect.objectContaining({ x: 100, y: 200 })]
+                        })
+                    ]
+                })
+            ])
         );
 
         receiverBridge.destroy();

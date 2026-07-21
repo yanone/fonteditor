@@ -4050,6 +4050,84 @@ describe('Babelfont Object Model', () => {
             window.currentFontModel = originalCurrentFontModel;
         });
 
+        test('never treats a background pair as linked edit targets', () => {
+            const backgroundPairFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [],
+                glyphs: [
+                    {
+                        name: 'backgroundPairGlyph',
+                        layers: [
+                            {
+                                id: 'foreground',
+                                width: 500,
+                                background_layer_id: 'background',
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            {
+                                                x: 0,
+                                                y: 0,
+                                                nodetype: 'Line'
+                                            }
+                                        ],
+                                        closed: false
+                                    }
+                                ]
+                            },
+                            {
+                                id: 'background',
+                                width: 500,
+                                is_background: true,
+                                background_layer_id: 'foreground',
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            {
+                                                x: 0,
+                                                y: 0,
+                                                nodetype: 'Line'
+                                            }
+                                        ],
+                                        closed: false
+                                    }
+                                ]
+                            },
+                            {
+                                id: 'foreground-sibling',
+                                width: 500,
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            {
+                                                x: 0,
+                                                y: 0,
+                                                nodetype: 'Line'
+                                            }
+                                        ],
+                                        closed: false
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            });
+            const backgroundPairGlyph = backgroundPairFont.findGlyph(
+                'backgroundPairGlyph'
+            );
+            const foreground = backgroundPairGlyph.findLayerById('foreground');
+            const background = backgroundPairGlyph.findLayerById('background');
+
+            expect(background._getLinkedLayers()).toEqual([]);
+            expect(
+                foreground._getLinkedLayers().map((layer) => layer.id)
+            ).toEqual(['foreground-sibling']);
+        });
+
         test('reflects selected state for nodes, anchors, and components', () => {
             const node = selectionLayer.paths[0].nodes[0];
             const anchor = selectionLayer.anchors[0];
