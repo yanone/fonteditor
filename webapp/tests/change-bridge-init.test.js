@@ -296,86 +296,99 @@ describe('handleRemoteChangeRefresh', () => {
         );
     });
 
-    test('reconciles a materialized background selection after local undo', async () => {
-        const backgroundLayerId = 'background-layer';
-        const outlineEditor = {
-            active: true,
-            draggingSomething: false,
-            selectedLayerId: backgroundLayerId,
-            parseGlyphStack: jest.fn(() => [
-                { glyphName: 'a', layerId: backgroundLayerId }
-            ]),
-            reconcileSelectionAfterModelSync: jest.fn(async () => {}),
-            runDeterministicRefresh: jest.fn(async (refresh) => refresh()),
-            fetchLayerData: jest.fn(async () => {})
-        };
-        const requestCompile = jest.fn(async () => {});
+    test.each(['undo', 'redo'])(
+        'reconciles a materialized background selection after local %s',
+        async (historyAction) => {
+            const backgroundLayerId = 'd82d1a85-7bc6-4ece-9b01-d9f9afda2f5a';
+            const outlineEditor = {
+                active: true,
+                draggingSomething: false,
+                selectedLayerId: backgroundLayerId,
+                parseGlyphStack: jest.fn(() => [
+                    { glyphName: 'a', layerId: backgroundLayerId }
+                ]),
+                reconcileSelectionAfterModelSync: jest.fn(async () => {}),
+                runDeterministicRefresh: jest.fn(async (refresh) => refresh()),
+                fetchLayerData: jest.fn(async () => {})
+            };
+            const requestCompile = jest.fn(async () => {});
 
-        window.glyphCanvas = {
-            outlineEditor,
-            requestRepaintAfterCompile: jest.fn()
-        };
-        window.fontManager = {
-            currentFont: {
-                fontModel: {
-                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
-                    findGlyph: jest.fn((glyphName) =>
-                        glyphName === 'a'
-                            ? {
-                                  findLayerById: jest.fn((layerId) =>
-                                      layerId === backgroundLayerId
-                                          ? {
-                                                toJSON: () => ({
-                                                    id: backgroundLayerId,
+            const glyphCanvas = {
+                outlineEditor,
+                requestRepaintAfterCompile: jest.fn()
+            };
+            window.glyphCanvas = glyphCanvas;
+            window.fontManager = {
+                currentFont: {
+                    fontModel: {
+                        collectComponentDependentGlyphs: jest.fn(
+                            () => new Set()
+                        ),
+                        findGlyph: jest.fn((glyphName) =>
+                            glyphName === 'a'
+                                ? {
+                                      findLayerById: jest.fn((layerId) =>
+                                          layerId === backgroundLayerId
+                                              ? {
                                                     is_background: true,
-                                                    shapes: []
-                                                })
-                                            }
-                                          : null
-                                  )
-                              }
-                            : null
-                    )
-                }
-            },
-            lastChangeSource: 'keyboard-outline',
-            lastEditType: 'outline'
-        };
-
-        try {
-            await handleCommittedChangeRefresh(
-                [
-                    {
-                        historyAction: 'undo',
-                        transactionLabel: 'Edit path',
-                        path: `glyphs.a.layers.${backgroundLayerId}.shapes.0.nodes.0.x`,
-                        workerReplayTargets: [
-                            { glyphName: 'a', layerId: backgroundLayerId }
-                        ]
+                                                    toJSON: () => ({
+                                                        id: backgroundLayerId,
+                                                        is_background: true,
+                                                        shapes: []
+                                                    })
+                                                }
+                                              : null
+                                      )
+                                  }
+                                : null
+                        )
                     }
-                ],
-                'local',
-                {
-                    awaitWorkerSync: jest.fn(async () => {}),
-                    requestCompile
-                }
-            );
-        } finally {
-            delete window.glyphCanvas;
-            delete window.fontManager;
-        }
+                },
+                lastChangeSource: 'keyboard-outline',
+                lastEditType: 'outline'
+            };
 
-        expect(
-            outlineEditor.reconcileSelectionAfterModelSync
-        ).toHaveBeenCalledWith({
-            skipRender: true
-        });
-        expect(outlineEditor.fetchLayerData).toHaveBeenCalledWith(true, 'a');
-        expect(requestCompile).toHaveBeenCalledWith(
-            'keyboard-outline',
-            'outline'
-        );
-    });
+            try {
+                await handleCommittedChangeRefresh(
+                    [
+                        {
+                            historyAction,
+                            transactionLabel: 'Edit path',
+                            path: `glyphs.a.layers.${backgroundLayerId}.shapes.0.nodes.0.x`,
+                            workerReplayTargets: [
+                                { glyphName: 'a', layerId: backgroundLayerId }
+                            ]
+                        }
+                    ],
+                    'local',
+                    {
+                        awaitWorkerSync: jest.fn(async () => {}),
+                        requestCompile
+                    }
+                );
+            } finally {
+                delete window.glyphCanvas;
+                delete window.fontManager;
+            }
+
+            expect(
+                outlineEditor.reconcileSelectionAfterModelSync
+            ).toHaveBeenCalledWith({
+                skipRender: true
+            });
+            expect(outlineEditor.fetchLayerData).toHaveBeenCalledWith(
+                true,
+                'a'
+            );
+            expect(
+                glyphCanvas.requestRepaintAfterCompile
+            ).toHaveBeenCalledTimes(1);
+            expect(requestCompile).toHaveBeenCalledWith(
+                'keyboard-outline',
+                'outline'
+            );
+        }
+    );
 
     test('local undo compiles from the forwarded worker update without a replay-target refresh', async () => {
         const refreshOrder = [];

@@ -2369,8 +2369,16 @@ export async function handleCommittedChangeRefresh(
         const replayTargets = collectReplayTargetsFromEntries(entries);
         const selectedLayerId =
             window.glyphCanvas?.outlineEditor?.selectedLayerId;
+        const selectedGlyphName = getActiveEditedGlyphName();
+        const selectedLayer =
+            selectedGlyphName && selectedLayerId
+                ? window.fontManager?.currentFont?.fontModel
+                      ?.findGlyph(selectedGlyphName)
+                      ?.findLayerById(selectedLayerId)
+                : null;
         const requiresBackgroundLayerRefresh =
-            selectedLayerId?.startsWith('background-') ?? false;
+            selectedLayer?.is_background === true ||
+            (selectedLayerId?.startsWith('background-') ?? false);
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
             skipDeferredCanvasRepaint:
                 isUndoRedoPacket && !requiresBackgroundLayerRefresh,
