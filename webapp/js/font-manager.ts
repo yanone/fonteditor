@@ -57,6 +57,10 @@ import {
     serializeNodeArray
 } from './node-encoding';
 import { ensureWasmInitialized } from './wasm-init';
+import {
+    cancelManagedFileInternalWrite,
+    markManagedFileInternalWrite
+} from './managed-file-events';
 
 const { save_font_as_glyphs } = babelfontWasm as object as {
     save_font_as_glyphs: (babelfontJson: string) => string;
@@ -587,11 +591,13 @@ class OpenedFont {
             }
 
             // Write to file
+            markManagedFileInternalWrite(pluginId, this.path);
             try {
                 const writable = await this.fileHandle.createWritable();
                 await writable.write(serializedFont);
                 await writable.close();
             } catch (error) {
+                cancelManagedFileInternalWrite(pluginId, this.path);
                 if (error instanceof Error && error.name === 'SecurityError') {
                     throw new Error(
                         'Permission denied. Please re-enable disk access and try again.'

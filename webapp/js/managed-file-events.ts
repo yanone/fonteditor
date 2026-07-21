@@ -3,6 +3,9 @@ export const MANAGED_FILE_CHANGED_EVENT = 'managedFileChanged';
 export type ManagedFileChangeSource =
     'script-editor-save' | 'file-system-observer';
 
+const INTERNAL_WRITE_TTL_MS = 5000;
+const pendingInternalWrites = new Map<string, number>();
+
 export interface ManagedFileChangedDetail {
     pluginId: string;
     source: ManagedFileChangeSource;
@@ -31,6 +34,51 @@ type ChangedPathRecord = {
 export function normalizeManagedPath(path: string): string {
     const cleaned = path.replace(/\\/g, '/').replace(/^\/+/, '');
     return `/${cleaned}`.replace(/\/+/g, '/');
+}
+
+function internalWriteKey(pluginId: string, path: string): string {
+    return `${pluginId}:${normalizeManagedPath(path)}`;
+}
+
+export function markManagedFileInternalWrite(
+    pluginId: string,
+    path: string
+): void {
+    pendingInternalWrites.set(
+        internalWriteKey(pluginId, path),
+        Date.now() + INTERNAL_WRITE_TTL_MS
+    );
+}
+
+export function cancelManagedFileInternalWrite(
+    pluginId: string,
+    path: string
+): void {
+    pendingInternalWrites.delete(internalWriteKey(pluginId, path));
+}
+
+export function consumeManagedFileInternalWritePaths(
+    pluginId: string,
+    paths: string[]
+): string[] {
+    const now = Date.now();
+    const internallyWrittenPaths: string[] = [];
+
+    for (const path of paths) {
+        const key = internalWriteKey(pluginId, path);
+        const expiresAt = pendingInternalWrites.get(key);
+
+        if (expiresAt === undefined) {
+            continue;
+        }
+
+        pendingInternalWrites.delete(key);
+        if (expiresAt >= now) {
+            internallyWrittenPaths.push(normalizeManagedPath(path));
+        }
+    }
+
+    return internallyWrittenPaths;
 }
 
 export function extractManagedChangedPaths(

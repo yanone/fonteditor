@@ -37,6 +37,11 @@ import { reloadLinkedEditorWindows } from './window-buttons';
 import { updateUrlState } from './url-state';
 import { shouldHandleOpenPathBeforeEditorReady } from './open-font-readiness';
 import { serializeFontForSourceSave } from './font-manager';
+import {
+    cancelManagedFileInternalWrite,
+    consumeManagedFileInternalWritePaths,
+    markManagedFileInternalWrite
+} from './managed-file-events';
 
 const console = new Logger('FileBrowser');
 
@@ -2049,10 +2054,21 @@ async function saveCurrentFontAsToPath(): Promise<void> {
                     targetPath,
                     currentFont.babelfontJson
                 );
-                await fileSystemCache.activeAdapter.writeFile(
-                    targetPath,
-                    serializedFont
-                );
+                const pluginId = fileSystemCache.currentPlugin.getId();
+                if (pluginId === 'disk') {
+                    markManagedFileInternalWrite(pluginId, targetPath);
+                }
+                try {
+                    await fileSystemCache.activeAdapter.writeFile(
+                        targetPath,
+                        serializedFont
+                    );
+                } catch (error) {
+                    if (pluginId === 'disk') {
+                        cancelManagedFileInternalWrite(pluginId, targetPath);
+                    }
+                    throw error;
+                }
 
                 currentFont.path = targetPath;
                 currentFont.sourcePlugin = fileSystemCache.currentPlugin;
@@ -2071,7 +2087,6 @@ async function saveCurrentFontAsToPath(): Promise<void> {
                 currentFont.needsRecompile = false;
                 currentFont.hasUnsavedChanges = false;
 
-                const pluginId = fileSystemCache.currentPlugin.getId();
                 const fileUri = createFileUri(pluginId, targetPath);
                 syncEditorFileState(fileUri, 'file_saved_as');
 
@@ -4129,6 +4144,13 @@ window.addEventListener('diskFilesChanged', async (event: Event) => {
         return;
     }
 
+    const internallyWrittenPaths = new Set(
+        consumeManagedFileInternalWritePaths('disk', changedPaths)
+    );
+    const reloadablePaths = changedPaths.filter(
+        (path) => !internallyWrittenPaths.has(path)
+    );
+
     console.log('[FileBrowser]', 'Disk files changed, refreshing...');
 
     // Check if current path still exists, walk up if not
@@ -4168,7 +4190,7 @@ window.addEventListener('diskFilesChanged', async (event: Event) => {
     await navigateToPath(targetPath);
 
     // Debounced external font hot reload (targeted by changed paths)
-    for (const changedPath of changedPaths) {
+    for (const changedPath of reloadablePaths) {
         pendingDiskChangePaths.add(changedPath);
     }
 
