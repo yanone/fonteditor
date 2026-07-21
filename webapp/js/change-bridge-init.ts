@@ -1568,6 +1568,7 @@ async function refreshCanvasFromCommittedModelSync(
     editedGlyphName?: string,
     options?: {
         skipDeferredCanvasRepaint?: boolean;
+        skipLayerDataFetch?: boolean;
         workerReplayTargets?: WorkerReplayTarget[];
     }
 ): Promise<void> {
@@ -1603,7 +1604,10 @@ async function refreshCanvasFromCommittedModelSync(
                 return;
             }
 
-            if (typeof gc.outlineEditor?.fetchLayerData === 'function') {
+            if (
+                !options?.skipLayerDataFetch &&
+                typeof gc.outlineEditor?.fetchLayerData === 'function'
+            ) {
                 await gc.outlineEditor.fetchLayerData(
                     true,
                     refreshRootGlyphName
@@ -2363,7 +2367,15 @@ export async function handleCommittedChangeRefresh(
         }
 
         const replayTargets = collectReplayTargetsFromEntries(entries);
+        const selectedLayerId =
+            window.glyphCanvas?.outlineEditor?.selectedLayerId;
+        const requiresBackgroundLayerRefresh =
+            selectedLayerId?.startsWith('background-') ?? false;
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
+            skipDeferredCanvasRepaint:
+                isUndoRedoPacket && !requiresBackgroundLayerRefresh,
+            skipLayerDataFetch:
+                isUndoRedoPacket && !requiresBackgroundLayerRefresh,
             ...(replayTargets.length > 0
                 ? { workerReplayTargets: replayTargets }
                 : {})
