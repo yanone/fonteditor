@@ -6111,6 +6111,8 @@ export class Layer extends ArrayElementBase {
                         : roundMetricValue(value + currentRsb);
                 });
 
+                this.translateMaterializedBackgroundLayerContentsX(offset);
+
                 recordAndMarkDirty(
                     this,
                     'shapes',
@@ -6140,6 +6142,62 @@ export class Layer extends ArrayElementBase {
             );
         }
         recordAndMarkDirty(this, 'width', oldWidth, this.toJSON().width);
+    }
+
+    /**
+     * Keep an existing background drawing aligned with a foreground X shift.
+     * Virtual empty backgrounds remain unmaterialized and are intentionally ignored.
+     */
+    translateMaterializedBackgroundLayerContentsX(deltaX: number): void {
+        if (this.is_background || deltaX === 0 || !this.background_layer_id) {
+            return;
+        }
+
+        const background = (this.parent() as Glyph | null)?.findLayerById(
+            this.background_layer_id
+        );
+        if (
+            !background?.is_background ||
+            ((!background.shapes || background.shapes.length === 0) &&
+                (!background.anchors || background.anchors.length === 0))
+        ) {
+            return;
+        }
+
+        const backgroundData = background.toJSON();
+        const oldShapes = cloneForHistory(backgroundData.shapes || []);
+        const oldAnchors = cloneForHistory(backgroundData.anchors || []);
+
+        withSuppressedModelRecording(() => {
+            translateLayerContentsX(
+                {
+                    shapes: background.shapes || [],
+                    anchors: background.anchors || [],
+                    getPathNodes: (shape) =>
+                        shape.isPath() ? shape.asPath().nodes : null,
+                    getOrCreateComponentTransform: () => null,
+                    shiftAnchor: (anchor, offset) => {
+                        anchor.x += offset;
+                    }
+                },
+                deltaX
+            );
+        });
+
+        recordAndMarkDirty(
+            background,
+            'shapes',
+            oldShapes,
+            cloneForHistory(backgroundData.shapes || [])
+        );
+        if (oldAnchors.length || (backgroundData.anchors || []).length) {
+            recordAndMarkDirty(
+                background,
+                'anchors',
+                oldAnchors,
+                cloneForHistory(backgroundData.anchors || [])
+            );
+        }
     }
 
     /**
@@ -11142,6 +11200,9 @@ export class Font extends ModelBase {
                                                   appliedValue + currentRsb
                                               );
                                     });
+                                    entry.layer.translateMaterializedBackgroundLayerContentsX(
+                                        offset
+                                    );
                                 });
                             }
                         } else {

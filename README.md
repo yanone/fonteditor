@@ -89,7 +89,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 **Counterpunch becomes a simple font editor**
 
 - ✅ Basic layer operations
-- ◻️ Background layers
+- ✅ Background layers
 - ◻️ Basic glyph operations
 - ◻️ Path operations
 - ✅ Edit outlines

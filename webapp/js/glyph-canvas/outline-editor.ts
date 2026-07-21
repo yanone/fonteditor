@@ -16499,6 +16499,9 @@ export class OutlineEditor {
                 },
                 sidebearingDelta
             );
+            this.getCurrentLayerModel()?.translateMaterializedBackgroundLayerContentsX?.(
+                sidebearingDelta
+            );
         }
 
         currentLayerData.width =
@@ -18611,7 +18614,33 @@ export class OutlineEditor {
                         );
                     });
                 }
-                for (const target of changedLayerTargets) {
+                const snapshotTargets = normalizeWorkerReplayTargets([
+                    ...changedLayerTargets,
+                    ...changedLayerTargets.flatMap((target) => {
+                        const foregroundLayer = fontModel
+                            .findGlyph(target.glyphName)
+                            ?.findLayerById?.(target.layerId);
+                        const backgroundLayerId = foregroundLayer?.is_background
+                            ? null
+                            : foregroundLayer?.background_layer_id;
+                        const backgroundLayer = backgroundLayerId
+                            ? fontModel
+                                  .findGlyph(target.glyphName)
+                                  ?.findLayerById?.(backgroundLayerId)
+                            : null;
+                        return backgroundLayer?.is_background &&
+                            backgroundLayer.id
+                            ? [
+                                  {
+                                      glyphName: target.glyphName,
+                                      layerId: backgroundLayer.id
+                                  }
+                              ]
+                            : [];
+                    })
+                ]);
+
+                for (const target of snapshotTargets) {
                     const modelGlyph = fontModel.findGlyph(target.glyphName);
                     const modelLayer = modelGlyph?.findLayerById?.(
                         target.layerId

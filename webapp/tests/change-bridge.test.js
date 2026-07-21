@@ -9645,6 +9645,53 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         receiverBridge.destroy();
     });
 
+    test('external source reload preserves source paths over stale cascade snapshots', () => {
+        const senderJson = makeMinimalFont();
+        const receiverJson = cloneValue(senderJson);
+        const senderBridge = new ChangeBridge('external-reload-path-sender');
+        const receiverBridge = new ChangeBridge(
+            'external-reload-path-receiver'
+        );
+        senderBridge.initFromJson(senderJson);
+        receiverBridge.setFontJson(receiverJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+
+        const staleLayerSnapshot = cloneValue(senderJson.glyphs[0].layers[0]);
+        const transactionFinalizer = jest.fn(() => [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1'],
+                oldValue: staleLayerSnapshot,
+                newValue: staleLayerSnapshot,
+                applyMode: 'layer-snapshot'
+            }
+        ]);
+        senderBridge.setTransactionFinalizer(transactionFinalizer);
+        senderBridge.onLocalUpdate((update, _message, entries) => {
+            receiverBridge.applyRemoteUpdate(update, entries);
+        });
+
+        const sourceSnapshot = cloneValue(senderBridge.getFontJsonSnapshot());
+        const sourceLayer = sourceSnapshot.glyphs[0].layers[0];
+        sourceLayer.width = 777;
+        sourceLayer.shapes[0].nodes[0].x = 123;
+
+        expect(
+            senderBridge.applyExternalSourceReload(
+                sourceSnapshot,
+                senderBridge.encodeBridgeStateVector()
+            ).status
+        ).toBe('committed');
+        expect(transactionFinalizer).not.toHaveBeenCalled();
+        expect(senderJson.glyphs[0].layers[0].width).toBe(777);
+        expect(senderJson.glyphs[0].layers[0].shapes[0].nodes[0].x).toBe(123);
+        expect(receiverJson.glyphs[0].layers[0].width).toBe(777);
+        expect(receiverJson.glyphs[0].layers[0].shapes[0].nodes[0].x).toBe(123);
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
     test('external source reload ignores unchanged default-layer names', () => {
         const fontJson = makeMinimalFont();
         const secondGlyph = cloneValue(fontJson.glyphs[0]);

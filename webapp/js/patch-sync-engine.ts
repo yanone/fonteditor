@@ -1142,6 +1142,7 @@ export class PatchSyncEngine {
                 };
             }),
             'Reload external source',
+            true,
             true
         );
 
@@ -4089,7 +4090,8 @@ export class PatchSyncEngine {
     private _queueOrCommitOperations(
         operations: TransactionBufferedOperation[],
         label?: string | null,
-        synchronizeJsonBeforeEmit = false
+        synchronizeJsonBeforeEmit = false,
+        skipTransactionFinalizer = false
     ): TransactionCommitResult | null {
         const normalizedOperations = operations
             .filter((operation) => operation.path.length > 0)
@@ -4117,7 +4119,8 @@ export class PatchSyncEngine {
             undefined,
             undefined,
             undefined,
-            synchronizeJsonBeforeEmit
+            synchronizeJsonBeforeEmit,
+            skipTransactionFinalizer
         );
     }
 
@@ -4182,7 +4185,8 @@ export class PatchSyncEngine {
         historyTarget?: TransactionHistoryTarget | null,
         promptGroupId?: string | null,
         historySummary?: string | null,
-        synchronizeJsonBeforeEmit = false
+        synchronizeJsonBeforeEmit = false,
+        skipTransactionFinalizer = false
     ): TransactionCommitResult | null {
         const normalizedOperations = operations.filter(
             (operation) => operation.path.length > 0
@@ -4192,7 +4196,7 @@ export class PatchSyncEngine {
         }
 
         let finalizedOperations = normalizedOperations;
-        if (this._transactionFinalizer) {
+        if (this._transactionFinalizer && !skipTransactionFinalizer) {
             const derivedOperations = this._transactionFinalizer(
                 normalizedOperations.map((operation) =>
                     this._cloneBufferedOperation(operation)

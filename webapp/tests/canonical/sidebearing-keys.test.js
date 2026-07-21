@@ -324,6 +324,93 @@ function getSnapCandidateXs(source) {
 // ==================== Tests ====================
 
 describe('Sidebearing keys: live recompute during mouse drags', () => {
+    test('live LSB drags keep active and dependent background drawings aligned', () => {
+        const font = makeBidirectionalNeighborMetricsFont();
+        const { glyph, layer } = setupCanvasForGlyph(font, 'l');
+        const sourceBackground = glyph.addBackgroundLayer(layer);
+        const sourcePath = sourceBackground.addPath(true);
+        sourcePath.nodes = [
+            { x: 30, y: 0, nodetype: 'Line' },
+            { x: 60, y: 0, nodetype: 'Line' }
+        ];
+        sourceBackground.data.anchors = [{ name: 'origin', x: 15, y: 0 }];
+
+        const dependentGlyph = font.findGlyph('a');
+        const dependentLayer = dependentGlyph.findLayerById('A0');
+        const dependentBackground =
+            dependentGlyph.addBackgroundLayer(dependentLayer);
+        const dependentPath = dependentBackground.addPath(true);
+        dependentPath.nodes = [
+            { x: 20, y: 0, nodetype: 'Line' },
+            { x: 50, y: 0, nodetype: 'Line' }
+        ];
+
+        const sourceBackgroundX = sourcePath.nodes[0].x;
+        const sourceBackgroundAnchorX = sourceBackground.anchors[0].x;
+        const dependentBackgroundX = dependentPath.nodes[0].x;
+        const dependentLsb = dependentLayer.lsb;
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'left',
+            editable: true
+        };
+        canvas.outlineEditor.isDraggingSidebearing = true;
+
+        canvas.outlineEditor._updateDraggedSidebearing(-20);
+
+        expect(sourcePath.nodes[0].x).toBe(sourceBackgroundX + 20);
+        expect(sourceBackground.anchors[0].x).toBe(
+            sourceBackgroundAnchorX + 20
+        );
+        expect(dependentPath.nodes[0].x).toBeCloseTo(
+            dependentBackgroundX + (dependentLayer.lsb - dependentLsb),
+            8
+        );
+    });
+
+    test('automatic metrics-key fast path keeps a dependent background aligned', () => {
+        const font = makeBidirectionalNeighborMetricsFont();
+        const sourceLayer = font.findGlyph('l').findLayerById('L0');
+        const dependentGlyph = font.findGlyph('a');
+        const dependentLayer = dependentGlyph.findLayerById('A0');
+        dependentLayer.data.shapes = [
+            {
+                reference: 'l',
+                transform: {
+                    translation: [0, 0],
+                    scale: [1, 1],
+                    rotation: 0,
+                    skew: [0, 0]
+                },
+                format_specific: {
+                    'com.schriftgestalt.Glyphs.alignment': 1
+                }
+            }
+        ];
+        dependentLayer.invalidateShapeCache();
+        dependentGlyph.leftMetricsKey = '=+20';
+
+        const background = dependentGlyph.addBackgroundLayer(dependentLayer);
+        const backgroundPath = background.addPath(true);
+        backgroundPath.nodes = [
+            { x: 25, y: 0, nodetype: 'Line' },
+            { x: 55, y: 0, nodetype: 'Line' }
+        ];
+
+        const backgroundX = backgroundPath.nodes[0].x;
+        const lsbBefore = dependentLayer.lsb;
+        font.recomputeMetricsKeys(new Set([sourceLayer.parent().name]), {
+            allowedGlyphNames: new Set(['l', 'a']),
+            skipAutomaticCompositeRebuild: true
+        });
+
+        const lsbDelta = dependentLayer.lsb - lsbBefore;
+        expect(lsbDelta).not.toBeCloseTo(0, 8);
+        expect(backgroundPath.nodes[0].x).toBeCloseTo(
+            backgroundX + lsbDelta,
+            8
+        );
+    });
+
     test('dragging a point on a glyph with right sidebearing key adjusts width to preserve RSB', () => {
         const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
         const { glyph, layer, masterId } = setupCanvasForGlyph(font, 'n');
