@@ -56,10 +56,7 @@ import {
     type DerivedForwardChange
 } from './collaboration-message';
 import { windowRole } from './window-role';
-import {
-    normalizeLegacyGlyphsRtlKerning,
-    withSuppressedModelRecording
-} from './babelfont-model';
+import { withSuppressedModelRecording } from './babelfont-model';
 import {
     decodeNodeStringsForRuntime,
     encodeNodeArraysForStorage
@@ -1155,14 +1152,6 @@ export class PatchSyncEngine {
     }
 
     private _normalizeExternalSourceReloadSnapshot(value: unknown): unknown {
-        const normalizedFont =
-            value && typeof value === 'object' && !Array.isArray(value)
-                ? normalizeLegacyGlyphsRtlKerning(
-                      cloneHistoryValue(value) as Parameters<
-                          typeof normalizeLegacyGlyphsRtlKerning
-                      >[0]
-                  )
-                : value;
         const normalizeShapes = (
             candidate: unknown,
             isShapeEntry = false
@@ -1198,9 +1187,7 @@ export class PatchSyncEngine {
             );
         };
 
-        return this._encodeNodeArraysForStorage(
-            normalizeShapes(normalizedFont)
-        );
+        return this._encodeNodeArraysForStorage(normalizeShapes(value));
     }
 
     // ── Transactions ─────────────────────────────────────────────

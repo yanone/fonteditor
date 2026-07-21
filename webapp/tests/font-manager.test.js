@@ -5,11 +5,10 @@ const Y = require('yjs');
 const fontManager = require('../js/font-manager').default;
 const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
 const { fontCompilation } = require('../js/font-compilation');
+const { Font, withSuppressedModelRecording } = require('../js/babelfont-model');
 const {
-    Font,
-    normalizeLegacyGlyphsRtlKerning,
-    withSuppressedModelRecording
-} = require('../js/babelfont-model');
+    canonicalizeImportedFontData
+} = require('../js/font-import-canonicalization');
 const {
     deleteYPath,
     getYPath,
@@ -5254,10 +5253,10 @@ describe('FontManager external source reload', () => {
     });
 
     test('reloads one external source node as one scoped Yjs shape change', async () => {
-        const originalData = loadFontFile(
+        const sourceBaseline = loadFontFile(
             path.join(__dirname, '..', 'examples', 'ManufacturedKink.babelfont')
         );
-        const originalTargetGlyph = originalData.glyphs.find(
+        const originalTargetGlyph = sourceBaseline.glyphs.find(
             (glyph) => glyph.name === '.notdef'
         );
         const originalTargetLayer = originalTargetGlyph.layers.find(
@@ -5269,24 +5268,20 @@ describe('FontManager external source reload', () => {
             (layer) => layer.id === 'L2'
         );
         unchangedComponentLayer.shapes.push({ reference: 'A' });
-        const originalMaster = originalData.masters[0];
-        originalMaster.guides = [
-            { id: 'editor-master-guide', pos: { x: 0, y: 700 } }
-        ];
-        originalData.format_specific = {
-            ...(originalData.format_specific || {}),
+        originalTargetLayer.master = sourceBaseline.masters[0].id;
+        const originalMaster = sourceBaseline.masters[0];
+        originalMaster.guides = [{ pos: { x: 0, y: 700 } }];
+        sourceBaseline.format_specific = {
+            ...(sourceBaseline.format_specific || {}),
             'com.schriftgestalt.Glyphs.kerningRTL': {
                 [originalMaster.id]: {
                     '@MMK_R_test': { '@MMK_L_test': -100 }
                 }
             }
         };
-        normalizeLegacyGlyphsRtlKerning(originalData);
-        const sourceData = cloneJson(originalData);
-        delete sourceData.masters[0].guides[0].id;
-        for (const master of sourceData.masters) {
-            delete master.kerning_rtl;
-        }
+        const initialImport = canonicalizeImportedFontData(sourceBaseline);
+        const originalData = initialImport.fontData;
+        const sourceData = cloneJson(sourceBaseline);
         let stableShapeId = 0;
         for (const glyph of originalData.glyphs) {
             for (const layer of glyph.layers || []) {
@@ -5317,7 +5312,7 @@ describe('FontManager external source reload', () => {
             readFile: jest.fn().mockResolvedValue(JSON.stringify(sourceData))
         };
         const openedFont = {
-            babelfontJson: JSON.stringify(originalData),
+            babelfontJson: initialImport.babelfontJson,
             babelfontData: originalData,
             path: '/fonts/ManufacturedKink.babelfont',
             sourcePlugin: {
@@ -5377,7 +5372,7 @@ describe('FontManager external source reload', () => {
             parseNodeString(emittedUpdates[0].entries[0].newValue[0].nodes)[0].y
         ).toBe(beforeY + 100);
         expect(yDocToJson(bridge.fontMap).masters[0].guides[0].id).toBe(
-            'editor-master-guide'
+            originalData.masters[0].guides[0].id
         );
         expect(workerCacheSpy).toHaveBeenCalledTimes(1);
 

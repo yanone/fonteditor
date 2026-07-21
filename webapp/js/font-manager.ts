@@ -21,9 +21,9 @@ import {
     Font,
     Path,
     DecomposedAffineTransform,
-    withSuppressedModelRecording,
-    ensureStableIds
+    withSuppressedModelRecording
 } from './babelfont-model';
+import { canonicalizeImportedFontJson } from './font-import-canonicalization';
 import {
     jsonToYDoc,
     deleteYPath,
@@ -303,121 +303,19 @@ class OpenedFont {
         fileHandle?: FileSystemFileHandle,
         directoryHandle?: FileSystemDirectoryHandle
     ) {
-        this.babelfontJson = babelfontJson;
-        this.babelfontData = decodeNodeStringsForRuntime(
-            JSON.parse(babelfontJson)
-        );
-        // Ensure every Node, Path, Component, Anchor, and Guide has a stable `id`
-        // for CRDT addressing (indexed-map Y.Doc schema). Must run before any
-        // Y.Doc or model initialization.
-        ensureStableIds(this.babelfontData);
-        this.babelfontData.glyphs = this.babelfontData.glyphs || [];
-        this.babelfontData.masters = this.babelfontData.masters || [];
-        this.babelfontData.axes = this.babelfontData.axes || [];
-        const knownMasterIds = new Set<string>(
-            this.babelfontData.masters
-                .map((m: any) => m?.id)
-                .filter((id: any) => typeof id === 'string')
-        );
+        const canonicalImport = canonicalizeImportedFontJson(babelfontJson);
+        this.babelfontJson = canonicalImport.babelfontJson;
+        this.babelfontData = canonicalImport.fontData;
         this.sourcePlugin = sourcePlugin;
         this.fileHandle = fileHandle;
         this.directoryHandle = directoryHandle;
-
-        // Normalize layer master references to tagged LayerType objects
-        for (const glyph of this.babelfontData.glyphs || []) {
-            for (const layer of glyph.layers || []) {
-                if (!layer.master) {
-                    if (
-                        !layer.is_background &&
-                        typeof layer.id === 'string' &&
-                        knownMasterIds.has(layer.id)
-                    ) {
-                        layer.master = {
-                            type: 'DefaultForMaster',
-                            master: layer.id
-                        };
-                    }
-                    continue;
-                }
-
-                const masterData = layer.master;
-
-                if (typeof masterData === 'string') {
-                    layer.master = {
-                        type: 'DefaultForMaster',
-                        master: masterData
-                    };
-                    continue;
-                }
-
-                if (typeof masterData === 'object') {
-                    if ('type' in masterData) {
-                        continue;
-                    }
-
-                    if (
-                        'master' in masterData &&
-                        typeof (masterData as any).master === 'string'
-                    ) {
-                        layer.master = {
-                            type: 'DefaultForMaster',
-                            master: (masterData as any).master
-                        };
-                        continue;
-                    }
-
-                    if ('DefaultForMaster' in masterData) {
-                        layer.master = {
-                            type: 'DefaultForMaster',
-                            master: masterData.DefaultForMaster
-                        };
-                        continue;
-                    }
-
-                    if ('default_for_master' in masterData) {
-                        layer.master = {
-                            type: 'DefaultForMaster',
-                            master: (masterData as any).default_for_master
-                        };
-                        continue;
-                    }
-
-                    if ('associated_with_master' in masterData) {
-                        layer.master = {
-                            type: 'AssociatedWithMaster',
-                            master: (masterData as any).associated_with_master
-                        };
-                        continue;
-                    }
-
-                    if ('AssociatedWithMaster' in masterData) {
-                        layer.master = {
-                            type: 'AssociatedWithMaster',
-                            master: masterData.AssociatedWithMaster
-                        };
-                        continue;
-                    }
-
-                    if (
-                        'FreeFloating' in masterData ||
-                        Object.keys(masterData).length === 0
-                    ) {
-                        layer.master = { type: 'FreeFloating' };
-                    }
-                }
-            }
-        }
 
         assertBabelfontLayerWidths(
             this.babelfontData,
             'OpenedFont.constructor'
         );
 
-        this.fontModel = Font.fromData(this.babelfontData); // Create object model
-        withSuppressedModelRecording(() => {
-            this.fontModel.recomputeMetricsKeys();
-        });
-        this.babelfontJson = this.fontModel.toJSONString();
+        this.fontModel = canonicalImport.fontModel;
         this.path = path;
         this.name =
             this.babelfontData?.names?.family_name?.dflt || 'Untitled Font';
@@ -1813,16 +1711,13 @@ class FontManager {
         try {
             const babelfontJson =
                 await this.loadBabelfontJsonFromSource(previousOpenedFont);
+            const canonicalImport = canonicalizeImportedFontJson(babelfontJson);
 
             this.recordFullFontCrossing();
             let reloadedFont = previousOpenedFont;
             if (bridge && bridgeStateVector) {
-                const reloadedFontData = decodeNodeStringsForRuntime(
-                    JSON.parse(babelfontJson)
-                );
-                ensureStableIds(reloadedFontData);
                 const reloadResult = bridge.applyExternalSourceReload(
-                    reloadedFontData,
+                    canonicalImport.fontData,
                     bridgeStateVector
                 );
                 if (reloadResult.status === 'stale') {
@@ -1835,7 +1730,7 @@ class FontManager {
             } else {
                 const storeResult = await fontCompilation.sendMessage({
                     type: 'storeFontJson',
-                    babelfontJson
+                    babelfontJson: canonicalImport.babelfontJson
                 });
                 if (storeResult?.error) {
                     throw new Error(
