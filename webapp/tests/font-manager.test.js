@@ -1230,20 +1230,38 @@ describe('FontManager editing subset inclusion', () => {
         });
     });
 
-    test('validateBabelfontJsonForRust preserves canonical path node strings', () => {
+    test('validateBabelfontJsonForRust accepts canonical node strings without malformed-shape logs', () => {
         const fontData = cloneJson(fontManager.currentFont.babelfontData);
         fontData.glyphs[0].layers[0].shapes = [
             { nodes: '100 200 m', closed: false }
         ];
+        fontData.glyphs[0].layers.push({
+            id: 'background-layer-1',
+            width: fontData.glyphs[0].layers[0].width,
+            is_background: true,
+            background_layer_id: fontData.glyphs[0].layers[0].id,
+            shapes: [{ nodes: '100 200 l', closed: true }]
+        });
+        const errorSpy = jest
+            .spyOn(console, 'error')
+            .mockImplementation(() => {});
 
-        const validatedJson = fontManager['validateBabelfontJsonForRust'](
-            JSON.stringify(fontData),
-            true
-        );
+        try {
+            const validatedJson = fontManager['validateBabelfontJsonForRust'](
+                JSON.stringify(fontData),
+                true
+            );
 
-        expect(JSON.parse(validatedJson).glyphs[0].layers[0].shapes[0]).toEqual(
-            { nodes: '100 200 m', closed: false }
-        );
+            expect(
+                JSON.parse(validatedJson).glyphs[0].layers[0].shapes[0]
+            ).toEqual({ nodes: '100 200 m', closed: false });
+            expect(
+                JSON.parse(validatedJson).glyphs[0].layers[1].shapes[0]
+            ).toEqual({ nodes: '100 200 l', closed: true });
+            expect(errorSpy).not.toHaveBeenCalled();
+        } finally {
+            errorSpy.mockRestore();
+        }
     });
 
     test('validateBabelfontJsonForRust rejects missing layer widths instead of synthesizing zero', () => {

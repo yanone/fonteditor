@@ -3685,7 +3685,10 @@ class FontManager {
                         const hasReference = 'reference' in val;
                         const hasTransform = 'transform' in val;
                         const isPath =
-                            hasNodes && Array.isArray(val.nodes) && hasClosed;
+                            hasNodes &&
+                            (Array.isArray(val.nodes) ||
+                                typeof val.nodes === 'string') &&
+                            hasClosed;
                         const isComponent = hasReference;
                         if (!isPath && !isComponent) {
                             console.error(
@@ -3726,7 +3729,9 @@ class FontManager {
                                             shape && 'transform' in shape;
                                         const isPath =
                                             hasNodes &&
-                                            Array.isArray(shape.nodes) &&
+                                            (Array.isArray(shape.nodes) ||
+                                                typeof shape.nodes ===
+                                                    'string') &&
                                             hasClosed;
                                         const isComponent = hasReference;
                                         if (!isPath && !isComponent) {

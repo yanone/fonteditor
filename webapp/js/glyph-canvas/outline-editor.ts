@@ -15146,7 +15146,14 @@ export class OutlineEditor {
             segmentCount: 0
         };
 
-        this.syncCurrentContourDataFromModel(pathIndex, shapeIndex);
+        if (currentLayerModel.is_background) {
+            // Materializing a virtual background replaces its synthetic ID with
+            // a persisted sibling ID. Refresh the canvas snapshot as a whole
+            // so later points and deletions stay on that sibling.
+            this.syncCurrentExactLayerDataFromModel();
+        } else {
+            this.syncCurrentContourDataFromModel(pathIndex, shapeIndex);
+        }
         this.selectedPoints = [{ contourIndex: shapeIndex, nodeIndex: 0 }];
         this.selectedAnchors = [];
         this.selectedComponents = [];
@@ -15909,11 +15916,16 @@ export class OutlineEditor {
             return;
         }
 
+        const layerTargets = this.getCurrentGlyphStructuralLayerTargets();
+
         this.syncStructuralGlyphChangeTransaction(
             label,
             currentGlyphModel?.name,
             affectedGlyphNames,
-            { layerId: null }
+            {
+                layerId: null,
+                layerTargets: layerTargets.length ? layerTargets : undefined
+            }
         );
 
         if (!fontManager.currentFont && currentGlyphModel?.name) {

@@ -3075,7 +3075,10 @@ describe('Model setter change recording', () => {
             }
         ];
 
-        bridge.syncGlyphFromJson('A', 'Draw path');
+        bridge.syncLayersFromJson(
+            [{ glyphName: 'A', layerId: layer.id }],
+            'Draw path'
+        );
 
         const rawLayer = fromYType(
             getYPath(bridge.yDoc.getMap('font'), [
@@ -3115,7 +3118,10 @@ describe('Model setter change recording', () => {
             path._appendLine({ x: 100, y: 200 });
         });
 
-        bridge.syncGlyphFromJson('A', 'Draw path');
+        bridge.syncLayersFromJson(
+            [{ glyphName: 'A', layerId: background.id }],
+            'Draw path'
+        );
 
         const rawBackground = fromYType(
             getYPath(bridge.yDoc.getMap('font'), [
@@ -3131,6 +3137,126 @@ describe('Model setter change recording', () => {
                 shapes: [{ nodes: '100 200 m', closed: false }]
             })
         );
+    });
+
+    test('layer sync inserts a new background sibling without a glyph snapshot', () => {
+        const { bridge, fontJson } = createTestBridge(
+            'background-layer-insert'
+        );
+        const receiverFontJson = cloneValue(fontJson);
+        const receiverBridge = new ChangeBridge(
+            'background-layer-insert-receiver'
+        );
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(bridge.getFullState());
+        let update;
+        let changeLogEntries;
+        bridge.onLocalUpdate((nextUpdate, _message, entries) => {
+            update = nextUpdate;
+            changeLogEntries = entries;
+        });
+        const glyph = fontJson.glyphs.find(
+            (candidate) => candidate.name === 'A'
+        );
+        const foreground = glyph.layers.find((layer) => layer.id === 'layer-1');
+        const background = {
+            id: 'background-layer-1',
+            width: foreground.width,
+            master: foreground.master,
+            location: foreground.location,
+            is_background: true,
+            background_layer_id: foreground.id,
+            shapes: [
+                { nodes: [{ x: 100, y: 200, nodetype: 'Line' }], closed: false }
+            ]
+        };
+
+        glyph.layers.push(background);
+        bridge.syncLayersFromJson(
+            [{ glyphName: 'A', layerId: background.id }],
+            'Draw path'
+        );
+
+        expect(
+            fromYType(
+                getYPath(bridge.yDoc.getMap('font'), [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    background.id
+                ])
+            )
+        ).toEqual(
+            expect.objectContaining({
+                is_background: true,
+                shapes: [{ nodes: '100 200 l', closed: false }]
+            })
+        );
+        expect(bridge.getChangeLog()).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    path: `glyphs.A:layers.${background.id}:`
+                })
+            ])
+        );
+        expect(bridge.getChangeLog()).not.toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ path: 'glyphs.A' })
+            ])
+        );
+
+        receiverBridge.applyRemoteUpdate(update, changeLogEntries);
+        expect(
+            receiverFontJson.glyphs
+                .find((candidate) => candidate.name === 'A')
+                .layers.find((layer) => layer.id === background.id)
+        ).toEqual(
+            expect.objectContaining({
+                is_background: true,
+                shapes: [
+                    {
+                        nodes: [
+                            {
+                                x: 100,
+                                y: 200,
+                                nodetype: 'Line',
+                                smooth: false
+                            }
+                        ],
+                        closed: false
+                    }
+                ]
+            })
+        );
+
+        bridge.undo('A');
+        expect(
+            getYPath(bridge.yDoc.getMap('font'), [
+                'glyphs',
+                'A',
+                'layers',
+                background.id
+            ])
+        ).toBeUndefined();
+
+        bridge.redo('A');
+        expect(
+            fromYType(
+                getYPath(bridge.yDoc.getMap('font'), [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    background.id
+                ])
+            )
+        ).toEqual(
+            expect.objectContaining({
+                is_background: true,
+                shapes: [{ nodes: '100 200 l', closed: false }]
+            })
+        );
+
+        receiverBridge.destroy();
     });
 
     test('introspection discovers method-returned wrappers', () => {

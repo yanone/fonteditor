@@ -2158,9 +2158,6 @@ export class PatchSyncEngine {
         const layersMap = glyphMap.get('layers') as Y.Map<unknown> | undefined;
         if (!layersMap) return false;
 
-        const yLayerMap = layersMap.get(layerId);
-        if (!yLayerMap) return false;
-
         // Find the layer in the in-memory model
         const glyphLayers = (glyphJson.layers ?? []) as Array<
             Record<string, unknown>
