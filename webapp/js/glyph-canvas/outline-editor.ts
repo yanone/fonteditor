@@ -8762,6 +8762,7 @@ export class OutlineEditor {
     getVisibleSidebearingHandles(): VisibleSidebearingHandle[] {
         if (
             !this.selectedLayerId ||
+            this.isEditingBackgroundLayer() ||
             this.glyphCanvas.viewportManager!.scale <
                 APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES
         ) {
@@ -16440,7 +16441,7 @@ export class OutlineEditor {
         side: 'left' | 'right',
         sidebearingDelta: number
     ): boolean {
-        if (sidebearingDelta === 0) {
+        if (this.isEditingBackgroundLayer() || sidebearingDelta === 0) {
             return false;
         }
 
@@ -16547,7 +16548,10 @@ export class OutlineEditor {
     }
 
     setSidebearingValue(side: 'left' | 'right', targetValue: number): boolean {
-        if (this.isAutomaticComposedLayer()) {
+        if (
+            this.isEditingBackgroundLayer() ||
+            this.isAutomaticComposedLayer()
+        ) {
             return false;
         }
 

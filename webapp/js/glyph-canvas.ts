@@ -6142,6 +6142,12 @@ class GlyphCanvas {
             return;
         }
 
+        if (this.outlineEditor.isEditingBackgroundLayer()) {
+            this.propertyPanel.classList.add('hidden');
+            this.propertyPanel.textContent = '';
+            return;
+        }
+
         const layer = this.getCurrentEditingLayerModel();
         if (!layer) {
             return;

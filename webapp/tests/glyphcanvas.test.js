@@ -395,6 +395,29 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
         );
     });
 
+    test('hides and disables sidebearing editing while editing a background', () => {
+        const editor = canvas.outlineEditor;
+        editor.active = true;
+        editor.selectedLayerId = 'background-layer';
+        editor.isEditingBackgroundLayer = jest.fn(() => true);
+        canvas.propertyPanel = document.createElement('div');
+        canvas.propertyPanel.innerHTML =
+            '<input data-sidebearing-side="left"><input data-sidebearing-side="right">';
+        canvas.hasInspectableSelection = jest.fn(() => false);
+        canvas.hasComponentOnlySelection = jest.fn(() => false);
+
+        expect(editor.getVisibleSidebearingHandles()).toEqual([]);
+        expect(editor['applySidebearingDelta']('left', 20)).toBe(false);
+        expect(editor.setSidebearingValue('right', 20)).toBe(false);
+
+        canvas.updatePropertyPanel();
+
+        expect(canvas.propertyPanel.classList.contains('hidden')).toBe(true);
+        expect(
+            canvas.propertyPanel.querySelector('[data-sidebearing-side]')
+        ).toBeNull();
+    });
+
     test('keeps paired foreground vertical metrics while editing a background', () => {
         const editor = canvas.outlineEditor;
         jest.spyOn(editor, 'getCurrentLayerModel').mockReturnValue({
@@ -5024,6 +5047,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             isInterpolated: false
         };
         canvas.outlineEditor.selectedLayerId = 'active-brace-layer';
+        canvas.outlineEditor.isEditingBackgroundLayer = jest.fn(() => false);
         canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
             { glyphName: 'active' }
         ]);
