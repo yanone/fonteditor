@@ -12,10 +12,8 @@ import {
     requestOpenFontConversion,
     COMPILATION_TARGETS
 } from './font-compilation';
-import {
-    get_glyph_order,
-    save_font_as_glyphs
-} from '../wasm-dist/babelfont_fontc_web';
+import { get_glyph_order } from '../wasm-dist/babelfont_fontc_web';
+import * as babelfontWasm from '../wasm-dist/babelfont_fontc_web';
 import type { Babelfont } from './babelfont';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
@@ -60,10 +58,37 @@ import {
 } from './node-encoding';
 import { ensureWasmInitialized } from './wasm-init';
 
+const { save_font_as_glyphs } = babelfontWasm as object as {
+    save_font_as_glyphs: (babelfontJson: string) => string;
+};
+
 const console = new Logger('FontManager');
 
 let startupOpenSessionActive = false;
 let startupOpenSessionEditingCompileCount = 0;
+
+export async function serializeFontForSourceSave(
+    path: string,
+    babelfontJson: string
+): Promise<string> {
+    const extension = path.split('.').pop()?.toLowerCase();
+
+    if (extension === 'babelfont') {
+        return babelfontJson;
+    }
+
+    if (extension === 'glyphs') {
+        await ensureWasmInitialized();
+        const glyphsSerializationInput = JSON.stringify(
+            decodeNodeStringsForRuntime(JSON.parse(babelfontJson))
+        );
+        return save_font_as_glyphs(glyphsSerializationInput);
+    }
+
+    throw new Error(
+        `Cannot save ${path} in its original format: source saving currently supports .babelfont and .glyphs files.`
+    );
+}
 
 export type GlyphData = {
     glyphName: string;
@@ -537,19 +562,10 @@ class OpenedFont {
      */
     async save(): Promise<void> {
         const pluginId = this.sourcePlugin.getId();
-        const extension = this.path.split('.').pop()?.toLowerCase();
-        let serializedFont: string;
-
-        if (extension === 'babelfont') {
-            serializedFont = this.babelfontJson;
-        } else if (extension === 'glyphs') {
-            await ensureWasmInitialized();
-            serializedFont = save_font_as_glyphs(this.babelfontJson);
-        } else {
-            throw new Error(
-                `Cannot save ${this.path} in its original format: source saving currently supports .babelfont and .glyphs files.`
-            );
-        }
+        const serializedFont = await serializeFontForSourceSave(
+            this.path,
+            this.babelfontJson
+        );
 
         // For disk plugin, need file handle and permission check
         if (pluginId === 'disk') {

@@ -36,6 +36,7 @@ import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import { reloadLinkedEditorWindows } from './window-buttons';
 import { updateUrlState } from './url-state';
 import { shouldHandleOpenPathBeforeEditorReady } from './open-font-readiness';
+import { serializeFontForSourceSave } from './font-manager';
 
 const console = new Logger('FileBrowser');
 
@@ -2044,9 +2045,13 @@ async function saveCurrentFontAsToPath(): Promise<void> {
                 }
 
                 currentFont.syncJsonFromModel();
-                await fileSystemCache.activeAdapter.writeFile(
+                const serializedFont = await serializeFontForSourceSave(
                     targetPath,
                     currentFont.babelfontJson
+                );
+                await fileSystemCache.activeAdapter.writeFile(
+                    targetPath,
+                    serializedFont
                 );
 
                 currentFont.path = targetPath;

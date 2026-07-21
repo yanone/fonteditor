@@ -80,6 +80,57 @@ test.describe('Open Dialog UI', () => {
         expect(currentFontPathAfter).toBe(currentFontPathBefore);
     });
 
+    test('save as writes Glyphs source for a .glyphs filename', async ({
+        page
+    }) => {
+        let saveError: string | null = null;
+        page.on('dialog', async (dialog) => {
+            saveError = dialog.message();
+            await dialog.dismiss();
+        });
+
+        await page.evaluate(async () => {
+            await (window as any).showFontFileDialog?.({ mode: 'open' });
+        });
+
+        const dialog = page.locator('#font-file-dialog');
+        await dialog.waitFor({ state: 'visible' });
+        await dialog
+            .locator('.file-item[data-name="Fustat.glyphs"]')
+            .dblclick();
+
+        await waitForFontLoaded(page);
+        await waitForOpenSessionReady(page, 'Fustat.glyphs');
+
+        const savedFileName = `save-as-glyphs-${Date.now()}.glyphs`;
+        await page.evaluate(async () => {
+            await (window as any).showFontFileDialog?.({ mode: 'save-as' });
+        });
+
+        await dialog.locator('#file-dialog-save-name').fill(savedFileName);
+        await dialog.locator('#file-dialog-confirm-btn').click();
+        await expect
+            .poll(async () => (await dialog.isHidden()) || saveError !== null, {
+                timeout: 10000
+            })
+            .toBe(true);
+        expect(saveError).toBeNull();
+        await expect(dialog).toBeHidden();
+
+        const savedContent = await page.evaluate(async (fileName) => {
+            const plugin = (window as any).pluginRegistry.get('memory');
+            const content = await plugin
+                .getAdapter()
+                .readFile(`/user/${fileName}`);
+            return typeof content === 'string'
+                ? content
+                : new TextDecoder().decode(content);
+        }, savedFileName);
+
+        expect(savedContent).toContain('.formatVersion = 3;');
+        expect(savedContent).not.toContain('"glyphs":');
+    });
+
     test('cloud save as closes the dialog even if the refresh fails', async ({
         page
     }) => {

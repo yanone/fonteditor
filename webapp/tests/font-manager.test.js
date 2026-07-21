@@ -2587,9 +2587,12 @@ describe('FontManager loadFont', () => {
         const currentFont = fontManager.currentFont;
         await currentFont.save();
 
-        expect(save_font_as_glyphs).toHaveBeenCalledWith(
-            currentFont.babelfontJson
+        const glyphsSerializationInput = JSON.parse(
+            save_font_as_glyphs.mock.calls[0][0]
         );
+        expect(
+            glyphsSerializationInput.glyphs[0].layers[0].shapes[0].nodes
+        ).toEqual(expect.any(Array));
         expect(fileHandle.queryPermission).toHaveBeenCalledWith({
             mode: 'readwrite'
         });
