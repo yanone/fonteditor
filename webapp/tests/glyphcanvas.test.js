@@ -369,6 +369,119 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
         expect(canvas.renderer.ctx.fillRect).toHaveBeenCalledTimes(3);
     });
 
+    test('limits the background editing tint to the paired glyph metrics box', () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.renderVerticalMetrics = {
+            Ascender: 800,
+            Descender: -200
+        };
+        canvas.textRunEditor._getGlyphPosition = jest.fn(() => ({
+            xPosition: 10,
+            xOffset: 5
+        }));
+        canvas.outlineEditor.isEditingBackgroundLayer = jest.fn(() => true);
+        canvas.outlineEditor.getPairedLayerModel = jest.fn(() => ({
+            width: 640
+        }));
+        canvas.renderer.ctx.fillRect.mockClear();
+
+        canvas.renderer['drawBackgroundEditingTint']();
+
+        expect(canvas.renderer.ctx.fillRect).toHaveBeenCalledWith(
+            15,
+            -200,
+            640,
+            1000
+        );
+    });
+
+    test('keeps paired foreground vertical metrics while editing a background', () => {
+        const editor = canvas.outlineEditor;
+        jest.spyOn(editor, 'getCurrentLayerModel').mockReturnValue({
+            is_background: true
+        });
+        jest.spyOn(editor, 'getPairedLayerModel').mockReturnValue({
+            width: 640
+        });
+        jest.spyOn(editor, 'getVerticalMetricsForLayer').mockReturnValue({
+            Ascender: 800,
+            Descender: -200
+        });
+
+        editor['applyExactSelectedLayerData']({
+            width: 640,
+            shapes: [],
+            anchors: [],
+            guides: []
+        });
+
+        expect(editor.renderVerticalMetrics).toEqual({
+            Ascender: 800,
+            Descender: -200
+        });
+    });
+
+    test('uses the paired foreground width for background metric boundaries', () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.layerData.width = 120;
+        canvas.outlineEditor.renderVerticalMetrics = {
+            Ascender: 800,
+            Descender: -200
+        };
+        canvas.textRunEditor._getGlyphPosition = jest.fn(() => ({
+            xPosition: 10,
+            xOffset: 5
+        }));
+        canvas.outlineEditor.isEditingBackgroundLayer = jest.fn(() => true);
+        canvas.outlineEditor.getPairedLayerModel = jest.fn(() => ({
+            width: 640
+        }));
+        canvas.renderer.ctx.lineTo.mockClear();
+
+        canvas.renderer['drawEditingMetricsUnderlay']();
+
+        expect(canvas.renderer.ctx.lineTo).toHaveBeenCalledWith(655, 800);
+    });
+
+    test('uses paired foreground layer guides while editing a background', () => {
+        const guide = { pos: { x: 80, y: 120, angle: 0 } };
+        const masterGuide = { pos: { x: 0, y: 700, angle: 0 } };
+        canvas.outlineEditor.guidelinesVisible = true;
+        canvas.outlineEditor.layerData.isInterpolated = true;
+        canvas.outlineEditor.getCurrentLayerDataFromStack = jest.fn(
+            () => canvas.outlineEditor.layerData
+        );
+        canvas.outlineEditor.getCurrentLayerModel = jest.fn(() => ({
+            is_background: true,
+            backgroundLayer: { guides: [guide] }
+        }));
+        canvas.outlineEditor.getAccumulatedTransform = jest.fn(() => [
+            1, 0, 0, 1, 0, 0
+        ]);
+        canvas.outlineEditor.getRootMasterModel = jest.fn(() => ({
+            guides: [masterGuide]
+        }));
+
+        expect(canvas.outlineEditor.getVisibleGuides()).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    scope: 'layer',
+                    guide,
+                    rootX: 80,
+                    rootY: 120,
+                    rootAngle: 0
+                }),
+                expect.objectContaining({
+                    scope: 'master',
+                    guide: masterGuide,
+                    rootX: 0,
+                    rootY: 700,
+                    rootAngle: 0
+                })
+            ])
+        );
+    });
+
     test('drawOutlineEditor renders a paired ghost from serialized path nodes', () => {
         canvas.outlineEditor.layerData.shapes = [
             {

@@ -3425,7 +3425,17 @@ export class OutlineEditor {
             return null;
         }
 
-        return glyph.findLayerById?.(layerId) || null;
+        const layer = glyph.findLayerById?.(layerId);
+        if (layer) {
+            return layer;
+        }
+
+        if (layerId.startsWith('background-')) {
+            return glyph.findLayerById?.(layerId.slice('background-'.length))
+                ?.backgroundLayer;
+        }
+
+        return null;
     }
 
     private getCurrentLayerModel(): any | null {
@@ -5651,7 +5661,10 @@ export class OutlineEditor {
 
     private getRootMasterModel(): any | null {
         const fontModel = fontManager.currentFont?.fontModel;
-        const layer = this.getRootLayerModel();
+        const rootLayer = this.getRootLayerModel();
+        const layer = rootLayer?.is_background
+            ? rootLayer.backgroundLayer
+            : rootLayer;
         const masterId = layer?.master?.master;
 
         if (!fontModel || !masterId) {
@@ -5701,20 +5714,27 @@ export class OutlineEditor {
     }
 
     getVisibleGuides(): VisibleGuide[] {
-        if (!this.guidelinesVisible || !this.selectedLayerId) {
+        if (!this.guidelinesVisible || !this.getCurrentLayerId()) {
             return [];
         }
 
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const currentLayerModel = this.getCurrentLayerModel();
-        if (!currentLayerData || currentLayerData.isInterpolated) {
+        if (
+            !currentLayerData ||
+            (currentLayerData.isInterpolated &&
+                !currentLayerModel?.is_background)
+        ) {
             return [];
         }
 
         const guides: VisibleGuide[] = [];
         const accumulatedTransform = this.getAccumulatedTransform();
 
-        currentLayerModel?.guides?.forEach((guide: any, index: number) => {
+        const guideLayer = currentLayerModel?.is_background
+            ? currentLayerModel.backgroundLayer
+            : currentLayerModel;
+        guideLayer?.guides?.forEach((guide: any, index: number) => {
             guides.push({
                 scope: 'layer',
                 index,
@@ -7304,7 +7324,17 @@ export class OutlineEditor {
                 ? backgroundLayerData.shapes
                 : [];
             backgroundLayerData.isInterpolated = false;
-            this.assignLayerData(backgroundLayerData, backgroundLayerData);
+            const pairedLayer = this.getPairedLayerModel();
+            const pairedVerticalMetrics = this.getVerticalMetricsForLayer(
+                pairedLayer,
+                fontManager.currentFont?.fontModel
+            );
+            this.assignLayerData(
+                backgroundLayerData,
+                pairedVerticalMetrics
+                    ? { _verticalMetrics: pairedVerticalMetrics }
+                    : backgroundLayerData
+            );
             return;
         }
 

@@ -306,13 +306,6 @@ export class GlyphCanvasRenderer {
                 .trim();
         }
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        if (this.glyphCanvas.outlineEditor.isEditingBackgroundLayer()) {
-            this.ctx.fillStyle = computedStyle
-                .getPropertyValue('--accent-yellow')
-                .trim();
-            this.ctx.globalAlpha = 0.1;
-            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        }
         this.ctx.restore();
 
         // Apply transformation
@@ -337,6 +330,7 @@ export class GlyphCanvasRenderer {
         // Check if stack preview mode is active
         if (this.glyphCanvas.stackPreviewAnimator.shouldRenderStackPreview()) {
             // In stack preview mode, render other glyphs normally but replace selected glyph with stack preview
+            this.drawBackgroundEditingTint();
             this.drawEditingMetricsUnderlay();
             this.drawSelection();
             this.drawShapedGlyphsWithStackPreview();
@@ -344,6 +338,7 @@ export class GlyphCanvasRenderer {
             this.drawCanvasPluginsAbove();
         } else {
             // Normal rendering
+            this.drawBackgroundEditingTint();
             this.drawEditingMetricsUnderlay();
             // Draw selection highlight
             this.drawSelection();
@@ -887,6 +882,54 @@ export class GlyphCanvasRenderer {
         return { minX, maxX };
     }
 
+    private drawBackgroundEditingTint(): void {
+        const outlineEditor = this.glyphCanvas.outlineEditor;
+        if (
+            !outlineEditor.active ||
+            outlineEditor.isPreviewMode ||
+            !outlineEditor.isEditingBackgroundLayer()
+        ) {
+            return;
+        }
+
+        const metricValues = getVisibleVerticalMetricValues(
+            outlineEditor.renderVerticalMetrics
+        );
+        const selectedGlyphIndex = this.textRunEditor.selectedGlyphIndex;
+        if (
+            metricValues.length === 0 ||
+            selectedGlyphIndex < 0 ||
+            selectedGlyphIndex >= this.textRunEditor.shapedGlyphs.length
+        ) {
+            return;
+        }
+
+        const glyphPosition =
+            this.textRunEditor._getGlyphPosition(selectedGlyphIndex);
+        const pairedLayer = outlineEditor.getPairedLayerModel();
+        const width = pairedLayer?.width ?? outlineEditor.layerData?.width;
+        if (typeof width !== 'number' || !Number.isFinite(width)) {
+            return;
+        }
+
+        const topY = Math.max(...metricValues);
+        const bottomY = Math.min(...metricValues);
+        const accentYellow = getComputedStyle(document.documentElement)
+            .getPropertyValue('--accent-yellow')
+            .trim();
+
+        this.ctx.save();
+        this.ctx.fillStyle = accentYellow;
+        this.ctx.globalAlpha = 0.1;
+        this.ctx.fillRect(
+            glyphPosition.xPosition + glyphPosition.xOffset,
+            bottomY,
+            width,
+            topY - bottomY
+        );
+        this.ctx.restore();
+    }
+
     private drawEditingMetricsUnderlay(): void {
         if (
             !this.glyphCanvas.outlineEditor.active ||
@@ -954,7 +997,11 @@ export class GlyphCanvasRenderer {
             const glyphPosition =
                 this.textRunEditor._getGlyphPosition(selectedGlyphIndex);
 
-            const layerWidth = selectedLayerData?.width;
+            const pairedLayer =
+                this.glyphCanvas.outlineEditor.isEditingBackgroundLayer()
+                    ? this.glyphCanvas.outlineEditor.getPairedLayerModel()
+                    : null;
+            const layerWidth = pairedLayer?.width ?? selectedLayerData?.width;
             const activeGlyphAdvance =
                 typeof layerWidth === 'number' && Number.isFinite(layerWidth)
                     ? layerWidth
