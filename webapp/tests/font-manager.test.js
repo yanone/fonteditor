@@ -5253,7 +5253,33 @@ describe('FontManager external source reload', () => {
         const originalData = loadFontFile(
             path.join(__dirname, '..', 'examples', 'ManufacturedKink.babelfont')
         );
+        const originalTargetGlyph = originalData.glyphs.find(
+            (glyph) => glyph.name === '.notdef'
+        );
+        const originalTargetLayer = originalTargetGlyph.layers.find(
+            (layer) => layer.id === 'L1'
+        );
+        originalTargetLayer.anchors = [{ name: 'top', x: 300, y: 700 }];
+        originalTargetLayer.guides = [{ x: 0, y: 0, angle: 90 }];
+        const unchangedComponentLayer = originalTargetGlyph.layers.find(
+            (layer) => layer.id === 'L2'
+        );
+        unchangedComponentLayer.shapes.push({ reference: 'A' });
         const sourceData = cloneJson(originalData);
+        let stableShapeId = 0;
+        for (const glyph of originalData.glyphs) {
+            for (const layer of glyph.layers || []) {
+                for (const shape of layer.shapes || []) {
+                    shape.id = `editor-shape-${stableShapeId++}`;
+                }
+                for (const [index, anchor] of (layer.anchors || []).entries()) {
+                    anchor.id = `editor-anchor-${index}`;
+                }
+                for (const [index, guide] of (layer.guides || []).entries()) {
+                    guide.id = `editor-guide-${index}`;
+                }
+            }
+        }
         const targetGlyph = sourceData.glyphs.find(
             (glyph) => glyph.name === '.notdef'
         );
@@ -5316,6 +5342,13 @@ describe('FontManager external source reload', () => {
                 workerReplayTargets: [{ glyphName: '.notdef', layerId: 'L1' }]
             })
         ]);
+        expect(emittedUpdates[0].entries).not.toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    path: 'glyphs..notdef:layers.L2:shapes'
+                })
+            ])
+        );
         expect(
             parseNodeString(emittedUpdates[0].entries[0].newValue[0].nodes)[0].y
         ).toBe(beforeY + 100);

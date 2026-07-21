@@ -19,6 +19,7 @@ import {
     setJsonPath,
     deleteJsonPath,
     getJsonPath,
+    normalizeValueForYDocWrite,
     INDEXED_MAP_KEYS,
     diffYArray,
     applyIndexedMapArray as applyIndexedMapArrayToYMap
@@ -1083,16 +1084,22 @@ export class PatchSyncEngine {
             return { status: 'stale', commit: null };
         }
 
-        const previousSnapshot = yDocToJson(this.fontMap);
+        const previousSnapshot = this._encodeNodeArraysForStorage(
+            yDocToJson(this.fontMap)
+        );
         const normalizedPreviousSnapshot = this._normalizeFontSnapshot(
             previousSnapshot,
             previousSnapshot
         );
         const storageFontSnapshot =
-            this._encodeNodeArraysForStorage(fontSnapshot);
+            this._normalizeExternalSourceReloadSnapshot(fontSnapshot);
         const nextSnapshot = this._normalizeFontSnapshot(
             storageFontSnapshot,
             previousSnapshot
+        );
+        this._adoptIndexedFontLayerIds(
+            normalizedPreviousSnapshot,
+            nextSnapshot
         );
         if (this._isDeepEqual(normalizedPreviousSnapshot, nextSnapshot)) {
             return { status: 'noop', commit: null };
@@ -1142,6 +1149,45 @@ export class PatchSyncEngine {
             status: commit ? 'committed' : 'noop',
             commit
         };
+    }
+
+    private _normalizeExternalSourceReloadSnapshot(value: unknown): unknown {
+        const normalizeShapes = (
+            candidate: unknown,
+            isShapeEntry = false
+        ): unknown => {
+            if (Array.isArray(candidate)) {
+                return candidate.map((item) =>
+                    normalizeShapes(item, isShapeEntry)
+                );
+            }
+            if (!candidate || typeof candidate !== 'object') {
+                return candidate;
+            }
+
+            const record = candidate as Record<string, unknown>;
+            const normalizedRecord = isShapeEntry
+                ? normalizeValueForYDocWrite(record)
+                : { ...record };
+            if (
+                !normalizedRecord ||
+                typeof normalizedRecord !== 'object' ||
+                Array.isArray(normalizedRecord)
+            ) {
+                throw new TypeError(
+                    'Expected a normalized shape record for external reload.'
+                );
+            }
+
+            return Object.fromEntries(
+                Object.entries(normalizedRecord).map(([key, item]) => [
+                    key,
+                    normalizeShapes(item, key === 'shapes')
+                ])
+            );
+        };
+
+        return this._encodeNodeArraysForStorage(normalizeShapes(value));
     }
 
     // ── Transactions ─────────────────────────────────────────────
@@ -1927,15 +1973,65 @@ export class PatchSyncEngine {
 
     private _adoptIndexedLayerIds(
         previousLayer: Record<string, unknown>,
-        nextLayer: Record<string, unknown>
+        nextLayer: Record<string, unknown>,
+        replaceExistingIds = false
     ): void {
-        this._adoptIndexedArrayIds(previousLayer.anchors, nextLayer.anchors);
-        this._adoptIndexedArrayIds(previousLayer.guides, nextLayer.guides);
+        this._adoptIndexedArrayIds(
+            previousLayer.anchors,
+            nextLayer.anchors,
+            replaceExistingIds
+        );
+        this._adoptIndexedArrayIds(
+            previousLayer.guides,
+            nextLayer.guides,
+            replaceExistingIds
+        );
+    }
+
+    private _adoptIndexedFontLayerIds(
+        previousSnapshot: unknown,
+        nextSnapshot: unknown
+    ): void {
+        const previousGlyphs = this._coerceFontGlyphSnapshots(
+            (previousSnapshot as Record<string, unknown>)?.glyphs
+        );
+        const nextGlyphs = this._coerceFontGlyphSnapshots(
+            (nextSnapshot as Record<string, unknown>)?.glyphs
+        );
+        const previousGlyphsByName = new Map(
+            previousGlyphs.map((glyph) => [String(glyph.name || ''), glyph])
+        );
+
+        for (const nextGlyph of nextGlyphs) {
+            const previousGlyph = previousGlyphsByName.get(
+                String(nextGlyph.name || '')
+            );
+            if (!previousGlyph) {
+                continue;
+            }
+
+            const previousLayersById = new Map(
+                this._coerceGlyphLayerSnapshots(previousGlyph.layers).map(
+                    (layer) => [String(layer.id || ''), layer]
+                )
+            );
+            for (const nextLayer of this._coerceGlyphLayerSnapshots(
+                nextGlyph.layers
+            )) {
+                const previousLayer = previousLayersById.get(
+                    String(nextLayer.id || '')
+                );
+                if (previousLayer) {
+                    this._adoptIndexedLayerIds(previousLayer, nextLayer, true);
+                }
+            }
+        }
     }
 
     private _adoptIndexedArrayIds(
         previousValue: unknown,
-        nextValue: unknown
+        nextValue: unknown,
+        replaceExistingIds = false
     ): void {
         if (!Array.isArray(previousValue) || !Array.isArray(nextValue)) {
             return;
@@ -1954,7 +2050,10 @@ export class PatchSyncEngine {
             }
             const nextRecord = nextItem as Record<string, unknown>;
             const previousRecord = previousItem as Record<string, unknown>;
-            if (!nextRecord.id && typeof previousRecord.id === 'string') {
+            if (
+                (replaceExistingIds || !nextRecord.id) &&
+                typeof previousRecord.id === 'string'
+            ) {
                 nextRecord.id = previousRecord.id;
             }
         });

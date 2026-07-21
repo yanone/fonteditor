@@ -61,7 +61,7 @@ function normalizeComponentTransformRecord(
     };
 }
 
-function normalizeValueForYDocWrite(value: unknown): unknown {
+export function normalizeValueForYDocWrite(value: unknown): unknown {
     if (!isPlainObject(value)) {
         return value;
     }
