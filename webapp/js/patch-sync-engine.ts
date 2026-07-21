@@ -56,7 +56,10 @@ import {
     type DerivedForwardChange
 } from './collaboration-message';
 import { windowRole } from './window-role';
-import { withSuppressedModelRecording } from './babelfont-model';
+import {
+    normalizeLegacyGlyphsRtlKerning,
+    withSuppressedModelRecording
+} from './babelfont-model';
 import {
     decodeNodeStringsForRuntime,
     encodeNodeArraysForStorage
@@ -1152,6 +1155,14 @@ export class PatchSyncEngine {
     }
 
     private _normalizeExternalSourceReloadSnapshot(value: unknown): unknown {
+        const normalizedFont =
+            value && typeof value === 'object' && !Array.isArray(value)
+                ? normalizeLegacyGlyphsRtlKerning(
+                      cloneHistoryValue(value) as Parameters<
+                          typeof normalizeLegacyGlyphsRtlKerning
+                      >[0]
+                  )
+                : value;
         const normalizeShapes = (
             candidate: unknown,
             isShapeEntry = false
@@ -1187,7 +1198,9 @@ export class PatchSyncEngine {
             );
         };
 
-        return this._encodeNodeArraysForStorage(normalizeShapes(value));
+        return this._encodeNodeArraysForStorage(
+            normalizeShapes(normalizedFont)
+        );
     }
 
     // ── Transactions ─────────────────────────────────────────────
@@ -1992,6 +2005,50 @@ export class PatchSyncEngine {
         previousSnapshot: unknown,
         nextSnapshot: unknown
     ): void {
+        const asRecords = (value: unknown): Array<Record<string, unknown>> =>
+            Array.isArray(value)
+                ? value.filter(
+                      (item): item is Record<string, unknown> =>
+                          !!item &&
+                          typeof item === 'object' &&
+                          !Array.isArray(item)
+                  )
+                : [];
+        const previousMasters = asRecords(
+            (previousSnapshot as Record<string, unknown>)?.masters
+        );
+        const nextMasters = asRecords(
+            (nextSnapshot as Record<string, unknown>)?.masters
+        );
+        const previousMastersById = new Map(
+            previousMasters.map((master) => [String(master.id || ''), master])
+        );
+
+        for (const nextMaster of nextMasters) {
+            const previousMaster = previousMastersById.get(
+                String(nextMaster.id || '')
+            );
+            if (previousMaster) {
+                if (
+                    !Object.prototype.hasOwnProperty.call(
+                        previousMaster,
+                        'kerning_rtl'
+                    ) &&
+                    nextMaster.kerning_rtl &&
+                    typeof nextMaster.kerning_rtl === 'object' &&
+                    !Array.isArray(nextMaster.kerning_rtl) &&
+                    Object.keys(nextMaster.kerning_rtl).length === 0
+                ) {
+                    delete nextMaster.kerning_rtl;
+                }
+                this._adoptIndexedArrayIds(
+                    previousMaster.guides,
+                    nextMaster.guides,
+                    true
+                );
+            }
+        }
+
         const previousGlyphs = this._coerceFontGlyphSnapshots(
             (previousSnapshot as Record<string, unknown>)?.glyphs
         );

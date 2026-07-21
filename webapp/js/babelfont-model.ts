@@ -10462,7 +10462,9 @@ function syncKerningRtlToFormatSpecific(
 /**
  * The main font class representing a complete font
  */
-function normalizeLegacyGlyphsRtlKerning(data: Babelfont.Font): Babelfont.Font {
+export function normalizeLegacyGlyphsRtlKerning(
+    data: Babelfont.Font
+): Babelfont.Font {
     const masters = Array.isArray(data.masters) ? data.masters : [];
     const formatSpecific = data.format_specific as
         Record<string, unknown> | undefined;

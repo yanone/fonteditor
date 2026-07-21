@@ -5,7 +5,11 @@ const Y = require('yjs');
 const fontManager = require('../js/font-manager').default;
 const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
 const { fontCompilation } = require('../js/font-compilation');
-const { Font, withSuppressedModelRecording } = require('../js/babelfont-model');
+const {
+    Font,
+    normalizeLegacyGlyphsRtlKerning,
+    withSuppressedModelRecording
+} = require('../js/babelfont-model');
 const {
     deleteYPath,
     getYPath,
@@ -5265,7 +5269,24 @@ describe('FontManager external source reload', () => {
             (layer) => layer.id === 'L2'
         );
         unchangedComponentLayer.shapes.push({ reference: 'A' });
+        const originalMaster = originalData.masters[0];
+        originalMaster.guides = [
+            { id: 'editor-master-guide', pos: { x: 0, y: 700 } }
+        ];
+        originalData.format_specific = {
+            ...(originalData.format_specific || {}),
+            'com.schriftgestalt.Glyphs.kerningRTL': {
+                [originalMaster.id]: {
+                    '@MMK_R_test': { '@MMK_L_test': -100 }
+                }
+            }
+        };
+        normalizeLegacyGlyphsRtlKerning(originalData);
         const sourceData = cloneJson(originalData);
+        delete sourceData.masters[0].guides[0].id;
+        for (const master of sourceData.masters) {
+            delete master.kerning_rtl;
+        }
         let stableShapeId = 0;
         for (const glyph of originalData.glyphs) {
             for (const layer of glyph.layers || []) {
@@ -5346,12 +5367,18 @@ describe('FontManager external source reload', () => {
             expect.arrayContaining([
                 expect.objectContaining({
                     path: 'glyphs..notdef:layers.L2:shapes'
+                }),
+                expect.objectContaining({
+                    path: 'masters'
                 })
             ])
         );
         expect(
             parseNodeString(emittedUpdates[0].entries[0].newValue[0].nodes)[0].y
         ).toBe(beforeY + 100);
+        expect(yDocToJson(bridge.fontMap).masters[0].guides[0].id).toBe(
+            'editor-master-guide'
+        );
         expect(workerCacheSpy).toHaveBeenCalledTimes(1);
 
         workerCacheSpy.mockRestore();
