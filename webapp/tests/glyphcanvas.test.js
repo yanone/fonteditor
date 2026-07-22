@@ -13340,6 +13340,9 @@ describe('OutlineEditor exact selected layers', () => {
         );
         expect(addModal).toBeTruthy();
         expect(addModal.classList.contains('info-popup-overlay')).toBe(true);
+        expect(addModal.textContent).toContain(
+            'Values are in designspace coordinates.'
+        );
         const addInputs = addModal.querySelectorAll('input[type="number"]');
         expect(addInputs).toHaveLength(2);
         addInputs[0].value = '300';
