@@ -1591,7 +1591,10 @@ async function refreshCanvasFromCommittedModelSync(
             return;
         }
 
-        await oe?.reconcileSelectionAfterModelSync?.({ skipRender: true });
+        const selectionReconciled =
+            (await oe?.reconcileSelectionAfterModelSync?.({
+                skipRender: true
+            })) === true;
 
         selectedLayerId = oe?.selectedLayerId ?? undefined;
 
@@ -1605,7 +1608,7 @@ async function refreshCanvasFromCommittedModelSync(
             }
 
             if (
-                !options?.skipLayerDataFetch &&
+                (!options?.skipLayerDataFetch || selectionReconciled) &&
                 typeof gc.outlineEditor?.fetchLayerData === 'function'
             ) {
                 await gc.outlineEditor.fetchLayerData(
@@ -1714,38 +1717,25 @@ function historyItemTouchesAnchors(
 function syncImmediateUndoOutlineLayerFromModel(
     glyphName: string | null,
     layerId: string | null
-): void {
+): boolean {
     const gc = window.glyphCanvas;
     const outlineEditor = gc?.outlineEditor as unknown as {
-        parseGlyphStack?: () => Array<{ glyphName: string }>;
-        replaceCurrentLayerDataInStack?: (layerData: unknown) => boolean;
         cancelPendingLayerSwitchAnimation?: () => void;
+        refreshSelectedLayerFromModel?: () => boolean;
         performHitDetection?: (event: MouseEvent | null) => void;
     } | null;
-    const fontModel = window.fontManager?.currentFont?.fontModel;
-    const editedGlyphName = getActiveEditedGlyphName() ?? glyphName;
-    if (!gc || !fontModel || !editedGlyphName || !layerId) {
-        return;
+    if (!gc || !outlineEditor || !glyphName || !layerId) {
+        return false;
     }
 
     outlineEditor?.cancelPendingLayerSwitchAnimation?.();
-
-    const layer = fontModel.findGlyph(editedGlyphName)?.findLayerById(layerId);
-    if (!layer) {
-        return;
-    }
-
-    const parsedGlyphStack = outlineEditor?.parseGlyphStack?.() ?? [];
-    const isNestedEditing = parsedGlyphStack.length > 1;
-
-    if (isNestedEditing) {
-        outlineEditor?.replaceCurrentLayerDataInStack?.(layer.toJSON());
-    } else {
-        gc.syncCurrentOutlineLayerDataFromModel?.(layer);
+    if (!outlineEditor.refreshSelectedLayerFromModel?.()) {
+        return false;
     }
     gc.updatePropertyPanel?.();
     outlineEditor?.performHitDetection?.(null);
     gc.render?.();
+    return true;
 }
 
 /**
@@ -1993,9 +1983,9 @@ function inferPreviousWidthFromUndoRedoEntries(
 function applyLocalUndoRedoVisualSync(
     entries: ChangeLogEntry[],
     context?: LocalUndoRedoVisualContext
-): void {
+): boolean {
     if (!isUndoRedoCommittedPacket(entries)) {
-        return;
+        return false;
     }
 
     const historyItem = buildHistoryItemFromCommittedEntries(entries);
@@ -2064,7 +2054,7 @@ function applyLocalUndoRedoVisualSync(
         workerReplayTargets: collectReplayTargetsFromEntries(entries)
     });
 
-    syncImmediateUndoOutlineLayerFromModel(editedGlyphName, layerId);
+    return syncImmediateUndoOutlineLayerFromModel(editedGlyphName, layerId);
 }
 
 function inferHistoryItemKerningEditType(
@@ -2352,7 +2342,7 @@ export async function handleCommittedChangeRefresh(
         }
         await requestCompile(changeSource, editType);
     } else {
-        applyLocalUndoRedoVisualSync(
+        const appliedDirectUndoLayerRefresh = applyLocalUndoRedoVisualSync(
             entries,
             dependencies?.localUndoRedoContext
         );
@@ -2382,6 +2372,8 @@ export async function handleCommittedChangeRefresh(
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
             skipDeferredCanvasRepaint:
                 isUndoRedoPacket && !requiresBackgroundLayerRefresh,
+            skipLayerDataFetch:
+                isUndoRedoPacket && appliedDirectUndoLayerRefresh,
             ...(replayTargets.length > 0
                 ? { workerReplayTargets: replayTargets }
                 : {})

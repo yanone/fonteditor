@@ -8091,6 +8091,54 @@ export class OutlineEditor {
         );
     }
 
+    /**
+     * Rebuild the active selection directly from the authoritative model.
+     * Returns false when selection state cannot be reconstructed exactly.
+     */
+    refreshSelectedLayerFromModel(): boolean {
+        const selectedLayerId = this.getCurrentLayerId();
+        if (!this.active || !selectedLayerId) {
+            return false;
+        }
+
+        const parsedStack = this.parseGlyphStack();
+        const selectionGlyphName =
+            this.isEditingComponent() && parsedStack.length > 0
+                ? parsedStack[parsedStack.length - 1].glyphName
+                : this.getAuthoringRootGlyphName();
+        if (!selectionGlyphName) {
+            return false;
+        }
+
+        try {
+            const exactLayerData = this.getExactLayerDataForSelection(
+                selectionGlyphName,
+                selectedLayerId
+            );
+            if (!exactLayerData) {
+                return false;
+            }
+
+            this.applyExactSelectedLayerData(
+                {
+                    ...exactLayerData,
+                    __preferExactComponentTransforms: true
+                },
+                null
+            );
+            return (
+                this.layerData !== null &&
+                this.getCurrentLayerDataFromStack() !== null
+            );
+        } catch (error) {
+            console.warn(
+                '[OutlineEditor] Could not refresh selected layer from model',
+                error
+            );
+            return false;
+        }
+    }
+
     cancelPendingLayerSwitchAnimation(): void {
         this.targetLayerData = null;
         this.isLayerSwitchAnimating = false;

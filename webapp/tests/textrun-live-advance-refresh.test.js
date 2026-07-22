@@ -383,11 +383,12 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         jest.clearAllMocks();
     });
 
-    test('undoing a left sidebearing change refreshes advances without moving the viewport', async () => {
+    test('undoing a left sidebearing change refreshes from the model without interpolation', async () => {
         const requestRepaintAfterCompile = jest.fn();
         const refreshGlyphAdvancesLive = jest.fn();
         const fetchLayerData = jest.fn().mockResolvedValue();
         const runDeterministicRefresh = jest.fn(async (task) => await task());
+        const refreshSelectedLayerFromModel = jest.fn(() => true);
         const syncCurrentOutlineLayerDataFromModel = jest.fn();
         const render = jest.fn();
 
@@ -413,6 +414,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             outlineEditor: {
                 selectedLayerId: 'layer-1',
                 parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                refreshSelectedLayerFromModel,
                 fetchLayerData,
                 runDeterministicRefresh,
                 performHitDetection: jest.fn()
@@ -467,13 +469,14 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         expect(originalWindow.fontManager.lastChangeSource).toBeNull();
         expect(originalWindow.fontManager.lastEditType).toBeNull();
-        expect(fetchLayerData).toHaveBeenCalledWith(true, 'a');
+        expect(refreshSelectedLayerFromModel).toHaveBeenCalledTimes(1);
+        expect(fetchLayerData).not.toHaveBeenCalled();
         expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
             { a: 520 },
             { render: false }
         );
         expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(100);
-        expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenCalledTimes(2);
+        expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenCalledTimes(1);
         expect(render).toHaveBeenCalledTimes(1);
         expect(requestRepaintAfterCompile).not.toHaveBeenCalled();
     });
@@ -956,11 +959,12 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         );
     });
 
-    test('undo point drag resyncs the active outline layer after metrics-key recompute', async () => {
+    test('undo point drag falls back to interpolation when exact model refresh is unavailable', async () => {
         const refreshGlyphAdvancesLive = jest.fn();
         const syncCurrentOutlineLayerDataFromModel = jest.fn();
         const performHitDetection = jest.fn();
         const render = jest.fn();
+        const fetchLayerData = jest.fn().mockResolvedValue();
         const updatedLayer = { id: 'layer-1', width: 520 };
         const fontModelBeforeUndo = {
             recomputeMetricsKeys: jest.fn(() => {
@@ -1001,7 +1005,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                 active: true,
                 selectedLayerId: 'layer-1',
                 parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
-                fetchLayerData: jest.fn().mockResolvedValue(),
+                fetchLayerData,
                 runDeterministicRefresh: jest.fn(async (task) => await task()),
                 performHitDetection
             },
@@ -1047,12 +1051,13 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
+        expect(fetchLayerData).toHaveBeenCalledWith(true, 'a');
         expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenLastCalledWith({
             id: 'layer-1',
             width: 500
         });
-        expect(performHitDetection).toHaveBeenCalled();
-        expect(render).toHaveBeenCalled();
+        expect(performHitDetection).not.toHaveBeenCalled();
+        expect(render).not.toHaveBeenCalled();
         expect(refreshGlyphAdvancesLive.mock.calls).toContainEqual([
             { a: 500 },
             { render: false }
@@ -1062,6 +1067,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
     test('undo nested point drag refreshes the active stack layer instead of root layerData', async () => {
         const refreshGlyphAdvancesLive = jest.fn();
         const replaceCurrentLayerDataInStack = jest.fn(() => true);
+        const refreshSelectedLayerFromModel = jest.fn(() => true);
         const syncCurrentOutlineLayerDataFromModel = jest.fn();
         const performHitDetection = jest.fn();
         const render = jest.fn();
@@ -1128,6 +1134,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                     }
                 ]),
                 replaceCurrentLayerDataInStack,
+                refreshSelectedLayerFromModel,
                 fetchLayerData: jest.fn().mockResolvedValue(),
                 runDeterministicRefresh: jest.fn(async (task) => await task()),
                 performHitDetection
@@ -1174,9 +1181,8 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         await runBridgeUndoRedo('undo', 'nested', 'root', 'layer-1', null);
 
-        expect(replaceCurrentLayerDataInStack).toHaveBeenCalledWith(
-            updatedLayerJson
-        );
+        expect(refreshSelectedLayerFromModel).toHaveBeenCalledTimes(1);
+        expect(replaceCurrentLayerDataInStack).not.toHaveBeenCalled();
         expect(syncCurrentOutlineLayerDataFromModel).not.toHaveBeenCalled();
         expect(performHitDetection).toHaveBeenCalled();
         expect(render).toHaveBeenCalled();
@@ -1826,6 +1832,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         const originalIsInitialized = fontCompilation.isInitialized;
         const submitLayerToWorkerCache = jest.fn().mockResolvedValue(true);
         const requestRecompileWithoutDataChange = jest.fn();
+        const refreshSelectedLayerFromModel = jest.fn(() => true);
 
         const currentFont = {
             babelfontJson: '{"glyphs":[]}',
@@ -1853,6 +1860,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                 active: true,
                 selectedLayerId: 'layer-1',
                 parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                refreshSelectedLayerFromModel,
                 fetchLayerData: jest.fn().mockResolvedValue(),
                 runDeterministicRefresh: jest.fn(async (task) => await task()),
                 performHitDetection: jest.fn()
@@ -1909,7 +1917,8 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             ).toHaveBeenCalledTimes(1);
             expect(
                 originalWindow.glyphCanvas.outlineEditor.fetchLayerData
-            ).toHaveBeenCalledWith(true, 'a');
+            ).not.toHaveBeenCalled();
+            expect(refreshSelectedLayerFromModel).toHaveBeenCalledTimes(1);
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
         }

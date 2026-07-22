@@ -7841,6 +7841,54 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         ]);
     });
 
+    test('restores a component transform from the model during exact refresh', () => {
+        const editor = canvas.outlineEditor;
+        editor.active = true;
+        editor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            shapes: [
+                {
+                    reference: 'acute',
+                    transform: [1, 0, 0, 1, 30, 20]
+                }
+            ],
+            anchors: [],
+            guides: []
+        };
+        const getCurrentLayerIdSpy = jest
+            .spyOn(editor, 'getCurrentLayerId')
+            .mockReturnValue('layer-1');
+        const getAuthoringRootGlyphNameSpy = jest
+            .spyOn(editor, 'getAuthoringRootGlyphName')
+            .mockReturnValue('A');
+        const getExactLayerDataForSelectionSpy = jest
+            .spyOn(editor, 'getExactLayerDataForSelection')
+            .mockReturnValue({
+                id: 'layer-1',
+                width: 500,
+                shapes: [
+                    {
+                        reference: 'acute',
+                        transform: [1, 0, 0, 1, 10, 20]
+                    }
+                ],
+                anchors: [],
+                guides: []
+            });
+
+        try {
+            expect(editor.refreshSelectedLayerFromModel()).toBe(true);
+            expect(editor.layerData.shapes[0].transform).toEqual([
+                1, 0, 0, 1, 10, 20
+            ]);
+        } finally {
+            getCurrentLayerIdSpy.mockRestore();
+            getAuthoringRootGlyphNameSpy.mockRestore();
+            getExactLayerDataForSelectionSpy.mockRestore();
+        }
+    });
+
     test('cmd-dragging a smooth point slides it along the curve across linked layers as one glyph history item', async () => {
         const font = Font.fromData({
             upm: 1000,
