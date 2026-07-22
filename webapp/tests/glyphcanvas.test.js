@@ -13345,6 +13345,17 @@ describe('OutlineEditor exact selected layers', () => {
         );
         const addInputs = addModal.querySelectorAll('input[type="number"]');
         expect(addInputs).toHaveLength(2);
+        expect(addInputs[0].placeholder).toBe('Min');
+        expect(addInputs[1].placeholder).toBe('Max');
+        const coordinateNote = addModal.querySelector(
+            '.feature-variation-settings-coordinate-note'
+        );
+        expect(coordinateNote.tagName).toBe('SMALL');
+        expect(
+            coordinateNote.previousElementSibling.classList.contains(
+                'feature-variation-settings-rows'
+            )
+        ).toBe(true);
         addInputs[0].value = '300';
         addModal
             .querySelector('form')

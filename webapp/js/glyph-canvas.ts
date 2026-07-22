@@ -2590,12 +2590,14 @@ class GlyphCanvas {
             description.className = 'feature-variation-settings-description';
             description.textContent =
                 'Define the active range for each variation axis.';
-            const coordinateNote = document.createElement('p');
+            const coordinateNote = document.createElement('small');
+            coordinateNote.className =
+                'feature-variation-settings-coordinate-note';
             coordinateNote.textContent =
                 'Values are in designspace coordinates.';
             const rows = document.createElement('div');
             rows.className = 'feature-variation-settings-rows';
-            form.append(description, coordinateNote, rows);
+            form.append(description, rows, coordinateNote);
             const axisRuleInputs: Array<{
                 min: HTMLInputElement;
                 max: HTMLInputElement;

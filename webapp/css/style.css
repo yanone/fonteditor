@@ -4878,6 +4878,14 @@ kbd + kbd {
     margin: 0 0 12px 0;
 }
 
+.feature-variation-settings-coordinate-note {
+    display: block;
+    margin-top: 8px;
+    color: var(--text-tertiary);
+    font-size: 11px;
+    line-height: 1.3;
+}
+
 .info-popup-content ul {
     margin: 8px 0 12px 0;
     padding-left: 24px;
