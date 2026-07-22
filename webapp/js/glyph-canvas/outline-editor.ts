@@ -19356,7 +19356,8 @@ export class OutlineEditor {
         componentPath.push(componentIndex);
         const rootLayerToken = this.getRootLayerStackToken();
         // Rebuild with updated path
-        const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
+        const rootGlyphName =
+            parsed[0]?.glyphName ?? this.glyphCanvas.getCurrentGlyphName();
         this.buildGlyphStack(rootGlyphName, rootLayerToken, componentPath);
 
         // Update currentGlyphName for interpolation to target the component we're entering
@@ -19364,7 +19365,7 @@ export class OutlineEditor {
         this.selectedLayerId = this.getCurrentLayerId();
 
         if (this.selectedLayerId) {
-            await this.fetchLayerData(true, rootGlyphName);
+            await this.fetchLayerData(true);
         }
 
         // DON'T set layerData to component data - keep it as root!
@@ -19429,7 +19430,8 @@ export class OutlineEditor {
             }
         }
         // Rebuild with reduced path
-        const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
+        const rootGlyphName =
+            parsed[0]?.glyphName ?? this.glyphCanvas.getCurrentGlyphName();
         const rootLayerToken = this.getRootLayerStackToken();
         this.buildGlyphStack(rootGlyphName, rootLayerToken, componentPath);
         this.selectedLayerId = this.getCurrentLayerId();

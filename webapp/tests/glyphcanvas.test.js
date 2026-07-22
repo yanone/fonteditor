@@ -11378,6 +11378,55 @@ describe('GlyphCanvas component editing stack', () => {
         expect(canvas.outlineEditor.glyphStack).toBe('');
     });
 
+    test('preserves a feature-variation root while entering and exiting a nested component', async () => {
+        const featureComponentLayer = {
+            id: 'S-layer',
+            width: 500,
+            shapes: []
+        };
+        canvas.outlineEditor.layerData = {
+            id: 'feature-root-layer',
+            width: 500,
+            shapes: [
+                {
+                    reference: 'A',
+                    layerData: { id: 'A-layer', width: 500, shapes: [] }
+                },
+                {
+                    reference: 'S',
+                    layerData: featureComponentLayer
+                }
+            ]
+        };
+        canvas.outlineEditor.glyphStack = 'dollar.feaVar.0@feature-root-layer';
+        jest.spyOn(canvas, 'getCurrentGlyphName').mockReturnValue('dollar');
+        jest.spyOn(canvas.outlineEditor, 'findMatchingLayer').mockReturnValue({
+            id: 'S-layer'
+        });
+        jest.spyOn(
+            canvas.outlineEditor,
+            'getCurrentLayerModel'
+        ).mockReturnValue(null);
+        const fetchLayerData = jest
+            .spyOn(canvas.outlineEditor, 'fetchLayerData')
+            .mockResolvedValue();
+
+        await canvas.outlineEditor.enterComponentEditing(1, true);
+
+        expect(canvas.outlineEditor.glyphStack).toBe(
+            'dollar.feaVar.0@feature-root-layer>1:S@S-layer'
+        );
+        expect(fetchLayerData).toHaveBeenCalledWith(true);
+        expect(canvas.outlineEditor.getCurrentLayerDataFromStack()).toBe(
+            featureComponentLayer
+        );
+
+        expect(canvas.outlineEditor.exitComponentEditing(true)).toBe(true);
+        expect(canvas.outlineEditor.glyphStack).toBe(
+            'dollar.feaVar.0@feature-root-layer'
+        );
+    });
+
     test('should exit component editing when not in component mode', () => {
         const result = canvas.outlineEditor.exitComponentEditing();
         expect(result).toBe(false);
