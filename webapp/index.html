@@ -525,6 +525,16 @@
                                     placeholder="Search glyphs..."
                                 />
                             </div>
+                            <button
+                                id="find-glyph-btn"
+                                class="view-title-button context-tab"
+                                title="Find Glyph"
+                                aria-label="Find Glyph"
+                            >
+                                <span class="material-symbols-outlined"
+                                    >find_in_page</span
+                                >
+                            </button>
                             <div class="overview-size-control">
                                 <input
                                     type="range"
@@ -1241,6 +1251,35 @@
             </div>
         </div>
 
+        <!-- Find Glyph Modal -->
+        <div
+            class="info-popup-overlay"
+            id="find-glyph-modal"
+            style="display: none"
+        >
+            <div
+                class="info-popup find-glyph-popup"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="find-glyph-modal-title"
+            >
+                <div class="info-popup-header">
+                    <h3 id="find-glyph-modal-title">Find Glyph</h3>
+                    <button
+                        class="info-popup-close"
+                        id="find-glyph-modal-close-btn"
+                        aria-label="Close Find Glyph"
+                    >
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <div
+                    class="info-popup-content find-glyph-content"
+                    id="find-glyph-modal-content"
+                ></div>
+            </div>
+        </div>
+
         <!-- Matplotlib Plot Modal -->
         <div id="matplotlib-modal" class="matplotlib-modal">
             <div class="matplotlib-modal-content">
@@ -1898,6 +1937,7 @@
         <!-- Include translations and overview scripts -->
         <script src="js/translations.js"></script>
         <script src="js/glyph-overview.js"></script>
+        <script src="js/find-glyph-dialog.js"></script>
         <script src="js/overview-view.js"></script>
     </body>
 </html>

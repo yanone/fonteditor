@@ -3,6 +3,10 @@
 // Uses direct canvas rendering for fast display
 
 import { fastGlyphTileRenderer } from './glyph-tile-renderer-fast';
+import {
+    glyphNameMatchesSearchTerms,
+    parseGlyphSearchTerms
+} from './glyph-search';
 // Import filter manager to bundle it with glyph-overview entry point
 // It self-registers on window.glyphOverviewFilterManager
 import './glyph-overview-filters';
@@ -301,11 +305,9 @@ class GlyphOverview {
         if (this.searchInput) {
             // Listen for input changes
             this.searchInput.addEventListener('input', (e) => {
-                const value = (e.target as HTMLInputElement).value.trim();
-                this.searchTerms = value
-                    .split(/\s+/)
-                    .filter((term) => term.length > 0)
-                    .map((term) => term.toLowerCase());
+                this.searchTerms = parseGlyphSearchTerms(
+                    (e.target as HTMLInputElement).value
+                );
                 this.applySearchFilter();
             });
         }
@@ -463,13 +465,10 @@ class GlyphOverview {
                 this.activeFilterResults === null ||
                 this.activeFilterResults.has(tile.glyphName);
 
-            let passesSearch = true;
-            if (this.searchTerms.length > 0) {
-                const glyphNameLower = tile.glyphName.toLowerCase();
-                passesSearch = this.searchTerms.every((term) =>
-                    glyphNameLower.includes(term)
-                );
-            }
+            const passesSearch = glyphNameMatchesSearchTerms(
+                tile.glyphName,
+                this.searchTerms
+            );
 
             if (passesFilter && passesSearch) {
                 visibleIds.push(glyphId);

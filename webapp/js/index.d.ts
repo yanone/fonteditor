@@ -15,6 +15,7 @@ import type { WindowSync } from './window-sync';
 import type { WindowRoleManager } from './window-role';
 import type { AutomationWindowMetadata } from './automation-runtime';
 import type { CloudPlugin, CloudEligibility, CloudAsset } from './cloud-plugin';
+import type { FindGlyphDialog } from './find-glyph-dialog';
 
 declare global {
     var marked: any;
@@ -468,6 +469,7 @@ declare global {
 
         // From glyph-canvas.js
         glyphCanvas: GlyphCanvas;
+        findGlyphDialog: FindGlyphDialog;
 
         // From keyboard-navigation.js
         focusView: (viewId: string) => void;

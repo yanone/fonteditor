@@ -17541,6 +17541,32 @@ describe('GlyphCanvas keyboard handling', () => {
         expect(togglePaired).toHaveBeenCalledTimes(1);
     });
 
+    test('Cmd+F opens Find Glyph and inserts confirmed tokens at the cursor', () => {
+        const insertText = jest.spyOn(canvas.textRunEditor, 'insertText');
+        const open = jest.fn((options) => options.onConfirm(['A', 'B']));
+        window.findGlyphDialog = { open };
+        canvas.outlineEditor.active = true;
+        canvas.canvas.focus();
+
+        const event = new KeyboardEvent('keydown', {
+            key: 'f',
+            metaKey: true,
+            bubbles: true,
+            cancelable: true
+        });
+        document.dispatchEvent(event);
+
+        expect(event.defaultPrevented).toBe(true);
+        expect(open).toHaveBeenCalledWith(
+            expect.objectContaining({
+                selectionMode: 'multiple',
+                confirmLabel: 'Insert'
+            })
+        );
+        expect(insertText).toHaveBeenCalledWith('/A /B ');
+        delete window.findGlyphDialog;
+    });
+
     test('Tab activates measurement immediately and suppresses default focus navigation', () => {
         const downEvent = new KeyboardEvent('keydown', {
             key: 'Tab',

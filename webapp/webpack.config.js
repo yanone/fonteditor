@@ -73,6 +73,7 @@ module.exports = {
         'fontc-worker': './js/fontc-worker.ts',
         'glyph-filter-worker': './js/glyph-filter-worker.ts',
         'glyph-overview': './js/glyph-overview.ts',
+        'find-glyph-dialog': './js/find-glyph-dialog.ts',
         'translations': './js/translations.ts',
         'overview-view': './js/overview-view.ts'
     },

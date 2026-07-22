@@ -4710,6 +4710,110 @@ kbd + kbd {
     color: var(--text-tertiary);
 }
 
+.find-glyph-popup {
+    max-width: min(640px, calc(100vw - 32px));
+}
+
+.find-glyph-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    padding: 16px 20px 20px;
+    overflow: hidden;
+}
+
+.find-glyph-search {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border-top: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.find-glyph-search-input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+}
+
+.find-glyph-search-input::placeholder {
+    color: var(--text-faint);
+}
+
+.find-glyph-list {
+    height: min(56vh, 480px);
+    min-height: 0;
+    overflow-y: auto;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--background-secondary);
+}
+
+.find-glyph-row {
+    display: flex;
+    box-sizing: border-box;
+    height: 68px;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-primary);
+    cursor: pointer;
+}
+
+.find-glyph-row:hover {
+    background: var(--background-hover);
+}
+
+.find-glyph-row[aria-selected='true'] {
+    background: var(--background-hover);
+    box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+
+.find-glyph-preview {
+    width: 52px;
+    height: 52px;
+    flex: 0 0 52px;
+    background: var(--background-editor-sidebar);
+}
+
+.find-glyph-details {
+    min-width: 0;
+}
+
+.find-glyph-name {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.find-glyph-unicode {
+    margin-top: 3px;
+    color: var(--text-faint);
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+}
+
+.find-glyph-empty {
+    padding: 20px;
+    color: var(--text-faint);
+    text-align: center;
+}
+
+.find-glyph-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
 .plugin-manager-popup {
     max-width: 680px;
     max-width: min(680px, calc(100vw - 32px));

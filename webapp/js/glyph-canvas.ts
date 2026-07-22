@@ -1024,6 +1024,38 @@ class GlyphCanvas {
             }
         });
 
+        // Intercept browser Find while the canvas owns keyboard focus.
+        document.addEventListener(
+            'keydown',
+            (e) => {
+                if (
+                    !(e.metaKey || e.ctrlKey) ||
+                    e.shiftKey ||
+                    e.altKey ||
+                    e.key.toLowerCase() !== 'f' ||
+                    document.activeElement !== this.canvas
+                ) {
+                    return;
+                }
+
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                window.findGlyphDialog.open({
+                    selectionMode: 'multiple',
+                    confirmLabel: 'Insert',
+                    onConfirm: (glyphNames) => {
+                        const tokenText = glyphNames
+                            .map((glyphName) => `/${glyphName}`)
+                            .join(' ');
+                        this.textRunEditor?.insertText(`${tokenText} `);
+                        this.canvas?.focus();
+                    }
+                });
+            },
+            true
+        );
+
         // Cmd+Alt+S handler with capture phase to activate stack preview
         document.addEventListener('keydown', (e) => {
             // Use code instead of key because Alt+S produces '‚' on macOS
