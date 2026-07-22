@@ -111,7 +111,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ Automatic glyph metric updates
 - ✅ Automatic glyph composition
 - ✅ Font export
-- ◻️ Source saving
+- ✅ Source saving
 
 ### v0.4
 
