@@ -3827,7 +3827,12 @@ class FontManager {
         glyphName: string,
         layerId: string,
         layerData: Babelfont.Layer,
-        options?: { preserveExistingShapes?: boolean }
+        options?: {
+            preserveExistingShapes?: boolean;
+            authoritativeOptionalLayerFields?: Array<
+                'anchors' | 'guides' | 'format_specific'
+            >;
+        }
     ): Babelfont.Layer | null {
         const hasOwnKeys = (value: unknown): value is Record<string, unknown> =>
             !!value &&
@@ -3920,6 +3925,9 @@ class FontManager {
         if (!originalLayer && !layerData) {
             return null;
         }
+        const authoritativeOptionalLayerFields = new Set(
+            options?.authoritativeOptionalLayerFields
+        );
 
         assertFiniteLayerWidth(layerData.width, {
             glyphName,
@@ -3938,20 +3946,27 @@ class FontManager {
                 ? cleanOriginalShapes
                 : cleanShapes;
 
-        const cleanAnchors = Array.isArray(layerData.anchors)
-            ? layerData.anchors.map((anchor) => ({
-                  ...(anchor.id && { id: anchor.id }),
-                  name: anchor.name,
-                  x: anchor.x,
-                  y: anchor.y,
-                  ...(hasOwnKeys(anchor.format_specific) && {
-                      format_specific: anchor.format_specific
-                  })
-              }))
-            : originalLayer?.anchors;
+        const cleanAnchors =
+            Array.isArray(layerData.anchors) &&
+            (layerData.anchors.length > 0 ||
+                Array.isArray(originalLayer?.anchors) ||
+                authoritativeOptionalLayerFields.has('anchors'))
+                ? layerData.anchors.map((anchor) => ({
+                      ...(anchor.id && { id: anchor.id }),
+                      name: anchor.name,
+                      x: anchor.x,
+                      y: anchor.y,
+                      ...(hasOwnKeys(anchor.format_specific) && {
+                          format_specific: anchor.format_specific
+                      })
+                  }))
+                : originalLayer?.anchors;
 
-        const cleanGuides = Array.isArray(layerData.guides)
-            ? layerData.guides.length > 0
+        const cleanGuides =
+            Array.isArray(layerData.guides) &&
+            (layerData.guides.length > 0 ||
+                Array.isArray(originalLayer?.guides) ||
+                authoritativeOptionalLayerFields.has('guides'))
                 ? layerData.guides.map((guide) => ({
                       ...(guide.id && { id: guide.id }),
                       pos: {
@@ -3962,14 +3977,15 @@ class FontManager {
                       name: guide.name,
                       ...(guide.color && { color: guide.color })
                   }))
-                : undefined
-            : originalLayer?.guides;
+                : originalLayer?.guides;
 
-        const formatSpecific = hasOwnKeys(layerData.format_specific)
-            ? layerData.format_specific
-            : hasOwnKeys(originalLayer?.format_specific)
-              ? originalLayer?.format_specific
-              : undefined;
+        const formatSpecific =
+            hasOwnKeys(layerData.format_specific) ||
+            authoritativeOptionalLayerFields.has('format_specific')
+                ? layerData.format_specific
+                : hasOwnKeys(originalLayer?.format_specific)
+                  ? originalLayer?.format_specific
+                  : undefined;
 
         const layerName = layerData.name ?? originalLayer?.name;
 
@@ -5382,7 +5398,12 @@ class FontManager {
         glyphName: string,
         layerId: string,
         layerData: Babelfont.Layer,
-        options?: { preserveExistingShapes?: boolean }
+        options?: {
+            preserveExistingShapes?: boolean;
+            authoritativeOptionalLayerFields?: Array<
+                'anchors' | 'guides' | 'format_specific'
+            >;
+        }
     ): Babelfont.Layer | null {
         return this.serializeLayerForStorage(
             glyphName,

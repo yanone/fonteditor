@@ -2627,7 +2627,6 @@ describe('Transactions', () => {
         layer.shapes[0].nodes[0].y = 15;
         delete layer.guides;
         delete layer.format_specific;
-
         bridge.syncLayersFromJson(
             [{ glyphName: 'A', layerId: 'layer-1' }],
             'Drag point',
@@ -2675,6 +2674,256 @@ describe('Transactions', () => {
         expect(
             getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(125);
+    });
+
+    test('snapshot preserves unowned Y.Doc optional layer fields', () => {
+        const fontJson = makeMinimalFont();
+        const layer = fontJson.glyphs[0].layers[0];
+        layer.format_specific = {
+            'com.schriftgestalt.Glyphs.attr': {}
+        };
+        delete layer.anchors;
+        const componentIndex = layer.shapes.findIndex(
+            (shape) => typeof shape.reference === 'string'
+        );
+        const shapeCount = layer.shapes.length;
+        const initialTranslation = cloneValue(
+            layer.shapes[componentIndex].transform.translation
+        );
+        const bridge = new ChangeBridge('component-transform-optional-fields');
+        bridge.initFromJson(fontJson);
+
+        const componentSnapshot = cloneValue(layer);
+        componentSnapshot.anchors = [];
+        componentSnapshot.format_specific = {};
+        componentSnapshot.shapes[componentIndex].transform.translation = [
+            518, 71
+        ];
+        const logStart = bridge.getChangeLog().length;
+
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: componentSnapshot,
+                    authoritativeOptionalLayerFields: []
+                }
+            ],
+            'Drag component',
+            undefined,
+            undefined,
+            null,
+            [{ glyphName: 'A', layerId: 'layer-1' }],
+            'mouse-drag-outline',
+            'mouse-drag-outline',
+            'outline'
+        );
+
+        const log = bridge.getChangeLog().slice(logStart);
+        expect(log.map((entry) => entry.path)).toEqual([
+            `glyphs.A:layers.layer-1:shapes.${componentIndex}.transform.translation.0`,
+            `glyphs.A:layers.layer-1:shapes.${componentIndex}.transform.translation.1`
+        ]);
+        expect(
+            cloneValue(
+                fromYType(
+                    getYPath(bridge.fontMap, [
+                        'glyphs',
+                        'A',
+                        'layers',
+                        'layer-1',
+                        'format_specific'
+                    ])
+                )
+            )
+        ).toEqual({ 'com.schriftgestalt.Glyphs.attr': {} });
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'anchors'
+            ])
+        ).toBeUndefined();
+
+        bridge.undo('A', 'layer-1');
+        expect(
+            cloneValue(
+                fromYType(
+                    getYPath(bridge.fontMap, [
+                        'glyphs',
+                        'A',
+                        'layers',
+                        'layer-1',
+                        'shapes',
+                        componentIndex,
+                        'transform',
+                        'translation'
+                    ])
+                )
+            )
+        ).toEqual(initialTranslation);
+        expect(fontJson.glyphs[0].layers[0].shapes).toHaveLength(shapeCount);
+        const rebuiltLayer = Font.fromData(fontJson)
+            .findGlyph('A')
+            .findLayerById('layer-1');
+        expect(rebuiltLayer.shapes).toHaveLength(shapeCount);
+        expect(
+            rebuiltLayer.shapes[componentIndex].asComponent().transform
+                .translation
+        ).toEqual(initialTranslation);
+        expect(
+            cloneValue(
+                fromYType(
+                    getYPath(bridge.fontMap, [
+                        'glyphs',
+                        'A',
+                        'layers',
+                        'layer-1',
+                        'format_specific'
+                    ])
+                )
+            )
+        ).toEqual({ 'com.schriftgestalt.Glyphs.attr': {} });
+    });
+
+    test('ordinary layer snapshot preserves unowned optional fields', () => {
+        const fontJson = makeMinimalFont();
+        const layer = fontJson.glyphs[0].layers[0];
+        layer.format_specific = {
+            'com.schriftgestalt.Glyphs.attr': {}
+        };
+        delete layer.anchors;
+        delete layer.guides;
+        const bridge = new ChangeBridge('outline-optional-fields');
+        bridge.initFromJson(fontJson);
+
+        const snapshot = cloneValue(layer);
+        snapshot.anchors = [];
+        snapshot.guides = [];
+        snapshot.format_specific = {};
+        snapshot.width += 100;
+
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: snapshot,
+                    authoritativeOptionalLayerFields: []
+                }
+            ],
+            'Set width'
+        );
+
+        const log = bridge.getChangeLog();
+        expect(log.map((entry) => entry.path)).toEqual([
+            'glyphs.A:layers.layer-1:width'
+        ]);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'anchors'
+            ])
+        ).toBeUndefined();
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'guides'
+            ])
+        ).toBeUndefined();
+        expect(
+            cloneValue(
+                fromYType(
+                    getYPath(bridge.fontMap, [
+                        'glyphs',
+                        'A',
+                        'layers',
+                        'layer-1',
+                        'format_specific'
+                    ])
+                )
+            )
+        ).toEqual({ 'com.schriftgestalt.Glyphs.attr': {} });
+    });
+
+    test('snapshot applies declared optional layer field clears', () => {
+        const fontJson = makeMinimalFont();
+        const layer = fontJson.glyphs[0].layers[0];
+        layer.anchors = [{ name: 'top', x: 50, y: 700 }];
+        layer.guides = [{ pos: 500, angle: 0 }];
+        layer.format_specific = { 'com.schriftgestalt.Glyphs.attr': {} };
+        const bridge = new ChangeBridge('declared-optional-layer-fields');
+        bridge.initFromJson(fontJson);
+
+        const snapshot = cloneValue(layer);
+        snapshot.anchors = [];
+        snapshot.guides = [];
+        snapshot.format_specific = {};
+
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: snapshot,
+                    authoritativeOptionalLayerFields: [
+                        'anchors',
+                        'guides',
+                        'format_specific'
+                    ]
+                }
+            ],
+            'Clear layer optional fields'
+        );
+
+        expect(
+            cloneValue(
+                fromYType(
+                    getYPath(bridge.fontMap, [
+                        'glyphs',
+                        'A',
+                        'layers',
+                        'layer-1',
+                        'anchors'
+                    ])
+                )
+            )
+        ).toEqual([]);
+        expect(
+            cloneValue(
+                fromYType(
+                    getYPath(bridge.fontMap, [
+                        'glyphs',
+                        'A',
+                        'layers',
+                        'layer-1',
+                        'guides'
+                    ])
+                )
+            )
+        ).toEqual([]);
+        expect(
+            cloneValue(
+                fromYType(
+                    getYPath(bridge.fontMap, [
+                        'glyphs',
+                        'A',
+                        'layers',
+                        'layer-1',
+                        'format_specific'
+                    ])
+                )
+            )
+        ).toEqual({});
     });
 
     test('batch changes share transactionId and label', () => {

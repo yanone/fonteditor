@@ -705,6 +705,96 @@ describe('FontManager saveLayerData', () => {
         ]);
     });
 
+    test('serializeLayerForStorage does not materialize normalized empty anchors', () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        glyph.layers[glyph.layers.indexOf(layer)] = {
+            ...cloneJson(layer),
+            anchors: undefined,
+            format_specific: {
+                'com.schriftgestalt.Glyphs.attr': {}
+            }
+        };
+
+        const serialized = fontManager.serializeLayerForStorage(
+            'a',
+            layer.id,
+            {
+                ...cloneJson(layer),
+                anchors: [],
+                format_specific: {}
+            },
+            undefined
+        );
+
+        expect(serialized.anchors).toBeUndefined();
+        expect(serialized.format_specific).toEqual({
+            'com.schriftgestalt.Glyphs.attr': {}
+        });
+    });
+
+    test('serializeLayerForStorage preserves an explicit empty anchor list', () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+
+        const serialized = fontManager.serializeLayerForStorage(
+            'a',
+            layer.id,
+            {
+                ...cloneJson(layer),
+                anchors: []
+            },
+            undefined
+        );
+
+        expect(serialized.anchors).toEqual([]);
+    });
+
+    test('serializeLayerForStorage preserves declared empty optional fields', () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        glyph.layers[glyph.layers.indexOf(layer)] = {
+            ...cloneJson(layer),
+            anchors: [{ name: 'top', x: 100, y: 200 }],
+            guides: [{ pos: { x: 100, y: 200, angle: 0 } }],
+            format_specific: { 'com.schriftgestalt.Glyphs.attr': {} }
+        };
+
+        const serialized = fontManager.serializeLayerForStorage(
+            'a',
+            layer.id,
+            {
+                ...cloneJson(layer),
+                anchors: [],
+                guides: [],
+                format_specific: {}
+            },
+            {
+                authoritativeOptionalLayerFields: [
+                    'anchors',
+                    'guides',
+                    'format_specific'
+                ]
+            }
+        );
+
+        expect(serialized.anchors).toEqual([]);
+        expect(serialized.guides).toEqual([]);
+        expect(serialized.format_specific).toEqual({});
+    });
+
     test('saveLayerData rejects missing layer widths before mutating stored data', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'

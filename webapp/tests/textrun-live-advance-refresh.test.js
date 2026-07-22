@@ -467,7 +467,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         expect(originalWindow.fontManager.lastChangeSource).toBeNull();
         expect(originalWindow.fontManager.lastEditType).toBeNull();
-        expect(fetchLayerData).not.toHaveBeenCalled();
+        expect(fetchLayerData).toHaveBeenCalledWith(true, 'a');
         expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
             { a: 520 },
             { render: false }
@@ -1429,7 +1429,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             ).toBe(false);
             expect(
                 originalWindow.glyphCanvas.outlineEditor.fetchLayerData
-            ).not.toHaveBeenCalled();
+            ).toHaveBeenCalledWith(true, 'a');
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
             fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
@@ -1822,7 +1822,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         }
     });
 
-    test('undo component drag without replay targets refreshes the canvas without direct worker cache work', async () => {
+    test('undo component drag reloads the active canvas layer without direct worker cache work', async () => {
         const originalIsInitialized = fontCompilation.isInitialized;
         const submitLayerToWorkerCache = jest.fn().mockResolvedValue(true);
         const requestRecompileWithoutDataChange = jest.fn();
@@ -1909,7 +1909,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             ).toHaveBeenCalledTimes(1);
             expect(
                 originalWindow.glyphCanvas.outlineEditor.fetchLayerData
-            ).not.toHaveBeenCalled();
+            ).toHaveBeenCalledWith(true, 'a');
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
         }

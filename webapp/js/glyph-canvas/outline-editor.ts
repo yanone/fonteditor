@@ -5453,6 +5453,25 @@ export class OutlineEditor {
         return kinds;
     }
 
+    private getAuthoritativeOptionalLayerFields(
+        editKinds: ReadonlySet<
+            'outline' | 'anchor' | 'sidebearing' | 'component'
+        >,
+        dragType: string | null = this._dragType
+    ): Array<'anchors' | 'guides' | 'format_specific'> {
+        const fields = new Set<'anchors' | 'guides' | 'format_specific'>();
+        if (editKinds.has('anchor')) {
+            fields.add('anchors');
+        }
+        if (editKinds.has('sidebearing') || dragType === 'contrast-axis') {
+            fields.add('format_specific');
+        }
+        if (dragType === 'guide') {
+            fields.add('guides');
+        }
+        return [...fields];
+    }
+
     private refreshLiveVisibleAnchorDependents(now: number): void {
         if (!this._hasMoved || now - this._lastLiveAnchorRefreshTime < 50) {
             return;
@@ -18880,6 +18899,9 @@ export class OutlineEditor {
                 glyphName: string;
                 layerId: string;
             }>;
+            authoritativeOptionalLayerFields?: Array<
+                'anchors' | 'guides' | 'format_specific'
+            >;
         },
         compileMetadata?: {
             editSource: string;
@@ -18924,6 +18946,11 @@ export class OutlineEditor {
                 ? layerSyncTargets.changedLayerTargets
                 : directTarget
         );
+        const authoritativeOptionalLayerFields =
+            layerSyncTargets?.authoritativeOptionalLayerFields ??
+            this.getAuthoritativeOptionalLayerFields(
+                this.getCurrentSelectionEditKinds()
+            );
 
         if (
             changedLayerTargets.length &&
@@ -19051,12 +19078,18 @@ export class OutlineEditor {
                         typeof modelLayer?.toJSON === 'function'
                             ? modelLayer.toJSON()
                             : (targetCurrentLayerData ?? modelLayer);
-                    const serializedLayer =
-                        fontManager.serializeLayerForCommittedSync(
-                            target.glyphName,
-                            target.layerId,
-                            modelLayerJson
-                        );
+                    const serializedLayer = isDirectEditedLayer
+                        ? fontManager.serializeLayerForCommittedSync(
+                              target.glyphName,
+                              target.layerId,
+                              modelLayerJson,
+                              { authoritativeOptionalLayerFields }
+                          )
+                        : fontManager.serializeLayerForCommittedSync(
+                              target.glyphName,
+                              target.layerId,
+                              modelLayerJson
+                          );
                     if (!serializedLayer) {
                         continue;
                     }
@@ -19080,7 +19113,11 @@ export class OutlineEditor {
                     layerSnapshots.push({
                         glyphName: target.glyphName,
                         layerId: target.layerId,
-                        layerJson: serializedLayer
+                        layerJson: serializedLayer,
+                        ...(isDirectEditedLayer && {
+                            authoritativeOptionalLayerFields:
+                                authoritativeOptionalLayerFields
+                        })
                     });
                 }
             }

@@ -67,9 +67,11 @@ const console = new Logger('PatchSyncEngine');
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 type YjsUpdate = Uint8Array<ArrayBufferLike>;
+type OptionalLayerField = 'anchors' | 'guides' | 'format_specific';
 
 type LayerSnapshotSyncTarget = WorkerReplayTarget & {
     layerJson: unknown;
+    authoritativeOptionalLayerFields?: readonly OptionalLayerField[];
 };
 
 export type { ChangeLogEntry } from './change-log';
@@ -1516,7 +1518,12 @@ export class PatchSyncEngine {
         }
 
         const operations: TransactionBufferedOperation[] = [];
-        for (const { glyphName, layerId, layerJson } of uniqueTargets) {
+        for (const {
+            glyphName,
+            layerId,
+            layerJson,
+            authoritativeOptionalLayerFields
+        } of uniqueTargets) {
             const glyphMap = glyphsMap.get(glyphName) as
                 Y.Map<unknown> | undefined;
             if (!glyphMap) {
@@ -1532,6 +1539,41 @@ export class PatchSyncEngine {
             const storageLayerJson = this._encodeNodeArraysForStorage(
                 layerJson
             ) as Record<string, unknown>;
+            if (authoritativeOptionalLayerFields !== undefined) {
+                const yLayerMap = layersMap.get(layerId);
+                const yLayerJson = yLayerMap ? fromYType(yLayerMap) : null;
+                if (
+                    yLayerJson &&
+                    typeof yLayerJson === 'object' &&
+                    !Array.isArray(yLayerJson)
+                ) {
+                    const existingLayer = yLayerJson as Record<string, unknown>;
+                    const authoritativeFields = new Set(
+                        authoritativeOptionalLayerFields
+                    );
+                    for (const key of [
+                        'anchors',
+                        'guides',
+                        'format_specific'
+                    ] as OptionalLayerField[]) {
+                        if (authoritativeFields.has(key)) {
+                            continue;
+                        }
+                        if (
+                            Object.prototype.hasOwnProperty.call(
+                                existingLayer,
+                                key
+                            )
+                        ) {
+                            storageLayerJson[key] = cloneHistoryValue(
+                                existingLayer[key]
+                            );
+                        } else {
+                            delete storageLayerJson[key];
+                        }
+                    }
+                }
+            }
             operations.push(
                 ...this._buildLayerSyncOperations(
                     glyphName,
@@ -2110,8 +2152,7 @@ export class PatchSyncEngine {
         return (
             Object.prototype.hasOwnProperty.call(nextLayer, 'width') &&
             Object.prototype.hasOwnProperty.call(nextLayer, 'master') &&
-            Object.prototype.hasOwnProperty.call(nextLayer, 'shapes') &&
-            Object.prototype.hasOwnProperty.call(nextLayer, 'anchors')
+            Object.prototype.hasOwnProperty.call(nextLayer, 'shapes')
         );
     }
 

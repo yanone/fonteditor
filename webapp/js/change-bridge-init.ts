@@ -2382,8 +2382,6 @@ export async function handleCommittedChangeRefresh(
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
             skipDeferredCanvasRepaint:
                 isUndoRedoPacket && !requiresBackgroundLayerRefresh,
-            skipLayerDataFetch:
-                isUndoRedoPacket && !requiresBackgroundLayerRefresh,
             ...(replayTargets.length > 0
                 ? { workerReplayTargets: replayTargets }
                 : {})
