@@ -13222,7 +13222,7 @@ describe('OutlineEditor exact selected layers', () => {
         );
         expect(featureVariationItems).toHaveLength(2);
         expect(featureVariationItems[0].textContent).toContain('Base glyph');
-        expect(featureVariationItems[1].textContent).toContain('wght >= 100');
+        expect(featureVariationItems[1].textContent).toContain('100 < wght');
 
         featureVariationItems[1].dispatchEvent(
             new MouseEvent('click', { bubbles: true })
@@ -13262,7 +13262,7 @@ describe('OutlineEditor exact selected layers', () => {
         ).toBeTruthy();
 
         selectedFeatureVariationsWidget
-            .querySelector('.editor-feature-variation-item')
+            .querySelectorAll('.editor-feature-variation-item')[0]
             .dispatchEvent(new MouseEvent('click', { bubbles: true }));
         await Promise.resolve();
         await Promise.resolve();
@@ -13280,51 +13280,13 @@ describe('OutlineEditor exact selected layers', () => {
         targetContainer.replaceChildren();
         await canvas.displayMastersList(targetContainer, false);
 
-        expect(
-            targetContainer
-                .querySelectorAll('.editor-layers-widget')[1]
-                .querySelector('.editor-layer-item.selected')
-        ).toBeNull();
-
-        const editButton = targetContainer.querySelector(
-            '[title="Edit feature variation settings"]'
+        const featureVariationItem = targetContainer.querySelector(
+            '.editor-feature-variation-item[data-feature-variation-id]'
         );
-        editButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        const editModal = document.querySelector(
-            '.feature-variation-settings-modal'
-        );
-        expect(editModal).toBeTruthy();
-        expect(editModal.classList.contains('info-popup-overlay')).toBe(true);
-        expect(
-            editModal.querySelector('.feature-variation-settings-modal-content')
-        ).toBeTruthy();
-        expect(editModal.querySelector('.info-popup-header')).toBeTruthy();
-        expect(editModal.querySelector('.info-popup-content')).toBeTruthy();
-        expect(
-            editModal.querySelectorAll('.feature-variation-settings-row')
-        ).toHaveLength(1);
-        expect(
-            editModal.querySelector('.feature-variation-settings-actions')
-        ).toBeTruthy();
-        expect(
-            editModal
-                .querySelector('.feature-variation-settings-actions')
-                .querySelector('.localized-string-modal-button-secondary')
-        ).toBeTruthy();
-        const editInputs = editModal.querySelectorAll('input[type="number"]');
-        expect(editInputs).toHaveLength(2);
-        editInputs[0].value = '120';
-        editModal
-            .querySelector('form')
-            .dispatchEvent(
-                new Event('submit', { bubbles: true, cancelable: true })
-            );
-        await Promise.resolve();
-        await Promise.resolve();
-        await Promise.resolve();
-
-        const updatedFeatureVariation =
-            font.findGlyph('dollar').featureVariations[0];
+        expect(featureVariationItem.querySelector('[title]')).toBeNull();
+        const updatedFeatureVariation = font
+            .findGlyph('dollar')
+            .featureVariations[0].setAxisRules([{ min: 120 }]);
         expect(updatedFeatureVariation.axisRules).toEqual([{ min: 120 }]);
         expect(updatedFeatureVariation.layers).toHaveLength(1);
         expect(
@@ -13362,6 +13324,27 @@ describe('OutlineEditor exact selected layers', () => {
                     (featureVariation) => featureVariation.axisRules
                 )
         ).toEqual(expect.arrayContaining([[{ min: 120 }], [{ min: 300 }]]));
+
+        targetContainer.replaceChildren();
+        await canvas.displayMastersList(targetContainer, false);
+        const multiFamilyItems = targetContainer.querySelectorAll(
+            '.editor-feature-variation-item'
+        );
+        expect(multiFamilyItems).toHaveLength(3);
+        expect(multiFamilyItems[0].textContent).toContain('Base glyph');
+        expect(multiFamilyItems[1].textContent).toContain('120 < wght');
+        expect(multiFamilyItems[2].textContent).toContain('300 < wght');
+
+        font.findGlyph('dollar').removeFeatureVariation(
+            updatedFeatureVariation
+        );
+
+        expect(font.findGlyph('dollar').featureVariations).toHaveLength(1);
+        expect(
+            font
+                .findGlyph('dollar')
+                .layers.some((layer) => layer.id === 'dollar-feature')
+        ).toBe(false);
 
         updatePropertiesUISpy.mockRestore();
     });

@@ -3061,14 +3061,21 @@ class GlyphCanvas {
                         const axisTag =
                             (fontModel.axes || [])[axisIndex]?.tag ||
                             `axis ${axisIndex + 1}`;
-                        const conditions: string[] = [];
+                        if (
+                            typeof axisRule.min === 'number' &&
+                            typeof axisRule.max === 'number'
+                        ) {
+                            return [
+                                `${axisRule.min} < ${axisTag} < ${axisRule.max}`
+                            ];
+                        }
                         if (typeof axisRule.min === 'number') {
-                            conditions.push(`${axisTag} >= ${axisRule.min}`);
+                            return [`${axisRule.min} < ${axisTag}`];
                         }
                         if (typeof axisRule.max === 'number') {
-                            conditions.push(`${axisTag} <= ${axisRule.max}`);
+                            return [`${axisTag} < ${axisRule.max}`];
                         }
-                        return conditions;
+                        return [];
                     }
                 );
                 return conditions.length
@@ -3136,6 +3143,129 @@ class GlyphCanvas {
             featureVariationsHeader.appendChild(featureVariationsHeaderActions);
             featureVariationsWidget.appendChild(featureVariationsHeader);
 
+            const buildFeatureVariationContextMenuHtml = (): string => `
+                <div class="plugin-menu" tabindex="0" role="menu" aria-label="Feature variation actions">
+                    <div class="plugin-menu-item" data-action="edit" role="menuitem">
+                        <span class="material-symbols-outlined">edit</span>
+                        <span>Edit</span>
+                    </div>
+                    <div class="plugin-menu-item" data-action="remove" role="menuitem">
+                        <span class="material-symbols-outlined">delete</span>
+                        <span>Remove</span>
+                    </div>
+                </div>
+            `;
+
+            const removeFeatureVariation = async (
+                featureVariation: FeatureVariationGlyph
+            ): Promise<void> => {
+                if (
+                    !window.confirm(
+                        'Remove this feature variation from all master layers?'
+                    )
+                ) {
+                    return;
+                }
+
+                const wasSelected =
+                    this.outlineEditor.getSelectedRootFeatureVariationId() ===
+                    featureVariation.id;
+                sourceGlyph.removeFeatureVariation(featureVariation);
+
+                if (wasSelected) {
+                    await selectFeatureVariation(null);
+                    return;
+                }
+
+                await this.updatePropertiesUI({
+                    skipAutoSelectMatchingLayer: true
+                });
+                this.render();
+            };
+
+            const attachFeatureVariationContextMenu = (
+                item: HTMLDivElement,
+                featureVariation: FeatureVariationGlyph
+            ): void => {
+                const backdrop = getOrCreateBackdrop(
+                    'editor-feature-variation-context-menu-backdrop'
+                );
+                const tippyInstance = tippy(item, {
+                    content: buildFeatureVariationContextMenuHtml(),
+                    allowHTML: true,
+                    trigger: 'manual',
+                    interactive: true,
+                    appendTo: () => document.body,
+                    placement: 'right-start',
+                    theme: getTheme(),
+                    arrow: false,
+                    offset: [0, 4],
+                    hideOnClick: false,
+                    getReferenceClientRect: () => item.getBoundingClientRect(),
+                    onShown: (instance) => {
+                        const menu =
+                            instance.popper.querySelector('.plugin-menu');
+                        if (!menu) {
+                            return;
+                        }
+
+                        setupMenuKeyboardNav(menu);
+                        menu.querySelectorAll('.plugin-menu-item').forEach(
+                            (menuItem) => {
+                                (menuItem as HTMLElement).onclick =
+                                    async () => {
+                                        const action =
+                                            menuItem.getAttribute(
+                                                'data-action'
+                                            );
+                                        instance.hide();
+                                        await new Promise((resolve) =>
+                                            requestAnimationFrame(resolve)
+                                        );
+                                        if (action === 'edit') {
+                                            await openFeatureVariationSettings(
+                                                featureVariation
+                                            );
+                                        } else if (action === 'remove') {
+                                            await removeFeatureVariation(
+                                                featureVariation
+                                            );
+                                        }
+                                    };
+                            }
+                        );
+                    }
+                });
+
+                addTippyBackdropSupport(tippyInstance, backdrop, {
+                    targetElement: item,
+                    activeClass: 'context-menu-active'
+                });
+
+                item.addEventListener('contextmenu', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const mouseX = event.clientX;
+                    const mouseY = event.clientY;
+                    tippyInstance.setProps({
+                        content: buildFeatureVariationContextMenuHtml(),
+                        getReferenceClientRect: () => ({
+                            width: 0,
+                            height: 0,
+                            top: mouseY,
+                            bottom: mouseY,
+                            left: mouseX,
+                            right: mouseX,
+                            x: mouseX,
+                            y: mouseY,
+                            toJSON: () => ({})
+                        }),
+                        theme: getTheme()
+                    });
+                    tippyInstance.show();
+                });
+            };
+
             const featureVariationsList = document.createElement('div');
             featureVariationsList.className = 'editor-layers-list';
             const createFeatureVariationItem = (
@@ -3163,17 +3293,7 @@ class GlyphCanvas {
                 item.appendChild(itemContent);
 
                 if (featureVariation) {
-                    item.appendChild(
-                        createHeaderIconButton(
-                            'edit',
-                            'Edit feature variation settings',
-                            () => {
-                                void openFeatureVariationSettings(
-                                    featureVariation
-                                );
-                            }
-                        )
-                    );
+                    attachFeatureVariationContextMenu(item, featureVariation);
                 }
 
                 item.addEventListener('click', () => {
@@ -3182,9 +3302,11 @@ class GlyphCanvas {
                 return item;
             };
 
-            featureVariationsList.appendChild(
-                createFeatureVariationItem('Base glyph', null)
-            );
+            if (featureVariations.length > 0) {
+                featureVariationsList.appendChild(
+                    createFeatureVariationItem('Base glyph', null)
+                );
+            }
             featureVariations.forEach((featureVariation, index) => {
                 featureVariationsList.appendChild(
                     createFeatureVariationItem(
@@ -3194,7 +3316,9 @@ class GlyphCanvas {
                     )
                 );
             });
-            featureVariationsWidget.appendChild(featureVariationsList);
+            if (featureVariations.length > 0) {
+                featureVariationsWidget.appendChild(featureVariationsList);
+            }
         }
 
         // Create masters/layers list
