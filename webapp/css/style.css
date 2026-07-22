@@ -5392,11 +5392,11 @@ kbd + kbd {
 }
 
 .glyph-component-property-grid {
-    display: grid;
-    grid-template-columns: repeat(8, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 8px;
     width: 100%;
-    max-width: 680px;
 }
 
 .glyph-component-property-control {
@@ -5407,7 +5407,15 @@ kbd + kbd {
 }
 
 .glyph-component-property-control .glyph-property-input {
-    width: 62px;
+    width: 52px;
+}
+
+.glyph-component-property-transform-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    white-space: nowrap;
 }
 
 .glyph-property-input-mixed::placeholder {
@@ -5418,6 +5426,10 @@ kbd + kbd {
     gap: 8px;
     justify-content: flex-start;
     white-space: nowrap;
+}
+
+.glyph-component-property-auto-align {
+    margin-inline-start: 4px;
 }
 
 .glyph-component-property-checkbox-input {

@@ -12237,9 +12237,16 @@ export class OutlineEditor {
                 selectionTransform,
                 componentSnapshot.transform
             );
+            const decomposedTransform = affineToDecomposed(transformed);
             (shape as any).transform = componentSnapshot.usesArrayTransform
                 ? [...transformed]
-                : affineToDecomposed(transformed);
+                : decomposedTransform;
+
+            const modelShape =
+                currentLayerModel?.shapes?.[componentSnapshot.componentIndex];
+            if (modelShape?.isComponent?.()) {
+                modelShape.asComponent().transform = decomposedTransform;
+            }
         }
 
         if (snapshot.components.length > 0) {
@@ -18949,15 +18956,38 @@ export class OutlineEditor {
                     typeof directModelLayer.syncFromEditorLayerData ===
                         'function'
                 ) {
+                    const directModelLayerData =
+                        typeof directModelLayer.toJSON === 'function'
+                            ? directModelLayer.toJSON()
+                            : null;
+                    const shouldSyncAnchors =
+                        Array.isArray(currentLayerData.anchors) &&
+                        (currentLayerData.anchors.length > 0 ||
+                            Array.isArray(directModelLayerData?.anchors));
+                    const shouldSyncGuides =
+                        Array.isArray(currentLayerData.guides) &&
+                        (currentLayerData.guides.length > 0 ||
+                            Array.isArray(directModelLayerData?.guides));
+                    const shouldSyncFormatSpecific =
+                        !!currentLayerData.format_specific &&
+                        Object.keys(currentLayerData.format_specific).length >
+                            0;
                     withSuppressedModelRecording(() => {
                         directModelLayer.syncFromEditorLayerData({
                             width: currentLayerData.width,
                             height: currentLayerData.height,
                             vertWidth: currentLayerData.vertWidth,
                             shapes: currentLayerData.shapes,
-                            anchors: currentLayerData.anchors,
-                            guides: currentLayerData.guides,
-                            format_specific: currentLayerData.format_specific
+                            ...(shouldSyncAnchors && {
+                                anchors: currentLayerData.anchors
+                            }),
+                            ...(shouldSyncGuides && {
+                                guides: currentLayerData.guides
+                            }),
+                            ...(shouldSyncFormatSpecific && {
+                                format_specific:
+                                    currentLayerData.format_specific
+                            })
                         });
                         const invalidationGlyphNames =
                             typeof fontModel.collectComponentDependentGlyphs ===
@@ -19017,11 +19047,10 @@ export class OutlineEditor {
                         ? currentLayerData
                         : null;
                     if (!modelLayer && !targetCurrentLayerData) continue;
-                    const modelLayerJson = targetCurrentLayerData
-                        ? targetCurrentLayerData
-                        : typeof modelLayer?.toJSON === 'function'
-                          ? modelLayer.toJSON()
-                          : modelLayer;
+                    const modelLayerJson =
+                        typeof modelLayer?.toJSON === 'function'
+                            ? modelLayer.toJSON()
+                            : (targetCurrentLayerData ?? modelLayer);
                     const serializedLayer =
                         fontManager.serializeLayerForCommittedSync(
                             target.glyphName,

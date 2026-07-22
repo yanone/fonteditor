@@ -6420,14 +6420,11 @@ class GlyphCanvas {
 
             const createComponentFieldControl = (
                 field: ComponentTransformField,
-                labelText: string
+                labelText?: string
             ) => {
                 const wrapper = document.createElement('label');
                 wrapper.className = 'glyph-component-property-control';
 
-                const label = document.createElement('span');
-                label.className = 'glyph-property-control-label';
-                label.textContent = labelText;
                 const labelTooltips: Record<ComponentTransformField, string> = {
                     translateX: 'Component translation on X axis',
                     translateY: 'Component translation on Y axis',
@@ -6437,7 +6434,13 @@ class GlyphCanvas {
                     skewX: 'Component skew on X axis in degrees',
                     skewY: 'Component skew on Y axis in degrees'
                 };
-                label.title = labelTooltips[field];
+                if (labelText) {
+                    const label = document.createElement('span');
+                    label.className = 'glyph-property-control-label';
+                    label.textContent = labelText;
+                    label.title = labelTooltips[field];
+                    wrapper.appendChild(label);
+                }
 
                 const input = document.createElement('input');
                 input.type = 'text';
@@ -6563,30 +6566,52 @@ class GlyphCanvas {
                     }, 0);
                 });
 
-                wrapper.appendChild(label);
                 wrapper.appendChild(input);
                 return wrapper;
+            };
+
+            const createComponentTransformGroup = (
+                labelText: string,
+                fields: ComponentTransformField[]
+            ) => {
+                const group = document.createElement('div');
+                group.className = 'glyph-component-property-transform-group';
+
+                const label = document.createElement('span');
+                label.className = 'glyph-property-control-label';
+                label.textContent = labelText;
+                group.appendChild(label);
+
+                for (const field of fields) {
+                    group.appendChild(createComponentFieldControl(field));
+                }
+
+                return group;
             };
 
             const fieldsRow = document.createElement('div');
             fieldsRow.className = 'glyph-component-property-grid';
             fieldsRow.appendChild(
-                createComponentFieldControl('translateX', 'X')
+                createComponentTransformGroup('Translate X/Y', [
+                    'translateX',
+                    'translateY'
+                ])
             );
             fieldsRow.appendChild(
-                createComponentFieldControl('translateY', 'Y')
+                createComponentFieldControl('rotation', 'Rotate')
             );
-            fieldsRow.appendChild(createComponentFieldControl('rotation', 'R'));
-            fieldsRow.appendChild(createComponentFieldControl('scaleX', 'SX'));
-            fieldsRow.appendChild(createComponentFieldControl('scaleY', 'SY'));
-            fieldsRow.appendChild(createComponentFieldControl('skewX', 'KX'));
-            fieldsRow.appendChild(createComponentFieldControl('skewY', 'KY'));
+            fieldsRow.appendChild(
+                createComponentTransformGroup('Scale X/Y', ['scaleX', 'scaleY'])
+            );
+            fieldsRow.appendChild(
+                createComponentTransformGroup('Skew X/Y', ['skewX', 'skewY'])
+            );
 
             const alignmentState =
                 this.getComponentAutoAlignmentState(selectedComponents);
             const alignmentControl = document.createElement('label');
             alignmentControl.className =
-                'glyph-component-property-control glyph-component-property-checkbox';
+                'glyph-component-property-control glyph-component-property-checkbox glyph-component-property-auto-align';
 
             const alignmentInput = document.createElement('input');
             alignmentInput.type = 'checkbox';

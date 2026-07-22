@@ -1717,6 +1717,115 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
+    test('selection resize mirrors component transforms into the model before drag commit', () => {
+        const modelComponent = {
+            transform: {
+                translation: [0, 0],
+                scale: [1, 1],
+                rotation: 0,
+                skew: [0, 0],
+                order: 'RestOfTheWorld'
+            }
+        };
+        const layerModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentLayerModel')
+            .mockReturnValue({
+                shapes: [
+                    {
+                        isComponent: () => true,
+                        asComponent: () => modelComponent
+                    }
+                ]
+            });
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 200, glyphY: 200 });
+        const updatePropertyPanelSpy = jest
+            .spyOn(canvas, 'updatePropertyPanel')
+            .mockImplementation(() => {});
+        const renderSpy = jest
+            .spyOn(canvas, 'render')
+            .mockImplementation(() => {});
+        const syncSpy = jest.spyOn(
+            canvas.outlineEditor,
+            '_syncCurrentGlyphToYDoc'
+        );
+
+        try {
+            canvas.outlineEditor.layerData = {
+                id: 'layer-1',
+                width: 500,
+                shapes: [
+                    {
+                        reference: 'acutecomb',
+                        transform: {
+                            translation: [0, 0],
+                            scale: [1, 1],
+                            rotation: 0,
+                            skew: [0, 0],
+                            order: 'RestOfTheWorld'
+                        }
+                    }
+                ],
+                anchors: [],
+                guides: []
+            };
+            canvas.outlineEditor.selectionResizeSnapshot = {
+                bounds: {
+                    minX: 0,
+                    minY: 0,
+                    maxX: 100,
+                    maxY: 100,
+                    centerX: 50,
+                    centerY: 50
+                },
+                handle: {
+                    x: 100,
+                    y: 100,
+                    actualX: 100,
+                    actualY: 100,
+                    xRole: 1,
+                    yRole: 1
+                },
+                points: [],
+                anchors: [],
+                components: [
+                    {
+                        componentIndex: 0,
+                        transform: [1, 0, 0, 1, 0, 0],
+                        usesArrayTransform: false
+                    }
+                ],
+                includesGeometry: true,
+                includesAnchors: false,
+                useStrokeAwareScaling: false,
+                strokeAwareGeometry: null,
+                strokeAwareTargets: [],
+                smoothHandleDirections: [],
+                contrastAxisAngleDegrees: 90
+            };
+            canvas.outlineEditor._lastPropertyPanelUpdateTime = 0;
+
+            canvas.outlineEditor.handleSelectionResizeDrag({
+                clientX: 200,
+                clientY: 200
+            });
+
+            expect(modelComponent.transform.scale).toEqual([2, 2]);
+            expect(
+                canvas.outlineEditor.layerData.shapes[0].transform.scale
+            ).toEqual([2, 2]);
+            expect(updatePropertyPanelSpy).toHaveBeenCalled();
+            expect(syncSpy).not.toHaveBeenCalled();
+        } finally {
+            syncSpy.mockRestore();
+            renderSpy.mockRestore();
+            updatePropertyPanelSpy.mockRestore();
+            pointerSpy.mockRestore();
+            layerModelSpy.mockRestore();
+        }
+    });
+
     test('point drag that returns to original position does not sync to YDoc', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
@@ -10684,6 +10793,149 @@ describe('GlyphCanvas anchor movement', () => {
         } finally {
             window.patchSyncEngine = originalPatchSyncEngine;
             serializeLayerSpy.mockRestore();
+        }
+    });
+
+    test('component drag snapshots preserve omitted optional layer fields', () => {
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const importedFormatSpecific = {
+            'com.schriftgestalt.Glyphs.attr': {}
+        };
+        const directModelLayer = {
+            syncFromEditorLayerData: jest.fn(),
+            toJSON: jest.fn(() => ({
+                id: 'layer-1',
+                width: 500,
+                shapes: [
+                    {
+                        reference: 'dieresiscomb',
+                        transform: {
+                            translation: [400, 76],
+                            scale: [1, 1],
+                            rotation: 0,
+                            skew: [0, 0],
+                            order: 'RestOfTheWorld'
+                        }
+                    }
+                ],
+                format_specific: importedFormatSpecific
+            }))
+        };
+        const currentFont = {
+            babelfontData: {
+                glyphs: [
+                    {
+                        name: 'adieresis',
+                        layers: [
+                            {
+                                id: 'layer-1',
+                                width: 500,
+                                shapes: [],
+                                format_specific: importedFormatSpecific
+                            }
+                        ]
+                    }
+                ]
+            },
+            fontModel: {
+                findGlyph: jest.fn(() => ({
+                    findLayerById: jest.fn(() => directModelLayer)
+                }))
+            }
+        };
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+        const serializeLayerSpy = jest
+            .spyOn(fontManager, 'serializeLayerForCommittedSync')
+            .mockImplementation((_glyphName, _layerId, layerData) => layerData);
+        const syncLayerSnapshotsFromJson = jest.fn();
+
+        window.patchSyncEngine = {
+            syncLayerSnapshotsFromJson,
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
+        };
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'adieresis' }
+        ]);
+        canvas.getCurrentGlyphName = jest.fn(() => 'adieresis');
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            shapes: [
+                {
+                    reference: 'dieresiscomb',
+                    transform: {
+                        translation: [400, 76],
+                        scale: [1, 1],
+                        rotation: 0,
+                        skew: [0, 0],
+                        order: 'RestOfTheWorld'
+                    }
+                }
+            ],
+            anchors: [],
+            guides: [],
+            format_specific: {}
+        };
+
+        try {
+            canvas.outlineEditor._syncCurrentGlyphToYDoc(
+                'Drag component',
+                undefined,
+                undefined,
+                null,
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'adieresis', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'adieresis', layerId: 'layer-1' }
+                    ]
+                },
+                {
+                    editSource: 'mouse-drag-outline',
+                    changeSource: 'mouse-drag-outline',
+                    editType: 'outline'
+                }
+            );
+
+            const synchronizedLayer =
+                directModelLayer.syncFromEditorLayerData.mock.calls[0][0];
+            expect(synchronizedLayer).not.toHaveProperty('anchors');
+            expect(synchronizedLayer).not.toHaveProperty('format_specific');
+
+            const serializedLayer = serializeLayerSpy.mock.calls[0][2];
+            expect(serializedLayer).not.toHaveProperty('anchors');
+            expect(serializedLayer.format_specific).toEqual(
+                importedFormatSpecific
+            );
+            expect(syncLayerSnapshotsFromJson).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        glyphName: 'adieresis',
+                        layerId: 'layer-1',
+                        layerJson: serializedLayer
+                    })
+                ],
+                'Drag component',
+                undefined,
+                undefined,
+                null,
+                [{ glyphName: 'adieresis', layerId: 'layer-1' }],
+                'mouse-drag-outline',
+                'mouse-drag-outline',
+                'outline'
+            );
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            serializeLayerSpy.mockRestore();
+            currentFontSpy.mockRestore();
         }
     });
 
