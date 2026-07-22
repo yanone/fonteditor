@@ -871,7 +871,47 @@ describe('Babelfont Object Model', () => {
                                 master: {
                                     type: 'DefaultForMaster',
                                     master: 'regular'
-                                }
+                                },
+                                background_layer_id: 'A-regular-background',
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 500,
+                                                y: 0,
+                                                nodetype: 'Line'
+                                            }
+                                        ]
+                                    }
+                                ],
+                                anchors: [{ name: 'top', x: 250, y: 700 }]
+                            },
+                            {
+                                id: 'A-regular-background',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'regular'
+                                },
+                                is_background: true,
+                                background_layer_id: 'A-regular',
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            {
+                                                x: 10,
+                                                y: 20,
+                                                nodetype: 'Line'
+                                            },
+                                            {
+                                                x: 490,
+                                                y: 20,
+                                                nodetype: 'Line'
+                                            }
+                                        ]
+                                    }
+                                ]
                             },
                             {
                                 id: 'A-bold',
@@ -957,18 +997,49 @@ describe('Babelfont Object Model', () => {
                 beginTransaction: jest.fn(),
                 endTransaction: jest.fn(),
                 recordAdd: jest.fn(),
+                recordChange: jest.fn(),
                 recordRemove: jest.fn()
             };
             window.patchSyncEngine = bridge;
 
             const addedVariation = glyph.addFeatureVariation([{ max: 400 }]);
+            const baseRegular = glyph.findLayerById('A-regular');
+            const addedRegular = addedVariation.layers.find(
+                (layer) => layer.master.master === 'regular'
+            );
+            const addedBackground = addedRegular.backgroundLayer;
             expect(addedVariation.layers).toHaveLength(2);
+            expect(addedRegular.id).not.toBe(baseRegular.id);
+            expect(addedRegular.shapes).toHaveLength(1);
+            expect(addedRegular.anchors).toHaveLength(1);
+            expect(addedRegular.background_layer_id).toBe(addedBackground.id);
+            expect(addedBackground.background_layer_id).toBe(addedRegular.id);
+            expect(addedBackground.id).not.toBe('A-regular-background');
+            expect(addedBackground.shapes).toHaveLength(1);
+            expect(addedBackground.paths[0].nodes[0].x).toBe(10);
+            expect(addedVariation.layers.map((layer) => layer.id)).not.toEqual(
+                expect.arrayContaining([addedBackground.id])
+            );
+            addedRegular.paths[0].nodes[0].x = 100;
+            expect(baseRegular.paths[0].nodes[0].x).toBe(0);
             expect(bridge.beginTransaction).toHaveBeenCalledTimes(1);
             expect(bridge.beginTransaction).toHaveBeenCalledWith(
                 'Add feature variation'
             );
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
-            expect(bridge.recordAdd).toHaveBeenCalledTimes(2);
+            expect(bridge.recordAdd).toHaveBeenCalledTimes(3);
+            const addedForegroundSnapshot = bridge.recordAdd.mock.calls.find(
+                ([, layer]) => layer.id === addedRegular.id
+            )?.[1];
+            const addedBackgroundSnapshot = bridge.recordAdd.mock.calls.find(
+                ([, layer]) => layer.id === addedBackground.id
+            )?.[1];
+            expect(addedForegroundSnapshot.background_layer_id).toBe(
+                addedBackground.id
+            );
+            expect(addedBackgroundSnapshot.background_layer_id).toBe(
+                addedRegular.id
+            );
 
             glyph.removeFeatureVariation(addedVariation);
             expect(bridge.beginTransaction).toHaveBeenCalledTimes(2);
@@ -976,7 +1047,7 @@ describe('Babelfont Object Model', () => {
                 'Remove feature variation'
             );
             expect(bridge.endTransaction).toHaveBeenCalledTimes(2);
-            expect(bridge.recordRemove).toHaveBeenCalledTimes(2);
+            expect(bridge.recordRemove).toHaveBeenCalledTimes(3);
             expect(glyph.featureVariations).toHaveLength(1);
             delete window.patchSyncEngine;
         });

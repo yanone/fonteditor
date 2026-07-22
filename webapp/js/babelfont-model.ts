@@ -9584,7 +9584,8 @@ export class Glyph extends ArrayElementBase {
     }
 
     /**
-     * Create one associated feature-variation layer for every base master layer.
+     * Create one associated feature-variation layer for every base master layer,
+     * copying each layer's materialized background when present.
      */
     addFeatureVariation(axisRules: Unsafe[]): FeatureVariationGlyph {
         const template = {
@@ -9623,6 +9624,13 @@ export class Glyph extends ArrayElementBase {
             for (const baseLayer of baseLayers) {
                 const masterId = (baseLayer.master as Unsafe).master;
                 const layerData = cloneForHistory(baseLayer) as Babelfont.Layer;
+                const baseBackgroundLayer = baseLayer.background_layer_id
+                    ? this.data.layers?.find(
+                          (candidate: Unsafe) =>
+                              candidate.id === baseLayer.background_layer_id &&
+                              candidate.is_background
+                      )
+                    : undefined;
                 layerData.id = this.createUniqueLayerId();
                 layerData.master = {
                     type: 'AssociatedWithMaster',
@@ -9646,6 +9654,24 @@ export class Glyph extends ArrayElementBase {
                         axisRules: cloneForHistory(axisRules)
                     }
                 };
+
+                if (baseBackgroundLayer) {
+                    const backgroundLayerData = cloneForHistory(
+                        baseBackgroundLayer
+                    ) as Babelfont.Layer;
+                    backgroundLayerData.id = this.createUniqueLayerId();
+                    backgroundLayerData.master = cloneForHistory(
+                        layerData.master
+                    );
+                    delete backgroundLayerData.location;
+                    backgroundLayerData.is_background = true;
+                    backgroundLayerData.background_layer_id = layerData.id;
+                    layerData.background_layer_id = backgroundLayerData.id;
+                    this.appendRawLayer(layerData);
+                    this.appendRawLayer(backgroundLayerData);
+                    continue;
+                }
+
                 this.appendRawLayer(layerData);
             }
 
@@ -9665,7 +9691,10 @@ export class Glyph extends ArrayElementBase {
                 : featureVariation.id;
         withBridgeTransaction('Remove feature variation', () => {
             const layerIds = this.getFeatureVariationLayerEntries(familyId)
-                .map((entry) => entry.layer.id)
+                .flatMap((entry) => [
+                    entry.layer.id,
+                    entry.layer.background_layer_id
+                ])
                 .filter((layerId): layerId is string => !!layerId);
             for (const layerId of layerIds) {
                 this.removeLayerById(layerId);
