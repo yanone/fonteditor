@@ -19,6 +19,7 @@ import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import {
     Component,
     DecomposedAffineTransform,
+    FeatureVariationGlyph,
     Glyph,
     Layer,
     Master
@@ -1159,17 +1160,23 @@ class GlyphCanvas {
                 this.outlineEditor.active &&
                 this.outlineEditor.selectedLayerId
             ) {
-                // Rebuild glyph stack with the new glyph name after substitution
+                // Keep authoring state anchored to the source glyph, not its compiled substitution.
                 const newGlyphName = this.getCurrentGlyphName();
-                this.outlineEditor.currentGlyphName = newGlyphName;
+                this.outlineEditor.prepareForGlyphSwitch(newGlyphName);
+                const authoringRootGlyphName =
+                    this.outlineEditor.getAuthoringRootGlyphName();
+                this.outlineEditor.currentGlyphName = authoringRootGlyphName;
                 this.outlineEditor.buildGlyphStack(
-                    newGlyphName,
+                    authoringRootGlyphName,
                     this.outlineEditor.selectedLayerId!,
                     []
                 );
 
                 // Editing mode: fetch new layer data for the reshaped glyph.
-                await this.outlineEditor.fetchLayerData(true, newGlyphName); // Skip render
+                await this.outlineEditor.fetchLayerData(
+                    true,
+                    authoringRootGlyphName
+                ); // Skip render
 
                 this.updateComponentBreadcrumb();
                 this.render();
@@ -1230,6 +1237,10 @@ class GlyphCanvas {
 
         // Check if it's a textarea
         if (tagName === 'textarea') {
+            return true;
+        }
+
+        if (tagName === 'select') {
             return true;
         }
 
@@ -2580,13 +2591,14 @@ class GlyphCanvas {
         );
 
         // In edit mode, get current glyph and its layers
-        let glyph: Glyph | undefined;
+        let glyph: Glyph | FeatureVariationGlyph | undefined;
         let glyphLayers: Layer[] = [];
         if (isEditMode) {
+            const authoringGlyphName =
+                this.outlineEditor.getAuthoringRootGlyphName();
             // Fetch glyph data (needed for interpolation and layer management)
-            this.fontData = await fontManager.fetchGlyphData(
-                this.getCurrentGlyphName()
-            );
+            this.fontData =
+                await fontManager.fetchGlyphData(authoringGlyphName);
 
             if (
                 !this.fontData ||
@@ -2611,10 +2623,12 @@ class GlyphCanvas {
                 );
             }
 
-            const glyphName =
-                this.outlineEditor.getLayerLinkGlyphName() ||
-                this.getCurrentGlyphName();
-            glyph = fontModel.glyphs.find((g) => g.name === glyphName);
+            const glyphName = this.outlineEditor.isEditingComponent()
+                ? this.outlineEditor.getLayerLinkGlyphName() ||
+                  authoringGlyphName
+                : this.outlineEditor.parseGlyphStack()[0]?.glyphName ||
+                  authoringGlyphName;
+            glyph = fontModel.resolveGlyphView(glyphName);
             glyphLayers = glyph?.layers || [];
             console.log(
                 '[GlyphCanvas] Edit mode: glyph',
@@ -2834,6 +2848,87 @@ class GlyphCanvas {
         }
 
         layersWidget.appendChild(sectionTitle);
+
+        const sourceGlyph =
+            glyph instanceof FeatureVariationGlyph ? glyph.sourceGlyph : glyph;
+        const featureVariations = isEditMode
+            ? sourceGlyph?.featureVariations || []
+            : [];
+        if (featureVariations.length > 0 && sourceGlyph) {
+            const selectedFeatureVariationId =
+                this.outlineEditor.getSelectedRootFeatureVariationId();
+            const selectedFeatureVariation = featureVariations.find(
+                (featureVariation) =>
+                    featureVariation.id === selectedFeatureVariationId
+            );
+            const selector = document.createElement('select');
+            selector.className = 'editor-feature-variation-select';
+            selector.setAttribute('aria-label', 'Feature variation');
+
+            const baseOption = document.createElement('option');
+            baseOption.value = '';
+            baseOption.textContent = 'Base glyph';
+            selector.appendChild(baseOption);
+
+            const featureVariationLabel = (
+                featureVariation: (typeof featureVariations)[number],
+                index: number
+            ): string => {
+                const conditions = featureVariation.axisRules.flatMap(
+                    (rule: any, axisIndex: number) => {
+                        if (!rule || typeof rule !== 'object') {
+                            return [];
+                        }
+                        const axisTag =
+                            (fontModel.axes || [])[axisIndex]?.tag ||
+                            `axis ${axisIndex + 1}`;
+                        const conditions: string[] = [];
+                        if (typeof rule.min === 'number') {
+                            conditions.push(`${axisTag} >= ${rule.min}`);
+                        }
+                        if (typeof rule.max === 'number') {
+                            conditions.push(`${axisTag} <= ${rule.max}`);
+                        }
+                        return conditions;
+                    }
+                );
+                return conditions.length
+                    ? conditions.join(', ')
+                    : `Feature variation ${index + 1}`;
+            };
+
+            featureVariations.forEach((featureVariation, index) => {
+                const option = document.createElement('option');
+                option.value = featureVariation.id;
+                option.textContent = featureVariationLabel(
+                    featureVariation,
+                    index
+                );
+                selector.appendChild(option);
+            });
+            selector.value = selectedFeatureVariation?.id || '';
+
+            selector.addEventListener('change', async () => {
+                const selectedVariation = featureVariations.find(
+                    (featureVariation) => featureVariation.id === selector.value
+                );
+                this.outlineEditor.setRootFeatureVariationSelection(
+                    selectedVariation?.id || null,
+                    { clearLayerSelection: true }
+                );
+                await this.outlineEditor.autoSelectMatchingLayer({
+                    skipRender: true
+                });
+                if (this.outlineEditor.selectedLayerId === null) {
+                    await this.outlineEditor.interpolateCurrentGlyph(true);
+                }
+                await this.updatePropertiesUI({
+                    skipAutoSelectMatchingLayer: true
+                });
+                this.render();
+            });
+            layersWidget.appendChild(selector);
+        }
 
         // Create masters/layers list
         const mastersList = document.createElement('div');
@@ -3140,6 +3235,9 @@ class GlyphCanvas {
 
             item.addEventListener('click', () => {
                 if (isEditMode && layer) {
+                    this.outlineEditor.selectRootFeatureVariationForLayer(
+                        layer.id
+                    );
                     void this.outlineEditor.selectLayer({
                         id: layer.id,
                         name: layer.name,
@@ -3182,11 +3280,20 @@ class GlyphCanvas {
             if (isEditMode) {
                 defaultLayer = glyphLayers.find((layer) => {
                     const layerMaster = layer.master;
+                    const isFeatureVariationMasterLayer =
+                        glyph instanceof FeatureVariationGlyph &&
+                        layerMaster &&
+                        typeof layerMaster === 'object' &&
+                        'type' in layerMaster &&
+                        layerMaster.type === 'AssociatedWithMaster' &&
+                        (!layer.location ||
+                            Object.keys(layer.location).length === 0);
                     return (
                         layerMaster &&
                         typeof layerMaster === 'object' &&
                         'type' in layerMaster &&
-                        layerMaster.type === 'DefaultForMaster' &&
+                        (layerMaster.type === 'DefaultForMaster' ||
+                            isFeatureVariationMasterLayer) &&
                         getLayerMasterId(layer) === master.id
                     );
                 });
@@ -3199,6 +3306,7 @@ class GlyphCanvas {
                         'type' in layerMaster &&
                         layerMaster.type === 'AssociatedWithMaster' &&
                         getLayerMasterId(layer) === master.id &&
+                        layer.id !== defaultLayer?.id &&
                         !!layer.location &&
                         Object.keys(layer.location).length > 0
                     );
@@ -3830,12 +3938,7 @@ class GlyphCanvas {
     }
 
     private getActiveEditModeRootGlyphName(): string | null {
-        const parsedStack = this.outlineEditor.parseGlyphStack();
-        return (
-            parsedStack[0]?.glyphName ||
-            this.outlineEditor.currentGlyphName ||
-            null
-        );
+        return this.outlineEditor.getAuthoringRootGlyphName() || null;
     }
 
     private async syncEditModeGlyphAfterTextMutation(): Promise<void> {
@@ -3848,8 +3951,11 @@ class GlyphCanvas {
             return;
         }
 
+        const nextAuthoringRootGlyphName =
+            this.outlineEditor.getAuthoringGlyphName(nextGlyphName);
+
         const activeRootGlyphName = this.getActiveEditModeRootGlyphName();
-        if (activeRootGlyphName === nextGlyphName) {
+        if (activeRootGlyphName === nextAuthoringRootGlyphName) {
             return;
         }
 
@@ -3857,12 +3963,14 @@ class GlyphCanvas {
 
         try {
             if (activeRootGlyphName) {
-                this.outlineEditor.prepareForGlyphSwitch(nextGlyphName);
+                this.outlineEditor.prepareForGlyphSwitch(
+                    nextAuthoringRootGlyphName
+                );
             }
 
             this.outlineEditor.layerData = null;
             this.outlineEditor.glyphStack = '';
-            this.outlineEditor.currentGlyphName = nextGlyphName;
+            this.outlineEditor.currentGlyphName = nextAuthoringRootGlyphName;
 
             await this.updatePropertiesUI();
             this.updateComponentBreadcrumb();
@@ -3906,7 +4014,7 @@ class GlyphCanvas {
         }
 
         const glyphName = this.getCurrentGlyphName();
-        const glyph = fontModel.findGlyph(glyphName);
+        const glyph = fontModel.resolveGlyphView(glyphName);
         if (!glyph) {
             return null;
         }
@@ -3924,7 +4032,8 @@ class GlyphCanvas {
         const currentStackItem =
             parsedStack.length > 0 ? parsedStack[parsedStack.length - 1] : null;
         const glyphName =
-            currentStackItem?.glyphName ?? this.getCurrentGlyphName();
+            currentStackItem?.glyphName ??
+            this.outlineEditor.getAuthoringRootGlyphName();
         const layerId =
             currentStackItem?.layerId ?? this.outlineEditor.selectedLayerId;
 
@@ -3932,7 +4041,7 @@ class GlyphCanvas {
             return null;
         }
 
-        const glyph = fontModel.findGlyph(glyphName);
+        const glyph = fontModel.resolveGlyphView(glyphName);
         if (!glyph) {
             return null;
         }
@@ -4336,12 +4445,14 @@ class GlyphCanvas {
         const glyphName =
             parsedStack[parsedStack.length - 1]?.glyphName ??
             this.getCurrentGlyphName();
-        if (!glyphName || glyphName === 'undefined') {
+        const sourceGlyphName =
+            this.outlineEditor.getAuthoringGlyphName(glyphName);
+        if (!sourceGlyphName || sourceGlyphName === 'undefined') {
             return {};
         }
 
         if (fontManager.lastEditType !== 'anchor') {
-            return { [glyphName]: currentLayer.width };
+            return { [sourceGlyphName]: currentLayer.width };
         }
 
         const currentLayerId = this.outlineEditor.selectedLayerId;
@@ -4351,22 +4462,27 @@ class GlyphCanvas {
                 : null;
         const fontModel = fontManager.currentFont?.fontModel;
         if (!fontModel) {
-            return { [glyphName]: currentLayer.width };
+            return { [sourceGlyphName]: currentLayer.width };
         }
 
         const glyphNames =
             fontManager.getAutomaticCompositionDragScopeGlyphNames(
-                glyphName,
+                sourceGlyphName,
                 fontModel
             );
 
         const glyphAdvances: Record<string, number> = {};
         for (const candidateGlyphName of glyphNames) {
-            if (!candidateGlyphName || candidateGlyphName in glyphAdvances) {
+            const candidateSourceGlyphName =
+                this.outlineEditor.getAuthoringGlyphName(candidateGlyphName);
+            if (
+                !candidateSourceGlyphName ||
+                candidateSourceGlyphName in glyphAdvances
+            ) {
                 continue;
             }
 
-            const glyph = fontModel.findGlyph(candidateGlyphName);
+            const glyph = fontModel.resolveGlyphView(candidateGlyphName);
             const layer =
                 (currentLayerId
                     ? glyph?.findLayerById(currentLayerId)
@@ -4376,11 +4492,11 @@ class GlyphCanvas {
                 continue;
             }
 
-            glyphAdvances[candidateGlyphName] = layer.width;
+            glyphAdvances[candidateSourceGlyphName] = layer.width;
         }
 
-        if (!(glyphName in glyphAdvances)) {
-            glyphAdvances[glyphName] = currentLayer.width;
+        if (!(sourceGlyphName in glyphAdvances)) {
+            glyphAdvances[sourceGlyphName] = currentLayer.width;
         }
 
         return glyphAdvances;

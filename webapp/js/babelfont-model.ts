@@ -9413,6 +9413,42 @@ function getAppliedMetricsKeySidebearing(
 /**
  * Glyph in the font
  */
+const GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY =
+    'com.schriftgestalt.Glyphs.attr';
+
+function canonicalizeFeatureVariationAxisRules(
+    layer: Babelfont.Layer
+): string | null {
+    const attributes =
+        layer.format_specific?.[GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY];
+    const axisRules =
+        attributes &&
+        typeof attributes === 'object' &&
+        !Array.isArray(attributes)
+            ? (attributes as Record<string, Unsafe>).axisRules
+            : undefined;
+
+    if (!Array.isArray(axisRules)) {
+        return null;
+    }
+
+    const normalize = (value: Unsafe): Unsafe => {
+        if (Array.isArray(value)) {
+            return value.map(normalize);
+        }
+        if (value && typeof value === 'object') {
+            return Object.fromEntries(
+                Object.keys(value)
+                    .sort()
+                    .map((key) => [key, normalize(value[key])])
+            );
+        }
+        return value;
+    };
+
+    return JSON.stringify(normalize(axisRules));
+}
+
 export class Glyph extends ArrayElementBase {
     private _layerWrappers: Layer[] | null = null;
 
@@ -9453,6 +9489,188 @@ export class Glyph extends ArrayElementBase {
 
     getPathSegment(): (string | number)[] {
         return ['glyphs', this.data.name || ''];
+    }
+
+    private createUniqueLayerId(requestedLayerId?: string | null): string {
+        const existingIds = new Set(
+            (this.data.layers || [])
+                .map((layer: Unsafe) => layer.id)
+                .filter((id: Unsafe) => id)
+        );
+        if (
+            requestedLayerId &&
+            typeof requestedLayerId === 'string' &&
+            !existingIds.has(requestedLayerId)
+        ) {
+            return requestedLayerId;
+        }
+
+        let layerId: string;
+        do {
+            layerId = crypto.randomUUID();
+        } while (existingIds.has(layerId));
+        return layerId;
+    }
+
+    private appendRawLayer(layerData: Babelfont.Layer): Layer {
+        if (!this.data.layers) {
+            this.data.layers = [];
+        }
+        this.data.layers.push(layerData);
+        this._layerWrappers = null;
+        recordAddAndMarkDirty(
+            [
+                ...this.getPath(),
+                'layers',
+                layerData.id || this.data.layers.length - 1
+            ],
+            layerData
+        );
+        return new Layer(this.data.layers, this.data.layers.length - 1, this);
+    }
+
+    getFeatureVariationLayerEntries(
+        familyId?: string
+    ): Array<{ familyId: string; layer: Layer }> {
+        if (!this.data.layers) {
+            return [];
+        }
+
+        return this.data.layers.flatMap((layerData: Unsafe, index: number) => {
+            if (layerData.is_background) {
+                return [];
+            }
+            const master = layerData.master as Unsafe;
+            if (
+                !master ||
+                typeof master !== 'object' ||
+                master.type !== 'AssociatedWithMaster'
+            ) {
+                return [];
+            }
+            const resolvedFamilyId =
+                canonicalizeFeatureVariationAxisRules(layerData);
+            if (
+                !resolvedFamilyId ||
+                (familyId && familyId !== resolvedFamilyId)
+            ) {
+                return [];
+            }
+            return [
+                {
+                    familyId: resolvedFamilyId,
+                    layer: new Layer(this.data.layers!, index, this)
+                }
+            ];
+        });
+    }
+
+    /**
+     * Synthetic, authorable views over this glyph's raw Glyphs feature-variation layers.
+     */
+    get featureVariations(): FeatureVariationGlyph[] {
+        const familyIds = new Set(
+            this.getFeatureVariationLayerEntries().map(
+                (entry) => entry.familyId
+            )
+        );
+        return getReadOnlyCollectionValue(
+            Array.from(
+                familyIds,
+                (familyId) => new FeatureVariationGlyph(this, familyId)
+            ),
+            'Glyph.featureVariations is a read-only collection view. Use addFeatureVariation() or removeFeatureVariation() for structural edits.'
+        );
+    }
+
+    /**
+     * Create one associated feature-variation layer for every base master layer.
+     */
+    addFeatureVariation(axisRules: Unsafe[]): FeatureVariationGlyph {
+        const template = {
+            format_specific: {
+                [GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY]: { axisRules }
+            }
+        } as unknown as Babelfont.Layer;
+        const familyId = canonicalizeFeatureVariationAxisRules(template);
+        if (!familyId) {
+            throw new Error('Feature variation axisRules must be an array.');
+        }
+        if (this.getFeatureVariationLayerEntries(familyId).length > 0) {
+            throw new Error(
+                'A feature variation with these axis rules already exists.'
+            );
+        }
+
+        const baseLayers = (this.data.layers || []).filter(
+            (layerData: Unsafe) => {
+                const master = layerData.master as Unsafe;
+                return (
+                    !layerData.is_background &&
+                    master &&
+                    typeof master === 'object' &&
+                    master.type === 'DefaultForMaster'
+                );
+            }
+        );
+        if (baseLayers.length === 0) {
+            throw new Error(
+                'Feature variations require at least one base master layer.'
+            );
+        }
+
+        return withBridgeTransaction('Add feature variation', () => {
+            for (const baseLayer of baseLayers) {
+                const masterId = (baseLayer.master as Unsafe).master;
+                const layerData = cloneForHistory(baseLayer) as Babelfont.Layer;
+                layerData.id = this.createUniqueLayerId();
+                layerData.master = {
+                    type: 'AssociatedWithMaster',
+                    master: masterId
+                } as Babelfont.LayerType;
+                delete layerData.location;
+                delete layerData.is_background;
+                delete layerData.background_layer_id;
+                const attributes =
+                    layerData.format_specific?.[
+                        GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY
+                    ];
+                layerData.format_specific = {
+                    ...(layerData.format_specific || {}),
+                    [GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY]: {
+                        ...(attributes &&
+                        typeof attributes === 'object' &&
+                        !Array.isArray(attributes)
+                            ? cloneForHistory(attributes)
+                            : {}),
+                        axisRules: cloneForHistory(axisRules)
+                    }
+                };
+                this.appendRawLayer(layerData);
+            }
+
+            return new FeatureVariationGlyph(this, familyId);
+        });
+    }
+
+    /**
+     * Delete every raw layer belonging to a feature-variation family.
+     */
+    removeFeatureVariation(
+        featureVariation: FeatureVariationGlyph | string
+    ): void {
+        const familyId =
+            typeof featureVariation === 'string'
+                ? featureVariation
+                : featureVariation.id;
+        withBridgeTransaction('Remove feature variation', () => {
+            const layerIds = this.getFeatureVariationLayerEntries(familyId)
+                .map((entry) => entry.layer.id)
+                .filter((layerId): layerId is string => !!layerId);
+            for (const layerId of layerIds) {
+                this.removeLayerById(layerId);
+            }
+        });
     }
 
     private static readonly BUILTIN_CATEGORIES = new Set([
@@ -9587,6 +9805,10 @@ export class Glyph extends ArrayElementBase {
 
             // Skip background layers
             if (layer.is_background) continue;
+
+            // Feature-variation layers are exposed through featureVariations,
+            // including their variation-owned intermediate layers.
+            if (canonicalizeFeatureVariationAxisRules(layer)) continue;
 
             const isDefaultLayer =
                 layer.master &&
@@ -9736,34 +9958,14 @@ export class Glyph extends ArrayElementBase {
             this.data.layers = [];
         }
 
-        // Generate a unique ID for the layer
-        let layerId: string;
-        const existingIds = new Set(
-            this.data.layers.map((l: Unsafe) => l.id).filter((id: Unsafe) => id)
-        );
-        if (
-            requestedLayerId &&
-            typeof requestedLayerId === 'string' &&
-            !existingIds.has(requestedLayerId)
-        ) {
-            layerId = requestedLayerId;
-        } else {
-            do {
-                layerId = crypto.randomUUID();
-            } while (existingIds.has(layerId));
-        }
-
-        const layerData: Babelfont.Layer = { width, id: layerId };
+        const layerData: Babelfont.Layer = {
+            width,
+            id: this.createUniqueLayerId(requestedLayerId)
+        };
         if (master) {
             layerData.master = master;
         }
-        this.data.layers.push(layerData);
-        this._layerWrappers = null; // Invalidate cache
-        recordAddAndMarkDirty(
-            [...this.getPath(), 'layers', layerId],
-            layerData
-        );
-        return new Layer(this.data.layers, this.data.layers.length - 1, this);
+        return this.appendRawLayer(layerData);
     }
 
     addBackgroundLayer(foreground: Layer): Layer {
@@ -9935,6 +10137,92 @@ export class Glyph extends ArrayElementBase {
                 .join(', ') || 'none';
         const layerCount = this.layers?.length || 0;
         return `<Glyph "${this.name}" [${codepoints}] ${layerCount} layers>`;
+    }
+}
+
+/**
+ * An authorable view over one conditional Glyphs feature-variation layer family.
+ */
+export class FeatureVariationGlyph {
+    constructor(
+        readonly sourceGlyph: Glyph,
+        readonly id: string
+    ) {}
+
+    get name(): string {
+        return this.sourceGlyph.name;
+    }
+
+    get axisRules(): Unsafe[] {
+        const layer = this.layers[0];
+        const attributes = layer?.format_specific?.[
+            GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY
+        ] as Record<string, Unsafe> | undefined;
+        return Array.isArray(attributes?.axisRules)
+            ? cloneForHistory(attributes.axisRules)
+            : [];
+    }
+
+    get layers(): Layer[] {
+        return getReadOnlyCollectionValue(
+            this.sourceGlyph
+                .getFeatureVariationLayerEntries(this.id)
+                .map((entry) => entry.layer),
+            'FeatureVariationGlyph.layers is a read-only collection view. Use addLayer() or removeLayer() for structural edits.'
+        );
+    }
+
+    findLayerById(id: string): Layer | undefined {
+        return this.layers.find((layer) => layer.id === id);
+    }
+
+    findLayerByMasterId(masterId: string): Layer | undefined {
+        return this.layers.find((layer) => {
+            const master = layer.master as Unsafe;
+            return master?.master === masterId;
+        });
+    }
+
+    addLayer(
+        width: number,
+        master?: Babelfont.LayerType,
+        requestedLayerId?: string | null
+    ): Layer {
+        if (!master || master.type !== 'AssociatedWithMaster') {
+            throw new Error(
+                'Feature-variation layers must be associated with a master.'
+            );
+        }
+        const layer = this.sourceGlyph.addLayer(
+            width,
+            master,
+            requestedLayerId
+        );
+        layer.format_specific = {
+            ...(layer.format_specific || {}),
+            [GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY]: {
+                axisRules: this.axisRules
+            }
+        };
+        return layer;
+    }
+
+    removeLayer(index: number): void {
+        const layer = this.layers[index];
+        if (layer?.id) {
+            this.sourceGlyph.removeLayerById(layer.id);
+        }
+    }
+
+    removeLayerById(id: string): void {
+        const layer = this.findLayerById(id);
+        if (layer) {
+            this.sourceGlyph.removeLayerById(id);
+        }
+    }
+
+    toString(): string {
+        return `<FeatureVariationGlyph "${this.name}" ${this.layers.length} layers>`;
     }
 }
 
@@ -11413,6 +11701,35 @@ export class Font extends ModelBase {
             (g: Unsafe) => g.name === name
         );
         return index >= 0 ? this.glyphs[index] : undefined;
+    }
+
+    /**
+     * Resolve an editor glyph token to an authorable layer view. A literal glyph
+     * name resolves to its persisted Glyph; `base.feaVar.N` resolves to the
+     * corresponding synthetic feature-variation family.
+     */
+    resolveGlyphView(name: string): Glyph | FeatureVariationGlyph | undefined {
+        const literalGlyph = this.findGlyph(name);
+        if (literalGlyph) {
+            return literalGlyph;
+        }
+
+        const featureVariationMatch = name.match(/^(.*)\.feaVar\.(\d+)$/);
+        if (!featureVariationMatch) {
+            return undefined;
+        }
+
+        const featureVariationIndex = Number(featureVariationMatch[2]);
+        if (
+            !Number.isInteger(featureVariationIndex) ||
+            featureVariationIndex < 0
+        ) {
+            return undefined;
+        }
+
+        return this.findGlyph(featureVariationMatch[1])?.featureVariations[
+            featureVariationIndex
+        ];
     }
 
     /**

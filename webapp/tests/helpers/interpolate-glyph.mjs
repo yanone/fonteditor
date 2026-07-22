@@ -27,4 +27,4 @@ const wasmBytes = fs.readFileSync(wasmPath);
 await init(wasmBytes);
 
 store_font(fontJson);
-process.stdout.write(interpolate_glyph(glyphName, locationJson));
+process.stdout.write(interpolate_glyph(glyphName, locationJson, false, '[]'));

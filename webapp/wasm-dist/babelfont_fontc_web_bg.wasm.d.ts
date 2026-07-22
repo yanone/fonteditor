@@ -75,7 +75,9 @@ export const interpolate_glyph: (
     b: number,
     c: number,
     d: number,
-    e: number
+    e: number,
+    f: number,
+    g: number
 ) => [number, number, number, number];
 export const list_debug_cached_font_children: (
     a: number,

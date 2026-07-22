@@ -336,7 +336,8 @@ export function inspect_debug_cached_font(
 export function interpolate_glyph(
     glyph_name: string,
     location_json: string,
-    extrapolate: boolean
+    extrapolate: boolean,
+    root_layer_ids_json: string
 ): string;
 
 /**
@@ -530,7 +531,9 @@ export interface InitOutput {
         b: number,
         c: number,
         d: number,
-        e: number
+        e: number,
+        f: number,
+        g: number
     ) => [number, number, number, number];
     readonly list_debug_cached_font_children: (
         a: number,

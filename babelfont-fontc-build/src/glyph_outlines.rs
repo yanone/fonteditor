@@ -41,8 +41,11 @@ struct LayerCache {
     layers: HashMap<String, Layer>,
 }
 
-fn layer_cache_key(location_json: &str, extrapolate: bool) -> String {
-    format!("{}\u{1e}extrapolate={}", location_json, extrapolate)
+fn layer_cache_key(location_json: &str, extrapolate: bool, domain: &str) -> String {
+    format!(
+        "{}\u{1e}extrapolate={}\u{1e}domain={}",
+        location_json, extrapolate, domain
+    )
 }
 
 fn ensure_layer_cache_for_key(cache_key: &str) -> RefCell<HashMap<String, Layer>> {
@@ -177,12 +180,28 @@ pub fn interpolate_glyph_json_cached(
     location_json: &str,
     extrapolate: bool,
 ) -> Result<String, JsValue> {
+    interpolate_glyph_json_cached_for_domain(
+        font,
+        glyph_name,
+        location_json,
+        extrapolate,
+        "",
+    )
+}
+
+pub fn interpolate_glyph_json_cached_for_domain(
+    font: &babelfont::Font,
+    glyph_name: &str,
+    location_json: &str,
+    extrapolate: bool,
+    domain: &str,
+) -> Result<String, JsValue> {
     let normalized_location = if location_json.trim().is_empty() {
         "{}"
     } else {
         location_json
     };
-    let cache_key = layer_cache_key(normalized_location, extrapolate);
+    let cache_key = layer_cache_key(normalized_location, extrapolate, domain);
     let (location_map, design_location) = parse_userspace_location(font, normalized_location)?;
     let layer_cache = ensure_layer_cache_for_key(&cache_key);
 
@@ -244,7 +263,7 @@ pub fn get_glyphs_outlines(
     } else {
         location_json
     };
-    let current_layer_cache_key = layer_cache_key(normalized_location, false);
+    let current_layer_cache_key = layer_cache_key(normalized_location, false, "");
 
     // Check if location changed - clear both caches if so
     {

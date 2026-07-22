@@ -104,6 +104,8 @@ describe('Babelfont Object Model', () => {
     let metricsKeysFont;
     let intermediateLayerData;
     let intermediateLayerFont;
+    let featureVariationsData;
+    let featureVariationsFont;
 
     beforeAll(() => {
         // Load Fustat.glyphs as test fixture (converted on-the-fly)
@@ -130,6 +132,14 @@ describe('Babelfont Object Model', () => {
             'intermediate_layer_on_a.glyphs'
         );
         intermediateLayerData = loadFontFile(intermediateLayerFixturePath);
+
+        const featureVariationsFixturePath = path.join(
+            __dirname,
+            '..',
+            'examples',
+            'FeatureVariations.glyphs'
+        );
+        featureVariationsData = loadFontFile(featureVariationsFixturePath);
     });
 
     beforeEach(async () => {
@@ -137,6 +147,7 @@ describe('Babelfont Object Model', () => {
         font = Font.fromData(fontData);
         metricsKeysFont = Font.fromData(metricsKeysData);
         intermediateLayerFont = Font.fromData(intermediateLayerData);
+        featureVariationsFont = Font.fromData(featureVariationsData);
         store_font.mockClear();
     });
 
@@ -836,6 +847,164 @@ describe('Babelfont Object Model', () => {
         test('glyph should have layers', () => {
             const glyph = font.glyphs[0];
             expect(glyph.layers).toBeDefined();
+        });
+
+        test('feature variations expose and mutate their raw layer family', () => {
+            const featureFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    { id: 'regular', name: { en: 'Regular' }, location: {} },
+                    { id: 'bold', name: { en: 'Bold' }, location: {} }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        layers: [
+                            {
+                                id: 'A-regular',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'regular'
+                                }
+                            },
+                            {
+                                id: 'A-bold',
+                                width: 600,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'bold'
+                                }
+                            },
+                            {
+                                id: 'A-feature-regular',
+                                width: 550,
+                                master: {
+                                    type: 'AssociatedWithMaster',
+                                    master: 'regular'
+                                },
+                                format_specific: {
+                                    'com.schriftgestalt.Glyphs.attr': {
+                                        axisRules: [{ min: 700 }]
+                                    }
+                                }
+                            },
+                            {
+                                id: 'A-feature-bold',
+                                width: 650,
+                                master: {
+                                    type: 'AssociatedWithMaster',
+                                    master: 'bold'
+                                },
+                                format_specific: {
+                                    'com.schriftgestalt.Glyphs.attr': {
+                                        axisRules: [{ min: 700 }]
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ],
+                names: {},
+                features: {},
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+            const glyph = featureFont.findGlyph('A');
+            const featureVariation = glyph.featureVariations[0];
+
+            expect(glyph.layers.map((layer) => layer.id)).toEqual([
+                'A-regular',
+                'A-bold'
+            ]);
+            expect(featureVariation.layers.map((layer) => layer.id)).toEqual([
+                'A-feature-regular',
+                'A-feature-bold'
+            ]);
+
+            const intermediate = featureVariation.addLayer(575, {
+                type: 'AssociatedWithMaster',
+                master: 'regular'
+            });
+            intermediate.location = { wght: 500 };
+            const intermediateId = intermediate.id;
+
+            expect(featureVariation.findLayerById(intermediateId)?.id).toBe(
+                intermediateId
+            );
+            expect(
+                featureVariation.findLayerById(intermediateId)?.parent()
+            ).toBe(glyph);
+            expect(glyph.layers.map((layer) => layer.id)).toEqual([
+                'A-regular',
+                'A-bold'
+            ]);
+
+            featureVariation.removeLayerById(intermediateId);
+            expect(
+                featureVariation.findLayerById(intermediateId)
+            ).toBeUndefined();
+
+            const bridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
+            };
+            window.patchSyncEngine = bridge;
+
+            const addedVariation = glyph.addFeatureVariation([{ max: 400 }]);
+            expect(addedVariation.layers).toHaveLength(2);
+            expect(bridge.beginTransaction).toHaveBeenCalledTimes(1);
+            expect(bridge.beginTransaction).toHaveBeenCalledWith(
+                'Add feature variation'
+            );
+            expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
+            expect(bridge.recordAdd).toHaveBeenCalledTimes(2);
+
+            glyph.removeFeatureVariation(addedVariation);
+            expect(bridge.beginTransaction).toHaveBeenCalledTimes(2);
+            expect(bridge.beginTransaction).toHaveBeenLastCalledWith(
+                'Remove feature variation'
+            );
+            expect(bridge.endTransaction).toHaveBeenCalledTimes(2);
+            expect(bridge.recordRemove).toHaveBeenCalledTimes(2);
+            expect(glyph.featureVariations).toHaveLength(1);
+            delete window.patchSyncEngine;
+        });
+
+        test('FeatureVariations fixture exposes dollar replacement layers as a source family', () => {
+            const dollar = featureVariationsFont.findGlyph('dollar');
+            const [variation] = dollar.featureVariations;
+
+            expect(
+                featureVariationsFont.findGlyph('dollar.VAR.1')
+            ).toBeUndefined();
+            expect(dollar.featureVariations).toHaveLength(1);
+            expect(variation.name).toBe('dollar');
+            expect(
+                featureVariationsFont.resolveGlyphView('dollar.feaVar.0')?.id
+            ).toBe(variation.id);
+            expect(
+                featureVariationsFont
+                    .resolveGlyphView('dollar.feaVar.0')
+                    ?.layers.map((layer) => layer.id)
+            ).toEqual(variation.layers.map((layer) => layer.id));
+            expect(variation.axisRules).toEqual([{ min: 100 }]);
+            expect(variation.layers).toHaveLength(3);
+            expect(dollar.layers.map((layer) => layer.id)).not.toEqual(
+                expect.arrayContaining(
+                    variation.layers.map((layer) => layer.id)
+                )
+            );
         });
 
         test('glyph layers should be filtered (no background, no copies)', () => {

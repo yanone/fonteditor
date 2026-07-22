@@ -12892,6 +12892,9 @@ describe('OutlineEditor exact selected layers', () => {
             ],
             anchors: [{ name: 'top', x: 999.9, y: 999.9 }],
             guides: [{ pos: { x: 0, y: 999.9 }, angle: 0 }],
+            format_specific: {
+                'counterpunch.worker-metadata': { version: 1 }
+            },
             _verticalMetrics: { ascender: 800.25 }
         });
     });
@@ -12901,6 +12904,324 @@ describe('OutlineEditor exact selected layers', () => {
         fetchGlyphDataSpy.mockRestore();
         currentFontSpy.mockRestore();
         canvas.destroy();
+    });
+
+    test('keeps the base glyph selected when a slider crosses a feature-variation cutoff', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 0,
+                    default: 0,
+                    max: 100,
+                    map: [
+                        [0, 0],
+                        [100, 200]
+                    ]
+                }
+            ],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 0 }
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'dollar',
+                    category: 'Base',
+                    layers: [
+                        {
+                            id: 'dollar-base',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            }
+                        },
+                        {
+                            id: 'dollar-feature',
+                            width: 600,
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            format_specific: {
+                                'com.schriftgestalt.Glyphs.attr': {
+                                    axisRules: [{ min: 100 }]
+                                }
+                            }
+                        }
+                    ]
+                }
+            ],
+            names: {},
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+        currentFontSpy.mockReturnValue({ fontModel: font });
+        canvas.getCurrentGlyphName = jest.fn(() => 'dollar.VAR.1');
+        canvas.axesManager.variationSettings = { wght: 60 };
+
+        expect(canvas.outlineEditor.getAuthoringRootGlyphName()).toBe('dollar');
+        expect(
+            canvas.outlineEditor.getSelectedRootFeatureVariationId()
+        ).toBeNull();
+
+        canvas.outlineEditor.currentGlyphName = 'dollar';
+        await canvas.outlineEditor.interpolateCurrentGlyph(true);
+        expect(interpolateSpy).toHaveBeenLastCalledWith(
+            'dollar',
+            { wght: 60 },
+            true
+        );
+
+        canvas.outlineEditor.setRootFeatureVariationSelection('[{"min":100}]');
+        expect(canvas.outlineEditor.glyphStack).toMatch(/^dollar\.feaVar\.0@/);
+        expect(canvas.outlineEditor.getSelectedRootFeatureVariationId()).toBe(
+            '[{"min":100}]'
+        );
+
+        await canvas.outlineEditor.interpolateCurrentGlyph(true);
+        expect(interpolateSpy).toHaveBeenLastCalledWith(
+            'dollar',
+            { wght: 60 },
+            true,
+            ['dollar-feature']
+        );
+
+        canvas.outlineEditor.setRootFeatureVariationSelection(null);
+        expect(canvas.outlineEditor.glyphStack).toMatch(/^dollar@/);
+        expect(
+            canvas.outlineEditor.getSelectedRootFeatureVariationId()
+        ).toBeNull();
+    });
+
+    test('replaces a recovered feature-variation root when text selection moves to another source glyph', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [],
+            glyphs: [
+                { name: 'dollar', category: 'Base', layers: [] },
+                { name: 'S', category: 'Base', layers: [] }
+            ],
+            names: {},
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+        currentFontSpy.mockReturnValue({ fontModel: font });
+        canvas.getCurrentGlyphName = jest.fn(() => 'dollar.VAR.1');
+
+        expect(canvas.outlineEditor.getAuthoringRootGlyphName()).toBe('dollar');
+
+        canvas.getCurrentGlyphName.mockReturnValue('S');
+        canvas.outlineEditor.prepareForGlyphSwitch('S');
+        canvas.outlineEditor.glyphStack = '';
+
+        expect(canvas.outlineEditor.getAuthoringRootGlyphName()).toBe('S');
+    });
+
+    test('prefers an exact source glyph named like a compiled feature variation', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [],
+            glyphs: [
+                { name: 'dollar', category: 'Base', layers: [] },
+                { name: 'dollar.VAR.1', category: 'Base', layers: [] }
+            ],
+            names: {},
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+        currentFontSpy.mockReturnValue({ fontModel: font });
+        canvas.getCurrentGlyphName = jest.fn(() => 'dollar.VAR.1');
+
+        expect(canvas.outlineEditor.getAuthoringRootGlyphName()).toBe(
+            'dollar.VAR.1'
+        );
+    });
+
+    test('does not restore canvas focus when a sidebar select opens', () => {
+        const sidebar = document.createElement('div');
+        const selector = document.createElement('select');
+        const canvasFocusSpy = jest.spyOn(canvas.canvas, 'focus');
+        sidebar.id = 'glyph-properties-sidebar';
+        sidebar.appendChild(selector);
+        document.body.appendChild(sidebar);
+        canvas.setupSidebarFocusHandlers();
+
+        selector.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+
+        expect(canvasFocusSpy).not.toHaveBeenCalled();
+        canvasFocusSpy.mockRestore();
+    });
+
+    test('feature-variation dropdown preserves a non-layer variation location', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { dflt: 'Weight' },
+                    tag: 'wght',
+                    min: 0,
+                    default: 0,
+                    max: 100,
+                    map: [
+                        [0, 0],
+                        [100, 200]
+                    ]
+                }
+            ],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { dflt: 'Regular' },
+                    location: { wght: 0 }
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'dollar',
+                    category: 'Base',
+                    layers: [
+                        {
+                            id: 'dollar-base',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            }
+                        },
+                        {
+                            id: 'dollar-feature',
+                            width: 600,
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            format_specific: {
+                                'com.schriftgestalt.Glyphs.attr': {
+                                    axisRules: [{ min: 100 }]
+                                }
+                            }
+                        }
+                    ]
+                }
+            ],
+            names: {},
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+        const familyId = '[{"min":100}]';
+        const targetContainer = document.createElement('div');
+        const updatePropertiesUISpy = jest
+            .spyOn(canvas, 'updatePropertiesUI')
+            .mockResolvedValue();
+
+        currentFontSpy.mockReturnValue({ fontModel: font });
+        fetchGlyphDataSpy.mockResolvedValue({
+            glyphName: 'dollar',
+            layers: font
+                .findGlyph('dollar')
+                .layers.map((layer) => layer.toJSON())
+        });
+        canvas.propertiesSection = targetContainer;
+        canvas.outlineEditor.active = true;
+        canvas.getCurrentGlyphName = jest.fn(() => 'dollar.VAR.1');
+        canvas.axesManager.variationSettings = { wght: 60 };
+
+        await canvas.displayMastersList(targetContainer, false);
+
+        const selector = targetContainer.querySelector(
+            '.editor-feature-variation-select'
+        );
+        expect(selector).toBeTruthy();
+        expect(selector.value).toBe('');
+
+        selector.value = familyId;
+        selector.dispatchEvent(new Event('change'));
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(canvas.outlineEditor.getSelectedRootFeatureVariationId()).toBe(
+            familyId
+        );
+        expect(canvas.axesManager.variationSettings).toEqual({ wght: 60 });
+        expect(canvas.outlineEditor.selectedLayerId).toBeNull();
+        expect(canvas.outlineEditor.glyphStack).toBe(
+            'dollar.feaVar.0@missing_interpolation'
+        );
+
+        targetContainer.replaceChildren();
+        await canvas.displayMastersList(targetContainer, false);
+
+        const selectedFamilySelector = targetContainer.querySelector(
+            '.editor-feature-variation-select'
+        );
+        expect(selectedFamilySelector).toBeTruthy();
+        expect(selectedFamilySelector.value).toBe(familyId);
+        expect(
+            targetContainer.querySelectorAll('.editor-layer-item')
+        ).toHaveLength(1);
+        expect(
+            targetContainer.querySelector(
+                '.editor-layer-item[data-layer-id="dollar-feature"]'
+            )
+        ).toBeTruthy();
+
+        selectedFamilySelector.value = '';
+        selectedFamilySelector.dispatchEvent(new Event('change'));
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(
+            canvas.outlineEditor.getSelectedRootFeatureVariationId()
+        ).toBeNull();
+        expect(canvas.axesManager.variationSettings).toEqual({ wght: 60 });
+        expect(canvas.outlineEditor.selectedLayerId).toBeNull();
+        expect(canvas.outlineEditor.glyphStack).toBe(
+            'dollar@missing_interpolation'
+        );
+
+        targetContainer.replaceChildren();
+        await canvas.displayMastersList(targetContainer, false);
+
+        expect(
+            targetContainer.querySelector('.editor-layer-item.selected')
+        ).toBeNull();
+
+        updatePropertiesUISpy.mockRestore();
     });
 
     test.each([
@@ -13890,6 +14211,100 @@ describe('OutlineEditor exact selected layers', () => {
             selectLayerSpy.mockRestore();
             dirtySpy.mockRestore();
             forceFullWorkerCacheUpdateSpy.mockRestore();
+        }
+    });
+
+    test('creates and deletes intermediate layers through a feature-variation glyph view', async () => {
+        const font = makeComponentFont();
+        const glyph = font.findGlyph('A');
+        const featureVariation = glyph.addFeatureVariation([{ min: 100 }]);
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const patchSyncEngine = {
+            syncGlyphFromJson: jest.fn(),
+            recordChange: jest.fn(),
+            recordAdd: jest.fn(),
+            recordRemove: jest.fn()
+        };
+        const dirtySpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const selectLayerSpy = jest
+            .spyOn(canvas.outlineEditor, 'selectLayer')
+            .mockResolvedValue();
+        const featureGlyphName = 'A.feaVar.0';
+
+        currentFontSpy.mockReturnValue(currentFont);
+        window.patchSyncEngine = patchSyncEngine;
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.glyphStack = `${featureGlyphName}@${featureVariation.layers[0].id}`;
+
+        try {
+            const familyLayerIds = featureVariation.layers.map(
+                (layer) => layer.id
+            );
+            const intermediate =
+                await canvas.outlineEditor.createInterpolatedLayer({
+                    glyphName: featureGlyphName,
+                    userspaceLocation: { wght: 50 },
+                    masterId: 'master-1',
+                    designLocation: { wght: 50 },
+                    isMasterBound: false,
+                    extrapolate: true
+                });
+
+            expect(intermediate).toBeTruthy();
+            expect(
+                featureVariation.findLayerById(intermediate.id)
+            ).toBeTruthy();
+            expect(
+                glyph.layers.find((layer) => layer.id === intermediate.id)
+            ).toBeUndefined();
+            expect(intermediate.master.type).toBe('AssociatedWithMaster');
+            expect(
+                intermediate.format_specific?.['com.schriftgestalt.Glyphs.attr']
+                    ?.axisRules
+            ).toEqual([{ min: 100 }]);
+            expect(
+                intermediate.format_specific?.['counterpunch.worker-metadata']
+            ).toEqual({ version: 1 });
+            expect(interpolateSpy).toHaveBeenLastCalledWith(
+                'A',
+                { wght: 50 },
+                true,
+                familyLayerIds
+            );
+            expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenCalledWith(
+                'A',
+                'Create interpolated layer sync',
+                undefined,
+                undefined,
+                intermediate.id
+            );
+
+            const intermediateLayerId = intermediate.id;
+            const deleted = await canvas.outlineEditor.deleteLayerById(
+                intermediateLayerId,
+                { glyphName: featureGlyphName }
+            );
+
+            expect(deleted).toBe(true);
+            expect(
+                featureVariation.findLayerById(intermediateLayerId)
+            ).toBeUndefined();
+            expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenLastCalledWith(
+                'A',
+                'Delete layer sync'
+            );
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            selectLayerSpy.mockRestore();
+            dirtySpy.mockRestore();
         }
     });
 
@@ -17118,6 +17533,63 @@ describe('GlyphCanvas state management', () => {
 });
 
 // ==================== Cleanup Tests ====================
+
+describe('Font interpolation feature-family cancellation', () => {
+    test('cancels a pending base request when the user selects a feature family', async () => {
+        defaultInterpolateGlyphSpy.mockRestore();
+        const previousWorker = fontInterpolation.worker;
+        const worker = { postMessage: jest.fn() };
+
+        fontInterpolation.setWorker(worker);
+
+        try {
+            const baseRequest = fontInterpolation.interpolateGlyph(
+                'dollar',
+                { wght: 60 },
+                true
+            );
+            const baseRejection = expect(baseRequest).rejects.toThrow(
+                'Interpolation cancelled - newer request pending'
+            );
+            const featureRequest = fontInterpolation.interpolateGlyph(
+                'dollar',
+                { wght: 60 },
+                true,
+                ['dollar-feature']
+            );
+            const [baseMessage, featureMessage] =
+                worker.postMessage.mock.calls.map(([message]) => message);
+
+            await baseRejection;
+            expect(fontInterpolation.pendingRequests.has(baseMessage.id)).toBe(
+                false
+            );
+
+            fontInterpolation.handleWorkerMessage({
+                data: {
+                    type: 'interpolate',
+                    id: baseMessage.id,
+                    result: JSON.stringify({ width: 400 })
+                }
+            });
+            expect(
+                fontInterpolation.pendingRequests.has(featureMessage.id)
+            ).toBe(true);
+
+            fontInterpolation.handleWorkerMessage({
+                data: {
+                    type: 'interpolate',
+                    id: featureMessage.id,
+                    result: JSON.stringify({ width: 500 })
+                }
+            });
+            await expect(featureRequest).resolves.toMatchObject({ width: 500 });
+        } finally {
+            fontInterpolation.resetRequestTracking();
+            fontInterpolation.setWorker(previousWorker);
+        }
+    });
+});
 
 describe('GlyphCanvas cleanup', () => {
     let canvas;

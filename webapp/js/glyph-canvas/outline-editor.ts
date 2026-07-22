@@ -8,6 +8,8 @@ import { Logger } from '../logger';
 import { normalizeWorkerReplayTargets } from '../change-log';
 import {
     Layer,
+    FeatureVariationGlyph,
+    Glyph,
     DecomposedAffineTransform,
     buildInterpolationRustBatchOperations,
     withSuppressedModelRecording,
@@ -3014,6 +3016,7 @@ export class OutlineEditor {
         | 'guide'
         | null = null;
     currentGlyphName: string | null = null;
+    private authoringRootGlyphName: string | null = null;
     glyphCanvas: GlyphCanvas;
     guidelinesVisible: boolean;
     pairedLayerVisible: boolean;
@@ -3343,19 +3346,155 @@ export class OutlineEditor {
         return fontModel.glyphs.find((glyph: any) => glyph.name === glyphName);
     }
 
+    private getGlyphViewByName(
+        glyphName: string | null
+    ): Glyph | FeatureVariationGlyph | null {
+        if (!glyphName) {
+            return null;
+        }
+
+        return (
+            fontManager.currentFont?.fontModel?.resolveGlyphView(glyphName) ||
+            null
+        );
+    }
+
+    private getFeatureVariationLayerIdsForGlyphName(
+        glyphName: string
+    ): string[] | undefined {
+        const glyph = this.getGlyphViewByName(glyphName);
+        if (!(glyph instanceof FeatureVariationGlyph)) {
+            return undefined;
+        }
+
+        const layerIds = glyph.layers
+            .map((layer) => layer.id)
+            .filter((layerId): layerId is string => !!layerId);
+        return layerIds.length ? layerIds : undefined;
+    }
+
+    getAuthoringGlyphName(glyphName: string | null | undefined): string {
+        if (!glyphName) {
+            return '';
+        }
+
+        const featureVariationMatch = glyphName.match(/^(.*)\.feaVar\.\d+$/);
+        const featureVariationBaseName = featureVariationMatch?.[1];
+        if (
+            featureVariationBaseName &&
+            this.getGlyphModelByName(featureVariationBaseName)
+        ) {
+            return featureVariationBaseName;
+        }
+
+        if (this.getGlyphModelByName(glyphName)) {
+            return glyphName;
+        }
+
+        // Babelfont materializes bracket layers as *.VAR.n glyphs. That compiled
+        // name is never a feature-family selection; it only recovers its source glyph.
+        const compiledSourceName = glyphName.replace(/\.VAR\.\d+$/, '');
+        if (this.getGlyphModelByName(compiledSourceName)) {
+            return compiledSourceName;
+        }
+
+        return glyphName;
+    }
+
+    getAuthoringRootGlyphName(): string {
+        const stackedGlyphName = this.parseGlyphStack()[0]?.glyphName;
+        if (stackedGlyphName) {
+            const sourceGlyphName =
+                this.getAuthoringGlyphName(stackedGlyphName);
+            if (this.getGlyphModelByName(sourceGlyphName)) {
+                this.authoringRootGlyphName = sourceGlyphName;
+                return sourceGlyphName;
+            }
+        }
+
+        const sourceGlyphName = this.getAuthoringGlyphName(
+            this.glyphCanvas.getCurrentGlyphName()
+        );
+        if (this.getGlyphModelByName(sourceGlyphName)) {
+            this.authoringRootGlyphName = sourceGlyphName;
+            return sourceGlyphName;
+        }
+
+        return this.authoringRootGlyphName || sourceGlyphName;
+    }
+
+    private replaceRootGlyphStackName(rootGlyphName: string): void {
+        if (!this.glyphStack) {
+            this.buildGlyphStack(rootGlyphName, this.selectedLayerId, []);
+            return;
+        }
+
+        const segments = this.glyphStack.split('>');
+        const layerIndex = segments[0].lastIndexOf('@');
+        const layerToken =
+            layerIndex >= 0 ? segments[0].substring(layerIndex) : '@undefined';
+        segments[0] = `${rootGlyphName}${layerToken}`;
+        this.glyphStack = segments.join('>');
+        window.dispatchEvent(
+            new CustomEvent('glyphStackChanged', {
+                detail: { glyphStack: this.glyphStack }
+            })
+        );
+    }
+
+    setRootFeatureVariationSelection(
+        featureVariationId: string | null,
+        options?: {
+            clearLayerSelection?: boolean;
+        }
+    ): void {
+        const glyph = this.getRootGlyphModel();
+        const featureVariationIndex = featureVariationId
+            ? glyph?.featureVariations?.findIndex(
+                  (candidate: any) => candidate.id === featureVariationId
+              )
+            : -1;
+        const rootGlyphName = this.getAuthoringRootGlyphName();
+        const stackGlyphName =
+            featureVariationIndex !== undefined && featureVariationIndex >= 0
+                ? `${rootGlyphName}.feaVar.${featureVariationIndex}`
+                : rootGlyphName;
+        this.replaceRootGlyphStackName(stackGlyphName);
+        if (options?.clearLayerSelection) {
+            this.selectedLayerId = null;
+            this.rebuildGlyphStackWithNewLayer(
+                OutlineEditor.MISSING_INTERPOLATION_LAYER_ID,
+                { rootLayerId: null }
+            );
+        }
+    }
+
+    selectRootFeatureVariationForLayer(
+        layerId: string | null | undefined
+    ): void {
+        const glyph = this.getRootGlyphModel();
+        const featureVariation = glyph?.featureVariations?.find(
+            (candidate: any) => !!layerId && candidate.findLayerById(layerId)
+        );
+        this.setRootFeatureVariationSelection(featureVariation?.id || null);
+    }
+
+    getSelectedRootFeatureVariationId(): string | null {
+        return this.getRootFeatureVariation()?.id || null;
+    }
+
     private getRootGlyphModel(): any | null {
-        const parsed = this.parseGlyphStack();
-        const glyphName =
-            parsed[0]?.glyphName ?? this.glyphCanvas.getCurrentGlyphName();
-        return this.getGlyphModelByName(glyphName);
+        return this.getGlyphModelByName(this.getAuthoringRootGlyphName());
     }
 
     private getCurrentGlyphModel(): any | null {
         const parsed = this.parseGlyphStack();
         const glyphName =
             parsed.length > 0
-                ? parsed[parsed.length - 1].glyphName
-                : this.glyphCanvas.getCurrentGlyphName();
+                ? parsed.length === 1
+                    ? this.getAuthoringRootGlyphName()
+                    : parsed[parsed.length - 1].glyphName
+                : this.getAuthoringRootGlyphName();
         return this.getGlyphModelByName(glyphName);
     }
 
@@ -3385,7 +3524,7 @@ export class OutlineEditor {
         );
 
         for (const glyphName of candidateGlyphNames) {
-            const glyph = this.getGlyphModelByName(glyphName);
+            const glyph = this.getGlyphViewByName(glyphName);
             const layer = glyph?.findLayerById?.(layerId);
             const virtualBackground = layerId.startsWith('background-')
                 ? glyph?.findLayerById?.(layerId.slice('background-'.length))
@@ -3645,6 +3784,8 @@ export class OutlineEditor {
     }
 
     prepareForGlyphSwitch(nextRootGlyphName: string): void {
+        this.authoringRootGlyphName =
+            this.getAuthoringGlyphName(nextRootGlyphName);
         const previousLayer =
             this.getTransitionPreviousLayerModel(nextRootGlyphName);
 
@@ -7810,7 +7951,7 @@ export class OutlineEditor {
         layerId: string
     ): any | null {
         const fontModel = fontManager.currentFont?.fontModel;
-        const glyph = this.getGlyphModelByName(glyphName);
+        const glyph = this.getGlyphViewByName(glyphName);
         const layer =
             glyph?.findLayerById?.(layerId) ||
             (layerId.startsWith('background-')
@@ -7922,7 +8063,7 @@ export class OutlineEditor {
     }
 
     private async refreshSelectedLayerWithoutAnimation(
-        layer: Babelfont.Layer,
+        layer: Babelfont.Layer | Layer,
         rootGlyphName?: string
     ): Promise<void> {
         const resolvedLayer = this.resolveLayerModel(layer);
@@ -8159,8 +8300,22 @@ export class OutlineEditor {
             newLayer.location = this.cloneLayerData(options.designLocation);
         }
 
+        const featureVariationAttributes =
+            glyph instanceof FeatureVariationGlyph
+                ? this.cloneLayerData(
+                      newLayer.format_specific?.[
+                          'com.schriftgestalt.Glyphs.attr'
+                      ]
+                  )
+                : null;
         withSuppressedModelRecording(() => {
             newLayer.syncFromEditorLayerData(layerPayload);
+            if (featureVariationAttributes) {
+                newLayer.format_specific = {
+                    ...newLayer.format_specific,
+                    'com.schriftgestalt.Glyphs.attr': featureVariationAttributes
+                };
+            }
         });
 
         return newLayer;
@@ -8234,17 +8389,27 @@ export class OutlineEditor {
         extrapolate?: boolean;
     }): Promise<any | null> {
         const glyphName = options.glyphName || this.getLayerListGlyphName();
+        const sourceGlyphName = this.getAuthoringGlyphName(glyphName);
         const currentFont = fontManager.currentFont;
-        const glyph = glyphName ? this.getGlyphModelByName(glyphName) : null;
+        const glyph = this.getGlyphViewByName(glyphName);
         if (!glyphName || !currentFont || !glyph) {
             return null;
         }
 
-        const interpolatedLayer = await fontInterpolation.interpolateGlyph(
-            glyphName,
-            options.userspaceLocation,
-            options.extrapolate === true
-        );
+        const featureVariationLayerIds =
+            this.getFeatureVariationLayerIdsForGlyphName(glyphName);
+        const interpolatedLayer = featureVariationLayerIds
+            ? await fontInterpolation.interpolateGlyph(
+                  sourceGlyphName,
+                  options.userspaceLocation,
+                  options.extrapolate === true,
+                  featureVariationLayerIds
+              )
+            : await fontInterpolation.interpolateGlyph(
+                  sourceGlyphName,
+                  options.userspaceLocation,
+                  options.extrapolate === true
+              );
         const normalizedLayer = LayerDataNormalizer.normalize(
             interpolatedLayer,
             true
@@ -8271,7 +8436,7 @@ export class OutlineEditor {
                     { triggerCompile: false }
                 );
             createBridge.syncGlyphFromJson(
-                glyphName,
+                sourceGlyphName,
                 'Create interpolated layer sync',
                 undefined,
                 undefined,
@@ -8280,7 +8445,7 @@ export class OutlineEditor {
         }
 
         await this.refreshAfterStructuralLayerEdit(
-            glyphName,
+            sourceGlyphName,
             options.changeSource || 'layer-create',
             { scheduleCompile: !preparedStructuralChange }
         );
@@ -8301,7 +8466,8 @@ export class OutlineEditor {
         }
     ): Promise<boolean> {
         const glyphName = options?.glyphName || this.getLayerListGlyphName();
-        const glyph = glyphName ? this.getGlyphModelByName(glyphName) : null;
+        const sourceGlyphName = this.getAuthoringGlyphName(glyphName);
+        const glyph = this.getGlyphViewByName(glyphName);
         if (!glyphName || !glyph?.layers?.length) {
             return false;
         }
@@ -8336,11 +8502,14 @@ export class OutlineEditor {
                     options?.changeSource || 'layer-delete',
                     { triggerCompile: false }
                 );
-            deleteBridge.syncGlyphFromJson(glyphName, 'Delete layer sync');
+            deleteBridge.syncGlyphFromJson(
+                sourceGlyphName,
+                'Delete layer sync'
+            );
         }
 
         await this.refreshAfterStructuralLayerEdit(
-            glyphName,
+            sourceGlyphName,
             options?.changeSource || 'layer-delete',
             { scheduleCompile: !preparedStructuralChange }
         );
@@ -8372,7 +8541,8 @@ export class OutlineEditor {
         }
     ): Promise<any | null> {
         const glyphName = options?.glyphName || this.getLayerListGlyphName();
-        const glyph = glyphName ? this.getGlyphModelByName(glyphName) : null;
+        const sourceGlyphName = this.getAuthoringGlyphName(glyphName);
+        const glyph = this.getGlyphViewByName(glyphName);
         if (!glyphName || !glyph) {
             return null;
         }
@@ -8401,7 +8571,7 @@ export class OutlineEditor {
             this.prepareStructuralOutlineCompile('keyboard-outline');
             const batchResult =
                 await fontManager.buildWorkerReinterpolateLayerBatch(
-                    glyphName,
+                    sourceGlyphName,
                     layerId
                 );
             if (batchResult.update.length) {
@@ -8413,7 +8583,7 @@ export class OutlineEditor {
             }
 
             await this.refreshAfterStructuralLayerEdit(
-                glyphName,
+                sourceGlyphName,
                 changeSource,
                 {
                     scheduleCompile: false,
@@ -8476,11 +8646,20 @@ export class OutlineEditor {
                 }
             );
 
-            const interpolatedLayer = await fontInterpolation.interpolateGlyph(
-                glyphName,
-                userspaceLocation,
-                true
-            );
+            const featureVariationLayerIds =
+                this.getFeatureVariationLayerIdsForGlyphName(glyphName);
+            const interpolatedLayer = featureVariationLayerIds
+                ? await fontInterpolation.interpolateGlyph(
+                      sourceGlyphName,
+                      userspaceLocation,
+                      true,
+                      featureVariationLayerIds
+                  )
+                : await fontInterpolation.interpolateGlyph(
+                      sourceGlyphName,
+                      userspaceLocation,
+                      true
+                  );
             const normalizedLayer = LayerDataNormalizer.normalize(
                 interpolatedLayer,
                 true
@@ -8510,7 +8689,7 @@ export class OutlineEditor {
                         triggerCompile: false
                     });
                 bridge.syncGlyphFromJson(
-                    glyphName,
+                    sourceGlyphName,
                     'Reinterpolate layer sync',
                     undefined,
                     undefined,
@@ -8519,7 +8698,7 @@ export class OutlineEditor {
             }
 
             await this.refreshAfterStructuralLayerEdit(
-                glyphName,
+                sourceGlyphName,
                 changeSource,
                 {
                     scheduleCompile: !preparedStructuralChange
@@ -8560,7 +8739,7 @@ export class OutlineEditor {
                 );
 
                 await this.refreshAfterStructuralLayerEdit(
-                    glyphName,
+                    sourceGlyphName,
                     changeSource
                 );
 
@@ -8698,7 +8877,7 @@ export class OutlineEditor {
     }
 
     private getUserspaceLocationForLayerRecord(
-        layer: Partial<Babelfont.Layer> | null | undefined
+        layer: Partial<Babelfont.Layer> | Layer | null | undefined
     ): UserspaceLocation | null {
         const fontModel = fontManager.currentFont?.fontModel;
         if (!fontModel || !layer) {
@@ -10175,6 +10354,7 @@ export class OutlineEditor {
         options?: {
             excludeLayerId?: string | null;
             excludeGlyphName?: string | null;
+            allowedLayerIds?: string[];
         }
     ): any | null {
         const fontModel = fontManager.currentFont?.fontModel;
@@ -10225,7 +10405,21 @@ export class OutlineEditor {
             );
         }
 
-        const matchingLayers = glyph.layers.filter((layer: any) => {
+        const candidateLayers = options?.allowedLayerIds
+            ? glyph.featureVariations
+                  .flatMap((featureVariation: any) => featureVariation.layers)
+                  .filter((layer: any) =>
+                      options.allowedLayerIds!.includes(layer.id)
+                  )
+            : glyph.layers;
+        const matchingLayers = candidateLayers.filter((layer: any) => {
+            if (
+                options?.allowedLayerIds &&
+                !options.allowedLayerIds.includes(layer.id)
+            ) {
+                return false;
+            }
+
             if (
                 shouldExcludeCurrentGlyphLayer &&
                 options?.excludeLayerId &&
@@ -17411,13 +17605,21 @@ export class OutlineEditor {
             // ALWAYS interpolate the root glyph (with full component tree)
             // This matches the architecture where layerData always contains the root glyph
             // and we navigate to nested components using glyphStack
-            const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
+            const rootGlyphName = this.getAuthoringRootGlyphName();
             const shouldExtrapolate = true;
-            const interpolatedLayer = await fontInterpolation.interpolateGlyph(
-                rootGlyphName,
-                requestLocation,
-                shouldExtrapolate
-            );
+            const rootLayerIds = this.getRootFeatureVariationLayerIds();
+            const interpolatedLayer = rootLayerIds
+                ? await fontInterpolation.interpolateGlyph(
+                      rootGlyphName,
+                      requestLocation,
+                      shouldExtrapolate,
+                      rootLayerIds
+                  )
+                : await fontInterpolation.interpolateGlyph(
+                      rootGlyphName,
+                      requestLocation,
+                      shouldExtrapolate
+                  );
 
             // Check if we've been superseded by a newer interpolation call
             // or if the location has moved on while we were computing
@@ -17508,6 +17710,34 @@ export class OutlineEditor {
                 void this.interpolateCurrentGlyph(neededForce);
             }
         }
+    }
+
+    private getRootFeatureVariation(): any | undefined {
+        const rootStackItem = this.parseGlyphStack()[0];
+        const glyph = fontManager.currentFont?.fontModel?.findGlyph?.(
+            this.getAuthoringRootGlyphName()
+        );
+        const match = rootStackItem?.glyphName.match(/^(.*)\.feaVar\.(\d+)$/);
+        const featureVariationIndex = match ? Number(match[2]) : NaN;
+
+        if (
+            !Number.isInteger(featureVariationIndex) ||
+            featureVariationIndex < 0
+        ) {
+            return undefined;
+        }
+
+        return glyph?.featureVariations?.[featureVariationIndex];
+    }
+
+    private getRootFeatureVariationLayerIds(): string[] | undefined {
+        const layerIds = this.getRootFeatureVariation()
+            ?.layers.map((layer: Layer) => layer.id)
+            .filter(
+                (layerId: string | undefined): layerId is string => !!layerId
+            );
+
+        return layerIds?.length ? layerIds : undefined;
     }
 
     async runDeterministicRefresh<T>(task: () => Promise<T>): Promise<T> {
@@ -17840,7 +18070,7 @@ export class OutlineEditor {
         };
     }
 
-    async selectLayer(layer: Babelfont.Layer): Promise<void> {
+    async selectLayer(layer: Babelfont.Layer | Layer): Promise<void> {
         await this.flushPendingKeyboardPreviewCommit();
         layer = this.resolveLayerForSelection(layer);
 
@@ -17898,7 +18128,7 @@ export class OutlineEditor {
             this.rebuildGlyphStackWithNewLayer(layer.id!);
         } else {
             // Initial selection - build stack from scratch at root level
-            const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
+            const rootGlyphName = this.getAuthoringRootGlyphName();
             this.buildGlyphStack(rootGlyphName, layer.id!, []);
         }
 
@@ -18093,7 +18323,7 @@ export class OutlineEditor {
     }
 
     findMatchingLayer(
-        rootGlyphName: string = this.glyphCanvas.getCurrentGlyphName()
+        rootGlyphName: string = this.getAuthoringRootGlyphName()
     ): Babelfont.Layer | null {
         const currentUserspaceLocation = {
             ...this.glyphCanvas.axesManager!.variationSettings
@@ -18101,7 +18331,8 @@ export class OutlineEditor {
 
         return this.findMatchingLayerForUserspaceLocation(
             rootGlyphName,
-            currentUserspaceLocation
+            currentUserspaceLocation,
+            { allowedLayerIds: this.getRootFeatureVariationLayerIds() }
         );
     }
 
@@ -18111,6 +18342,7 @@ export class OutlineEditor {
         options?: {
             excludeLayerId?: string | null;
             excludeGlyphName?: string | null;
+            allowedLayerIds?: string[];
         }
     ): Babelfont.Layer | null {
         return this._findMatchingLayerForGlyphAtUserspaceLocation(
@@ -18131,8 +18363,7 @@ export class OutlineEditor {
         }
 
         const parsedStack = this.parseGlyphStack();
-        const rootGlyphName =
-            parsedStack[0]?.glyphName ?? this.glyphCanvas.getCurrentGlyphName();
+        const rootGlyphName = this.getAuthoringRootGlyphName();
         const activeGlyphName = this.isEditingComponent()
             ? parsedStack[parsedStack.length - 1]?.glyphName ||
               this.currentGlyphName ||
@@ -18171,7 +18402,15 @@ export class OutlineEditor {
             return;
         }
 
-        const matchingLayer = this.findMatchingLayer(activeGlyphName);
+        const matchingLayer = this.findMatchingLayerForUserspaceLocation(
+            activeGlyphName,
+            currentUserspaceLocation,
+            this.isEditingComponent()
+                ? undefined
+                : {
+                      allowedLayerIds: this.getRootFeatureVariationLayerIds()
+                  }
+        );
 
         if (matchingLayer) {
             console.log(
@@ -18182,12 +18421,10 @@ export class OutlineEditor {
             this.selectedLayerId = matchingLayer.id || null;
 
             // Build or rebuild glyph_stack with new layer ID
-            const stackRootGlyphName = parsedStack[0]?.glyphName;
-
             if (
                 this.glyphStack &&
                 this.glyphStack !== '' &&
-                stackRootGlyphName === rootGlyphName
+                this.getAuthoringRootGlyphName() === rootGlyphName
             ) {
                 // If stack exists, rebuild with new layer (preserves component path)
                 this.rebuildGlyphStackWithNewLayer(matchingLayer.id!);
@@ -18370,11 +18607,8 @@ export class OutlineEditor {
         }
 
         // Always fetch root glyph name - never component reference
+        const glyphName = rootGlyphName ?? this.getAuthoringRootGlyphName();
         const parsedStack = this.parseGlyphStack();
-        const glyphName =
-            rootGlyphName ??
-            parsedStack[0]?.glyphName ??
-            this.glyphCanvas.getCurrentGlyphName();
         const selectionGlyphName =
             this.isEditingComponent() && parsedStack.length > 0
                 ? parsedStack[parsedStack.length - 1].glyphName
@@ -18432,10 +18666,18 @@ export class OutlineEditor {
             // Fetch via Rust WASM — same path as interpolation.
             // The Rust FONT_CACHE is already up-to-date via incremental
             // incremental layer-update batches during edits and storeFontJson at font-open time.
-            const rustResult = await fontInterpolation.interpolateGlyph(
-                glyphName,
-                userspaceLocation
-            );
+            const rootLayerIds = this.getRootFeatureVariationLayerIds();
+            const rustResult = rootLayerIds
+                ? await fontInterpolation.interpolateGlyph(
+                      glyphName,
+                      userspaceLocation,
+                      false,
+                      rootLayerIds
+                  )
+                : await fontInterpolation.interpolateGlyph(
+                      glyphName,
+                      userspaceLocation
+                  );
 
             if (exactLayerData) {
                 this.applyExactSelectedLayerData(exactLayerData, rustResult);

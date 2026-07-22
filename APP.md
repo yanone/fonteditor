@@ -83,7 +83,17 @@ TODO: Undo doesn't work
 
 `glyphStack` serializes the current component-editing path as `rootGlyphName@rootLayerId>componentIndex:componentGlyphName@componentLayerId>...`. The root segment has no component-index prefix; every nested segment's zero-based `componentIndex` identifies the component in the preceding segment's layer. A foreground selection always uses that foreground layer's persisted ID.
 
+When the root edits a feature variation, its root glyph name is the synthetic editor notation `baseGlyphName.feaVar.N`, where `N` is the zero-based index in the source glyph's `featureVariations` list. For example, `dollar.feaVar.0@layer-id` denotes the first feature-variation family of source glyph `dollar`. The notation is editor-only stack state: it must never be persisted as a glyph name, layer value, or Yjs font field.
+
 An unmaterialized background selection is virtual and must use `glyphName@background-<foregroundLayerId>` in its active stack segment. This synthetic token identifies the foreground owner; it is not a raw layer ID and must never be serialized to the font or Yjs as a layer root. When the first background path materializes the sibling, the active segment must be rewritten to `glyphName@<persistedBackgroundLayerId>`, where that ID is the newly created background layer's normal persisted ID (typically a UUID), not a `background-`-prefixed value. The materialized layer carries `is_background: true` and `background_layer_id: <foregroundLayerId>`; rebuilding the stack must preserve every unaffected component segment.
+
+### Feature Variations
+
+Feature-variation families are source glyph views over conditional raw layers. Their order is the order of `Glyph.featureVariations`; the `.feaVar.N` stack suffix selects exactly that family. A root without the suffix selects the base glyph.
+
+In editing mode, only an explicit user action in the feature-variation dropdown or layer list may add, replace, or remove `.feaVar.N`. Moving an axis slider, reshaping text, automatic layer matching, interpolation, rendering, or receiving model updates must never switch the root between base and feature-variation families.
+
+All root rendering, exact-layer fetches, and direct interpolation first resolve `baseGlyphName.feaVar.N` to source glyph `baseGlyphName`. When the suffix is present, they use only the raw layer IDs in `baseGlyphName.featureVariations[N]`; without it they use only the base glyph layers. Compiled `*.VAR.*` names are binary output identities only. They may recover the source base glyph during edit entry, but must never select a feature-variation family or be stored in `glyphStack`.
 
 ### Layers
 

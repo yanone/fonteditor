@@ -374,6 +374,7 @@ const GENERIC_MUTABLE_GETTER_EXCLUSIONS = new Set([
     'axes',
     'components',
     'data',
+    'featureVariations', // synthetic read-only family view; use Glyph add/remove APIs
     'glyphs',
     'guides',
     'instances',

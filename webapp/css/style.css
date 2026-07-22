@@ -5605,6 +5605,19 @@ kbd + kbd {
     min-width: 0;
 }
 
+.editor-feature-variation-select {
+    width: 100%;
+    min-width: 0;
+    margin: 8px 0;
+    padding: 4px 6px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--input-bg);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 11px;
+}
+
 /* Masters/Layers list container (unified widget for both modes) */
 .editor-layers-list {
     display: flex;

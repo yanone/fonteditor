@@ -1823,7 +1823,7 @@ self.onmessage = async (event) => {
             const interpolateSpanId = timelineSpanStart(
                 'font.worker.interpolate'
             );
-            const { id, glyphName, location, extrapolate } = data;
+            const { id, glyphName, location, extrapolate, rootLayerIds } = data;
 
             try {
                 timelineMark('font.worker.interpolate.started');
@@ -1831,7 +1831,8 @@ self.onmessage = async (event) => {
                 const layerJson = interpolate_glyph(
                     glyphName,
                     locationJson,
-                    extrapolate === true
+                    extrapolate === true,
+                    JSON.stringify(rootLayerIds || [])
                 );
 
                 self.postMessage({

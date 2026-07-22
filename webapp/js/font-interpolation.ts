@@ -36,10 +36,19 @@ class FontInterpolationManager {
     worker: Worker | null;
     pendingRequests: Map<
         number,
-        { resolve: Function; reject: Function; glyphName: string }
+        {
+            resolve: Function;
+            reject: Function;
+            glyphName: string;
+            requestKey: string;
+        }
     >;
     requestId: number;
-    currentGlyphRequest: { id: number; glyphName: string } | null;
+    currentGlyphRequest: {
+        id: number;
+        glyphName: string;
+        requestKey: string;
+    } | null;
     lastRenderedRequestId: number;
     constructor() {
         this.worker = null;
@@ -79,7 +88,8 @@ class FontInterpolationManager {
     async interpolateGlyph(
         glyphName: string,
         location: import('./locations').UserspaceLocation,
-        extrapolate: boolean = false
+        extrapolate: boolean = false,
+        rootLayerIds?: string[]
     ): Promise<any> {
         if (!this.worker) {
             throw new Error(
@@ -87,7 +97,13 @@ class FontInterpolationManager {
             );
         }
 
-        // Cancel previous request for this glyph if it exists
+        const interpolationDomain = rootLayerIds
+            ? [...rootLayerIds].sort().join(',')
+            : '';
+        const requestKey = `${glyphName}\u001e${interpolationDomain}`;
+
+        // A new family selection for a glyph must supersede its prior request.
+        // Different glyphs can still interpolate concurrently.
         if (
             this.currentGlyphRequest &&
             this.currentGlyphRequest.glyphName === glyphName
@@ -105,12 +121,17 @@ class FontInterpolationManager {
 
         const id = this.requestId++;
 
-        // Track this as the current request for this glyph
-        this.currentGlyphRequest = { id, glyphName };
+        // Track this as the current request for this glyph and layer family.
+        this.currentGlyphRequest = { id, glyphName, requestKey };
 
         return new Promise((resolve, reject) => {
             // Store the promise callbacks
-            this.pendingRequests.set(id, { resolve, reject, glyphName });
+            this.pendingRequests.set(id, {
+                resolve,
+                reject,
+                glyphName,
+                requestKey
+            });
 
             // Send interpolation request to worker
             this.worker!.postMessage({
@@ -118,7 +139,8 @@ class FontInterpolationManager {
                 id,
                 glyphName,
                 location,
-                extrapolate
+                extrapolate,
+                rootLayerIds
             });
         });
     }
@@ -147,7 +169,7 @@ class FontInterpolationManager {
             );
 
             if (pending) {
-                // Check if this is still the current request for this glyph
+                // Check if this is still the current request for this glyph family.
                 // Ignore stale responses that arrived after a newer request was made
                 if (
                     this.currentGlyphRequest &&
@@ -157,7 +179,7 @@ class FontInterpolationManager {
                     console.log(
                         '[FontInterpolation]',
                         '⏩ Ignoring stale response for',
-                        pending.glyphName,
+                        pending.requestKey,
                         '(request',
                         data.id,
                         'superseded by',

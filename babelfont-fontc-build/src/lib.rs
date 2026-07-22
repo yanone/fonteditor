@@ -4,7 +4,7 @@ use babelfont::{
         DropIncompatiblePaths, FontFilter as _, GlyphsBracketLayers, GlyphsData,
         GlyphsStylisticSetLabel, RetainGlyphs, RewriteSmartAxes,
     },
-    BabelfontError,
+    BabelfontError, LayerType,
 };
 use fea_rs::{
     compile::NopVariationInfo,
@@ -3213,9 +3213,53 @@ pub fn interpolate_glyph(
     glyph_name: &str,
     location_json: &str,
     extrapolate: bool,
+    root_layer_ids_json: &str,
 ) -> Result<String, JsValue> {
     let mut interpolation_font = get_or_rebuild_font_cache()?;
     remove_background_layers_for_generation(&mut interpolation_font);
+    let mut root_layer_ids: Vec<String> = serde_json::from_str(root_layer_ids_json)
+        .map_err(|e| JsValue::from_str(&format!("Root layer IDs parse error: {}", e)))?;
+    root_layer_ids.sort();
+    root_layer_ids.dedup();
+
+    if !root_layer_ids.is_empty() {
+        let domain = root_layer_ids.join(",");
+        let root_layer_ids = root_layer_ids.into_iter().collect::<HashSet<_>>();
+        let root_glyph = interpolation_font
+            .glyphs
+            .iter_mut()
+            .find(|glyph| glyph.name.to_string() == glyph_name)
+            .ok_or_else(|| {
+                JsValue::from_str(&format!("Glyph not found for interpolation: {}", glyph_name))
+            })?;
+        root_glyph
+            .layers
+            .retain(|layer| {
+                layer
+                    .id
+                    .as_ref()
+                    .is_some_and(|layer_id| root_layer_ids.contains(layer_id))
+            });
+        for layer in root_glyph.layers.iter_mut() {
+            if let LayerType::AssociatedWithMaster(master_id) = &layer.master {
+                layer.master = LayerType::DefaultForMaster(master_id.clone());
+            }
+        }
+        if root_glyph.layers.is_empty() {
+            return Err(JsValue::from_str(
+                "Selected feature-variation layer family has no source layers.",
+            ));
+        }
+
+        return glyph_outlines::interpolate_glyph_json_cached_for_domain(
+            &interpolation_font,
+            glyph_name,
+            location_json,
+            extrapolate,
+            &domain,
+        );
+    }
+
     glyph_outlines::interpolate_glyph_json_cached(
         &interpolation_font,
         glyph_name,
