@@ -398,6 +398,7 @@ function generateAPIDocs(version = null) {
     const classOrder = [
         "Font",
         "Glyph",
+        "FeatureVariationGlyph",
         "Layer",
         "Shape",
         "Path",

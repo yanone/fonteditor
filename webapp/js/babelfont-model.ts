@@ -10163,6 +10163,63 @@ export class FeatureVariationGlyph {
             : [];
     }
 
+    /**
+     * Replace the shared Glyphs feature-variation rules on every raw family layer.
+     */
+    setAxisRules(axisRules: Unsafe[]): FeatureVariationGlyph {
+        const template = {
+            format_specific: {
+                [GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY]: { axisRules }
+            }
+        } as unknown as Babelfont.Layer;
+        const nextFamilyId = canonicalizeFeatureVariationAxisRules(template);
+        if (!nextFamilyId) {
+            throw new Error('Feature variation axisRules must be an array.');
+        }
+        if (
+            nextFamilyId !== this.id &&
+            this.sourceGlyph.getFeatureVariationLayerEntries(nextFamilyId)
+                .length > 0
+        ) {
+            throw new Error(
+                'A feature variation with these axis rules already exists.'
+            );
+        }
+
+        const layers = [...this.layers];
+        if (layers.length === 0) {
+            throw new Error('Feature variation has no associated layers.');
+        }
+
+        return withBridgeTransaction(
+            'Update feature variation settings',
+            () => {
+                for (const layer of layers) {
+                    const attributes =
+                        layer.format_specific?.[
+                            GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY
+                        ];
+                    layer.format_specific = {
+                        ...(layer.format_specific || {}),
+                        [GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY]: {
+                            ...(attributes &&
+                            typeof attributes === 'object' &&
+                            !Array.isArray(attributes)
+                                ? cloneForHistory(attributes)
+                                : {}),
+                            axisRules: cloneForHistory(axisRules)
+                        }
+                    };
+                }
+
+                return new FeatureVariationGlyph(
+                    this.sourceGlyph,
+                    nextFamilyId
+                );
+            }
+        );
+    }
+
     get layers(): Layer[] {
         return getReadOnlyCollectionValue(
             this.sourceGlyph

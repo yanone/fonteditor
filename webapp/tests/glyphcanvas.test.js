@@ -13128,7 +13128,7 @@ describe('OutlineEditor exact selected layers', () => {
         canvasFocusSpy.mockRestore();
     });
 
-    test('feature-variation dropdown preserves a non-layer variation location', async () => {
+    test('feature-variation list preserves a non-layer variation location', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -13210,14 +13210,23 @@ describe('OutlineEditor exact selected layers', () => {
 
         await canvas.displayMastersList(targetContainer, false);
 
-        const selector = targetContainer.querySelector(
-            '.editor-feature-variation-select'
+        const featureVariationsWidget = targetContainer.querySelector(
+            '.editor-feature-variations-widget'
         );
-        expect(selector).toBeTruthy();
-        expect(selector.value).toBe('');
+        expect(featureVariationsWidget).toBeTruthy();
+        expect(featureVariationsWidget.textContent).toContain(
+            'Feature Variations'
+        );
+        const featureVariationItems = featureVariationsWidget.querySelectorAll(
+            '.editor-feature-variation-item'
+        );
+        expect(featureVariationItems).toHaveLength(2);
+        expect(featureVariationItems[0].textContent).toContain('Base glyph');
+        expect(featureVariationItems[1].textContent).toContain('wght >= 100');
 
-        selector.value = familyId;
-        selector.dispatchEvent(new Event('change'));
+        featureVariationItems[1].dispatchEvent(
+            new MouseEvent('click', { bubbles: true })
+        );
         await Promise.resolve();
         await Promise.resolve();
         await Promise.resolve();
@@ -13234,22 +13243,27 @@ describe('OutlineEditor exact selected layers', () => {
         targetContainer.replaceChildren();
         await canvas.displayMastersList(targetContainer, false);
 
-        const selectedFamilySelector = targetContainer.querySelector(
-            '.editor-feature-variation-select'
+        const selectedFeatureVariationsWidget = targetContainer.querySelector(
+            '.editor-feature-variations-widget'
         );
-        expect(selectedFamilySelector).toBeTruthy();
-        expect(selectedFamilySelector.value).toBe(familyId);
+        expect(selectedFeatureVariationsWidget).toBeTruthy();
+        expect(
+            selectedFeatureVariationsWidget
+                .querySelector('.editor-feature-variation-item.selected')
+                .getAttribute('data-feature-variation-id')
+        ).toBe(familyId);
         expect(
             targetContainer.querySelectorAll('.editor-layer-item')
-        ).toHaveLength(1);
+        ).toHaveLength(3);
         expect(
             targetContainer.querySelector(
                 '.editor-layer-item[data-layer-id="dollar-feature"]'
             )
         ).toBeTruthy();
 
-        selectedFamilySelector.value = '';
-        selectedFamilySelector.dispatchEvent(new Event('change'));
+        selectedFeatureVariationsWidget
+            .querySelector('.editor-feature-variation-item')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
         await Promise.resolve();
         await Promise.resolve();
         await Promise.resolve();
@@ -13267,8 +13281,87 @@ describe('OutlineEditor exact selected layers', () => {
         await canvas.displayMastersList(targetContainer, false);
 
         expect(
-            targetContainer.querySelector('.editor-layer-item.selected')
+            targetContainer
+                .querySelectorAll('.editor-layers-widget')[1]
+                .querySelector('.editor-layer-item.selected')
         ).toBeNull();
+
+        const editButton = targetContainer.querySelector(
+            '[title="Edit feature variation settings"]'
+        );
+        editButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const editModal = document.querySelector(
+            '.feature-variation-settings-modal'
+        );
+        expect(editModal).toBeTruthy();
+        expect(editModal.classList.contains('info-popup-overlay')).toBe(true);
+        expect(
+            editModal.querySelector('.feature-variation-settings-modal-content')
+        ).toBeTruthy();
+        expect(editModal.querySelector('.info-popup-header')).toBeTruthy();
+        expect(editModal.querySelector('.info-popup-content')).toBeTruthy();
+        expect(
+            editModal.querySelectorAll('.feature-variation-settings-row')
+        ).toHaveLength(1);
+        expect(
+            editModal.querySelector('.feature-variation-settings-actions')
+        ).toBeTruthy();
+        expect(
+            editModal
+                .querySelector('.feature-variation-settings-actions')
+                .querySelector('.localized-string-modal-button-secondary')
+        ).toBeTruthy();
+        const editInputs = editModal.querySelectorAll('input[type="number"]');
+        expect(editInputs).toHaveLength(2);
+        editInputs[0].value = '120';
+        editModal
+            .querySelector('form')
+            .dispatchEvent(
+                new Event('submit', { bubbles: true, cancelable: true })
+            );
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        const updatedFeatureVariation =
+            font.findGlyph('dollar').featureVariations[0];
+        expect(updatedFeatureVariation.axisRules).toEqual([{ min: 120 }]);
+        expect(updatedFeatureVariation.layers).toHaveLength(1);
+        expect(
+            updatedFeatureVariation.layers[0].format_specific[
+                'com.schriftgestalt.Glyphs.attr'
+            ].axisRules
+        ).toEqual([{ min: 120 }]);
+
+        const addButton = targetContainer.querySelector(
+            '[title="Add feature variation"]'
+        );
+        addButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const addModal = document.querySelector(
+            '.feature-variation-settings-modal'
+        );
+        expect(addModal).toBeTruthy();
+        expect(addModal.classList.contains('info-popup-overlay')).toBe(true);
+        const addInputs = addModal.querySelectorAll('input[type="number"]');
+        expect(addInputs).toHaveLength(2);
+        addInputs[0].value = '300';
+        addModal
+            .querySelector('form')
+            .dispatchEvent(
+                new Event('submit', { bubbles: true, cancelable: true })
+            );
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(font.findGlyph('dollar').featureVariations).toHaveLength(2);
+        expect(
+            font
+                .findGlyph('dollar')
+                .featureVariations.map(
+                    (featureVariation) => featureVariation.axisRules
+                )
+        ).toEqual(expect.arrayContaining([[{ min: 120 }], [{ min: 300 }]]));
 
         updatePropertiesUISpy.mockRestore();
     });

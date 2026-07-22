@@ -1007,6 +1007,59 @@ describe('Babelfont Object Model', () => {
             );
         });
 
+        test('feature variation settings update every raw family layer atomically', () => {
+            const glyph = featureVariationsFont.findGlyph('dollar');
+            const featureVariation = glyph.featureVariations[0];
+            const bridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                recordChange: jest.fn()
+            };
+            window.patchSyncEngine = bridge;
+            const [firstLayer] = featureVariation.layers;
+            firstLayer.format_specific = {
+                ...firstLayer.format_specific,
+                'com.schriftgestalt.Glyphs.attr': {
+                    ...firstLayer.format_specific[
+                        'com.schriftgestalt.Glyphs.attr'
+                    ],
+                    customGlyphsAttribute: 'preserved'
+                }
+            };
+            bridge.beginTransaction.mockClear();
+            bridge.endTransaction.mockClear();
+            bridge.recordChange.mockClear();
+
+            const updatedFeatureVariation = featureVariation.setAxisRules([
+                { min: 200, max: 700 }
+            ]);
+
+            expect(updatedFeatureVariation.id).toBe('[{"max":700,"min":200}]');
+            expect(updatedFeatureVariation.axisRules).toEqual([
+                { min: 200, max: 700 }
+            ]);
+            expect(bridge.beginTransaction).toHaveBeenCalledTimes(1);
+            expect(bridge.beginTransaction).toHaveBeenCalledWith(
+                'Update feature variation settings'
+            );
+            expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
+            expect(bridge.recordChange).toHaveBeenCalledTimes(
+                updatedFeatureVariation.layers.length
+            );
+            for (const layer of updatedFeatureVariation.layers) {
+                expect(
+                    layer.format_specific['com.schriftgestalt.Glyphs.attr']
+                        .axisRules
+                ).toEqual([{ min: 200, max: 700 }]);
+            }
+            expect(
+                updatedFeatureVariation.layers[0].format_specific[
+                    'com.schriftgestalt.Glyphs.attr'
+                ].customGlyphsAttribute
+            ).toBe('preserved');
+            delete window.patchSyncEngine;
+        });
+
         test('glyph layers should be filtered (no background, no copies)', () => {
             // Find a glyph with multiple layers in raw data
             for (let i = 0; i < fontData.glyphs.length; i++) {

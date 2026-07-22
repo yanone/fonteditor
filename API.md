@@ -10,6 +10,7 @@
 - [Class Reference](#class-reference)
     - [Font](#font) -
     - [Glyph](#glyph) -
+  - [FeatureVariationGlyph](#featurevariationglyph) - An authorable view over one conditional Glyphs feature-variation layer family.
   - [Layer](#layer) - Layer in a glyph representing a master or intermediate design
   - [Shape](#shape) - Shape wrapper that can contain either a Component or a Path
   - [Path](#path) - Path (contour) in a layer
@@ -325,6 +326,32 @@ Compare outline structure across main layers (the same list shown in the UI).
 For compatibility checks, mixed shape sequences are normalized by moving
 components before paths while preserving their relative order inside each type.
 
+#### `toString() -> str`
+---
+
+
+## FeatureVariationGlyph
+
+An authorable view over one conditional Glyphs feature-variation layer family.
+
+### Properties
+
+All properties are read-only:
+
+- **`name`** (str)
+- **`axisRules`** (list[Unsafe])
+- **`layers`** (list[[Layer](#layer)])
+
+### Methods
+
+#### `setAxisRules(axisRules: list[Unsafe]) -> FeatureVariationGlyph`
+Replace the shared Glyphs feature-variation rules on every raw family layer.
+
+#### `findLayerById(id: str) -> [Layer](#layer) | None`
+#### `findLayerByMasterId(masterId: str) -> [Layer](#layer) | None`
+#### `addLayer(width: float | int, master: Babelfont.LayerType | None = None, requestedLayerId: str | None | None = None) -> [Layer](#layer)`
+#### `removeLayer(index: float | int) -> None`
+#### `removeLayerById(id: str) -> None`
 #### `toString() -> str`
 ---
 

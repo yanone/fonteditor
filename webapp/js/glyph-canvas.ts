@@ -117,6 +117,11 @@ type LayerListContextTarget = {
     isMasterBound: boolean;
 };
 
+type FeatureVariationAxisRule = {
+    min?: number;
+    max?: number;
+};
+
 type KerningSide = 'first' | 'second';
 
 type TextModeKerningStatus =
@@ -2550,6 +2555,175 @@ class GlyphCanvas {
         this.render();
     }
 
+    private promptForFeatureVariationAxisRules(
+        existingAxisRules: FeatureVariationAxisRule[],
+        isEditing: boolean
+    ): Promise<FeatureVariationAxisRule[] | null> {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className =
+                'info-popup-overlay feature-variation-settings-modal';
+
+            const content = document.createElement('div');
+            content.className =
+                'info-popup feature-variation-settings-modal-content';
+            const header = document.createElement('div');
+            header.className = 'info-popup-header';
+            const title = document.createElement('h3');
+            title.textContent = isEditing
+                ? 'Edit Feature Variation'
+                : 'Add Feature Variation';
+            const closeButton = document.createElement('button');
+            closeButton.type = 'button';
+            closeButton.className = 'info-popup-close';
+            closeButton.setAttribute('aria-label', 'Close');
+            const closeIcon = document.createElement('span');
+            closeIcon.className = 'material-symbols-outlined';
+            closeIcon.textContent = 'close';
+            closeButton.appendChild(closeIcon);
+            header.append(title, closeButton);
+
+            const form = document.createElement('form');
+            form.className =
+                'info-popup-content feature-variation-settings-modal-body';
+            const description = document.createElement('div');
+            description.className = 'feature-variation-settings-description';
+            description.textContent =
+                'Define the active range for each variation axis.';
+            const rows = document.createElement('div');
+            rows.className = 'feature-variation-settings-rows';
+            form.append(description, rows);
+            const axisRuleInputs: Array<{
+                min: HTMLInputElement;
+                max: HTMLInputElement;
+            }> = [];
+            const fontModel = fontManager.currentFont?.fontModel;
+            for (const [axisIndex, axis] of (fontModel?.axes || []).entries()) {
+                const existingRule = existingAxisRules[axisIndex];
+                const rule =
+                    existingRule &&
+                    typeof existingRule === 'object' &&
+                    !Array.isArray(existingRule)
+                        ? (existingRule as Record<string, unknown>)
+                        : {};
+                const row = document.createElement('div');
+                row.className = 'feature-variation-settings-row';
+                const label = document.createElement('label');
+                label.className = 'feature-variation-settings-axis-label';
+                label.textContent =
+                    (typeof axis.name === 'string'
+                        ? axis.name
+                        : axis.name?.dflt) ||
+                    axis.tag ||
+                    `Axis ${axisIndex + 1}`;
+                const min = document.createElement('input');
+                min.type = 'number';
+                min.step = 'any';
+                min.className =
+                    'localized-string-input localized-string-modal-input feature-variation-settings-input';
+                min.placeholder = 'Min';
+                min.value =
+                    typeof rule.min === 'number' ? String(rule.min) : '';
+                const max = document.createElement('input');
+                max.type = 'number';
+                max.step = 'any';
+                max.className =
+                    'localized-string-input localized-string-modal-input feature-variation-settings-input';
+                max.placeholder = 'Max';
+                max.value =
+                    typeof rule.max === 'number' ? String(rule.max) : '';
+                const minField = document.createElement('label');
+                minField.className = 'feature-variation-settings-bound';
+                minField.textContent = 'Min';
+                minField.appendChild(min);
+                const maxField = document.createElement('label');
+                maxField.className = 'feature-variation-settings-bound';
+                maxField.textContent = 'Max';
+                maxField.appendChild(max);
+                row.append(label, minField, maxField);
+                rows.appendChild(row);
+                axisRuleInputs.push({ min, max });
+            }
+
+            const actions = document.createElement('div');
+            actions.className = 'feature-variation-settings-actions';
+            const cancelButton = document.createElement('button');
+            cancelButton.type = 'button';
+            cancelButton.className =
+                'localized-string-modal-button localized-string-modal-button-secondary';
+            cancelButton.textContent = 'Cancel';
+            const saveButton = document.createElement('button');
+            saveButton.type = 'submit';
+            saveButton.className =
+                'localized-string-modal-button localized-string-modal-button-primary';
+            saveButton.textContent = isEditing ? 'Save' : 'Add';
+            actions.append(cancelButton, saveButton);
+            form.appendChild(actions);
+            content.append(header, form);
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+
+            let settled = false;
+            const close = (result: FeatureVariationAxisRule[] | null): void => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                document.removeEventListener('keydown', onKeyDown);
+                modal.remove();
+                resolve(result);
+            };
+            const onKeyDown = (event: KeyboardEvent): void => {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    close(null);
+                }
+            };
+            document.addEventListener('keydown', onKeyDown);
+            closeButton.addEventListener('click', () => close(null));
+            cancelButton.addEventListener('click', () => close(null));
+            modal.addEventListener('click', (event) => {
+                if (event.target === modal) {
+                    close(null);
+                }
+            });
+            form.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const axisRules: FeatureVariationAxisRule[] = [];
+                for (const { min, max } of axisRuleInputs) {
+                    const minValue = min.value.trim();
+                    const maxValue = max.value.trim();
+                    const parsedMin = minValue === '' ? null : Number(minValue);
+                    const parsedMax = maxValue === '' ? null : Number(maxValue);
+                    if (
+                        (parsedMin !== null && !Number.isFinite(parsedMin)) ||
+                        (parsedMax !== null && !Number.isFinite(parsedMax)) ||
+                        (parsedMin !== null &&
+                            parsedMax !== null &&
+                            parsedMin > parsedMax)
+                    ) {
+                        min.setCustomValidity(
+                            'Enter finite bounds with minimum less than or equal to maximum.'
+                        );
+                        min.reportValidity();
+                        min.setCustomValidity('');
+                        return;
+                    }
+                    const rule: Record<string, number> = {};
+                    if (parsedMin !== null) {
+                        rule.min = parsedMin;
+                    }
+                    if (parsedMax !== null) {
+                        rule.max = parsedMax;
+                    }
+                    axisRules.push(rule);
+                }
+                close(axisRules);
+            });
+            axisRuleInputs[0]?.min.focus();
+        });
+    }
+
     async displayMastersList(
         targetContainer: HTMLElement = this.propertiesSection!,
         autoSelectLayer: boolean = true
@@ -2854,40 +3028,45 @@ class GlyphCanvas {
         const featureVariations = isEditMode
             ? sourceGlyph?.featureVariations || []
             : [];
-        if (featureVariations.length > 0 && sourceGlyph) {
+        let featureVariationsWidget: HTMLDivElement | null = null;
+        if (
+            isEditMode &&
+            !this.outlineEditor.isEditingComponent() &&
+            sourceGlyph
+        ) {
             const selectedFeatureVariationId =
                 this.outlineEditor.getSelectedRootFeatureVariationId();
-            const selectedFeatureVariation = featureVariations.find(
-                (featureVariation) =>
-                    featureVariation.id === selectedFeatureVariationId
-            );
-            const selector = document.createElement('select');
-            selector.className = 'editor-feature-variation-select';
-            selector.setAttribute('aria-label', 'Feature variation');
+            featureVariationsWidget = document.createElement('div');
+            featureVariationsWidget.className =
+                'editor-layers-widget editor-feature-variations-widget';
 
-            const baseOption = document.createElement('option');
-            baseOption.value = '';
-            baseOption.textContent = 'Base glyph';
-            selector.appendChild(baseOption);
+            const featureVariationsHeader = document.createElement('div');
+            featureVariationsHeader.className =
+                'editor-section-title editor-layers-header';
+            const featureVariationsTitle = document.createElement('span');
+            featureVariationsTitle.className = 'editor-section-title-text';
+            featureVariationsTitle.textContent = 'Feature Variations';
+            featureVariationsHeader.appendChild(featureVariationsTitle);
 
             const featureVariationLabel = (
-                featureVariation: (typeof featureVariations)[number],
+                featureVariation: FeatureVariationGlyph,
                 index: number
             ): string => {
                 const conditions = featureVariation.axisRules.flatMap(
-                    (rule: any, axisIndex: number) => {
+                    (rule: unknown, axisIndex: number) => {
                         if (!rule || typeof rule !== 'object') {
                             return [];
                         }
+                        const axisRule = rule as Record<string, unknown>;
                         const axisTag =
                             (fontModel.axes || [])[axisIndex]?.tag ||
                             `axis ${axisIndex + 1}`;
                         const conditions: string[] = [];
-                        if (typeof rule.min === 'number') {
-                            conditions.push(`${axisTag} >= ${rule.min}`);
+                        if (typeof axisRule.min === 'number') {
+                            conditions.push(`${axisTag} >= ${axisRule.min}`);
                         }
-                        if (typeof rule.max === 'number') {
-                            conditions.push(`${axisTag} <= ${rule.max}`);
+                        if (typeof axisRule.max === 'number') {
+                            conditions.push(`${axisTag} <= ${axisRule.max}`);
                         }
                         return conditions;
                     }
@@ -2897,23 +3076,11 @@ class GlyphCanvas {
                     : `Feature variation ${index + 1}`;
             };
 
-            featureVariations.forEach((featureVariation, index) => {
-                const option = document.createElement('option');
-                option.value = featureVariation.id;
-                option.textContent = featureVariationLabel(
-                    featureVariation,
-                    index
-                );
-                selector.appendChild(option);
-            });
-            selector.value = selectedFeatureVariation?.id || '';
-
-            selector.addEventListener('change', async () => {
-                const selectedVariation = featureVariations.find(
-                    (featureVariation) => featureVariation.id === selector.value
-                );
+            const selectFeatureVariation = async (
+                featureVariationId: string | null
+            ): Promise<void> => {
                 this.outlineEditor.setRootFeatureVariationSelection(
-                    selectedVariation?.id || null,
+                    featureVariationId,
                     { clearLayerSelection: true }
                 );
                 await this.outlineEditor.autoSelectMatchingLayer({
@@ -2926,8 +3093,108 @@ class GlyphCanvas {
                     skipAutoSelectMatchingLayer: true
                 });
                 this.render();
+            };
+
+            const openFeatureVariationSettings = async (
+                featureVariation?: FeatureVariationGlyph
+            ): Promise<void> => {
+                const axisRules = await this.promptForFeatureVariationAxisRules(
+                    featureVariation?.axisRules || [],
+                    !!featureVariation
+                );
+                if (axisRules === null) {
+                    return;
+                }
+
+                try {
+                    const nextFeatureVariation = featureVariation
+                        ? featureVariation.setAxisRules(axisRules)
+                        : sourceGlyph.addFeatureVariation(axisRules);
+                    await selectFeatureVariation(nextFeatureVariation.id);
+                } catch (error) {
+                    console.warn(
+                        '[GlyphCanvas] Could not update feature variation settings:',
+                        error
+                    );
+                }
+            };
+
+            const featureVariationsHeaderActions =
+                document.createElement('div');
+            featureVariationsHeaderActions.className =
+                'editor-layers-header-actions';
+            featureVariationsHeaderActions.appendChild(
+                createHeaderIconButton(
+                    'add',
+                    'Add feature variation',
+                    () => {
+                        void openFeatureVariationSettings();
+                    },
+                    'editor-feature-variation-add-button'
+                )
+            );
+            featureVariationsHeader.appendChild(featureVariationsHeaderActions);
+            featureVariationsWidget.appendChild(featureVariationsHeader);
+
+            const featureVariationsList = document.createElement('div');
+            featureVariationsList.className = 'editor-layers-list';
+            const createFeatureVariationItem = (
+                label: string,
+                featureVariationId: string | null,
+                featureVariation?: FeatureVariationGlyph
+            ): HTMLDivElement => {
+                const item = document.createElement('div');
+                item.className =
+                    'editor-layer-item editor-feature-variation-item';
+                item.setAttribute(
+                    'data-feature-variation-id',
+                    featureVariationId || ''
+                );
+                if (featureVariationId === selectedFeatureVariationId) {
+                    item.classList.add('selected');
+                }
+
+                const itemContent = document.createElement('div');
+                itemContent.className = 'editor-layer-item-content';
+                const name = document.createElement('div');
+                name.className = 'master-item-name';
+                name.textContent = label;
+                itemContent.appendChild(name);
+                item.appendChild(itemContent);
+
+                if (featureVariation) {
+                    item.appendChild(
+                        createHeaderIconButton(
+                            'edit',
+                            'Edit feature variation settings',
+                            () => {
+                                void openFeatureVariationSettings(
+                                    featureVariation
+                                );
+                            }
+                        )
+                    );
+                }
+
+                item.addEventListener('click', () => {
+                    void selectFeatureVariation(featureVariationId);
+                });
+                return item;
+            };
+
+            featureVariationsList.appendChild(
+                createFeatureVariationItem('Base glyph', null)
+            );
+            featureVariations.forEach((featureVariation, index) => {
+                featureVariationsList.appendChild(
+                    createFeatureVariationItem(
+                        featureVariationLabel(featureVariation, index),
+                        featureVariation.id,
+                        featureVariation
+                    )
+                );
             });
-            layersWidget.appendChild(selector);
+            featureVariationsWidget.appendChild(featureVariationsList);
         }
 
         // Create masters/layers list
@@ -3394,6 +3661,9 @@ class GlyphCanvas {
 
         layersWidget.appendChild(mastersList);
         refreshLayerLinkControls();
+        if (featureVariationsWidget) {
+            targetContainer.appendChild(featureVariationsWidget);
+        }
         targetContainer.appendChild(layersWidget);
 
         // In edit mode, add glyph_stack debug label (development mode only, not in test mode)
