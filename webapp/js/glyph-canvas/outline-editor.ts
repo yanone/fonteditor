@@ -8091,6 +8091,24 @@ export class OutlineEditor {
         );
     }
 
+    canRefreshSelectedLayerFromModelExactly(): boolean {
+        const layer = this.getCurrentLayerModel();
+        if (
+            !layer ||
+            layer.is_background ||
+            layer.master?.type !== 'DefaultForMaster'
+        ) {
+            return false;
+        }
+
+        const hasExplicitLocation =
+            !!layer.location && Object.keys(layer.location).length > 0;
+        const hasSmartComponentLocation =
+            !!layer.smart_component_location &&
+            Object.keys(layer.smart_component_location).length > 0;
+        return !hasExplicitLocation && !hasSmartComponentLocation;
+    }
+
     /**
      * Rebuild the active selection directly from the authoritative model.
      * Returns false when selection state cannot be reconstructed exactly.

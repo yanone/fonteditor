@@ -7889,6 +7889,47 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         }
     });
 
+    test('allows exact model refresh only for unlocated default master layers', () => {
+        const editor = canvas.outlineEditor;
+        const getCurrentLayerModelSpy = jest.spyOn(
+            editor,
+            'getCurrentLayerModel'
+        );
+
+        try {
+            getCurrentLayerModelSpy.mockReturnValue({
+                master: { type: 'DefaultForMaster' }
+            });
+            expect(editor.canRefreshSelectedLayerFromModelExactly()).toBe(true);
+
+            getCurrentLayerModelSpy.mockReturnValue({
+                master: { type: 'DefaultForMaster' },
+                location: { wght: 700 }
+            });
+            expect(editor.canRefreshSelectedLayerFromModelExactly()).toBe(
+                false
+            );
+
+            getCurrentLayerModelSpy.mockReturnValue({
+                master: { type: 'DefaultForMaster' },
+                smart_component_location: { Width: 1 }
+            });
+            expect(editor.canRefreshSelectedLayerFromModelExactly()).toBe(
+                false
+            );
+
+            getCurrentLayerModelSpy.mockReturnValue({
+                is_background: true,
+                master: { type: 'DefaultForMaster' }
+            });
+            expect(editor.canRefreshSelectedLayerFromModelExactly()).toBe(
+                false
+            );
+        } finally {
+            getCurrentLayerModelSpy.mockRestore();
+        }
+    });
+
     test('cmd-dragging a smooth point slides it along the curve across linked layers as one glyph history item', async () => {
         const font = Font.fromData({
             upm: 1000,

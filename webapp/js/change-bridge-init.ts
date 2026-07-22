@@ -1721,6 +1721,7 @@ function syncImmediateUndoOutlineLayerFromModel(
     const gc = window.glyphCanvas;
     const outlineEditor = gc?.outlineEditor as unknown as {
         cancelPendingLayerSwitchAnimation?: () => void;
+        canRefreshSelectedLayerFromModelExactly?: () => boolean;
         refreshSelectedLayerFromModel?: () => boolean;
         performHitDetection?: (event: MouseEvent | null) => void;
     } | null;
@@ -1729,6 +1730,9 @@ function syncImmediateUndoOutlineLayerFromModel(
     }
 
     outlineEditor?.cancelPendingLayerSwitchAnimation?.();
+    if (!outlineEditor.canRefreshSelectedLayerFromModelExactly?.()) {
+        return false;
+    }
     if (!outlineEditor.refreshSelectedLayerFromModel?.()) {
         return false;
     }
