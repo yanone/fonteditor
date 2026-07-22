@@ -14427,6 +14427,40 @@ describe('OutlineEditor exact selected layers', () => {
         setupAnimationSpy.mockRestore();
     });
 
+    test('selectLayer resumes a repaint deferred during its suppressed layer swap', async () => {
+        const targetContainer = document.createElement('div');
+        document.body.appendChild(targetContainer);
+        const setupAnimationSpy = jest
+            .spyOn(canvas.axesManager, '_setupAnimation')
+            .mockImplementation((newSettings) => {
+                canvas.axesManager.variationSettings = { ...newSettings };
+            });
+        const requestRepaintAfterCompileSpy = jest
+            .spyOn(canvas, 'requestRepaintAfterCompile')
+            .mockImplementation(() => {});
+        canvas.propertiesSection = targetContainer;
+        canvas.outlineEditor.active = true;
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 500, dx: 0, dy: 0, g: 0 }];
+        canvas.axesManager.variationSettings = { wght: 60 };
+        canvas.hasDeferredRenderRequest = true;
+
+        await canvas.displayMastersList(targetContainer, false);
+
+        const masterLayer = currentFontSpy.mock.results
+            .at(-1)
+            .value.fontModel.findGlyph('A')
+            .findLayerById('master-layer');
+
+        await canvas.outlineEditor.selectLayer(masterLayer);
+
+        expect(canvas.renderSuppressed).toBe(false);
+        expect(requestRepaintAfterCompileSpy).toHaveBeenCalledTimes(1);
+
+        requestRepaintAfterCompileSpy.mockRestore();
+        setupAnimationSpy.mockRestore();
+    });
+
     test('selectLayer disables the create-layer button on the first click after deleting an intermediate layer', async () => {
         const targetContainer = document.createElement('div');
         document.body.appendChild(targetContainer);

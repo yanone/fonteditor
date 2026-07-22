@@ -18399,6 +18399,9 @@ export class OutlineEditor {
         } finally {
             // Always re-enable rendering after critical section
             this.glyphCanvas.renderSuppressed = false;
+            if (this.glyphCanvas.hasDeferredRenderRequest) {
+                this.glyphCanvas.requestRepaintAfterCompile();
+            }
         }
 
         this.applySelectionStateForLayer(

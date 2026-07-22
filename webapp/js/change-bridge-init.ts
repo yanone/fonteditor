@@ -2346,7 +2346,7 @@ export async function handleCommittedChangeRefresh(
         }
         await requestCompile(changeSource, editType);
     } else {
-        const appliedDirectUndoLayerRefresh = applyLocalUndoRedoVisualSync(
+        applyLocalUndoRedoVisualSync(
             entries,
             dependencies?.localUndoRedoContext
         );
@@ -2376,8 +2376,6 @@ export async function handleCommittedChangeRefresh(
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
             skipDeferredCanvasRepaint:
                 isUndoRedoPacket && !requiresBackgroundLayerRefresh,
-            skipLayerDataFetch:
-                isUndoRedoPacket && appliedDirectUndoLayerRefresh,
             ...(replayTargets.length > 0
                 ? { workerReplayTargets: replayTargets }
                 : {})
@@ -2446,6 +2444,8 @@ export function runBridgeUndoRedo(
     historyTargetKey?: string | null
 ): Promise<void> {
     return enqueueBridgeSync(async () => {
+        await window.glyphCanvas?.outlineEditor?.flushPendingKeyboardPreviewCommit?.();
+
         const activeElement = document.activeElement;
 
         const fontInfoRoot = document.querySelector(

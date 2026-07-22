@@ -4543,6 +4543,7 @@ describe('committed undo/redo compile requests', () => {
         const fetchLayerData = jest.fn();
         const syncCurrentOutlineLayerDataFromModel = jest.fn();
         const render = jest.fn();
+        const flushPendingKeyboardPreviewCommit = jest.fn(async () => {});
 
         const makeFontModel = () => ({
             findGlyph: jest.fn(() => ({
@@ -4595,6 +4596,9 @@ describe('committed undo/redo compile requests', () => {
                 currentGlyphName: 'a',
                 selectedLayerId: 'layer-1',
                 parseGlyphStack: () => [{ glyphName: 'a' }],
+                flushPendingKeyboardPreviewCommit,
+                canRefreshSelectedLayerFromModelExactly: jest.fn(() => true),
+                refreshSelectedLayerFromModel: jest.fn(() => true),
                 fetchLayerData,
                 performHitDetection: jest.fn()
             },
@@ -4668,5 +4672,7 @@ describe('committed undo/redo compile requests', () => {
                 editType: 'outline'
             })
         });
+        expect(flushPendingKeyboardPreviewCommit).toHaveBeenCalledTimes(1);
+        expect(fetchLayerData).toHaveBeenCalledWith(true, 'a');
     });
 });
