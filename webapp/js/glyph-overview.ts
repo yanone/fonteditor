@@ -1563,7 +1563,11 @@ class GlyphOverview {
         if (glyphCanvas?.outlineEditor?.parseGlyphStack) {
             const parsed = glyphCanvas.outlineEditor.parseGlyphStack();
             if (parsed.length > 0) {
-                const editingGlyph = parsed[parsed.length - 1].glyphName;
+                const stackedGlyphName = parsed[parsed.length - 1].glyphName;
+                const editingGlyph =
+                    glyphCanvas.outlineEditor.getAuthoringGlyphName?.(
+                        stackedGlyphName
+                    ) ?? stackedGlyphName;
                 if (editingGlyph === this.highlightedGlyphName) {
                     this.scheduleHighlightedGlyphVisibilitySync();
                     return;

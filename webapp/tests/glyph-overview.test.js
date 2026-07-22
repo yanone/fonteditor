@@ -457,6 +457,7 @@ describe('GlyphOverview initial active tile highlighting', () => {
         jest.runOnlyPendingTimers();
         jest.useRealTimers();
         jest.restoreAllMocks();
+        delete window.glyphCanvas;
         delete window.GlyphOverview;
     });
 
@@ -484,6 +485,33 @@ describe('GlyphOverview initial active tile highlighting', () => {
         expect(
             overview.scheduleHighlightedGlyphVisibilitySync
         ).toHaveBeenCalledTimes(1);
+    });
+
+    test('resolves a feature-variation stack glyph to its base overview tile', () => {
+        const getAuthoringGlyphName = jest.fn(() => 'dollar');
+        const tile = overview.createGlyphTile('glyph-dollar', 'dollar');
+        overview.tiles = new Map([['glyph-dollar', tile]]);
+        window.glyphCanvas = {
+            outlineEditor: {
+                active: true,
+                parseGlyphStack: jest.fn(() => [
+                    { glyphName: 'dollar.feaVar.0', layerId: 'layer-1' }
+                ]),
+                getAuthoringGlyphName
+            }
+        };
+
+        window.dispatchEvent(
+            new CustomEvent('glyphStackChanged', {
+                detail: { glyphStack: 'dollar.feaVar.0@layer-1' }
+            })
+        );
+
+        expect(getAuthoringGlyphName).toHaveBeenCalledWith('dollar.feaVar.0');
+        expect(overview.highlightedGlyphName).toBe('dollar');
+        expect(tile.element.style.boxShadow).toBe(
+            'inset 0 0 0 2px var(--accent-blue)'
+        );
     });
 });
 
