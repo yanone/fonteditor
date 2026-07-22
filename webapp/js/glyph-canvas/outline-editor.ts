@@ -3017,6 +3017,10 @@ export class OutlineEditor {
         | null = null;
     currentGlyphName: string | null = null;
     private authoringRootGlyphName: string | null = null;
+    private rootFeatureVariationSelection: {
+        glyphName: string;
+        featureVariationId: string;
+    } | null = null;
     glyphCanvas: GlyphCanvas;
     guidelinesVisible: boolean;
     pairedLayerVisible: boolean;
@@ -3459,6 +3463,12 @@ export class OutlineEditor {
             featureVariationIndex !== undefined && featureVariationIndex >= 0
                 ? `${rootGlyphName}.feaVar.${featureVariationIndex}`
                 : rootGlyphName;
+        this.rootFeatureVariationSelection =
+            featureVariationId &&
+            featureVariationIndex !== undefined &&
+            featureVariationIndex >= 0
+                ? { glyphName: rootGlyphName, featureVariationId }
+                : null;
         this.replaceRootGlyphStackName(stackGlyphName);
         if (options?.clearLayerSelection) {
             this.selectedLayerId = null;
@@ -3480,6 +3490,21 @@ export class OutlineEditor {
     }
 
     getSelectedRootFeatureVariationId(): string | null {
+        const rootStackGlyphName = this.parseGlyphStack()[0]?.glyphName;
+        const rootGlyphName = this.getAuthoringRootGlyphName();
+        if (!rootStackGlyphName?.match(/^(.*)\.feaVar\.\d+$/)) {
+            if (
+                this.rootFeatureVariationSelection?.glyphName === rootGlyphName
+            ) {
+                this.rootFeatureVariationSelection = null;
+            }
+            return null;
+        }
+
+        if (this.rootFeatureVariationSelection?.glyphName === rootGlyphName) {
+            return this.rootFeatureVariationSelection.featureVariationId;
+        }
+
         return this.getRootFeatureVariation()?.id || null;
     }
 
@@ -3784,8 +3809,15 @@ export class OutlineEditor {
     }
 
     prepareForGlyphSwitch(nextRootGlyphName: string): void {
-        this.authoringRootGlyphName =
+        const nextAuthoringRootGlyphName =
             this.getAuthoringGlyphName(nextRootGlyphName);
+        if (
+            this.rootFeatureVariationSelection?.glyphName !==
+            nextAuthoringRootGlyphName
+        ) {
+            this.rootFeatureVariationSelection = null;
+        }
+        this.authoringRootGlyphName = nextAuthoringRootGlyphName;
         const previousLayer =
             this.getTransitionPreviousLayerModel(nextRootGlyphName);
 
@@ -9207,6 +9239,7 @@ export class OutlineEditor {
     async reconcileSelectionAfterModelSync(options?: {
         skipRender?: boolean;
     }): Promise<boolean> {
+        this.reconcileRootFeatureVariationSelectionAfterModelSync();
         const parsedStack = this.parseGlyphStack();
         const rootGlyphName =
             parsedStack[0]?.glyphName ?? this.glyphCanvas.getCurrentGlyphName();
@@ -9239,6 +9272,42 @@ export class OutlineEditor {
         });
 
         return true;
+    }
+
+    private reconcileRootFeatureVariationSelectionAfterModelSync(): void {
+        const rootStackGlyphName = this.parseGlyphStack()[0]?.glyphName;
+        const featureVariationMatch =
+            rootStackGlyphName?.match(/^(.*)\.feaVar\.\d+$/);
+        if (!featureVariationMatch) {
+            return;
+        }
+
+        const rootGlyphName = this.getAuthoringRootGlyphName();
+        if (
+            !this.rootFeatureVariationSelection ||
+            this.rootFeatureVariationSelection.glyphName !== rootGlyphName
+        ) {
+            this.rootFeatureVariationSelection = null;
+            return;
+        }
+
+        const featureVariationIndex =
+            this.getRootGlyphModel()?.featureVariations?.findIndex(
+                (candidate: FeatureVariationGlyph) =>
+                    candidate.id ===
+                    this.rootFeatureVariationSelection?.featureVariationId
+            ) ?? -1;
+        const nextRootGlyphName =
+            featureVariationIndex >= 0
+                ? `${rootGlyphName}.feaVar.${featureVariationIndex}`
+                : rootGlyphName;
+
+        if (nextRootGlyphName !== rootStackGlyphName) {
+            this.replaceRootGlyphStackName(nextRootGlyphName);
+        }
+        if (featureVariationIndex < 0) {
+            this.rootFeatureVariationSelection = null;
+        }
     }
 
     clearState() {

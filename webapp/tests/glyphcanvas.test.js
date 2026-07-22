@@ -13055,6 +13055,42 @@ describe('OutlineEditor exact selected layers', () => {
         ).toBeNull();
     });
 
+    test('reconciles a selected feature variation by family identity after synchronized deletion', async () => {
+        const font = makeComponentFont();
+        const glyph = font.findGlyph('A');
+        const firstVariation = glyph.addFeatureVariation([{ min: 100 }]);
+        const secondVariation = glyph.addFeatureVariation([{ min: 200 }]);
+        currentFontSpy.mockReturnValue({ fontModel: font });
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.active = true;
+
+        canvas.outlineEditor.setRootFeatureVariationSelection(
+            secondVariation.id,
+            { clearLayerSelection: true }
+        );
+        glyph.removeFeatureVariation(firstVariation);
+
+        await canvas.outlineEditor.reconcileSelectionAfterModelSync({
+            skipRender: true
+        });
+
+        expect(canvas.outlineEditor.glyphStack).toMatch(/^A\.feaVar\.0@/);
+        expect(canvas.outlineEditor.getSelectedRootFeatureVariationId()).toBe(
+            secondVariation.id
+        );
+
+        glyph.removeFeatureVariation(secondVariation);
+
+        await canvas.outlineEditor.reconcileSelectionAfterModelSync({
+            skipRender: true
+        });
+
+        expect(canvas.outlineEditor.glyphStack).toMatch(/^A@/);
+        expect(
+            canvas.outlineEditor.getSelectedRootFeatureVariationId()
+        ).toBeNull();
+    });
+
     test('replaces a recovered feature-variation root when text selection moves to another source glyph', () => {
         const font = Font.fromData({
             upm: 1000,
