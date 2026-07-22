@@ -79,6 +79,12 @@ TODO: Undo doesn't work
 
 ## Glyphs
 
+### Glyph Stack Labels
+
+`glyphStack` serializes the current component-editing path as `rootGlyphName@rootLayerId>componentIndex:componentGlyphName@componentLayerId>...`. The root segment has no component-index prefix; every nested segment's zero-based `componentIndex` identifies the component in the preceding segment's layer. A foreground selection always uses that foreground layer's persisted ID.
+
+An unmaterialized background selection is virtual and must use `glyphName@background-<foregroundLayerId>` in its active stack segment. This synthetic token identifies the foreground owner; it is not a raw layer ID and must never be serialized to the font or Yjs as a layer root. When the first background path materializes the sibling, the active segment must be rewritten to `glyphName@<persistedBackgroundLayerId>`, where that ID is the newly created background layer's normal persisted ID (typically a UUID), not a `background-`-prefixed value. The materialized layer carries `is_background: true` and `background_layer_id: <foregroundLayerId>`; rebuilding the stack must preserve every unaffected component segment.
+
 ### Layers
 
 #### Background Layers
