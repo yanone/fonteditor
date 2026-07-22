@@ -13273,6 +13273,71 @@ describe('OutlineEditor exact selected layers', () => {
         updatePropertiesUISpy.mockRestore();
     });
 
+    test('cycles root feature variations with Cmd+Alt and feature-family layers with Cmd', async () => {
+        const editor = canvas.outlineEditor;
+        const featureVariations = [{ id: 'feature-a' }, { id: 'feature-b' }];
+        const setRootFeatureVariationSelection = jest.fn();
+
+        editor.active = true;
+        editor.selectedLayerId = 'feature-layer-1';
+        editor['getRootGlyphModel'] = jest.fn(() => ({ featureVariations }));
+        editor.getSelectedRootFeatureVariationId = jest.fn(() => null);
+        editor.setRootFeatureVariationSelection =
+            setRootFeatureVariationSelection;
+        editor.autoSelectMatchingLayer = jest.fn().mockResolvedValue();
+        editor.interpolateCurrentGlyph = jest.fn().mockResolvedValue();
+        canvas.updatePropertiesUI = jest.fn().mockResolvedValue();
+        canvas.render = jest.fn();
+
+        await editor.onKeyDown(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowUp',
+                metaKey: true,
+                altKey: true
+            })
+        );
+
+        expect(setRootFeatureVariationSelection).toHaveBeenCalledWith(
+            'feature-b',
+            { clearLayerSelection: true }
+        );
+
+        editor.getSelectedRootFeatureVariationId = jest.fn(() => 'feature-b');
+        await editor.onKeyDown(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowDown',
+                metaKey: true,
+                altKey: true
+            })
+        );
+        expect(setRootFeatureVariationSelection).toHaveBeenLastCalledWith(
+            null,
+            { clearLayerSelection: true }
+        );
+
+        editor['getRootFeatureVariation'] = jest.fn(() => ({
+            layers: [{ id: 'feature-layer-1' }, { id: 'feature-layer-2' }]
+        }));
+        editor.getFullLayerData = jest.fn((layerId) => ({ id: layerId }));
+        editor.selectLayer = jest.fn().mockResolvedValue();
+        canvas.getSortedLayers = jest.fn((layers) => layers || []);
+
+        await editor.onKeyDown(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowDown',
+                metaKey: true
+            })
+        );
+
+        expect(canvas.getSortedLayers).toHaveBeenCalledWith([
+            { id: 'feature-layer-1' },
+            { id: 'feature-layer-2' }
+        ]);
+        expect(editor.selectLayer).toHaveBeenCalledWith({
+            id: 'feature-layer-2'
+        });
+    });
+
     test.each([
         ['master-layer', 500, 100, 250],
         ['brace-layer', 520, 110, 260]

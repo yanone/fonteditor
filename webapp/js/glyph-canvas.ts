@@ -6779,18 +6779,14 @@ class GlyphCanvas {
         this.restoreActivePropertyInput(activeInputState);
     }
 
-    getSortedLayers(): any[] {
-        if (
-            !this.fontData ||
-            !this.fontData.layers ||
-            this.fontData.layers.length === 0
-        ) {
+    getSortedLayers(layers: any[] | undefined = this.fontData?.layers): any[] {
+        if (!this.fontData || !layers || layers.length === 0) {
             return [];
         }
 
         // Get sorted layers by master order.
         // Within one master, keep default layers first, then brace layers.
-        const sortedLayers = [...this.fontData.layers].sort((a, b) => {
+        const sortedLayers = [...layers].sort((a, b) => {
             const masterIndexA = this.fontData.masters.findIndex(
                 (m: any) => m.id === a._master
             );

@@ -17827,6 +17827,19 @@ export class OutlineEditor {
             }
         }
 
+        if (
+            (e.metaKey || e.ctrlKey) &&
+            e.altKey &&
+            !e.shiftKey &&
+            (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+        ) {
+            e.preventDefault();
+            if (!this.isEditingComponent()) {
+                await this.cycleRootFeatureVariations(e.key === 'ArrowUp');
+            }
+            return;
+        }
+
         // Handle Cmd+Up/Down to cycle through layers.
         // Allow when a layer is selected, or when we have saved brace-layer
         // neighbors so navigation can resume after switching to a glyph that
@@ -17966,7 +17979,12 @@ export class OutlineEditor {
     }
 
     async cycleLayers(moveUp: boolean): Promise<void> {
-        let sortedLayers = this.glyphCanvas.getSortedLayers();
+        const featureVariation = this.isEditingComponent()
+            ? undefined
+            : this.getRootFeatureVariation();
+        let sortedLayers = this.glyphCanvas.getSortedLayers(
+            featureVariation?.layers
+        );
         if (sortedLayers.length === 0) {
             return;
         }
@@ -18026,6 +18044,40 @@ export class OutlineEditor {
         }
     }
 
+    private async cycleRootFeatureVariations(moveUp: boolean): Promise<void> {
+        const featureVariations =
+            this.getRootGlyphModel()?.featureVariations || [];
+        if (featureVariations.length === 0) {
+            return;
+        }
+
+        const choices = [
+            null,
+            ...featureVariations.map((featureVariation: any) =>
+                String(featureVariation.id)
+            )
+        ];
+        const currentIndex = Math.max(
+            0,
+            choices.indexOf(this.getSelectedRootFeatureVariationId())
+        );
+        const nextIndex = moveUp
+            ? (currentIndex - 1 + choices.length) % choices.length
+            : (currentIndex + 1) % choices.length;
+
+        this.setRootFeatureVariationSelection(choices[nextIndex], {
+            clearLayerSelection: true
+        });
+        await this.autoSelectMatchingLayer({ skipRender: true });
+        if (this.selectedLayerId === null) {
+            await this.interpolateCurrentGlyph(true);
+        }
+        await this.glyphCanvas.updatePropertiesUI({
+            skipAutoSelectMatchingLayer: true
+        });
+        this.glyphCanvas.render();
+    }
+
     /**
      * Get full layer data from font model by layer ID
      * Converts Layer wrapper to plain Babelfont.Layer object
@@ -18038,7 +18090,9 @@ export class OutlineEditor {
         const glyphName =
             parsedStack[parsedStack.length - 1]?.glyphName ??
             this.glyphCanvas.getCurrentGlyphName();
-        const glyph = fontModel.glyphs.find((g: any) => g.name === glyphName);
+        const glyph =
+            fontModel.resolveGlyphView?.(glyphName) ??
+            fontModel.glyphs.find((g: any) => g.name === glyphName);
         if (!glyph || !glyph.layers) return null;
 
         const layer = glyph.layers.find((l: any) => l.id === layerId);
