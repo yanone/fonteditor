@@ -13,6 +13,7 @@
 
 import type { Babelfont } from './babelfont';
 import { setYPath } from './change-bridge-ydoc';
+import { assertModelMutationAllowed } from './model-mutation-policy';
 import { parseNodeString, serializeNodeArray } from './node-encoding';
 
 /**
@@ -3470,6 +3471,7 @@ function getLiveMutableValue<T>(
                     typeof result === 'function'
                 ) {
                     return (...args: unknown[]) => {
+                        assertModelMutationAllowed();
                         const oldValue = cloneForHistory(getCurrentValue());
                         const nextArgs = args.map(unwrapLiveMutableValue);
                         const operationResult = Reflect.apply(
@@ -3500,6 +3502,7 @@ function getLiveMutableValue<T>(
             },
 
             set(target, key, nextValue, receiver) {
+                assertModelMutationAllowed();
                 const oldValue = cloneForHistory(getCurrentValue());
                 const success = Reflect.set(
                     target,
@@ -3517,6 +3520,7 @@ function getLiveMutableValue<T>(
             },
 
             deleteProperty(target, key) {
+                assertModelMutationAllowed();
                 const oldValue = cloneForHistory(getCurrentValue());
                 const success = Reflect.deleteProperty(target, key);
                 recordAndMarkDirty(
@@ -3572,6 +3576,7 @@ function getPreciseLiveMutableValue<T>(
                     typeof result === 'function'
                 ) {
                     return (...args: unknown[]) => {
+                        assertModelMutationAllowed();
                         const nextArgs = args.map(unwrapLiveMutableValue);
                         return withBridgeTransaction(
                             `Edit ${String(currentPath[currentPath.length - 1] ?? 'array')}`,
@@ -3610,6 +3615,7 @@ function getPreciseLiveMutableValue<T>(
             },
 
             set(target, key, nextValue, receiver) {
+                assertModelMutationAllowed();
                 const unwrappedValue = unwrapLiveMutableValue(nextValue);
 
                 if (Array.isArray(target)) {
@@ -3667,6 +3673,7 @@ function getPreciseLiveMutableValue<T>(
             },
 
             deleteProperty(target, key) {
+                assertModelMutationAllowed();
                 if (Array.isArray(target)) {
                     const oldValue = cloneForHistory(target);
                     const success = Reflect.deleteProperty(target, key);
@@ -3929,6 +3936,7 @@ abstract class ArrayElementBase<
      * Update underlying data reference and mark font as dirty
      */
     protected set data(value: TData) {
+        assertModelMutationAllowed();
         this._parent[this._index] = value;
         markFontDirty();
     }
@@ -3975,6 +3983,7 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set selected(value: boolean) {
+        assertModelMutationAllowed();
         const layer = getLayerForSelectableObject(this);
         if (!layer) {
             return;
@@ -3996,6 +4005,7 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set x(value: number) {
+        assertModelMutationAllowed();
         const path = this.parent();
         const oldNodes =
             path instanceof Path
@@ -4019,6 +4029,7 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set y(value: number) {
+        assertModelMutationAllowed();
         const path = this.parent();
         const oldNodes =
             path instanceof Path
@@ -4042,6 +4053,7 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set nodetype(value: Babelfont.NodeType) {
+        assertModelMutationAllowed();
         const path = this.parent();
         const oldNodes =
             path instanceof Path
@@ -4064,6 +4076,7 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set smooth(value: boolean | undefined) {
+        assertModelMutationAllowed();
         const path = this.parent();
         const oldNodes =
             path instanceof Path
@@ -4139,6 +4152,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     set nodes(value: Babelfont.Node[]) {
+        assertModelMutationAllowed();
         this.withLayerFingerprintChangeEvent(() => {
             const old = this.getMutableNodeArray().map((node) =>
                 cloneNodeData(node)
@@ -4154,6 +4168,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     set closed(value: boolean) {
+        assertModelMutationAllowed();
         this.withLayerFingerprintChangeEvent(() => {
             const old = this.data.closed;
             this.data.closed = value;
@@ -4171,6 +4186,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.format_specific;
         this.data.format_specific = value;
         recordAndMarkDirty(this, 'format_specific', old, value);
@@ -4188,6 +4204,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         nodetype: Babelfont.NodeType = 'Line' as Babelfont.NodeType,
         smooth?: boolean
     ): Node {
+        assertModelMutationAllowed();
         return this.withLayerFingerprintChangeEvent(() => {
             const nodeArray = this.getMutableNodeArray();
             const oldNodes = nodeArray.map((node) => cloneNodeData(node));
@@ -4214,6 +4231,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      * path.removeNode(0)  # Remove first node
      */
     removeNode(index: number): void {
+        assertModelMutationAllowed();
         this.withLayerFingerprintChangeEvent(() => {
             const nodeArray = this.getMutableNodeArray();
             const oldNodes = nodeArray.map((node) => cloneNodeData(node));
@@ -4240,6 +4258,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         nodetype: Babelfont.NodeType = 'Line' as Babelfont.NodeType,
         smooth?: boolean
     ): Node {
+        assertModelMutationAllowed();
         return this.insertNode(
             this.getMutableNodeArray().length,
             x,
@@ -4944,6 +4963,7 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     set selected(value: boolean) {
+        assertModelMutationAllowed();
         const layer = getLayerForSelectableObject(this);
         if (!layer) {
             return;
@@ -4965,6 +4985,7 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     set reference(value: string) {
+        assertModelMutationAllowed();
         const old = this.data.reference;
         this.data.reference = value;
         recordAndMarkDirty(this, 'reference', old, value);
@@ -4992,6 +5013,7 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     set transform(value: Babelfont.DecomposedAffine) {
+        assertModelMutationAllowed();
         const old = this.data.transform;
         this.data.transform = value;
         recordAndMarkDirty(this, 'transform', old, value);
@@ -5007,6 +5029,7 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     set location(value: DesignspaceLocation | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.location;
         this.data.location = value;
         recordAndMarkDirty(this, 'location', old, value);
@@ -5022,6 +5045,7 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     set anchor(value: string | undefined) {
+        assertModelMutationAllowed();
         const trimmed = value?.trim();
         setFormatSpecificKey(
             this,
@@ -5052,6 +5076,7 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     set automaticAlignment(value: boolean) {
+        assertModelMutationAllowed();
         const nextValue = value ? 1 : -1;
         if (
             this.format_specific?.[GLYPHS_COMPONENT_ALIGNMENT_KEY] === nextValue
@@ -5083,6 +5108,7 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.format_specific;
         this.data.format_specific = value;
         recordAndMarkDirty(this, 'format_specific', old, value);
@@ -5261,6 +5287,7 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
     }
 
     set selected(value: boolean) {
+        assertModelMutationAllowed();
         const layer = this.parent();
         if (!(layer instanceof Layer)) {
             return;
@@ -5282,6 +5309,7 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
     }
 
     set x(value: number) {
+        assertModelMutationAllowed();
         const old = this.data.x;
         this.data.x = value;
         recordAndMarkDirty(this, 'x', old, value);
@@ -5294,6 +5322,7 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
     }
 
     set y(value: number) {
+        assertModelMutationAllowed();
         const old = this.data.y;
         this.data.y = value;
         recordAndMarkDirty(this, 'y', old, value);
@@ -5306,6 +5335,7 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
     }
 
     set name(value: string | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.name;
         this.data.name = value;
         recordAndMarkDirty(this, 'name', old, value);
@@ -5321,6 +5351,7 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.format_specific;
         this.data.format_specific = value;
         recordAndMarkDirty(this, 'format_specific', old, value);
@@ -5379,6 +5410,7 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     }
 
     set selected(value: boolean) {
+        assertModelMutationAllowed();
         const outlineEditor = getOutlineEditorSelectionController();
         const guideIndex = getPathIndex(this, 'guides');
         const parent = this.parent();
@@ -5449,6 +5481,7 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     }
 
     set pos(value: Babelfont.Position) {
+        assertModelMutationAllowed();
         const old = this.data.pos;
         this.data.pos = value;
         recordAndMarkDirty(this, 'pos', old, value);
@@ -5459,6 +5492,7 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     }
 
     set name(value: string | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.name;
         this.data.name = value;
         recordAndMarkDirty(this, 'name', old, value);
@@ -5474,6 +5508,7 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     }
 
     set color(value: Babelfont.Color | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.color;
         this.data.color = value;
         recordAndMarkDirty(this, 'color', old, value);
@@ -5489,6 +5524,7 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.format_specific;
         this.data.format_specific = value;
         recordAndMarkDirty(this, 'format_specific', old, value);
@@ -7451,6 +7487,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set leftMetricsKey(value: string | undefined) {
+        assertModelMutationAllowed();
         this.setLocalSidebearingKey(
             'left',
             localMetricsKeyPublicToStorage(value, this.getFont())
@@ -7464,6 +7501,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set rightMetricsKey(value: string | undefined) {
+        assertModelMutationAllowed();
         this.setLocalSidebearingKey(
             'right',
             localMetricsKeyPublicToStorage(value, this.getFont())
@@ -7535,6 +7573,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set width(value: number) {
+        assertModelMutationAllowed();
         const old = this.data.width;
         const roundedValue = roundMetricValue(value);
         this.data.width = roundedValue;
@@ -7555,6 +7594,7 @@ export class Layer extends ArrayElementBase {
      * @param value - The new left sidebearing value
      */
     set lsb(value: number) {
+        assertModelMutationAllowed();
         withBridgeTransaction(getSidebearingTransactionLabel('left'), () => {
             this.setDirectSidebearing('left', value);
             this.getFont()?.recomputeMetricsKeys(
@@ -7577,6 +7617,7 @@ export class Layer extends ArrayElementBase {
      * @param value - The new right sidebearing value
      */
     set rsb(value: number) {
+        assertModelMutationAllowed();
         withBridgeTransaction(getSidebearingTransactionLabel('right'), () => {
             this.setDirectSidebearing('right', value);
             this.getFont()?.recomputeMetricsKeys(
@@ -7603,6 +7644,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set linked(value: boolean) {
+        assertModelMutationAllowed();
         if (!this.id) {
             return;
         }
@@ -7622,6 +7664,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set name(value: string | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.name;
         this.data.name = value;
         recordAndMarkDirty(this, 'name', old, value);
@@ -7632,6 +7675,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set id(value: string | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.id;
         this.data.id = value;
         recordAndMarkDirty(this, 'id', old, value);
@@ -7651,6 +7695,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set master(value: Babelfont.LayerType | undefined) {
+        assertModelMutationAllowed();
         const layerId = this.data.id || '[no-layer-id]';
         assertTaggedLayerMaster(value, `Layer#${layerId}.master(set)`);
         const old = this.data.master;
@@ -7668,6 +7713,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set smart_component_location(value: UserspaceLocation | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.smart_component_location;
         this.data.smart_component_location = value;
         recordAndMarkDirty(this, 'smart_component_location', old, value);
@@ -7709,6 +7755,7 @@ export class Layer extends ArrayElementBase {
         value:
             SelectableLayerObject | SelectableLayerObject[] | null | undefined
     ) {
+        assertModelMutationAllowed();
         this._setSelectionFromPython(value);
     }
 
@@ -7779,6 +7826,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set color(value: Babelfont.Color | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.color;
         this.data.color = value;
         recordAndMarkDirty(this, 'color', old, value);
@@ -7789,6 +7837,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set layer_index(value: number | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.layer_index;
         this.data.layer_index = value;
         recordAndMarkDirty(this, 'layer_index', old, value);
@@ -7799,6 +7848,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set is_background(value: boolean | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.is_background;
         this.data.is_background = value;
         recordAndMarkDirty(this, 'is_background', old, value);
@@ -7809,6 +7859,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set background_layer_id(value: string | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.background_layer_id;
         this.data.background_layer_id = value;
         recordAndMarkDirty(this, 'background_layer_id', old, value);
@@ -7885,6 +7936,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set location(value: DesignspaceLocation | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.location;
         this.data.location = value;
         recordAndMarkDirty(this, 'location', old, value);
@@ -7900,6 +7952,7 @@ export class Layer extends ArrayElementBase {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.format_specific;
         this.data.format_specific = value;
         recordAndMarkDirty(this, 'format_specific', old, value);
@@ -7909,6 +7962,7 @@ export class Layer extends ArrayElementBase {
      * Add a new shape to the layer
      */
     addShape(shape: Babelfont.Shape): Shape {
+        assertModelMutationAllowed();
         return this.withFingerprintChangeEvent(() => {
             if (this.is_background && !('nodes' in shape)) {
                 throw new Error('Background layers can only contain paths');
@@ -7917,6 +7971,7 @@ export class Layer extends ArrayElementBase {
             if (!this.data.shapes) {
                 this.data.shapes = [];
             }
+            assertModelMutationAllowed();
             this.data.shapes.push(shape);
             this._shapeWrappers = null; // Invalidate cache
             const index = this.data.shapes.length - 1;
@@ -7938,6 +7993,7 @@ export class Layer extends ArrayElementBase {
      * path = layer.addPath(closed=True)
      */
     addPath(closed: boolean | Record<string, Unsafe> = true): Path {
+        assertModelMutationAllowed();
         // Pyodide/JS interop can pass keyword arguments as an object,
         // e.g. addPath(closed=True) may arrive as { closed: true }.
         const resolvedClosed =
@@ -7968,6 +8024,7 @@ export class Layer extends ArrayElementBase {
         reference: string,
         transform?: number[] | Babelfont.DecomposedAffine
     ): Component {
+        assertModelMutationAllowed();
         if (this.is_background) {
             throw new Error('Background layers cannot contain components');
         }
@@ -8089,6 +8146,7 @@ export class Layer extends ArrayElementBase {
      * Insert a new shape at the specified index
      */
     insertShapeAt(index: number, shape: Babelfont.Shape): Shape {
+        assertModelMutationAllowed();
         return this.withFingerprintChangeEvent(() => {
             if (!this.data.shapes) {
                 this.data.shapes = [];
@@ -8098,6 +8156,7 @@ export class Layer extends ArrayElementBase {
                 0,
                 Math.min(index, this.data.shapes.length)
             );
+            assertModelMutationAllowed();
             this.data.shapes.splice(boundedIndex, 0, shape);
             this._shapeWrappers = null;
             recordAddAndMarkDirty(
@@ -8137,6 +8196,7 @@ export class Layer extends ArrayElementBase {
             if (!this.data.shapes) {
                 this.data.shapes = [];
             }
+            assertModelMutationAllowed();
             this.data.shapes.splice(insertedShapeIndex, 0, insertedShape);
             this._shapeWrappers = null;
             recordAddAndMarkDirty(
@@ -8255,12 +8315,15 @@ export class Layer extends ArrayElementBase {
                 if (removedShape === undefined) {
                     return null;
                 }
+                assertModelMutationAllowed();
                 this.data.shapes.splice(shapeIndex, 1);
                 recordRemoveAndMarkDirty(
                     [...this.getPath(), 'shapes', shapeIndex],
                     removedShape
                 );
             }
+
+            assertModelMutationAllowed();
 
             this.data.shapes.splice(insertedShapeIndex, 0, connectedShape);
             this._shapeWrappers = null;
@@ -8281,6 +8344,7 @@ export class Layer extends ArrayElementBase {
      * Remove a shape at the specified index
      */
     removeShape(shapeOrIndex: number | Shape | Path | Component): void {
+        assertModelMutationAllowed();
         this.withFingerprintChangeEvent(() => {
             if (!this.data.shapes) {
                 return;
@@ -8295,6 +8359,8 @@ export class Layer extends ArrayElementBase {
             if (removedShape === undefined) {
                 return;
             }
+
+            assertModelMutationAllowed();
 
             this.data.shapes.splice(index, 1);
             this._shapeWrappers = null; // Invalidate cache
@@ -8311,6 +8377,7 @@ export class Layer extends ArrayElementBase {
      * anchor = layer.addAnchor(250, 700, "top")
      */
     addAnchor(x: number, y: number, name?: string): Anchor {
+        assertModelMutationAllowed();
         if (this.is_background) {
             throw new Error('Background layers cannot contain anchors');
         }
@@ -8321,6 +8388,7 @@ export class Layer extends ArrayElementBase {
         if (name) {
             anchorData.name = name;
         }
+        assertModelMutationAllowed();
         this.data.anchors.push(anchorData);
         this._anchorWrappers = null; // Invalidate cache
         const index = this.data.anchors.length - 1;
@@ -8336,6 +8404,7 @@ export class Layer extends ArrayElementBase {
         name?: string,
         color?: Babelfont.Color
     ): Guide {
+        assertModelMutationAllowed();
         if (this.is_background) {
             throw new Error('Background layers cannot contain guides');
         }
@@ -8351,6 +8420,8 @@ export class Layer extends ArrayElementBase {
             guideData.color = color;
         }
 
+        assertModelMutationAllowed();
+
         this.data.guides.push(guideData);
         this._guideWrappers = null;
         const index = this.data.guides.length - 1;
@@ -8362,11 +8433,14 @@ export class Layer extends ArrayElementBase {
      * Remove an anchor at the specified index
      */
     removeAnchor(index: number): void {
+        assertModelMutationAllowed();
         if (this.data.anchors) {
             const removedAnchor = this.data.anchors[index];
             if (removedAnchor === undefined) {
                 return;
             }
+
+            assertModelMutationAllowed();
 
             this.data.anchors.splice(index, 1);
             this._anchorWrappers = null; // Invalidate cache
@@ -8378,11 +8452,14 @@ export class Layer extends ArrayElementBase {
     }
 
     removeGuide(index: number): void {
+        assertModelMutationAllowed();
         if (this.data.guides) {
             const removedGuide = this.data.guides[index];
             if (removedGuide === undefined) {
                 return;
             }
+
+            assertModelMutationAllowed();
 
             this.data.guides.splice(index, 1);
             this._guideWrappers = null;
@@ -9486,6 +9563,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     set leftMetricsKey(value: string | undefined) {
+        assertModelMutationAllowed();
         this.setGlobalSidebearingKey('left', normalizeMetricsKeyValue(value));
     }
 
@@ -9494,6 +9572,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     set rightMetricsKey(value: string | undefined) {
+        assertModelMutationAllowed();
         this.setGlobalSidebearingKey('right', normalizeMetricsKeyValue(value));
     }
 
@@ -9526,6 +9605,7 @@ export class Glyph extends ArrayElementBase {
         if (!this.data.layers) {
             this.data.layers = [];
         }
+        assertModelMutationAllowed();
         this.data.layers.push(layerData);
         this._layerWrappers = null;
         recordAddAndMarkDirty(
@@ -9598,6 +9678,7 @@ export class Glyph extends ArrayElementBase {
      * copying each layer's materialized background when present.
      */
     addFeatureVariation(axisRules: Unsafe[]): FeatureVariationGlyph {
+        assertModelMutationAllowed();
         const template = {
             format_specific: {
                 [GLYPHS_FEATURE_VARIATION_ATTRIBUTES_KEY]: { axisRules }
@@ -9695,6 +9776,7 @@ export class Glyph extends ArrayElementBase {
     removeFeatureVariation(
         featureVariation: FeatureVariationGlyph | string
     ): void {
+        assertModelMutationAllowed();
         const familyId =
             typeof featureVariation === 'string'
                 ? featureVariation
@@ -9749,6 +9831,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     set name(value: string) {
+        assertModelMutationAllowed();
         const old = this.data.name;
         this.data.name = value;
         // Invalidate caches that key on glyph names (e.g. metrics-key prefix
@@ -9768,6 +9851,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     set production_name(value: string | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.production_name;
         this.data.production_name = value;
         recordAndMarkDirty(this, 'production_name', old, value);
@@ -9783,6 +9867,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     set category(value: Babelfont.GlyphCategory | string) {
+        assertModelMutationAllowed();
         const old = this.data.category;
         this.data.category = Glyph.normalizeCategory(value);
         recordAndMarkDirty(this, 'category', old, this.data.category);
@@ -9798,6 +9883,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     set codepoints(value: number[] | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.codepoints;
         this.data.codepoints = value;
         recordAndMarkDirty(this, 'codepoints', old, value);
@@ -9953,6 +10039,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     set exported(value: boolean | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.exported;
         this.data.exported = value;
         recordAndMarkDirty(this, 'exported', old, value);
@@ -9963,6 +10050,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     set direction(value: Babelfont.Direction | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.direction;
         this.data.direction = value;
         recordAndMarkDirty(this, 'direction', old, value);
@@ -9978,6 +10066,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.format_specific;
         this.data.format_specific = value;
         recordAndMarkDirty(this, 'format_specific', old, value);
@@ -9993,6 +10082,7 @@ export class Glyph extends ArrayElementBase {
         master?: Babelfont.LayerType,
         requestedLayerId?: string | null
     ): Layer {
+        assertModelMutationAllowed();
         if (!this.data.layers) {
             this.data.layers = [];
         }
@@ -10008,6 +10098,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     addBackgroundLayer(foreground: Layer): Layer {
+        assertModelMutationAllowed();
         if (foreground.is_background) {
             throw new Error(
                 'A background layer cannot own another background layer'
@@ -10036,11 +10127,14 @@ export class Glyph extends ArrayElementBase {
      * Remove a layer at the specified index
      */
     removeLayer(index: number): void {
+        assertModelMutationAllowed();
         if (this.data.layers) {
             const removedLayer = this.data.layers[index];
             if (removedLayer === undefined) {
                 return;
             }
+
+            assertModelMutationAllowed();
 
             this.data.layers.splice(index, 1);
             this._layerWrappers = null; // Invalidate cache
@@ -10056,6 +10150,7 @@ export class Glyph extends ArrayElementBase {
      * Remove a layer by its backing-array ID.
      */
     removeLayerById(id: string): void {
+        assertModelMutationAllowed();
         if (!this.data.layers) {
             return;
         }
@@ -10284,6 +10379,7 @@ export class FeatureVariationGlyph {
         master?: Babelfont.LayerType,
         requestedLayerId?: string | null
     ): Layer {
+        assertModelMutationAllowed();
         if (!master || master.type !== 'AssociatedWithMaster') {
             throw new Error(
                 'Feature-variation layers must be associated with a master.'
@@ -10304,6 +10400,7 @@ export class FeatureVariationGlyph {
     }
 
     removeLayer(index: number): void {
+        assertModelMutationAllowed();
         const layer = this.layers[index];
         if (layer?.id) {
             this.sourceGlyph.removeLayerById(layer.id);
@@ -10311,6 +10408,7 @@ export class FeatureVariationGlyph {
     }
 
     removeLayerById(id: string): void {
+        assertModelMutationAllowed();
         const layer = this.findLayerById(id);
         if (layer) {
             this.sourceGlyph.removeLayerById(id);
@@ -10340,6 +10438,7 @@ export class Axis extends ArrayElementBase {
     }
 
     set name(value: Babelfont.I18NDictionary) {
+        assertModelMutationAllowed();
         const old = this.data.name;
         this.data.name = value;
         recordAndMarkDirty(this, 'name', old, value);
@@ -10350,6 +10449,7 @@ export class Axis extends ArrayElementBase {
     }
 
     set tag(value: string) {
+        assertModelMutationAllowed();
         const old = this.data.tag;
         this.data.tag = value;
         recordAndMarkDirty(this, 'tag', old, value);
@@ -10360,6 +10460,7 @@ export class Axis extends ArrayElementBase {
     }
 
     set id(value: string) {
+        assertModelMutationAllowed();
         const old = this.data.id;
         this.data.id = value;
         recordAndMarkDirty(this, 'id', old, value);
@@ -10370,6 +10471,7 @@ export class Axis extends ArrayElementBase {
     }
 
     set min(value: number | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.min;
         this.data.min = value;
         recordAndMarkDirty(this, 'min', old, value);
@@ -10380,6 +10482,7 @@ export class Axis extends ArrayElementBase {
     }
 
     set max(value: number | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.max;
         this.data.max = value;
         recordAndMarkDirty(this, 'max', old, value);
@@ -10390,6 +10493,7 @@ export class Axis extends ArrayElementBase {
     }
 
     set default(value: number | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.default;
         this.data.default = value;
         recordAndMarkDirty(this, 'default', old, value);
@@ -10405,6 +10509,7 @@ export class Axis extends ArrayElementBase {
     }
 
     set map(value: [number, number][] | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.map;
         this.data.map = value;
         recordAndMarkDirty(this, 'map', old, value);
@@ -10415,6 +10520,7 @@ export class Axis extends ArrayElementBase {
     }
 
     set hidden(value: boolean | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.hidden;
         this.data.hidden = value;
         recordAndMarkDirty(this, 'hidden', old, value);
@@ -10430,6 +10536,7 @@ export class Axis extends ArrayElementBase {
     }
 
     set values(value: number[] | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.values;
         this.data.values = value;
         recordAndMarkDirty(this, 'values', old, value);
@@ -10445,6 +10552,7 @@ export class Axis extends ArrayElementBase {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.format_specific;
         this.data.format_specific = value;
         recordAndMarkDirty(this, 'format_specific', old, value);
@@ -10482,6 +10590,7 @@ export class Master extends ArrayElementBase {
     }
 
     set name(value: Babelfont.I18NDictionary) {
+        assertModelMutationAllowed();
         const old = this.data.name;
         this.data.name = value;
         recordAndMarkDirty(this, 'name', old, value);
@@ -10492,6 +10601,7 @@ export class Master extends ArrayElementBase {
     }
 
     set id(value: string) {
+        assertModelMutationAllowed();
         const old = this.data.id;
         this.data.id = value;
         recordAndMarkDirty(this, 'id', old, value);
@@ -10507,6 +10617,7 @@ export class Master extends ArrayElementBase {
     }
 
     set location(value: DesignspaceLocation | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.location;
         this.data.location = value;
         recordAndMarkDirty(this, 'location', old, value);
@@ -10533,6 +10644,7 @@ export class Master extends ArrayElementBase {
         name?: string,
         color?: Babelfont.Color
     ): Guide {
+        assertModelMutationAllowed();
         if (!this.data.guides) {
             this.data.guides = [];
         }
@@ -10545,6 +10657,8 @@ export class Master extends ArrayElementBase {
             guideData.color = color;
         }
 
+        assertModelMutationAllowed();
+
         this.data.guides.push(guideData);
         this._guideWrappers = null;
         const index = this.data.guides.length - 1;
@@ -10553,11 +10667,14 @@ export class Master extends ArrayElementBase {
     }
 
     removeGuide(index: number): void {
+        assertModelMutationAllowed();
         if (this.data.guides) {
             const removedGuide = this.data.guides[index];
             if (removedGuide === undefined) {
                 return;
             }
+
+            assertModelMutationAllowed();
 
             this.data.guides.splice(index, 1);
             this._guideWrappers = null;
@@ -10578,6 +10695,7 @@ export class Master extends ArrayElementBase {
     }
 
     set metrics(value: Record<string, number>) {
+        assertModelMutationAllowed();
         const old = this.data.metrics;
         this.data.metrics = value;
         recordAndMarkDirty(this, 'metrics', old, value);
@@ -10593,6 +10711,7 @@ export class Master extends ArrayElementBase {
     }
 
     set kerning(value: Record<string, Record<string, number>>) {
+        assertModelMutationAllowed();
         const old = this.data.kerning;
         this.data.kerning = value;
         recordAndMarkDirty(this, 'kerning', old, value);
@@ -10608,6 +10727,7 @@ export class Master extends ArrayElementBase {
     }
 
     set kerning_rtl(value: Record<string, number>) {
+        assertModelMutationAllowed();
         const old = this.data.kerning_rtl;
         this.data.kerning_rtl = value;
         const font = this.parent();
@@ -10627,6 +10747,7 @@ export class Master extends ArrayElementBase {
     }
 
     set custom_ot_values(value: Unsafe[] | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.custom_ot_values;
         this.data.custom_ot_values = value;
         recordAndMarkDirty(this, 'custom_ot_values', old, value);
@@ -10642,6 +10763,7 @@ export class Master extends ArrayElementBase {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.format_specific;
         this.data.format_specific = value;
         recordAndMarkDirty(this, 'format_specific', old, value);
@@ -10730,6 +10852,7 @@ export class Instance extends ArrayElementBase {
     }
 
     set id(value: string) {
+        assertModelMutationAllowed();
         const old = this.data.id;
         this.data.id = value;
         recordAndMarkDirty(this, 'id', old, value);
@@ -10745,6 +10868,7 @@ export class Instance extends ArrayElementBase {
     }
 
     set name(value: Babelfont.I18NDictionary) {
+        assertModelMutationAllowed();
         const old = this.data.name;
         this.data.name = value;
         recordAndMarkDirty(this, 'name', old, value);
@@ -10760,6 +10884,7 @@ export class Instance extends ArrayElementBase {
     }
 
     set location(value: DesignspaceLocation | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.location;
         this.data.location = value;
         recordAndMarkDirty(this, 'location', old, value);
@@ -10775,6 +10900,7 @@ export class Instance extends ArrayElementBase {
     }
 
     set custom_names(value: Babelfont.Names) {
+        assertModelMutationAllowed();
         const old = this.data.custom_names;
         this.data.custom_names = value;
         recordAndMarkDirty(this, 'custom_names', old, value);
@@ -10785,6 +10911,7 @@ export class Instance extends ArrayElementBase {
     }
 
     set variable(value: boolean | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.variable;
         this.data.variable = value;
         recordAndMarkDirty(this, 'variable', old, value);
@@ -10795,6 +10922,7 @@ export class Instance extends ArrayElementBase {
     }
 
     set linked_style(value: string | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.linked_style;
         this.data.linked_style = value;
         recordAndMarkDirty(this, 'linked_style', old, value);
@@ -10810,6 +10938,7 @@ export class Instance extends ArrayElementBase {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        assertModelMutationAllowed();
         const old = this.data.format_specific;
         this.data.format_specific = value;
         recordAndMarkDirty(this, 'format_specific', old, value);
@@ -10987,6 +11116,7 @@ export class Font extends ModelBase {
     }
 
     set upm(value: number) {
+        assertModelMutationAllowed();
         const old = this._data.upm;
         this._data.upm = value;
         recordAndMarkDirty(this, 'upm', old, value);
@@ -11002,6 +11132,7 @@ export class Font extends ModelBase {
     }
 
     set version(value: [number, number]) {
+        assertModelMutationAllowed();
         const old = this._data.version;
         this._data.version = value;
         recordAndMarkDirty(this, 'version', old, value);
@@ -11024,6 +11155,7 @@ export class Font extends ModelBase {
     }
 
     set axes(value: Babelfont.Axis[] | Babelfont.Axis) {
+        assertModelMutationAllowed();
         this._data.axes = value;
         this._axisWrappers = null;
     }
@@ -11046,6 +11178,7 @@ export class Font extends ModelBase {
     }
 
     set instances(value: Babelfont.Instance[] | Babelfont.Instance) {
+        assertModelMutationAllowed();
         this._data.instances = value;
         this._instanceWrappers = null;
     }
@@ -11068,6 +11201,7 @@ export class Font extends ModelBase {
     }
 
     set masters(value: Babelfont.Master[] | Babelfont.Master) {
+        assertModelMutationAllowed();
         this._data.masters = value;
         this._masterWrappers = null;
     }
@@ -11653,6 +11787,7 @@ export class Font extends ModelBase {
     }
 
     set note(value: string | undefined) {
+        assertModelMutationAllowed();
         const old = this._data.note;
         this._data.note = value;
         recordAndMarkDirty(this, 'note', old, value);
@@ -11663,6 +11798,7 @@ export class Font extends ModelBase {
     }
 
     set date(value: string) {
+        assertModelMutationAllowed();
         const old = this._data.date;
         this._data.date = value;
         recordAndMarkDirty(this, 'date', old, value);
@@ -11678,6 +11814,7 @@ export class Font extends ModelBase {
     }
 
     set names(value: Babelfont.Names) {
+        assertModelMutationAllowed();
         const old = this._data.names;
         this._data.names = value;
         recordAndMarkDirty(this, 'names', old, value);
@@ -11693,6 +11830,7 @@ export class Font extends ModelBase {
     }
 
     set custom_ot_values(value: Unsafe[] | undefined) {
+        assertModelMutationAllowed();
         const old = this._data.custom_ot_values;
         this._data.custom_ot_values = value;
         recordAndMarkDirty(this, 'custom_ot_values', old, value);
@@ -11711,6 +11849,7 @@ export class Font extends ModelBase {
     set variation_sequences(
         value: Record<number, Record<number, string>> | undefined
     ) {
+        assertModelMutationAllowed();
         const old = this._data.variation_sequences;
         this._data.variation_sequences = value;
         recordAndMarkDirty(this, 'variation_sequences', old, value);
@@ -11725,6 +11864,7 @@ export class Font extends ModelBase {
     }
 
     set features(value: Babelfont.Features) {
+        assertModelMutationAllowed();
         const old = this._data.features;
         this._data.features = value;
         recordAndMarkDirty(this, 'features', old, value);
@@ -11740,6 +11880,7 @@ export class Font extends ModelBase {
     }
 
     set first_kern_groups(value: Record<string, string[]> | undefined) {
+        assertModelMutationAllowed();
         const old = this._data.first_kern_groups;
         this._data.first_kern_groups = value;
         recordAndMarkDirty(this, 'first_kern_groups', old, value);
@@ -11755,6 +11896,7 @@ export class Font extends ModelBase {
     }
 
     set second_kern_groups(value: Record<string, string[]> | undefined) {
+        assertModelMutationAllowed();
         const old = this._data.second_kern_groups;
         this._data.second_kern_groups = value;
         recordAndMarkDirty(this, 'second_kern_groups', old, value);
@@ -11770,6 +11912,7 @@ export class Font extends ModelBase {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        assertModelMutationAllowed();
         const old = this._data.format_specific;
         this._data.format_specific = value;
         recordAndMarkDirty(this, 'format_specific', old, value);
@@ -11780,6 +11923,7 @@ export class Font extends ModelBase {
     }
 
     set source(value: string | null) {
+        assertModelMutationAllowed();
         const old = this._data.source;
         this._data.source = value;
         recordAndMarkDirty(this, 'source', old, value);
@@ -12032,6 +12176,7 @@ export class Font extends ModelBase {
      * new_glyph = font.duplicateGlyph(glyph, "A.alt")
      */
     duplicateGlyph(glyph: Glyph, newName: string): Glyph {
+        assertModelMutationAllowed();
         // Check if glyph with newName already exists
         if (this.findGlyph(newName)) {
             throw new Error(`Glyph "${newName}" already exists in the font`);
@@ -12081,6 +12226,7 @@ export class Font extends ModelBase {
         }
 
         // Add the cloned glyph to the font
+        assertModelMutationAllowed();
         this._data.glyphs.push(clonedData);
         this._glyphWrappers = null; // Invalidate cache
         this.invalidateReverseComponentIndex();
@@ -12512,12 +12658,14 @@ export class Font extends ModelBase {
         name: string,
         category: Babelfont.GlyphCategory | string = 'Base'
     ): Glyph {
+        assertModelMutationAllowed();
         const glyphData: Babelfont.Glyph = {
             name,
             category: Glyph.normalizeCategory(category),
             layers: [],
             exported: true
         };
+        assertModelMutationAllowed();
         this._data.glyphs.push(glyphData);
         this._glyphWrappers = null; // Invalidate cache
         this.invalidateReverseComponentIndex();
@@ -12531,11 +12679,13 @@ export class Font extends ModelBase {
      * font.removeGlyph("oldGlyph")
      */
     removeGlyph(name: string): boolean {
+        assertModelMutationAllowed();
         const index = this._data.glyphs.findIndex(
             (g: Unsafe) => g.name === name
         );
         if (index >= 0) {
             const removedGlyph = this._data.glyphs[index];
+            assertModelMutationAllowed();
             this._data.glyphs.splice(index, 1);
             this._glyphWrappers = null; // Invalidate cache
             this.invalidateReverseComponentIndex();

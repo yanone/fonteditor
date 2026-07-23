@@ -3781,6 +3781,37 @@ describe('Model setter change recording', () => {
 });
 
 describe('Model mutable getter change recording', () => {
+    test('rejects read-only Assistant model mutations before bridge changes', async () => {
+        const { bridge, font } = createTestBridge('read-only-model');
+        const beforeJson = yDocToJson(bridge.fontMap);
+        const {
+            runAssistantPythonExecution
+        } = require('../js/assistant-execution-context.ts');
+
+        await runAssistantPythonExecution(
+            {
+                id: 'read-only-model',
+                allowFontEdits: false,
+                historySummary: null
+            },
+            async () => {
+                expect(() => {
+                    font.upm = 2000;
+                }).toThrow('Assistant font editing is disabled');
+                expect(() => font.version.push(2)).toThrow(
+                    'Assistant font editing is disabled'
+                );
+                expect(() => font.addGlyph('blocked', 'Base')).toThrow(
+                    'Assistant font editing is disabled'
+                );
+            }
+        );
+
+        expect(font.upm).toBe(1000);
+        expect(yDocToJson(bridge.fontMap)).toEqual(beforeJson);
+        expect(bridge.getChangeLog()).toHaveLength(0);
+    });
+
     test('introspection discovers feature model mutable getters', () => {
         expect(
             GENERIC_MUTABLE_GETTER_SPECS.some(

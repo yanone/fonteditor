@@ -223,9 +223,12 @@ describe('get_editor_state text-buffer interpretation', () => {
         expect(originalRunPythonAsync).toHaveBeenCalledTimes(2);
     });
 
-    test('blocks direct Python when the prompt forbids font edits', async () => {
+    test('allows direct Python inspection when the prompt forbids font edits', async () => {
         const wrappedRunPythonAsync = jest.fn();
-        const originalRunPythonAsync = jest.fn();
+        const originalRunPythonAsync = jest
+            .fn()
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce('1000\n');
         window.pyodide = {
             runPythonAsync: wrappedRunPythonAsync,
             _originalRunPythonAsync: originalRunPythonAsync
@@ -244,10 +247,45 @@ describe('get_editor_state text-buffer interpretation', () => {
                     arguments: JSON.stringify({ code: 'print(Font().upm)' })
                 }
             })
-        ).rejects.toThrow('Assistant font editing is disabled for this prompt');
+        ).resolves.toBe('1000\n');
 
-        expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
-        expect(originalRunPythonAsync).not.toHaveBeenCalled();
+        expect(wrappedRunPythonAsync).toHaveBeenCalledWith('print(Font().upm)');
+        expect(originalRunPythonAsync).toHaveBeenCalledTimes(2);
+    });
+
+    test('creates a read-only execution context for manual Python calls', async () => {
+        const {
+            getActiveAssistantPythonExecution
+        } = require('../js/assistant-execution-context.ts');
+        const wrappedRunPythonAsync = jest.fn(async () => {
+            expect(getActiveAssistantPythonExecution()).toEqual(
+                expect.objectContaining({
+                    allowFontEdits: false,
+                    historySummary: 'Manual Assistant tool call'
+                })
+            );
+        });
+        const originalRunPythonAsync = jest
+            .fn()
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce('1000\n');
+        window.pyodide = {
+            runPythonAsync: wrappedRunPythonAsync,
+            _originalRunPythonAsync: originalRunPythonAsync
+        };
+        const assistant = new AIAssistant();
+        assistant.allowFontEdits = false;
+
+        await expect(
+            assistant.executeToolCall({
+                function: {
+                    name: 'execute_python_code',
+                    arguments: JSON.stringify({ code: 'print(Font().upm)' })
+                }
+            })
+        ).resolves.toBe('1000\n');
+
+        expect(getActiveAssistantPythonExecution()).toBeNull();
     });
 
     test('waits for the committed Python edit refresh before returning output', async () => {
@@ -668,9 +706,12 @@ describe('get_editor_state text-buffer interpretation', () => {
         );
     });
 
-    test('requires an active prompt before executing Python', async () => {
-        const wrappedRunPythonAsync = jest.fn();
-        const originalRunPythonAsync = jest.fn();
+    test('executes Python manually without an active prompt', async () => {
+        const wrappedRunPythonAsync = jest.fn().mockResolvedValue(undefined);
+        const originalRunPythonAsync = jest
+            .fn()
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce('test\n');
         window.pyodide = {
             runPythonAsync: wrappedRunPythonAsync,
             _originalRunPythonAsync: originalRunPythonAsync
@@ -684,10 +725,10 @@ describe('get_editor_state text-buffer interpretation', () => {
                     arguments: JSON.stringify({ code: 'print("test")' })
                 }
             })
-        ).rejects.toThrow('No assistant prompt is currently running');
+        ).resolves.toBe('test\n');
 
-        expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
-        expect(originalRunPythonAsync).not.toHaveBeenCalled();
+        expect(wrappedRunPythonAsync).toHaveBeenCalledWith('print("test")');
+        expect(originalRunPythonAsync).toHaveBeenCalledTimes(2);
     });
 
     test('reverts a Python tool edit only with the current revision and permission', () => {

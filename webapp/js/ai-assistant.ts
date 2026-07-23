@@ -22,7 +22,6 @@ import {
 } from './opentype-features';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import {
-    assertAssistantFontEditAllowed,
     AssistantPromptExecutionContext,
     awaitActiveAssistantPythonExecutionSettled,
     getActiveAssistantPythonExecution,
@@ -2877,14 +2876,14 @@ __counterpunch_assistant_validate_syntax(${sourceKey})`
                 const runInternalPythonAsync =
                     pyodide._originalRunPythonAsync.bind(pyodide);
 
-                const promptContext = this.activePromptContext;
-                if (!promptContext) {
-                    throw new Error('No assistant prompt is currently running');
-                }
+                const promptContext = this.activePromptContext ?? {
+                    id: `assistant-manual-tool-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    allowFontEdits: this.allowFontEdits,
+                    historySummary: 'Manual Assistant tool call'
+                };
                 return await runAssistantPythonExecution(
                     promptContext,
                     async () => {
-                        assertAssistantFontEditAllowed();
                         let output = '';
                         try {
                             // Stdout is shared Pyodide process state, so it must
