@@ -5823,8 +5823,9 @@ export class OutlineEditor {
      */
     private prepareCommittedStructuralOutlineChange(
         changeSource: string = 'keyboard-outline',
-        _options?: {
+        options?: {
             triggerCompile?: boolean;
+            layerTargets?: Array<{ glyphName: string; layerId: string }>;
         }
     ): boolean {
         const currentFont = fontManager.currentFont;
@@ -5834,7 +5835,10 @@ export class OutlineEditor {
 
         try {
             if (Array.isArray(currentFont.babelfontData?.glyphs)) {
-                for (const target of this.getCurrentGlyphStructuralLayerTargets()) {
+                const layerTargets =
+                    options?.layerTargets ||
+                    this.getCurrentGlyphStructuralLayerTargets();
+                for (const target of layerTargets) {
                     if (
                         !fontManager.syncLayerFromModelToStorage(
                             target.glyphName,
@@ -5858,6 +5862,18 @@ export class OutlineEditor {
         currentFont.markDirty?.(changeSource);
         void fontManager.updateDirtyIndicator();
         return true;
+    }
+
+    /** Persist all linked structural component targets before committing Yjs. */
+    prepareComponentStructuralChange(
+        layerTargets: Array<{ glyphName: string; layerId: string }>
+    ): boolean {
+        return this.prepareCommittedStructuralOutlineChange(
+            'keyboard-outline',
+            {
+                layerTargets
+            }
+        );
     }
 
     private getCurrentMasterModel(): any | null {
@@ -14303,6 +14319,12 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const structuralLayerTargets = [currentLayerModel, ...linkedLayers]
+            .filter((layerModel) => !!layerModel.id)
+            .map((layerModel) => ({
+                glyphName: currentGlyphModel.name,
+                layerId: layerModel.id!
+            }));
         const bridge = window.patchSyncEngine;
         let insertedNodeIndex: number | null = null;
 
@@ -15939,6 +15961,12 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const structuralLayerTargets = [currentLayerModel, ...linkedLayers]
+            .filter((layer) => !!layer.id)
+            .map((layer) => ({
+                glyphName: currentGlyphModel.name,
+                layerId: layer.id!
+            }));
         const previousGlyphSnapshot = this.cloneLayerData(
             currentGlyphModel.toJSON()
         ) as Record<string, unknown>;
@@ -15958,7 +15986,9 @@ export class OutlineEditor {
                 linkedPath?._openClosedPathAtNode(point.nodeIndex);
             }
 
-            this.prepareCommittedStructuralOutlineChange();
+            this.prepareCommittedStructuralOutlineChange('keyboard-outline', {
+                layerTargets: structuralLayerTargets
+            });
         } finally {
             if (_openBridge) _openBridge.endTransaction();
         }
@@ -17471,13 +17501,17 @@ export class OutlineEditor {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const hasPointSelection = this.selectedPoints.length > 0;
         const hasAnchorSelection = this.selectedAnchors.length > 0;
+        const hasComponentSelection = this.selectedComponents.length > 0;
         const hasGuideSelection = this.selectedGuideHandle !== null;
 
         if (
             !currentLayerModel ||
             !currentGlyphModel ||
             !currentLayerData ||
-            (!hasPointSelection && !hasAnchorSelection && !hasGuideSelection)
+            (!hasPointSelection &&
+                !hasAnchorSelection &&
+                !hasComponentSelection &&
+                !hasGuideSelection)
         ) {
             return;
         }
@@ -17492,6 +17526,12 @@ export class OutlineEditor {
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
         const bridge = window.patchSyncEngine;
+        const structuralLayerTargets = [currentLayerModel, ...linkedLayers]
+            .filter((layer) => !!layer.id)
+            .map((layer) => ({
+                glyphName: currentGlyphModel.name,
+                layerId: layer.id!
+            }));
         const fullContourIndices = new Set<number>();
 
         // Sort indices in descending order for each path (to maintain validity during deletion)
@@ -17556,6 +17596,16 @@ export class OutlineEditor {
             currentLayerData.anchors || []
         );
 
+        const selectedComponentIndicesDescending = [
+            ...new Set(this.selectedComponents)
+        ]
+            .filter(
+                (shapeIndex) =>
+                    Number.isInteger(shapeIndex) &&
+                    currentLayerModel.shapes?.[shapeIndex]?.isComponent()
+            )
+            .sort((left, right) => right - left);
+
         const selectedGuideHandle = this.selectedGuideHandle
             ? { ...this.selectedGuideHandle }
             : null;
@@ -17566,9 +17616,14 @@ export class OutlineEditor {
                 : null;
 
         // Perform deletions with granular recording inside a transaction
-        const _delBridge =
-            (window as any).patchSyncEngine ?? (window as any).changeBridge;
-        if (_delBridge) _delBridge.beginTransaction('Delete point(s)');
+        const deletionLabel =
+            selectedComponentIndicesDescending.length > 0 &&
+            !hasPointSelection &&
+            !hasAnchorSelection &&
+            !hasGuideSelection
+                ? 'Delete component(s)'
+                : 'Delete point(s)';
+        bridge?.beginTransaction(deletionLabel);
         try {
             const deleteContourFromLayer = (layerModel: Layer): void => {
                 for (const pathIndex of contourIndicesDescending) {
@@ -17588,6 +17643,14 @@ export class OutlineEditor {
                     }
 
                     shape.asPath()._deleteNodes(nodeIndices);
+                }
+            };
+
+            const deleteComponentsFromLayer = (layerModel: Layer): void => {
+                for (const shapeIndex of selectedComponentIndicesDescending) {
+                    if (layerModel.shapes?.[shapeIndex]?.isComponent()) {
+                        layerModel.removeShape(shapeIndex);
+                    }
                 }
             };
 
@@ -17640,6 +17703,7 @@ export class OutlineEditor {
             };
 
             deleteContourFromLayer(currentLayerModel);
+            deleteComponentsFromLayer(currentLayerModel);
             selectedAnchorIndicesDescending.forEach((anchorIndex) =>
                 currentLayerModel.removeAnchor(anchorIndex)
             );
@@ -17653,21 +17717,28 @@ export class OutlineEditor {
 
             for (const linkedLayer of linkedLayers) {
                 deleteContourFromLayer(linkedLayer);
+                deleteComponentsFromLayer(linkedLayer);
                 removeAnchorsByName(linkedLayer);
                 removeSelectedGuideFromLayer(linkedLayer);
             }
 
-            this.prepareCommittedStructuralOutlineChange();
+            this.prepareCommittedStructuralOutlineChange('keyboard-outline', {
+                layerTargets: structuralLayerTargets
+            });
         } finally {
-            if (_delBridge) _delBridge.endTransaction();
+            bridge?.endTransaction();
         }
 
         const deletedPathGeometry = pointsByPath.size > 0;
+        const deletedComponentStructure =
+            selectedComponentIndicesDescending.length > 0;
+        const deletedStructuralGeometry =
+            deletedPathGeometry || deletedComponentStructure;
         let affectedGlyphNames = new Set<string>(
             [currentGlyphModel.name].filter(Boolean) as string[]
         );
         let bboxCenterAnchorScreen: { x: number; y: number } | null = null;
-        if (deletedPathGeometry) {
+        if (deletedStructuralGeometry) {
             this.syncCurrentExactLayerDataFromModel();
             bboxCenterAnchorScreen = this.getBoundingBoxCenterScreenPosition();
             affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
@@ -17676,7 +17747,7 @@ export class OutlineEditor {
         }
 
         this.syncStructuralGlyphChangeTransaction(
-            'Delete point(s)',
+            deletionLabel,
             currentGlyphModel.name,
             affectedGlyphNames,
             { layerId: null, skipGlyphSnapshot: true }
@@ -17684,7 +17755,7 @@ export class OutlineEditor {
 
         this.syncCurrentExactLayerDataFromModel();
 
-        if (deletedPathGeometry) {
+        if (deletedStructuralGeometry) {
             this.refreshKeyedMetricsAfterStructuralEdit(
                 affectedGlyphNames,
                 bboxCenterAnchorScreen
@@ -18202,11 +18273,12 @@ export class OutlineEditor {
             }
         }
 
-        // Handle Delete/Backspace for node deletion
+        // Handle Delete/Backspace for structural selection deletion.
         if (e.key === 'Delete' || e.key === 'Backspace') {
             if (
                 this.selectedPoints.length > 0 ||
                 this.selectedAnchors.length > 0 ||
+                this.selectedComponents.length > 0 ||
                 this.selectedGuideHandle
             ) {
                 e.preventDefault();

@@ -18316,3 +18316,273 @@ describe('GlyphCanvas cleanup', () => {
         expect(() => canvas.destroy()).not.toThrow();
     });
 });
+
+describe('Linked component structural edits', () => {
+    let canvas;
+    let currentFontSpy;
+    let dirtyIndicatorSpy;
+    let syncLayerToStorageSpy;
+
+    const makeLinkedComponentFont = () =>
+        Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'sourceA',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'sourceA-layer',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [{ name: 'top', x: 250, y: 700 }],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'sourceB',
+                    category: 'Mark',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'sourceB-layer',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [{ name: '_top', x: 300, y: 680 }],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'sourceC',
+                    category: 'Mark',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'sourceC-layer',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [{ name: '_top', x: 300, y: 650 }],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            linked: true,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    reference: 'sourceA',
+                                    transform: [1, 0, 0, 1, 0, 0],
+                                    format_specific: {
+                                        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: 1
+                                    }
+                                },
+                                {
+                                    reference: 'sourceB',
+                                    transform: [1, 0, 0, 1, 0, 0],
+                                    format_specific: {
+                                        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: 1
+                                    }
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            linked: true,
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            location: { wght: 50 },
+                            shapes: [
+                                {
+                                    reference: 'sourceA',
+                                    transform: [1, 0, 0, 1, 0, 0],
+                                    format_specific: {
+                                        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: 1
+                                    }
+                                },
+                                {
+                                    reference: 'sourceB',
+                                    transform: [1, 0, 0, 1, 0, 0],
+                                    format_specific: {
+                                        [GLYPHS_COMPONENT_ALIGNMENT_KEY]: 1
+                                    }
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: { family_name: { en: 'Linked Component Test' } },
+            note: '',
+            date: '2026-05-01',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        const font = makeLinkedComponentFont();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                fontModel: font,
+                hasUnsavedChanges: false,
+                isCloudBacked: () => false,
+                babelfontData: { glyphs: [] }
+            });
+        dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        syncLayerToStorageSpy = jest
+            .spyOn(fontManager, 'syncLayerFromModelToStorage')
+            .mockReturnValue(true);
+        window.currentFontModel = font;
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(
+                font.findGlyph('A').findLayerById('layer-1').toJSON()
+            )
+        );
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.finalizeComponentPropertyPanelMutation = jest
+            .fn()
+            .mockResolvedValue();
+        window.patchSyncEngine = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn()
+        };
+    });
+
+    afterEach(() => {
+        syncLayerToStorageSpy.mockRestore();
+        dirtyIndicatorSpy.mockRestore();
+        currentFontSpy.mockRestore();
+        canvas.destroy();
+    });
+
+    test('adds a component at the same shape index across linked layers', async () => {
+        const font = fontManager.currentFont.fontModel;
+        const [activeLayer, linkedLayer] = font.findGlyph('A').layers;
+
+        await canvas.addComponentAtPosition(activeLayer, 'sourceB', {
+            x: 45,
+            y: 70
+        });
+
+        expect(activeLayer.shapes).toHaveLength(3);
+        expect(linkedLayer.shapes).toHaveLength(3);
+        expect(activeLayer.components[2].reference).toBe('sourceB');
+        expect(linkedLayer.components[2].reference).toBe('sourceB');
+        expect(canvas.outlineEditor.selectedComponents).toEqual([2]);
+        expect(syncLayerToStorageSpy).toHaveBeenCalledWith('A', 'layer-1');
+        expect(syncLayerToStorageSpy).toHaveBeenCalledWith('A', 'layer-2');
+        const finalStorageSyncCall = Math.max(
+            ...syncLayerToStorageSpy.mock.invocationCallOrder
+        );
+        expect(
+            window.patchSyncEngine.endTransaction.mock.invocationCallOrder[0]
+        ).toBeGreaterThan(finalStorageSyncCall);
+    });
+
+    test('replaces linked automatic components and recomposes their placement', async () => {
+        const font = fontManager.currentFont.fontModel;
+        const [activeLayer, linkedLayer] = font.findGlyph('A').layers;
+        const activeComponent = activeLayer.components[1];
+        canvas.outlineEditor.selectedComponents = [1];
+
+        await canvas.commitComponentReferenceChange(
+            activeLayer,
+            activeComponent,
+            'sourceC'
+        );
+
+        expect(activeLayer.components[1].reference).toBe('sourceC');
+        expect(linkedLayer.components[1].reference).toBe('sourceC');
+        expect(activeLayer.components[1].toAffineArray().slice(4)).toEqual([
+            -50, 50
+        ]);
+        expect(linkedLayer.components[1].toAffineArray().slice(4)).toEqual([
+            -50, 50
+        ]);
+    });
+
+    test.each(['Delete', 'Backspace'])(
+        '%s removes selected components across linked layers',
+        async (key) => {
+            const font = fontManager.currentFont.fontModel;
+            const [activeLayer, linkedLayer] = font.findGlyph('A').layers;
+            canvas.outlineEditor.selectedComponents = [1];
+
+            const event = {
+                key,
+                preventDefault: jest.fn(),
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false
+            };
+
+            await canvas.outlineEditor.onKeyDown(event);
+
+            expect(event.preventDefault).toHaveBeenCalled();
+            expect(activeLayer.shapes).toHaveLength(1);
+            expect(linkedLayer.shapes).toHaveLength(1);
+            expect(activeLayer.components[0].reference).toBe('sourceA');
+            expect(linkedLayer.components[0].reference).toBe('sourceA');
+            expect(canvas.outlineEditor.selectedComponents).toEqual([]);
+        }
+    );
+});

@@ -4674,15 +4674,58 @@ class GlyphCanvas {
             return;
         }
 
+        const componentIndex = layer.shapes?.findIndex(
+            (shape) => shape.isComponent() && shape.asComponent() === component
+        );
+        const selectedComponentIndex =
+            this.outlineEditor.selectedComponents.find((shapeIndex) => {
+                const shape = layer.shapes?.[shapeIndex];
+                if (!shape?.isComponent()) {
+                    return false;
+                }
+
+                return component.id
+                    ? shape.asComponent().id === component.id
+                    : shape.asComponent().reference === component.reference;
+            });
+        const targetComponentIndex =
+            componentIndex !== undefined && componentIndex >= 0
+                ? componentIndex
+                : selectedComponentIndex;
+        if (targetComponentIndex === undefined) {
+            return;
+        }
+
+        const linkedLayers = layer._getLinkedLayers?.() || [];
+        const targetComponents = [layer, ...linkedLayers].map(
+            (targetLayer) => targetLayer.shapes?.[targetComponentIndex]
+        );
+        if (targetComponents.some((shape) => !shape?.isComponent())) {
+            return;
+        }
+
+        const structuralLayerTargets = [layer, ...linkedLayers]
+            .filter((targetLayer) => !!targetLayer.id)
+            .map((targetLayer) => ({
+                glyphName,
+                layerId: targetLayer.id!
+            }));
         const affectedGlyphNames = new Set<string>([glyphName]);
         window.patchSyncEngine?.beginTransaction('Replace component reference');
         try {
-            component.reference = reference;
+            for (const targetComponent of targetComponents) {
+                if (targetComponent?.isComponent()) {
+                    targetComponent.asComponent().reference = reference;
+                }
+            }
             for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
                 new Set([glyphName])
             ) || []) {
                 affectedGlyphNames.add(affectedGlyphName);
             }
+            this.outlineEditor.prepareComponentStructuralChange(
+                structuralLayerTargets
+            );
         } finally {
             window.patchSyncEngine?.endTransaction();
         }
@@ -4741,22 +4784,35 @@ class GlyphCanvas {
             return;
         }
 
+        const linkedLayers = activeLayer._getLinkedLayers?.() || [];
+        const transform: [number, number, number, number, number, number] = [
+            1,
+            0,
+            0,
+            1,
+            position.x,
+            position.y
+        ];
+        const structuralLayerTargets = [activeLayer, ...linkedLayers]
+            .filter((targetLayer) => !!targetLayer.id)
+            .map((targetLayer) => ({
+                glyphName,
+                layerId: targetLayer.id!
+            }));
         const affectedGlyphNames = new Set<string>([glyphName]);
         window.patchSyncEngine?.beginTransaction('Add component');
         try {
-            activeLayer.addComponent(reference, [
-                1,
-                0,
-                0,
-                1,
-                position.x,
-                position.y
-            ]);
+            for (const targetLayer of [activeLayer, ...linkedLayers]) {
+                targetLayer.addComponent(reference, transform);
+            }
             for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
                 new Set([glyphName])
             ) || []) {
                 affectedGlyphNames.add(affectedGlyphName);
             }
+            this.outlineEditor.prepareComponentStructuralChange(
+                structuralLayerTargets
+            );
         } finally {
             window.patchSyncEngine?.endTransaction();
         }
