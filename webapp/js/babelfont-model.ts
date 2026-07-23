@@ -4249,7 +4249,11 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         );
     }
 
-    _addPoint(segmentId: number, t: number): number | null {
+    _addPoint(
+        segmentId: number,
+        t: number,
+        roundCoordinates: boolean = false
+    ): number | null {
         return this.withLayerFingerprintChangeEvent(() => {
             const nodeArray = this.getMutableNodeArray();
             const descriptors = buildPathSegmentDescriptors({
@@ -4271,6 +4275,12 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 t,
                 this.closed
             );
+            if (roundCoordinates) {
+                for (const node of mutation.nodes) {
+                    node.x = Math.round(node.x);
+                    node.y = Math.round(node.y);
+                }
+            }
 
             this.data.nodes = mutation.nodes;
             this._nodeWrappers = null;

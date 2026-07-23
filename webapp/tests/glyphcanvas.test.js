@@ -5,6 +5,7 @@ const {
     Layer,
     DecomposedAffineTransform
 } = require('../js/babelfont-model');
+const { parseNodeString } = require('../js/node-encoding');
 const { PatchSyncEngine } = require('../js/patch-sync-engine');
 const { yDocToJson } = require('../js/change-bridge-ydoc');
 const fontManager = require('../js/font-manager').default;
@@ -9705,6 +9706,17 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(bridge.recordChange).toHaveBeenCalledTimes(2);
+            for (const [, property, , nodes] of bridge.recordChange.mock
+                .calls) {
+                expect(property).toBe('nodes');
+                expect(
+                    parseNodeString(nodes).every(
+                        (node) =>
+                            Number.isInteger(node.x) && Number.isInteger(node.y)
+                    )
+                ).toBe(true);
+            }
             expect(
                 currentLayer.paths[0].nodes.every(
                     (node) =>
@@ -9719,6 +9731,36 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             ).toBe(true);
             expect(currentLayer.paths[0].nodes.length).toBeGreaterThan(4);
             expect(linkedLayer.paths[0].nodes.length).toBeGreaterThan(4);
+
+            const linkedAddPointSpy = jest.spyOn(
+                linkedLayer.paths[0],
+                '_addPoint'
+            );
+            bridge.recordChange.mockClear();
+            canvas.outlineEditor.hoveredAddPointPreview = {
+                shapeIndex: 0,
+                pathIndex: 0,
+                segmentId: 999,
+                t: 0.5,
+                point: { x: 50, y: 45 },
+                segments: []
+            };
+
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(linkedAddPointSpy).not.toHaveBeenCalled();
+            expect(bridge.recordChange).not.toHaveBeenCalled();
+            linkedAddPointSpy.mockRestore();
         } finally {
             window.changeBridge = originalBridge;
             window.currentFontModel = originalFontModel;

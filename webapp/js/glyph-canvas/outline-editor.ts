@@ -14303,36 +14303,24 @@ export class OutlineEditor {
         const bridge = window.patchSyncEngine;
         let insertedNodeIndex: number | null = null;
 
-        const roundPathNodesToGrid = (
-            path: { nodes?: Babelfont.Node[] } | null | undefined
-        ): void => {
-            if (!path?.nodes) {
-                return;
-            }
-
-            for (const node of path.nodes) {
-                node.x = Math.round(node.x);
-                node.y = Math.round(node.y);
-            }
-        };
-
         const _addPtBridge =
             (window as any).patchSyncEngine ?? (window as any).changeBridge;
         if (_addPtBridge) _addPtBridge.beginTransaction('Add point');
         try {
             insertedNodeIndex = activePath._addPoint(
                 preview.segmentId,
-                preview.t
+                preview.t,
+                true
             );
-            roundPathNodesToGrid(activePath);
 
-            for (const linkedLayer of linkedLayers) {
-                const linkedPath = linkedLayer.paths?.[preview.pathIndex];
-                if (!linkedPath) {
-                    continue;
+            if (insertedNodeIndex !== null) {
+                for (const linkedLayer of linkedLayers) {
+                    const linkedPath = linkedLayer.paths?.[preview.pathIndex];
+                    if (!linkedPath) {
+                        continue;
+                    }
+                    linkedPath._addPoint(preview.segmentId, preview.t, true);
                 }
-                linkedPath._addPoint(preview.segmentId, preview.t);
-                roundPathNodesToGrid(linkedPath);
             }
 
             if (insertedNodeIndex !== null) {
