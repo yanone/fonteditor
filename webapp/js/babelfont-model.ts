@@ -3113,6 +3113,7 @@ function getModelFormatSpecific(
 function ensureModelFormatSpecific(
     modelObj: ModelBase
 ): Record<string, Unsafe> {
+    assertModelMutationAllowed();
     const data = modelObj.toJSON() as {
         format_specific?: Record<string, Unsafe>;
     };
@@ -3136,6 +3137,7 @@ function setFormatSpecificKey(
     key: string,
     value: string | undefined
 ): void {
+    assertModelMutationAllowed();
     const data = modelObj.toJSON() as {
         format_specific?: Record<string, Unsafe>;
     };
@@ -3749,6 +3751,7 @@ function getReadOnlyCollectionValue<T>(value: T, errorMessage: string): T {
                 throw new TypeError(errorMessage);
             }
 
+            assertModelMutationAllowed();
             return Reflect.set(target, key, nextValue, receiver);
         },
 
@@ -3757,6 +3760,7 @@ function getReadOnlyCollectionValue<T>(value: T, errorMessage: string): T {
                 throw new TypeError(errorMessage);
             }
 
+            assertModelMutationAllowed();
             return Reflect.deleteProperty(target, key);
         }
     });
@@ -4154,6 +4158,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     set nodes(value: Babelfont.Node[]) {
         assertModelMutationAllowed();
         this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             const old = this.getMutableNodeArray().map((node) =>
                 cloneNodeData(node)
             );
@@ -4170,6 +4175,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     set closed(value: boolean) {
         assertModelMutationAllowed();
         this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             const old = this.data.closed;
             this.data.closed = value;
             recordAndMarkDirty(this, 'closed', old, value);
@@ -4274,6 +4280,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         roundCoordinates: boolean = false
     ): number | null {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             const nodeArray = this.getMutableNodeArray();
             const descriptors = buildPathSegmentDescriptors({
                 nodes: nodeArray,
@@ -4313,6 +4320,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         edge: 'start' | 'end' = 'end'
     ): number | null {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             if (
                 !point ||
                 !Number.isFinite(point.x) ||
@@ -4374,6 +4382,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _closeOpenPath(): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             if (this.closed) {
                 return false;
             }
@@ -4421,6 +4430,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      */
     _closeOpenPathByMerge(): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             if (this.closed) {
                 return false;
             }
@@ -4475,6 +4485,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      */
     _openClosedPathAtNode(nodeIndex: number): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             if (!this.closed) {
                 return false;
             }
@@ -4524,6 +4535,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _splitOpenPathAtNode(nodeIndex: number): Babelfont.Path | null {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             if (this.closed) {
                 return null;
             }
@@ -4552,6 +4564,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _setStartNode(nodeIndex: number): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             if (!this.closed) {
                 return false;
             }
@@ -4591,6 +4604,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _reverseDirection(): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             const nodeArray = this.getMutableNodeArray();
             if (nodeArray.length < 2) {
                 return false;
@@ -4690,6 +4704,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _convertLineSegmentToCurve(segmentId: number): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             const nodeArray = this.getMutableNodeArray();
             const descriptors = buildPathSegmentDescriptors({
                 nodes: nodeArray,
@@ -4754,6 +4769,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         targetPoint: { x: number; y: number }
     ): { insertedNodeIndex: number; changed: boolean; t: number } | null {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             const nodeArray = this.getMutableNodeArray();
             const oldNodes = nodeArray.map((node) => cloneNodeData(node));
             const mutation = buildSmoothPointSlideMutation(
@@ -4795,6 +4811,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         t: number
     ): { insertedNodeIndex: number; changed: boolean; t: number } | null {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             const nodeArray = this.getMutableNodeArray();
             const oldNodes = nodeArray.map((node) => cloneNodeData(node));
             const mutation = buildSmoothPointSlideMutationAtT(
@@ -4839,6 +4856,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      */
     _deleteNode(nodeIndex: number): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             const nodeArray = this.getMutableNodeArray();
             if (nodeIndex < 0 || nodeIndex >= nodeArray.length) {
                 return false;
@@ -4865,6 +4883,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     _deleteNodes(nodeIndices: number[]): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             const nodeArray = this.getMutableNodeArray();
             const validNodeIndices = [...new Set(nodeIndices)]
                 .filter(
@@ -5576,6 +5595,7 @@ export class Shape extends ArrayElementBase {
             get: () =>
                 'Component' in this.data ? this.data.Component : this.data,
             set: (value) => {
+                assertModelMutationAllowed();
                 if ('Component' in this.data) {
                     this.data.Component = value;
                 } else {
@@ -5601,6 +5621,7 @@ export class Shape extends ArrayElementBase {
         Object.defineProperty(fakeArray, '0', {
             get: () => ('Path' in this.data ? this.data.Path : this.data),
             set: (value) => {
+                assertModelMutationAllowed();
                 if ('Path' in this.data) {
                     this.data.Path = value;
                 } else {
@@ -5743,6 +5764,7 @@ export class Layer extends ArrayElementBase {
         guides?: Unsafe[];
         format_specific?: Record<string, Unsafe>;
     }): void {
+        assertModelMutationAllowed();
         this.data.width = layerData.width;
         if (layerData.height !== undefined) {
             this.data.height = layerData.height;
@@ -7964,6 +7986,7 @@ export class Layer extends ArrayElementBase {
     addShape(shape: Babelfont.Shape): Shape {
         assertModelMutationAllowed();
         return this.withFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             if (this.is_background && !('nodes' in shape)) {
                 throw new Error('Background layers can only contain paths');
             }
@@ -8148,6 +8171,7 @@ export class Layer extends ArrayElementBase {
     insertShapeAt(index: number, shape: Babelfont.Shape): Shape {
         assertModelMutationAllowed();
         return this.withFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             if (!this.data.shapes) {
                 this.data.shapes = [];
             }
@@ -8175,6 +8199,7 @@ export class Layer extends ArrayElementBase {
         nodeIndex: number
     ): { shapeIndex: number; insertedShapeIndex: number } | null {
         return this.withFingerprintChangeEvent(() => {
+            assertModelMutationAllowed();
             const shapeIndex = this.resolvePathShapeIndex(pathOrIndex);
             if (shapeIndex === null) {
                 return null;
@@ -9602,6 +9627,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     private appendRawLayer(layerData: Babelfont.Layer): Layer {
+        assertModelMutationAllowed();
         if (!this.data.layers) {
             this.data.layers = [];
         }
@@ -10770,6 +10796,7 @@ export class Master extends ArrayElementBase {
     }
 
     async reinterpolateLayers(): Promise<void> {
+        assertModelMutationAllowed();
         const outlineEditor =
             typeof window !== 'undefined'
                 ? (window as Unsafe).glyphCanvas?.outlineEditor
@@ -12431,6 +12458,7 @@ export class Font extends ModelBase {
     }
 
     private setLocalMastersList(nextMasters: Babelfont.Master[]): void {
+        assertModelMutationAllowed();
         this._data.masters = nextMasters;
         this._masterWrappers = null;
     }
@@ -12439,6 +12467,7 @@ export class Font extends ModelBase {
         master?: Babelfont.Master,
         options?: AddMasterOptions
     ): Promise<Master | null> {
+        assertModelMutationAllowed();
         const clonedMaster = this.clonePlainValue(
             master ?? this.buildDefaultMasterRecord(options)
         );
@@ -12538,6 +12567,7 @@ export class Font extends ModelBase {
     }
 
     async removeMastersByIds(masterIds: string[]): Promise<boolean> {
+        assertModelMutationAllowed();
         const normalizedMasterIds = Array.from(
             new Set(
                 masterIds.filter(

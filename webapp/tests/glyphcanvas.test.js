@@ -8965,14 +8965,12 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
             expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
-            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
-            expect(fontManager.lastEditType).toBe('outline');
+            expect(fontManager.lastChangeSource).toBeNull();
+            expect(fontManager.lastEditType).toBeNull();
+            expect(scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
-                scheduleFullCompileDebounceSpy.mock.calls.length
-            ).toBeGreaterThanOrEqual(2);
-            expect(
-                window.autoCompileManager.checkAndSchedule.mock.calls.length
-            ).toBeGreaterThanOrEqual(2);
+                window.autoCompileManager.checkAndSchedule
+            ).not.toHaveBeenCalled();
             expect(currentLayer.paths[0].closed).toBe(true);
             expect(linkedLayer.paths[0].closed).toBe(true);
             expect(
@@ -9865,7 +9863,7 @@ describe('OutlineEditor structural outline compile scheduling', () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
-    test('cmd path close recompiles immediately on the latest structural data before key release', async () => {
+    test('cmd path close syncs the latest structural data before key release', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -9975,12 +9973,12 @@ describe('OutlineEditor structural outline compile scheduling', () => {
 
             expect(env.bridge.beginTransaction).not.toHaveBeenCalled();
             expect(currentLayer.paths[0].closed).toBe(true);
-            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
-            expect(fontManager.lastEditType).toBe('outline');
-            expect(env.scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(fontManager.lastChangeSource).toBeNull();
+            expect(fontManager.lastEditType).toBeNull();
+            expect(env.scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(1);
+            ).not.toHaveBeenCalled();
             expect(env.currentFont.markDirty).toHaveBeenCalledWith(
                 'keyboard-outline'
             );
@@ -9989,16 +9987,12 @@ describe('OutlineEditor structural outline compile scheduling', () => {
                 'A',
                 'layer-1'
             );
-            expect(env.workerCacheSpy).toHaveBeenCalled();
-            expect(
-                env.structuralLayerSyncSpy.mock.invocationCallOrder[0]
-            ).toBeLessThan(env.workerCacheSpy.mock.invocationCallOrder[0]);
         } finally {
             env.restore();
         }
     });
 
-    test('opening a closed path recompiles immediately on synced outline data', async () => {
+    test('opening a closed path syncs outline data before its committed packet', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -10077,19 +10071,18 @@ describe('OutlineEditor structural outline compile scheduling', () => {
             await flushStructuralCompileTick();
 
             expect(currentLayer.paths[0].closed).toBe(false);
-            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
-            expect(fontManager.lastEditType).toBe('outline');
-            expect(env.scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(fontManager.lastChangeSource).toBeNull();
+            expect(fontManager.lastEditType).toBeNull();
+            expect(env.scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(1);
-            expect(env.workerCacheSpy).toHaveBeenCalled();
+            ).not.toHaveBeenCalled();
         } finally {
             env.restore();
         }
     });
 
-    test('alt line-to-curve conversion recompiles immediately before alt release', async () => {
+    test('alt line-to-curve conversion syncs data before alt release', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -10182,28 +10175,24 @@ describe('OutlineEditor structural outline compile scheduling', () => {
             await flushStructuralCompileTick();
 
             expect(env.bridge.beginTransaction).not.toHaveBeenCalled();
-            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
-            expect(fontManager.lastEditType).toBe('outline');
-            expect(env.scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(fontManager.lastChangeSource).toBeNull();
+            expect(fontManager.lastEditType).toBeNull();
+            expect(env.scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(1);
+            ).not.toHaveBeenCalled();
             expect(env.currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(env.structuralLayerSyncSpy).toHaveBeenCalledWith(
                 'A',
                 'layer-1'
             );
-            expect(env.workerCacheSpy).toHaveBeenCalled();
-            expect(
-                env.structuralLayerSyncSpy.mock.invocationCallOrder[0]
-            ).toBeLessThan(env.workerCacheSpy.mock.invocationCallOrder[0]);
         } finally {
             segmentHitSpy.mockRestore();
             env.restore();
         }
     });
 
-    test('point insertion recompiles immediately on synced outline data', async () => {
+    test('point insertion syncs outline data before its committed packet', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -10293,19 +10282,18 @@ describe('OutlineEditor structural outline compile scheduling', () => {
 
             await flushStructuralCompileTick();
 
-            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
-            expect(fontManager.lastEditType).toBe('outline');
-            expect(env.scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(fontManager.lastChangeSource).toBeNull();
+            expect(fontManager.lastEditType).toBeNull();
+            expect(env.scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(1);
-            expect(env.workerCacheSpy).toHaveBeenCalled();
+            ).not.toHaveBeenCalled();
         } finally {
             env.restore();
         }
     });
 
-    test('point deletion recompiles immediately on synced outline data', async () => {
+    test('point deletion syncs outline data before its committed packet', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -10379,13 +10367,12 @@ describe('OutlineEditor structural outline compile scheduling', () => {
             await canvas.outlineEditor.deleteSelectedNodes();
             await flushStructuralCompileTick();
 
-            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
-            expect(fontManager.lastEditType).toBe('outline');
-            expect(env.scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(fontManager.lastChangeSource).toBeNull();
+            expect(fontManager.lastEditType).toBeNull();
+            expect(env.scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(1);
-            expect(env.workerCacheSpy).toHaveBeenCalled();
+            ).not.toHaveBeenCalled();
         } finally {
             env.restore();
         }
@@ -15358,7 +15345,7 @@ describe('OutlineEditor exact selected layers', () => {
         expect(braceRow.getAttribute('data-glyph-name')).toBe('A');
     });
 
-    test('reinterpolateLayerById batches delete and recreate into one deferred compile transaction', async () => {
+    test('reinterpolateLayerById batches delete and recreate into one committed transaction', async () => {
         const font = makeComponentFont();
         const currentFont = {
             fontModel: font,
@@ -15417,7 +15404,7 @@ describe('OutlineEditor exact selected layers', () => {
             expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
             expect(fontManager.lastEditType).toBe('outline');
-            expect(scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).not.toHaveBeenCalled();
