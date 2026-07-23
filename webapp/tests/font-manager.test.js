@@ -1165,81 +1165,12 @@ describe('FontManager saveLayerData', () => {
         expect(detail.layerId).toBeUndefined();
     });
 
-    test('updateWorkerFontCache batches the incremental post-drag layer refresh', async () => {
-        const currentFont = fontManager.currentFont;
-        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
-
+    test('updateWorkerFontCache waits without sending a second layer update', async () => {
         fontManager.pendingBabelfontJsonSyncAfterDrag = true;
-        window.glyphCanvas = {
-            outlineEditor: {
-                currentGlyphName: 'a',
-                selectedLayerId: layerId
-            },
-            getCurrentGlyphName: jest.fn(() => 'a')
-        };
-        window.currentFontModel = currentFont.fontModel;
+        await fontManager.updateWorkerFontCache();
 
-        try {
-            await fontManager.updateWorkerFontCache();
-        } finally {
-            delete window.glyphCanvas;
-            delete window.currentFontModel;
-        }
-
-        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
-        expect(sendMessageSpy).toHaveBeenCalledWith(
-            expect.objectContaining({
-                type: 'applyYjsUpdate',
-                invalidateLayoutClosure: false,
-                update: expect.any(Uint8Array),
-                changedGlyphs: ['a']
-            })
-        );
-        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
-    });
-
-    test('updateWorkerFontCache batches a materialized background layer', async () => {
-        const currentFont = fontManager.currentFont;
-        const glyph = currentFont.fontModel.findGlyph('a');
-        const foreground = glyph.addLayer(600);
-        const background = glyph.addBackgroundLayer(foreground);
-        const path = background.addPath(false);
-        path._appendLine({ x: 100, y: 200 });
-        expect(glyph.layers.some((layer) => layer.id === background.id)).toBe(
-            false
-        );
-        expect(glyph.findLayerById(background.id)?.is_background).toBe(true);
-        const submitLayerUpdatesSpy = jest
-            .spyOn(fontManager, 'submitLayerUpdatesToWorkerCache')
-            .mockResolvedValue(true);
-
-        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
-        window.glyphCanvas = {
-            outlineEditor: {
-                currentGlyphName: 'a',
-                selectedLayerId: background.id
-            },
-            getCurrentGlyphName: jest.fn(() => 'a')
-        };
-
-        try {
-            await fontManager.updateWorkerFontCache();
-
-            expect(submitLayerUpdatesSpy).toHaveBeenCalledWith([
-                expect.objectContaining({
-                    glyphName: 'a',
-                    layerId: background.id,
-                    layerData: expect.objectContaining({
-                        id: background.id,
-                        is_background: true
-                    })
-                })
-            ]);
-            expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
-        } finally {
-            delete window.glyphCanvas;
-            submitLayerUpdatesSpy.mockRestore();
-        }
+        expect(sendMessageSpy).not.toHaveBeenCalled();
+        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
     });
 });
 
@@ -4418,7 +4349,7 @@ describe('FontManager boundary-crossing budget', () => {
         awaitWorkerDocumentSyncSpy.mockRestore();
     });
 
-    test('updateWorkerFontCache still waits for worker Yjs sync after a layer helper update or explicit recovery bootstrap', async () => {
+    test('updateWorkerFontCache waits without emitting a repair update', async () => {
         fontManager.pendingBabelfontJsonSyncAfterDrag = true;
         const awaitWorkerDocumentSyncSpy = jest
             .spyOn(fontCompilation, 'awaitWorkerDocumentSync')
@@ -4441,15 +4372,11 @@ describe('FontManager boundary-crossing budget', () => {
             sendMessageSpy.mock.calls.some(
                 ([message]) =>
                     message?.type === 'applyYjsUpdate' ||
-                    message?.type === 'storeFontJson'
-            )
-        ).toBe(true);
-        expect(
-            sendMessageSpy.mock.calls.some(
-                ([message]) => message?.type === 'initYdoc'
+                    message?.type === 'storeFontJson' ||
+                    message?.type === 'initYdoc'
             )
         ).toBe(false);
-        expect(awaitWorkerDocumentSyncSpy).toHaveBeenCalledTimes(2);
+        expect(awaitWorkerDocumentSyncSpy).toHaveBeenCalledTimes(1);
 
         awaitWorkerDocumentSyncSpy.mockRestore();
     });

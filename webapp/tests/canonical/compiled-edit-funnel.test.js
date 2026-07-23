@@ -347,6 +347,20 @@ describe('CompiledEditFunnel', () => {
             ).toHaveBeenCalledTimes(2);
         });
 
+        test('does not serialize the model before a deferred full compile', async () => {
+            window.fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+
+            await process('keyboard-outline', 'outline');
+            jest.advanceTimersByTime(500);
+
+            expect(
+                window.fontManager.currentFont.syncJsonFromModel
+            ).not.toHaveBeenCalled();
+            expect(window.fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(
+                true
+            );
+        });
+
         test('does not arm deferred full compile for remote fast-path edits', async () => {
             await process('remote-outline', 'outline');
 

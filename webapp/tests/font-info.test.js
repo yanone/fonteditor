@@ -205,7 +205,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         delete window.autoCompileManager;
     });
 
-    test('recompiles feature code after 5 seconds of typing idle', async () => {
+    test('commits feature code locally without serializing when the bridge is unavailable', async () => {
         const fontInfoManager = loadFontInfoManager();
         const context = createFeatureEditContext('sub f f by ff;', {
             disableBridge: true
@@ -230,7 +230,7 @@ describe('FontInfo feature code compilation scheduling', () => {
 
         expect(context.codeData.code).toBe('sub f f by ff;');
         expect(context.markDirty).toHaveBeenCalledTimes(1);
-        expect(context.syncJsonFromModel).toHaveBeenCalledTimes(1);
+        expect(context.syncJsonFromModel).not.toHaveBeenCalled();
         expect(context.awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
         expect(context.checkAndSchedule).toHaveBeenCalledTimes(1);
         expect(context.beginTransaction).not.toHaveBeenCalled();
@@ -238,7 +238,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         expect(fontInfoManager.featureCodeDirty).toBe(false);
     });
 
-    test('blur commit cancels the pending idle compile', async () => {
+    test('blur commits feature code locally without serializing when the bridge is unavailable', async () => {
         const fontInfoManager = loadFontInfoManager();
         const context = createFeatureEditContext('sub f l by fl;', {
             disableBridge: true
@@ -258,6 +258,7 @@ describe('FontInfo feature code compilation scheduling', () => {
         expect(context.codeData.code).toBe('sub f l by fl;');
         expect(context.beginTransaction).not.toHaveBeenCalled();
         expect(context.endTransaction).not.toHaveBeenCalled();
+        expect(context.syncJsonFromModel).not.toHaveBeenCalled();
         expect(context.awaitWorkerDocumentSync).toHaveBeenCalledTimes(1);
         expect(context.checkAndSchedule).toHaveBeenCalledTimes(1);
         expect(context.compileEditingFont).not.toHaveBeenCalled();
@@ -298,7 +299,7 @@ describe('FontInfo feature code compilation scheduling', () => {
             ]
         );
         expect(context.endTransaction).toHaveBeenCalledTimes(1);
-        expect(context.syncJsonFromModel).toHaveBeenCalledTimes(1);
+        expect(context.syncJsonFromModel).not.toHaveBeenCalled();
         expect(context.markDirty).not.toHaveBeenCalled();
         expect(context.awaitWorkerDocumentSync).not.toHaveBeenCalled();
         expect(context.compileEditingFont).not.toHaveBeenCalled();
@@ -775,6 +776,35 @@ describe('FontInfo feature code compilation scheduling', () => {
         expect(endTransaction).toHaveBeenCalledTimes(1);
         expect(window.currentFontModel.upm).toBe(2048);
         expect(markDirty).not.toHaveBeenCalled();
+        expect(syncJsonFromModel).not.toHaveBeenCalled();
+    });
+
+    test('bridge-less root field commits stay local without serializing the model', () => {
+        const fontInfoManager = loadFontInfoManager();
+        const markDirty = jest.fn();
+        const syncJsonFromModel = jest.fn();
+
+        window.currentFontModel = {
+            upm: 1000,
+            version: [1, 0],
+            date: new Date('2024-01-01T00:00:00Z'),
+            note: 'Old note',
+            names: {},
+            features: {
+                features: []
+            }
+        };
+        window.fontManager = {
+            currentFont: {
+                markDirty,
+                syncJsonFromModel
+            }
+        };
+
+        fontInfoManager.commitRootFontFieldValue('upm', 2048);
+
+        expect(window.currentFontModel.upm).toBe(2048);
+        expect(markDirty).toHaveBeenCalledWith('font-info-root');
         expect(syncJsonFromModel).not.toHaveBeenCalled();
     });
 

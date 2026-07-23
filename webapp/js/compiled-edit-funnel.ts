@@ -253,17 +253,6 @@ function armDeferredFullCompile(): void {
             return;
         }
 
-        // Flush any pending JSON/model sync from drag-finalization.
-        if (fm.pendingBabelfontJsonSyncAfterDrag) {
-            try {
-                fm.currentFont.syncJsonFromModel();
-                window.currentFontModel = fm.currentFont.fontModel;
-                fm.pendingBabelfontJsonSyncAfterDrag = false;
-            } catch {
-                return;
-            }
-        }
-
         console.log(
             '[CompiledEditFunnel] Deferred full compile triggered after interactive editing'
         );

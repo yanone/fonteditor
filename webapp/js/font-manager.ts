@@ -5604,81 +5604,18 @@ class FontManager {
         }
     }
 
-    /**
-     * Update the worker's font cache with current font data.
-     * Call this after dragging ends to ensure caches are updated.
-     */
+    /** Wait for the authoritative bridge Yjs update already sent to Rust. */
     async updateWorkerFontCache(): Promise<void> {
         const run = async (): Promise<void> => {
             if (!this.currentFont) {
-                console.warn('[FontManager] No current font to update cache');
                 return;
             }
 
-            const currentGlyphName =
-                window.glyphCanvas?.outlineEditor?.currentGlyphName;
-            const currentLayerId =
-                window.glyphCanvas?.outlineEditor?.selectedLayerId;
-
-            let updatedViaIncrementalLayer = false;
-            if (
-                this.pendingBabelfontJsonSyncAfterDrag &&
-                currentGlyphName &&
-                currentLayerId
-            ) {
-                const currentGlyph = this.currentFont.fontModel?.glyphs?.find(
-                    (glyph: any) => glyph?.name === currentGlyphName
-                );
-                const currentLayer =
-                    currentGlyph?.findLayerById?.(currentLayerId);
-
-                if (currentLayer) {
-                    try {
-                        const rawLayerData =
-                            typeof currentLayer.toJSON === 'function'
-                                ? currentLayer.toJSON()
-                                : currentLayer;
-                        const layerDataCopy =
-                            this.normalizeLayerForRust(rawLayerData);
-                        updatedViaIncrementalLayer =
-                            await this.submitLayerUpdatesToWorkerCache([
-                                {
-                                    glyphName: currentGlyphName,
-                                    layerId: currentLayerId,
-                                    layerData: layerDataCopy
-                                }
-                            ]);
-
-                        if (
-                            updatedViaIncrementalLayer &&
-                            this.pendingBabelfontJsonSyncAfterDrag
-                        ) {
-                            if (!this.syncBabelfontJsonFromCurrentModel()) {
-                                return;
-                            }
-                            this.pendingBabelfontJsonSyncAfterDrag = false;
-                        }
-                    } catch (error) {
-                        console.warn(
-                            '[FontManager] Incremental post-drag worker layer update failed, falling back to full store:',
-                            error
-                        );
-                    }
-                }
-            }
-
             try {
-                if (this.pendingBabelfontJsonSyncAfterDrag) {
-                    if (!this.syncBabelfontJsonFromCurrentModel()) {
-                        return;
-                    }
-                    this.pendingBabelfontJsonSyncAfterDrag = false;
-                }
-
                 await fontCompilation.awaitWorkerDocumentSync();
             } catch (error) {
                 console.error(
-                    '[FontManager] Error updating worker font cache:',
+                    '[FontManager] Error waiting for authoritative worker Yjs sync:',
                     error
                 );
             }

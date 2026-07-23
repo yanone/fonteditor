@@ -5815,12 +5815,12 @@ export class OutlineEditor {
 
     /**
      * Prepare a persisted structural outline edit before the Yjs transaction
-     * closes so the committed-change funnel snapshots the correct compile
-     * metadata and the bridge reads fresh model JSON.
+     * closes so the bridge can derive the authoritative Yjs delta from the
+     * current canonical layer records.
      */
     private prepareCommittedStructuralOutlineChange(
         changeSource: string = 'keyboard-outline',
-        options?: {
+        _options?: {
             triggerCompile?: boolean;
         }
     ): boolean {
@@ -5853,14 +5853,7 @@ export class OutlineEditor {
         }
 
         currentFont.markDirty?.(changeSource);
-        this.prepareStructuralOutlineCompile(changeSource);
         void fontManager.updateDirtyIndicator();
-        if (options?.triggerCompile !== false) {
-            fontManager.pendingBabelfontJsonSyncAfterDrag = true;
-            void fontManager.updateWorkerFontCache();
-            currentFont.requestRecompileWithoutDataChange?.();
-            window.autoCompileManager?.checkAndSchedule?.();
-        }
         return true;
     }
 
@@ -16347,8 +16340,6 @@ export class OutlineEditor {
         changeSource: string = 'keyboard-outline'
     ): void {
         fontManager.setEditingCompileContext(changeSource, 'outline');
-        fontManager.forceFullEditingCacheRefresh = true;
-        fontManager.scheduleFullCompileDebounce();
     }
 
     private queueStructuralOutlineCompileFromModel(
@@ -16384,12 +16375,7 @@ export class OutlineEditor {
         }
 
         currentFont.markDirty?.('keyboard-outline');
-        this.prepareStructuralOutlineCompile();
-        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
         void fontManager.updateDirtyIndicator();
-        void fontManager.updateWorkerFontCache();
-        currentFont.requestRecompileWithoutDataChange?.();
-        window.autoCompileManager?.checkAndSchedule?.();
     }
 
     private finalizePendingCommandPathEdit(): void {

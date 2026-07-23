@@ -5021,7 +5021,6 @@ class FontInfoManager {
         } else {
             this.applyLocalNameFieldValue(key, normalizedNextValue);
             const currentFont = window.fontManager?.currentFont;
-            currentFont?.syncJsonFromModel?.();
             currentFont?.markDirty?.('font-info-name');
         }
 
@@ -5106,7 +5105,6 @@ class FontInfoManager {
         } else {
             options.applyLocal();
             const currentFont = window.fontManager?.currentFont;
-            currentFont?.syncJsonFromModel?.();
             currentFont?.markDirty?.(options.markDirtyKey);
         }
 
@@ -5166,7 +5164,6 @@ class FontInfoManager {
         } else {
             options.applyLocal();
             const currentFont = window.fontManager?.currentFont;
-            currentFont?.syncJsonFromModel?.();
             currentFont?.markDirty?.(options.markDirtyKey);
         }
 
@@ -7281,7 +7278,6 @@ class FontInfoManager {
         } else {
             this.applyLocalRootFontFieldValue(key, nextValue);
             const currentFont = window.fontManager?.currentFont;
-            currentFont?.syncJsonFromModel?.();
             currentFont?.markDirty?.('font-info-root');
         }
 
@@ -7397,7 +7393,6 @@ class FontInfoManager {
         } else {
             this.applyLocalCustomOTValue(key, nextValue);
             const currentFont = window.fontManager?.currentFont;
-            currentFont?.syncJsonFromModel?.();
             currentFont?.markDirty?.('font-info-custom-ot');
         }
 
@@ -8477,66 +8472,55 @@ class FontInfoManager {
             fontManager.setEditingCompileContext('feature-code', null);
         }
 
-        if (bridge && path) {
-            currentFont?.syncJsonFromModel?.();
-
-            const operations: Array<{
-                op: 'set';
-                path: (string | number)[];
-                oldValue: unknown;
-                newValue: unknown;
-            }> = [
-                {
-                    op: 'set',
-                    path,
-                    oldValue: previousCode,
-                    newValue: newCode
-                }
-            ];
-
-            if (previousAutomatic && automaticPath) {
-                operations.push({
-                    op: 'set',
-                    path: automaticPath,
-                    oldValue: previousAutomatic,
-                    newValue: nextAutomatic
-                });
+        if (!bridge || !path) {
+            if (currentFont) {
+                currentFont.markDirty('feature-code');
             }
 
-            bridge.beginTransaction('Edit feature code', historyTarget);
-            try {
-                bridge.applySyntheticChangeSet('Edit feature code', operations);
-            } finally {
-                bridge.endTransaction();
+            if (fontManager?.isReady()) {
+                void fontCompilation
+                    .awaitWorkerDocumentSync()
+                    .then(() => {
+                        window.autoCompileManager?.checkAndSchedule?.();
+                    })
+                    .catch((error: any) => {
+                        console.error(
+                            'Failed to compile font after feature code change:',
+                            error
+                        );
+                    });
             }
             return;
         }
 
-        codeData.code = newCode;
-        if (previousAutomatic) {
-            codeData.automatic = nextAutomatic;
+        const operations: Array<{
+            op: 'set';
+            path: (string | number)[];
+            oldValue: unknown;
+            newValue: unknown;
+        }> = [
+            {
+                op: 'set',
+                path,
+                oldValue: previousCode,
+                newValue: newCode
+            }
+        ];
+
+        if (previousAutomatic && automaticPath) {
+            operations.push({
+                op: 'set',
+                path: automaticPath,
+                oldValue: previousAutomatic,
+                newValue: nextAutomatic
+            });
         }
 
-        if (currentFont) {
-            currentFont.syncJsonFromModel?.();
-        }
-
-        if (currentFont) {
-            currentFont.markDirty('feature-code');
-        }
-
-        if (fontManager?.isReady()) {
-            void fontCompilation
-                .awaitWorkerDocumentSync()
-                .then(() => {
-                    window.autoCompileManager?.checkAndSchedule?.();
-                })
-                .catch((error: any) => {
-                    console.error(
-                        'Failed to compile font after feature code change:',
-                        error
-                    );
-                });
+        bridge.beginTransaction('Edit feature code', historyTarget);
+        try {
+            bridge.applySyntheticChangeSet('Edit feature code', operations);
+        } finally {
+            bridge.endTransaction();
         }
     }
 

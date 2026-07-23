@@ -12372,7 +12372,6 @@ export class Font extends ModelBase {
             typeof window !== 'undefined'
                 ? (window as Unsafe).fontManager?.currentFont
                 : null;
-        currentFont?.syncJsonFromModel?.();
         currentFont?.markDirty?.('font-info-masters-list');
 
         if (masterId) {
@@ -12490,7 +12489,6 @@ export class Font extends ModelBase {
         removeMasterBoundLayers();
 
         const currentFont = (window as Unsafe).fontManager?.currentFont;
-        currentFont?.syncJsonFromModel?.();
         currentFont?.markDirty?.('font-info-masters-list');
         return true;
     }
