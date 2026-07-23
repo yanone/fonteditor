@@ -67,6 +67,20 @@ function isPlainNumericInputValue(value: string): boolean {
     return /^[+-]?\d+(?:\.\d+)?$/.test(value.trim());
 }
 
+function abbreviateGlyphNameMiddle(
+    glyphName: string,
+    maximumLength: number = 20
+): string {
+    if (glyphName.length <= maximumLength) {
+        return glyphName;
+    }
+
+    const visibleLength = maximumLength - 3;
+    const prefixLength = Math.ceil(visibleLength / 2);
+    const suffixLength = visibleLength - prefixLength;
+    return `${glyphName.slice(0, prefixLength)}...${glyphName.slice(-suffixLength)}`;
+}
+
 const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
 
 function getSharedNumericValue(
@@ -4617,6 +4631,147 @@ class GlyphCanvas {
         return true;
     }
 
+    /**
+     * Open the single-glyph picker to replace the selected component reference.
+     */
+    private openComponentReferencePicker(
+        layer: Layer,
+        component: Component
+    ): void {
+        window.findGlyphDialog.open({
+            selectionMode: 'single',
+            selectedGlyphNames: [component.reference],
+            title: 'Replace Component',
+            confirmLabel: 'Replace',
+            onConfirm: (glyphNames) => {
+                const reference = glyphNames[0];
+                if (reference) {
+                    void this.commitComponentReferenceChange(
+                        layer,
+                        component,
+                        reference
+                    );
+                }
+            }
+        });
+    }
+
+    /**
+     * Replace a component reference in the normal component update transaction.
+     */
+    private async commitComponentReferenceChange(
+        layer: Layer,
+        component: Component,
+        reference: string
+    ): Promise<void> {
+        if (!reference || component.reference === reference) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const glyphName = layer.parent()?.name;
+        if (!glyphName) {
+            return;
+        }
+
+        const affectedGlyphNames = new Set<string>([glyphName]);
+        window.patchSyncEngine?.beginTransaction('Replace component reference');
+        try {
+            component.reference = reference;
+            for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
+                new Set([glyphName])
+            ) || []) {
+                affectedGlyphNames.add(affectedGlyphName);
+            }
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        await this.finalizeComponentPropertyPanelMutation(
+            Array.from(affectedGlyphNames),
+            layer.id ?? null
+        );
+    }
+
+    /**
+     * Open the single-glyph picker for a component placed at the canvas point.
+     */
+    public openAddComponentDialogAt(position: { x: number; y: number }): void {
+        const layer = this.getCurrentEditingLayerModel();
+        if (!layer || layer.is_background) {
+            return;
+        }
+
+        window.findGlyphDialog.open({
+            selectionMode: 'single',
+            title: 'Add Component',
+            confirmLabel: 'Add',
+            onConfirm: (glyphNames) => {
+                const reference = glyphNames[0];
+                if (reference) {
+                    void this.addComponentAtPosition(
+                        layer,
+                        reference,
+                        position
+                    );
+                }
+            }
+        });
+    }
+
+    /**
+     * Insert a component at the captured canvas position and select it.
+     */
+    private async addComponentAtPosition(
+        layer: Layer,
+        reference: string,
+        position: { x: number; y: number }
+    ): Promise<void> {
+        const activeLayer = this.getCurrentEditingLayerModel();
+        if (
+            !activeLayer ||
+            activeLayer.id !== layer.id ||
+            activeLayer.parent()?.name !== layer.parent()?.name
+        ) {
+            return;
+        }
+
+        const glyphName = activeLayer.parent()?.name;
+        if (!glyphName) {
+            return;
+        }
+
+        const affectedGlyphNames = new Set<string>([glyphName]);
+        window.patchSyncEngine?.beginTransaction('Add component');
+        try {
+            activeLayer.addComponent(reference, [
+                1,
+                0,
+                0,
+                1,
+                position.x,
+                position.y
+            ]);
+            for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
+                new Set([glyphName])
+            ) || []) {
+                affectedGlyphNames.add(affectedGlyphName);
+            }
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        const shapeIndex = (activeLayer.shapes?.length ?? 1) - 1;
+        if (shapeIndex >= 0) {
+            this.outlineEditor.selectedComponents = [shapeIndex];
+        }
+
+        await this.finalizeComponentPropertyPanelMutation(
+            Array.from(affectedGlyphNames),
+            activeLayer.id ?? null
+        );
+    }
+
     private getComponentAutoAlignmentState(
         components: Component[]
     ): ComponentCheckboxState {
@@ -6638,6 +6793,43 @@ class GlyphCanvas {
             fieldsRow.appendChild(
                 createComponentTransformGroup('Skew X/Y', ['skewX', 'skewY'])
             );
+
+            if (selectedComponents.length === 1) {
+                const component = selectedComponents[0];
+                const referenceControl = document.createElement('div');
+                referenceControl.className =
+                    'glyph-component-property-control glyph-component-property-reference';
+
+                const referenceLabel = document.createElement('span');
+                referenceLabel.className = 'glyph-property-control-label';
+                referenceLabel.textContent = 'Reference';
+                referenceControl.appendChild(referenceLabel);
+
+                const referenceName = document.createElement('span');
+                referenceName.className = 'glyph-component-reference-name';
+                referenceName.textContent = abbreviateGlyphNameMiddle(
+                    component.reference
+                );
+                referenceName.title = component.reference;
+                referenceControl.appendChild(referenceName);
+
+                const replaceButton = document.createElement('button');
+                replaceButton.type = 'button';
+                replaceButton.className = 'glyph-component-reference-replace';
+                replaceButton.title = 'Replace component reference';
+                replaceButton.setAttribute(
+                    'aria-label',
+                    'Replace component reference'
+                );
+                replaceButton.innerHTML =
+                    '<span class="material-symbols-outlined">swap_horiz</span>';
+                replaceButton.addEventListener('click', () =>
+                    this.openComponentReferencePicker(currentLayer, component)
+                );
+                referenceControl.appendChild(replaceButton);
+
+                fieldsRow.appendChild(referenceControl);
+            }
 
             const alignmentState =
                 this.getComponentAutoAlignmentState(selectedComponents);

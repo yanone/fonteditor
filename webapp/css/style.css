@@ -5567,6 +5567,28 @@ kbd + kbd {
     width: 52px;
 }
 
+.glyph-component-property-reference {
+    max-width: 240px;
+    white-space: nowrap;
+}
+
+.glyph-component-reference-name {
+    min-width: 0;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: clip;
+    font-family: var(--font-families-mono);
+}
+
+.glyph-component-reference-replace {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+}
+
 .glyph-component-property-transform-group {
     display: flex;
     align-items: center;

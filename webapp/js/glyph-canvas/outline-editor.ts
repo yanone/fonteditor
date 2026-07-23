@@ -3087,6 +3087,7 @@ export class OutlineEditor {
     private pendingCommandPathEdit: PendingCommandPathEdit | null = null;
     private canvasContextMenuTippy: TippyInstance | null = null;
     private canvasContextMenuTarget: CanvasPathContextTarget | null = null;
+    private canvasContextMenuPoint: CanvasPoint | null = null;
     private selectionResizeSnapshot: SelectionResizeSnapshot | null = null;
     private strokeAwareScalingPreference: boolean = false;
 
@@ -14543,6 +14544,7 @@ export class OutlineEditor {
             },
             onHidden: () => {
                 this.canvasContextMenuTarget = null;
+                this.canvasContextMenuPoint = null;
             },
             onShown: (instance) => {
                 const menu = instance.popper.querySelector('.plugin-menu');
@@ -14564,8 +14566,12 @@ export class OutlineEditor {
                             return;
                         }
 
+                        const contextPoint = this.canvasContextMenuPoint;
                         instance.hide();
-                        this.handleCanvasContextMenuAction(action);
+                        this.handleCanvasContextMenuAction(
+                            action,
+                            contextPoint
+                        );
                     });
                 });
             }
@@ -14851,6 +14857,21 @@ export class OutlineEditor {
         target: CanvasPathContextTarget | null
     ): string {
         const items: string[] = [];
+        const currentLayer = this.getCurrentLayerModel();
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+
+        if (
+            currentLayer &&
+            !currentLayer.is_background &&
+            !currentLayerData?.isInterpolated
+        ) {
+            items.push(`
+                <div class="plugin-menu-item" data-action="add-component">
+                    <span class="material-symbols-outlined">add_box</span>
+                    <span>Add component</span>
+                </div>
+            `);
+        }
 
         if (target?.canSetStartNode) {
             items.push(`
@@ -14923,6 +14944,7 @@ export class OutlineEditor {
                   y: canvasPoint.glyphY
               };
 
+        this.canvasContextMenuPoint = clickedPoint;
         this.canvasContextMenuTarget =
             this.buildCanvasContextMenuTarget(clickedPoint);
 
@@ -14947,7 +14969,17 @@ export class OutlineEditor {
         tippyInstance.show();
     }
 
-    private handleCanvasContextMenuAction(action: string): void {
+    private handleCanvasContextMenuAction(
+        action: string,
+        contextPoint: CanvasPoint | null = this.canvasContextMenuPoint
+    ): void {
+        if (action === 'add-component') {
+            if (contextPoint) {
+                this.glyphCanvas.openAddComponentDialogAt(contextPoint);
+            }
+            return;
+        }
+
         if (action === 'set-start-node') {
             this.setContextMenuPathStartNode();
             return;

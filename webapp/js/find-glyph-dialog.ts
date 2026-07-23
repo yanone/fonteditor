@@ -35,6 +35,8 @@ export type GlyphSelectionMode = 'single' | 'multiple';
 export interface FindGlyphDialogOptions {
     selectionMode?: GlyphSelectionMode;
     selectedGlyphNames?: readonly string[];
+    title?: string;
+    cancelLabel?: string;
     confirmLabel?: string;
     onConfirm?: (glyphNames: string[]) => void;
 }
@@ -85,11 +87,13 @@ function formatUnicodeValue(codepoints?: readonly number[]): string | null {
  */
 export class FindGlyphDialog {
     private readonly modal: HTMLElement | null;
+    private readonly titleElement: HTMLElement | null;
     private readonly closeButton: HTMLButtonElement | null;
     private readonly openButton: HTMLButtonElement | null;
     private readonly content: HTMLElement | null;
     private searchInput: HTMLInputElement | null = null;
     private list: HTMLDivElement | null = null;
+    private cancelButton: HTMLButtonElement | null = null;
     private confirmButton: HTMLButtonElement | null = null;
     private glyphs: FindableGlyph[] = [];
     private visibleGlyphs: FindableGlyph[] = [];
@@ -107,6 +111,7 @@ export class FindGlyphDialog {
 
     constructor() {
         this.modal = document.getElementById('find-glyph-modal');
+        this.titleElement = document.getElementById('find-glyph-modal-title');
         this.closeButton = document.getElementById(
             'find-glyph-modal-close-btn'
         ) as HTMLButtonElement | null;
@@ -144,6 +149,12 @@ export class FindGlyphDialog {
             }
         }
         this.onConfirm = options.onConfirm ?? null;
+        if (this.titleElement) {
+            this.titleElement.textContent = options.title ?? 'Find Glyph';
+        }
+        if (this.cancelButton) {
+            this.cancelButton.textContent = options.cancelLabel ?? 'Cancel';
+        }
         this.confirmButton!.textContent = options.confirmLabel ?? 'Select';
         this.syncConfirmButton();
         this.searchTerms = [];
@@ -151,10 +162,24 @@ export class FindGlyphDialog {
         this.outlineCache.clear();
         this.pendingGlyphNames.clear();
         this.searchInput!.value = '';
-        this.list!.scrollTop = 0;
+        const selectedGlyphIndex = this.visibleGlyphs.findIndex((glyph) =>
+            this.selectedGlyphNames.has(glyph.name)
+        );
+        const selectedGlyphScrollTop =
+            selectedGlyphIndex >= 0
+                ? Math.max(
+                      0,
+                      selectedGlyphIndex * this.rowHeight -
+                          Math.max(
+                              0,
+                              (this.list!.clientHeight - this.rowHeight) / 2
+                          )
+                  )
+                : 0;
         this.renderedRange = null;
         this.modal.style.display = 'flex';
-        this.renderVisibleWindow(true);
+        this.renderVisibleWindow(true, selectedGlyphScrollTop);
+        this.list!.scrollTop = selectedGlyphScrollTop;
         requestAnimationFrame(() => this.searchInput?.focus());
     }
 
@@ -204,6 +229,7 @@ export class FindGlyphDialog {
         cancel.type = 'button';
         cancel.textContent = 'Cancel';
         cancel.addEventListener('click', () => this.close());
+        this.cancelButton = cancel;
         actions.appendChild(cancel);
 
         this.confirmButton = document.createElement('button');
@@ -238,21 +264,30 @@ export class FindGlyphDialog {
             this.renderVisibleWindow(true);
         });
         this.list?.addEventListener('scroll', () => this.renderVisibleWindow());
-        document.addEventListener('keydown', (event) => {
-            if (
-                event.key === 'Escape' &&
-                this.modal?.style.display === 'flex'
-            ) {
-                event.preventDefault();
-                this.close();
-            }
-        });
+        document.addEventListener(
+            'keydown',
+            (event) => {
+                if (
+                    event.key === 'Escape' &&
+                    this.modal?.isConnected &&
+                    this.modal?.style.display === 'flex'
+                ) {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    this.close();
+                }
+            },
+            true
+        );
     }
 
     /**
      * Mount only the visible rows, preserving total scroll height with spacers.
      */
-    private renderVisibleWindow(force: boolean = false): void {
+    private renderVisibleWindow(
+        force: boolean = false,
+        scrollTop: number = this.list?.scrollTop ?? 0
+    ): void {
         if (!this.list) {
             return;
         }
@@ -266,13 +301,12 @@ export class FindGlyphDialog {
 
         const start = Math.max(
             0,
-            Math.floor(this.list.scrollTop / this.rowHeight) - this.overscanRows
+            Math.floor(scrollTop / this.rowHeight) - this.overscanRows
         );
         const end = Math.min(
             total,
-            Math.ceil(
-                (this.list.scrollTop + this.list.clientHeight) / this.rowHeight
-            ) + this.overscanRows
+            Math.ceil((scrollTop + this.list.clientHeight) / this.rowHeight) +
+                this.overscanRows
         );
 
         if (
