@@ -25,6 +25,7 @@ describe('get_editor_state text-buffer interpretation', () => {
     });
 
     beforeEach(() => {
+        localStorage.removeItem('assistantAllowFontEdits');
         window.__counterpunchPythonPostExecutionHookInstalled = true;
         window.patchSyncEngine = {};
         window.fontManager = { currentFontModel: { axes: [] } };
@@ -50,6 +51,13 @@ describe('get_editor_state text-buffer interpretation', () => {
                 shapedGlyphs: []
             }
         };
+    });
+
+    test('forbids font editing by default for a new user', () => {
+        const assistant = new AIAssistant();
+
+        expect(assistant.allowFontEdits).toBe(false);
+        expect(localStorage.getItem('assistantAllowFontEdits')).toBeNull();
     });
 
     test('reports a single slash exactly as raw state rather than inferring an escape pair', async () => {
