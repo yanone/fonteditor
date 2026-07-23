@@ -47,6 +47,53 @@ describe('handleRemoteChangeRefresh', () => {
         });
     });
 
+    test.each([
+        ['local component replacement', 'local', 'change'],
+        ['remote component replacement', 'remote', 'change'],
+        ['component replacement undo', 'local', 'undo']
+    ])(
+        'leaves component-source closure derivation to the worker for %s',
+        async (_label, origin, historyAction) => {
+            const order = [];
+            const updateEditingSubsetSnapshot = jest.fn();
+            const requestCompile = jest.fn(async () => {
+                order.push('compile');
+            });
+
+            window.fontManager = {
+                updateEditingSubsetSnapshot
+            };
+
+            try {
+                await handleCommittedChangeRefresh(
+                    [
+                        {
+                            historyAction,
+                            transactionLabel: 'Replace component reference',
+                            path: 'glyphs.A.layers.master-regular.shapes.0.reference',
+                            oldValue: 'sourceA',
+                            newValue: 'sourceB',
+                            workerReplayTargets: []
+                        }
+                    ],
+                    origin,
+                    {
+                        awaitWorkerSync: jest.fn(async () => {
+                            order.push('sync');
+                        }),
+                        requestCompile
+                    }
+                );
+            } finally {
+                delete window.fontManager;
+            }
+
+            expect(updateEditingSubsetSnapshot).not.toHaveBeenCalled();
+            expect(requestCompile).toHaveBeenCalledTimes(1);
+            expect(order).toEqual(['sync', 'compile']);
+        }
+    );
+
     test('waits for local worker sync before requesting compile without a second replay-target refresh', async () => {
         const refreshOrder = [];
         const awaitWorkerSync = jest.fn(async () => {
@@ -3956,6 +4003,40 @@ describe('shouldInvalidateLayoutClosureForCommittedEntries', () => {
         const result =
             changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
                 { path: 'glyphs.A.layers.layer-1.shapes.0.nodes.0.x' }
+            ]);
+        expect(result).toBe(false);
+    });
+
+    test('returns true for component add, replace, and delete graph changes', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                {
+                    path: 'glyphs.A.layers.layer-1.shapes.0.reference',
+                    oldValue: 'sourceA',
+                    newValue: 'sourceB'
+                },
+                {
+                    path: 'glyphs.A.layers.layer-1.shapes.1',
+                    oldValue: { reference: 'sourceC' },
+                    newValue: undefined
+                },
+                {
+                    path: 'glyphs.A.layers.layer-1.shapes.2',
+                    oldValue: undefined,
+                    newValue: { reference: 'sourceD' }
+                }
+            ]);
+        expect(result).toBe(true);
+    });
+
+    test('returns false for a component transform that preserves references', () => {
+        const result =
+            changeBridgeInit.shouldInvalidateLayoutClosureForCommittedEntries([
+                {
+                    path: 'glyphs.A.layers.layer-1.shapes.0.transform',
+                    oldValue: [1, 0, 0, 1, 0, 0],
+                    newValue: [1, 0, 0, 1, 20, 0]
+                }
             ]);
         expect(result).toBe(false);
     });

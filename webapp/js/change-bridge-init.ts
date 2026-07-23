@@ -233,10 +233,16 @@ export function shouldInvalidateLayoutClosureForCommittedEntries(
             continue;
         }
 
+        // Component graph changes alter the transitive source glyph closure.
+        // Re-prime the existing Rust closure cache from the unchanged text roots.
+        if (changesComponentReferences(entry)) {
+            return true;
+        }
+
         // Visual layer-scoped paths must NOT invalidate layout closure.
-        // This covers outline, anchor, sidebearing, component, guide, and
-        // layer-visual edits that only change data inside the existing
-        // closed glyph set.
+        // This covers outline, anchor, sidebearing, component transforms,
+        // guide, and layer-visual edits that only change data inside the
+        // existing closed glyph set.
         if (path.includes('.layers.') || path.includes(':layers.')) {
             continue;
         }
@@ -2308,6 +2314,35 @@ async function refreshGlyphOverviewFromCommittedEntries(
     await refreshGlyphOverviewFromGlyphNames(changedGlyphNames, {
         fallbackToFullRender: true
     });
+}
+
+/** Detect whether a committed entry changed the component graph of its glyph. */
+function changesComponentReferences(entry: ChangeLogEntry): boolean {
+    if (/(^|\.)shapes(\.|$).*\.(reference|Component)(\.|$)/.test(entry.path)) {
+        return true;
+    }
+
+    if (!/(^|[.:])shapes[.:][^.:]+$/.test(entry.path)) {
+        return false;
+    }
+
+    const hasDirectComponentReference = (value: unknown): boolean => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+
+        const record = value as Record<string, unknown>;
+        return (
+            typeof record.reference === 'string' ||
+            typeof (record.Component as Record<string, unknown> | undefined)
+                ?.reference === 'string'
+        );
+    };
+
+    return (
+        hasDirectComponentReference(entry.replayOldValue ?? entry.oldValue) ||
+        hasDirectComponentReference(entry.replayNewValue ?? entry.newValue)
+    );
 }
 
 /**
