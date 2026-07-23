@@ -1667,16 +1667,13 @@ describe('CloudAdapter durability failures', () => {
         );
 
         adapter._bridge = {
-            applyRemoteUpdate: jest.fn(),
-            encodeBridgeState: jest
-                .fn()
-                .mockReturnValueOnce(new Uint8Array([1, 2, 3]))
-                .mockReturnValueOnce(new Uint8Array([1, 2, 3]))
+            applyRemoteUpdate: jest.fn(() => false)
         };
 
         adapter._applyRemoteUpdate(new Uint8Array([9, 9, 9]));
 
         expect(requestServerResyncAfterNoopUpdate).not.toHaveBeenCalled();
+        expect(adapter._bridge.encodeBridgeState).toBeUndefined();
     });
 
     it('resyncs noop remote updates with the current bridge state vector', () => {

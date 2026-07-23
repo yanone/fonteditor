@@ -2789,7 +2789,8 @@ describe('bridge Yjs worker callback', () => {
 
         fontCompilation.isInitialized = true;
         window.windowRole = {
-            isLinkedWindow: () => false
+            isLinkedWindow: () => false,
+            getRoleLabel: () => 'main'
         };
         window.fontManager = {
             buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
@@ -2851,7 +2852,7 @@ describe('bridge Yjs worker callback', () => {
 
         bridge._yjsWorkerCallback(new Uint8Array([7, 7]), [
             {
-                path: 'names.familyName'
+                path: 'format_specific["com.example.vendor"].value'
             }
         ]);
         await Promise.resolve();
@@ -2861,9 +2862,64 @@ describe('bridge Yjs worker callback', () => {
             expect.any(Uint8Array),
             [],
             expect.objectContaining({
-                invalidateLayoutClosure: false
+                invalidateLayoutClosure: false,
+                nonGlyphChangeHints: ['top-level:format_specific']
             })
         );
+    });
+
+    test('forwards remote font-wide metadata to Rust with its top-level hint', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+        const senderFontJson = makeBridgeInitFont();
+        const senderBridge = new ChangeBridge('remote-font-wide-metadata');
+        let remoteUpdate = null;
+        let remoteEntries = null;
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false,
+            getRoleLabel: () => 'main'
+        };
+        window.fontManager = {
+            buildWorkerSeedYjsState: jest.fn(() => new Uint8Array([1, 2, 3])),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const receiverBridge = initializeBridgeHarness();
+        workerSeedSpy.mockClear();
+        senderBridge.initFromJson(senderFontJson);
+        senderBridge.onLocalUpdate((update, _message, entries) => {
+            remoteUpdate = update;
+            remoteEntries = entries;
+        });
+
+        senderBridge.applySyntheticChangeSet('Set vendor metadata', [
+            {
+                op: 'set',
+                path: ['format_specific', 'com.example.vendor'],
+                oldValue: null,
+                newValue: { enabled: true }
+            }
+        ]);
+
+        receiverBridge.applyRemoteUpdate(remoteUpdate, remoteEntries);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            remoteUpdate,
+            [],
+            expect.objectContaining({
+                invalidateLayoutClosure: false,
+                nonGlyphChangeHints: ['top-level:format_specific']
+            })
+        );
+
+        senderBridge.destroy();
     });
 
     test('worker callback forwards empty-metadata Yjs updates when invoked directly', async () => {

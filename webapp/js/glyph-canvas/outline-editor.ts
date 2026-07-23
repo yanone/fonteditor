@@ -5227,14 +5227,27 @@ export class OutlineEditor {
             return;
         }
 
-        try {
-            currentFont.syncJsonFromModel();
-        } catch (error) {
-            console.error(
-                '[OutlineEditor] Error syncing font JSON after anchor edit:',
-                error
-            );
-            return;
+        if (Array.isArray(currentFont.babelfontData?.glyphs)) {
+            const layerSyncTargets =
+                this.collectMatchingLayerWorkerReplayTargets(
+                    affectedGlyphNames,
+                    currentLayerId
+                );
+            if (
+                layerSyncTargets.length === 0 ||
+                layerSyncTargets.some(
+                    (target) =>
+                        !fontManager.syncLayerFromModelToStorage(
+                            target.glyphName,
+                            target.layerId
+                        )
+                )
+            ) {
+                console.error(
+                    '[OutlineEditor] Unable to sync anchor cascade layers into canonical storage.'
+                );
+                return;
+            }
         }
 
         await refreshSourceGlyphPromise;
@@ -5817,19 +5830,29 @@ export class OutlineEditor {
         }
 
         try {
-            // FULLJSON_UNNECESSARY (P1): Serializes every glyph and layer before
-            // a structural commit. This path has layer targets and must stay on
-            // the incremental Yjs/model patch route during steady-state edits.
-            currentFont.syncJsonFromModel();
+            if (Array.isArray(currentFont.babelfontData?.glyphs)) {
+                for (const target of this.getCurrentGlyphStructuralLayerTargets()) {
+                    if (
+                        !fontManager.syncLayerFromModelToStorage(
+                            target.glyphName,
+                            target.layerId
+                        )
+                    ) {
+                        throw new Error(
+                            `Unable to sync structural layer ${target.glyphName}/${target.layerId} into canonical storage.`
+                        );
+                    }
+                }
+            }
         } catch (error) {
             console.error(
-                '[OutlineEditor] Error syncing font JSON before structural commit:',
+                '[OutlineEditor] Error syncing structural layers before commit:',
                 error
             );
             return false;
         }
 
-        currentFont.markDirty(changeSource);
+        currentFont.markDirty?.(changeSource);
         this.prepareStructuralOutlineCompile(changeSource);
         void fontManager.updateDirtyIndicator();
         if (options?.triggerCompile !== false) {
@@ -8610,8 +8633,14 @@ export class OutlineEditor {
         });
 
         const currentFont = fontManager.currentFont;
-        if (typeof currentFont?.syncJsonFromModel === 'function') {
-            currentFont.syncJsonFromModel();
+        if (
+            Array.isArray(currentFont?.babelfontData?.glyphs) &&
+            !fontManager.removeStoredLayerData(sourceGlyphName, layerId)
+        ) {
+            console.error(
+                `[OutlineEditor] Unable to remove ${sourceGlyphName}/${layerId} from canonical storage.`
+            );
+            return false;
         }
 
         const deleteBridge = window.patchSyncEngine;
@@ -13205,14 +13234,36 @@ export class OutlineEditor {
                         if (dragType === 'anchor') {
                             this._anchorAffectedGlyphNames =
                                 this.rebuildAutomaticCompositesForCurrentEditedGlyph();
-                            // Sync model → babelfontData before the Yjs commit so
-                            // cascade composite shapes are included in the
-                            // transaction and forwarded to the worker via
-                            // forwardWorkerYjsUpdate. Without this, _fontJson is
-                            // stale for cascade composites when syncLayersFromJson
-                            // runs and tiles query the worker post-glyphChanged.
-                            if (this._anchorAffectedGlyphNames.size > 0) {
-                                fontManager.currentFont?.syncJsonFromModel();
+                            const anchorCascadeLayerId =
+                                this.getCurrentLayerId() ??
+                                this.selectedLayerId;
+                            const currentFont = fontManager.currentFont;
+                            if (
+                                this._anchorAffectedGlyphNames.size > 0 &&
+                                anchorCascadeLayerId &&
+                                Array.isArray(
+                                    currentFont?.babelfontData?.glyphs
+                                )
+                            ) {
+                                const anchorCascadeTargets =
+                                    this.collectMatchingLayerWorkerReplayTargets(
+                                        this._anchorAffectedGlyphNames,
+                                        anchorCascadeLayerId
+                                    );
+                                if (
+                                    anchorCascadeTargets.length === 0 ||
+                                    anchorCascadeTargets.some(
+                                        (target) =>
+                                            !fontManager.syncLayerFromModelToStorage(
+                                                target.glyphName,
+                                                target.layerId
+                                            )
+                                    )
+                                ) {
+                                    throw new Error(
+                                        'Unable to sync anchor cascade layers into canonical storage.'
+                                    );
+                                }
                             }
                         }
                         const parsed = this.parseGlyphStack();
@@ -16310,19 +16361,29 @@ export class OutlineEditor {
         }
 
         try {
-            // FULLJSON_UNNECESSARY (P2): Re-serializes the entire model before a
-            // structural preview compile even though the affected layers are known.
-            // Preview preparation must consume the incremental committed state.
-            currentFont.syncJsonFromModel?.();
+            if (Array.isArray(currentFont.babelfontData?.glyphs)) {
+                for (const target of this.getCurrentGlyphStructuralLayerTargets()) {
+                    if (
+                        !fontManager.syncLayerFromModelToStorage(
+                            target.glyphName,
+                            target.layerId
+                        )
+                    ) {
+                        throw new Error(
+                            `Unable to sync structural preview layer ${target.glyphName}/${target.layerId} into canonical storage.`
+                        );
+                    }
+                }
+            }
         } catch (error) {
             console.error(
-                '[OutlineEditor] Error syncing font JSON before structural preview compile:',
+                '[OutlineEditor] Error syncing structural preview layer:',
                 error
             );
             return;
         }
 
-        currentFont.markDirty('keyboard-outline');
+        currentFont.markDirty?.('keyboard-outline');
         this.prepareStructuralOutlineCompile();
         fontManager.pendingBabelfontJsonSyncAfterDrag = true;
         void fontManager.updateDirtyIndicator();

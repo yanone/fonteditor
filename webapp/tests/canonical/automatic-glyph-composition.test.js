@@ -2009,7 +2009,7 @@ describe('Automatic component editing canonical behavior', () => {
             // Post-commit overview refresh is now handled by the committed-change
             // funnel (onCommittedChange → handleCommittedChangeRefresh), so the
             // old separate downstream-sync calls are no longer issued from mouseup.
-            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
+            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(
                 currentFont.requestRecompileWithoutDataChange
             ).not.toHaveBeenCalled();

@@ -2242,21 +2242,7 @@ fn refresh_masters_related_caches_from_ydoc<T: ReadTxn>(txn: &T) -> Result<(), J
     }
 
     if canonical_missing {
-        let rebuilt = ydoc_to_babelfont_json_with_txn(txn);
-        set_canonical_json_cache(rebuilt);
-
-        *FONT_CACHE.lock().unwrap() = None;
-        *SUBSET_JSON_CACHE.lock().unwrap() = None;
-        *SUBSET_GLYPH_INDEX_CACHE.lock().unwrap() = None;
-        *SUBSET_FONT_CACHE.lock().unwrap() = None;
-        *FILTERED_FONT_CACHE.lock().unwrap() = None;
-
-        FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
-        FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
-        SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
-        FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
-        glyph_outlines::clear_outline_cache();
-        return Ok(());
+        return refresh_top_level_caches_from_ydoc(txn, &["masters"]);
     }
 
     let mut subset_cache_refresh: Option<(String, u64)> = None;
@@ -2353,17 +2339,14 @@ fn refresh_kerning_related_caches_from_ydoc<T: ReadTxn>(
     }
 
     if canonical_missing {
-        set_canonical_json_cache(ydoc_to_babelfont_json_with_txn(txn));
-        *FONT_CACHE.lock().unwrap() = None;
-        *SUBSET_JSON_CACHE.lock().unwrap() = None;
-        *SUBSET_GLYPH_INDEX_CACHE.lock().unwrap() = None;
-        *SUBSET_FONT_CACHE.lock().unwrap() = None;
-        *FILTERED_FONT_CACHE.lock().unwrap() = None;
-        FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
-        FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
-        SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
-        FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
-        return Ok(());
+        let mut top_level_keys = Vec::new();
+        if refresh_master_kerning {
+            top_level_keys.extend(["masters", "format_specific"]);
+        }
+        if refresh_kern_groups {
+            top_level_keys.extend(["first_kern_groups", "second_kern_groups"]);
+        }
+        return refresh_top_level_caches_from_ydoc(txn, &top_level_keys);
     }
 
     {
@@ -2410,13 +2393,51 @@ fn refresh_kerning_related_caches_from_ydoc<T: ReadTxn>(
     Ok(())
 }
 
-fn refresh_non_glyph_feature_caches_from_ydoc<T: ReadTxn>(txn: &T) -> Result<(), JsValue> {
-    let rebuilt = ydoc_to_babelfont_json_with_txn(txn);
-    set_canonical_json_cache(rebuilt);
+fn refresh_top_level_caches_from_ydoc<T: ReadTxn>(
+    txn: &T,
+    keys: &[&str],
+) -> Result<(), JsValue> {
+    if keys.is_empty() {
+        return Err(JsValue::from_str(
+            "apply_yjs_update: missing top-level cache metadata",
+        ));
+    }
+
+    let values: Vec<(&str, Option<serde_json::Value>)> = keys
+        .iter()
+        .map(|key| (*key, ydoc_get_top_level_json_with_txn(key, txn)))
+        .collect();
+
+    {
+        let mut canonical_lock = CANONICAL_JSON_CACHE.lock().unwrap();
+        let Some(canonical) = canonical_lock.as_mut() else {
+            return Err(JsValue::from_str(
+                "apply_yjs_update: canonical cache is not initialized",
+            ));
+        };
+        for (key, value) in &values {
+            replace_top_level_json_entry(canonical, key, value.clone());
+        }
+    }
+
+    {
+        let mut subset_lock = SUBSET_JSON_CACHE.lock().unwrap();
+        if let Some((_, subset_epoch, subset_json)) = subset_lock.as_mut() {
+            let mut subset_changed = false;
+            for (key, value) in &values {
+                subset_changed |= replace_top_level_json_entry(
+                    subset_json,
+                    key,
+                    value.clone(),
+                );
+            }
+            if subset_changed {
+                *subset_epoch = subset_epoch.saturating_add(1);
+            }
+        }
+    }
 
     *FONT_CACHE.lock().unwrap() = None;
-    *SUBSET_JSON_CACHE.lock().unwrap() = None;
-    *SUBSET_GLYPH_INDEX_CACHE.lock().unwrap() = None;
     *SUBSET_FONT_CACHE.lock().unwrap() = None;
     *FILTERED_FONT_CACHE.lock().unwrap() = None;
     *FEATURE_FILE_CACHE.lock().unwrap() = None;
@@ -2446,7 +2467,7 @@ fn refresh_feature_related_caches_from_ydoc<T: ReadTxn>(txn: &T) -> Result<(), J
     }
 
     if canonical_missing {
-        return refresh_non_glyph_feature_caches_from_ydoc(txn);
+        return refresh_top_level_caches_from_ydoc(txn, &["features"]);
     }
 
     {
@@ -2526,9 +2547,8 @@ fn store_font_from_value(json_value: serde_json::Value) -> Result<(), JsValue> {
 /// * `Result<(), JsValue>` - Success or error
 #[wasm_bindgen]
 pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
-    // FULLJSON_UNNECESSARY (U1/A2): Receives full JSON string, parses it,
-    // and populates all caches. Should be replaced by forwarding the Yjs
-    // binary update to apply_yjs_update then calling the internal rebuild.
+    // Explicit bootstrap/rebaseline compatibility boundary. Interactive edits
+    // update the cached document through apply_yjs_update instead.
     let _store_span = PerfSpan::start("store_font.total");
     let _parse_span = PerfSpan::start("store_font.parse_json");
     let json_value: serde_json::Value = serde_json::from_str(babelfont_json)
@@ -2793,11 +2813,17 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
             let refresh_kern_groups = non_glyph_change_hints
                 .iter()
                 .any(|hint| hint == "kerning-groups");
+            let top_level_keys: Vec<&str> = non_glyph_change_hints
+                .iter()
+                .filter_map(|hint| hint.strip_prefix("top-level:"))
+                .filter(|key| !key.is_empty())
+                .collect();
 
             if refresh_feature_caches {
                 let _rebuild_span = PerfSpan::start("apply_yjs_update.feature_refresh");
                 refresh_feature_related_caches_from_ydoc(&txn)?;
-            } else if refresh_masters || refresh_master_kerning || refresh_kern_groups {
+                }
+                if refresh_masters || refresh_master_kerning || refresh_kern_groups {
                 if refresh_masters {
                     let _rebuild_span = PerfSpan::start("apply_yjs_update.masters_refresh");
                     refresh_masters_related_caches_from_ydoc(&txn)?;
@@ -2810,9 +2836,20 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                         refresh_kern_groups,
                     )?;
                 }
-            } else {
-                let _rebuild_span = PerfSpan::start("apply_yjs_update.non_glyph_refresh");
-                refresh_non_glyph_feature_caches_from_ydoc(&txn)?;
+            }
+            if !top_level_keys.is_empty() {
+                let _patch_span = PerfSpan::start("apply_yjs_update.top_level_refresh");
+                refresh_top_level_caches_from_ydoc(&txn, &top_level_keys)?;
+            }
+            if !refresh_feature_caches
+                && !refresh_masters
+                && !refresh_master_kerning
+                && !refresh_kern_groups
+                && top_level_keys.is_empty()
+            {
+                return Err(JsValue::from_str(
+                    "apply_yjs_update: missing cache metadata for non-glyph update",
+                ));
             }
         } else {
             // Partial update. Prefer sparse layer patches when JS supplied
@@ -4875,6 +4912,61 @@ mod tests {
         assert!(FONT_CACHE.lock().unwrap().is_none());
         assert!(SUBSET_FONT_CACHE.lock().unwrap().is_none());
         assert!(FEATURE_FILE_CACHE.lock().unwrap().is_none());
+
+        clear_font_cache();
+    }
+
+    #[test]
+    fn apply_yjs_update_top_level_hint_patches_cached_json_without_full_rebuild() {
+        clear_font_cache();
+
+        let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        store_font_from_value(font_json.clone()).unwrap();
+        let subset_font: babelfont::Font = serde_json::from_value(font_json).unwrap();
+        store_subset_font_cache("A", &subset_font).unwrap();
+
+        let author_doc = Doc::new();
+        let font_map = author_doc.get_or_insert_map("font");
+        let names_map: yrs::MapRef;
+        {
+            let mut txn = author_doc.transact_mut();
+            names_map = font_map.insert(&mut txn, "names", MapPrelim::<Any>::new());
+        }
+
+        let initial_update = author_doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let base_state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            names_map.insert(&mut txn, "familyName", "Scoped Test");
+        }
+        let incremental_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+
+        let worker_doc = Doc::new();
+        {
+            let update = yrs::Update::decode_v1(initial_update.as_slice()).unwrap();
+            let mut txn = worker_doc.transact_mut();
+            txn.apply_update(update);
+        }
+        *Y_DOC.lock().unwrap() = Some(worker_doc);
+
+        apply_yjs_update(
+            incremental_update.as_slice(),
+            r#"{ "nonGlyphChangeHints": ["top-level:names"] }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            CANONICAL_JSON_CACHE.lock().unwrap().as_ref().unwrap()["names"]["familyName"],
+            json!("Scoped Test")
+        );
+        assert_eq!(
+            SUBSET_JSON_CACHE.lock().unwrap().as_ref().unwrap().2["names"]["familyName"],
+            json!("Scoped Test")
+        );
+        assert!(FONT_CACHE.lock().unwrap().is_none());
+        assert!(SUBSET_FONT_CACHE.lock().unwrap().is_none());
 
         clear_font_cache();
     }

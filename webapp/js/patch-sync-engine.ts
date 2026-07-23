@@ -836,12 +836,10 @@ export class PatchSyncEngine {
 
     /**
      * Initialize the Y.Doc from the current babelfont JSON.
-     * Call this once after a font is loaded.
+     * Call this once after a font is loaded, before steady-state incremental
+     * Yjs updates begin.
      */
     initFromJson(fontJson: Record<string, Unsafe>): void {
-        // FULLJSON_UNNECESSARY (U8, low priority): Populates the Y.Doc from
-        // the font JSON loaded by open_font_file. Could theoretically be done
-        // in Rust via seedYdoc, but the JSON is already in JS memory here.
         this._fontJson = fontJson;
         this._isSyncing = true;
         this.yDoc.transact(() => {
@@ -1086,8 +1084,8 @@ export class PatchSyncEngine {
             return { status: 'stale', commit: null };
         }
 
-        const previousSnapshot = this._encodeNodeArraysForStorage(
-            yDocToJson(this.fontMap)
+        const previousSnapshot = this._normalizeExternalSourceReloadSnapshot(
+            this._fontJson
         );
         const normalizedPreviousSnapshot = this._normalizeFontSnapshot(
             previousSnapshot,
@@ -1144,9 +1142,13 @@ export class PatchSyncEngine {
                 };
             }),
             'Reload external source',
-            true,
             true
         );
+
+        if (commit) {
+            this._syncRemoteJsonFromYDoc(commit.changeLogEntries);
+            this._onAfterSync?.();
+        }
 
         return {
             status: commit ? 'committed' : 'noop',
@@ -2300,7 +2302,13 @@ export class PatchSyncEngine {
                 continue;
             }
 
-            const yGlyphJson = yDocToJson(glyphMap);
+            const yGlyphJson = this._readNormalizedGlyphSnapshotFromYDoc(
+                glyphName,
+                glyphJson
+            );
+            if (!yGlyphJson) {
+                continue;
+            }
             const storageGlyphJson = this._encodeNodeArraysForStorage(
                 glyphJson
             ) as Record<string, unknown>;
@@ -2547,6 +2555,9 @@ export class PatchSyncEngine {
                 this.windowId,
                 this._getWindowRoleLabel()
             );
+            if (!metadataEntries?.length && !target.glyphName) {
+                return null;
+            }
             const workerReplayTargets = normalizeWorkerReplayTargets([
                 ...(targetItem?.workerReplayTargets ?? []),
                 ...(target.glyphName && target.layerId
@@ -2587,19 +2598,38 @@ export class PatchSyncEngine {
                 um?.undo();
             }
 
-            const shouldUseLayerScopeHints = !(
+            const layerScopeHints = !(
                 isHistoryReplay && targetItem?.undoScope !== 'layer'
-            );
-            this._syncJsonFromYDoc(
-                shouldUseLayerScopeHints && workerReplayTargets.length > 0
+            )
+                ? workerReplayTargets.length > 0 &&
+                  workerReplayTargets.every(
+                      (replayTarget) =>
+                          !!replayTarget.glyphName &&
+                          !!replayTarget.layerId &&
+                          this._canPatchLayerFromYDoc(replayTarget)
+                  )
                     ? workerReplayTargets
-                    : shouldUseLayerScopeHints &&
-                        scope === 'layer' &&
+                    : scope === 'layer' &&
                         target.glyphName &&
-                        target.layerId
+                        target.layerId &&
+                        this._canPatchLayerFromYDoc({
+                            glyphName: target.glyphName,
+                            layerId: target.layerId
+                        })
                       ? { glyphName: target.glyphName, layerId: target.layerId }
                       : null
-            );
+                : null;
+            if (layerScopeHints) {
+                this._syncJsonFromYDoc(layerScopeHints);
+            } else if (metadataEntries?.length) {
+                this._syncRemoteJsonFromYDoc(metadataEntries);
+            } else if (target.glyphName) {
+                this._syncRemoteJsonFromYDoc([entry]);
+            } else {
+                throw new Error(
+                    'Undo requires semantic change metadata for non-layer updates.'
+                );
+            }
 
             this._onAfterSync?.();
             this._onDirty?.();
@@ -2692,6 +2722,9 @@ export class PatchSyncEngine {
                 this.windowId,
                 this._getWindowRoleLabel()
             );
+            if (!metadataEntries?.length && !target.glyphName) {
+                return null;
+            }
             const workerReplayTargets = normalizeWorkerReplayTargets([
                 ...(targetItem?.workerReplayTargets ?? []),
                 ...(target.glyphName && target.layerId
@@ -2731,19 +2764,38 @@ export class PatchSyncEngine {
                 um?.redo();
             }
 
-            const shouldUseLayerScopeHints = !(
+            const layerScopeHints = !(
                 isHistoryReplay && targetItem?.undoScope !== 'layer'
-            );
-            this._syncJsonFromYDoc(
-                shouldUseLayerScopeHints && workerReplayTargets.length > 0
+            )
+                ? workerReplayTargets.length > 0 &&
+                  workerReplayTargets.every(
+                      (replayTarget) =>
+                          !!replayTarget.glyphName &&
+                          !!replayTarget.layerId &&
+                          this._canPatchLayerFromYDoc(replayTarget)
+                  )
                     ? workerReplayTargets
-                    : shouldUseLayerScopeHints &&
-                        scope === 'layer' &&
+                    : scope === 'layer' &&
                         target.glyphName &&
-                        target.layerId
+                        target.layerId &&
+                        this._canPatchLayerFromYDoc({
+                            glyphName: target.glyphName,
+                            layerId: target.layerId
+                        })
                       ? { glyphName: target.glyphName, layerId: target.layerId }
                       : null
-            );
+                : null;
+            if (layerScopeHints) {
+                this._syncJsonFromYDoc(layerScopeHints);
+            } else if (metadataEntries?.length) {
+                this._syncRemoteJsonFromYDoc(metadataEntries);
+            } else if (target.glyphName) {
+                this._syncRemoteJsonFromYDoc([entry]);
+            } else {
+                throw new Error(
+                    'Redo requires semantic change metadata for non-layer updates.'
+                );
+            }
 
             this._onAfterSync?.();
             this._onDirty?.();
@@ -2873,7 +2925,7 @@ export class PatchSyncEngine {
         update: Uint8Array,
         remoteEntries?: ChangeLogEntry[],
         remoteCollaborationMessages?: CollaborationMessageEnvelope[]
-    ): void {
+    ): boolean {
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
@@ -2889,17 +2941,26 @@ export class PatchSyncEngine {
                   ) ?? []);
             if (!effectiveRemoteEntries.length) {
                 if (this._isRemoteUpdateNoop(update)) {
-                    return;
+                    return false;
                 }
                 throw new MetadataFreeRemoteUpdateError();
             }
             // Apply linked-window updates using the shared same-user origin so
             // every window can undo the combined edit history.
-            Y.applyUpdate(
-                this.yDoc,
-                update,
-                this._getRemoteUpdateOrigin(effectiveRemoteEntries)
-            );
+            let didChange = false;
+            const observeRemoteTransaction = (transaction: Y.Transaction) => {
+                didChange ||= transaction.changed.size > 0;
+            };
+            this.yDoc.on('afterTransaction', observeRemoteTransaction);
+            try {
+                Y.applyUpdate(
+                    this.yDoc,
+                    update,
+                    this._getRemoteUpdateOrigin(effectiveRemoteEntries)
+                );
+            } finally {
+                this.yDoc.off('afterTransaction', observeRemoteTransaction);
+            }
             if (effectiveRemoteEntries?.length) {
                 const glyphNames = new Set(
                     effectiveRemoteEntries
@@ -2950,6 +3011,7 @@ export class PatchSyncEngine {
                 });
             }
             this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
+            return didChange;
         } finally {
             this._isApplyingRemote = false;
         }
@@ -3077,7 +3139,9 @@ export class PatchSyncEngine {
                 : null;
 
         if (syncEntireFont) {
-            this._syncEntireFontJsonFromYDoc();
+            throw new Error(
+                'Remote Yjs updates require scoped change metadata.'
+            );
         } else {
             for (const glyphName of glyphNames) {
                 this._patchGlyphFromYDoc(glyphName);
@@ -3110,13 +3174,10 @@ export class PatchSyncEngine {
     }
 
     /**
-     * Sync every top-level font key and glyph snapshot from the current Y.Doc.
-     * Used for bootstrap-style full-state syncs and for defensive recovery when
-     * remote metadata is missing, without converting the whole Y.Doc in one walk.
-     * FULLJSON_UNNECESSARY (P5): This visits every glyph and top-level key; it is
-     * valid only for bootstrap/rebaseline, never as steady-state edit recovery.
+     * Rehydrate every top-level font key and glyph snapshot from the current
+     * Y.Doc after an explicit full-state bootstrap or rebaseline.
      */
-    private _syncEntireFontJsonFromYDoc(): void {
+    private _rehydrateEntireFontJsonFromYDoc(): void {
         if (!this._fontJson) {
             return;
         }
@@ -3471,15 +3532,15 @@ export class PatchSyncEngine {
      * independently initialised Y.Docs have conflicting CRDT state.
      *
      * YJS_ONLY (N2): Binary Yjs state — no JSON crossing.
-     * The _syncJsonFromYDoc() call below rehydrates the live JSON/model from
-     * branch-scoped Y.Doc reads instead of a single whole-document walk.
+     * The explicit rehydrate below is reserved for bootstrap and rebaseline,
+     * never for an ordinary committed update.
      */
     applyFullState(state: YjsUpdate): void {
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
             Y.applyUpdate(this.yDoc, state, SYSTEM_REMOTE_ORIGIN);
-            this._syncJsonFromYDoc();
+            this._rehydrateEntireFontJsonFromYDoc();
             this._canonicalizeFullStateRawFontJson();
             // Set up undo managers so this window can undo/redo too
             this._setupFontUndoManager();
@@ -3887,14 +3948,31 @@ export class PatchSyncEngine {
             return;
         }
 
-        // FULLJSON_UNNECESSARY (P4): Missing scope widens a normal edit into a
-        // full-font Y.Doc traversal. Incremental edit packets must provide valid
-        // layer targets so only the touched model layers are reconstructed.
-        this._syncEntireFontJsonFromYDoc();
+        throw new Error(
+            'Steady-state Yjs synchronization requires valid layer scope hints.'
+        );
+    }
 
-        this._emitLayerFingerprintChangedEvents(
-            previousFingerprintSnapshot,
-            this._collectLayerFingerprintSnapshot(fingerprintTargets)
+    private _canPatchLayerFromYDoc(scopeHint: {
+        glyphName: string;
+        layerId: string;
+    }): boolean {
+        const glyphsMap = this.fontMap.get('glyphs');
+        const glyphMap =
+            glyphsMap instanceof Y.Map
+                ? glyphsMap.get(scopeHint.glyphName)
+                : null;
+        const layersMap =
+            glyphMap instanceof Y.Map ? glyphMap.get('layers') : null;
+        const glyph = (this._fontJson as Unsafe)?.glyphs?.find(
+            (candidate: Unsafe) => candidate?.name === scopeHint.glyphName
+        );
+        return (
+            layersMap instanceof Y.Map &&
+            layersMap.get(scopeHint.layerId) instanceof Y.Map &&
+            glyph?.layers?.some(
+                (layer: Unsafe) => layer?.id === scopeHint.layerId
+            )
         );
     }
 
@@ -4136,7 +4214,6 @@ export class PatchSyncEngine {
     private _queueOrCommitOperations(
         operations: TransactionBufferedOperation[],
         label?: string | null,
-        synchronizeJsonBeforeEmit = false,
         skipTransactionFinalizer = false
     ): TransactionCommitResult | null {
         const normalizedOperations = operations
@@ -4165,7 +4242,6 @@ export class PatchSyncEngine {
             undefined,
             undefined,
             undefined,
-            synchronizeJsonBeforeEmit,
             skipTransactionFinalizer
         );
     }
@@ -4231,7 +4307,6 @@ export class PatchSyncEngine {
         historyTarget?: TransactionHistoryTarget | null,
         promptGroupId?: string | null,
         historySummary?: string | null,
-        synchronizeJsonBeforeEmit = false,
         skipTransactionFinalizer = false
     ): TransactionCommitResult | null {
         const normalizedOperations = operations.filter(
@@ -4351,14 +4426,6 @@ export class PatchSyncEngine {
             }, scopeInfo.origin);
         } finally {
             this._suppressAutomaticLocalUpdateEmission = false;
-        }
-
-        if (synchronizeJsonBeforeEmit) {
-            // FULLJSON_UNNECESSARY (P3): Null scope discards the transaction's
-            // known layer targets and reconstructs the entire font from Y.Doc.
-            // Steady-state commits must patch only their affected layers.
-            this._syncJsonFromYDoc(null);
-            this._onAfterSync?.();
         }
 
         const exactCommitUpdate = Y.encodeStateAsUpdate(

@@ -3127,7 +3127,7 @@ describe('FontManager boundary-crossing budget', () => {
         }
     });
 
-    test('refreshWorkerCacheForReplayTargets preserves the sparse baseline when the worker rejects the batch', async () => {
+    test('refreshWorkerCacheForReplayTargets retries the same sparse packet when the worker rejects the batch', async () => {
         const currentFont = fontManager.currentFont;
         const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
 
@@ -3137,9 +3137,6 @@ describe('FontManager boundary-crossing budget', () => {
             ])
         ).resolves.toBe(true);
 
-        const baselineState = Y.encodeStateAsUpdate(
-            fontManager.workerCacheYDoc
-        );
         sendMessageSpy
             .mockRejectedValueOnce(new Error('RuntimeError: unreachable'))
             .mockResolvedValueOnce({
@@ -3152,10 +3149,6 @@ describe('FontManager boundary-crossing budget', () => {
                 { glyphName: 'a', layerId }
             ])
         ).resolves.toBe(false);
-
-        expect(
-            Array.from(Y.encodeStateAsUpdate(fontManager.workerCacheYDoc))
-        ).toEqual(Array.from(baselineState));
 
         await expect(
             fontManager.refreshWorkerCacheForReplayTargets([
@@ -3170,6 +3163,9 @@ describe('FontManager boundary-crossing budget', () => {
                 layerTargets: [{ glyphName: 'a', layerId }],
                 invalidateLayoutClosure: false
             })
+        );
+        expect(sendMessageSpy.mock.calls[2][0].update).toBe(
+            sendMessageSpy.mock.calls[1][0].update
         );
         expect(sendMessageSpy).toHaveBeenNthCalledWith(
             3,
@@ -3964,7 +3960,7 @@ describe('FontManager boundary-crossing budget', () => {
         syncJsonSpy.mockRestore();
     });
 
-    test('forwardWorkerYjsUpdate merges a missing replay layer into one incremental worker packet', async () => {
+    test('forwardWorkerYjsUpdate forwards the authoritative update without repairing missing replay layers', async () => {
         const currentFont = fontManager.currentFont;
         const originalPatchSyncEngine = window.patchSyncEngine;
         const originalFontData = cloneJson(currentFont.babelfontData);
@@ -4092,7 +4088,7 @@ describe('FontManager boundary-crossing budget', () => {
                     invalidateLayoutClosure: false
                 })
             );
-            expect(forwardedUpdate).not.toBe(sourceOnlyUpdate);
+            expect(forwardedUpdate).toBe(sourceOnlyUpdate);
             expect(refreshReplayTargetsSpy).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
@@ -4110,14 +4106,14 @@ describe('FontManager boundary-crossing budget', () => {
                     dependentGlyphName,
                     dependentLayer.id
                 )
-            ).toBe(dependentWidth);
+            ).toBeUndefined();
             expect(
                 getLayerWidth(
                     fontManager.workerCacheYDoc,
                     dependentGlyphName,
                     dependentLayer.id
                 )
-            ).toBe(dependentWidth);
+            ).toBeUndefined();
             expect(fontManager.getBoundaryCrossingStats()).toEqual({
                 submitBatchCalls: 1,
                 layersTransmitted: 1,

@@ -4240,6 +4240,23 @@ describe('Undo / Redo', () => {
         expect(getYPath(bridge.fontMap, ['upm'])).toBe(2000);
     });
 
+    test('font-level undo and redo patch the recorded top-level key without bootstrap rehydration', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+        const rehydrateSpy = jest.spyOn(
+            bridge,
+            '_rehydrateEntireFontJsonFromYDoc'
+        );
+        bridge.recordChange([], 'upm', 1000, 2000);
+
+        bridge.undo();
+        expect(fontJson.upm).toBe(1000);
+        bridge.redo();
+        expect(fontJson.upm).toBe(2000);
+        expect(rehydrateSpy).not.toHaveBeenCalled();
+
+        rehydrateSpy.mockRestore();
+    });
+
     test('canUndo / canRedo report correctly', () => {
         const { bridge } = createTestBridge('test-1');
         expect(bridge.canUndo()).toBe(false);
@@ -8271,7 +8288,7 @@ describe('syncGlyphFromJson', () => {
         const syncSpy = jest.spyOn(receiverBridge, '_syncJsonFromYDoc');
         const fullSyncSpy = jest.spyOn(
             receiverBridge,
-            '_syncEntireFontJsonFromYDoc'
+            '_rehydrateEntireFontJsonFromYDoc'
         );
 
         senderFontJson.glyphs[0].layers[0].width = 723;
@@ -8462,7 +8479,7 @@ describe('syncGlyphFromJson', () => {
         const syncSpy = jest.spyOn(receiverBridge, '_syncJsonFromYDoc');
         const fullSyncSpy = jest.spyOn(
             receiverBridge,
-            '_syncEntireFontJsonFromYDoc'
+            '_rehydrateEntireFontJsonFromYDoc'
         );
         const addedLayer = {
             id: 'associated-layer-lifecycle',
@@ -9478,7 +9495,7 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         });
     });
 
-    test('full _syncJsonFromYDoc merges partial Y.Doc layer data with the existing glyph snapshot', () => {
+    test('full-state bootstrap merges partial Y.Doc layer data with the existing glyph snapshot', () => {
         const fontJson = makeMinimalFont();
         const bridge = new ChangeBridge('test-sync-ydoc-glyph-partial');
         bridge.initFromJson(fontJson);
@@ -9506,7 +9523,7 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
             );
         }, 'test');
 
-        bridge._syncJsonFromYDoc();
+        bridge.applyFullState(bridge.encodeBridgeState());
 
         expect(fontJson.glyphs[0].layers[0].width).toBe(600);
         expect(fontJson.glyphs[0].layers[0].anchors[0].x).toBe(345);
@@ -9517,7 +9534,7 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         });
     });
 
-    test('full _syncJsonFromYDoc restores a missing default master tag when layer id matches a known master id', () => {
+    test('full-state bootstrap restores a missing default master tag when layer id matches a known master id', () => {
         const fontJson = makeMinimalFont();
         fontJson.glyphs[0].layers[0].id = 'master-regular';
         delete fontJson.glyphs[0].layers[0].master;
@@ -9526,7 +9543,7 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         bridge.initFromJson(fontJson);
         window.changeBridge = bridge;
 
-        bridge._syncJsonFromYDoc();
+        bridge.applyFullState(bridge.encodeBridgeState());
 
         expect(fontJson.glyphs[0].layers[0].master).toEqual({
             type: 'DefaultForMaster',
@@ -9534,7 +9551,7 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         });
     });
 
-    test('full _syncJsonFromYDoc does not treat an empty master object as FreeFloating when layer id matches a known master id', () => {
+    test('full-state bootstrap does not treat an empty master object as FreeFloating when layer id matches a known master id', () => {
         const fontJson = makeMinimalFont();
         fontJson.glyphs[0].layers[0].id = 'master-regular';
         fontJson.glyphs[0].layers[0].master = {};
@@ -9543,12 +9560,24 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         bridge.initFromJson(fontJson);
         window.changeBridge = bridge;
 
-        bridge._syncJsonFromYDoc();
+        bridge.applyFullState(bridge.encodeBridgeState());
 
         expect(fontJson.glyphs[0].layers[0].master).toEqual({
             type: 'DefaultForMaster',
             master: 'master-regular'
         });
+    });
+
+    test('unscoped steady-state synchronization fails without rebuilding the font', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('test-sync-ydoc-unscoped');
+        bridge.initFromJson(fontJson);
+        const unrelatedLayer = fontJson.glyphs[1].layers[0];
+
+        expect(() => bridge._syncJsonFromYDoc()).toThrow(
+            'requires valid layer scope hints'
+        );
+        expect(fontJson.glyphs[1].layers[0]).toBe(unrelatedLayer);
     });
 
     test('layer-scoped undo patches only the changed layer — other glyph data is not rebuilt', () => {

@@ -1933,22 +1933,12 @@ export class CloudAdapter implements FileSystemAdapter {
     ): void {
         if (!this._bridge || update.length === 0) return;
         try {
-            const beforeState = this._bridge.encodeBridgeState();
-            this._bridge.applyRemoteUpdate(
+            const didApply = this._bridge.applyRemoteUpdate(
                 update,
                 undefined,
                 remoteCollaborationMessages
             );
-            const afterState = this._bridge.encodeBridgeState();
-            // Duplicate or bootstrap reconciliation packets can be semantically
-            // no-ops. Treating those as divergence and immediately requesting a
-            // server resync causes sync-request ping-pong between peers.
-            const isNoopRemoteUpdate =
-                beforeState.length === afterState.length &&
-                beforeState.every(
-                    (value, index) => value === afterState[index]
-                );
-            if (isNoopRemoteUpdate) {
+            if (!didApply) {
                 return;
             }
             if (window.windowRole?.isMainWindow()) {

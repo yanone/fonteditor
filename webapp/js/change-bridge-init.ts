@@ -731,7 +731,11 @@ type CommittedCompileEditType =
     'anchor' | 'outline' | 'guide' | 'kerning-value' | 'kerning-groups' | null;
 
 type NonGlyphChangeHint =
-    'feature-code' | 'kerning-value' | 'kerning-groups' | 'masters';
+    | 'feature-code'
+    | 'kerning-value'
+    | 'kerning-groups'
+    | 'masters'
+    | `top-level:${string}`;
 
 function pathTouchesMasterKerning(path: string): boolean {
     return /(^|\.)masters\.[^.]+\.kerning(_rtl)?(\.|$)/.test(path);
@@ -785,20 +789,31 @@ function collectNonGlyphChangeHints(
             entry.transactionLabel ?? '',
             path
         );
-        if (path.startsWith('features.')) {
+        let hasSpecializedHint = false;
+        if (path === 'features' || path.startsWith('features.')) {
             hints.add('feature-code');
+            hasSpecializedHint = true;
         }
         if (
             !kerningEditType &&
             (path === 'masters' || path.startsWith('masters.'))
         ) {
             hints.add('masters');
+            hasSpecializedHint = true;
         }
         if (kerningEditType === 'kerning-value') {
             hints.add('kerning-value');
+            hasSpecializedHint = true;
         }
         if (kerningEditType === 'kerning-groups') {
             hints.add('kerning-groups');
+            hasSpecializedHint = true;
+        }
+        if (!hasSpecializedHint) {
+            const topLevelKey = path.split(/[.:[\]]/, 1)[0];
+            if (topLevelKey && topLevelKey !== 'glyphs') {
+                hints.add(`top-level:${topLevelKey}`);
+            }
         }
     }
 

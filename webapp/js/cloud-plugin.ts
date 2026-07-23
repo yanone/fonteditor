@@ -18,7 +18,6 @@ import {
     CloudConnectionStatus,
     normalizeCloudRoomWebSocketUrl
 } from './cloud-adapter';
-import { yDocToJson } from './change-bridge-ydoc';
 import {
     PatchSyncEngine,
     type CommittedChangeListener
@@ -269,12 +268,9 @@ function validateCloudExportForFontOpen(
 }
 
 function getCloudFontJsonFromBridge(
-    bridge: Pick<PatchSyncEngine, 'fontMap'>
+    bridge: Pick<PatchSyncEngine, 'getFontJsonSnapshot'>
 ): Record<string, unknown> | null {
-    // FULLJSON_UNNECESSARY (U7/B4): Walks entire Y.Doc via yDocToJson, then
-    // JSON.stringify for HTTP upload. Could be done in Rust (ydoc_to_babelfont_json_with_txn
-    // + serde_json::to_string) to avoid the JS-side tree walk.
-    const fontJson = yDocToJson(bridge.fontMap);
+    const fontJson = bridge.getFontJsonSnapshot();
     if (!fontJson || Object.keys(fontJson).length === 0) {
         return null;
     }
@@ -283,7 +279,7 @@ function getCloudFontJsonFromBridge(
 }
 
 function assertCloudBridgeStateCanBeSaved(
-    bridge: Pick<PatchSyncEngine, 'fontMap'>
+    bridge: Pick<PatchSyncEngine, 'getFontJsonSnapshot'>
 ): void {
     const fontJson = getCloudFontJsonFromBridge(bridge);
     if (!fontJson) {
@@ -558,7 +554,7 @@ async function waitForCloudSaveBridge(
  * Some cloud rooms connect before their persisted snapshot has been applied.
  */
 async function waitForCloudFontJson(
-    bridge: Pick<PatchSyncEngine, 'fontMap' | 'yDoc'>,
+    bridge: Pick<PatchSyncEngine, 'getFontJsonSnapshot' | 'yDoc'>,
     timeoutMs = 8000
 ): Promise<Record<string, unknown> | null> {
     const immediateFontJson = getCloudFontJsonFromBridge(bridge);

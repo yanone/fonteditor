@@ -8703,6 +8703,9 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const workerCacheSpy = jest
             .spyOn(fontManager, 'updateWorkerFontCache')
             .mockResolvedValue();
+        const structuralLayerSyncSpy = jest
+            .spyOn(fontManager, 'syncLayerFromModelToStorage')
+            .mockReturnValue(true);
         const scheduleFullCompileDebounceSpy = jest
             .spyOn(fontManager, 'scheduleFullCompileDebounce')
             .mockImplementation(() => {});
@@ -9743,6 +9746,7 @@ describe('OutlineEditor structural outline compile scheduling', () => {
     function mockStructuralCompileEnvironment(font) {
         const currentFont = {
             fontModel: font,
+            babelfontData: { glyphs: [] },
             markDirty: jest.fn(),
             syncJsonFromModel: jest.fn(),
             hasUnsavedChanges: false
@@ -9756,6 +9760,9 @@ describe('OutlineEditor structural outline compile scheduling', () => {
         const workerCacheSpy = jest
             .spyOn(fontManager, 'updateWorkerFontCache')
             .mockResolvedValue();
+        const structuralLayerSyncSpy = jest
+            .spyOn(fontManager, 'syncLayerFromModelToStorage')
+            .mockReturnValue(true);
         const scheduleFullCompileDebounceSpy = jest
             .spyOn(fontManager, 'scheduleFullCompileDebounce')
             .mockImplementation(() => {});
@@ -9784,6 +9791,7 @@ describe('OutlineEditor structural outline compile scheduling', () => {
             currentFontSpy,
             dirtyIndicatorSpy,
             workerCacheSpy,
+            structuralLayerSyncSpy,
             scheduleFullCompileDebounceSpy,
             linkedLayersSpy,
             bridge: window.changeBridge,
@@ -9795,6 +9803,7 @@ describe('OutlineEditor structural outline compile scheduling', () => {
                 fontManager.lastEditType = originalLastEditType;
                 linkedLayersSpy.mockRestore();
                 scheduleFullCompileDebounceSpy.mockRestore();
+                structuralLayerSyncSpy.mockRestore();
                 workerCacheSpy.mockRestore();
                 dirtyIndicatorSpy.mockRestore();
                 currentFontSpy.mockRestore();
@@ -9925,10 +9934,14 @@ describe('OutlineEditor structural outline compile scheduling', () => {
             expect(env.currentFont.markDirty).toHaveBeenCalledWith(
                 'keyboard-outline'
             );
-            expect(env.currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(env.currentFont.syncJsonFromModel).not.toHaveBeenCalled();
+            expect(env.structuralLayerSyncSpy).toHaveBeenCalledWith(
+                'A',
+                'layer-1'
+            );
             expect(env.workerCacheSpy).toHaveBeenCalled();
             expect(
-                env.currentFont.syncJsonFromModel.mock.invocationCallOrder[0]
+                env.structuralLayerSyncSpy.mock.invocationCallOrder[0]
             ).toBeLessThan(env.workerCacheSpy.mock.invocationCallOrder[0]);
         } finally {
             env.restore();
@@ -10125,10 +10138,14 @@ describe('OutlineEditor structural outline compile scheduling', () => {
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).toHaveBeenCalledTimes(1);
-            expect(env.currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(env.currentFont.syncJsonFromModel).not.toHaveBeenCalled();
+            expect(env.structuralLayerSyncSpy).toHaveBeenCalledWith(
+                'A',
+                'layer-1'
+            );
             expect(env.workerCacheSpy).toHaveBeenCalled();
             expect(
-                env.currentFont.syncJsonFromModel.mock.invocationCallOrder[0]
+                env.structuralLayerSyncSpy.mock.invocationCallOrder[0]
             ).toBeLessThan(env.workerCacheSpy.mock.invocationCallOrder[0]);
         } finally {
             segmentHitSpy.mockRestore();
@@ -13890,6 +13907,12 @@ describe('OutlineEditor exact selected layers', () => {
                 'queueStructuralOutlineCompileFromModel'
             )
             .mockImplementation(() => {});
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
         const transformSpy = jest
             .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
             .mockReturnValue({ glyphX: 100, glyphY: 200 });
@@ -13958,6 +13981,8 @@ describe('OutlineEditor exact selected layers', () => {
         } finally {
             window.patchSyncEngine = originalPatchSyncEngine;
             transformSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            workerCacheSpy.mockRestore();
             queueCompileSpy.mockRestore();
         }
     });
@@ -14811,7 +14836,7 @@ describe('OutlineEditor exact selected layers', () => {
             expect(storedLayer.shapes.length).toBeGreaterThan(0);
             expect(storedLayer.anchors[0].x).toBe(999.9);
             expect(currentFont.markDirty).toHaveBeenCalled();
-            expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenCalledWith(
                 'A',
                 'Create interpolated layer sync',
@@ -14966,7 +14991,7 @@ describe('OutlineEditor exact selected layers', () => {
             expect(canvas.outlineEditor.glyphStack).toBe(
                 'A@missing_interpolation'
             );
-            expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenCalledWith(
                 'A',
                 'Delete layer sync'
@@ -15122,7 +15147,7 @@ describe('OutlineEditor exact selected layers', () => {
             expect(
                 font.findGlyph('B').findLayerById('brace-layer')
             ).toBeUndefined();
-            expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenCalledWith(
                 'B',
                 'Delete layer sync'
@@ -15253,7 +15278,7 @@ describe('OutlineEditor exact selected layers', () => {
             expect(canvas.outlineEditor.glyphStack).toBe(
                 'A@missing_interpolation'
             );
-            expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenCalledWith(
                 'A',
                 'Delete layer sync'
@@ -15341,7 +15366,7 @@ describe('OutlineEditor exact selected layers', () => {
                 999.75
             );
             expect(currentFont.markDirty).toHaveBeenCalledTimes(3);
-            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
+            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
             expect(fontManager.lastEditType).toBe('outline');
             expect(scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
@@ -16056,7 +16081,7 @@ describe('OutlineEditor exact selected layers', () => {
                 }
             );
 
-            expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(patchSyncEngine.syncGlyphFromJson).toHaveBeenCalledWith(
                 'A',
                 'Create interpolated layer sync',

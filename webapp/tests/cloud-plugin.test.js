@@ -75,7 +75,7 @@ jest.mock('../js/patch-sync-engine', () => ({
     PatchSyncEngine: jest.fn().mockImplementation(() => {
         let updateHandler = null;
         mockLatestTempBridge = {
-            fontMap: { __mock: true },
+            getFontJsonSnapshot: jest.fn(() => mockYDocToJson()),
             yDoc: {
                 on: jest.fn((eventName, handler) => {
                     if (eventName === 'update') {
@@ -121,11 +121,6 @@ jest.mock('../js/patch-sync-engine', () => ({
         return mockLatestTempBridge;
     }),
     ChangeBridge: jest.fn().mockImplementation(() => mockLatestTempBridge)
-}));
-
-jest.mock('../js/change-bridge-ydoc', () => ({
-    ...jest.requireActual('../js/change-bridge-ydoc'),
-    yDocToJson: (...args) => mockYDocToJson(...args)
 }));
 
 const defaultCloudFontJson = {
@@ -521,7 +516,8 @@ describe('CloudPlugin.openAsset', () => {
             onCommittedChange: jest.fn(),
             offCommittedChange: jest.fn(),
             onLocalUpdate: jest.fn(),
-            offLocalUpdate: jest.fn()
+            offLocalUpdate: jest.fn(),
+            getFontJsonSnapshot: jest.fn(() => defaultCloudFontJson)
         };
 
         const finalizeCalls = [];
@@ -736,7 +732,8 @@ describe('CloudPlugin.openAsset', () => {
         };
         window.patchSyncEngine = {
             onLocalUpdate: jest.fn(),
-            offLocalUpdate: jest.fn()
+            offLocalUpdate: jest.fn(),
+            getFontJsonSnapshot: jest.fn(() => defaultCloudFontJson)
         };
 
         mockConnectDirectStatusQueue = [
@@ -822,7 +819,8 @@ describe('CloudPlugin.openAsset', () => {
         };
         window.patchSyncEngine = {
             onLocalUpdate: jest.fn(),
-            offLocalUpdate: jest.fn()
+            offLocalUpdate: jest.fn(),
+            getFontJsonSnapshot: jest.fn(() => defaultCloudFontJson)
         };
 
         global.fetch = jest.fn().mockImplementation((url) => {
@@ -911,7 +909,7 @@ describe('CloudPlugin.openAsset', () => {
             offCommittedChange: jest.fn(),
             onLocalUpdate: jest.fn(),
             offLocalUpdate: jest.fn(),
-            fontMap: { __mock: true }
+            getFontJsonSnapshot: jest.fn(() => defaultCloudFontJson)
         };
         const replacementBridge = {
             encodeBridgeState: jest.fn(() => new Uint8Array([1, 2, 3])),
@@ -919,7 +917,7 @@ describe('CloudPlugin.openAsset', () => {
             offCommittedChange: jest.fn(),
             onLocalUpdate: jest.fn(),
             offLocalUpdate: jest.fn(),
-            fontMap: { __mock: true }
+            getFontJsonSnapshot: jest.fn(() => defaultCloudFontJson)
         };
         window.patchSyncEngine = originalBridge;
 

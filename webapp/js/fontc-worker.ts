@@ -783,9 +783,8 @@ self.onmessage = async (event) => {
                 cleanedJson = JSON.stringify(fontData);
                 timelineSpanEnd(stringifyJsonSpanId);
 
-                // FULLJSON_UNNECESSARY: Legacy full-JSON compile path (A3).
-                // Should use compile_cached_full_font_with_filter_pipeline from
-                // CANONICAL_JSON_CACHE instead of sending the full JSON string.
+                // Explicit export compilation for a Python-produced font. Editor
+                // commits compile from the worker's Yjs-backed cache instead.
 
                 // Send debug info to main thread
                 self.postMessage({
@@ -1463,10 +1462,8 @@ self.onmessage = async (event) => {
             return;
         }
 
-        // Handle store font JSON request (before auto-init to ensure it's cached early)
-        // FULLJSON_UNNECESSARY: Full babelfont JSON string sent to Rust (U1/A2).
-        // Should be replaced by forwarding the Yjs binary update instead. Used by
-        // undo/redo fallback (when forceFullRustSync=true) and error recovery.
+        // Bootstrap/rebaseline compatibility path. Steady-state editor commits
+        // must use applyYjsUpdate rather than sending a full JSON document.
         if (data.type === 'storeFontJson') {
             const storeSpanId = timelineSpanStart('font.worker.storeFontJson');
             const { id, babelfontJson } = data;

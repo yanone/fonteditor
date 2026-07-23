@@ -680,10 +680,8 @@ function fromYLayerMap(layerMap: Y.Map<unknown>): Record<string, unknown> {
  *
  * Reverses the keyed-map structure for glyphs and layers back into arrays.
  *
- * FULLJSON_UNNECESSARY (B1/U3): Walks the entire Y.Doc tree.
- * Called from _syncJsonFromYDoc fallback and cloud plugin save.
- * Should only fire for cloud save; the _syncJsonFromYDoc fallback
- * should be eliminated by fixing _patchLayerFromYDoc.
+ * Reserved for explicit bootstrap/test snapshots. Steady-state editor,
+ * cloud-save, and synchronization paths must use their scoped bridge APIs.
  */
 export function yDocToJson(fontMap: Y.Map<unknown>): Record<string, unknown> {
     const result: Record<string, unknown> = {};

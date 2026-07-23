@@ -569,6 +569,12 @@ class FontManager {
         EditingCompileContext
     >;
     private workerCacheYDoc: Y.Doc | null;
+    private pendingWorkerLayerUpdate: {
+        update: Uint8Array;
+        changedGlyphs: string[];
+        invalidateLayoutClosure: boolean;
+        layerTargets: WorkerReplayTarget[];
+    } | null;
     private workerYjsSendQueue: Promise<unknown>;
     private pendingCloudBadgeVisibleAtByAssetId: Map<string, number>;
     private pendingCloudBadgeDelayTimer: ReturnType<typeof setTimeout> | null;
@@ -636,6 +642,7 @@ class FontManager {
         this.lastWorkerFontCacheEpoch = 0;
         this.editingCompileContextsByRevision = new Map();
         this.workerCacheYDoc = null;
+        this.pendingWorkerLayerUpdate = null;
         this.workerYjsSendQueue = Promise.resolve();
         this.pendingCloudBadgeVisibleAtByAssetId = new Map();
         this.pendingCloudBadgeDelayTimer = null;
@@ -4055,6 +4062,42 @@ class FontManager {
         return true;
     }
 
+    syncLayerFromModelToStorage(glyphName: string, layerId: string): boolean {
+        const glyph = this.currentFont?.fontModel?.findGlyph(glyphName);
+        const layer = glyph?.findLayerById(layerId);
+        if (!layer) {
+            return false;
+        }
+
+        const serializedLayer = this.serializeLayerForStorage(
+            glyphName,
+            layerId,
+            layer.toJSON(),
+            undefined
+        );
+        return (
+            !!serializedLayer &&
+            this.updateStoredLayerData(glyphName, layerId, serializedLayer)
+        );
+    }
+
+    removeStoredLayerData(glyphName: string, layerId: string): boolean {
+        const glyph = this.getGlyph(glyphName);
+        if (!glyph?.layers) {
+            return false;
+        }
+
+        const layerIndex = glyph.layers.findIndex(
+            (layer) => layer.id === layerId
+        );
+        if (layerIndex === -1) {
+            return false;
+        }
+
+        glyph.layers.splice(layerIndex, 1);
+        return true;
+    }
+
     private getWorkerLayerFingerprintKey(
         glyphName: string,
         layerId: string
@@ -4159,6 +4202,7 @@ class FontManager {
         // No JSON crossing — Y.applyUpdate takes a binary Uint8Array.
         if (!state) {
             this.workerCacheYDoc = null;
+            this.pendingWorkerLayerUpdate = null;
             return;
         }
 
@@ -4168,6 +4212,7 @@ class FontManager {
             state instanceof Uint8Array ? state : new Uint8Array(state)
         );
         this.workerCacheYDoc = yDoc;
+        this.pendingWorkerLayerUpdate = null;
     }
 
     applyWorkerYjsUpdateToMirror(
@@ -4196,19 +4241,6 @@ class FontManager {
         );
     }
 
-    private cloneWorkerYjsMirror(): Y.Doc | null {
-        if (!this.workerCacheYDoc) {
-            return null;
-        }
-
-        const clonedDoc = new Y.Doc();
-        // FULLJSON_UNNECESSARY (P6): Encodes and reapplies the complete worker
-        // mirror just to clone it. Steady-state worker sync must use the
-        // authoritative incremental packet and its layer targets directly.
-        Y.applyUpdate(clonedDoc, Y.encodeStateAsUpdate(this.workerCacheYDoc));
-        return clonedDoc;
-    }
-
     private buildWorkerYjsLayerUpdate(
         updates: Array<{
             glyphName: string;
@@ -4216,7 +4248,7 @@ class FontManager {
             normalized: Babelfont.Layer;
         }>
     ): { update: Uint8Array; changedGlyphs: string[] } | null {
-        const workerMirror = this.cloneWorkerYjsMirror();
+        const workerMirror = this.workerCacheYDoc;
         if (!workerMirror) {
             return null;
         }
@@ -4806,55 +4838,7 @@ class FontManager {
             this.bootstrapWorkerYjsMirrorFromCurrentFont();
         }
 
-        let workerUpdate = update;
-        if (targetLayerUpdates?.updates.length) {
-            const workerMirrorAfterUpdate = this.cloneWorkerYjsMirror();
-            if (workerMirrorAfterUpdate) {
-                Y.applyUpdate(workerMirrorAfterUpdate, update);
-                const workerFontMap = workerMirrorAfterUpdate.getMap('font');
-                const missingReplayLayerUpdates = targetLayerUpdates.updates
-                    .map(({ glyphName, layerId, layerData }) => ({
-                        glyphName,
-                        layerId,
-                        normalized: this.normalizeLayerForRust(layerData)
-                    }))
-                    .filter(({ glyphName, layerId, normalized }) => {
-                        const workerLayer = getYPath(workerFontMap, [
-                            'glyphs',
-                            glyphName,
-                            'layers',
-                            layerId
-                        ]);
-                        if (!workerLayer) {
-                            return true;
-                        }
-                        const workerLayerData = fromYType(
-                            workerLayer
-                        ) as Babelfont.Layer;
-                        try {
-                            return (
-                                this.getLayerWorkerFingerprint(
-                                    workerLayerData
-                                ) !== this.getLayerWorkerFingerprint(normalized)
-                            );
-                        } catch (_error) {
-                            return true;
-                        }
-                    });
-                const replayLayerUpdate = this.buildWorkerYjsLayerUpdateForDoc(
-                    workerMirrorAfterUpdate,
-                    missingReplayLayerUpdates
-                );
-                if (replayLayerUpdate?.update.length) {
-                    // Preserve the original authoritative Yjs delta and append
-                    // only replay layers that the worker mirror still lacks.
-                    workerUpdate = Y.mergeUpdates([
-                        update,
-                        replayLayerUpdate.update
-                    ]);
-                }
-            }
-        }
+        const workerUpdate = update;
 
         const sent = await this.sendWorkerYjsUpdate(
             workerUpdate,
@@ -5078,8 +5062,85 @@ class FontManager {
                 };
             });
 
-            const workerUpdate =
-                this.buildWorkerYjsLayerUpdate(normalizedUpdates);
+            const sameLayerTargets = (targets: WorkerReplayTarget[]): boolean =>
+                targets.length === normalizedUpdates.length &&
+                targets.every(({ glyphName, layerId }) =>
+                    normalizedUpdates.some(
+                        (update) =>
+                            update.glyphName === glyphName &&
+                            update.layerId === layerId
+                    )
+                );
+            const pendingWorkerLayerUpdate = this.pendingWorkerLayerUpdate;
+            if (pendingWorkerLayerUpdate) {
+                const resent = await this.sendWorkerYjsUpdate(
+                    pendingWorkerLayerUpdate.update,
+                    pendingWorkerLayerUpdate.changedGlyphs,
+                    pendingWorkerLayerUpdate.invalidateLayoutClosure,
+                    [],
+                    pendingWorkerLayerUpdate.layerTargets
+                );
+                if (!resent) {
+                    return false;
+                }
+                this.applyWorkerYjsUpdateToMirror(
+                    pendingWorkerLayerUpdate.update
+                );
+                this.pendingWorkerLayerUpdate = null;
+                if (sameLayerTargets(pendingWorkerLayerUpdate.layerTargets)) {
+                    for (const update of normalizedUpdates) {
+                        this.workerLayerFingerprintCache.set(
+                            this.getWorkerLayerFingerprintKey(
+                                update.glyphName,
+                                update.layerId
+                            ),
+                            JSON.stringify(update.normalized)
+                        );
+                    }
+                    return true;
+                }
+            }
+
+            const updatesRequiringMirrorWrite = normalizedUpdates.filter(
+                ({ glyphName, layerId, normalized }) => {
+                    const workerFontMap = this.workerCacheYDoc?.getMap('font');
+                    if (!workerFontMap) {
+                        return true;
+                    }
+                    const existingLayer = getYPath(workerFontMap, [
+                        'glyphs',
+                        glyphName,
+                        'layers',
+                        layerId
+                    ]);
+                    if (!existingLayer) {
+                        return true;
+                    }
+
+                    try {
+                        return (
+                            this.getLayerWorkerFingerprint(
+                                fromYType(existingLayer) as Babelfont.Layer
+                            ) !== this.getLayerWorkerFingerprint(normalized)
+                        );
+                    } catch (_error) {
+                        return true;
+                    }
+                }
+            );
+
+            const workerUpdate = updatesRequiringMirrorWrite.length
+                ? this.buildWorkerYjsLayerUpdate(updatesRequiringMirrorWrite)
+                : {
+                      update: NO_OP_YJS_UPDATE,
+                      changedGlyphs: Array.from(
+                          new Set(
+                              normalizedUpdates.map(
+                                  ({ glyphName }) => glyphName
+                              )
+                          )
+                      )
+                  };
             if (!workerUpdate) {
                 throw new Error(
                     'Worker Yjs mirror not ready for incremental layer update'
@@ -5097,6 +5158,15 @@ class FontManager {
                 }))
             );
             if (!sent) {
+                this.pendingWorkerLayerUpdate = {
+                    update: workerUpdate.update,
+                    changedGlyphs: workerUpdate.changedGlyphs,
+                    invalidateLayoutClosure:
+                        options?.invalidateLayoutClosure ?? false,
+                    layerTargets: normalizedUpdates.map(
+                        ({ glyphName, layerId }) => ({ glyphName, layerId })
+                    )
+                };
                 if (options?.recoverOnFailure === false) {
                     return false;
                 }
