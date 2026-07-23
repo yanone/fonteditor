@@ -30,6 +30,18 @@ describe('assistant configuration', () => {
         );
     });
 
+    test('allows Python inspection while Assistant font editing is disabled', () => {
+        expect(ASSISTANT_SYSTEM_PROMPT).toContain(
+            'inspect the font, including with execute_python_code'
+        );
+        expect(ASSISTANT_SYSTEM_PROMPT).toContain(
+            'Do not use Python or any other tool to modify font data.'
+        );
+        expect(ASSISTANT_SYSTEM_PROMPT).not.toContain(
+            'must not modify font data or run execute_python_code'
+        );
+    });
+
     test('gives a literal Python document workflow before substantive edits', () => {
         expect(ASSISTANT_SYSTEM_PROMPT).toContain(
             'follow this exact workflow for Python authoring'
