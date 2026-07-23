@@ -3113,6 +3113,8 @@ export class PatchSyncEngine {
      * Sync every top-level font key and glyph snapshot from the current Y.Doc.
      * Used for bootstrap-style full-state syncs and for defensive recovery when
      * remote metadata is missing, without converting the whole Y.Doc in one walk.
+     * FULLJSON_UNNECESSARY (P5): This visits every glyph and top-level key; it is
+     * valid only for bootstrap/rebaseline, never as steady-state edit recovery.
      */
     private _syncEntireFontJsonFromYDoc(): void {
         if (!this._fontJson) {
@@ -3885,6 +3887,9 @@ export class PatchSyncEngine {
             return;
         }
 
+        // FULLJSON_UNNECESSARY (P4): Missing scope widens a normal edit into a
+        // full-font Y.Doc traversal. Incremental edit packets must provide valid
+        // layer targets so only the touched model layers are reconstructed.
         this._syncEntireFontJsonFromYDoc();
 
         this._emitLayerFingerprintChangedEvents(
@@ -4349,6 +4354,9 @@ export class PatchSyncEngine {
         }
 
         if (synchronizeJsonBeforeEmit) {
+            // FULLJSON_UNNECESSARY (P3): Null scope discards the transaction's
+            // known layer targets and reconstructs the entire font from Y.Doc.
+            // Steady-state commits must patch only their affected layers.
             this._syncJsonFromYDoc(null);
             this._onAfterSync?.();
         }

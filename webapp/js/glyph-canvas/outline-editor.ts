@@ -5817,6 +5817,9 @@ export class OutlineEditor {
         }
 
         try {
+            // FULLJSON_UNNECESSARY (P1): Serializes every glyph and layer before
+            // a structural commit. This path has layer targets and must stay on
+            // the incremental Yjs/model patch route during steady-state edits.
             currentFont.syncJsonFromModel();
         } catch (error) {
             console.error(
@@ -16307,6 +16310,9 @@ export class OutlineEditor {
         }
 
         try {
+            // FULLJSON_UNNECESSARY (P2): Re-serializes the entire model before a
+            // structural preview compile even though the affected layers are known.
+            // Preview preparation must consume the incremental committed state.
             currentFont.syncJsonFromModel?.();
         } catch (error) {
             console.error(

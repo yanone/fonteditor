@@ -4202,6 +4202,9 @@ class FontManager {
         }
 
         const clonedDoc = new Y.Doc();
+        // FULLJSON_UNNECESSARY (P6): Encodes and reapplies the complete worker
+        // mirror just to clone it. Steady-state worker sync must use the
+        // authoritative incremental packet and its layer targets directly.
         Y.applyUpdate(clonedDoc, Y.encodeStateAsUpdate(this.workerCacheYDoc));
         return clonedDoc;
     }
