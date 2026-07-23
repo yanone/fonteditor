@@ -3082,7 +3082,7 @@ class GlyphCanvas {
                 'editor-section-title editor-layers-header';
             const featureVariationsTitle = document.createElement('span');
             featureVariationsTitle.className = 'editor-section-title-text';
-            featureVariationsTitle.textContent = 'Feature Variations';
+            featureVariationsTitle.textContent = 'Variations';
             featureVariationsHeader.appendChild(featureVariationsTitle);
 
             const featureVariationLabel = (
