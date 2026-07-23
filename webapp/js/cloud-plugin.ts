@@ -423,6 +423,14 @@ const CLOUD_TRANSFER_TIMEOUT_FLOOR_MS = 5 * 60_000;
 const CLOUD_TRANSFER_TIMEOUT_CHUNK_BYTES = 750_000;
 const CLOUD_TRANSFER_TIMEOUT_PER_CHUNK_MS = 15_000;
 
+interface CloudSaveSeedCacheEntry {
+    currentFont: object;
+    changeVersion: number | null;
+    fontJson: Record<string, unknown>;
+}
+
+let cloudSaveSeedCache: CloudSaveSeedCacheEntry | null = null;
+
 function estimateCloudTransferTimeoutMs(
     approximateByteLength?: number | null
 ): number {
@@ -451,6 +459,8 @@ async function waitForCloudSaveSeedFontJson(
         const startedAt = Date.now();
         let bestCandidate: Record<string, unknown> | null = null;
         let bestCandidateScore = -1;
+        let lastAttemptedFont: object | null = null;
+        let lastAttemptedChangeVersion: number | null = null;
 
         const poll = () => {
             const currentFont = (window as any).fontManager?.currentFont;
@@ -462,6 +472,49 @@ async function waitForCloudSaveSeedFontJson(
             );
 
             if (currentFont && fontModel && startupReady) {
+                const changeVersion =
+                    typeof currentFont.changeVersion === 'number'
+                        ? currentFont.changeVersion
+                        : null;
+                const cachedSeed = cloudSaveSeedCache;
+                if (changeVersion === null) {
+                    cloudSaveSeedCache = null;
+                }
+                if (
+                    changeVersion !== null &&
+                    cachedSeed &&
+                    cachedSeed.currentFont === currentFont &&
+                    cachedSeed.changeVersion === changeVersion
+                ) {
+                    resolve(cachedSeed.fontJson);
+                    return;
+                }
+
+                if (
+                    changeVersion !== null &&
+                    lastAttemptedFont === currentFont &&
+                    lastAttemptedChangeVersion === changeVersion
+                ) {
+                    if (Date.now() - startedAt >= timeoutMs) {
+                        if (bestCandidate) {
+                            resolve(bestCandidate);
+                            return;
+                        }
+
+                        reject(
+                            new Error(
+                                'Cloud font model did not settle into a savable JSON snapshot'
+                            )
+                        );
+                        return;
+                    }
+
+                    window.requestAnimationFrame(poll);
+                    return;
+                }
+
+                lastAttemptedFont = currentFont;
+                lastAttemptedChangeVersion = changeVersion;
                 const preSyncFontJson = parseCloudFontJsonString(
                     currentFont.babelfontJson
                 );
@@ -494,11 +547,17 @@ async function waitForCloudSaveSeedFontJson(
                     fontJsonSignature &&
                     modelSignature === fontJsonSignature
                 ) {
-                    resolve(
-                        canonicalizeCloudExportFontJson(
-                            cloneCloudFontJson(fontJson)
-                        )
+                    const canonicalFontJson = canonicalizeCloudExportFontJson(
+                        cloneCloudFontJson(fontJson)
                     );
+                    if (changeVersion !== null) {
+                        cloudSaveSeedCache = {
+                            currentFont,
+                            changeVersion,
+                            fontJson: canonicalFontJson
+                        };
+                    }
+                    resolve(canonicalFontJson);
                     return;
                 }
             }

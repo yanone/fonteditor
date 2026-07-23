@@ -608,6 +608,108 @@ describe('CloudPlugin.openAsset', () => {
         expect(finalizeCalls).toHaveLength(1);
     });
 
+    test('reuses the save seed snapshot until the font revision changes', async () => {
+        window.glyphCanvas = {
+            initialFontLoaded: true
+        };
+        window.currentFontModel = {
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        {
+                            id: 'L0',
+                            shapes: [{}, {}],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ]
+        };
+        const syncJsonFromModel = jest.fn(function () {
+            this.babelfontData = defaultCloudFontJson;
+            this.babelfontJson = JSON.stringify(defaultCloudFontJson);
+        });
+        const currentFont = {
+            babelfontJson: JSON.stringify(defaultCloudFontJson),
+            babelfontData: defaultCloudFontJson,
+            changeVersion: 3,
+            fontModel: window.currentFontModel,
+            syncJsonFromModel
+        };
+        window.fontManager = {
+            currentFont,
+            editingFont: new Uint8Array([1])
+        };
+        plugin._eligibility = {
+            cloudHostingEnabled: true,
+            maxFontsOwned: null,
+            snapshotRetentionDays: null,
+            fontsOwnedCount: 0,
+            maxCloudAssetBytes: 1024 * 1024,
+            warningCloudAssetBytes: 512 * 1024
+        };
+
+        await expect(plugin.getCurrentSaveAsWarningState()).resolves.toBeNull();
+        await expect(plugin.getCurrentSaveAsWarningState()).resolves.toBeNull();
+
+        expect(syncJsonFromModel).toHaveBeenCalledTimes(1);
+
+        currentFont.changeVersion++;
+
+        await expect(plugin.getCurrentSaveAsWarningState()).resolves.toBeNull();
+
+        expect(syncJsonFromModel).toHaveBeenCalledTimes(2);
+    });
+
+    test('does not reuse save seed snapshots without a font revision', async () => {
+        window.glyphCanvas = {
+            initialFontLoaded: true
+        };
+        window.currentFontModel = {
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        {
+                            id: 'L0',
+                            shapes: [{}, {}],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ]
+        };
+        const syncJsonFromModel = jest.fn(function () {
+            this.babelfontData = defaultCloudFontJson;
+            this.babelfontJson = JSON.stringify(defaultCloudFontJson);
+        });
+        window.fontManager = {
+            currentFont: {
+                babelfontJson: JSON.stringify(defaultCloudFontJson),
+                babelfontData: defaultCloudFontJson,
+                fontModel: window.currentFontModel,
+                syncJsonFromModel
+            },
+            editingFont: new Uint8Array([1])
+        };
+        plugin._eligibility = {
+            cloudHostingEnabled: true,
+            maxFontsOwned: null,
+            snapshotRetentionDays: null,
+            fontsOwnedCount: 0,
+            maxCloudAssetBytes: 1024 * 1024,
+            warningCloudAssetBytes: 512 * 1024
+        };
+
+        await expect(plugin.getCurrentSaveAsWarningState()).resolves.toBeNull();
+        await expect(plugin.getCurrentSaveAsWarningState()).resolves.toBeNull();
+
+        expect(syncJsonFromModel).toHaveBeenCalledTimes(2);
+    });
+
     test('saveAs blocks fonts above the current cloud size limit before creating an asset', async () => {
         plugin._eligibility = {
             cloudHostingEnabled: true,
