@@ -13608,9 +13608,7 @@ describe('OutlineEditor exact selected layers', () => {
             '.editor-feature-variations-widget'
         );
         expect(featureVariationsWidget).toBeTruthy();
-        expect(featureVariationsWidget.textContent).toContain(
-            'Feature Variations'
-        );
+        expect(featureVariationsWidget.textContent).toContain('Variations');
         const featureVariationItems = featureVariationsWidget.querySelectorAll(
             '.editor-feature-variation-item'
         );

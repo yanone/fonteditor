@@ -2889,9 +2889,10 @@ describe('bridge Yjs worker callback', () => {
             forwardWorkerYjsUpdate
         };
 
-        const receiverBridge = initializeBridgeHarness();
-        workerSeedSpy.mockClear();
         senderBridge.initFromJson(senderFontJson);
+        const receiverBridge = initializeBridgeHarness();
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        workerSeedSpy.mockClear();
         senderBridge.onLocalUpdate((update, _message, entries) => {
             remoteUpdate = update;
             remoteEntries = entries;

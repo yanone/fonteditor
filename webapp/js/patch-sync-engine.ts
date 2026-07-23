@@ -2949,7 +2949,13 @@ export class PatchSyncEngine {
             // every window can undo the combined edit history.
             let didChange = false;
             const observeRemoteTransaction = (transaction: Y.Transaction) => {
-                didChange ||= transaction.changed.size > 0;
+                didChange ||=
+                    transaction.changed.size > 0 ||
+                    transaction.deleteSet.clients.size > 0 ||
+                    [...transaction.afterState].some(
+                        ([client, clock]) =>
+                            clock > (transaction.beforeState.get(client) ?? 0)
+                    );
             };
             this.yDoc.on('afterTransaction', observeRemoteTransaction);
             try {
@@ -2960,6 +2966,9 @@ export class PatchSyncEngine {
                 );
             } finally {
                 this.yDoc.off('afterTransaction', observeRemoteTransaction);
+            }
+            if (!didChange) {
+                return false;
             }
             if (effectiveRemoteEntries?.length) {
                 const glyphNames = new Set(
@@ -3018,19 +3027,42 @@ export class PatchSyncEngine {
     }
 
     private _isRemoteUpdateNoop(update: Uint8Array): boolean {
-        const probeDoc = new Y.Doc({ gc: false });
-        try {
-            Y.applyUpdate(probeDoc, Y.encodeStateAsUpdate(this.yDoc));
-            const beforeState = Y.encodeStateAsUpdate(probeDoc);
-            Y.applyUpdate(probeDoc, update);
-            const afterState = Y.encodeStateAsUpdate(probeDoc);
-            return (
-                beforeState.length === afterState.length &&
-                beforeState.every((value, index) => value === afterState[index])
-            );
-        } finally {
-            probeDoc.destroy();
+        const decodedUpdate = Y.decodeUpdate(update);
+
+        for (const struct of decodedUpdate.structs) {
+            const knownClock = Y.getState(this.yDoc.store, struct.id.client);
+            if (struct.id.clock + struct.length > knownClock) {
+                return false;
+            }
         }
+
+        for (const [client, deleteItems] of decodedUpdate.ds.clients) {
+            const structs = this.yDoc.store.clients.get(client);
+            if (!structs) {
+                return false;
+            }
+
+            for (const deleteItem of deleteItems) {
+                const deleteEnd = deleteItem.clock + deleteItem.len;
+                if (Y.getState(this.yDoc.store, client) < deleteEnd) {
+                    return false;
+                }
+
+                let index = Y.findIndexSS(structs, deleteItem.clock);
+                while (
+                    index < structs.length &&
+                    structs[index].id.clock < deleteEnd
+                ) {
+                    const struct = structs[index];
+                    if (struct instanceof Y.Item && !struct.deleted) {
+                        return false;
+                    }
+                    index += 1;
+                }
+            }
+        }
+
+        return true;
     }
 
     /**

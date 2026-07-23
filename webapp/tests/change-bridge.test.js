@@ -4985,7 +4985,7 @@ describe('WindowSync', () => {
         window.fontCompilation = originalFontCompilation;
     });
 
-    test('metadata-only no-op layer snapshot broadcasts replay targets to receiver worker', () => {
+    test('metadata-only no-op layer snapshot skips receiver side effects', () => {
         const fontJson1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('metadata-noop-sender');
         bridge1.initFromJson(fontJson1);
@@ -5026,18 +5026,8 @@ describe('WindowSync', () => {
 
         flushTimers();
 
-        expect(receiverWorkerUpdates).toHaveLength(1);
-        expect(Array.from(receiverWorkerUpdates[0].update)).toEqual([0, 0]);
-        expect(receiverWorkerUpdates[0].changeLogEntries).toEqual([
-            expect.objectContaining({
-                path: 'glyphs.A:layers.layer-1',
-                workerReplayTargets: [
-                    { glyphName: 'A', layerId: 'layer-1' },
-                    { glyphName: 'B', layerId: 'layer-2' }
-                ]
-            })
-        ]);
-        expect(bridge2.getChangeLog()).toHaveLength(receiverLogStart + 1);
+        expect(receiverWorkerUpdates).toHaveLength(0);
+        expect(bridge2.getChangeLog()).toHaveLength(receiverLogStart);
         expect(
             getYPath(bridge2.fontMap, [
                 'glyphs',
@@ -6427,7 +6417,8 @@ describe('syncGlyphFromJson', () => {
         const workerUpdates = [];
 
         senderBridge.initFromJson(senderFontJson);
-        receiverBridge.initFromJson(receiverFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
         senderBridge.onLocalUpdate((update, _message, changeLogEntries) => {
             lastUpdate = update;
             lastEntries = changeLogEntries;
@@ -6583,7 +6574,7 @@ describe('syncGlyphFromJson', () => {
         expect(onCommittedChange).toHaveBeenCalledTimes(1);
         expect(workerCallback).toHaveBeenCalledTimes(1);
 
-        receiverBridge.applyRemoteUpdate(lastUpdate);
+        expect(receiverBridge.applyRemoteUpdate(lastUpdate)).toBe(false);
 
         expect(receiverFontJson.glyphs[0].layers[0].width).toBe(710);
         expect(onAfterSync).toHaveBeenCalledTimes(1);
@@ -6591,6 +6582,44 @@ describe('syncGlyphFromJson', () => {
         expect(onRemoteChange).toHaveBeenCalledTimes(1);
         expect(onCommittedChange).toHaveBeenCalledTimes(1);
         expect(workerCallback).toHaveBeenCalledTimes(1);
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('metadata-free duplicate deletion update is a no-op', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-remote-delete-noop');
+        const receiverBridge = new ChangeBridge('receiver-remote-delete-noop');
+        let lastUpdate = null;
+        let lastEntries = null;
+        const workerCallback = jest.fn();
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update, _message, entries) => {
+            lastUpdate = update;
+            lastEntries = entries;
+        });
+        receiverBridge.setYjsWorkerCallback(workerCallback);
+
+        const oldGuides = cloneValue(senderFontJson.glyphs[0].layers[0].guides);
+        delete senderFontJson.glyphs[0].layers[0].guides;
+        senderBridge.beginTransaction('Remove guides');
+        senderBridge.recordRemove(
+            ['glyphs', 'A', 'layers', 'layer-1', 'guides'],
+            oldGuides
+        );
+        senderBridge.endTransaction();
+        receiverBridge.applyRemoteUpdate(lastUpdate, lastEntries);
+
+        workerCallback.mockClear();
+
+        expect(receiverBridge.applyRemoteUpdate(lastUpdate)).toBe(false);
+        expect(workerCallback).not.toHaveBeenCalled();
+        expect('guides' in receiverFontJson.glyphs[0].layers[0]).toBe(false);
 
         senderBridge.destroy();
         receiverBridge.destroy();
