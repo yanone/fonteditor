@@ -1569,6 +1569,7 @@ async function refreshCanvasFromCommittedModelSync(
     options?: {
         skipDeferredCanvasRepaint?: boolean;
         skipLayerDataFetch?: boolean;
+        preferExactLayerDataRefresh?: boolean;
         workerReplayTargets?: WorkerReplayTarget[];
     }
 ): Promise<void> {
@@ -1607,7 +1608,15 @@ async function refreshCanvasFromCommittedModelSync(
                 return;
             }
 
+            const refreshedExactLayerData =
+                !selectionReconciled &&
+                options?.preferExactLayerDataRefresh === true &&
+                gc.outlineEditor?.canRefreshSelectedLayerFromModelExactly?.() ===
+                    true &&
+                gc.outlineEditor?.refreshSelectedLayerFromModel?.() === true;
+
             if (
+                !refreshedExactLayerData &&
                 (!options?.skipLayerDataFetch || selectionReconciled) &&
                 typeof gc.outlineEditor?.fetchLayerData === 'function'
             ) {
@@ -1726,6 +1735,17 @@ function syncImmediateUndoOutlineLayerFromModel(
         performHitDetection?: (event: MouseEvent | null) => void;
     } | null;
     if (!gc || !outlineEditor || !glyphName || !layerId) {
+        return false;
+    }
+
+    const layer = window.fontManager?.currentFont?.fontModel
+        ?.findGlyph(glyphName)
+        ?.findLayerById(layerId);
+    if (
+        layer?.is_background === true ||
+        layerId.startsWith('background-') ||
+        layer?.isAutomaticAlignedLayer?.() === true
+    ) {
         return false;
     }
 
@@ -1986,7 +2006,8 @@ function inferPreviousWidthFromUndoRedoEntries(
 
 function applyLocalUndoRedoVisualSync(
     entries: ChangeLogEntry[],
-    context?: LocalUndoRedoVisualContext
+    context?: LocalUndoRedoVisualContext,
+    localCompileContext?: LocalCommittedCompileContext | null
 ): boolean {
     if (!isUndoRedoCommittedPacket(entries)) {
         return false;
@@ -2058,7 +2079,13 @@ function applyLocalUndoRedoVisualSync(
         workerReplayTargets: collectReplayTargetsFromEntries(entries)
     });
 
-    return syncImmediateUndoOutlineLayerFromModel(editedGlyphName, layerId);
+    return (
+        syncImmediateUndoOutlineLayerFromModel(editedGlyphName, layerId) &&
+        (appliedSidebearingSync ||
+            historyItem.transactionLabel?.startsWith('Drag ') === true ||
+            (localCompileContext?.changeSource === 'keyboard-outline' &&
+                localCompileContext.editType === 'outline'))
+    );
 }
 
 function inferHistoryItemKerningEditType(
@@ -2346,9 +2373,10 @@ export async function handleCommittedChangeRefresh(
         }
         await requestCompile(changeSource, editType);
     } else {
-        applyLocalUndoRedoVisualSync(
+        const canSkipUndoRedoLayerDataFetch = applyLocalUndoRedoVisualSync(
             entries,
-            dependencies?.localUndoRedoContext
+            dependencies?.localUndoRedoContext,
+            localCompileContext
         );
 
         const awaitWorkerSync =
@@ -2373,9 +2401,17 @@ export async function handleCommittedChangeRefresh(
         const requiresBackgroundLayerRefresh =
             selectedLayer?.is_background === true ||
             (selectedLayerId?.startsWith('background-') ?? false);
+        const canPreferExactLocalVisualRefresh =
+            !isUndoRedoPacket &&
+            !requiresBackgroundLayerRefresh &&
+            (localCompileContext?.editType === 'outline' ||
+                localCompileContext?.editType === 'anchor') &&
+            selectedLayer?.isAutomaticAlignedLayer?.() !== true;
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
             skipDeferredCanvasRepaint:
                 isUndoRedoPacket && !requiresBackgroundLayerRefresh,
+            skipLayerDataFetch: canSkipUndoRedoLayerDataFetch,
+            preferExactLayerDataRefresh: canPreferExactLocalVisualRefresh,
             ...(replayTargets.length > 0
                 ? { workerReplayTargets: replayTargets }
                 : {})

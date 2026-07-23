@@ -4673,6 +4673,131 @@ describe('committed undo/redo compile requests', () => {
             })
         });
         expect(flushPendingKeyboardPreviewCommit).toHaveBeenCalledTimes(1);
+        expect(fetchLayerData).not.toHaveBeenCalled();
+    });
+
+    test('local committed default-master sidebearing refreshes exactly without fetching layer data', async () => {
+        const originalFontManager = window.fontManager;
+        const originalGlyphCanvas = window.glyphCanvas;
+        const fetchLayerData = jest.fn();
+        const refreshSelectedLayerFromModel = jest.fn(() => true);
+        const requestCompile = jest.fn(async () => {});
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
+                    findGlyph: jest.fn(() => ({
+                        findLayerById: jest.fn(() => ({
+                            isAutomaticAlignedLayer: jest.fn(() => false)
+                        }))
+                    }))
+                }
+            }
+        };
+        window.glyphCanvas = {
+            requestRepaintAfterCompile: jest.fn(),
+            outlineEditor: {
+                active: true,
+                draggingSomething: false,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                reconcileSelectionAfterModelSync: jest.fn(async () => false),
+                runDeterministicRefresh: jest.fn(async (refresh) => {
+                    await refresh();
+                }),
+                canRefreshSelectedLayerFromModelExactly: jest.fn(() => true),
+                refreshSelectedLayerFromModel,
+                fetchLayerData
+            }
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Set LSB',
+                        path: 'glyphs.a.layers.layer-1.format_specific.metric_left',
+                        visualAnchorSide: 'left'
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync: jest.fn(async () => {}),
+                    requestCompile
+                }
+            );
+        } finally {
+            window.fontManager = originalFontManager;
+            window.glyphCanvas = originalGlyphCanvas;
+        }
+
+        expect(refreshSelectedLayerFromModel).toHaveBeenCalledTimes(1);
+        expect(fetchLayerData).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
+        );
+    });
+
+    test('local committed outline falls back to fetching layer data when exact refresh is unavailable', async () => {
+        const originalFontManager = window.fontManager;
+        const originalGlyphCanvas = window.glyphCanvas;
+        const fetchLayerData = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(() => new Set()),
+                    findGlyph: jest.fn(() => ({
+                        findLayerById: jest.fn(() => ({
+                            isAutomaticAlignedLayer: jest.fn(() => false)
+                        }))
+                    }))
+                }
+            }
+        };
+        window.glyphCanvas = {
+            requestRepaintAfterCompile: jest.fn(),
+            outlineEditor: {
+                active: true,
+                draggingSomething: false,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                reconcileSelectionAfterModelSync: jest.fn(async () => false),
+                runDeterministicRefresh: jest.fn(async (refresh) => {
+                    await refresh();
+                }),
+                canRefreshSelectedLayerFromModelExactly: jest.fn(() => false),
+                refreshSelectedLayerFromModel: jest.fn(),
+                fetchLayerData
+            }
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Arrow key',
+                        path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x'
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync: jest.fn(async () => {}),
+                    requestCompile
+                }
+            );
+        } finally {
+            window.fontManager = originalFontManager;
+            window.glyphCanvas = originalGlyphCanvas;
+        }
+
         expect(fetchLayerData).toHaveBeenCalledWith(true, 'a');
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
+        );
     });
 });

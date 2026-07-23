@@ -70,6 +70,22 @@ See `webapp/js/change-bridge-init.ts` `handleCommittedChangeRefresh`, `webapp/js
 30. **Assistant shaping observes only settled committed worker state.** `compile_and_shape_font` MUST wait for both the editing worker-document sync and the current `FontManager.workerCacheUpdatePromise` before capturing its font revision or compiling. It MUST fail when the editing worker cache is not ready or an update rejects. On a cache miss it MUST take a binary Yjs snapshot of that settled bridge state and seed only the separate `fullFontCompilation` analysis worker before compiling the full font and its debug subset. The editing `fontCompilation` worker MUST receive no compile, seed, cache-reset, or other mutation from this tool. This isolated analysis seed is permitted because it cannot repair or perturb steady-state editing; it must preserve every schema field in the committed bridge state and fail visibly if that state cannot be seeded. During active drag or keyboard preview state, as reported by `OutlineEditor.hasPendingKeyboardPreviewCommit()`, the tool MUST refuse both before and after its worker-state wait rather than silently compiling the older committed font, because its debug subset lane has no preview-overlay equivalent.
 31. **Prompt tools observe their own settled packet.** An assistant mutating tool MUST await the exact shared committed-change-funnel promise enqueued by its own bounded transaction before returning. Assistant Python execution, including shared Pyodide stdout setup and cleanup, MUST be serialized. If Python throws after committing mutations, the tool MUST wait for that same packet and report an explicit partial-commit outcome; it MUST NOT imply a rollback. Prompt interruption MUST NOT mutate an already-emitted history row or create a synthetic transaction.
 
+### Exact Model Canvas Refresh
+
+After the authoritative worker Yjs update has settled, committed local visual
+edits SHOULD prefer `OutlineEditor.refreshSelectedLayerFromModel()` over
+`OutlineEditor.fetchLayerData()` when
+`OutlineEditor.canRefreshSelectedLayerFromModelExactly()` succeeds. This avoids
+an unnecessary interpolation fetch while preserving the authoritative committed
+packet, worker synchronization, compile request, and overview refresh.
+
+This optimization is valid only after selection reconciliation reports no
+change, and only for a non-background, non-automatic, unlocated default-master
+selection. Interpolated or located layers, smart-component locations,
+background layers, automatically aligned layers, reconciled selections, and a
+failed exact-refresh probe MUST fall back to `fetchLayerData()`. Local undo and
+redo may skip their fallback fetch only after the same exact refresh succeeds.
+
 ## Committed Packet Lifecycle
 
 For normal edit-time convergence, including undo and redo, the authoritative
