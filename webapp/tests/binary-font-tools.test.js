@@ -601,4 +601,45 @@ describe('split binary-font assistant tools', () => {
             window.fullFontCompilation.compileBinaryFont
         ).not.toHaveBeenCalled();
     });
+
+    test('filters assistant tools by both category and name', () => {
+        document.body.insertAdjacentHTML(
+            'beforeend',
+            `
+                <button id="assistant-info-btn"></button>
+                <div id="assistant-info-modal" style="display: none">
+                    <button id="assistant-info-modal-close-btn"></button>
+                    <div id="assistant-info-modal-content"></div>
+                </div>
+            `
+        );
+        const assistant = new AIAssistant();
+        const modal = document.getElementById('assistant-info-modal');
+        const content = document.getElementById('assistant-info-modal-content');
+
+        document.getElementById('assistant-info-btn').click();
+        expect(modal.style.display).toBe('flex');
+        expect(content.textContent).toContain('Binary Font');
+        expect(content.textContent).toContain('shape_binary_font');
+
+        const search = content.querySelector(
+            'input[aria-label="Search tool names"]'
+        );
+        search.value = 'shape';
+        search.dispatchEvent(new Event('input'));
+        expect(
+            [...content.querySelectorAll('.ai-info-section h4')].map(
+                (heading) => heading.textContent
+            )
+        ).toEqual(['shape_binary_font']);
+
+        [...content.querySelectorAll('.assistant-tool-category-chip')]
+            .find((chip) => chip.textContent === 'Documentation')
+            .click();
+        expect(content.textContent).toContain('No matching tools.');
+
+        modal.remove();
+        document.getElementById('assistant-info-btn').remove();
+        assistant.abortController?.abort();
+    });
 });

@@ -7,8 +7,10 @@ import { resolveWebsiteURL } from './website-url';
 import { Logger } from './logger';
 import {
     ASSISTANT_TOOLS,
+    ASSISTANT_TOOL_CATEGORIES,
     ASSISTANT_SYSTEM_PROMPT,
     AssistantTool,
+    AssistantToolCategory,
     UsageMetrics
 } from './assistant-config';
 import tippy from 'tippy.js';
@@ -1007,60 +1009,157 @@ class AIAssistant {
             return infoBtn;
         };
 
-        content.innerHTML = '';
-        for (const tool of ASSISTANT_TOOLS) {
-            const section = document.createElement('div');
-            section.className = 'ai-info-section';
-            section.style.marginBottom = '16px';
+        const search = document.createElement('div');
+        search.className = 'find-glyph-search overview-search-control';
 
-            const titleRow = document.createElement('div');
-            titleRow.style.cssText =
-                'display:flex;align-items:center;gap:6px;margin:0 0 4px 0;';
+        const searchIcon = document.createElement('span');
+        searchIcon.className = 'material-symbols-outlined overview-search-icon';
+        searchIcon.textContent = 'search';
+        search.appendChild(searchIcon);
 
-            const title = document.createElement('h4');
-            title.style.cssText =
-                'font-size:14px;margin:0;color:var(--text-primary);font-weight:600;';
-            title.textContent = tool.function.name;
-            titleRow.appendChild(title);
+        const searchInput = document.createElement('input');
+        searchInput.className = 'find-glyph-search-input';
+        searchInput.type = 'search';
+        searchInput.placeholder = 'Search tool names';
+        searchInput.setAttribute('aria-label', 'Search tool names');
+        search.appendChild(searchInput);
 
-            const properties = this.getToolParameterProperties(tool);
-            titleRow.appendChild(createLiveToolButton(tool));
+        const categoryChips = document.createElement('div');
+        categoryChips.className = 'assistant-tool-category-chips';
+        categoryChips.setAttribute('aria-label', 'Tool categories');
+        categoryChips.setAttribute('role', 'group');
 
-            section.appendChild(titleRow);
+        const toolList = document.createElement('div');
+        toolList.className = 'assistant-tool-list';
 
-            const description = document.createElement('div');
-            description.style.cssText =
-                'margin:0 0 8px 0;font-size:12px;color:var(--text-tertiary);line-height:1.5';
-            if (typeof marked !== 'undefined') {
-                description.innerHTML = marked.parse(tool.function.description);
-            } else {
-                description.textContent = tool.function.description;
-            }
-            section.appendChild(description);
+        const categories = [
+            ...new Set(
+                ASSISTANT_TOOLS.map(
+                    (tool) => ASSISTANT_TOOL_CATEGORIES[tool.function.name]
+                )
+            )
+        ];
+        let activeCategory: AssistantToolCategory | null = null;
 
-            const params = document.createElement('div');
-            params.style.cssText = 'font-size:11px;color:var(--text-faint)';
-            if (Object.keys(properties).length > 0) {
-                const strong = document.createElement('strong');
-                strong.textContent = 'Parameters:';
-                params.appendChild(strong);
-                params.appendChild(document.createTextNode(' '));
+        const renderTools = () => {
+            const searchTerm = searchInput.value.trim().toLowerCase();
+            toolList.replaceChildren();
 
-                for (const name of Object.keys(properties)) {
-                    const code = document.createElement('code');
-                    code.style.cssText =
-                        'background:var(--background-hover);padding:1px 4px;border-radius:3px;margin-right:4px';
-                    code.textContent = name;
-                    params.appendChild(code);
+            for (const category of categories) {
+                if (activeCategory && category !== activeCategory) {
+                    continue;
                 }
-            } else {
-                const em = document.createElement('em');
-                em.textContent = 'No parameters';
-                params.appendChild(em);
+
+                const matchingTools = ASSISTANT_TOOLS.filter(
+                    (tool) =>
+                        ASSISTANT_TOOL_CATEGORIES[tool.function.name] ===
+                            category &&
+                        tool.function.name.toLowerCase().includes(searchTerm)
+                );
+                if (matchingTools.length === 0) {
+                    continue;
+                }
+
+                const categorySection = document.createElement('section');
+                categorySection.className = 'assistant-tool-category';
+
+                const categoryTitle = document.createElement('h4');
+                categoryTitle.className = 'assistant-tool-category-title';
+                categoryTitle.textContent = category;
+                categorySection.appendChild(categoryTitle);
+
+                for (const tool of matchingTools) {
+                    const section = document.createElement('div');
+                    section.className = 'ai-info-section';
+                    section.style.marginBottom = '16px';
+
+                    const titleRow = document.createElement('div');
+                    titleRow.style.cssText =
+                        'display:flex;align-items:center;gap:6px;margin:0 0 4px 0;';
+
+                    const title = document.createElement('h4');
+                    title.style.cssText =
+                        'font-size:14px;margin:0;color:var(--text-primary);font-weight:600;';
+                    title.textContent = tool.function.name;
+                    titleRow.appendChild(title);
+
+                    const properties = this.getToolParameterProperties(tool);
+                    titleRow.appendChild(createLiveToolButton(tool));
+
+                    section.appendChild(titleRow);
+
+                    const description = document.createElement('div');
+                    description.style.cssText =
+                        'margin:0 0 8px 0;font-size:12px;color:var(--text-tertiary);line-height:1.5';
+                    if (typeof marked !== 'undefined') {
+                        description.innerHTML = marked.parse(
+                            tool.function.description
+                        );
+                    } else {
+                        description.textContent = tool.function.description;
+                    }
+                    section.appendChild(description);
+
+                    const params = document.createElement('div');
+                    params.style.cssText =
+                        'font-size:11px;color:var(--text-faint)';
+                    if (Object.keys(properties).length > 0) {
+                        const strong = document.createElement('strong');
+                        strong.textContent = 'Parameters:';
+                        params.appendChild(strong);
+                        params.appendChild(document.createTextNode(' '));
+
+                        for (const name of Object.keys(properties)) {
+                            const code = document.createElement('code');
+                            code.style.cssText =
+                                'background:var(--background-hover);padding:1px 4px;border-radius:3px;margin-right:4px';
+                            code.textContent = name;
+                            params.appendChild(code);
+                        }
+                    } else {
+                        const em = document.createElement('em');
+                        em.textContent = 'No parameters';
+                        params.appendChild(em);
+                    }
+                    section.appendChild(params);
+                    categorySection.appendChild(section);
+                }
+
+                toolList.appendChild(categorySection);
             }
-            section.appendChild(params);
-            content.appendChild(section);
-        }
+
+            if (!toolList.hasChildNodes()) {
+                const emptyState = document.createElement('p');
+                emptyState.className = 'assistant-tool-empty';
+                emptyState.textContent = 'No matching tools.';
+                toolList.appendChild(emptyState);
+            }
+        };
+
+        const renderCategoryChips = () => {
+            categoryChips.replaceChildren();
+            for (const category of [null, ...categories]) {
+                const chip = document.createElement('button');
+                chip.className = 'assistant-tool-category-chip';
+                chip.type = 'button';
+                chip.textContent = category || 'All';
+                chip.setAttribute(
+                    'aria-pressed',
+                    String(activeCategory === category)
+                );
+                chip.addEventListener('click', () => {
+                    activeCategory = category;
+                    renderCategoryChips();
+                    renderTools();
+                });
+                categoryChips.appendChild(chip);
+            }
+        };
+
+        searchInput.addEventListener('input', renderTools);
+        content.replaceChildren(search, categoryChips, toolList);
+        renderCategoryChips();
+        renderTools();
 
         // Open
         btn.addEventListener('click', (e: Event) => {

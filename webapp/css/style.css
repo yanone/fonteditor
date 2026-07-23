@@ -1867,6 +1867,59 @@ kbd + kbd {
     color: var(--accent-green);
 }
 
+.assistant-tool-category-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 10px 0 16px;
+}
+
+#assistant-info-modal .info-popup-content,
+#assistant-info-modal .assistant-tool-list,
+#assistant-info-modal .assistant-tool-category,
+#assistant-info-modal .ai-info-section {
+    min-width: 0;
+}
+
+#assistant-info-modal .ai-info-section h4,
+#assistant-info-modal .ai-info-section code {
+    overflow-wrap: anywhere;
+}
+
+.assistant-tool-category-chip {
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    padding: 4px 8px;
+}
+
+.assistant-tool-category-chip:hover,
+.assistant-tool-category-chip[aria-pressed='true'] {
+    border-color: var(--border-secondary);
+    background: var(--background-hover);
+    color: var(--text-primary);
+}
+
+.assistant-tool-category {
+    margin-bottom: 20px;
+}
+
+.assistant-tool-category-title {
+    margin: 0 0 10px;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.assistant-tool-empty {
+    color: var(--text-tertiary);
+    font-size: 12px;
+    margin: 0;
+}
+
 .ai-info-note {
     font-size: 11px;
     color: var(--text-subtle);

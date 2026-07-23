@@ -23,6 +23,52 @@ export type AssistantTool = {
     };
 };
 
+export type AssistantToolCategory =
+    | 'Documentation'
+    | 'Font Files'
+    | 'Editor'
+    | 'OpenType'
+    | 'Binary Font'
+    | 'Python'
+    | 'Conversation';
+
+/** Categories for displaying the assistant tool catalog without changing API tool payloads. */
+export const ASSISTANT_TOOL_CATEGORIES: Readonly<
+    Record<string, AssistantToolCategory>
+> = {
+    handbook_toc: 'Documentation',
+    handbook_topic: 'Documentation',
+    python_api_docs: 'Documentation',
+    list_available_fonts: 'Font Files',
+    open_font: 'Font Files',
+    current_font: 'Font Files',
+    execute_python_code: 'Python',
+    get_editor_state: 'Editor',
+    get_font_opentype_info: 'OpenType',
+    search_font_opentype_classes_and_features: 'OpenType',
+    set_editor_text_buffer: 'Editor',
+    set_editor_opentype_features: 'Editor',
+    compile_binary_font: 'Binary Font',
+    shape_binary_font: 'Binary Font',
+    binary_font_api_docs: 'Documentation',
+    describe_binary_font: 'Binary Font',
+    list_binary_font_children: 'Binary Font',
+    search_binary_font_surface: 'Binary Font',
+    search_binary_font_children: 'Binary Font',
+    snapshot_binary_font: 'Binary Font',
+    inspect_binary_font: 'Binary Font',
+    get_active_python_document: 'Python',
+    python_authoring_guide: 'Documentation',
+    list_python_files: 'Python',
+    search_python_files: 'Python',
+    read_python_file: 'Python',
+    open_python_document_in_editor: 'Python',
+    create_python_draft_in_editor: 'Python',
+    replace_python_text_in_editor: 'Python',
+    validate_python_document: 'Python',
+    set_prompt_history_summary: 'Conversation'
+};
+
 export const ASSISTANT_TOOLS: AssistantTool[] = [
     {
         type: 'function',
