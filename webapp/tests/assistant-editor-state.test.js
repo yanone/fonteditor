@@ -192,6 +192,117 @@ describe('get_editor_state text-buffer interpretation', () => {
         );
     });
 
+    test('executes direct Python through the font-mutation lifecycle', async () => {
+        const code = 'font = Font()\nprint(font.upm)';
+        const wrappedRunPythonAsync = jest.fn().mockResolvedValue(undefined);
+        const originalRunPythonAsync = jest
+            .fn()
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce('1000\n');
+        window.pyodide = {
+            runPythonAsync: wrappedRunPythonAsync,
+            _originalRunPythonAsync: originalRunPythonAsync
+        };
+        const assistant = new AIAssistant();
+        assistant.activePromptContext = {
+            id: 'prompt-direct-python',
+            allowFontEdits: true,
+            historySummary: 'Inspect font'
+        };
+
+        await expect(
+            assistant.executeToolCall({
+                function: {
+                    name: 'execute_python_code',
+                    arguments: JSON.stringify({ code })
+                }
+            })
+        ).resolves.toBe('1000\n');
+
+        expect(wrappedRunPythonAsync).toHaveBeenCalledWith(code);
+        expect(originalRunPythonAsync).toHaveBeenCalledTimes(2);
+    });
+
+    test('blocks direct Python when the prompt forbids font edits', async () => {
+        const wrappedRunPythonAsync = jest.fn();
+        const originalRunPythonAsync = jest.fn();
+        window.pyodide = {
+            runPythonAsync: wrappedRunPythonAsync,
+            _originalRunPythonAsync: originalRunPythonAsync
+        };
+        const assistant = new AIAssistant();
+        assistant.activePromptContext = {
+            id: 'prompt-read-only',
+            allowFontEdits: false,
+            historySummary: 'Inspect font'
+        };
+
+        await expect(
+            assistant.executeToolCall({
+                function: {
+                    name: 'execute_python_code',
+                    arguments: JSON.stringify({ code: 'print(Font().upm)' })
+                }
+            })
+        ).rejects.toThrow('Assistant font editing is disabled for this prompt');
+
+        expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
+        expect(originalRunPythonAsync).not.toHaveBeenCalled();
+    });
+
+    test('waits for the committed Python edit refresh before returning output', async () => {
+        let releaseCommittedRefresh;
+        const committedRefresh = new Promise((resolve) => {
+            releaseCommittedRefresh = resolve;
+        });
+        const {
+            setActiveAssistantPythonExecutionCommit
+        } = require('../js/assistant-execution-context.ts');
+        const wrappedRunPythonAsync = jest.fn(async () => {
+            setActiveAssistantPythonExecutionCommit(
+                'committed',
+                committedRefresh
+            );
+        });
+        const originalRunPythonAsync = jest
+            .fn()
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce('updated shaping');
+        window.pyodide = {
+            runPythonAsync: wrappedRunPythonAsync,
+            _originalRunPythonAsync: originalRunPythonAsync
+        };
+        const assistant = new AIAssistant();
+        assistant.activePromptContext = {
+            id: 'prompt-settle',
+            allowFontEdits: true,
+            historySummary: 'Update shaping'
+        };
+
+        let resolved = false;
+        const result = assistant
+            .executeToolCall({
+                function: {
+                    name: 'execute_python_code',
+                    arguments: JSON.stringify({
+                        code: 'font.names.family_name = "Updated"'
+                    })
+                }
+            })
+            .then((output) => {
+                resolved = true;
+                return output;
+            });
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(originalRunPythonAsync).toHaveBeenCalledTimes(1);
+        expect(resolved).toBe(false);
+
+        releaseCommittedRefresh();
+        await expect(result).resolves.toBe('updated shaping');
+    });
+
     test('loads the detailed Python authoring guide for each document kind', async () => {
         const originalFetch = global.fetch;
         const fetchMock = jest.fn().mockResolvedValue({
@@ -557,7 +668,7 @@ describe('get_editor_state text-buffer interpretation', () => {
         );
     });
 
-    test('rejects execute_python_code without invoking Python', async () => {
+    test('requires an active prompt before executing Python', async () => {
         const wrappedRunPythonAsync = jest.fn();
         const originalRunPythonAsync = jest.fn();
         window.pyodide = {
@@ -573,7 +684,7 @@ describe('get_editor_state text-buffer interpretation', () => {
                     arguments: JSON.stringify({ code: 'print("test")' })
                 }
             })
-        ).rejects.toThrow('Assistant tools do not execute Python code.');
+        ).rejects.toThrow('No assistant prompt is currently running');
 
         expect(wrappedRunPythonAsync).not.toHaveBeenCalled();
         expect(originalRunPythonAsync).not.toHaveBeenCalled();

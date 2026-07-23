@@ -22,6 +22,7 @@ import {
 } from './opentype-features';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import {
+    assertAssistantFontEditAllowed,
     AssistantPromptExecutionContext,
     awaitActiveAssistantPythonExecutionSettled,
     getActiveAssistantPythonExecution,
@@ -2650,9 +2651,6 @@ __counterpunch_assistant_validate_syntax(${sourceKey})`
     async executeToolCall(toolCall: any): Promise<string> {
         const { name, arguments: argsStr } = toolCall.function;
         const args = JSON.parse(argsStr || '{}');
-        if (name === 'execute_python_code') {
-            throw new Error('Assistant tools do not execute Python code.');
-        }
         switch (name) {
             case 'handbook_toc':
                 return await this.fetchText('/handbook/README.md');
@@ -2886,6 +2884,7 @@ __counterpunch_assistant_validate_syntax(${sourceKey})`
                 return await runAssistantPythonExecution(
                     promptContext,
                     async () => {
+                        assertAssistantFontEditAllowed();
                         let output = '';
                         try {
                             // Stdout is shared Pyodide process state, so it must

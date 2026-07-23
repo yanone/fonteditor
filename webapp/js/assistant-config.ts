@@ -117,6 +117,24 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
     {
         type: 'function',
         function: {
+            name: 'execute_python_code',
+            description:
+                "Execute a custom Python script to read or modify the current font. Use the tool `python_api_docs` first to learn how to write Python scripts for the font model. The font is accessible via the Font() function which is readily available and doesn't need to be imported. Print output with print() to see results. Changes to the font model are automatically tracked and compiled.",
+            parameters: {
+                type: 'object',
+                properties: {
+                    code: {
+                        type: 'string',
+                        description: 'The Python code to execute.'
+                    }
+                },
+                required: ['code']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'get_editor_state',
             description:
                 'Get the current editor state for both inspection and parameter-copying. Returns raw text-buffer syntax as textBuffer and textBufferRaw, user-visible text as textBufferDisplay, parsed explicit glyph tokens, HarfBuzz shaped buffers (glyph names, gids, advances, clusters), the complete current OpenType feature inventory with descriptions, subset availability, and activation flags, a per-feature tag-to-boolean activation dictionary, the current userspace location, the current designspace location, and the current file. In raw text syntax, // represents one literal slash and /glyphname is an explicit glyph reference only when it resolves; never claim an escaped slash pair unless textBufferRaw explicitly contains //. Use this to understand the active text layout and feature configuration, and also to copy explicit inputs for compile_binary_font or shape_binary_font. This state can change after text, feature, or font-data edits, so refresh it when needed.',
@@ -669,9 +687,11 @@ Use the available tools to operate the app.
 
 At the beginning of every prompt, call set_prompt_history_summary with a concise description of the requested font work. Do not mention that summary in your chat response.
 
-Every request includes the current editor state and whether Assistant editing is allowed. Treat that permission as authoritative. When Assistant editing is disabled, you may inspect the font and Python documents but must not modify font data or Script Editor buffers. If you decline an edit because of this permission, tell the user that they can enable editing with the pen button in the Assistant title bar before sending a new prompt. You cannot change the permission yourself, and it remains frozen for the current prompt.
+Every request includes the current editor state and whether Assistant editing is allowed. Treat that permission as authoritative. When Assistant editing is disabled, you may still inspect the font and adjust editor UI state, but you must not modify font data or run execute_python_code. If you decline an edit because of this permission, tell the user that they can enable editing with the pen button in the Assistant title bar before sending a new prompt. You cannot change the permission yourself, and it remains frozen for the current prompt.
 
-Python-document boundary: Never execute Python with an Assistant tool, never save a Python file, and never select a glyph filter. The user saves and runs general scripts in the Script Editor; the user selects glyph filters in Glyph Overview. Follow this exact workflow for Python authoring: (1) for an existing document, call get_active_python_document; for a new document, choose general-script for a reusable Script Editor script or glyph-filter for a Glyph Overview filter; (2) before creating or substantially editing code, call python_authoring_guide only after the kind is clear from a saved path, explicit editor mark, content structure, or user intent. If get_active_python_document or validate_python_document returns kind null or kindConfidence unclassified-unsaved, do not treat editorKind general-script as authoritative; ask the user or infer from the request before choosing a guide; (3) if changing a buffer, confirm Assistant editing is enabled, then create_python_draft_in_editor or replace_python_text_in_editor using the fresh revision; (4) call validate_python_document after every create or replace. Use list_python_files, search_python_files, and read_python_file only for saved managed files; use get_active_python_document only for the active unsaved buffer.
+Use execute_python_code to inspect or modify the current font model. Call python_api_docs before using unfamiliar model APIs.
+
+For reusable scripts and glyph filters, follow this exact workflow for Python authoring: (1) for an existing document, call get_active_python_document; for a new document, choose general-script for a reusable Script Editor script or glyph-filter for a Glyph Overview filter; (2) before creating or substantially editing code, call python_authoring_guide only after the kind is clear from a saved path, explicit editor mark, content structure, or user intent. If get_active_python_document or validate_python_document returns kind null or kindConfidence unclassified-unsaved, do not treat editorKind general-script as authoritative; ask the user or infer from the request before choosing a guide; (3) if changing a buffer, confirm Assistant editing is enabled, then create_python_draft_in_editor or replace_python_text_in_editor using the fresh revision; (4) call validate_python_document after every create or replace. Use list_python_files, search_python_files, and read_python_file only for saved managed files; use get_active_python_document only for the active unsaved buffer.
 
 CRITICAL RULE: If the user prompt is not about the broad topic of fonts and font engineering, or about how to use the Counterpunch app, or type design in general, then politely REFUSE to answer the question and let the user know what topics you can help with. Do not answer questions about topics outside of font design and Counterpunch usage. Always steer the user back to font design and using the app."
 `;

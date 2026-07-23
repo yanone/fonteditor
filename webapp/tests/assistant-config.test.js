@@ -4,6 +4,23 @@ const {
 } = require('../js/assistant-config.ts');
 
 describe('assistant configuration', () => {
+    test('exposes the direct Python font-model tool', () => {
+        const tool = ASSISTANT_TOOLS.find(
+            ({ function: candidate }) =>
+                candidate.name === 'execute_python_code'
+        );
+
+        expect(tool.function).toMatchObject({
+            parameters: {
+                required: ['code'],
+                properties: {
+                    code: { type: 'string' }
+                }
+            }
+        });
+        expect(tool.function.description).toContain('Font()');
+    });
+
     test('directs users to enable font editing from the Assistant title bar', () => {
         expect(ASSISTANT_SYSTEM_PROMPT).toContain(
             'enable editing with the pen button in the Assistant title bar'
@@ -15,7 +32,7 @@ describe('assistant configuration', () => {
 
     test('gives a literal Python document workflow before substantive edits', () => {
         expect(ASSISTANT_SYSTEM_PROMPT).toContain(
-            'Follow this exact workflow for Python authoring'
+            'follow this exact workflow for Python authoring'
         );
         expect(ASSISTANT_SYSTEM_PROMPT).toContain('get_active_python_document');
         expect(ASSISTANT_SYSTEM_PROMPT).toContain(
