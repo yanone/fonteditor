@@ -5682,6 +5682,7 @@ export class OutlineEditor {
             reuseTransaction?: boolean;
             layerId?: string | null;
             layerTargets?: Array<{ glyphName: string; layerId: string }>;
+            preferLayerSync?: boolean;
             skipGlyphSnapshot?: boolean;
             previousGlyphSnapshot?: Record<string, unknown> | null;
         } = {}
@@ -5720,6 +5721,7 @@ export class OutlineEditor {
                 options.layerTargets
             );
             const useGlyphSnapshotForSameGlyphLayers =
+                !options.preferLayerSync &&
                 syncLayerTargets.length > 1 &&
                 glyphNames.length === 1 &&
                 syncLayerTargets.every(
@@ -16402,7 +16404,9 @@ export class OutlineEditor {
             affectedGlyphNames,
             {
                 layerId: null,
-                layerTargets: layerTargets.length ? layerTargets : undefined
+                layerTargets: layerTargets.length ? layerTargets : undefined,
+                preferLayerSync:
+                    pendingEdit.didConvertLine && !pendingEdit.didDraw
             }
         );
 

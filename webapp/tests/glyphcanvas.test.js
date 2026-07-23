@@ -9247,6 +9247,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             beginTransaction: jest.fn(),
             endTransaction: jest.fn(),
             syncGlyphFromJson: jest.fn(),
+            syncLayersFromJson: jest.fn(),
             recordChange: jest.fn(),
             recordAdd: jest.fn(),
             recordRemove: jest.fn()
@@ -9324,7 +9325,14 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(bridge.beginTransaction).toHaveBeenCalledWith(
                 'Convert line to curve'
             );
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.syncGlyphFromJson).not.toHaveBeenCalled();
+            expect(bridge.syncLayersFromJson).toHaveBeenCalledWith(
+                [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'A', layerId: 'layer-2' }
+                ],
+                'Convert line to curve'
+            );
             expect(
                 currentLayer.paths[0].nodes.map((node) => node.nodetype)
             ).toEqual(['Move', 'OffCurve', 'OffCurve', 'Curve']);

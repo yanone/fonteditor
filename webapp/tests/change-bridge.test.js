@@ -2434,6 +2434,60 @@ describe('Transactions', () => {
         ).toBe(125);
     });
 
+    test('multi-layer sync records one node-string operation per same-glyph layer', () => {
+        const fontJson = makeThreeMasterThreeLayerFont();
+        const receiverFontJson = cloneValue(fontJson);
+        const bridge = new ChangeBridge('granular-linked-layer-sync');
+        const receiverBridge = new ChangeBridge(
+            'granular-linked-layer-sync-receiver'
+        );
+        let update;
+        bridge.initFromJson(fontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(bridge.getFullState());
+        bridge.onLocalUpdate((nextUpdate) => {
+            update = nextUpdate;
+        });
+
+        const [extraThinLayer, regularLayer] = fontJson.glyphs[0].layers;
+        extraThinLayer.shapes[0].nodes[0].x = 125;
+        regularLayer.shapes[0].nodes[0].x = 175;
+
+        bridge.syncLayersFromJson(
+            [
+                { glyphName: 'A', layerId: extraThinLayer.id },
+                { glyphName: 'A', layerId: regularLayer.id }
+            ],
+            'Convert line to curve'
+        );
+
+        const paths = bridge.getChangeLog().map((entry) => entry.path);
+        expect(paths).toEqual([
+            'glyphs.A:layers.master-extrathin:shapes.0.nodes',
+            'glyphs.A:layers.master-regular:shapes.0.nodes'
+        ]);
+        expect(
+            paths.some((path) => path.endsWith(':layers.master-extrathin'))
+        ).toBe(false);
+        expect(
+            paths.some((path) => path.endsWith(':layers.master-regular'))
+        ).toBe(false);
+
+        receiverBridge.applyRemoteUpdate(
+            update,
+            bridge.getNewChangeLogEntries()
+        );
+        expect(receiverFontJson.glyphs[0].layers[0].shapes[0].nodes[0].x).toBe(
+            125
+        );
+        expect(receiverFontJson.glyphs[0].layers[1].shapes[0].nodes[0].x).toBe(
+            175
+        );
+
+        bridge.destroy();
+        receiverBridge.destroy();
+    });
+
     test('explicit layer snapshot sync emits dependent layer delta despite aliased font JSON', () => {
         const { bridge, fontJson } = createTestBridge(
             'explicit-layer-snapshot-sync'
