@@ -1165,6 +1165,7 @@ class AIAssistant {
         btn.addEventListener('click', (e: Event) => {
             e.stopPropagation();
             modal.style.display = 'flex';
+            requestAnimationFrame(() => searchInput.focus());
         });
 
         // Close

@@ -180,7 +180,7 @@ export class FindGlyphDialog {
         this.modal.style.display = 'flex';
         this.renderVisibleWindow(true, selectedGlyphScrollTop);
         this.list!.scrollTop = selectedGlyphScrollTop;
-        requestAnimationFrame(() => this.searchInput?.focus());
+        setTimeout(() => this.searchInput?.focus(), 50);
     }
 
     /**
