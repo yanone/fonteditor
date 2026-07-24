@@ -1634,7 +1634,8 @@ self.onmessage = async (event) => {
                     nonGlyphChangeHints: Array.isArray(nonGlyphChangeHints)
                         ? nonGlyphChangeHints
                         : [],
-                    layerTargets: sanitizedLayerTargets
+                    layerTargets: sanitizedLayerTargets,
+                    invalidateLayoutClosure: invalidateLayoutClosure === true
                 });
                 const resultJson = apply_yjs_update(
                     update instanceof Uint8Array

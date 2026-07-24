@@ -4850,7 +4850,14 @@ class GlyphCanvas {
         fontManager.scheduleFullCompileDebounce();
 
         try {
-            if (affectedGlyphNames.length > 0) {
+            // When PatchSyncEngine is active, the authoritative bridge Yjs
+            // packet + shared committed-change funnel own worker sync and
+            // compile wake-up. A second refreshGlyphsAfterModelBatch would
+            // delete/recreate the selected layer on the worker mirror and
+            // diverge that layer's CRDT identity from the bridge document
+            // (COMPILATION_EDIT_POLICY §19 / property-panel rule).
+            const bridgeOwnsCommittedRefresh = !!window.patchSyncEngine;
+            if (!bridgeOwnsCommittedRefresh && affectedGlyphNames.length > 0) {
                 await window.fontManager?.refreshGlyphsAfterModelBatch?.(
                     affectedGlyphNames,
                     layerId || undefined

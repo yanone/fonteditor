@@ -2089,21 +2089,26 @@ fn extract_string_array(value: &serde_json::Value) -> Vec<String> {
 
 fn parse_apply_yjs_update_metadata(
     update_metadata_json: &str,
-) -> (Vec<String>, Vec<String>, Vec<LayerTarget>) {
+) -> (Vec<String>, Vec<String>, Vec<LayerTarget>, bool) {
     if update_metadata_json.is_empty() || update_metadata_json == "[]" {
-        return (Vec::new(), Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new(), false);
     }
 
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(update_metadata_json) else {
-        return (Vec::new(), Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new(), false);
     };
 
     if parsed.is_array() {
-        return (extract_string_array(&parsed), Vec::new(), Vec::new());
+        return (
+            extract_string_array(&parsed),
+            Vec::new(),
+            Vec::new(),
+            false,
+        );
     }
 
     let Some(object) = parsed.as_object() else {
-        return (Vec::new(), Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new(), false);
     };
 
     let changed_glyphs = object
@@ -2140,8 +2145,26 @@ fn parse_apply_yjs_update_metadata(
                 .collect()
         })
         .unwrap_or_default();
+    let invalidate_layout_closure = object
+        .get("invalidateLayoutClosure")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
 
-    (changed_glyphs, non_glyph_change_hints, layer_targets)
+    (
+        changed_glyphs,
+        non_glyph_change_hints,
+        layer_targets,
+        invalidate_layout_closure,
+    )
+}
+
+fn clear_active_subset_caches_for_closure_invalidation() {
+    *SUBSET_JSON_CACHE.lock().unwrap() = None;
+    *SUBSET_GLYPH_INDEX_CACHE.lock().unwrap() = None;
+    *SUBSET_FONT_CACHE.lock().unwrap() = None;
+    *FILTERED_FONT_CACHE.lock().unwrap() = None;
+    SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+    FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
 }
 
 fn replace_top_level_json_entry(
@@ -2634,7 +2657,7 @@ fn apply_preview_layer_overlay_internal(
                 e
             ))
         })?;
-    let (metadata_changed_glyphs, _non_glyph_change_hints, metadata_layer_targets) =
+    let (metadata_changed_glyphs, _non_glyph_change_hints, metadata_layer_targets, _) =
         parse_apply_yjs_update_metadata(update_metadata_json);
 
     let current_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
@@ -2770,7 +2793,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
         let document_epoch = Y_DOC_EPOCH.fetch_add(1, Ordering::Relaxed) + 1;
 
         // -- 2. Parse JS-supplied update metadata -----------------------------
-        let (changed_glyphs, non_glyph_change_hints, layer_targets) =
+        let (changed_glyphs, non_glyph_change_hints, layer_targets, invalidate_layout_closure) =
             parse_apply_yjs_update_metadata(update_metadata_json);
         let layer_target_glyphs: HashSet<String> = layer_targets
             .iter()
@@ -2888,7 +2911,13 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                 }
 
                 let mut subset_cache_refresh: Option<(String, u64, Vec<String>)> = None;
-                {
+                // Component-graph (and other closure-affecting) changes must not
+                // leave an in-place-patched subset that references glyphs outside
+                // the previously closed set. Drop the active subset so the next
+                // primed compile rebuilds from the full font + new closure.
+                if invalidate_layout_closure {
+                    clear_active_subset_caches_for_closure_invalidation();
+                } else {
                     let mut subset_lock = SUBSET_JSON_CACHE.lock().unwrap();
                     if let Some((ref subset_key, ref mut subset_epoch, ref mut subset_json)) =
                         *subset_lock
@@ -2989,7 +3018,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                 }
 
                 let filtered_cache_source_changed =
-                    refresh_masters || subset_cache_refresh.is_some();
+                    refresh_masters || subset_cache_refresh.is_some() || invalidate_layout_closure;
 
                 if let Some((subset_key, subset_epoch, subset_glyphs)) = subset_cache_refresh {
                     if let Some((ref cached_key, ref mut cached_epoch, ref mut subset_font)) =
@@ -3026,7 +3055,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                     }
                 }
 
-                if filtered_cache_source_changed {
+                if filtered_cache_source_changed && !invalidate_layout_closure {
                     *FILTERED_FONT_CACHE.lock().unwrap() = None;
                     FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
                 }
@@ -4730,7 +4759,8 @@ mod tests {
 
     #[test]
     fn parse_apply_yjs_update_metadata_extracts_layer_targets() {
-        let (changed_glyphs, hints, layer_targets) = parse_apply_yjs_update_metadata(
+        let (changed_glyphs, hints, layer_targets, invalidate_layout_closure) =
+            parse_apply_yjs_update_metadata(
             r#"{
                 "changedGlyphs": ["alef"],
                 "nonGlyphChangeHints": [],
@@ -4738,12 +4768,14 @@ mod tests {
                     { "glyphName": "alef", "layerId": "regular" },
                     { "glyphName": "alef", "layerId": "regular" },
                     { "glyphName": "beh", "layerId": "regular" }
-                ]
+                ],
+                "invalidateLayoutClosure": true
             }"#,
         );
 
         assert_eq!(changed_glyphs, vec!["alef".to_string()]);
         assert!(hints.is_empty());
+        assert!(invalidate_layout_closure);
         assert_eq!(
             layer_targets,
             vec![
@@ -5097,6 +5129,174 @@ mod tests {
                 ["translation"],
             json!([8.0, 119.0])
         );
+
+        clear_font_cache();
+    }
+
+    #[test]
+    fn apply_yjs_update_component_deletion_reprimes_closure_before_cached_compile() {
+        clear_font_cache();
+
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        let mut source_glyph = font_json["glyphs"][0].clone();
+        source_glyph["name"] = json!("source");
+        source_glyph["codepoints"] = json!([]);
+        font_json["glyphs"][0]["layers"][0]["shapes"] = json!([{
+            "id": "component",
+            "reference": "source",
+            "transform": { "translation": [0, 0] }
+        }]);
+        font_json["glyphs"].as_array_mut().unwrap().push(source_glyph);
+        store_font_from_value(font_json).unwrap();
+
+        let author_doc = Doc::new();
+        let font_map = author_doc.get_or_insert_map("font");
+        let shapes: yrs::ArrayRef;
+        {
+            let mut txn = author_doc.transact_mut();
+            let glyphs: yrs::MapRef =
+                font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
+            let glyph: yrs::MapRef = glyphs.insert(&mut txn, "A", MapPrelim::<Any>::new());
+            let layers: yrs::MapRef =
+                glyph.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            let layer: yrs::MapRef =
+                layers.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
+            layer.insert(&mut txn, "id", "layer-1");
+            layer.insert(&mut txn, "width", Any::Number(600.0));
+            shapes = layer.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+            let component: yrs::MapRef = shapes.push_back(&mut txn, MapPrelim::<Any>::new());
+            component.insert(&mut txn, "id", "component");
+            component.insert(&mut txn, "reference", "source");
+        }
+
+        let initial_update = author_doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            shapes.remove_range(&mut txn, 0, 1);
+        }
+        let deletion_update = author_doc.transact().encode_diff_v1(&state_vector);
+
+        let worker_doc = Doc::new();
+        {
+            let update = yrs::Update::decode_v1(initial_update.as_slice()).unwrap();
+            let mut txn = worker_doc.transact_mut();
+            txn.apply_update(update);
+        }
+        *Y_DOC.lock().unwrap() = Some(worker_doc);
+
+        apply_yjs_update(
+            deletion_update.as_slice(),
+            r#"{
+                "changedGlyphs": ["A"],
+                "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }],
+                "invalidateLayoutClosure": true
+            }"#,
+        )
+        .unwrap();
+
+        assert!(
+            CANONICAL_JSON_CACHE.lock().unwrap().as_ref().unwrap()["glyphs"][0]["layers"][0]
+                ["shapes"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            SUBSET_JSON_CACHE.lock().unwrap().is_none(),
+            "component-graph invalidation must drop the active subset cache"
+        );
+
+        prime_layout_closure_cache("component-delete", r#"["A"]"#).unwrap();
+        let closure_key = LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().clone().unwrap();
+        let closure = LAYOUT_CLOSURE_CACHE
+            .lock()
+            .unwrap()
+            .get(&closure_key)
+            .cloned()
+            .unwrap();
+        assert!(!closure.iter().any(|glyph_name| glyph_name == "source"));
+
+        let mut subset_font = get_or_rebuild_font_cache().unwrap();
+        subset_font_using_cached_fea(&mut subset_font, &closure).unwrap();
+        store_subset_font_cache(
+            &canonical_subset_key_from_sorted_unique(&closure),
+            &subset_font,
+        )
+        .unwrap();
+        let compilation_options = CompilationOptions {
+            skip_kerning: false,
+            skip_features: false,
+            skip_metrics: false,
+            skip_outlines: false,
+            dont_use_production_names: false,
+            drop_incompatible_paths: false,
+            produce_varc_table: false,
+            debug_feature_file: None,
+        };
+        let filtered_font = apply_filter_pipeline(&subset_font, &compilation_options).unwrap();
+        BabelfontIrSource::compile(filtered_font, compilation_options.clone())
+            .expect("component deletion should compile after the closure is re-primed");
+
+        let state_vector_after_delete = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            let restored: yrs::MapRef = shapes.push_back(&mut txn, MapPrelim::<Any>::new());
+            restored.insert(&mut txn, "id", "component");
+            restored.insert(&mut txn, "reference", "source");
+        }
+        let restore_update = author_doc
+            .transact()
+            .encode_diff_v1(&state_vector_after_delete);
+
+        apply_yjs_update(
+            restore_update.as_slice(),
+            r#"{
+                "changedGlyphs": ["A"],
+                "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }],
+                "invalidateLayoutClosure": true
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            CANONICAL_JSON_CACHE.lock().unwrap().as_ref().unwrap()["glyphs"][0]["layers"][0]
+                ["shapes"][0]["reference"],
+            json!("source")
+        );
+        assert!(
+            SUBSET_JSON_CACHE.lock().unwrap().is_none(),
+            "component restore must drop the active subset so compile rebuilds with deps"
+        );
+
+        prime_layout_closure_cache("component-restore", r#"["A"]"#).unwrap();
+        let restore_closure_key = LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().clone().unwrap();
+        let restore_closure = LAYOUT_CLOSURE_CACHE
+            .lock()
+            .unwrap()
+            .get(&restore_closure_key)
+            .cloned()
+            .unwrap();
+        assert!(restore_closure.iter().any(|glyph_name| glyph_name == "source"));
+
+        let prepared_subset_key = canonical_subset_key_from_sorted_unique(&restore_closure);
+        let restored_subset = match get_or_rebuild_subset_font_cache(&prepared_subset_key).unwrap()
+        {
+            Some(cached) => cached,
+            None => {
+                let mut rebuilt = get_or_rebuild_font_cache().unwrap();
+                subset_font_using_cached_fea(&mut rebuilt, &restore_closure).unwrap();
+                store_subset_font_cache(&prepared_subset_key, &rebuilt).unwrap();
+                rebuilt
+            }
+        };
+        let filtered_restored =
+            apply_filter_pipeline(&restored_subset, &compilation_options).unwrap();
+        BabelfontIrSource::compile(filtered_restored, compilation_options)
+            .expect("component restore should compile after subset cache invalidation");
 
         clear_font_cache();
     }

@@ -5255,7 +5255,16 @@ export class PatchSyncEngine {
                         continue;
                     }
                     if (entry.op === 'remove' || entry.op === 'set') {
-                        setYPath(this.fontMap, path, replayValue);
+                        // A set that created a property has no prior value.
+                        // Undo must delete the path instead of writing undefined
+                        // through setYPath (and instead of falling back to the
+                        // native UndoManager, which can resurrect stale CRDT
+                        // shape nodes after structural history-replay undos).
+                        if (entry.op === 'set' && replayValue === undefined) {
+                            deleteYPath(this.fontMap, path);
+                        } else {
+                            setYPath(this.fontMap, path, replayValue);
+                        }
                     }
                     continue;
                 }
@@ -5338,7 +5347,8 @@ export class PatchSyncEngine {
             // Direct replay supports 'set', 'add', and 'remove' ops.
             // 'add' on undo → deleteYPath (no replay value needed).
             // 'remove' on redo → deleteYPath (no replay value needed).
-            // 'set' always needs a replay value.
+            // 'set' needs a replay value, except undo of a newly created
+            // property (undefined old value) which deletes the path.
             const needsReplayValue =
                 entry.op === 'set' ||
                 (entry.op === 'remove' && direction === 'undo') ||
@@ -5350,23 +5360,28 @@ export class PatchSyncEngine {
                         ? entry.replayOldValue
                         : entry.replayNewValue;
                 if (replayValue === undefined) {
-                    return false;
-                }
+                    if (!(entry.op === 'set' && direction === 'undo')) {
+                        return false;
+                    }
+                    // Newly created property: undo deletes it via history replay.
+                } else {
+                    const path = this._toYDocPath(
+                        this._parseEntryPath(entry.path)
+                    );
 
-                const path = this._toYDocPath(this._parseEntryPath(entry.path));
+                    if (this._isGlyphRootPath(path)) {
+                        return !!replayValue && typeof replayValue === 'object';
+                    }
 
-                if (this._isGlyphRootPath(path)) {
-                    return !!replayValue && typeof replayValue === 'object';
-                }
-
-                if (
-                    path.length === 4 &&
-                    path[0] === 'glyphs' &&
-                    path[2] === 'layers' &&
-                    typeof path[1] === 'string' &&
-                    typeof path[3] === 'string'
-                ) {
-                    return !!replayValue && typeof replayValue === 'object';
+                    if (
+                        path.length === 4 &&
+                        path[0] === 'glyphs' &&
+                        path[2] === 'layers' &&
+                        typeof path[1] === 'string' &&
+                        typeof path[3] === 'string'
+                    ) {
+                        return !!replayValue && typeof replayValue === 'object';
+                    }
                 }
             }
 
