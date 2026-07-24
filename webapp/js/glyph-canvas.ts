@@ -4763,6 +4763,37 @@ class GlyphCanvas {
     }
 
     /**
+     * Build an identity transform whose translation places the referenced
+     * glyph's outline bounding-box center on the given canvas point.
+     * Falls back to origin placement when no outline geometry is available.
+     */
+    private buildComponentPlacementTransform(
+        reference: string,
+        hostLayer: Layer,
+        position: { x: number; y: number }
+    ): [number, number, number, number, number, number] {
+        const fontModel =
+            fontManager.currentFont?.fontModel || window.currentFontModel;
+        const componentGlyph = fontModel?.findGlyph?.(reference);
+        const masterId =
+            typeof hostLayer.master === 'object' && hostLayer.master
+                ? hostLayer.master.master || null
+                : null;
+        const componentLayer =
+            (masterId
+                ? componentGlyph?.findLayerByMasterId?.(masterId)
+                : undefined) || componentGlyph?.layers?.[0];
+        const hasOutlineGeometry = (componentLayer?.shapes?.length ?? 0) > 0;
+        const bbox = hasOutlineGeometry
+            ? componentLayer?.getBoundingBox?.(false)
+            : null;
+        const offsetX = bbox ? (bbox.minX + bbox.maxX) / 2 : 0;
+        const offsetY = bbox ? (bbox.minY + bbox.maxY) / 2 : 0;
+
+        return [1, 0, 0, 1, position.x - offsetX, position.y - offsetY];
+    }
+
+    /**
      * Insert a component at the captured canvas position and select it.
      */
     private async addComponentAtPosition(
@@ -4785,14 +4816,11 @@ class GlyphCanvas {
         }
 
         const linkedLayers = activeLayer._getLinkedLayers?.() || [];
-        const transform: [number, number, number, number, number, number] = [
-            1,
-            0,
-            0,
-            1,
-            position.x,
-            position.y
-        ];
+        const transform = this.buildComponentPlacementTransform(
+            reference,
+            activeLayer,
+            position
+        );
         const structuralLayerTargets = [activeLayer, ...linkedLayers]
             .filter((targetLayer) => !!targetLayer.id)
             .map((targetLayer) => ({
