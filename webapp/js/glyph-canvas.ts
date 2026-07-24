@@ -4652,6 +4652,11 @@ class GlyphCanvas {
                         reference
                     );
                 }
+            },
+            onClose: () => {
+                if (this.canvas) {
+                    setTimeout(() => this.canvas!.focus(), 0);
+                }
             }
         });
     }
@@ -4757,6 +4762,11 @@ class GlyphCanvas {
                         reference,
                         position
                     );
+                }
+            },
+            onClose: () => {
+                if (this.canvas) {
+                    setTimeout(() => this.canvas!.focus(), 0);
                 }
             }
         });

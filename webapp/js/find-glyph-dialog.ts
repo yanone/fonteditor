@@ -39,6 +39,7 @@ export interface FindGlyphDialogOptions {
     cancelLabel?: string;
     confirmLabel?: string;
     onConfirm?: (glyphNames: string[]) => void;
+    onClose?: () => void;
 }
 
 type GlyphOutlineData = Parameters<
@@ -101,6 +102,7 @@ export class FindGlyphDialog {
     private selectionMode: GlyphSelectionMode = 'single';
     private selectedGlyphNames = new Set<string>();
     private onConfirm: ((glyphNames: string[]) => void) | null = null;
+    private onClose: (() => void) | null = null;
     private previewCanvases = new Map<string, HTMLCanvasElement>();
     private outlineCache = new Map<string, GlyphOutlineData>();
     private pendingGlyphNames = new Set<string>();
@@ -149,6 +151,7 @@ export class FindGlyphDialog {
             }
         }
         this.onConfirm = options.onConfirm ?? null;
+        this.onClose = options.onClose ?? null;
         if (this.titleElement) {
             this.titleElement.textContent = options.title ?? 'Find Glyph';
         }
@@ -190,6 +193,8 @@ export class FindGlyphDialog {
         if (this.modal) {
             this.modal.style.display = 'none';
         }
+        this.onClose?.();
+        this.onClose = null;
     }
 
     /**
