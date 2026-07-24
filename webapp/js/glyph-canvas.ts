@@ -6906,13 +6906,16 @@ class GlyphCanvas {
                 referenceLabel.textContent = 'Reference';
                 referenceControl.appendChild(referenceLabel);
 
+                const referenceBox = document.createElement('div');
+                referenceBox.className = 'glyph-component-reference-box';
+
                 const referenceName = document.createElement('span');
                 referenceName.className = 'glyph-component-reference-name';
                 referenceName.textContent = abbreviateGlyphNameMiddle(
                     component.reference
                 );
                 referenceName.title = component.reference;
-                referenceControl.appendChild(referenceName);
+                referenceBox.appendChild(referenceName);
 
                 const replaceButton = document.createElement('button');
                 replaceButton.type = 'button';
@@ -6927,8 +6930,9 @@ class GlyphCanvas {
                 replaceButton.addEventListener('click', () =>
                     this.openComponentReferencePicker(currentLayer, component)
                 );
-                referenceControl.appendChild(replaceButton);
+                referenceBox.appendChild(replaceButton);
 
+                referenceControl.appendChild(referenceBox);
                 fieldsRow.appendChild(referenceControl);
             }
 

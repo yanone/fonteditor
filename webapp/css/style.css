@@ -5572,21 +5572,54 @@ kbd + kbd {
     white-space: nowrap;
 }
 
-.glyph-component-reference-name {
-    min-width: 0;
-    max-width: 150px;
-    overflow: hidden;
-    text-overflow: clip;
+.glyph-component-reference-box {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    width: 150px;
+    height: 24px;
+    padding: 0 0 0 6px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-primary);
     font-family: var(--font-families-mono);
+    font-size: 11px;
+    box-sizing: border-box;
+}
+
+.glyph-component-reference-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+    color: var(--text-primary);
+    line-height: 22px;
 }
 
 .glyph-component-reference-replace {
-    width: 28px;
-    height: 28px;
-    flex: 0 0 28px;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
     display: grid;
     place-items: center;
     padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.glyph-component-reference-replace .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.glyph-component-reference-replace:hover {
+    color: var(--text-primary);
+    background: var(--background-hover);
 }
 
 .glyph-component-property-transform-group {
