@@ -153,6 +153,10 @@ This script:
 - Run commands such that output is visible (don't route to unreadable pipelines)
 - After changing any JavaScript or TypeScript file in `webapp/js/`, you MUST rebuild the Webpack bundle with `cd webapp && npm run build` (or verify the dev server at `npm run dev` reflects the changes) before considering the task finished.
 
+### Git and Commits
+
+- **NEVER auto-commit code.** Commits must be invoked explicitly by the user. No agent shall stage, commit, amend, or push changes without an explicit user request to do so.
+
 ### JavaScript/TypeScript
 
 - Use modern ES6+ syntax
