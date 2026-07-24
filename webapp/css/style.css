@@ -3564,12 +3564,12 @@ kbd + kbd {
 }
 
 .file-item.directory {
-    color: #000000;
+    color: var(--text-primary);
     font-weight: 500;
 }
 
 .file-item.directory .file-name {
-    color: #000000;
+    color: var(--text-primary);
     font-weight: 500;
 }
 
@@ -3658,16 +3658,12 @@ kbd + kbd {
 .file-path-text {
     font-family: 'Inter', var(--font-families-sans);
     font-size: 10px;
-    color: #000000;
+    color: var(--text-primary);
     font-weight: 400;
     flex: 1;
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
-}
-
-[data-theme='dark'] .file-path-text {
-    color: #ffffff;
 }
 
 .file-header-actions {

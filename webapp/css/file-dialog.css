@@ -50,13 +50,27 @@
     min-height: 32px;
 }
 
-.file-dialog-overlay {
+/* Dark theme (default) */
+:root {
+    --file-dialog-surface: var(--modal-bg);
+    --file-dialog-panel: #333333;
+    --file-dialog-border: var(--border-primary);
+    --file-dialog-text: var(--text-primary);
+    --file-dialog-subtle-text: var(--text-secondary);
+    --file-dialog-selected: var(--background-hover);
+}
+
+/* Light theme */
+:root[data-theme='light'] {
     --file-dialog-surface: #ffffff;
     --file-dialog-panel: #f5f5f5;
     --file-dialog-border: #d7d7d7;
     --file-dialog-text: #111111;
     --file-dialog-subtle-text: #5a5a5a;
     --file-dialog-selected: #ededed;
+}
+
+.file-dialog-overlay {
     z-index: 11000;
 }
 
