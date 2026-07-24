@@ -20,7 +20,10 @@ import { WindowSync } from './window-sync';
 import { fontCompilation, fullFontCompilation } from './font-compilation';
 import { Logger } from './logger';
 import { processCommittedEdit } from './compiled-edit-funnel';
-import { computeLayerRecompositionClosure } from './recomposition-closure';
+import {
+    computeLayerRecompositionClosure,
+    deriveEditKindsFromOperations
+} from './recomposition-closure';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import APP_SETTINGS from './settings';
 import {
@@ -686,21 +689,38 @@ export function buildCascadingRecompositionOperations(
         return [];
     }
 
-    // Use the shared recomposition closure instead of the local
-    // recomputeCascadeAffectedGlyphNames.  The bridge fallback path uses a
-    // superset of edit kinds so all dependency types are covered.
+    // Use the shared recomposition closure. Infer edit kinds from the actual
+    // buffered ops — never a universal outline+anchor+sidebearing+component
+    // hammer — and only write cascade layer snapshots for recomposeTargets.
     const fontModel = window.fontManager?.currentFont?.fontModel ?? null;
     if (!fontModel) {
         return [];
     }
 
-    // Extract the first source target's layer ID for matching-layer lookup.
     const activeLayerId = sourceTargets[0]?.layerId ?? null;
     const sourceGlyphName = sourceTargets[0]?.glyphName ?? null;
+    const editKinds = deriveEditKindsFromOperations(operations);
+    if (editKinds.size === 0) {
+        // Cascade triggers are path-shaped (width/anchors); default to the
+        // kinds those paths imply when inference finds nothing else.
+        if (
+            operations.some((op) => isWidthPath(op.applyPath ?? op.path ?? []))
+        ) {
+            editKinds.add('sidebearing');
+        }
+        if (
+            operations.some((op) => isAnchorPath(op.applyPath ?? op.path ?? []))
+        ) {
+            editKinds.add('anchor');
+        }
+    }
+    if (editKinds.size === 0) {
+        return [];
+    }
 
     const closure = computeLayerRecompositionClosure({
         sourceTargets,
-        editKinds: new Set(['outline', 'anchor', 'sidebearing', 'component']),
+        editKinds,
         scope: 'all',
         fontModel,
         activeLayerId,
@@ -712,13 +732,12 @@ export function buildCascadingRecompositionOperations(
         return [];
     }
 
-    // Build layer targets from the full affected set (source + dependents).
-    // Source layer targets are included so buildCascadeLayerOperations can
-    // detect model mutations that affected the source glyph's own layer
-    // (e.g. anchor clearing triggered by recomputeMetricsKeys).
+    // Source layers stay in the write set so buildCascadeLayerOperations can
+    // capture extra source-layer mutations (e.g. metrics clearing anchors).
+    // Invalidate-only component dependents are intentionally excluded.
     const allCascadeTargets = normalizeWorkerReplayTargets([
         ...sourceTargets,
-        ...closure.dependentTargets
+        ...closure.recomposeTargets
     ]);
     if (!allCascadeTargets.length) {
         return [];
@@ -1784,22 +1803,18 @@ function syncImmediateUndoOutlineLayerFromModel(
 }
 
 /**
- * Derive cascading recomposition targets from the directly edited layers.
+ * Derive cascading *model recomposition* targets from the directly edited
+ * layers (automatic composites + metrics-key dependents only).
  *
- * Delegates to the shared `computeLayerRecompositionClosure` so every
- * edit path uses the same dependency derivation logic.
- *
- * For each (glyphName, layerId) source pair, discovers glyphs that depend
- * on it as a component reference, then finds the matching layer (same master)
- * on each dependent glyph. Returns all targets that need recomposition.
- *
- * The derivation works generically for any edit source — GUI glyph edits
- * (outline, anchor, sidebearing), Python scripts, or undo/redo.
+ * Invalidate-only component dependents are not returned here; callers that
+ * need the wide replay set should use `computeLayerRecompositionClosure`
+ * and read `allTargets`.
  */
 export function collectCascadeRecomposeTargets(
     sourceTargets: WorkerReplayTarget[],
     sourceGlyphName?: string | null,
-    sourceLayerId?: string | null
+    sourceLayerId?: string | null,
+    editKinds?: Set<'outline' | 'anchor' | 'sidebearing' | 'component'>
 ): WorkerReplayTarget[] {
     const fontModel =
         window.fontManager?.currentFont?.fontModel ?? window.currentFontModel;
@@ -1809,14 +1824,17 @@ export function collectCascadeRecomposeTargets(
 
     const closure = computeLayerRecompositionClosure({
         sourceTargets,
-        editKinds: new Set(['outline', 'anchor', 'sidebearing', 'component']),
+        editKinds:
+            editKinds && editKinds.size > 0
+                ? editKinds
+                : new Set(['outline', 'anchor', 'sidebearing', 'component']),
         scope: 'all',
         fontModel,
         activeLayerId: sourceLayerId,
         sourceGlyphName
     });
 
-    return closure.dependentTargets;
+    return closure.recomposeTargets;
 }
 
 export function waitForEditingFontCompileRevision(

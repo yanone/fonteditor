@@ -1613,10 +1613,24 @@ export class PatchSyncEngine {
 
         const wasInTransaction = this._txDepth > 0;
         const commitResult = this._queueOrCommitOperations(operations, label);
-        if (!wasInTransaction && commitResult?.workerReplayTargets.length) {
-            this._syncPatchedLayerTargetsFromYDoc(
-                commitResult.workerReplayTargets
+        // Only reload layers that this packet actually wrote into Yjs.
+        // workerReplayTargets are intentionally wider (invalidate-only
+        // dependents for compile/cache). Reloading those from Yjs would
+        // clobber live-already-recomposed model state with stale document
+        // data when those dependents were not part of the mutation set.
+        if (!wasInTransaction && operations.length) {
+            const writtenLayerTargets = normalizeWorkerReplayTargets(
+                operations.map((operation) => {
+                    const applyPath = operation.applyPath ?? operation.path;
+                    return {
+                        glyphName: deriveGlyphName(applyPath) || '',
+                        layerId: deriveLayerId(applyPath) || ''
+                    };
+                })
             );
+            if (writtenLayerTargets.length) {
+                this._syncPatchedLayerTargetsFromYDoc(writtenLayerTargets);
+            }
         }
         if (!wasInTransaction && !commitResult) {
             this._emitMetadataOnlyLayerSnapshotUpdate(

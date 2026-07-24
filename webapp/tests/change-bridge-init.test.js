@@ -3975,8 +3975,9 @@ describe('buildCascadingRecompositionOperations', () => {
         };
 
         // An anchor removal path without explicit workerReplayTargets
-        // should still trigger recomposition (the recomputeMetricsKeys
-        // call proves the fallback path was taken).
+        // should still trigger recomposition (rebuildAutomaticComposites
+        // proves the fallback path was taken). Anchor-only edits must not
+        // run metrics-key inheritance.
         const operations = buildCascadingRecompositionOperations(bridge, [
             {
                 op: 'remove',
@@ -3987,8 +3988,12 @@ describe('buildCascadingRecompositionOperations', () => {
         ]);
 
         expect(
-            window.fontManager.currentFont.fontModel.recomputeMetricsKeys
+            window.fontManager.currentFont.fontModel
+                .rebuildAutomaticCompositesForGlyphs
         ).toHaveBeenCalled();
+        expect(
+            window.fontManager.currentFont.fontModel.recomputeMetricsKeys
+        ).not.toHaveBeenCalled();
         // No cascade layer targets because getMatchingLayerOnGlyph returns
         // null, so no layer operations are emitted.
         expect(operations).toEqual([]);

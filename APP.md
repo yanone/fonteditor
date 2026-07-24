@@ -61,7 +61,17 @@ Only a font’s main window syncs with the DO room in the cloud. Local linked wi
 Live drags run through `LiveDragEditFunnel`, which bypasses Yjs packet creation on purpose. It calculates its own cascading layer recomposition closure based on glyphs visible in the editor.
 TODO: Check if closure calculations match with the rest; ideally unify.
 
-Edits that get committed are run through `computeRecompositionClosure` which calculates the cascading layer recomposition closure set. These edits are drag-end, property panel edits, keyboard moves of all object types incl. sidebearings, smooth point toggle.
+Edits that get committed are run through `computeLayerRecompositionClosure` which calculates the cascading layer recomposition closure. These edits are drag-end, property panel edits, keyboard moves of all object types incl. sidebearings, smooth point toggle.
+
+That closure returns two dependent sets that must stay distinct:
+
+- `recomposeTargets` — layers whose stored model must change (automatic composition rebuild and/or metrics-key inheritance, including outline edits that move a keyed glyph's visual edge). Only these, plus the directly edited source layers, may be written into the authoritative Yjs packet as layer snapshots.
+- `invalidateTargets` — layers that only need worker/canvas/overview refresh because they draw an edited source (including manual composites). Manual composites keep their stored transforms and width; live base geometry may shift inside them. These targets must be stamped as `workerReplayTargets` metadata on the Yjs packet and must not be cascade-written as model snapshots.
+- `allTargets` — source ∪ recompose ∪ invalidate. Stamp this as `workerReplayTargets` so local and remote peers refresh the same compile/cache closure. Replay targets remain part of the Yjs packet metadata; they are not re-derived on receive.
+
+After a live drag has already applied derived automatic-composite / metrics-key state, commit must still include those dependents in `changedLayerTargets` even when a final rebuild/metrics pass is a no-op. Post-commit model refresh may only reload layers that the packet actually wrote into Yjs; reloading wider invalidate-only replay targets from stale Yjs state must not clobber the live-updated object model.
+
+Bridge finalizer fallback must infer edit kinds from the buffered operations (width → sidebearing, anchors → anchor, etc.) and must never expand cascade writes with a universal outline+anchor+sidebearing+component hammer.
 
 Structural edits (connect, split, open, close path) go to `syncStructuralGlyphChangeTransaction()` and Yjs bridge directly. Skip both closure and `_syncCurrentGlyphToYDoc`.
 TODO: Structural edits should ideally go through `_syncCurrentGlyphToYDoc` like all other edits to stamp them with replay targets, but for now it seems okay since it doesn't actually cause any harm if they don't have replayTargets.

@@ -11465,6 +11465,62 @@ export class Font extends ModelBase {
         return this.rebuildAutomaticComposites(changedGlyphNames, options);
     }
 
+    /**
+     * Collect glyphs whose metrics keys / automatic-offset edges depend on the
+     * given source glyphs, whether or not their stored sidebearings currently
+     * need updating. Used by cascading commit so live-already-synced
+     * dependents are still persisted into Yjs.
+     */
+    collectMetricsKeyDependentGlyphs(
+        sourceGlyphNames: Iterable<string>
+    ): Set<string> {
+        const sources = new Set(
+            Array.from(sourceGlyphNames).filter(
+                (glyphName): glyphName is string =>
+                    typeof glyphName === 'string' && glyphName.length > 0
+            )
+        );
+        const dependentGlyphNames = new Set<string>();
+        if (sources.size === 0) {
+            return dependentGlyphNames;
+        }
+
+        const reverseComponentIndex = this._ensureReverseComponentIndex();
+        const dependencyEntries = this.collectMetricsKeyDependencyEntries();
+        for (const entry of dependencyEntries) {
+            if (entry.parsed.kind === 'automatic-offset') {
+                if (!entry.layer.isAutomaticAlignedLayer()) {
+                    continue;
+                }
+                let dependsOnSource = sources.has(entry.glyphName);
+                if (!dependsOnSource) {
+                    for (const sourceGlyphName of sources) {
+                        const dependents =
+                            reverseComponentIndex.get(sourceGlyphName);
+                        if (dependents?.has(entry.glyphName)) {
+                            dependsOnSource = true;
+                            break;
+                        }
+                    }
+                }
+                if (dependsOnSource) {
+                    dependentGlyphNames.add(entry.glyphName);
+                }
+                continue;
+            }
+
+            if (
+                entry.parsed.referencedGlyphNames.some((referencedGlyphName) =>
+                    sources.has(referencedGlyphName)
+                )
+            ) {
+                dependentGlyphNames.add(entry.glyphName);
+            }
+        }
+
+        return dependentGlyphNames;
+    }
+
     recomputeMetricsKeys(
         changedGlyphNames?: Set<string>,
         options?: {
