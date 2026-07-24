@@ -1,5 +1,6 @@
 # Unreleased
 
+- **Anchor UI/UX**
 - **Component Property UI/UX**: Added a complete set of component editing controls to the property panel, including transform fields for translation, rotation, scale, and skew, a reference glyph plate with an inline replace button, and an auto-alignment toggle. Controls are positioned at the top of the panel for quick access.
 - **Glyphs Feature Variations**: Added editor support for Feature Variation families. Feature Variations now appear in the layer panel with compact axis-range labels, explicit Base glyph switching, and context-menu actions to edit or remove a family. Creating a family adds one associated raw layer per master; editing and removal update the complete raw family atomically.
 - **Background Layers**: Added per-layer background drawings for non-destructive reference work. Backgrounds are stored with their foreground layers, render as a distinct editable reference behind the active outline, and can be created, selected, and navigated from the layer UI. Background content persists through save/load, undo/redo, linked windows, and collaboration without participating in interpolation or metrics. Sidebearing controls are foreground-only; changing a foreground LSB, including during a live drag or a metrics-key cascade, moves its materialized background drawing by the same amount so both remain aligned.

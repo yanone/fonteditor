@@ -17,6 +17,7 @@ import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolatio
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import {
+    Anchor,
     Component,
     DecomposedAffineTransform,
     FeatureVariationGlyph,
@@ -102,6 +103,8 @@ type ActivePropertyInputState = {
     selectionStart: number | null;
     selectionEnd: number | null;
 };
+
+type AnchorPositionField = 'x' | 'y';
 
 type ComponentTransformField =
     | 'translateX'
@@ -4511,6 +4514,35 @@ class GlyphCanvas {
         return components;
     }
 
+    private getSelectedAnchorModels(layer: Layer): Anchor[] {
+        const anchorIndices = this.outlineEditor.selectedAnchors;
+        if (anchorIndices.length === 0) {
+            return [];
+        }
+
+        const anchors: Anchor[] = [];
+        for (const anchorIndex of anchorIndices) {
+            const anchor = layer.anchors?.[anchorIndex];
+            if (anchor) {
+                anchors.push(anchor);
+            }
+        }
+
+        return anchors;
+    }
+
+    private layerHasAnchorNamed(
+        layer: Layer,
+        name: string,
+        excludeIndices: number[] = []
+    ): boolean {
+        const excluded = new Set(excludeIndices);
+        return (layer.anchors || []).some(
+            (anchor, index) =>
+                !excluded.has(index) && (anchor.name || '') === name
+        );
+    }
+
     private canEditSelectedComponentTranslation(
         layer: Layer,
         components: Component[]
@@ -4773,6 +4805,47 @@ class GlyphCanvas {
     }
 
     /**
+     * Prompt for an anchor name and add it at the captured canvas position.
+     */
+    public async openAddAnchorDialogAt(position: {
+        x: number;
+        y: number;
+    }): Promise<void> {
+        const layer = this.getCurrentEditingLayerModel();
+        if (!layer || layer.is_background) {
+            return;
+        }
+
+        const rawName = window.prompt('Anchor name');
+        if (rawName === null) {
+            if (this.canvas) {
+                setTimeout(() => this.canvas!.focus(), 0);
+            }
+            return;
+        }
+
+        const name = rawName.trim();
+        if (!name) {
+            if (this.canvas) {
+                setTimeout(() => this.canvas!.focus(), 0);
+            }
+            return;
+        }
+
+        if (this.layerHasAnchorNamed(layer, name)) {
+            window.alert(
+                `An anchor named "${name}" already exists on this layer.`
+            );
+            if (this.canvas) {
+                setTimeout(() => this.canvas!.focus(), 0);
+            }
+            return;
+        }
+
+        await this.addAnchorAtPosition(layer, name, position);
+    }
+
+    /**
      * Build an identity transform whose translation places the referenced
      * glyph's outline bounding-box center on the given canvas point.
      * Falls back to origin placement when no outline geometry is available.
@@ -4866,6 +4939,85 @@ class GlyphCanvas {
         );
     }
 
+    /**
+     * Insert an anchor at the captured canvas position and select it.
+     */
+    private async addAnchorAtPosition(
+        layer: Layer,
+        name: string,
+        position: { x: number; y: number }
+    ): Promise<void> {
+        const activeLayer = this.getCurrentEditingLayerModel();
+        if (
+            !activeLayer ||
+            activeLayer.id !== layer.id ||
+            activeLayer.parent()?.name !== layer.parent()?.name
+        ) {
+            return;
+        }
+
+        const glyphName = activeLayer.parent()?.name;
+        if (!glyphName) {
+            return;
+        }
+
+        if (this.layerHasAnchorNamed(activeLayer, name)) {
+            window.alert(
+                `An anchor named "${name}" already exists on this layer.`
+            );
+            return;
+        }
+
+        const linkedLayers = activeLayer._getLinkedLayers?.() || [];
+        const targetLayers = [activeLayer, ...linkedLayers];
+        for (const targetLayer of linkedLayers) {
+            if (this.layerHasAnchorNamed(targetLayer, name)) {
+                window.alert(
+                    `An anchor named "${name}" already exists on a linked layer.`
+                );
+                return;
+            }
+        }
+
+        const structuralLayerTargets = targetLayers
+            .filter((targetLayer) => !!targetLayer.id)
+            .map((targetLayer) => ({
+                glyphName,
+                layerId: targetLayer.id!
+            }));
+        const affectedGlyphNames = new Set<string>([glyphName]);
+        window.patchSyncEngine?.beginTransaction('Add anchor');
+        try {
+            for (const targetLayer of targetLayers) {
+                targetLayer.addAnchor(position.x, position.y, name);
+            }
+            for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
+                new Set([glyphName])
+            ) || []) {
+                affectedGlyphNames.add(affectedGlyphName);
+            }
+            this.outlineEditor.prepareAnchorStructuralChange(
+                structuralLayerTargets
+            );
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        const anchorIndex = (activeLayer.anchors?.length ?? 1) - 1;
+        if (anchorIndex >= 0) {
+            this.outlineEditor.selectedAnchors = [anchorIndex];
+            this.outlineEditor.selectedPoints = [];
+            this.outlineEditor.selectedComponents = [];
+            this.outlineEditor.selectedGuideHandle = null;
+            this.outlineEditor.selectedSidebearingHandle = null;
+        }
+
+        await this.finalizeAnchorPropertyPanelMutation(
+            Array.from(affectedGlyphNames),
+            activeLayer.id ?? null
+        );
+    }
+
     private getComponentAutoAlignmentState(
         components: Component[]
     ): ComponentCheckboxState {
@@ -4912,6 +5064,208 @@ class GlyphCanvas {
         this.updatePropertyPanel();
         this.outlineEditor.performHitDetection(null);
         this.render();
+    }
+
+    private async finalizeAnchorPropertyPanelMutation(
+        affectedGlyphNames: string[],
+        layerId: string | null
+    ): Promise<void> {
+        fontManager.setEditingCompileContext('keyboard-anchor', 'anchor');
+        fontManager.scheduleFullCompileDebounce();
+
+        try {
+            const bridgeOwnsCommittedRefresh = !!window.patchSyncEngine;
+            if (!bridgeOwnsCommittedRefresh && affectedGlyphNames.length > 0) {
+                await window.fontManager?.refreshGlyphsAfterModelBatch?.(
+                    affectedGlyphNames,
+                    layerId || undefined
+                );
+            }
+            await this.outlineEditor.fetchLayerData(true);
+        } catch (error) {
+            console.warn(
+                'Failed to refresh layer after anchor property-panel update',
+                error
+            );
+        }
+
+        this.updatePropertyPanel();
+        this.outlineEditor.performHitDetection(null);
+        this.render();
+    }
+
+    private async commitAnchorNamePropertyPanelValue(
+        value: string
+    ): Promise<void> {
+        if (this.outlineEditor.draggingSomething) {
+            return;
+        }
+
+        const layer = this.getCurrentEditingLayerModel();
+        if (!layer) {
+            return;
+        }
+
+        const selectedIndices = [...this.outlineEditor.selectedAnchors];
+        if (selectedIndices.length !== 1) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const anchorIndex = selectedIndices[0];
+        const anchor = layer.anchors?.[anchorIndex];
+        if (!anchor) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const nextName = value.trim();
+        if (!nextName) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        if ((anchor.name || '') === nextName) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        if (this.layerHasAnchorNamed(layer, nextName, [anchorIndex])) {
+            window.alert(
+                `An anchor named "${nextName}" already exists on this layer.`
+            );
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const previousName = anchor.name || '';
+        const glyphName = layer.parent()?.name;
+        if (!glyphName) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const linkedLayers = layer._getLinkedLayers?.() || [];
+        for (const linkedLayer of linkedLayers) {
+            if (this.layerHasAnchorNamed(linkedLayer, nextName)) {
+                window.alert(
+                    `An anchor named "${nextName}" already exists on a linked layer.`
+                );
+                this.updatePropertyPanel();
+                return;
+            }
+        }
+
+        const affectedGlyphNames = new Set<string>([glyphName]);
+        const structuralLayerTargets = [layer, ...linkedLayers]
+            .filter((targetLayer) => !!targetLayer.id)
+            .map((targetLayer) => ({
+                glyphName,
+                layerId: targetLayer.id!
+            }));
+
+        window.patchSyncEngine?.beginTransaction('Rename anchor');
+        try {
+            anchor.name = nextName;
+            for (const linkedLayer of linkedLayers) {
+                const linkedAnchor = linkedLayer.anchors?.find(
+                    (candidate) => (candidate.name || '') === previousName
+                );
+                if (linkedAnchor) {
+                    linkedAnchor.name = nextName;
+                }
+            }
+            for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
+                new Set([glyphName])
+            ) || []) {
+                affectedGlyphNames.add(affectedGlyphName);
+            }
+            this.outlineEditor.prepareAnchorStructuralChange(
+                structuralLayerTargets
+            );
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        await this.finalizeAnchorPropertyPanelMutation(
+            Array.from(affectedGlyphNames),
+            layer.id ?? null
+        );
+    }
+
+    private async commitAnchorPositionPropertyPanelValue(
+        field: AnchorPositionField,
+        value: string
+    ): Promise<void> {
+        if (this.outlineEditor.draggingSomething) {
+            return;
+        }
+
+        const layer = this.getCurrentEditingLayerModel();
+        if (!layer) {
+            return;
+        }
+
+        const trimmedValue = value.trim();
+        if (!isPlainNumericInputValue(trimmedValue)) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const numericValue = Number(trimmedValue);
+        const selectedAnchors = this.getSelectedAnchorModels(layer);
+        if (selectedAnchors.length === 0) {
+            return;
+        }
+
+        let changed = false;
+        const affectedGlyphNames = new Set<string>();
+        window.patchSyncEngine?.beginTransaction('Set anchor position');
+        try {
+            for (const anchor of selectedAnchors) {
+                if (field === 'x') {
+                    if (Math.abs(anchor.x - numericValue) > 0.000001) {
+                        anchor.x = numericValue;
+                        changed = true;
+                    }
+                } else if (Math.abs(anchor.y - numericValue) > 0.000001) {
+                    anchor.y = numericValue;
+                    changed = true;
+                }
+            }
+
+            const glyphName = layer.parent()?.name;
+            if (glyphName) {
+                affectedGlyphNames.add(glyphName);
+                for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
+                    new Set([glyphName])
+                ) || []) {
+                    affectedGlyphNames.add(affectedGlyphName);
+                }
+            }
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        if (!changed) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const glyphName = layer.parent()?.name;
+        if (!glyphName) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        await this.finalizeAnchorPropertyPanelMutation(
+            Array.from(
+                affectedGlyphNames.size > 0
+                    ? affectedGlyphNames
+                    : new Set([glyphName])
+            ),
+            layer.id ?? null
+        );
     }
 
     private async commitComponentTransformPropertyPanelValue(
@@ -5114,6 +5468,15 @@ class GlyphCanvas {
             this.outlineEditor.selectedComponents.length > 0 &&
             this.outlineEditor.selectedPoints.length === 0 &&
             this.outlineEditor.selectedAnchors.length === 0 &&
+            this.outlineEditor.selectedGuideHandle === null
+        );
+    }
+
+    private hasAnchorOnlySelection(): boolean {
+        return (
+            this.outlineEditor.selectedAnchors.length > 0 &&
+            this.outlineEditor.selectedPoints.length === 0 &&
+            this.outlineEditor.selectedComponents.length === 0 &&
             this.outlineEditor.selectedGuideHandle === null
         );
     }
@@ -6636,6 +6999,250 @@ class GlyphCanvas {
         }
 
         this.propertyPanel.classList.remove('hidden');
+
+        const isAnchorOnlySelection = this.hasAnchorOnlySelection();
+        if (isAnchorOnlySelection) {
+            const currentLayer = this.getCurrentEditingLayerModel();
+            if (!currentLayer) {
+                return;
+            }
+
+            const selectedAnchors = this.getSelectedAnchorModels(currentLayer);
+            if (selectedAnchors.length === 0) {
+                return;
+            }
+
+            this.propertyPanel.classList.add('component-properties');
+
+            const content = document.createElement('div');
+            content.className = 'glyph-component-property-panel-content';
+
+            const fieldsRow = document.createElement('div');
+            fieldsRow.className = 'glyph-component-property-grid';
+
+            if (selectedAnchors.length === 1) {
+                const nameControl = document.createElement('label');
+                nameControl.className =
+                    'glyph-component-property-control glyph-anchor-property-name';
+
+                const nameLabel = document.createElement('span');
+                nameLabel.className = 'glyph-property-control-label';
+                nameLabel.textContent = 'Name';
+                nameLabel.title = 'Anchor name';
+                nameControl.appendChild(nameLabel);
+
+                const nameInput = document.createElement('input');
+                nameInput.type = 'text';
+                nameInput.className = 'glyph-property-input';
+                nameInput.dataset.propertyField = 'anchor-name';
+                nameInput.value = selectedAnchors[0].name || '';
+
+                nameInput.addEventListener('change', () => {
+                    if (this.outlineEditor.draggingSomething) {
+                        return;
+                    }
+
+                    if (nameInput.dataset.skipNextPropertyCommit === 'true') {
+                        delete nameInput.dataset.skipNextPropertyCommit;
+                        return;
+                    }
+
+                    void this.commitAnchorNamePropertyPanelValue(
+                        nameInput.value
+                    );
+                });
+
+                nameInput.addEventListener('keydown', (event) => {
+                    if (this.handlePropertyInputUndoRedo(event)) {
+                        return;
+                    }
+
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.outlineEditor.restoreFocus();
+                        return;
+                    }
+
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        this.restoreCanvasFocusAfterPropertyCommit = true;
+                        nameInput.dataset.skipNextPropertyCommit = 'true';
+                        void this.commitAnchorNamePropertyPanelValue(
+                            nameInput.value
+                        );
+                        nameInput.blur();
+                    }
+                });
+
+                nameInput.addEventListener('blur', () => {
+                    setTimeout(() => {
+                        if (this.restoreCanvasFocusAfterPropertyCommit) {
+                            this.restoreCanvasFocusAfterPropertyCommit = false;
+                            this.outlineEditor.restoreFocus();
+                            return;
+                        }
+
+                        const activeElement =
+                            document.activeElement as HTMLElement | null;
+                        if (
+                            activeElement &&
+                            this.isTextInputElement(activeElement)
+                        ) {
+                            return;
+                        }
+
+                        this.outlineEditor.restoreFocus();
+                    }, 0);
+                });
+
+                nameControl.appendChild(nameInput);
+                fieldsRow.appendChild(nameControl);
+            }
+
+            const createAnchorPositionControl = (
+                field: AnchorPositionField
+            ) => {
+                const wrapper = document.createElement('label');
+                wrapper.className = 'glyph-component-property-control';
+
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'glyph-property-input';
+                input.dataset.propertyField = `anchor-${field}`;
+                input.title =
+                    field === 'x'
+                        ? 'Anchor position on X axis'
+                        : 'Anchor position on Y axis';
+
+                const sharedValue = getSharedNumericValue(
+                    selectedAnchors.map((anchor) =>
+                        field === 'x' ? anchor.x : anchor.y
+                    )
+                );
+
+                if (sharedValue === null) {
+                    input.value = '';
+                    input.placeholder = 'Multiple values';
+                    input.classList.add('glyph-property-input-mixed');
+                } else {
+                    input.value = String(Number(sharedValue.toFixed(4)));
+                }
+
+                const arrowInputController = new ArrowAdjustableTextInput({
+                    input,
+                    getValue: () => {
+                        const trimmedValue = input.value.trim();
+                        if (isPlainNumericInputValue(trimmedValue)) {
+                            return Number(trimmedValue);
+                        }
+
+                        return (
+                            sharedValue ??
+                            (field === 'x'
+                                ? selectedAnchors[0].x
+                                : selectedAnchors[0].y)
+                        );
+                    },
+                    applyValue: async (nextValue) => {
+                        input.dataset.skipNextPropertyCommit = 'true';
+                        await this.commitAnchorPositionPropertyPanelValue(
+                            field,
+                            String(nextValue)
+                        );
+                    },
+                    findReplacementInput: () =>
+                        this.propertyPanel?.querySelector(
+                            `.glyph-property-input[data-property-field="anchor-${field}"]`
+                        ) as HTMLInputElement | null
+                });
+
+                input.addEventListener('change', () => {
+                    if (this.outlineEditor.draggingSomething) {
+                        return;
+                    }
+
+                    if (input.dataset.skipNextPropertyCommit === 'true') {
+                        delete input.dataset.skipNextPropertyCommit;
+                        return;
+                    }
+
+                    void this.commitAnchorPositionPropertyPanelValue(
+                        field,
+                        input.value
+                    );
+                });
+
+                input.addEventListener('keydown', (event) => {
+                    if (this.handlePropertyInputUndoRedo(event)) {
+                        return;
+                    }
+
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.outlineEditor.restoreFocus();
+                        return;
+                    }
+
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        this.restoreCanvasFocusAfterPropertyCommit = true;
+                        input.dataset.skipNextPropertyCommit = 'true';
+                        void this.commitAnchorPositionPropertyPanelValue(
+                            field,
+                            input.value
+                        );
+                        input.blur();
+                    }
+                });
+
+                input.addEventListener('blur', () => {
+                    setTimeout(() => {
+                        if (this.restoreCanvasFocusAfterPropertyCommit) {
+                            this.restoreCanvasFocusAfterPropertyCommit = false;
+                            if (!arrowInputController.isApplyingStep) {
+                                this.outlineEditor.restoreFocus();
+                            }
+                            return;
+                        }
+
+                        const activeElement =
+                            document.activeElement as HTMLElement | null;
+                        if (
+                            activeElement &&
+                            this.isTextInputElement(activeElement)
+                        ) {
+                            return;
+                        }
+
+                        if (!arrowInputController.isApplyingStep) {
+                            this.outlineEditor.restoreFocus();
+                        }
+                    }, 0);
+                });
+
+                wrapper.appendChild(input);
+                return wrapper;
+            };
+
+            const positionGroup = document.createElement('div');
+            positionGroup.className =
+                'glyph-component-property-transform-group';
+
+            const positionLabel = document.createElement('span');
+            positionLabel.className = 'glyph-property-control-label';
+            positionLabel.textContent = 'Position X/Y';
+            positionGroup.appendChild(positionLabel);
+            positionGroup.appendChild(createAnchorPositionControl('x'));
+            positionGroup.appendChild(createAnchorPositionControl('y'));
+            fieldsRow.appendChild(positionGroup);
+
+            content.appendChild(fieldsRow);
+            this.propertyPanel.appendChild(content);
+            this.restoreActivePropertyInput(activeInputState);
+            return;
+        }
 
         const isComponentOnlySelection = this.hasComponentOnlySelection();
         if (this.hasInspectableSelection() && !isComponentOnlySelection) {

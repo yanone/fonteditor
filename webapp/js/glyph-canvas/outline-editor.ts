@@ -5876,6 +5876,15 @@ export class OutlineEditor {
         );
     }
 
+    /** Persist linked structural anchor targets before committing Yjs. */
+    prepareAnchorStructuralChange(
+        layerTargets: Array<{ glyphName: string; layerId: string }>
+    ): boolean {
+        return this.prepareCommittedStructuralOutlineChange('keyboard-anchor', {
+            layerTargets
+        });
+    }
+
     private getCurrentMasterModel(): any | null {
         const fontModel = fontManager.currentFont?.fontModel;
         const layer = this.getCurrentLayerModel();
@@ -14581,20 +14590,23 @@ export class OutlineEditor {
 
                 setupMenuKeyboardNav(menu);
 
-                menu.querySelectorAll('.plugin-menu-item').forEach((item) => {
-                    item.addEventListener('click', () => {
-                        const action = item.getAttribute('data-action');
-                        if (!action) {
-                            return;
-                        }
+                menu.addEventListener('click', (event) => {
+                    const target = event.target as HTMLElement | null;
+                    const item = target?.closest?.(
+                        '.plugin-menu-item'
+                    ) as HTMLElement | null;
+                    if (!item || !menu.contains(item)) {
+                        return;
+                    }
 
-                        const contextPoint = this.canvasContextMenuPoint;
-                        instance.hide();
-                        this.handleCanvasContextMenuAction(
-                            action,
-                            contextPoint
-                        );
-                    });
+                    const action = item.getAttribute('data-action');
+                    if (!action) {
+                        return;
+                    }
+
+                    const contextPoint = this.canvasContextMenuPoint;
+                    instance.hide();
+                    this.handleCanvasContextMenuAction(action, contextPoint);
                 });
             }
         });
@@ -14893,6 +14905,12 @@ export class OutlineEditor {
                     <span>Add component</span>
                 </div>
             `);
+            items.push(`
+                <div class="plugin-menu-item" data-action="add-anchor">
+                    <span class="material-symbols-outlined">anchor</span>
+                    <span>Add anchor</span>
+                </div>
+            `);
         }
 
         if (target?.canSetStartNode) {
@@ -14998,6 +15016,13 @@ export class OutlineEditor {
         if (action === 'add-component') {
             if (contextPoint) {
                 this.glyphCanvas.openAddComponentDialogAt(contextPoint);
+            }
+            return;
+        }
+
+        if (action === 'add-anchor') {
+            if (contextPoint) {
+                void this.glyphCanvas.openAddAnchorDialogAt(contextPoint);
             }
             return;
         }

@@ -12003,7 +12003,13 @@ describe('GlyphCanvas property panel', () => {
         canvas = new GlyphCanvas('test-container');
         currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
-            .mockReturnValue({ fontModel: makePanelFont() });
+            .mockReturnValue({
+                fontModel: makePanelFont(),
+                isCloudBacked: () => false,
+                hasUnsavedChanges: false,
+                markDirty: jest.fn(),
+                changeVersion: 0
+            });
         canvas.getCurrentGlyphName = jest.fn(() => 'panelGlyph');
         canvas.outlineEditor.active = true;
         canvas.outlineEditor.selectedLayerId = 'layer-1';
@@ -12107,6 +12113,166 @@ describe('GlyphCanvas property panel', () => {
         expect(document.querySelectorAll('.glyph-property-input')).toHaveLength(
             0
         );
+    });
+
+    test('shows name and position controls for a selected anchor', () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        layer.addAnchor(120, 640, 'top');
+        canvas.outlineEditor.selectedAnchors = [0];
+
+        canvas.updatePropertyPanel();
+
+        const nameInput = document.querySelector(
+            '.glyph-property-input[data-property-field="anchor-name"]'
+        );
+        const xInput = document.querySelector(
+            '.glyph-property-input[data-property-field="anchor-x"]'
+        );
+        const yInput = document.querySelector(
+            '.glyph-property-input[data-property-field="anchor-y"]'
+        );
+
+        expect(nameInput).not.toBeNull();
+        expect(nameInput.value).toBe('top');
+        expect(xInput.value).toBe('120');
+        expect(yInput.value).toBe('640');
+        expect(
+            document.querySelectorAll('[data-sidebearing-side]')
+        ).toHaveLength(0);
+    });
+
+    test('shows shared position controls without name for multiple selected anchors', () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        layer.addAnchor(120, 640, 'top');
+        layer.addAnchor(120, 0, 'bottom');
+        canvas.outlineEditor.selectedAnchors = [0, 1];
+
+        canvas.updatePropertyPanel();
+
+        expect(
+            document.querySelector(
+                '.glyph-property-input[data-property-field="anchor-name"]'
+            )
+        ).toBeNull();
+
+        const xInput = document.querySelector(
+            '.glyph-property-input[data-property-field="anchor-x"]'
+        );
+        const yInput = document.querySelector(
+            '.glyph-property-input[data-property-field="anchor-y"]'
+        );
+        expect(xInput.value).toBe('120');
+        expect(yInput.value).toBe('');
+        expect(yInput.placeholder).toBe('Multiple values');
+    });
+
+    test('rejects renaming an anchor to an existing name', async () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        layer.addAnchor(120, 640, 'top');
+        layer.addAnchor(120, 0, 'bottom');
+        canvas.outlineEditor.selectedAnchors = [0];
+        jest.spyOn(
+            canvas.outlineEditor,
+            'prepareAnchorStructuralChange'
+        ).mockReturnValue(true);
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        const alertSpy = jest
+            .spyOn(window, 'alert')
+            .mockImplementation(() => {});
+
+        canvas.updatePropertyPanel();
+        const nameInput = document.querySelector(
+            '.glyph-property-input[data-property-field="anchor-name"]'
+        );
+        nameInput.value = 'bottom';
+        nameInput.dispatchEvent(new Event('change'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(alertSpy).toHaveBeenCalled();
+        expect(layer.anchors[0].name).toBe('top');
+        expect(
+            document.querySelector(
+                '.glyph-property-input[data-property-field="anchor-name"]'
+            ).value
+        ).toBe('top');
+
+        alertSpy.mockRestore();
+    });
+
+    test('commits selected anchor position from the property panel', async () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        layer.addAnchor(120, 640, 'top');
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        jest.spyOn(fontManager, 'setEditingCompileContext').mockImplementation(
+            () => {}
+        );
+        jest.spyOn(
+            fontManager,
+            'scheduleFullCompileDebounce'
+        ).mockImplementation(() => {});
+
+        canvas.updatePropertyPanel();
+        const xInput = document.querySelector(
+            '.glyph-property-input[data-property-field="anchor-x"]'
+        );
+        xInput.value = '150';
+        xInput.dispatchEvent(new Event('change'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(layer.anchors[0].x).toBe(150);
+        expect(layer.anchors[0].y).toBe(640);
+    });
+
+    test('adds an anchor at the cursor position from the context-menu flow', async () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        jest.spyOn(
+            canvas.outlineEditor,
+            'prepareAnchorStructuralChange'
+        ).mockReturnValue(true);
+        jest.spyOn(fontManager, 'setEditingCompileContext').mockImplementation(
+            () => {}
+        );
+        jest.spyOn(
+            fontManager,
+            'scheduleFullCompileDebounce'
+        ).mockImplementation(() => {});
+        const promptSpy = jest.spyOn(window, 'prompt').mockReturnValue('top');
+
+        await canvas.openAddAnchorDialogAt({ x: 250, y: 700 });
+
+        expect(promptSpy).toHaveBeenCalled();
+        expect(layer.anchors).toHaveLength(1);
+        expect(layer.anchors[0].name).toBe('top');
+        expect(layer.anchors[0].x).toBe(250);
+        expect(layer.anchors[0].y).toBe(700);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+
+        promptSpy.mockRestore();
+    });
+
+    test('rejects adding an anchor when the name already exists', async () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        layer.addAnchor(10, 10, 'top');
+        const promptSpy = jest.spyOn(window, 'prompt').mockReturnValue('top');
+        const alertSpy = jest
+            .spyOn(window, 'alert')
+            .mockImplementation(() => {});
+
+        await canvas.openAddAnchorDialogAt({ x: 250, y: 700 });
+
+        expect(alertSpy).toHaveBeenCalled();
+        expect(layer.anchors).toHaveLength(1);
+
+        promptSpy.mockRestore();
+        alertSpy.mockRestore();
     });
 
     test('marks invalid formulas in red', () => {

@@ -95,7 +95,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ◻️ Path operations
 - ✅ Edit outlines
 - ✅ Edit components
-- ◻️ Edit anchors
+- ✅ Edit anchors
 - ✅ Edit feature variations
 - ✅ Edit sidebearings
 - ◻️ Edit guidelines

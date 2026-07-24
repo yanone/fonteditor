@@ -5567,6 +5567,10 @@ kbd + kbd {
     width: 52px;
 }
 
+.glyph-anchor-property-name .glyph-property-input {
+    width: 96px;
+}
+
 .glyph-component-property-reference {
     max-width: 240px;
     white-space: nowrap;
