@@ -6662,6 +6662,7 @@ class GlyphCanvas {
                     this.updatePropertyPanel();
                     this.outlineEditor.performHitDetection(null);
                     this.render();
+                    this.canvas!.focus();
                 });
 
                 const label = document.createElement('span');
@@ -6879,21 +6880,6 @@ class GlyphCanvas {
 
             const fieldsRow = document.createElement('div');
             fieldsRow.className = 'glyph-component-property-grid';
-            fieldsRow.appendChild(
-                createComponentTransformGroup('Translate X/Y', [
-                    'translateX',
-                    'translateY'
-                ])
-            );
-            fieldsRow.appendChild(
-                createComponentFieldControl('rotation', 'Rotate')
-            );
-            fieldsRow.appendChild(
-                createComponentTransformGroup('Scale X/Y', ['scaleX', 'scaleY'])
-            );
-            fieldsRow.appendChild(
-                createComponentTransformGroup('Skew X/Y', ['skewX', 'skewY'])
-            );
 
             if (selectedComponents.length === 1) {
                 const component = selectedComponents[0];
@@ -6960,13 +6946,30 @@ class GlyphCanvas {
                 void this.commitComponentAutoAlignmentPropertyPanelValue(
                     alignmentInput.checked
                 );
+                this.canvas!.focus();
             });
 
             alignmentControl.appendChild(alignmentInput);
             alignmentControl.appendChild(alignmentLabel);
+            fieldsRow.appendChild(alignmentControl);
+
+            fieldsRow.appendChild(
+                createComponentTransformGroup('Translate X/Y', [
+                    'translateX',
+                    'translateY'
+                ])
+            );
+            fieldsRow.appendChild(
+                createComponentFieldControl('rotation', 'Rotate')
+            );
+            fieldsRow.appendChild(
+                createComponentTransformGroup('Scale X/Y', ['scaleX', 'scaleY'])
+            );
+            fieldsRow.appendChild(
+                createComponentTransformGroup('Skew X/Y', ['skewX', 'skewY'])
+            );
 
             content.appendChild(fieldsRow);
-            fieldsRow.appendChild(alignmentControl);
 
             if (anchorOverrideOptions.length > 1) {
                 const anchorWrapper = document.createElement('label');

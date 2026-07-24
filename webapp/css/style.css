@@ -5552,14 +5552,14 @@ kbd + kbd {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 8px;
+    gap: 12px;
     width: 100%;
 }
 
 .glyph-component-property-control {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     min-width: 0;
 }
 
@@ -5625,7 +5625,7 @@ kbd + kbd {
 .glyph-component-property-transform-group {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     min-width: 0;
     white-space: nowrap;
 }
@@ -5635,7 +5635,7 @@ kbd + kbd {
 }
 
 .glyph-component-property-checkbox {
-    gap: 8px;
+    gap: 4px;
     justify-content: flex-start;
     white-space: nowrap;
 }
