@@ -200,10 +200,10 @@ function collectWorkerLayerTargetsFromChangeLogEntries(
     const targets: WorkerReplayTarget[] = [];
 
     for (const entry of changeLogEntries) {
-        if (Array.isArray(entry.workerReplayTargets)) {
-            targets.push(...entry.workerReplayTargets);
-        }
-
+        // workerReplayTargets describe redraw/subset invalidation closure.
+        // They may contain invalidate-only manual composites with no Yjs layer
+        // snapshot. Rust may only patch its logical layer cache for targets
+        // represented by this actual change-log entry.
         const entryPath =
             typeof entry.path === 'string' && entry.path.length > 0
                 ? getPathSegments(entry.path)
@@ -624,6 +624,10 @@ function buildCascadeLayerOperations(
  * explicit `workerReplayTargets` including the source and downstream
  * layers.
  */
+/**
+ * GUI-complete packets must carry replay targets that include the operation's
+ * own source glyph/layer.
+ */
 function operationCarriesCompleteGuiReplayTargets(
     operation: TransactionBufferedOperation
 ): boolean {
@@ -645,6 +649,33 @@ function operationCarriesCompleteGuiReplayTargets(
     return replayTargets.some(
         (target) => target.glyphName === glyphName && target.layerId === layerId
     );
+}
+
+/**
+ * Cascade producers that stamp multi-target workerReplayTargets must also
+ * write at least one layer-snapshot into the same transaction. Source-only
+ * replay stamps without any layer snapshot are incomplete when dependents
+ * were claimed in replay metadata.
+ */
+function operationsIncludeSnapshotsForClaimedCascade(
+    operations: TransactionBufferedOperation[]
+): boolean {
+    const replayTargets = normalizeWorkerReplayTargets(
+        operations.flatMap((op) => op.workerReplayTargets || [])
+    );
+    if (replayTargets.length <= 1) {
+        return true;
+    }
+
+    return operations.some((op) => {
+        const applyPath = op.applyPath ?? op.path ?? [];
+        return (
+            op.applyMode === 'layer-snapshot' &&
+            applyPath.length === 4 &&
+            applyPath[0] === 'glyphs' &&
+            applyPath[2] === 'layers'
+        );
+    });
 }
 
 export function buildCascadingRecompositionOperations(
@@ -686,7 +717,12 @@ export function buildCascadingRecompositionOperations(
     });
 
     if (allOperationsComplete) {
-        return [];
+        if (!operationsIncludeSnapshotsForClaimedCascade(operations)) {
+            // Fall through to finalizer recomposition — producer stamped
+            // multi-target replay metadata without writing layer snapshots.
+        } else {
+            return [];
+        }
     }
 
     // Use the shared recomposition closure. Infer edit kinds from the actual

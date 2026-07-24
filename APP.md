@@ -58,10 +58,51 @@ Only a font’s main window syncs with the DO room in the cloud. Local linked wi
 
 ## The Editing Pipeline
 
-Live drags run through `LiveDragEditFunnel`, which bypasses Yjs packet creation on purpose. It calculates its own cascading layer recomposition closure based on glyphs visible in the editor.
-TODO: Check if closure calculations match with the rest; ideally unify.
+### Central cascading recomposition engine
 
-Edits that get committed are run through `computeLayerRecompositionClosure` which calculates the cascading layer recomposition closure. These edits are drag-end, property panel edits, keyboard moves of all object types incl. sidebearings, smooth point toggle.
+Live drags and committed edits share one cascade mutator:
+`computeLayerRecompositionClosure` in `webapp/js/recomposition-closure.ts`.
+
+- **Live tick** runs `scope: 'visible'` once (mutate model + advances for
+  `source ∪ recomposeTargets` only). The live funnel is **stage-only**: it
+  previews the cached `{glyphName, layerId}` targets via
+  `stageLiveDragPreviewFromModel` (`toCompileJSON`) and must not re-run the
+  closure. After a successful nonempty stage it wakes a live compile; funnel
+  queue coalescing owns "latest". A completed preview may apply while a newer
+  stage is queued; it is rejected only when older than an already-applied
+  preview, so continuous pointer motion cannot starve visible recompilation.
+  No Yjs during drag.
+- **Commit** (drag-end, keyboard, property panel) runs **one** `scope: 'all'`
+  closure, stashes sync targets, then serialize-only syncs
+  `source ∪ recomposeTargets`. `_syncCurrentGlyphToYDoc` must not rebuild
+  autos again. Sidebearing mouseup reuses the refreshFinal stash — no second
+  full closure.
+
+**Mutation vs persistence** (do not conflate “no-op”):
+
+- Mutation gate: rebuild/metrics change stored values only when they differ
+  (APP.md sidebearing “don’t propagate no-ops”).
+- Persistence gate: after live drag, automatic/metrics dependents still enter
+  `changedLayerTargets` even when mutation is a no-op, so Yjs matches the
+  already-correct model.
+
+**Layer identity:** layer IDs are unique per glyph. Every cascade consumer
+(preview, Yjs snapshots, `workerReplayTargets`, advance refresh) must use
+matched per-glyph layer ids via `resolveDependentLayerTarget` / designspace
+matching — never reuse the source layer UUID as a dependent id.
+
+**Automatic `=+/-=` bake boundary:** resting model, JS worker mirror, and
+Rust Y.Doc always store logical composition (`Layer.toJSON`). They must never
+receive a second baked Yjs update. Live preview stages `Layer.toCompileJSON`
+into the worker-only overlay (already physical). At compile-read, Rust merges
+any overlay layers, then bakes remaining logical automatic `=+/-=` layers into
+a local font clone only — never into `Y_DOC` / canonical / subset caches.
+`apply_yjs_update` clears the overlay (correct CRDT hygiene); post-commit
+compiles stay physically correct via the bake, not via overlay retention.
+Each overlay stage replaces the prior physical overlay atomically, preventing
+drag-one component snapshots from surviving into drag two.
+Automatic layers are mutated only by `rebuildAutomaticComposition`, never by
+metrics translate/bake.
 
 That closure returns two dependent sets that must stay distinct:
 
@@ -71,7 +112,7 @@ That closure returns two dependent sets that must stay distinct:
 
 After a live drag has already applied derived automatic-composite / metrics-key state, commit must still include those dependents in `changedLayerTargets` even when a final rebuild/metrics pass is a no-op. Post-commit model refresh may only reload layers that the packet actually wrote into Yjs; reloading wider invalidate-only replay targets from stale Yjs state must not clobber the live-updated object model.
 
-Bridge finalizer fallback must infer edit kinds from the buffered operations (width → sidebearing, anchors → anchor, etc.) and must never expand cascade writes with a universal outline+anchor+sidebearing+component hammer.
+Bridge finalizer fallback must infer edit kinds from the buffered operations (width → sidebearing, anchors → anchor, etc.) and must never expand cascade writes with a universal outline+anchor+sidebearing+component hammer. Multi-target `workerReplayTargets` without any layer-snapshot write are incomplete and must not bypass the finalizer.
 
 Structural edits (connect, split, open, close path) go to `syncStructuralGlyphChangeTransaction()` and Yjs bridge directly. Skip both closure and `_syncCurrentGlyphToYDoc`.
 TODO: Structural edits should ideally go through `_syncCurrentGlyphToYDoc` like all other edits to stamp them with replay targets, but for now it seems okay since it doesn't actually cause any harm if they don't have replayTargets.

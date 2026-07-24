@@ -1146,7 +1146,7 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         const layer = font.findGlyph('adieresis').layers[0];
 
         layer.rebuildAutomaticComposition();
-        const liveLayerData = layer.toJSON();
+        const liveLayerData = layer.toCompileJSON();
         liveLayerData.shapes[0].transform.scale = [2, 2];
 
         const changed =
@@ -1269,7 +1269,7 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         expect(layer.resolveMetricsKey('left').value).toBeCloseTo(55, 5);
         expect(layer.resolveMetricsKey('right').value).toBeCloseTo(50, 5);
 
-        const serialized = layer.toJSON();
+        const serialized = layer.toCompileJSON();
         expect(getSerializedTranslationX(serialized.shapes[0])).toBeCloseTo(
             10,
             5
@@ -1288,7 +1288,12 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         leftLayer.rebuildAutomaticComposition();
         leftLayer.applySidebearingInput('left', '=+100');
 
-        const leftSerialized = leftLayer.toJSON();
+        // Resting toJSON stays logical (unoffset translates); compile JSON bakes.
+        const logical = leftLayer.toJSON();
+        expect(getSerializedTranslationX(logical.shapes[0])).toBeCloseTo(0, 5);
+        expect(logical.width).toBeCloseTo(770, 5);
+
+        const leftSerialized = leftLayer.toCompileJSON();
         expect(getSerializedTranslationX(leftSerialized.shapes[0])).toBeCloseTo(
             100,
             5
@@ -1299,13 +1304,18 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         );
         expect(leftSerialized.width).toBeCloseTo(770, 5);
 
+        // Round-trip: baking compile JSON must not pollute resting toJSON.
+        expect(
+            getSerializedTranslationX(leftLayer.toJSON().shapes[0])
+        ).toBeCloseTo(0, 5);
+
         const rightFont = makeChainedBaseSidebearingKeyFont();
         const rightLayer = rightFont.findGlyph('sidebearingChain').layers[0];
 
         rightLayer.rebuildAutomaticComposition();
         rightLayer.applySidebearingInput('right', '=+100');
 
-        const rightSerialized = rightLayer.toJSON();
+        const rightSerialized = rightLayer.toCompileJSON();
         expect(
             getSerializedTranslationX(rightSerialized.shapes[0])
         ).toBeCloseTo(0, 5);
@@ -1313,6 +1323,57 @@ describe('Automatic Glyph Composition canonical behavior', () => {
             getSerializedTranslationX(rightSerialized.shapes[1])
         ).toBeCloseTo(310, 5);
         expect(rightSerialized.width).toBeCloseTo(770, 5);
+    });
+
+    test('sequential base LSB edits keep compile-facing auto RSB stable without double-baking', () => {
+        const font = makeAutomaticCompositionFont();
+        const baseLayer = font.findGlyph('A').layers[0];
+        const autoLayer = font.findGlyph('adieresis').layers[0];
+
+        autoLayer.rebuildAutomaticComposition();
+        autoLayer.applySidebearingInput('left', '=+50');
+        autoLayer.rebuildAutomaticComposition();
+
+        const physicalRsb = (layer) => {
+            const compiled = layer.toCompileJSON();
+            const shapes = compiled.shapes || [];
+            let maxX = -Infinity;
+            for (const shape of shapes) {
+                const data = shape.Component || shape;
+                const tx = Array.isArray(data.transform)
+                    ? data.transform[4]
+                    : data.transform?.translation?.[0] || 0;
+                // Base glyph ink is 50..450 (width 500) in this fixture.
+                maxX = Math.max(maxX, tx + 450);
+            }
+            return compiled.width - maxX;
+        };
+
+        const rsbAfterSetup = physicalRsb(autoLayer);
+        expect(
+            getSerializedTranslationX(autoLayer.toJSON().shapes[0])
+        ).toBeCloseTo(0, 5);
+        expect(
+            getSerializedTranslationX(autoLayer.toCompileJSON().shapes[0])
+        ).toBeCloseTo(50, 5);
+
+        // Drag 1 on base `A` LSB.
+        baseLayer.setDirectSidebearing('left', baseLayer.lsb + 40);
+        font.rebuildAutomaticCompositesForGlyphs(new Set(['A']));
+        const rsbAfterDrag1 = physicalRsb(autoLayer);
+        expect(rsbAfterDrag1).toBeCloseTo(rsbAfterSetup, 5);
+        expect(
+            getSerializedTranslationX(autoLayer.toJSON().shapes[0])
+        ).toBeCloseTo(0, 5);
+
+        // Drag 2 — compile-facing RSB must not drift (no dual bake).
+        baseLayer.setDirectSidebearing('left', baseLayer.lsb + 25);
+        font.rebuildAutomaticCompositesForGlyphs(new Set(['A']));
+        const rsbAfterDrag2 = physicalRsb(autoLayer);
+        expect(rsbAfterDrag2).toBeCloseTo(rsbAfterSetup, 5);
+        expect(
+            getSerializedTranslationX(autoLayer.toCompileJSON().shapes[0])
+        ).toBeCloseTo(50, 5);
     });
 
     test('automatic layers clear sidebearing override keys back to implicit auto when input is deleted', () => {
@@ -1342,8 +1403,8 @@ describe('Automatic Glyph Composition canonical behavior', () => {
 
     test('Font.toJSONString() includes offset-applied component positions for automatic layers with =+ sidebearing keys', () => {
         // This test guards against the regression where Font.toJSONString() serialized
-        // raw _data (base component positions) instead of Layer.toJSON() output
-        // (offset-applied positions), causing the editing font to compile with wrong data.
+        // raw _data (base component positions) instead of Layer.toCompileJSON() output
+        // via Layer.toCompileJSON / Font.toJSONString, causing the editing font to compile with wrong data.
         const font = makeChainedBaseSidebearingKeyFont();
         const layer = font.findGlyph('sidebearingChain').layers[0];
 

@@ -413,7 +413,9 @@ describe('lean cascading layer recomposition', () => {
             sourceGlyphName: 'a'
         });
 
-        expect(metricsSpy).toHaveBeenCalledWith(new Set(['a']));
+        expect(metricsSpy).toHaveBeenCalledWith(new Set(['a']), {
+            skipAutomaticCompositeRebuild: true
+        });
         expect(closure.recomposeGlyphNames.has('n')).toBe(true);
         expect(closure.invalidateGlyphNames.has('adieresisManual')).toBe(true);
         expect(

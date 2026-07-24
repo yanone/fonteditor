@@ -5654,8 +5654,25 @@ export class Layer extends ArrayElementBase {
     private _cachedLayout: AutomaticCompositionLayout | null | undefined =
         undefined;
 
+    /**
+     * Resting / Yjs / editor representation of this layer.
+     *
+     * Automatic `=+/-=` offsets stay logical here: component translates are
+     * unoffset and width already includes the adjustments. Never bake offsets
+     * into this view — that double-applies after Yjs round-trips. Use
+     * {@link toCompileJSON} at the Rust/compile/export/preview boundary.
+     */
     toJSON(): Unsafe {
-        const data = super.toJSON() as Unsafe;
+        return super.toJSON() as Unsafe;
+    }
+
+    /**
+     * Compile-facing serialization: applies automatic `=+/-=` left offsets to
+     * component translates so fontc / worker preview see physical ink and
+     * advance. Must not be written back into the resting model or Yjs.
+     */
+    toCompileJSON(): Unsafe {
+        const data = this.toJSON();
         if (!this.isAutomaticAlignedLayer()) {
             return data;
         }
@@ -7078,11 +7095,16 @@ export class Layer extends ArrayElementBase {
             }
         }
 
+        const leftAdjustment = this.getAutomaticSidebearingAdjustment('left');
+        const rightAdjustment = this.getAutomaticSidebearingAdjustment('right');
+        const nextWidth = roundMetricValue(
+            baseAdvanceWidth + leftAdjustment + rightAdjustment
+        );
         if (
             layerData.width === undefined ||
-            Math.abs(layerData.width - baseAdvanceWidth) > METRIC_UPDATE_EPSILON
+            Math.abs(layerData.width - nextWidth) > METRIC_UPDATE_EPSILON
         ) {
-            layerData.width = roundMetricValue(baseAdvanceWidth);
+            layerData.width = nextWidth;
             changed = true;
         }
 
@@ -11729,97 +11751,12 @@ export class Font extends ModelBase {
                             entry.side,
                             applied.value
                         );
-                    } else if (skipCompositeRebuild) {
-                        // Fast path: for automatic-aligned layers whose
-                        // sidebearing changed via a metrics-key cascade,
-                        // update the width directly instead of going
-                        // through the expensive rebuildAutomaticComposition.
-                        // LSB changes also translate the layer contents so
-                        // that RSB stays intact; RSB changes only adjust
-                        // the advance width.
-                        const appliedValue = applied.value;
-                        if (appliedValue === null) {
-                            continue;
-                        }
-                        if (entry.side === 'left') {
-                            const currentLsb = entry.layer.lsb;
-                            const offset = appliedValue - currentLsb;
-                            if (Math.abs(offset) > METRIC_UPDATE_EPSILON) {
-                                withSuppressedMetricsKeyRecompute(() => {
-                                    withSuppressedModelRecording(() => {
-                                        translateLayerContentsX(
-                                            {
-                                                shapes:
-                                                    entry.layer.shapes || [],
-                                                anchors:
-                                                    entry.layer.anchors || [],
-                                                getPathNodes: (shape) =>
-                                                    shape.isPath()
-                                                        ? shape.asPath().nodes
-                                                        : null,
-                                                getOrCreateComponentTransform: (
-                                                    shape
-                                                ) => {
-                                                    if (!shape.isComponent()) {
-                                                        return null;
-                                                    }
-                                                    const component =
-                                                        shape.asComponent();
-                                                    if (!component.transform) {
-                                                        component.transform =
-                                                            DecomposedAffineTransform.identity();
-                                                    } else if (
-                                                        Array.isArray(
-                                                            component.transform
-                                                        )
-                                                    ) {
-                                                        component.transform =
-                                                            DecomposedAffineTransform.fromAffine(
-                                                                component.transform
-                                                            );
-                                                    }
-                                                    return component.transform as Babelfont.DecomposedAffine;
-                                                },
-                                                shiftAnchor: (
-                                                    anchor,
-                                                    deltaX
-                                                ) => {
-                                                    anchor.x += deltaX;
-                                                }
-                                            },
-                                            offset
-                                        );
-                                        const currentRsb = entry.layer.rsb;
-                                        const bbox =
-                                            entry.layer.getBoundingBox(false);
-                                        entry.layer.width = bbox
-                                            ? roundMetricValue(
-                                                  roundMetricValue(bbox.maxX) +
-                                                      currentRsb
-                                              )
-                                            : roundMetricValue(
-                                                  appliedValue + currentRsb
-                                              );
-                                    });
-                                    entry.layer.translateMaterializedBackgroundLayerContentsX(
-                                        offset
-                                    );
-                                });
-                            }
-                        } else {
-                            const currentRsb = entry.layer.rsb;
-                            if (
-                                Math.abs(appliedValue - currentRsb) >
-                                METRIC_UPDATE_EPSILON
-                            ) {
-                                const bbox = entry.layer.getBoundingBox(false);
-                                if (bbox) {
-                                    entry.layer.width = roundMetricValue(
-                                        bbox.maxX + appliedValue
-                                    );
-                                }
-                            }
-                        }
+                    } else {
+                        // Automatic layers are mutation-owned exclusively by
+                        // rebuildAutomaticComposition. Never translate/bake
+                        // their contents from the metrics fast path — that
+                        // fights logical =+/- storage and live/commit parity.
+                        continue;
                     }
 
                     const previousState = changedGlyphStates.get(
@@ -12784,23 +12721,21 @@ export class Font extends ModelBase {
     /**
      * Serialize the font back to JSON string
      */
-    toJSONString(): string {
-        // Build a WeakMap mapping raw layer _data objects to their offset-applied Layer.toJSON()
-        // output for automatic layers that carry a sidebearing offset key (=+/- or ==+/-).
-        // Font._data holds base component positions; Layer.toJSON() applies the offset.
-        // The replacer below substitutes adjusted layer data so the Rust compiler receives
-        // the correct (offset-applied) component positions and advance width.
+    toJSONString(options?: { compileFacing?: boolean }): string {
+        // Worker/Yjs state is always logical. Only explicit export/full JSON
+        // compilation requests the physical automatic =+/- view.
+        const compileFacing = options?.compileFacing !== false;
         const layerDataOverrides = new WeakMap<object, Unsafe>();
-        for (const glyph of this.glyphs) {
-            for (const layer of glyph.layers ?? []) {
-                if (!layer.isAutomaticAlignedLayer()) continue;
-                const adjustedData = layer.toJSON() as Unsafe;
-                // Layer.toJSON() returns this._data by reference when there are no
-                // adjustments; it returns a different (cloned) object when adjustments exist.
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const rawLayerData = (layer as any)._data as object;
-                if ((adjustedData as object) !== rawLayerData) {
-                    layerDataOverrides.set(rawLayerData, adjustedData);
+        if (compileFacing) {
+            for (const glyph of this.glyphs) {
+                for (const layer of glyph.layers ?? []) {
+                    if (!layer.isAutomaticAlignedLayer()) continue;
+                    const adjustedData = layer.toCompileJSON() as Unsafe;
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const rawLayerData = (layer as any)._data as object;
+                    if ((adjustedData as object) !== rawLayerData) {
+                        layerDataOverrides.set(rawLayerData, adjustedData);
+                    }
                 }
             }
         }

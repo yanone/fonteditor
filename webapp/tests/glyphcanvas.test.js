@@ -1253,6 +1253,33 @@ describe('GlyphCanvas onMouseUp', () => {
                 advancesRefreshed: false,
                 affectedGlyphNames: new Set(['l', 'n', 'a'])
             });
+        const refreshFinalSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'refreshFinalSidebearingWorkerStateBeforeCommit'
+            )
+            .mockResolvedValue(undefined);
+        const computeClosureSpy = jest
+            .spyOn(canvas.outlineEditor, 'computeRecompositionClosure')
+            .mockReturnValue({
+                allTargets: [
+                    { glyphName: 'l', layerId: 'layer-1' },
+                    { glyphName: 'n', layerId: 'layer-1' },
+                    { glyphName: 'a', layerId: 'layer-1' }
+                ],
+                recomposeTargets: [
+                    { glyphName: 'n', layerId: 'layer-1' },
+                    { glyphName: 'a', layerId: 'layer-1' }
+                ],
+                invalidateTargets: [],
+                dependentTargets: [
+                    { glyphName: 'n', layerId: 'layer-1' },
+                    { glyphName: 'a', layerId: 'layer-1' }
+                ],
+                affectedGlyphNames: new Set(['l', 'n', 'a']),
+                recomposeGlyphNames: new Set(['n', 'a']),
+                invalidateGlyphNames: new Set()
+            });
         const syncSpy = jest
             .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
             .mockImplementation(() => {});
@@ -1307,9 +1334,14 @@ describe('GlyphCanvas onMouseUp', () => {
 
             await canvas.outlineEditor.onMouseUp({ clientX: 10, clientY: 20 });
 
-            expect(applyMetricsSpy).toHaveBeenCalledWith(true, {
-                rebuildAutomaticComposites: true
-            });
+            expect(refreshFinalSpy).toHaveBeenCalled();
+            expect(applyMetricsSpy).not.toHaveBeenCalled();
+            expect(computeClosureSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    scope: 'all',
+                    editKinds: expect.any(Set)
+                })
+            );
             expect(syncDependentsSpy).not.toHaveBeenCalled();
             expect(syncSpy).toHaveBeenCalledWith(
                 'Set RSB',
@@ -1318,10 +1350,14 @@ describe('GlyphCanvas onMouseUp', () => {
                 'right',
                 {
                     changedLayerTargets: [
-                        { glyphName: 'l', layerId: 'layer-1' }
+                        { glyphName: 'l', layerId: 'layer-1' },
+                        { glyphName: 'n', layerId: 'layer-1' },
+                        { glyphName: 'a', layerId: 'layer-1' }
                     ],
                     workerReplayTargets: [
-                        { glyphName: 'l', layerId: 'layer-1' }
+                        { glyphName: 'l', layerId: 'layer-1' },
+                        { glyphName: 'n', layerId: 'layer-1' },
+                        { glyphName: 'a', layerId: 'layer-1' }
                     ]
                 },
                 {
@@ -1340,6 +1376,8 @@ describe('GlyphCanvas onMouseUp', () => {
             getSidebearingSpy.mockRestore();
             syncSpy.mockRestore();
             applyMetricsSpy.mockRestore();
+            refreshFinalSpy.mockRestore();
+            computeClosureSpy.mockRestore();
             updatePropertyPanelSpy.mockRestore();
             saveLayerDataSpy.mockRestore();
         }
@@ -1513,6 +1551,43 @@ describe('GlyphCanvas onMouseUp', () => {
                 'syncDependentGlyphsAfterSidebearingEdit'
             )
             .mockImplementation(() => liveRefresh);
+        const syncEditorLayerSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'syncEditorLayerIntoModelForRecomposition'
+            )
+            .mockImplementation(() => {});
+        const previewSpy = jest
+            .spyOn(fontManager, 'stageLiveDragPreviewFromModel')
+            .mockImplementation(() => liveRefresh);
+        const computeClosureSpy = jest
+            .spyOn(canvas.outlineEditor, 'computeRecompositionClosure')
+            .mockReturnValue({
+                allTargets: [{ glyphName: 'l', layerId: 'layer-1' }],
+                recomposeTargets: [],
+                invalidateTargets: [],
+                dependentTargets: [],
+                affectedGlyphNames: new Set(['l']),
+                recomposeGlyphNames: new Set(),
+                invalidateGlyphNames: new Set()
+            });
+        const refreshFinalSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'refreshFinalSidebearingWorkerStateBeforeCommit'
+            )
+            .mockImplementation(async () => {
+                canvas.outlineEditor._pendingSidebearingCommitSync = {
+                    changedLayerTargets: [
+                        { glyphName: 'l', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'l', layerId: 'layer-1' }
+                    ],
+                    affectedGlyphNames: new Set(['l']),
+                    recomposeTargets: []
+                };
+            });
         const drainLiveRefreshSpy = jest.spyOn(
             canvas.outlineEditor.liveDragEditFunnel,
             'drainAndClearQueued'
@@ -1533,7 +1608,12 @@ describe('GlyphCanvas onMouseUp', () => {
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue({
                 ...(originalCurrentFont || {}),
-                fontModel: originalCurrentFont?.fontModel || {}
+                fontModel: {
+                    ...(originalCurrentFont?.fontModel || {}),
+                    findGlyph: jest.fn(() => ({
+                        findLayerById: jest.fn(() => null)
+                    }))
+                }
             });
 
         try {
@@ -1567,12 +1647,18 @@ describe('GlyphCanvas onMouseUp', () => {
             canvas.outlineEditor._dragType = 'sidebearing';
             canvas.outlineEditor._hasMoved = true;
             canvas.outlineEditor._preDragDesc = 'RSB: 10';
+            canvas.outlineEditor._lastLiveSidebearingPreviewTargets = [
+                { glyphName: 'l', layerId: 'layer-1' }
+            ];
 
             canvas.outlineEditor.queueLiveVisibleSidebearingDependentRefresh();
             await Promise.resolve();
             canvas.outlineEditor.queueLiveVisibleSidebearingDependentRefresh();
 
-            expect(syncDependentsSpy).toHaveBeenCalledTimes(1);
+            expect(previewSpy).toHaveBeenCalledTimes(1);
+            expect(syncDependentsSpy).not.toHaveBeenCalled();
+            // Funnel is stage-only — tick owns recomposition.
+            expect(computeClosureSpy).not.toHaveBeenCalled();
 
             const mouseUpPromise = canvas.outlineEditor.onMouseUp({
                 clientX: 10,
@@ -1586,7 +1672,8 @@ describe('GlyphCanvas onMouseUp', () => {
             resolveLiveRefresh();
             await mouseUpPromise;
 
-            expect(syncDependentsSpy).toHaveBeenCalledTimes(1);
+            expect(previewSpy).toHaveBeenCalledTimes(1);
+            expect(refreshFinalSpy).toHaveBeenCalled();
             expect(syncSpy).toHaveBeenCalled();
         } finally {
             window.changeBridge = originalWindowChangeBridge;
@@ -1600,6 +1687,10 @@ describe('GlyphCanvas onMouseUp', () => {
             glyphModelSpy.mockRestore();
             getSidebearingSpy.mockRestore();
             syncDependentsSpy.mockRestore();
+            syncEditorLayerSpy.mockRestore();
+            previewSpy.mockRestore();
+            computeClosureSpy.mockRestore();
+            refreshFinalSpy.mockRestore();
             syncSpy.mockRestore();
             collectTargetsSpy.mockRestore();
             applyMetricsSpy.mockRestore();
@@ -1613,7 +1704,12 @@ describe('GlyphCanvas onMouseUp', () => {
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue({
                 ...(originalCurrentFont || {}),
-                fontModel: originalCurrentFont?.fontModel || {}
+                fontModel: {
+                    ...(originalCurrentFont?.fontModel || {}),
+                    findGlyph: jest.fn(() => ({
+                        findLayerById: jest.fn(() => null)
+                    }))
+                }
             });
         const scopeSpy = jest
             .spyOn(canvas.outlineEditor, 'getCachedAnchorDragScopeGlyphNames')
@@ -1624,6 +1720,30 @@ describe('GlyphCanvas onMouseUp', () => {
                 'rebuildAutomaticCompositesForCurrentEditedGlyph'
             )
             .mockReturnValue(new Set(['a', 'adieresis']));
+        const syncEditorLayerSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'syncEditorLayerIntoModelForRecomposition'
+            )
+            .mockImplementation(() => {});
+        const computeClosureSpy = jest
+            .spyOn(canvas.outlineEditor, 'computeRecompositionClosure')
+            .mockReturnValue({
+                allTargets: [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ],
+                recomposeTargets: [
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ],
+                invalidateTargets: [],
+                dependentTargets: [
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ],
+                affectedGlyphNames: new Set(['a', 'adieresis']),
+                recomposeGlyphNames: new Set(['adieresis']),
+                invalidateGlyphNames: new Set()
+            });
         const previewSpy = jest
             .spyOn(fontManager, 'stageLiveDragPreviewFromModel')
             .mockResolvedValue();
@@ -1635,24 +1755,39 @@ describe('GlyphCanvas onMouseUp', () => {
             canvas.outlineEditor.active = true;
             canvas.outlineEditor.isDraggingAnchor = true;
             canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.layerData = {
+                width: 500,
+                shapes: [],
+                anchors: []
+            };
 
             canvas.outlineEditor.queueLiveVisibleAnchorDependentRefresh();
             await canvas.outlineEditor.liveDragEditFunnel.drainAndClearQueued();
 
-            expect(rebuildSpy).toHaveBeenCalledWith({
-                allowedGlyphNames: new Set(['a', 'adieresis'])
-            });
+            expect(rebuildSpy).not.toHaveBeenCalled();
+            // Closure runs once in prepare (before queue), not again in funnel.
+            expect(computeClosureSpy).toHaveBeenCalledTimes(1);
+            expect(computeClosureSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    scope: 'visible',
+                    editKinds: expect.any(Set)
+                })
+            );
             expect(previewSpy).toHaveBeenCalledWith(
-                ['a', 'adieresis'],
+                expect.any(Array),
                 'layer-1',
-                { dispatchGlyphChanged: false }
+                expect.objectContaining({
+                    layerTargets: expect.any(Array)
+                })
             );
         } finally {
-            glyphModelSpy.mockRestore();
-            previewSpy.mockRestore();
-            rebuildSpy.mockRestore();
-            scopeSpy.mockRestore();
             currentFontSpy.mockRestore();
+            scopeSpy.mockRestore();
+            rebuildSpy.mockRestore();
+            syncEditorLayerSpy.mockRestore();
+            computeClosureSpy.mockRestore();
+            previewSpy.mockRestore();
+            glyphModelSpy.mockRestore();
         }
     });
 
@@ -4082,8 +4217,12 @@ describe('GlyphCanvas property panel metrics edits', () => {
                     { glyphName: 'l', layerId: 'master-layer' },
                     { glyphName: 'n', layerId: 'master-layer' }
                 ],
-                dependentTargets: [],
-                affectedGlyphNames: new Set(['l', 'n'])
+                recomposeTargets: [{ glyphName: 'n', layerId: 'master-layer' }],
+                invalidateTargets: [],
+                dependentTargets: [{ glyphName: 'n', layerId: 'master-layer' }],
+                affectedGlyphNames: new Set(['l', 'n']),
+                recomposeGlyphNames: new Set(['n']),
+                invalidateGlyphNames: new Set()
             });
 
         const patchSyncEngine = {
@@ -5116,20 +5255,28 @@ describe('GlyphCanvas sidebearing handle movement', () => {
                 guides: []
             })),
             invalidateShapeCache: jest.fn(),
+            syncFromEditorLayerData: jest.fn((data) => {
+                if (typeof data?.width === 'number') {
+                    sourceLayer.width = data.width;
+                }
+            }),
             getMatchingLayerOnGlyph: jest.fn((glyphName) =>
                 glyphName === 'dependent' ? dependentLayer : undefined
             )
         };
         const sourceGlyph = {
+            name: 'active',
             findLayerById: jest.fn((layerId) =>
                 layerId === 'active-brace-layer' ? sourceLayer : undefined
             )
         };
         const dependentGlyph = {
+            name: 'dependent',
             findLayerById: jest.fn(() => undefined),
             findLayerByMasterId: jest.fn(() => undefined)
         };
         const fontModel = {
+            glyphs: [sourceGlyph, dependentGlyph],
             findGlyph: jest.fn((glyphName) => {
                 if (glyphName === 'active') {
                     return sourceGlyph;
@@ -5176,20 +5323,43 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.outlineEditor.isDraggingSidebearing = true;
         window.changeBridge = null;
 
-        canvas.outlineEditor._updateDraggedSidebearing(20);
+        const computeClosureSpy = jest
+            .spyOn(canvas.outlineEditor, 'computeRecompositionClosure')
+            .mockReturnValue({
+                allTargets: [
+                    { glyphName: 'active', layerId: 'active-brace-layer' },
+                    { glyphName: 'dependent', layerId: 'dependent-layer' }
+                ],
+                recomposeTargets: [
+                    { glyphName: 'dependent', layerId: 'dependent-layer' }
+                ],
+                invalidateTargets: [],
+                dependentTargets: [
+                    { glyphName: 'dependent', layerId: 'dependent-layer' }
+                ],
+                affectedGlyphNames: new Set(['active', 'dependent']),
+                recomposeGlyphNames: new Set(['dependent']),
+                invalidateGlyphNames: new Set()
+            });
 
-        expect(sourceLayer.getMatchingLayerOnGlyph).toHaveBeenCalledWith(
-            'dependent'
-        );
-        expect(
-            canvas.textRunEditor.refreshGlyphAdvancesLive
-        ).toHaveBeenCalledWith(
-            {
-                active: 520,
-                dependent: 777
-            },
-            { render: false }
-        );
+        try {
+            canvas.outlineEditor._updateDraggedSidebearing(20);
+
+            expect(sourceLayer.getMatchingLayerOnGlyph).toHaveBeenCalledWith(
+                'dependent'
+            );
+            expect(
+                canvas.textRunEditor.refreshGlyphAdvancesLive
+            ).toHaveBeenCalledWith(
+                {
+                    active: 540,
+                    dependent: 777
+                },
+                { render: false }
+            );
+        } finally {
+            computeClosureSpy.mockRestore();
+        }
     });
 
     test('point drags schedule keyed sidebearing recompute before mouseup', () => {
@@ -11410,11 +11580,19 @@ describe('GlyphCanvas anchor movement', () => {
                     { glyphName: 'adieresis', layerId: 'layer-1' },
                     { glyphName: 'agrave', layerId: 'layer-1' }
                 ],
+                recomposeTargets: [
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ],
+                invalidateTargets: [
+                    { glyphName: 'agrave', layerId: 'layer-1' }
+                ],
                 dependentTargets: [
                     { glyphName: 'adieresis', layerId: 'layer-1' },
                     { glyphName: 'agrave', layerId: 'layer-1' }
                 ],
-                affectedGlyphNames: new Set(['a', 'adieresis', 'agrave'])
+                affectedGlyphNames: new Set(['a', 'adieresis', 'agrave']),
+                recomposeGlyphNames: new Set(['adieresis']),
+                invalidateGlyphNames: new Set(['agrave'])
             });
         currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
@@ -11469,7 +11647,12 @@ describe('GlyphCanvas anchor movement', () => {
                                       id: 'layer-1',
                                       toJSON: jest.fn(() => ({
                                           id: 'layer-1',
-                                          width: glyphName === 'a' ? 500 : 600,
+                                          width:
+                                              glyphName === 'a'
+                                                  ? 500
+                                                  : glyphName === 'adieresis'
+                                                    ? 600
+                                                    : 610,
                                           shapes: [],
                                           anchors: []
                                       }))

@@ -9184,7 +9184,10 @@ function setupFontLoadingListener() {
                 const latestRequestedRevision = Number(
                     window.fontManager?.currentFont?.compileRequestVersion
                 );
+                const isLivePreview =
+                    detail?.dataFreshnessMode === 'live-drag-worker-preview';
                 if (
+                    !isLivePreview &&
                     Number.isFinite(incomingRevision) &&
                     Number.isFinite(latestRequestedRevision) &&
                     incomingRevision < latestRequestedRevision
@@ -9230,14 +9233,21 @@ function setupFontLoadingListener() {
 
                     const gc = window.glyphCanvas;
 
-                    // Fast path: outline-only compilation — swap blob, skip reshape
+                    // During live drag the shaped run must track changed
+                    // dependent outlines, not merely its font bytes. Reshape
+                    // after the outline-only swap just as anchor-only does.
                     if (compilationMode === 'outline-only') {
                         const fontBytesArray = new Uint8Array(arrayBuffer);
                         gc.fontBytes = fontBytesArray;
                         gc.axesManager!.fontBytes = fontBytesArray;
                         gc.textRunEditor!.swapFontBlob(fontBytesArray);
+                        if (isLivePreview) {
+                            gc.textRunEditor!.shapeText(true);
+                        }
                         timelineMark(
-                            'canvas.editingFontCompiled.outlineOnlySwapped'
+                            isLivePreview
+                                ? 'canvas.editingFontCompiled.outlineOnlyShaped'
+                                : 'canvas.editingFontCompiled.outlineOnlySwapped'
                         );
 
                         if (Number.isFinite(incomingRevision)) {

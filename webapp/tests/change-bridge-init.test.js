@@ -3224,10 +3224,7 @@ describe('bridge Yjs worker callback', () => {
             ['alef'],
             expect.objectContaining({
                 invalidateLayoutClosure: false,
-                layerTargets: [
-                    { glyphName: 'beh', layerId: 'A.0' },
-                    { glyphName: 'alef', layerId: 'A.0' }
-                ]
+                layerTargets: [{ glyphName: 'alef', layerId: 'A.0' }]
             })
         );
     });
@@ -3325,7 +3322,7 @@ describe('bridge Yjs worker callback', () => {
         );
     });
 
-    test('outline edit with dependent replay targets preserves layout closure while forwarding targets', async () => {
+    test('outline edit keeps replay-only dependents out of worker layer patches', async () => {
         const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
         const workerSeedSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
@@ -3370,10 +3367,7 @@ describe('bridge Yjs worker callback', () => {
             ['a'],
             expect.objectContaining({
                 invalidateLayoutClosure: false,
-                layerTargets: [
-                    { glyphName: 'a', layerId: 'layer-1' },
-                    { glyphName: 'adieresis', layerId: 'layer-1' }
-                ]
+                layerTargets: [{ glyphName: 'a', layerId: 'layer-1' }]
             })
         );
         expect(hasWorkerCacheDocumentSpy).toHaveBeenCalled();
@@ -3381,10 +3375,7 @@ describe('bridge Yjs worker callback', () => {
             expect.objectContaining({
                 type: 'applyYjsUpdate',
                 changedGlyphs: ['a'],
-                layerTargets: [
-                    { glyphName: 'a', layerId: 'layer-1' },
-                    { glyphName: 'adieresis', layerId: 'layer-1' }
-                ],
+                layerTargets: [{ glyphName: 'a', layerId: 'layer-1' }],
                 invalidateLayoutClosure: false
             })
         );

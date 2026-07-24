@@ -456,7 +456,12 @@ class OpenedFont {
             }
         }
 
-        this.babelfontJson = this.fontModel.toJSONString();
+        // `babelfontJson` backs bridge/worker seeding and must retain logical
+        // automatic component placement. Rust owns physicalization at
+        // compile-read; only explicit export asks for compile-facing JSON.
+        this.babelfontJson = this.fontModel.toJSONString({
+            compileFacing: false
+        });
     }
 
     /**
@@ -546,6 +551,12 @@ class FontManager {
      * -1 means no full compile has run yet for the current font.
      */
     lastFullCompiledDataVersion: number = -1;
+    /**
+     * Highest preview revision that has been applied. Live preview revisions
+     * are deliberately allowed to lag queued pointer ticks: rejecting every
+     * result until input becomes idle starves the visible drag path.
+     */
+    private lastAppliedLivePreviewRevision: number = -1;
     fullCompileDebounceTimer: ReturnType<typeof setTimeout> | null = null; // Timer for debounced full compile after interactive editing
     closureCache: {
         subsetGlyphs: string[];
@@ -626,6 +637,7 @@ class FontManager {
         this.clearEditingCompileContext();
         this.lastCompilationMode = 'full';
         this.lastFullCompiledDataVersion = -1;
+        this.lastAppliedLivePreviewRevision = -1;
         this.fullCompileDebounceTimer = null;
         this.closureCache = null;
         this.editingSubsetSnapshotGlyphs = [];
@@ -2839,8 +2851,16 @@ class FontManager {
                 responseRevisionKey = String(
                     result.fontRevisionKey || requestedRevisionKey
                 );
+                const isLivePreviewCompile =
+                    dataFreshnessModeAtRequest === 'live-drag-worker-preview';
+                const previewRevision = Number(responseRevisionKey);
+                const mayApplyLivePreview =
+                    isLivePreviewCompile &&
+                    Number.isFinite(previewRevision) &&
+                    previewRevision > this.lastAppliedLivePreviewRevision;
                 isStaleCompileResult =
-                    responseRevisionKey !== currentRevisionKey;
+                    responseRevisionKey !== currentRevisionKey &&
+                    !mayApplyLivePreview;
                 if (isStaleCompileResult) {
                     timelineMark('font.compileEditing.staleResultObserved');
                 }
@@ -2865,6 +2885,13 @@ class FontManager {
                 { byteLength: result.result.byteLength }
             );
             this.editingFont = new Uint8Array(result.result);
+            if (
+                dataFreshnessModeAtRequest === 'live-drag-worker-preview' &&
+                Number.isFinite(Number(responseRevisionKey))
+            ) {
+                this.lastAppliedLivePreviewRevision =
+                    Number(responseRevisionKey);
+            }
             timelineSpanEnd(applyCompiledResultSpanId);
             const duration = (performance.now() - startTime).toFixed(2);
 
@@ -2917,6 +2944,7 @@ class FontManager {
                         dragActive: dragActiveAtRequest,
                         changeSource: incrementalChangeSource,
                         editType: editTypeAtRequest,
+                        dataFreshnessMode: dataFreshnessModeAtRequest,
                         compilationMode
                     }
                 })
@@ -4574,13 +4602,39 @@ class FontManager {
     private async recoverWorkerCacheFromAuthoritativeState(
         reason: string
     ): Promise<boolean> {
-        this.workerCacheYDoc = null;
-        fontCompilation?.setWorkerCacheDocumentReady(false);
-        console.error(
-            '[FontManager] Incremental worker-cache invariant violated; full-state repair is disabled:',
-            reason
-        );
-        return false;
+        const bridgeState = window.patchSyncEngine?.encodeBridgeState?.();
+        if (!bridgeState?.length || !fontCompilation) {
+            this.workerCacheYDoc = null;
+            fontCompilation?.setWorkerCacheDocumentReady(false);
+            console.error(
+                '[FontManager] Cannot recover worker cache without bridge state:',
+                reason
+            );
+            return false;
+        }
+
+        try {
+            const recovery =
+                fontCompilation.seedWorkerYDocFromState(bridgeState);
+            await fontCompilation.trackWorkerDocumentSync(recovery);
+            this.replaceWorkerYjsMirrorFromState(bridgeState);
+            this.workerLayerFingerprintCache.clear();
+            fontCompilation.setWorkerCacheDocumentReady(true);
+            console.warn(
+                '[FontManager] Re-seeded worker cache from authoritative bridge state:',
+                reason
+            );
+            return true;
+        } catch (error) {
+            this.workerCacheYDoc = null;
+            fontCompilation.setWorkerCacheDocumentReady(false);
+            console.error(
+                '[FontManager] Failed to recover worker cache from bridge state:',
+                reason,
+                error
+            );
+            return false;
+        }
     }
 
     async recoverWorkerCacheFromBridgeState(reason: string): Promise<boolean> {
@@ -4907,11 +4961,93 @@ class FontManager {
         return true;
     }
 
+    private collectChangedLayerUpdatesFromTargets(
+        targets: Iterable<WorkerReplayTarget>,
+        options?: {
+            skipFingerprintBaseline?: boolean;
+            compileFacing?: boolean;
+            explicitLayerData?: Iterable<ExplicitLayerCacheInput>;
+        }
+    ): LayerCacheUpdate[] | null {
+        const normalizedTargets = normalizeWorkerReplayTargets(targets);
+        if (normalizedTargets.length === 0) {
+            return [];
+        }
+
+        const currentFont = this.currentFont;
+        if (!currentFont) {
+            return null;
+        }
+
+        const updates: LayerCacheUpdate[] = [];
+        const explicitLayerData = new Map<string, Babelfont.Layer>();
+        for (const input of options?.explicitLayerData || []) {
+            if (input?.glyphName && input?.layerId && input?.layerData) {
+                explicitLayerData.set(
+                    this.getWorkerLayerFingerprintKey(
+                        input.glyphName,
+                        input.layerId
+                    ),
+                    input.layerData
+                );
+            }
+        }
+
+        for (const target of normalizedTargets) {
+            const modelGlyph = currentFont.fontModel?.findGlyph?.(
+                target.glyphName
+            );
+            const modelLayer = modelGlyph?.findLayerById?.(target.layerId);
+            if (!modelLayer) {
+                console.warn(
+                    '[FontManager] Missing matched layer for preview/sync target',
+                    target
+                );
+                continue;
+            }
+
+            const fingerprintKey = this.getWorkerLayerFingerprintKey(
+                target.glyphName,
+                target.layerId
+            );
+            const explicitLayer = explicitLayerData.get(fingerprintKey);
+            const rawLayerData =
+                explicitLayer ??
+                (options?.compileFacing &&
+                typeof (modelLayer as { toCompileJSON?: () => unknown })
+                    .toCompileJSON === 'function'
+                    ? (
+                          modelLayer as { toCompileJSON: () => Babelfont.Layer }
+                      ).toCompileJSON()
+                    : typeof modelLayer.toJSON === 'function'
+                      ? (modelLayer.toJSON() as Babelfont.Layer)
+                      : (modelLayer as Babelfont.Layer));
+
+            const serializedLayer = this.serializeLayerForStorage(
+                target.glyphName,
+                target.layerId,
+                rawLayerData
+            );
+            if (!serializedLayer) {
+                return null;
+            }
+
+            updates.push({
+                glyphName: target.glyphName,
+                layerId: target.layerId,
+                layerData: serializedLayer
+            });
+        }
+
+        return updates;
+    }
+
     private collectChangedLayerUpdatesFromModel(
         glyphNames: Iterable<string>,
         preferredLayerId?: string | null,
         options?: {
             skipFingerprintBaseline?: boolean;
+            compileFacing?: boolean;
             explicitLayerData?: Iterable<ExplicitLayerCacheInput>;
         }
     ): LayerCacheUpdate[] | null {
@@ -4971,6 +5107,13 @@ class FontManager {
                   ].filter(Boolean)
                 : modelGlyph.layers || [];
 
+            if (preferredLayerId && modelLayers.length === 0) {
+                console.warn(
+                    '[FontManager] Failed to resolve matching layer for dependent glyph',
+                    { glyphName, preferredLayerId, sourceGlyphName }
+                );
+            }
+
             for (const modelLayer of modelLayers) {
                 const layerId = modelLayer?.id;
                 if (typeof layerId !== 'string' || !layerId) {
@@ -4984,9 +5127,12 @@ class FontManager {
                 const explicitLayer = explicitLayerData.get(fingerprintKey);
                 const rawLayerData =
                     explicitLayer ??
-                    (typeof modelLayer.toJSON === 'function'
-                        ? modelLayer.toJSON()
-                        : modelLayer);
+                    (options?.compileFacing &&
+                    typeof modelLayer.toCompileJSON === 'function'
+                        ? modelLayer.toCompileJSON()
+                        : typeof modelLayer.toJSON === 'function'
+                          ? modelLayer.toJSON()
+                          : modelLayer);
                 const serializedLayer = this.serializeLayerForStorage(
                     glyphName,
                     layerId,
@@ -5662,7 +5808,8 @@ class FontManager {
 
                 const pendingLayerUpdates =
                     this.collectChangedLayerUpdatesFromModel(glyphNames, null, {
-                        skipFingerprintBaseline: true
+                        skipFingerprintBaseline: true,
+                        compileFacing: false
                     });
 
                 if (!pendingLayerUpdates) {
@@ -5866,21 +6013,47 @@ class FontManager {
     }
 
     async stageLiveDragPreviewFromModel(
-        glyphNames: Iterable<string>,
+        glyphNamesOrTargets: Iterable<string> | Iterable<WorkerReplayTarget>,
         layerId?: string | null,
         options?: {
             dispatchGlyphChanged?: boolean;
             explicitLayerData?: Iterable<ExplicitLayerCacheInput>;
+            /** When set, use these explicit per-glyph layer targets instead of
+             *  glyph-names + a shared source layerId. */
+            layerTargets?: Iterable<WorkerReplayTarget>;
         }
     ): Promise<void> {
-        const uniqueGlyphNames = Array.from(
-            new Set(
-                Array.from(glyphNames || []).filter(
-                    (glyphName): glyphName is string =>
-                        typeof glyphName === 'string' && glyphName.length > 0
+        const explicitTargets = normalizeWorkerReplayTargets(
+            options?.layerTargets ??
+                (Array.from(glyphNamesOrTargets as Iterable<unknown>).every(
+                    (entry) =>
+                        entry &&
+                        typeof entry === 'object' &&
+                        typeof (entry as WorkerReplayTarget).glyphName ===
+                            'string' &&
+                        typeof (entry as WorkerReplayTarget).layerId ===
+                            'string'
                 )
-            )
+                    ? (glyphNamesOrTargets as Iterable<WorkerReplayTarget>)
+                    : null)
         );
+
+        const uniqueGlyphNames =
+            explicitTargets.length > 0
+                ? Array.from(
+                      new Set(explicitTargets.map((target) => target.glyphName))
+                  )
+                : Array.from(
+                      new Set(
+                          Array.from(
+                              glyphNamesOrTargets as Iterable<string>
+                          ).filter(
+                              (glyphName): glyphName is string =>
+                                  typeof glyphName === 'string' &&
+                                  glyphName.length > 0
+                          )
+                      )
+                  );
 
         if (!this.currentFont || uniqueGlyphNames.length === 0) {
             return;
@@ -5888,26 +6061,41 @@ class FontManager {
 
         const previewPromise = (async () => {
             const pendingLayerUpdates =
-                this.collectChangedLayerUpdatesFromModel(
-                    uniqueGlyphNames,
-                    layerId,
-                    {
-                        skipFingerprintBaseline: true,
-                        ...(options?.explicitLayerData
-                            ? { explicitLayerData: options.explicitLayerData }
-                            : undefined)
-                    }
-                );
+                explicitTargets.length > 0
+                    ? this.collectChangedLayerUpdatesFromTargets(
+                          explicitTargets,
+                          {
+                              skipFingerprintBaseline: true,
+                              compileFacing: true,
+                              ...(options?.explicitLayerData
+                                  ? {
+                                        explicitLayerData:
+                                            options.explicitLayerData
+                                    }
+                                  : undefined)
+                          }
+                      )
+                    : this.collectChangedLayerUpdatesFromModel(
+                          uniqueGlyphNames,
+                          layerId,
+                          {
+                              skipFingerprintBaseline: true,
+                              compileFacing: true,
+                              ...(options?.explicitLayerData
+                                  ? {
+                                        explicitLayerData:
+                                            options.explicitLayerData
+                                    }
+                                  : undefined)
+                          }
+                      );
 
-            let updatedIncrementally = false;
-            if (pendingLayerUpdates && pendingLayerUpdates.length > 0) {
-                updatedIncrementally =
-                    await this.submitLayerUpdatesToWorkerPreview(
-                        pendingLayerUpdates
-                    );
-            } else if (pendingLayerUpdates) {
-                updatedIncrementally = true;
-            }
+            const updatedIncrementally =
+                !!pendingLayerUpdates &&
+                pendingLayerUpdates.length > 0 &&
+                (await this.submitLayerUpdatesToWorkerPreview(
+                    pendingLayerUpdates
+                ));
 
             if (!updatedIncrementally) {
                 throw new Error(
@@ -5932,16 +6120,27 @@ class FontManager {
         window.dispatchEvent(
             new CustomEvent('glyphChanged', {
                 detail:
-                    uniqueGlyphNames.length === 1
+                    explicitTargets.length === 1
                         ? {
-                              glyphName: uniqueGlyphNames[0],
-                              layerId: layerId ?? undefined
+                              glyphName: explicitTargets[0].glyphName,
+                              layerId: explicitTargets[0].layerId
                           }
-                        : {
-                              glyphName: uniqueGlyphNames[0],
-                              glyphNames: uniqueGlyphNames,
-                              layerId: layerId ?? undefined
-                          }
+                        : explicitTargets.length > 1
+                          ? {
+                                glyphName: explicitTargets[0].glyphName,
+                                glyphNames: uniqueGlyphNames,
+                                layerTargets: explicitTargets
+                            }
+                          : uniqueGlyphNames.length === 1
+                            ? {
+                                  glyphName: uniqueGlyphNames[0],
+                                  layerId: layerId ?? undefined
+                              }
+                            : {
+                                  glyphName: uniqueGlyphNames[0],
+                                  glyphNames: uniqueGlyphNames,
+                                  layerId: layerId ?? undefined
+                              }
             })
         );
     }

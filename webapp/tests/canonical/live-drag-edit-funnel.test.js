@@ -225,6 +225,93 @@ describe('LiveDragEditFunnel', () => {
         expect(window.fontManager.lastEditType).toBeNull();
     });
 
+    test('successful stage wakes compile even when newer ticks arrived mid-await', async () => {
+        const funnel = new LiveDragEditFunnel();
+        const firstStage = deferred();
+        const calls = [];
+
+        funnel.queue({
+            kind: 'sidebearing',
+            compile: {
+                changeSource: 'mouse-drag-outline',
+                editType: 'outline'
+            },
+            isActive: () => true,
+            run: async () => {
+                calls.push('stage-1-start');
+                await firstStage.promise;
+                calls.push('stage-1-done');
+                // Outline-editor stage runners return true after a successful
+                // stage even if generation advanced during the await.
+                return true;
+            }
+        });
+
+        funnel.queue({
+            kind: 'sidebearing',
+            compile: {
+                changeSource: 'mouse-drag-outline',
+                editType: 'outline'
+            },
+            isActive: () => true,
+            run: async () => {
+                calls.push('stage-2');
+                return true;
+            }
+        });
+
+        firstStage.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await funnel.drainAndClearQueued();
+
+        expect(calls).toEqual(['stage-1-start', 'stage-1-done', 'stage-2']);
+        expect(
+            window.fontManager.currentFont.requestRecompileWithoutDataChange
+        ).toHaveBeenCalledTimes(2);
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(2);
+    });
+
+    test('empty/failed stage return false skips compile but still runs next queued stage', async () => {
+        const funnel = new LiveDragEditFunnel();
+        const firstStage = deferred();
+        const calls = [];
+
+        funnel.queue({
+            kind: 'sidebearing',
+            compile: {
+                changeSource: 'mouse-drag-outline',
+                editType: 'outline'
+            },
+            run: async () => {
+                calls.push('empty');
+                await firstStage.promise;
+                return false;
+            }
+        });
+        funnel.queue({
+            kind: 'sidebearing',
+            compile: {
+                changeSource: 'mouse-drag-outline',
+                editType: 'outline'
+            },
+            run: async () => {
+                calls.push('latest');
+                return true;
+            }
+        });
+
+        firstStage.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await funnel.drainAndClearQueued();
+
+        expect(calls).toEqual(['empty', 'latest']);
+        expect(
+            window.fontManager.currentFont.requestRecompileWithoutDataChange
+        ).toHaveBeenCalledTimes(1);
+    });
+
     test('draining after mouseup waits for in-flight refresh but skips stale compile', async () => {
         const funnel = new LiveDragEditFunnel();
         const refresh = deferred();

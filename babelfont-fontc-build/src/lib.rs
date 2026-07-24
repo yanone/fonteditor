@@ -230,6 +230,140 @@ fn clear_preview_overlay_internal() {
     *LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
 }
 
+const GLYPHS_COMPONENT_ALIGNMENT_KEY: &str = "com.schriftgestalt.Glyphs.alignment";
+const GLYPHS_LAYER_METRIC_LEFT_KEY: &str = "com.schriftgestalt.Glyphs.metricLeft";
+const GLYPHS_GLYPH_METRIC_LEFT_KEY: &str = "metric_left";
+
+fn format_specific_string(
+    format_specific: &babelfont::FormatSpecific,
+    key: &str,
+) -> Option<String> {
+    format_specific.get(key).and_then(|value| match value {
+        serde_json::Value::String(text) => Some(text.clone()),
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    })
+}
+
+fn parse_automatic_sidebearing_delta(raw_key: &str) -> Option<f64> {
+    let mut input = raw_key.trim().to_string();
+    if input.is_empty() {
+        return None;
+    }
+    // Mirror JS parseMetricsKey: "==+N" normalizes to "=+N" by dropping one '='.
+    if input.starts_with("==") {
+        input = input[1..].to_string();
+    }
+    if let Some(stripped) = input.strip_prefix('=') {
+        if stripped.starts_with('+') || stripped.starts_with('-') {
+            return stripped.parse::<f64>().ok();
+        }
+    }
+    None
+}
+
+fn component_has_explicit_automatic_alignment(component: &babelfont::Component) -> bool {
+    match component.format_specific.get(GLYPHS_COMPONENT_ALIGNMENT_KEY) {
+        Some(serde_json::Value::Number(number)) => number.as_i64() == Some(1),
+        Some(serde_json::Value::String(text)) => text.trim() == "1",
+        _ => false,
+    }
+}
+
+fn layer_is_automatic_aligned(layer: &babelfont::Layer) -> bool {
+    if layer.shapes.is_empty() {
+        return false;
+    }
+    let mut saw_component = false;
+    for shape in &layer.shapes {
+        match shape {
+            babelfont::Shape::Component(component) => {
+                saw_component = true;
+                if !component_has_explicit_automatic_alignment(component) {
+                    return false;
+                }
+            }
+            babelfont::Shape::Path(_) => return false,
+        }
+    }
+    saw_component
+}
+
+fn automatic_left_sidebearing_delta(
+    layer: &babelfont::Layer,
+    glyph_left_key: &Option<String>,
+) -> f64 {
+    format_specific_string(&layer.format_specific, GLYPHS_LAYER_METRIC_LEFT_KEY)
+        .or_else(|| glyph_left_key.clone())
+        .as_deref()
+        .and_then(parse_automatic_sidebearing_delta)
+        .unwrap_or(0.0)
+}
+
+/// Local-only compile-read bake of logical automatic `=+/-=` layers.
+///
+/// Resting Y.Doc / canonical caches keep unoffset component translates. Fontc
+/// needs the physical view: shift every automatic component translation X by
+/// the left `=+/-=` delta. Width already includes both adjustments in the
+/// logical resting model, so it is left untouched. Overlay layers are already
+/// physical (`Layer.toCompileJSON`) and must be skipped.
+fn bake_automatic_sidebearing_offsets_in_font(
+    font: &mut babelfont::Font,
+    skip_layers: &HashSet<LayerTarget>,
+) {
+    for glyph in font.glyphs.iter_mut() {
+        let glyph_left_key =
+            format_specific_string(&glyph.format_specific, GLYPHS_GLYPH_METRIC_LEFT_KEY);
+        for layer in &mut glyph.layers {
+            let Some(layer_id) = layer.id.as_deref() else {
+                continue;
+            };
+            let target = LayerTarget {
+                glyph_name: glyph.name.to_string(),
+                layer_id: layer_id.to_string(),
+            };
+            if skip_layers.contains(&target) {
+                continue;
+            }
+            if !layer_is_automatic_aligned(layer) {
+                continue;
+            }
+
+            let left_delta = automatic_left_sidebearing_delta(layer, &glyph_left_key);
+            if left_delta.abs() <= f64::EPSILON {
+                continue;
+            }
+
+            for shape in &mut layer.shapes {
+                if let babelfont::Shape::Component(component) = shape {
+                    component.transform.translation.0 += left_delta;
+                }
+            }
+        }
+    }
+}
+
+/// Merge already-physical preview overlay layers, then bake remaining logical
+/// automatic `=+/-=` layers into a local compile clone. Never mutates Y.Doc or
+/// JSON caches.
+fn prepare_compile_facing_font(
+    mut font: babelfont::Font,
+    overlay_layers: &[(LayerTarget, serde_json::Value)],
+) -> Result<babelfont::Font, JsValue> {
+    let mut skip_layers = HashSet::new();
+    for (target, layer_json) in overlay_layers {
+        replace_layer_in_font_cache(
+            &mut font,
+            &target.glyph_name,
+            &target.layer_id,
+            Some(layer_json),
+        )?;
+        skip_layers.insert(target.clone());
+    }
+    bake_automatic_sidebearing_offsets_in_font(&mut font, &skip_layers);
+    Ok(font)
+}
+
 fn reset_debug_font_caches_with_fingerprint(committed_font_fingerprint: Option<String>) {
     *COMMITTED_FONT_FINGERPRINT.lock().unwrap() = committed_font_fingerprint;
     *LAST_DEBUG_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
@@ -2678,6 +2812,11 @@ fn apply_preview_layer_overlay_internal(
     let overlay = preview_lock
         .as_mut()
         .ok_or_else(|| JsValue::from_str("Preview overlay not initialized"))?;
+    // A live stage is a complete physical view for its current visible
+    // closure. Do not retain layer JSON from a prior pointer generation:
+    // retaining an old automatic dependent makes Rust deliberately skip its
+    // logical bake and reproduces second-drag RSB drift.
+    overlay.layer_overrides.clear();
     let mut changed_glyphs: HashSet<String> = metadata_changed_glyphs.into_iter().collect();
     let mut changed_layer_ids: Vec<String> = Vec::new();
 
@@ -3696,6 +3835,16 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
         }
 
         if let Some(overlay) = preview_lock.as_mut() {
+            let overlay_layers: Vec<(LayerTarget, serde_json::Value)> = overlay
+                .layer_overrides
+                .iter()
+                .map(|(target, layer_json)| (target.clone(), layer_json.clone()))
+                .collect();
+            let skip_layers: HashSet<LayerTarget> = overlay_layers
+                .iter()
+                .map(|(target, _)| target.clone())
+                .collect();
+
             let subset_font = match overlay.subset_font_cache.as_ref() {
                 Some(entry)
                     if entry.subset_key == prepared_subset_key
@@ -3720,7 +3869,7 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
                             Some(cached) => cached,
                             None => build_subset_font_from_closure_subset(&closure_subset)?,
                         };
-                    for (target, layer_json) in &overlay.layer_overrides {
+                    for (target, layer_json) in &overlay_layers {
                         replace_layer_in_font_cache(
                             &mut subset_font,
                             &target.glyph_name,
@@ -3754,7 +3903,10 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
                 ));
                 Arc::clone(&overlay.filtered_font_cache.as_ref().unwrap().font)
             } else {
-                let filtered = apply_filter_pipeline(&subset_font, &compilation_options)?;
+                // Overlay layers are already physical; bake remaining logical autos.
+                let mut compile_font = subset_font;
+                bake_automatic_sidebearing_offsets_in_font(&mut compile_font, &skip_layers);
+                let filtered = apply_filter_pipeline(&compile_font, &compilation_options)?;
                 let filtered_arc = Arc::new(filtered);
                 overlay.filtered_font_cache = Some(PreviewFilteredFontCacheEntry {
                     subset_key: prepared_subset_key.clone(),
@@ -3776,7 +3928,8 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
                 Some(cached) => cached,
                 None => build_subset_font_from_closure_subset(&closure_subset)?,
             };
-            Arc::new(apply_filter_pipeline(&subset_font, &compilation_options)?)
+            let compile_font = prepare_compile_facing_font(subset_font, &[])?;
+            Arc::new(apply_filter_pipeline(&compile_font, &compilation_options)?)
         }
     };
 
@@ -3862,14 +4015,37 @@ pub fn compile_cached_font_from_last_layout_closure(options: &JsValue) -> Result
         debug_feature_file: None,
     };
 
-    // Use filtered font cache: apply_filters() once, then reuse.
+    // Preview overlay layers are already physical (`Layer.toCompileJSON`).
+    // Remaining logical automatic `=+/-=` layers are baked only into this local
+    // clone — never into Y_DOC / CANONICAL_JSON_CACHE / SUBSET_JSON_CACHE.
+    // `apply_yjs_update` clears the overlay; bake is what keeps post-commit RSB
+    // correct without relying on overlay retention.
+    let overlay_layers: Vec<(LayerTarget, serde_json::Value)> = {
+        let preview_lock = PREVIEW_OVERLAY.lock().unwrap();
+        preview_lock
+            .as_ref()
+            .filter(|overlay| overlay.base_font_cache_epoch == FONT_CACHE_EPOCH.load(Ordering::Relaxed))
+            .map(|overlay| {
+                overlay
+                    .layer_overrides
+                    .iter()
+                    .map(|(target, layer_json)| (target.clone(), layer_json.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
     let current_filter_epoch = FILTER_EPOCH.load(Ordering::Relaxed);
     let current_cache_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
     let current_options_fp = options_filter_fingerprint(&compilation_options);
 
     let _filter_cache_span =
         PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache");
-    let filtered_font = {
+    let filtered_font = if !overlay_layers.is_empty() {
+        let compile_font = prepare_compile_facing_font(subset_font, &overlay_layers)?;
+        Arc::new(apply_filter_pipeline(&compile_font, &compilation_options)?)
+    } else {
+        // Use filtered font cache: bake + apply_filters() once, then reuse.
         let mut filter_cache = FILTERED_FONT_CACHE.lock().unwrap();
         let cache_hit = filter_cache.as_ref().map_or(false, |entry| {
             entry.subset_key == prepared_subset_key
@@ -3889,7 +4065,8 @@ pub fn compile_cached_font_from_last_layout_closure(options: &JsValue) -> Result
             let _apply_span = PerfSpan::start(
                 "compile_cached_font_from_last_layout_closure.filter_cache.apply_filters",
             );
-            let filtered = apply_filter_pipeline(&subset_font, &compilation_options)?;
+            let compile_font = prepare_compile_facing_font(subset_font, &[])?;
+            let filtered = apply_filter_pipeline(&compile_font, &compilation_options)?;
             drop(_apply_span);
 
             let filtered_arc = Arc::new(filtered);
@@ -4409,6 +4586,122 @@ mod tests {
         *CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap() = previous_index;
         *PREVIEW_OVERLAY.lock().unwrap() = previous_overlay;
         *LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = previous_preview_closure_key;
+    }
+
+    #[test]
+    fn bake_automatic_sidebearing_offsets_shifts_logical_component_translates() {
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        font_json["glyphs"] = json!([
+            {
+                "name": "a",
+                "codepoints": [97],
+                "category": "Base",
+                "layers": [{
+                    "id": "layer-1",
+                    "width": 500,
+                    "shapes": [{
+                        "nodes": [
+                            { "x": 50, "y": 0, "nodetype": "Line" },
+                            { "x": 450, "y": 0, "nodetype": "Line" },
+                            { "x": 450, "y": 500, "nodetype": "Line" },
+                            { "x": 50, "y": 500, "nodetype": "Line" }
+                        ],
+                        "closed": true
+                    }]
+                }]
+            },
+            {
+                "name": "adieresis",
+                "codepoints": [228],
+                "category": "Base",
+                "format_specific": { "metric_left": "=+40" },
+                "layers": [{
+                    "id": "layer-1",
+                    "width": 540,
+                    "shapes": [{
+                        "reference": "a",
+                        "transform": { "translation": [0, 0] },
+                        "format_specific": {
+                            "com.schriftgestalt.Glyphs.alignment": 1
+                        }
+                    }],
+                    "format_specific": {
+                        "com.schriftgestalt.Glyphs.metricLeft": "=+40"
+                    }
+                }]
+            },
+            {
+                "name": "manualMark",
+                "codepoints": [],
+                "category": "Mark",
+                "layers": [{
+                    "id": "layer-1",
+                    "width": 0,
+                    "shapes": [{
+                        "reference": "a",
+                        "transform": { "translation": [10, 20] },
+                        "format_specific": {}
+                    }]
+                }]
+            }
+        ]);
+
+        let mut font: babelfont::Font =
+            serde_json::from_value(font_json).expect("test font should deserialize");
+
+        let before_manual_x = match &font.glyphs.get("manualMark").unwrap().layers[0].shapes[0] {
+            babelfont::Shape::Component(component) => component.transform.translation.0,
+            _ => panic!("expected component"),
+        };
+
+        bake_automatic_sidebearing_offsets_in_font(&mut font, &HashSet::new());
+
+        let auto = font.glyphs.get("adieresis").unwrap();
+        let auto_x = match &auto.layers[0].shapes[0] {
+            babelfont::Shape::Component(component) => component.transform.translation.0,
+            _ => panic!("expected component"),
+        };
+        assert!(
+            (auto_x - 40.0).abs() < 1e-6,
+            "logical =+40 must bake into physical translation X, got {auto_x}"
+        );
+        assert!(
+            (auto.layers[0].width - 540.0).abs() < 1e-6,
+            "logical width already includes adjustments and must stay put"
+        );
+
+        let after_manual_x = match &font.glyphs.get("manualMark").unwrap().layers[0].shapes[0] {
+            babelfont::Shape::Component(component) => component.transform.translation.0,
+            _ => panic!("expected component"),
+        };
+        assert!(
+            (after_manual_x - before_manual_x).abs() < 1e-6,
+            "manual composites must not be rewritten by compile-read bake"
+        );
+
+        let mut second = font.clone();
+        let skip = HashSet::from([LayerTarget {
+            glyph_name: "adieresis".to_string(),
+            layer_id: "layer-1".to_string(),
+        }]);
+        bake_automatic_sidebearing_offsets_in_font(&mut second, &skip);
+        let skipped_x = match &second.glyphs.get("adieresis").unwrap().layers[0].shapes[0] {
+            babelfont::Shape::Component(component) => component.transform.translation.0,
+            _ => panic!("expected component"),
+        };
+        assert!(
+            (skipped_x - 40.0).abs() < 1e-6,
+            "overlay/skip layers must not be baked again"
+        );
+    }
+
+    #[test]
+    fn parse_automatic_sidebearing_delta_accepts_plus_minus_forms() {
+        assert_eq!(parse_automatic_sidebearing_delta("=+40"), Some(40.0));
+        assert_eq!(parse_automatic_sidebearing_delta("=-15"), Some(-15.0));
+        assert_eq!(parse_automatic_sidebearing_delta("==+12.5"), Some(12.5));
+        assert_eq!(parse_automatic_sidebearing_delta("=100"), None);
+        assert_eq!(parse_automatic_sidebearing_delta("a"), None);
     }
 
     #[test]

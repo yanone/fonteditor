@@ -367,7 +367,7 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
         );
     });
 
-    test('automatic metrics-key fast path keeps a dependent background aligned', () => {
+    test('automatic offset rebuild keeps a dependent background aligned', () => {
         const font = makeBidirectionalNeighborMetricsFont();
         const sourceLayer = font.findGlyph('l').findLayerById('L0');
         const dependentGlyph = font.findGlyph('a');
@@ -398,17 +398,26 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
 
         const backgroundX = backgroundPath.nodes[0].x;
         const lsbBefore = dependentLayer.lsb;
-        font.recomputeMetricsKeys(new Set([sourceLayer.parent().name]), {
+        // Automatic layers are mutated only via rebuild, not the removed
+        // metrics translate/bake fast path.
+        font.rebuildAutomaticCompositesForGlyphs(new Set(['l']), {
+            allowedGlyphNames: new Set(['l', 'a']),
+            preferredLayerId: 'L0',
+            preferredSourceGlyphName: 'l'
+        });
+        font.recomputeMetricsKeys(new Set(['l']), {
             allowedGlyphNames: new Set(['l', 'a']),
             skipAutomaticCompositeRebuild: true
         });
 
-        const lsbDelta = dependentLayer.lsb - lsbBefore;
-        expect(lsbDelta).not.toBeCloseTo(0, 8);
-        expect(backgroundPath.nodes[0].x).toBeCloseTo(
-            backgroundX + lsbDelta,
-            8
-        );
+        // =+20 on an automatic layer widens width; derived LSB of the
+        // composed ink stays logical (unoffset). Background alignment for
+        // physical LSB shifts is covered by non-automatic metrics paths.
+        expect(dependentLayer.width).toBeGreaterThan(0);
+        expect(dependentLayer.isAutomaticAlignedLayer()).toBe(true);
+        // Logical resting LSB is still the composed ink minX (not baked +20).
+        expect(dependentLayer.lsb).toBeCloseTo(lsbBefore, 5);
+        expect(backgroundPath.nodes[0].x).toBeCloseTo(backgroundX, 5);
     });
 
     test('dragging a point on a glyph with right sidebearing key adjusts width to preserve RSB', () => {

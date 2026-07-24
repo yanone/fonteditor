@@ -19,10 +19,23 @@
  * Two scopes are supported:
  *
  *   `visible` — Used during live drag for transient visible-only refreshes.
+ *               Transitive retain expansion includes hidden intermediates that
+ *               reach a visible glyph (same rule as collectComponentDependentGlyphs
+ *               with retainGlyphNames).
  *   `all`     — Used for every committed edit (keyboard, drag-end, undo,
  *               redo, remote).  This is the authoritative full closure.
  *
- * The module is stateless and pure — all dependencies are passed explicitly.
+ * Mutation vs persistence:
+ *   - Mutation gate: rebuild/metrics only change stored values when they differ.
+ *   - Persistence gate: after live drag, automatic/metrics dependents still
+ *     enter recomposeTargets even when mutation is a no-op, so Yjs matches
+ *     the already-correct model.
+ *
+ * Layer identity: every target carries a per-glyph layer id resolved via
+ * designspace matching. Source layer UUIDs must never be reused as dependent ids.
+ *
+ * The module is the sole cascade mutator for live and commit — all
+ * dependencies are passed explicitly.
  */
 
 import type { WorkerReplayTarget } from './change-log';
@@ -97,7 +110,13 @@ export interface FontModelLike {
             preferredSourceGlyphName?: string;
         }
     ) => Set<string>;
-    recomputeMetricsKeys?: (sourceGlyphNames: Set<string>) => Set<string>;
+    recomputeMetricsKeys?: (
+        sourceGlyphNames: Set<string>,
+        options?: {
+            allowedGlyphNames?: Set<string>;
+            skipAutomaticCompositeRebuild?: boolean;
+        }
+    ) => Set<string>;
     /**
      * Glyphs with metrics-key / automatic-offset edges that depend on the
      * source glyphs, whether or not their stored values need updating right
@@ -249,8 +268,12 @@ export function deriveEditKindsFromOperations(
 
 /**
  * Resolve the matching master layer on a dependent glyph.
+ *
+ * Layer IDs are unique per glyph. Prefer same-id lookup only as a fast path;
+ * otherwise resolve via designspace location matching from the source layer.
+ * Callers must not pass the source layer UUID as if it were the dependent's id.
  */
-function resolveMatchingLayerTarget(
+export function resolveDependentLayerTarget(
     fontModel: FontModelLike,
     glyphName: string,
     activeLayerId: string | null | undefined,
@@ -271,6 +294,21 @@ function resolveMatchingLayerTarget(
     }
 
     return { glyphName, layerId: matchedLayer.id };
+}
+
+/** @deprecated Use {@link resolveDependentLayerTarget}. */
+function resolveMatchingLayerTarget(
+    fontModel: FontModelLike,
+    glyphName: string,
+    activeLayerId: string | null | undefined,
+    sourceLayer: LayerLike | null
+): WorkerReplayTarget | null {
+    return resolveDependentLayerTarget(
+        fontModel,
+        glyphName,
+        activeLayerId,
+        sourceLayer
+    );
 }
 
 function buildTargetsForGlyphNames(
@@ -401,7 +439,8 @@ export function computeLayerRecompositionClosure(options: {
     // ── Invalidate-only: all component-reference dependents ─────────────
     // Manual and automatic composites that *draw* the edited source need
     // cache/redraw refresh, but only automatic/metrics edges may mutate
-    // stored layer data (handled below).
+    // stored layer data (handled below). Visible scope expands intermediates
+    // that reach a retained visible glyph.
     if (
         touchesGeometry &&
         typeof fontModel.collectComponentDependentGlyphs === 'function'
@@ -420,6 +459,19 @@ export function computeLayerRecompositionClosure(options: {
         }
     }
 
+    // Allowed set for live mutation:
+    // - component retain expansion (hidden intermediates → visible)
+    // - all currently visible glyphs (so metrics-key dependents like `n`
+    //   that reference the source without being component users still update)
+    const allowedGlyphNames =
+        scope === 'visible' && visibleSet
+            ? new Set([
+                  ...sourceGlyphNames,
+                  ...invalidateGlyphNames,
+                  ...visibleSet
+              ])
+            : null;
+
     // ── Model recomposition: automatic composites ───────────────────────
     // rebuildAutomaticCompositesForGlyphs already gates on
     // isAutomaticAlignedLayer() and returns only glyphs whose stored
@@ -431,19 +483,16 @@ export function computeLayerRecompositionClosure(options: {
         const preferredTarget = sourceTargets[0] ?? null;
         const affectedComposites: Set<string> = wrap(() => {
             if (
-                scope === 'visible' &&
-                visibleSet &&
+                allowedGlyphNames &&
                 typeof fontModel.invalidateLayoutCachesForGlyphs === 'function'
             ) {
-                fontModel.invalidateLayoutCachesForGlyphs(visibleSet);
+                fontModel.invalidateLayoutCachesForGlyphs(allowedGlyphNames);
             }
 
             return fontModel.rebuildAutomaticCompositesForGlyphs!(
                 sourceGlyphNames,
                 {
-                    ...(scope === 'visible' && visibleSet
-                        ? { allowedGlyphNames: visibleSet }
-                        : {}),
+                    ...(allowedGlyphNames ? { allowedGlyphNames } : {}),
                     ...(preferredTarget?.layerId
                         ? {
                               preferredLayerId: preferredTarget.layerId,
@@ -463,7 +512,8 @@ export function computeLayerRecompositionClosure(options: {
     // ── Model recomposition: metrics-key + automatic-offset dependents ──
     // Outline edits are included because moving the visual edge of a keyed
     // source glyph must refresh inherited sidebearings. Anchor-only edits
-    // do not drive metrics-key inheritance.
+    // do not drive metrics-key inheritance. Automatic layers are mutated only
+    // via rebuild above — never via metrics translate/bake.
     if (
         (editKinds.has('sidebearing') ||
             editKinds.has('outline') ||
@@ -471,7 +521,10 @@ export function computeLayerRecompositionClosure(options: {
         typeof fontModel.recomputeMetricsKeys === 'function'
     ) {
         const metricsDeps = wrap(() =>
-            fontModel.recomputeMetricsKeys!(sourceGlyphNames)
+            fontModel.recomputeMetricsKeys!(sourceGlyphNames, {
+                ...(allowedGlyphNames ? { allowedGlyphNames } : {}),
+                skipAutomaticCompositeRebuild: true
+            })
         );
         for (const depGlyphName of metricsDeps) {
             recomposeGlyphNames.add(depGlyphName);
@@ -517,6 +570,9 @@ export function computeLayerRecompositionClosure(options: {
         for (const glyphName of fontModel.collectMetricsKeyDependentGlyphs(
             sourceGlyphNames
         )) {
+            if (allowedGlyphNames && !allowedGlyphNames.has(glyphName)) {
+                continue;
+            }
             recomposeGlyphNames.add(glyphName);
         }
     }
