@@ -1,0 +1,24 @@
+{
+    "mcpServers": {
+        "chromeDevtools": {
+            "args": ["-y", "chrome-devtools-mcp@latest"],
+            "command": "npx",
+            "type": "stdio"
+        },
+        "github": {
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "command": "npx"
+        },
+        "gitnexus": {
+            "command": "node_modules/.bin/gitnexus",
+            "args": ["mcp"]
+        },
+        "gortex": {
+            "args": ["mcp"],
+            "command": "gortex",
+            "env": {
+                "GORTEX_INDEX_WORKERS": "8"
+            }
+        }
+    }
+}
