@@ -6065,6 +6065,8 @@ export class Layer extends ArrayElementBase {
         side: SidebearingSide,
         value: string | undefined
     ): void {
+        // The metrics-key dependency graph is cached; any key write invalidates it.
+        this.getFont()?.invalidateMetricsKeyDependencyEntries?.();
         setFormatSpecificKey(
             this,
             getLayerMetricFormatSpecificKey(side),
@@ -9694,6 +9696,10 @@ export class Glyph extends ArrayElementBase {
         side: SidebearingSide,
         value: string | undefined
     ): void {
+        // The metrics-key dependency graph is cached; any key write invalidates it.
+        (
+            this.parent() as Font | undefined
+        )?.invalidateMetricsKeyDependencyEntries?.();
         setFormatSpecificKey(
             this,
             getGlyphMetricFormatSpecificKey(side),
@@ -11246,6 +11252,14 @@ export class Font extends ModelBase {
     /** Reverse index: componentGlyphName → Set of glyph names that use it */
     private _reverseComponentIndex: Map<string, Set<string>> | null = null;
     /**
+     * Cached metrics-key dependency graph. Rebuilding it walks every
+     * glyph × layer × side and parses each key, which is O(font) — and
+     * `recomputeMetricsKeys` needs it on every call, i.e. once per pointer tick
+     * during a live drag. Invalidated alongside `_reverseComponentIndex`.
+     */
+    private _metricsKeyDependencyEntries: MetricsKeyDependencyEntry[] | null =
+        null;
+    /**
      * Cache of glyph names sorted by length descending. Used as a longest-prefix
      * lookup table by metrics-key parsing (`getGlyphNamePrefixMatch`). Invalidated
      * alongside `_reverseComponentIndex` whenever glyphs are added/removed/renamed.
@@ -11488,16 +11502,27 @@ export class Font extends ModelBase {
     private collectMetricsKeyDependencyEntries(options?: {
         allowedGlyphNames?: Set<string>;
     }): MetricsKeyDependencyEntry[] {
+        // The unfiltered graph is cached; per-call scoping is a cheap filter.
+        // Without this the whole font is re-walked and every key re-parsed on
+        // each recomputeMetricsKeys() — once per pointer tick during a drag.
+        const allEntries =
+            this._metricsKeyDependencyEntries ??
+            (this._metricsKeyDependencyEntries =
+                this._buildMetricsKeyDependencyEntries());
+
+        const allowedGlyphNames = options?.allowedGlyphNames;
+        if (!allowedGlyphNames) {
+            return allEntries;
+        }
+        return allEntries.filter((entry) =>
+            allowedGlyphNames.has(entry.glyph.name)
+        );
+    }
+
+    private _buildMetricsKeyDependencyEntries(): MetricsKeyDependencyEntry[] {
         const entries: MetricsKeyDependencyEntry[] = [];
 
         for (const glyph of this.glyphs) {
-            if (
-                options?.allowedGlyphNames &&
-                !options.allowedGlyphNames.has(glyph.name)
-            ) {
-                continue;
-            }
-
             for (const layer of glyph.layers || []) {
                 for (const side of ['left', 'right'] as SidebearingSide[]) {
                     const key =
@@ -12142,6 +12167,15 @@ export class Font extends ModelBase {
     invalidateReverseComponentIndex(): void {
         this._reverseComponentIndex = null;
         this._glyphNamesByLengthDesc = null;
+        this._metricsKeyDependencyEntries = null;
+    }
+
+    /**
+     * Drop only the metrics-key dependency cache. Call when a metrics key is
+     * added, changed, or removed without the glyph set changing.
+     */
+    invalidateMetricsKeyDependencyEntries(): void {
+        this._metricsKeyDependencyEntries = null;
     }
 
     /**
