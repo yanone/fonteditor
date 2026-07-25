@@ -3380,6 +3380,35 @@ describe('FontManager boundary-crossing budget', () => {
         ).toBe(false);
     });
 
+    test('stageLiveDragPreviewFromModel does not write compile-facing layers into resting storage', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+        const storedLayerBefore = cloneJson(
+            currentFont.babelfontData.glyphs
+                .find((entry) => entry.name === 'a')
+                .layers.find((entry) => entry.id === layerId)
+        );
+        const updateStoredSpy = jest.spyOn(
+            fontManager,
+            'updateStoredLayerData'
+        );
+
+        try {
+            await fontManager.stageLiveDragPreviewFromModel(['a'], layerId, {
+                dispatchGlyphChanged: false
+            });
+        } finally {
+            updateStoredSpy.mockRestore();
+        }
+
+        expect(updateStoredSpy).not.toHaveBeenCalled();
+        expect(
+            currentFont.babelfontData.glyphs
+                .find((entry) => entry.name === 'a')
+                .layers.find((entry) => entry.id === layerId)
+        ).toEqual(storedLayerBefore);
+    });
+
     test('clearLiveDragPreview drops preview state without touching the authoritative worker mirror', async () => {
         const currentFont = fontManager.currentFont;
         const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';

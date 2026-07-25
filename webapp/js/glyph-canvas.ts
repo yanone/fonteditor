@@ -9232,6 +9232,9 @@ function setupFontLoadingListener() {
                     );
 
                     const gc = window.glyphCanvas;
+                    const isSidebearingSession =
+                        isLivePreview &&
+                        gc.outlineEditor.isLiveSidebearingInteractionActive();
 
                     // During live drag the shaped run must track changed
                     // dependent outlines, not merely its font bytes. Reshape
@@ -9241,12 +9244,14 @@ function setupFontLoadingListener() {
                         gc.fontBytes = fontBytesArray;
                         gc.axesManager!.fontBytes = fontBytesArray;
                         gc.textRunEditor!.swapFontBlob(fontBytesArray);
-                        if (isLivePreview) {
+                        if (isLivePreview && !isSidebearingSession) {
                             gc.textRunEditor!.shapeText(true);
                         }
                         timelineMark(
                             isLivePreview
-                                ? 'canvas.editingFontCompiled.outlineOnlyShaped'
+                                ? isSidebearingSession
+                                    ? 'canvas.editingFontCompiled.outlineOnlySwappedSidebearing'
+                                    : 'canvas.editingFontCompiled.outlineOnlyShaped'
                                 : 'canvas.editingFontCompiled.outlineOnlySwapped'
                         );
 
@@ -9254,7 +9259,17 @@ function setupFontLoadingListener() {
                             latestAppliedEditingRevision = incomingRevision;
                         }
 
-                        gc.requestRepaintAfterCompile();
+                        if (isSidebearingSession) {
+                            // Keep live-patched advances; do not reshape or
+                            // race the interaction frame with an independent
+                            // compile repaint. Re-anchor keyboard sessions
+                            // after the blob swap before one owned paint.
+                            gc.outlineEditor.reapplyLastLiveSidebearingAdvances();
+                            gc.outlineEditor.reapplyPendingSidebearingBboxCenterAnchor();
+                            gc.outlineEditor.scheduleSidebearingOwnedRepaint();
+                        } else {
+                            gc.requestRepaintAfterCompile();
+                        }
                         return;
                     }
 
@@ -9447,4 +9462,4 @@ function setupEditorShortcutsModal() {
     });
 }
 
-export { GlyphCanvas };
+export { GlyphCanvas, setupFontLoadingListener };

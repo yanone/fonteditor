@@ -1514,6 +1514,107 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
+    test('sidebearing mouseup keeps session through drain and clears preview overlay', async () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const originalClearLiveDragPreview = fontManager.clearLiveDragPreview;
+        let sawDraggingDuringDrain = false;
+        const clearLiveDragPreviewSpy = jest.fn();
+        const drainLiveRefreshSpy = jest
+            .spyOn(
+                canvas.outlineEditor.liveDragEditFunnel,
+                'drainAndClearQueued'
+            )
+            .mockImplementation(async () => {
+                sawDraggingDuringDrain =
+                    canvas.outlineEditor.isDraggingSidebearing;
+            });
+        const refreshFinalSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'refreshFinalSidebearingWorkerStateBeforeCommit'
+            )
+            .mockResolvedValue(undefined);
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockImplementation(() => {});
+        const syncSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+        const getSidebearingSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentDirectSidebearing')
+            .mockReturnValue(20);
+        const updatePropertyPanelSpy = jest
+            .spyOn(canvas, 'updatePropertyPanel')
+            .mockImplementation(() => {});
+        const glyphModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentGlyphModel')
+            .mockReturnValue({ name: 'l' });
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+            fontManager.clearLiveDragPreview = clearLiveDragPreviewSpy;
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.selectedSidebearingHandle = {
+                side: 'right',
+                editable: true
+            };
+            canvas.outlineEditor.layerData = {
+                width: 540,
+                shapes: [],
+                anchors: []
+            };
+            canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+                { glyphName: 'l' }
+            ]);
+            canvas.getCurrentGlyphName = jest.fn(() => 'l');
+            canvas.outlineEditor.isDraggingSidebearing = true;
+            canvas.outlineEditor._dragType = 'sidebearing';
+            canvas.outlineEditor._hasMoved = true;
+            canvas.outlineEditor._preDragDesc = 'RSB: 10';
+            canvas.outlineEditor._pendingSidebearingCommitSync = {
+                changedLayerTargets: [{ glyphName: 'l', layerId: 'layer-1' }],
+                workerReplayTargets: [{ glyphName: 'l', layerId: 'layer-1' }],
+                affectedGlyphNames: new Set(['l']),
+                recomposeTargets: []
+            };
+
+            await canvas.outlineEditor.onMouseUp({ clientX: 10, clientY: 20 });
+
+            expect(sawDraggingDuringDrain).toBe(true);
+            expect(clearLiveDragPreviewSpy).toHaveBeenCalled();
+            expect(canvas.outlineEditor.isDraggingSidebearing).toBe(false);
+            expect(refreshFinalSpy).toHaveBeenCalled();
+            expect(syncSpy).toHaveBeenCalled();
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            fontManager.clearLiveDragPreview = originalClearLiveDragPreview;
+            drainLiveRefreshSpy.mockRestore();
+            refreshFinalSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+            syncSpy.mockRestore();
+            getSidebearingSpy.mockRestore();
+            updatePropertyPanelSpy.mockRestore();
+            glyphModelSpy.mockRestore();
+        }
+    });
+
     test('sidebearing mouseup discards queued live refresh frames before final YDoc sync', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalCurrentFont = fontManager.currentFont;
@@ -4523,6 +4624,64 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.requestRepaintAfterCompile).not.toHaveBeenCalled();
     });
 
+    test('live sidebearing preview swaps without reshape or independent compile repaint', async () => {
+        const { setupFontLoadingListener } = require('../js/glyph-canvas');
+        setupFontLoadingListener();
+
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const pendingFrames = [];
+        global.requestAnimationFrame = jest.fn((callback) => {
+            pendingFrames.push(callback);
+            return pendingFrames.length;
+        });
+
+        canvas.axesManager = { fontBytes: null };
+        canvas.textRunEditor.swapFontBlob = jest.fn();
+        canvas.textRunEditor.shapeText = jest.fn();
+        canvas.requestRepaintAfterCompile = jest.fn();
+        canvas.outlineEditor.isDraggingSidebearing = true;
+        const advancesSpy = jest
+            .spyOn(canvas.outlineEditor, 'reapplyLastLiveSidebearingAdvances')
+            .mockReturnValue(true);
+        const anchorSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'reapplyPendingSidebearingBboxCenterAnchor'
+            )
+            .mockReturnValue(true);
+        const ownedSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'scheduleSidebearingOwnedRepaint'
+        );
+
+        window.dispatchEvent(
+            new CustomEvent('editingFontCompiled', {
+                detail: {
+                    fontBytes: new Uint8Array([9, 8, 7]),
+                    fontRevisionKey: '9',
+                    compilationMode: 'outline-only',
+                    dataFreshnessMode: 'live-drag-worker-preview',
+                    dragActive: true
+                }
+            })
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(canvas.textRunEditor.swapFontBlob).toHaveBeenCalled();
+        expect(canvas.textRunEditor.shapeText).not.toHaveBeenCalled();
+        expect(canvas.requestRepaintAfterCompile).not.toHaveBeenCalled();
+        expect(advancesSpy).toHaveBeenCalled();
+        expect(anchorSpy).toHaveBeenCalled();
+        expect(ownedSpy).toHaveBeenCalled();
+
+        advancesSpy.mockRestore();
+        anchorSpy.mockRestore();
+        ownedSpy.mockRestore();
+        global.requestAnimationFrame = originalRequestAnimationFrame;
+    });
+
     test('requestRepaintAfterCompile refreshes hit detection in outline mode', () => {
         const originalRequestAnimationFrame = global.requestAnimationFrame;
         const renderSpy = jest
@@ -5155,24 +5314,178 @@ describe('GlyphCanvas sidebearing handle movement', () => {
     });
 
     test('moving the left sidebearing handle right decreases the sidebearing', () => {
-        canvas.outlineEditor.selectedSidebearingHandle = {
-            side: 'left',
-            editable: true
-        };
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const pendingFrames = [];
+        global.requestAnimationFrame = jest.fn((callback) => {
+            pendingFrames.push(callback);
+            return pendingFrames.length;
+        });
+
+        try {
+            canvas.outlineEditor.selectedSidebearingHandle = {
+                side: 'left',
+                editable: true
+            };
+            canvas.outlineEditor.isDraggingSidebearing = true;
+            canvas.outlineEditor._sidebearingPointerBaselineReady = false;
+            canvas.viewportManager.scale = 2;
+            canvas.viewportManager.panX = 100;
+            canvas.outlineEditor.transformMouseToComponentSpace = jest
+                .fn()
+                .mockReturnValueOnce({ glyphX: 10, glyphY: 0 })
+                .mockReturnValue({ glyphX: 25, glyphY: -5 });
+
+            canvas.onMouseMove({ clientX: 10, clientY: 20 });
+            canvas.onMouseMove({ clientX: 25, clientY: 15 });
+            expect(pendingFrames).toHaveLength(1);
+            pendingFrames.splice(0).forEach((callback) => callback());
+
+            expect(canvas.outlineEditor.layerData.width).toBe(485);
+            expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(
+                85
+            );
+            expect(canvas.viewportManager.panX).toBe(130);
+        } finally {
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+        }
+    });
+
+    test('fixed-pointer LSB after pan produces zero next-frame delta', () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const pendingFrames = [];
+        global.requestAnimationFrame = jest.fn((callback) => {
+            pendingFrames.push(callback);
+            return pendingFrames.length;
+        });
+
+        try {
+            canvas.outlineEditor.selectedSidebearingHandle = {
+                side: 'left',
+                editable: true
+            };
+            canvas.outlineEditor.isDraggingSidebearing = true;
+            canvas.outlineEditor._sidebearingPointerBaselineReady = false;
+            canvas.viewportManager.scale = 2;
+            canvas.viewportManager.panX = 100;
+
+            let pointerX = 10;
+            canvas.outlineEditor.transformMouseToComponentSpace = jest.fn(
+                () => ({
+                    glyphX: pointerX,
+                    glyphY: 0
+                })
+            );
+
+            canvas.onMouseMove({ clientX: 10, clientY: 20 });
+            pointerX = 30;
+            canvas.onMouseMove({ clientX: 30, clientY: 20 });
+            pendingFrames.splice(0).forEach((callback) => callback());
+
+            const widthAfterFirst = canvas.outlineEditor.layerData.width;
+            const lastGlyphX = canvas.outlineEditor.lastGlyphX;
+
+            // Stationary pointer: next coalesced frame must apply zero delta.
+            canvas.onMouseMove({ clientX: 30, clientY: 20 });
+            expect(pendingFrames).toHaveLength(1);
+            pendingFrames.splice(0).forEach((callback) => callback());
+
+            expect(canvas.outlineEditor.layerData.width).toBe(widthAfterFirst);
+            expect(canvas.outlineEditor.lastGlyphX).toBe(lastGlyphX);
+        } finally {
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+        }
+    });
+
+    test('sidebearing drag coalesces multiple moves into one mutate/paint frame', () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const pendingFrames = [];
+        global.requestAnimationFrame = jest.fn((callback) => {
+            pendingFrames.push(callback);
+            return pendingFrames.length;
+        });
+        const renderSpy = jest.spyOn(canvas, 'render');
+        const applySpy = jest.spyOn(
+            canvas.outlineEditor,
+            'adjustSelectedSidebearing'
+        );
+
+        try {
+            canvas.outlineEditor.selectedSidebearingHandle = {
+                side: 'right',
+                editable: true
+            };
+            canvas.outlineEditor.isDraggingSidebearing = true;
+            canvas.outlineEditor._sidebearingPointerBaselineReady = false;
+            canvas.outlineEditor.transformMouseToComponentSpace = jest
+                .fn()
+                .mockReturnValueOnce({ glyphX: 0, glyphY: 0 })
+                .mockReturnValue({ glyphX: 30, glyphY: 0 });
+
+            canvas.onMouseMove({ clientX: 1, clientY: 1 });
+            canvas.onMouseMove({ clientX: 2, clientY: 1 });
+            canvas.onMouseMove({ clientX: 3, clientY: 1 });
+            expect(pendingFrames).toHaveLength(1);
+            expect(applySpy).not.toHaveBeenCalled();
+            expect(renderSpy).not.toHaveBeenCalled();
+
+            pendingFrames.splice(0).forEach((callback) => callback());
+            expect(applySpy).toHaveBeenCalledTimes(1);
+            expect(renderSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            applySpy.mockRestore();
+            renderSpy.mockRestore();
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+        }
+    });
+
+    test('live sidebearing session reports interaction active for preview gating', () => {
+        expect(canvas.outlineEditor.isLiveSidebearingInteractionActive()).toBe(
+            false
+        );
         canvas.outlineEditor.isDraggingSidebearing = true;
-        canvas.viewportManager.scale = 2;
-        canvas.viewportManager.panX = 100;
-        canvas.outlineEditor.transformMouseToComponentSpace = jest
-            .fn()
-            .mockReturnValueOnce({ glyphX: 10, glyphY: 0 })
-            .mockReturnValueOnce({ glyphX: 25, glyphY: -5 });
+        expect(canvas.outlineEditor.isLiveSidebearingInteractionActive()).toBe(
+            true
+        );
+        canvas.outlineEditor.isDraggingSidebearing = false;
+        canvas.outlineEditor._keyboardSidebearingPreviewActive = true;
+        expect(canvas.outlineEditor.isLiveSidebearingInteractionActive()).toBe(
+            true
+        );
+    });
 
-        canvas.onMouseMove({ clientX: 10, clientY: 20 });
-        canvas.onMouseMove({ clientX: 25, clientY: 15 });
+    test('sidebearing owned repaint re-applies advances and bbox anchor once', () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const pendingFrames = [];
+        global.requestAnimationFrame = jest.fn((callback) => {
+            pendingFrames.push(callback);
+            return pendingFrames.length;
+        });
+        const renderSpy = jest.spyOn(canvas, 'render');
+        const advancesSpy = jest
+            .spyOn(canvas.outlineEditor, 'reapplyLastLiveSidebearingAdvances')
+            .mockReturnValue(true);
+        const anchorSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'reapplyPendingSidebearingBboxCenterAnchor'
+            )
+            .mockReturnValue(true);
 
-        expect(canvas.outlineEditor.layerData.width).toBe(485);
-        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(85);
-        expect(canvas.viewportManager.panX).toBe(130);
+        try {
+            canvas.outlineEditor._keyboardSidebearingPreviewActive = true;
+            canvas.outlineEditor.scheduleSidebearingOwnedRepaint();
+            canvas.outlineEditor.scheduleSidebearingOwnedRepaint();
+            expect(pendingFrames).toHaveLength(1);
+            pendingFrames.splice(0).forEach((callback) => callback());
+            expect(advancesSpy).toHaveBeenCalledTimes(1);
+            expect(anchorSpy).toHaveBeenCalledTimes(1);
+            expect(renderSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            advancesSpy.mockRestore();
+            anchorSpy.mockRestore();
+            renderSpy.mockRestore();
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+        }
     });
 
     test('sidebearing drags refresh live advances for keyed dependent glyphs', () => {

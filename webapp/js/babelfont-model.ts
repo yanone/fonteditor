@@ -6573,6 +6573,10 @@ export class Layer extends ArrayElementBase {
         let baseAdvanceCursor = 0;
         let baseAdvanceMinX: number | null = null;
         let baseAdvanceMaxX: number | null = null;
+        // A prior compile-facing writeback can leave the first base translate
+        // equal to the automatic left bake. Treat that as poisoned logical
+        // state and start at 0; keep any other sticky first-base nudge.
+        const leftAdjustment = this.getAutomaticSidebearingAdjustment('left');
 
         for (const component of components) {
             const componentLayer = this.getAutomaticComponentLayer(component);
@@ -6605,10 +6609,17 @@ export class Layer extends ArrayElementBase {
                 availableAnchors
             );
 
+            let stickyFirstBaseX = originalTransform[4];
+            if (
+                baseAdvanceCursor === 0 &&
+                Math.abs(leftAdjustment) > METRIC_UPDATE_EPSILON &&
+                Math.abs(stickyFirstBaseX - leftAdjustment) <=
+                    METRIC_UPDATE_EPSILON
+            ) {
+                stickyFirstBaseX = 0;
+            }
             let translationX =
-                baseAdvanceCursor === 0
-                    ? originalTransform[4]
-                    : baseAdvanceCursor;
+                baseAdvanceCursor === 0 ? stickyFirstBaseX : baseAdvanceCursor;
             let translationY = originalTransform[5];
             let attached = false;
             const contributesBaseMetrics =
@@ -12722,9 +12733,9 @@ export class Font extends ModelBase {
      * Serialize the font back to JSON string
      */
     toJSONString(options?: { compileFacing?: boolean }): string {
-        // Worker/Yjs state is always logical. Only explicit export/full JSON
-        // compilation requests the physical automatic =+/- view.
-        const compileFacing = options?.compileFacing !== false;
+        // Worker/Yjs/resting state is always logical. Only explicit export or
+        // compile-facing callers request the physical automatic =+/- view.
+        const compileFacing = options?.compileFacing === true;
         const layerDataOverrides = new WeakMap<object, Unsafe>();
         if (compileFacing) {
             for (const glyph of this.glyphs) {

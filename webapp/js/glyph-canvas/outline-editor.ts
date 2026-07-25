@@ -2958,6 +2958,22 @@ export class OutlineEditor {
     private _lastDragSaveTime: number = 0;
     private _lastLiveAnchorRefreshTime: number = 0;
     private _lastLiveSidebearingRefreshTime: number = 0;
+    /** One mutate→anchor→paint frame for mouse sidebearing drag. */
+    private _sidebearingDragFrame: number | null = null;
+    /** First pointer sample seeds lastGlyphX without mutating. */
+    private _sidebearingPointerBaselineReady: boolean = false;
+    /**
+     * Width shared by metrics and sidebearing handles for the current
+     * interactive sidebearing session (mouse or keyboard).
+     */
+    activeSidebearingDragLayout: { width: number } | null = null;
+    /** Keyboard bbox-center screen anchor to re-apply after preview blob swaps. */
+    private _pendingSidebearingBboxCenterAnchorScreen: {
+        x: number;
+        y: number;
+    } | null = null;
+    /** True while a keyboard sidebearing preview burst owns the paint frame. */
+    private _keyboardSidebearingPreviewActive: boolean = false;
     private _lastPropertyPanelUpdateTime: number = 0;
     private _pendingDragMetricsUpdate: boolean = false;
     private _dragMetricsFlushTimer: number | null = null;
@@ -4414,11 +4430,19 @@ export class OutlineEditor {
 
                 const explicitLayerInput =
                     this.getCurrentExplicitLayerCacheInput();
+                const layerTargets =
+                    this.collectMatchingLayerWorkerReplayTargets(
+                        glyphNames,
+                        currentLayerId
+                    );
                 await fontManager.stageLiveDragPreviewFromModel(
-                    glyphNames,
+                    layerTargets.length > 0 ? layerTargets : glyphNames,
                     currentLayerId,
                     {
                         dispatchGlyphChanged: false,
+                        ...(layerTargets.length > 0
+                            ? { layerTargets }
+                            : undefined),
                         ...(explicitLayerInput
                             ? { explicitLayerData: [explicitLayerInput] }
                             : undefined)
@@ -4476,11 +4500,16 @@ export class OutlineEditor {
             if (allGlyphNames.length === 0) {
                 return;
             }
-            await fontManager.stageLiveDragPreviewFromModel(
+            const layerTargets = this.collectMatchingLayerWorkerReplayTargets(
                 allGlyphNames,
+                currentLayerId
+            );
+            await fontManager.stageLiveDragPreviewFromModel(
+                layerTargets.length > 0 ? layerTargets : allGlyphNames,
                 currentLayerId,
                 {
                     dispatchGlyphChanged: false,
+                    ...(layerTargets.length > 0 ? { layerTargets } : undefined),
                     ...(options.explicitLayerInput
                         ? {
                               explicitLayerData: [options.explicitLayerInput]
@@ -4572,11 +4601,16 @@ export class OutlineEditor {
         }
 
         const explicitLayerInput = this.getCurrentExplicitLayerCacheInput();
-        await fontManager.stageLiveDragPreviewFromModel(
+        const layerTargets = this.collectMatchingLayerWorkerReplayTargets(
             previewGlyphNames,
+            currentLayerId
+        );
+        await fontManager.stageLiveDragPreviewFromModel(
+            layerTargets.length > 0 ? layerTargets : previewGlyphNames,
             currentLayerId,
             {
                 dispatchGlyphChanged: false,
+                ...(layerTargets.length > 0 ? { layerTargets } : undefined),
                 ...(explicitLayerInput
                     ? { explicitLayerData: [explicitLayerInput] }
                     : undefined)
@@ -4786,6 +4820,9 @@ export class OutlineEditor {
                 // commit. It is replaced by the next preview generation and
                 // never mutates either Yjs document.
                 this._keyboardPreviewCommitInFlight = null;
+                this._keyboardSidebearingPreviewActive = false;
+                this._pendingSidebearingBboxCenterAnchorScreen = null;
+                this.activeSidebearingDragLayout = null;
             }
         })();
 
@@ -5298,11 +5335,19 @@ export class OutlineEditor {
                 ...downstreamGlyphNames
             ];
             if (previewGlyphNames.length > 0) {
+                const layerTargets =
+                    this.collectMatchingLayerWorkerReplayTargets(
+                        previewGlyphNames,
+                        currentLayerId
+                    );
                 await fontManager.stageLiveDragPreviewFromModel(
-                    previewGlyphNames,
+                    layerTargets.length > 0 ? layerTargets : previewGlyphNames,
                     currentLayerId,
                     {
                         dispatchGlyphChanged: false,
+                        ...(layerTargets.length > 0
+                            ? { layerTargets }
+                            : undefined),
                         ...(options.explicitLayerInput
                             ? {
                                   explicitLayerData: [
@@ -5661,14 +5706,49 @@ export class OutlineEditor {
     }
 
     private resetLiveSidebearingRefreshState(): void {
+        if (this._sidebearingDragFrame !== null) {
+            cancelAnimationFrame(this._sidebearingDragFrame);
+            this._sidebearingDragFrame = null;
+        }
         this.liveDragEditFunnel.clearQueued();
         this._lastLiveSidebearingAdvances = {};
+        this.activeSidebearingDragLayout = null;
+        this._pendingSidebearingBboxCenterAnchorScreen = null;
+        this._keyboardSidebearingPreviewActive = false;
+        this._sidebearingPointerBaselineReady = false;
         this._lastLiveSidebearingPreviewTargets = [];
         this._lastLiveSidebearingWidthGlyphNames = new Set();
         this._pendingSidebearingCommitSync = null;
         this._lastLiveAnchorPreviewTargets = [];
         this._liveSidebearingPreviewGeneration = 0;
         this._liveAnchorPreviewGeneration = 0;
+    }
+
+    isLiveSidebearingInteractionActive(): boolean {
+        return (
+            this.isDraggingSidebearing || this._keyboardSidebearingPreviewActive
+        );
+    }
+
+    reapplyPendingSidebearingBboxCenterAnchor(): boolean {
+        const anchor = this._pendingSidebearingBboxCenterAnchorScreen;
+        if (!anchor) {
+            return false;
+        }
+        this.applyBoundingBoxCenterScreenAnchor(anchor);
+        return true;
+    }
+
+    reapplyLastLiveSidebearingAdvances(): boolean {
+        const advances = this._lastLiveSidebearingAdvances;
+        if (!advances || Object.keys(advances).length === 0) {
+            return false;
+        }
+        return (
+            this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive(advances, {
+                render: false
+            }) ?? false
+        );
     }
 
     private async drainLiveDragRefreshBeforeCommit(): Promise<void> {
@@ -5736,6 +5816,82 @@ export class OutlineEditor {
 
         this._lastLiveSidebearingRefreshTime = now;
         this.queueLiveVisibleSidebearingDependentRefresh();
+    }
+
+    private scheduleSidebearingDragFrame(): void {
+        if (this._sidebearingDragFrame !== null) {
+            return;
+        }
+        this._sidebearingDragFrame = requestAnimationFrame(() => {
+            this._sidebearingDragFrame = null;
+            if (!this.isDraggingSidebearing || !this.layerData) {
+                return;
+            }
+            this.processSidebearingDragFrame();
+        });
+    }
+
+    /**
+     * One owned paint after a live preview blob swap during a sidebearing
+     * interaction. Coalesces with the mouse drag frame when both are pending.
+     */
+    scheduleSidebearingOwnedRepaint(): void {
+        if (this.isDraggingSidebearing) {
+            // The drag RAF already owns paint; just ensure one is scheduled.
+            this.scheduleSidebearingDragFrame();
+            return;
+        }
+        if (this._sidebearingDragFrame !== null) {
+            return;
+        }
+        this._sidebearingDragFrame = requestAnimationFrame(() => {
+            this._sidebearingDragFrame = null;
+            if (!this.isLiveSidebearingInteractionActive()) {
+                return;
+            }
+            this.reapplyLastLiveSidebearingAdvances();
+            this.reapplyPendingSidebearingBboxCenterAnchor();
+            this.glyphCanvas.render();
+        });
+    }
+
+    /**
+     * Flush a pending coalesced sidebearing frame before mouseup commit so the
+     * last pointer sample is not dropped.
+     */
+    private flushSidebearingDragFrame(): void {
+        if (this._sidebearingDragFrame === null) {
+            return;
+        }
+        cancelAnimationFrame(this._sidebearingDragFrame);
+        this._sidebearingDragFrame = null;
+        if (this.isDraggingSidebearing && this.layerData) {
+            this.processSidebearingDragFrame();
+        }
+    }
+
+    private processSidebearingDragFrame(): void {
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const previousGlyphX = this.lastGlyphX;
+        const deltaX =
+            Math.round(glyphX) - Math.round(previousGlyphX ?? glyphX);
+
+        // Track movement before mutation; pointer baseline is rebased after
+        // pan/advance sync inside applySidebearingDelta.
+        this.lastGlyphX = glyphX;
+        this.lastGlyphY = glyphY;
+
+        if (deltaX !== 0) {
+            this._hasMoved = true;
+        }
+        this._updateDraggedSidebearing(deltaX);
+
+        const now = performance.now();
+        if (now - this._lastPropertyPanelUpdateTime >= 100) {
+            this._lastPropertyPanelUpdateTime = now;
+            this.glyphCanvas.updatePropertyPanel();
+        }
+        this.glyphCanvas.render();
     }
 
     private queueNonCompilingLiveDragEdit(
@@ -10185,6 +10341,7 @@ export class OutlineEditor {
             this.glyphCanvas.lastMouseY = e.clientY;
             this.lastGlyphX = null;
             this.lastGlyphY = null;
+            this._sidebearingPointerBaselineReady = false;
             this.glyphCanvas.updatePropertyPanel();
             this.glyphCanvas.render();
             return;
@@ -12610,6 +12767,21 @@ export class OutlineEditor {
         this.glyphCanvas.mouseX = mouseX;
         this.glyphCanvas.mouseY = mouseY;
 
+        // Sidebearing owns one coalesce RAF: mutate, rebase, paint once.
+        // The first sample only seeds the pointer baseline (same as the old
+        // null-lastGlyphX first frame that applied a zero delta).
+        if (this.isDraggingSidebearing) {
+            if (!this._sidebearingPointerBaselineReady) {
+                const baseline = this.transformMouseToComponentSpace();
+                this.lastGlyphX = baseline.glyphX;
+                this.lastGlyphY = baseline.glyphY;
+                this._sidebearingPointerBaselineReady = true;
+                return;
+            }
+            this.scheduleSidebearingDragFrame();
+            return;
+        }
+
         const { glyphX, glyphY } = this.isDraggingGuide
             ? this.transformMouseToRootSpace()
             : this.transformMouseToComponentSpace();
@@ -13130,8 +13302,18 @@ export class OutlineEditor {
             this.isDraggingSidebearing ||
             this.isDraggingGuide;
 
+        // Apply the last coalesced pointer sample before clearing drag flags.
+        if (this.isDraggingSidebearing) {
+            this.flushSidebearingDragFrame();
+        }
+
         // Capture drag state before clearing drag flags
         const dragType = this._dragType;
+        // Keep the sidebearing session flag alive through drain → final
+        // refresh → Yjs. Clearing it earlier aborts the live funnel after
+        // staging and lets in-flight preview compiles reshape outside the
+        // sidebearing no-reshape contract (drag-2 adieresis RSB drift).
+        const endingSidebearingDrag = dragType === 'sidebearing';
         const preDragDesc = this._preDragDesc;
         const draggedGuideScope = this.selectedGuideHandle?.scope ?? null;
         const wasSnappedToClose = this.isSnappedToCloseOpenPath;
@@ -13156,7 +13338,9 @@ export class OutlineEditor {
         this._dragSeparatedFromCoincidentEndpointPair = false;
         this.isDraggingAnchor = false;
         this.isDraggingComponent = false;
-        this.isDraggingSidebearing = false;
+        if (!endingSidebearingDrag) {
+            this.isDraggingSidebearing = false;
+        }
         this.isDraggingGuide = false;
         this.isResizingSelection = false;
         this.isDraggingContrastAxis = false;
@@ -13574,8 +13758,10 @@ export class OutlineEditor {
                 endDragTransaction();
                 throw error;
             } finally {
-                const preserveCompileFacingOverlay =
-                    dragType === 'sidebearing' || dragType === 'anchor';
+                // Sidebearing: always clear the worker overlay after Yjs so
+                // drag-2 cannot inherit a prior physical generation.
+                // Anchor may still rely on Yjs clear alone (preserve).
+                const preserveCompileFacingOverlay = dragType === 'anchor';
                 if (!preserveCompileFacingOverlay) {
                     fontManager.clearLiveDragPreview();
                 }
@@ -13585,6 +13771,8 @@ export class OutlineEditor {
                 this._anchorAffectedGlyphNames = new Set();
                 this._committedOutlineAffectedGlyphNames = new Set();
                 this.resetLiveAnchorRefreshState();
+                // End the sidebearing session only after drain/Yjs/overlay clear.
+                this.isDraggingSidebearing = false;
                 this.resetLiveSidebearingRefreshState();
                 this._hasMoved = false;
                 this._preDragDesc = null;
@@ -17223,10 +17411,10 @@ export class OutlineEditor {
                 currentLayerId,
                 masterId
             );
+            this._lastLiveSidebearingAdvances = { ...glyphAdvances };
+            this._lastLiveSidebearingPreviewTargets = closure.allTargets;
+            this._lastLiveSidebearingWidthGlyphNames = widthGlyphNames;
             if (this.isDraggingSidebearing) {
-                this._lastLiveSidebearingAdvances = { ...glyphAdvances };
-                this._lastLiveSidebearingPreviewTargets = closure.allTargets;
-                this._lastLiveSidebearingWidthGlyphNames = widthGlyphNames;
                 this._liveSidebearingPreviewGeneration++;
             }
         }
@@ -17246,15 +17434,25 @@ export class OutlineEditor {
                 render: false
             }
         );
+        void widthDelta;
+        this.activeSidebearingDragLayout = { width: nextWidth };
 
         this.applyBoundingBoxCenterScreenAnchor(bboxCenterAnchorScreen);
 
-        if (
-            side === 'left' &&
-            this.isDraggingSidebearing &&
-            this.lastGlyphX !== null
-        ) {
-            this.lastGlyphX += widthDelta;
+        if (!this.isDraggingSidebearing && bboxCenterAnchorScreen) {
+            this._pendingSidebearingBboxCenterAnchorScreen =
+                bboxCenterAnchorScreen;
+        }
+
+        if (this.isDraggingSidebearing) {
+            // Pan and live advance changes alter screen→glyph conversion.
+            // Rebase to the post-mutation pointer position rather than adding
+            // an approximate width delta, which made the LSB handle drift.
+            const pointer = this.transformMouseToComponentSpace();
+            if (pointer) {
+                this.lastGlyphX = pointer.glyphX;
+                this.lastGlyphY = pointer.glyphY;
+            }
         }
 
         return true;
@@ -17357,12 +17555,17 @@ export class OutlineEditor {
         return this.applySidebearingDelta(side, sidebearingDelta);
     }
 
-    moveSelectedSidebearing(deltaX: number): boolean {
+    moveSelectedSidebearing(
+        deltaX: number,
+        options: { render?: boolean } = {}
+    ): boolean {
         if (!this.adjustSelectedSidebearing(deltaX)) {
             return false;
         }
         this.glyphCanvas.updatePropertyPanel();
-        this.glyphCanvas.render();
+        if (options.render !== false) {
+            this.glyphCanvas.render();
+        }
         return true;
     }
 
@@ -18476,9 +18679,14 @@ export class OutlineEditor {
                         dx !== 0 &&
                         dy === 0
                     ) {
+                        this._keyboardSidebearingPreviewActive = true;
                         sidebearingMoved =
-                            this.moveSelectedSidebearing(dx) ||
-                            sidebearingMoved;
+                            this.moveSelectedSidebearing(dx, {
+                                render: false
+                            }) || sidebearingMoved;
+                        if (!sidebearingMoved) {
+                            this._keyboardSidebearingPreviewActive = false;
+                        }
                     }
 
                     const moved =

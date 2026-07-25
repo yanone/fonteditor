@@ -848,12 +848,15 @@ export class GlyphCanvasRenderer {
         let minX = Infinity;
         let maxX = -Infinity;
         const selectedGlyphIndex = this.textRunEditor.selectedGlyphIndex;
+        const activeSidebearingDragLayout =
+            this.glyphCanvas.outlineEditor.activeSidebearingDragLayout;
         const liveSelectedLayerWidth =
-            this.glyphCanvas.outlineEditor.active &&
+            activeSidebearingDragLayout?.width ??
+            (this.glyphCanvas.outlineEditor.active &&
             this.glyphCanvas.outlineEditor.layerData &&
             Number.isFinite(this.glyphCanvas.outlineEditor.layerData.width)
                 ? this.glyphCanvas.outlineEditor.layerData.width
-                : null;
+                : null);
 
         let glyphIndex = 0;
 
@@ -1001,7 +1004,14 @@ export class GlyphCanvasRenderer {
                 this.glyphCanvas.outlineEditor.isEditingBackgroundLayer()
                     ? this.glyphCanvas.outlineEditor.getPairedLayerModel()
                     : null;
-            const layerWidth = pairedLayer?.width ?? selectedLayerData?.width;
+            const dragLayoutWidth =
+                this.glyphCanvas.outlineEditor.activeSidebearingDragLayout
+                    ?.width;
+            const layerWidth =
+                typeof dragLayoutWidth === 'number' &&
+                Number.isFinite(dragLayoutWidth)
+                    ? dragLayoutWidth
+                    : (pairedLayer?.width ?? selectedLayerData?.width);
             const activeGlyphAdvance =
                 typeof layerWidth === 'number' && Number.isFinite(layerWidth)
                     ? layerWidth

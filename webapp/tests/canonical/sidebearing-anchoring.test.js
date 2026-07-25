@@ -117,7 +117,10 @@ describe('Sidebearing center anchoring matrix', () => {
         const beforeCenter = snapshotLayerCenterScreen(canvas);
 
         canvas.outlineEditor.isDraggingSidebearing = true;
-        canvas.outlineEditor.selectedSidebearingHandle = { side };
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side,
+            editable: true
+        };
         canvas.outlineEditor._updateDraggedSidebearing(deltaX);
 
         expectLayerCenterAnchored(canvas, beforeCenter);
@@ -132,10 +135,14 @@ describe('Sidebearing center anchoring matrix', () => {
             label: 'keyboard RSB handle nudge anchors the layer center',
             side: 'right'
         }
-    ])('$label', ({ side }) => {
+    ])('$label', async ({ side }) => {
         const beforeCenter = snapshotLayerCenterScreen(canvas);
+        const beforeWidth = canvas.outlineEditor.layerData.width;
 
-        canvas.outlineEditor.selectedSidebearingHandle = { side };
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side,
+            editable: true
+        };
         canvas.outlineEditor.onKeyDown({
             key: 'ArrowRight',
             shiftKey: false,
@@ -143,8 +150,49 @@ describe('Sidebearing center anchoring matrix', () => {
             ctrlKey: false,
             preventDefault: jest.fn()
         });
+        await Promise.resolve();
+        await Promise.resolve();
 
+        expect(canvas.outlineEditor.layerData.width).not.toBe(beforeWidth);
         expectLayerCenterAnchored(canvas, beforeCenter);
+    });
+
+    test('keyboard LSB nudge keeps center after live preview blob swap', async () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const pendingFrames = [];
+        global.requestAnimationFrame = jest.fn((callback) => {
+            pendingFrames.push(callback);
+            return pendingFrames.length;
+        });
+
+        try {
+            canvas.outlineEditor.selectedSidebearingHandle = {
+                side: 'left',
+                editable: true
+            };
+            const beforeWidth = canvas.outlineEditor.layerData.width;
+            canvas.outlineEditor.onKeyDown({
+                key: 'ArrowRight',
+                shiftKey: false,
+                metaKey: false,
+                ctrlKey: false,
+                preventDefault: jest.fn()
+            });
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(canvas.outlineEditor.layerData.width).not.toBe(beforeWidth);
+            const beforeCenter = snapshotLayerCenterScreen(canvas);
+
+            // Simulate mid-burst preview blob apply: re-anchor then owned paint.
+            canvas.outlineEditor.reapplyLastLiveSidebearingAdvances();
+            canvas.outlineEditor.reapplyPendingSidebearingBboxCenterAnchor();
+            canvas.outlineEditor.scheduleSidebearingOwnedRepaint();
+            pendingFrames.splice(0).forEach((callback) => callback());
+
+            expectLayerCenterAnchored(canvas, beforeCenter);
+        } finally {
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+        }
     });
 
     test.each([

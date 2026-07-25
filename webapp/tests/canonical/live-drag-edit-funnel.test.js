@@ -29,6 +29,7 @@ beforeEach(() => {
         lastChangeSource: null,
         lastEditType: null,
         recordedCompileContexts,
+        clearLiveDragPreview: jest.fn(),
         setEditingCompileContext(changeSource, editType) {
             this.lastChangeSource = changeSource;
             this.lastEditType = editType;
@@ -343,8 +344,68 @@ describe('LiveDragEditFunnel', () => {
         expect(
             window.autoCompileManager.checkAndSchedule
         ).not.toHaveBeenCalled();
+        expect(window.fontManager.clearLiveDragPreview).toHaveBeenCalledTimes(
+            1
+        );
         expect(window.fontManager.lastChangeSource).toBeNull();
         expect(window.fontManager.lastEditType).toBeNull();
+    });
+
+    test('session death after sidebearing stage clears orphaned preview overlay', async () => {
+        const funnel = new LiveDragEditFunnel();
+        const refresh = deferred();
+        let active = true;
+
+        funnel.queue({
+            kind: 'sidebearing',
+            compile: {
+                changeSource: 'mouse-drag-outline',
+                editType: 'outline'
+            },
+            isActive: () => active,
+            run: async () => {
+                await refresh.promise;
+                return true;
+            }
+        });
+
+        active = false;
+        const drained = funnel.drainAndClearQueued();
+        refresh.resolve();
+        await drained;
+
+        expect(window.fontManager.clearLiveDragPreview).toHaveBeenCalledTimes(
+            1
+        );
+        expect(
+            window.fontManager.currentFont.requestRecompileWithoutDataChange
+        ).not.toHaveBeenCalled();
+    });
+
+    test('session death after outline stage does not clear preview overlay', async () => {
+        const funnel = new LiveDragEditFunnel();
+        const refresh = deferred();
+        let active = true;
+
+        funnel.queue({
+            kind: 'outline',
+            compile: {
+                changeSource: 'mouse-drag-outline',
+                editType: 'outline'
+            },
+            isActive: () => active,
+            run: async () => {
+                await refresh.promise;
+                return true;
+            }
+        });
+
+        active = false;
+        const drained = funnel.drainAndClearQueued();
+        refresh.resolve();
+        await drained;
+
+        expect(window.fontManager.clearLiveDragPreview).not.toHaveBeenCalled();
     });
 
     test('non-compiling live drag requests never wake auto compile', async () => {

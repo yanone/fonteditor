@@ -1376,6 +1376,79 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         ).toBeCloseTo(50, 5);
     });
 
+    test('two live compile-facing stage cycles after mouseup teardown keep auto RSB stable', () => {
+        // Live preview stages toCompileJSON into the worker overlay, then
+        // mouseup clears that overlay. Drag 2 must stage a fresh physical
+        // payload from logical resting state — never double-bake =+.
+        const font = makeAutomaticCompositionFont();
+        const baseLayer = font.findGlyph('A').layers[0];
+        const autoLayer = font.findGlyph('adieresis').layers[0];
+
+        autoLayer.rebuildAutomaticComposition();
+        autoLayer.applySidebearingInput('left', '=+50');
+        autoLayer.rebuildAutomaticComposition();
+
+        const physicalRsb = (compiled) => {
+            const shapes = compiled.shapes || [];
+            let maxX = -Infinity;
+            for (const shape of shapes) {
+                const data = shape.Component || shape;
+                const tx = Array.isArray(data.transform)
+                    ? data.transform[4]
+                    : data.transform?.translation?.[0] || 0;
+                maxX = Math.max(maxX, tx + 450);
+            }
+            return compiled.width - maxX;
+        };
+
+        const stageCompileFacingPayload = () => {
+            // Same boundary as collectChangedLayerUpdatesFromTargets({
+            //   compileFacing: true }) for automatic dependents.
+            return {
+                resting: autoLayer.toJSON(),
+                overlay: autoLayer.toCompileJSON()
+            };
+        };
+
+        const rsbAfterSetup = physicalRsb(autoLayer.toCompileJSON());
+
+        // Drag 1 live stage
+        baseLayer.setDirectSidebearing('left', baseLayer.lsb + 40);
+        font.rebuildAutomaticCompositesForGlyphs(new Set(['A']));
+        const stage1 = stageCompileFacingPayload();
+        expect(getSerializedTranslationX(stage1.resting.shapes[0])).toBeCloseTo(
+            0,
+            5
+        );
+        expect(getSerializedTranslationX(stage1.overlay.shapes[0])).toBeCloseTo(
+            50,
+            5
+        );
+        const rsbAfterDrag1 = physicalRsb(stage1.overlay);
+        expect(rsbAfterDrag1).toBeCloseTo(rsbAfterSetup, 5);
+
+        // Mouseup teardown: overlay discarded; resting stays logical.
+        // (Worker clearLiveDragPreview / apply_yjs_update — model unchanged.)
+        expect(
+            getSerializedTranslationX(autoLayer.toJSON().shapes[0])
+        ).toBeCloseTo(0, 5);
+
+        // Drag 2 live stage — must match drag-1 physical RSB, still tx=50.
+        baseLayer.setDirectSidebearing('left', baseLayer.lsb + 25);
+        font.rebuildAutomaticCompositesForGlyphs(new Set(['A']));
+        const stage2 = stageCompileFacingPayload();
+        expect(getSerializedTranslationX(stage2.resting.shapes[0])).toBeCloseTo(
+            0,
+            5
+        );
+        expect(getSerializedTranslationX(stage2.overlay.shapes[0])).toBeCloseTo(
+            50,
+            5
+        );
+        expect(physicalRsb(stage2.overlay)).toBeCloseTo(rsbAfterSetup, 5);
+        expect(physicalRsb(stage2.overlay)).toBeCloseTo(rsbAfterDrag1, 5);
+    });
+
     test('automatic layers clear sidebearing override keys back to implicit auto when input is deleted', () => {
         const font = makeChainedBaseSidebearingKeyFont();
         const glyph = font.findGlyph('sidebearingChain');
@@ -1401,10 +1474,9 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         expect(layer.resolveMetricsKey('right').value).toBeCloseTo(60, 5);
     });
 
-    test('Font.toJSONString() includes offset-applied component positions for automatic layers with =+ sidebearing keys', () => {
-        // This test guards against the regression where Font.toJSONString() serialized
-        // raw _data (base component positions) instead of Layer.toCompileJSON() output
-        // via Layer.toCompileJSON / Font.toJSONString, causing the editing font to compile with wrong data.
+    test('Font.toJSONString() keeps logical component positions by default; compileFacing bakes =+ offsets', () => {
+        // Resting/Yjs serialization must stay logical. Physical =+/- bake is
+        // requested explicitly via { compileFacing: true } for export/preview.
         const font = makeChainedBaseSidebearingKeyFont();
         const layer = font.findGlyph('sidebearingChain').layers[0];
 
@@ -1424,9 +1496,21 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         // Apply a left sidebearing offset of +100
         layer.applySidebearingInput('left', '=+100');
 
-        // After applying the key, toJSONString must carry the offset-applied positions
-        // so the Rust compiler sees the correct component placement.
-        const adjustedJson = JSON.parse(font.toJSONString());
+        // Default serialization stays logical (unoffset translates; width includes key).
+        const logicalJson = JSON.parse(font.toJSONString());
+        const logicalLayer = logicalJson.glyphs.find(
+            (g) => g.name === 'sidebearingChain'
+        ).layers[0];
+        expect(getSerializedTranslationX(logicalLayer.shapes[0])).toBeCloseTo(
+            0,
+            5
+        );
+        expect(logicalLayer.width).toBeCloseTo(770, 5);
+
+        // Explicit compile-facing serialization bakes left offsets into translates.
+        const adjustedJson = JSON.parse(
+            font.toJSONString({ compileFacing: true })
+        );
         const adjustedLayer = adjustedJson.glyphs.find(
             (g) => g.name === 'sidebearingChain'
         ).layers[0];
@@ -1484,6 +1568,54 @@ describe('Automatic Glyph Composition canonical behavior', () => {
             5
         );
         expect(clearedLayer.width).toBeCloseTo(670, 5);
+    });
+
+    test('rebuild recovers logical first-base translate after compile-facing writeback poison', () => {
+        const font = makeAutomaticCompositionFont();
+        const autoLayer = font.findGlyph('adieresis').layers[0];
+
+        autoLayer.rebuildAutomaticComposition();
+        autoLayer.applySidebearingInput('left', '=+50');
+        autoLayer.rebuildAutomaticComposition();
+
+        const physicalRsb = (layer) => {
+            const compiled = layer.toCompileJSON();
+            const shapes = compiled.shapes || [];
+            let maxX = -Infinity;
+            for (const shape of shapes) {
+                const data = shape.Component || shape;
+                const tx = Array.isArray(data.transform)
+                    ? data.transform[4]
+                    : data.transform?.translation?.[0] || 0;
+                maxX = Math.max(maxX, tx + 450);
+            }
+            return compiled.width - maxX;
+        };
+
+        const rsbBefore = physicalRsb(autoLayer);
+        expect(
+            getSerializedTranslationX(autoLayer.toJSON().shapes[0])
+        ).toBeCloseTo(0, 5);
+
+        // Simulate the old live-preview writeback bug: resting first-base
+        // translate equals the automatic left bake.
+        expect(
+            autoLayer.setComponentTranslation(autoLayer.components[0], 50, 0)
+        ).toBe(true);
+        autoLayer._cachedLayout = undefined;
+
+        expect(
+            getSerializedTranslationX(autoLayer.toJSON().shapes[0])
+        ).toBeCloseTo(50, 5);
+
+        autoLayer.rebuildAutomaticComposition();
+        expect(
+            getSerializedTranslationX(autoLayer.toJSON().shapes[0])
+        ).toBeCloseTo(0, 5);
+        expect(physicalRsb(autoLayer)).toBeCloseTo(rsbBefore, 5);
+        expect(
+            getSerializedTranslationX(autoLayer.toCompileJSON().shapes[0])
+        ).toBeCloseTo(50, 5);
     });
 });
 
@@ -1829,14 +1961,18 @@ describe('Automatic component editing canonical behavior', () => {
             expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(stageLiveDragPreviewFromModelSpy).toHaveBeenCalledTimes(1);
             expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][0]).toEqual([
-                'A',
-                'visibleComposite'
+                { glyphName: 'A', layerId: 'A0' },
+                { glyphName: 'visibleComposite', layerId: 'VC0' }
             ]);
             expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][1]).toBe(
                 'A0'
             );
             expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][2]).toEqual({
-                dispatchGlyphChanged: false
+                dispatchGlyphChanged: false,
+                layerTargets: [
+                    { glyphName: 'A', layerId: 'A0' },
+                    { glyphName: 'visibleComposite', layerId: 'VC0' }
+                ]
             });
             expect(glyphChangedHandler).not.toHaveBeenCalled();
             expect(
@@ -1937,13 +2073,14 @@ describe('Automatic component editing canonical behavior', () => {
             expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(stageLiveDragPreviewFromModelSpy).toHaveBeenCalledTimes(1);
             expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][0]).toEqual([
-                'A'
+                { glyphName: 'A', layerId: 'A0' }
             ]);
             expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][1]).toBe(
                 'A0'
             );
             expect(stageLiveDragPreviewFromModelSpy.mock.calls[0][2]).toEqual({
-                dispatchGlyphChanged: false
+                dispatchGlyphChanged: false,
+                layerTargets: [{ glyphName: 'A', layerId: 'A0' }]
             });
             expect(glyphChangedHandler).not.toHaveBeenCalled();
             expect(

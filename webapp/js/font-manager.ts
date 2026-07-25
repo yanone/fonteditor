@@ -5160,7 +5160,11 @@ class FontManager {
                     }
                 }
 
+                // Compile-facing preview payloads must never replace resting
+                // storage — that poisons logical component translates and
+                // double-bakes =+/-= on the next drag.
                 if (
+                    !options?.compileFacing &&
                     !this.updateStoredLayerData(
                         glyphName,
                         layerId,

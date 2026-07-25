@@ -148,7 +148,7 @@ export function canonicalizeImportedFontData(
     return {
         fontData,
         fontModel,
-        babelfontJson: fontModel.toJSONString()
+        babelfontJson: fontModel.toJSONString({ compileFacing: false })
     };
 }
 

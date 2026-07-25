@@ -107,11 +107,22 @@ export class LiveDragEditFunnel {
         }
 
         if (!this.isRequestActive(request)) {
+            // run() may already have staged a physical overlay. If the
+            // session died mid-await, drop that orphan so drag-2 cannot
+            // inherit a prior generation (bake-skip on stale physical JSON).
+            this.clearOrphanedPreviewOverlay(request);
             this.clearMatchingCompileContext(request);
             return;
         }
 
         this.requestLiveCompile(request);
+    }
+
+    private clearOrphanedPreviewOverlay(request: LiveDragEditRequest): void {
+        if (request.kind !== 'sidebearing' && request.kind !== 'anchor') {
+            return;
+        }
+        window.fontManager?.clearLiveDragPreview?.();
     }
 
     private isRequestActive(request: LiveDragEditRequest): boolean {
