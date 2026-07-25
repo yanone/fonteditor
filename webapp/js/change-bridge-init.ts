@@ -568,8 +568,17 @@ function buildCascadeLayerOperations(
  * layers.
  */
 /**
- * GUI-complete packets must carry replay targets that include the operation's
- * own source glyph/layer.
+ * GUI-complete packets must carry replay targets that claim the operation's own
+ * glyph.
+ *
+ * The layer identity is deliberately NOT required to match. Producers run the
+ * shared recomposition closure with per-glyph layer matching, so a dependent's
+ * recomposed layer legitimately carries a sibling `layerId` that differs from
+ * the source layer the replay metadata was keyed on. Requiring an exact
+ * `layerId` match made those packets look incomplete and forced the finalizer
+ * to run a second, redundant recomposition pass over an already-final model.
+ * Claiming the glyph is the meaningful completeness signal; a producer that
+ * recomposed a glyph always lists that glyph in its replay targets.
  */
 function operationCarriesCompleteGuiReplayTargets(
     operation: TransactionBufferedOperation
@@ -589,9 +598,7 @@ function operationCarriesCompleteGuiReplayTargets(
         return false;
     }
 
-    return replayTargets.some(
-        (target) => target.glyphName === glyphName && target.layerId === layerId
-    );
+    return replayTargets.some((target) => target.glyphName === glyphName);
 }
 
 /**
