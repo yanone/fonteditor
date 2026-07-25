@@ -303,63 +303,6 @@ function collectLayerTargetsForAffectedGlyphNames(
     return normalizeWorkerReplayTargets(targets);
 }
 
-function recomputeCascadeAffectedGlyphNames(
-    bridge: PatchSyncEngine,
-    sourceTargets: WorkerReplayTarget[]
-): Set<string> {
-    const fontModel =
-        window.fontManager?.currentFont?.fontModel ?? window.currentFontModel;
-    if (!fontModel) {
-        return new Set();
-    }
-
-    const seedGlyphNames = new Set(
-        sourceTargets
-            .map((target) => target.glyphName)
-            .filter((glyphName): glyphName is string => !!glyphName)
-    );
-    if (seedGlyphNames.size === 0) {
-        return new Set();
-    }
-
-    const preferredSourceTarget = sourceTargets[0] ?? null;
-    const recompute = () => {
-        const affectedGlyphNames = new Set<string>();
-        if (
-            typeof fontModel.rebuildAutomaticCompositesForGlyphs === 'function'
-        ) {
-            for (const glyphName of fontModel.rebuildAutomaticCompositesForGlyphs(
-                seedGlyphNames,
-                preferredSourceTarget
-                    ? {
-                          preferredLayerId: preferredSourceTarget.layerId,
-                          preferredSourceGlyphName:
-                              preferredSourceTarget.glyphName
-                      }
-                    : undefined
-            )) {
-                affectedGlyphNames.add(glyphName);
-            }
-        }
-
-        if (typeof fontModel.recomputeMetricsKeys === 'function') {
-            for (const glyphName of fontModel.recomputeMetricsKeys(
-                seedGlyphNames
-            )) {
-                affectedGlyphNames.add(glyphName);
-            }
-        }
-
-        return affectedGlyphNames;
-    };
-
-    if (typeof bridge.runWithoutRecording === 'function') {
-        return bridge.runWithoutRecording(recompute);
-    }
-
-    return recompute();
-}
-
 function applyDirectLayerOperationToSnapshot(
     snapshot: Record<string, unknown>,
     operation: TransactionBufferedOperation,
@@ -687,20 +630,58 @@ export function buildCascadingRecompositionOperations(
         return [];
     }
 
+    // Layer-snapshot writes are the authoritative producer output. A bare
+    // width/anchor property `set` for a (glyph, layer) that also has a
+    // layer-snapshot in the same transaction is a by-product of the producer's
+    // own model mutation, not an independent cascade trigger — it must not
+    // defeat the Rule 18 skip and cause a second recomposition pass.
+    const snapshotCoveredLayers = new Set<string>();
+    for (const op of operations) {
+        const applyPath = op.applyPath ?? op.path ?? [];
+        if (
+            op.applyMode === 'layer-snapshot' &&
+            applyPath.length === 4 &&
+            applyPath[0] === 'glyphs' &&
+            applyPath[2] === 'layers'
+        ) {
+            snapshotCoveredLayers.add(
+                `${String(applyPath[1])}@@${String(applyPath[3])}`
+            );
+        }
+    }
+
     // Check if every cascade-triggering operation already carries complete
     // GUI replay targets. If so, the producer already recomposed and
     // included the downstream layer snapshots — skip duplicate recomposition.
     const allOperationsComplete = operations.every((op) => {
         const applyPath = op.applyPath ?? op.path;
+        const isLayerSnapshot =
+            op.applyMode === 'layer-snapshot' &&
+            applyPath.length === 4 &&
+            applyPath[0] === 'glyphs' &&
+            applyPath[2] === 'layers';
+
+        if (
+            !isLayerSnapshot &&
+            (isWidthPath(applyPath) || isAnchorPath(applyPath))
+        ) {
+            const glyphName = deriveGlyphName(applyPath);
+            const layerId = deriveLayerId(applyPath);
+            if (
+                glyphName &&
+                layerId &&
+                snapshotCoveredLayers.has(`${glyphName}@@${layerId}`)
+            ) {
+                return true;
+            }
+        }
+
         // Only check operations that are cascade triggers
         if (
             !isWidthPath(applyPath) &&
             !isAnchorPath(applyPath) &&
             !(
-                op.applyMode === 'layer-snapshot' &&
-                applyPath.length === 4 &&
-                applyPath[0] === 'glyphs' &&
-                applyPath[2] === 'layers' &&
+                isLayerSnapshot &&
                 (layerSnapshotTouchesCascade(op.applyOldValue) ||
                     layerSnapshotTouchesCascade(op.applyNewValue))
             ) &&
@@ -1836,41 +1817,6 @@ function syncImmediateUndoOutlineLayerFromModel(
     outlineEditor?.performHitDetection?.(null);
     gc.render?.();
     return true;
-}
-
-/**
- * Derive cascading *model recomposition* targets from the directly edited
- * layers (automatic composites + metrics-key dependents only).
- *
- * Invalidate-only component dependents are not returned here; callers that
- * need the wide replay set should use `computeLayerRecompositionClosure`
- * and read `allTargets`.
- */
-export function collectCascadeRecomposeTargets(
-    sourceTargets: WorkerReplayTarget[],
-    sourceGlyphName?: string | null,
-    sourceLayerId?: string | null,
-    editKinds?: Set<'outline' | 'anchor' | 'sidebearing' | 'component'>
-): WorkerReplayTarget[] {
-    const fontModel =
-        window.fontManager?.currentFont?.fontModel ?? window.currentFontModel;
-    if (!fontModel || !sourceTargets.length) {
-        return [];
-    }
-
-    const closure = computeLayerRecompositionClosure({
-        sourceTargets,
-        editKinds:
-            editKinds && editKinds.size > 0
-                ? editKinds
-                : new Set(['outline', 'anchor', 'sidebearing', 'component']),
-        scope: 'all',
-        fontModel,
-        activeLayerId: sourceLayerId,
-        sourceGlyphName
-    });
-
-    return closure.recomposeTargets;
 }
 
 export function waitForEditingFontCompileRevision(

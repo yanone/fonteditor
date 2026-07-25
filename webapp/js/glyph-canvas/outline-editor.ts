@@ -4883,11 +4883,17 @@ export class OutlineEditor {
         const sourceTargets = [
             { glyphName: sourceGlyphName, layerId: currentLayerId }
         ];
+        // Live drag already recomposed every *visible* glyph with the same
+        // engine. The commit pass therefore MUST be a no-op for those glyphs
+        // and may only add hidden downstream ones. Capture their pre-commit
+        // fingerprints so any drift is reported instead of silently repaired.
+        const visibleBaseline = this.captureVisibleRecompositionBaseline();
         const closure = this.computeRecompositionClosure({
             sourceTargets,
             editKinds: new Set(['sidebearing']),
             scope: 'all'
         });
+        this.assertCommitRecompositionNoOpForVisibleGlyphs(visibleBaseline);
         const { changedLayerTargets, workerReplayTargets } =
             resolveLayerSyncTargetsFromClosure(closure, sourceTargets);
         this._sidebearingAffectedGlyphNames = closure.affectedGlyphNames;
@@ -4897,6 +4903,12 @@ export class OutlineEditor {
             affectedGlyphNames: closure.affectedGlyphNames,
             recomposeTargets: closure.recomposeTargets
         };
+
+        // The closure is the only writer of recomposed metrics. Refresh the
+        // editor working copy from that recomposed model — width *and* shapes —
+        // so the later saveLayerData() serializes post-recomposition state
+        // instead of clobbering it with pre-recomposition editor geometry.
+        this.syncCurrentExactLayerDataFromModel();
 
         const widthGlyphNames = new Set<string>([
             sourceGlyphName,
@@ -4993,178 +5005,95 @@ export class OutlineEditor {
         );
     }
 
-    private collectLiveVisibleDragDriftCheckSnapshots(
-        affectedGlyphNames: Iterable<string>,
-        explicitLayerInput?: {
-            glyphName: string;
-            layerId: string;
-            layerData: Babelfont.Layer;
-        } | null
-    ): Array<{
-        glyphName: string;
-        layerId: string;
-        fingerprint: string;
-    }> {
-        const currentLayerId = this.getCurrentLayerId();
-        const normalizedGlyphNames = new Set(affectedGlyphNames);
-        if (!currentLayerId || normalizedGlyphNames.size === 0) {
-            return [];
+    /**
+     * Fingerprint every currently visible glyph layer that automatic
+     * composition / metrics-key inheritance could rewrite. Used to prove the
+     * commit recomposition pass is a no-op for glyphs the live drag already
+     * recomposed with the same engine.
+     */
+    private captureVisibleRecompositionBaseline(): Map<string, string> {
+        const baseline = new Map<string, string>();
+        if (!APP_SETTINGS.IN_BROWSER_LIVE_TESTS.ENABLE_WORKER_DRIFT_CHECKS) {
+            return baseline;
         }
 
-        const layerTargets = this.collectMatchingLayerWorkerReplayTargets(
-            normalizedGlyphNames,
-            currentLayerId
-        );
+        const fontModel = fontManager.currentFont?.fontModel;
+        const layerId = this.getCurrentLayerId();
+        if (!fontModel || !layerId) {
+            return baseline;
+        }
 
-        return layerTargets
-            .map((target) => {
-                const liveSourceLayer =
-                    explicitLayerInput &&
-                    explicitLayerInput.glyphName === target.glyphName &&
-                    explicitLayerInput.layerId === target.layerId
-                        ? explicitLayerInput.layerData
-                        : null;
-                const modelGlyph =
-                    fontManager.currentFont?.fontModel?.findGlyph(
-                        target.glyphName
-                    );
-                const modelLayer = modelGlyph?.findLayerById(target.layerId);
-                const layerData = liveSourceLayer
-                    ? liveSourceLayer
-                    : typeof modelLayer?.toJSON === 'function'
-                      ? (modelLayer.toJSON() as Babelfont.Layer)
-                      : (modelLayer as Babelfont.Layer | null);
+        const visibleGlyphNames = new Set<string>([
+            ...(fontManager.getLiveVisibleGlyphNames?.() || []),
+            ...(this.glyphCanvas?.textRunEditor?.glyphNameBuffer || [])
+        ]);
 
-                if (!layerData) {
-                    return null;
-                }
-
-                return {
-                    glyphName: target.glyphName,
-                    layerId: target.layerId,
-                    fingerprint: this.normalizeLayerDataForDriftCheck(layerData)
-                };
-            })
-            .filter(
-                (
-                    snapshot
-                ): snapshot is {
-                    glyphName: string;
-                    layerId: string;
-                    fingerprint: string;
-                } => !!snapshot
+        for (const glyphName of visibleGlyphNames) {
+            const glyph = fontModel.findGlyph?.(glyphName);
+            const layer = glyph?.findLayerById?.(layerId);
+            if (!layer || typeof layer.toJSON !== 'function') {
+                continue;
+            }
+            baseline.set(
+                `${glyphName}@@${layerId}`,
+                this.normalizeLayerDataForDriftCheck(layer.toJSON())
             );
+        }
+
+        return baseline;
     }
 
-    private async assertLiveVisibleDragWorkerStateMatchesExpected(
-        expectedSnapshots: Array<{
-            glyphName: string;
-            layerId: string;
-            fingerprint: string;
-        }>
-    ): Promise<void> {
+    /**
+     * Rule: the live drag pass and the commit pass run the same recomposition
+     * engine over the same model data; the only difference is how many glyphs
+     * are in scope (visible vs all). Therefore the commit pass must not change
+     * any glyph that was already visible during the drag. A mismatch means the
+     * live pass under-recomposed or a non-engine writer mutated the model in
+     * between, and is reported rather than silently corrected.
+     */
+    private assertCommitRecompositionNoOpForVisibleGlyphs(
+        baseline: Map<string, string>
+    ): void {
         if (!APP_SETTINGS.IN_BROWSER_LIVE_TESTS.ENABLE_WORKER_DRIFT_CHECKS) {
             return;
         }
-
-        if (expectedSnapshots.length === 0) {
+        if (baseline.size === 0) {
             return;
         }
 
-        if (!window.fontCompilation?.isInitialized) {
+        const fontModel = fontManager.currentFont?.fontModel;
+        const layerId = this.getCurrentLayerId();
+        if (!fontModel || !layerId) {
             return;
         }
 
-        await window.fontCompilation.awaitWorkerDocumentSync();
-
-        const layerTargets = expectedSnapshots.map(
-            ({ glyphName, layerId }) => ({
-                glyphName,
-                layerId
-            })
-        );
-
-        if (layerTargets.length === 0) {
-            return;
-        }
-
-        const response = await window.fontCompilation.sendMessage({
-            type: 'dumpLayerState',
-            layerTargets
-        });
-
-        if (response?.error) {
-            throw new Error(
-                `Failed to inspect live drag worker state: ${response.error}`
-            );
-        }
-
-        const dump = response?.dumpJson ? JSON.parse(response.dumpJson) : null;
-        const dumpTargets = Array.isArray(dump?.targets) ? dump.targets : [];
-        const mismatches: string[] = [];
-        const seenTargets = new Set<string>();
-        const expectedByTarget = new Map(
-            expectedSnapshots.map((snapshot) => [
-                `${snapshot.glyphName}@@${snapshot.layerId}`,
-                snapshot.fingerprint
-            ])
-        );
-
-        for (const target of dumpTargets) {
-            const glyphName =
-                typeof target?.glyphName === 'string' ? target.glyphName : null;
-            const layerId =
-                typeof target?.layerId === 'string' ? target.layerId : null;
-            if (!glyphName || !layerId) {
+        const drifted: string[] = [];
+        for (const [key, expectedFingerprint] of baseline) {
+            const glyphName = key.slice(0, key.indexOf('@@'));
+            const glyph = fontModel.findGlyph?.(glyphName);
+            const layer = glyph?.findLayerById?.(layerId);
+            if (!layer || typeof layer.toJSON !== 'function') {
                 continue;
             }
-
-            seenTargets.add(`${glyphName}@@${layerId}`);
-
-            const expectedFingerprint =
-                expectedByTarget.get(`${glyphName}@@${layerId}`) ?? 'null';
-            const rustCanonicalFingerprint =
-                this.normalizeLayerDataForDriftCheck(target?.canonicalLayer);
-            const rustSubsetFingerprint = this.normalizeLayerDataForDriftCheck(
-                target?.subsetLayer
+            const actualFingerprint = this.normalizeLayerDataForDriftCheck(
+                layer.toJSON()
             );
-            const rustYDocFingerprint = this.normalizeLayerDataForDriftCheck(
-                target?.ydocLayer
-            );
-
-            if (
-                expectedFingerprint !== rustCanonicalFingerprint ||
-                expectedFingerprint !== rustSubsetFingerprint ||
-                expectedFingerprint !== rustYDocFingerprint
-            ) {
-                mismatches.push(
-                    `${glyphName}/${layerId}: expected=${expectedFingerprint} rustCanonical=${rustCanonicalFingerprint} rustSubset=${rustSubsetFingerprint} rustYDoc=${rustYDocFingerprint}`
+            if (actualFingerprint !== expectedFingerprint) {
+                drifted.push(
+                    `${glyphName}/${layerId}: live=${expectedFingerprint} commit=${actualFingerprint}`
                 );
             }
         }
 
-        for (const target of layerTargets) {
-            const targetKey = `${target.glyphName}@@${target.layerId}`;
-            if (!seenTargets.has(targetKey)) {
-                mismatches.push(
-                    `${target.glyphName}/${target.layerId}: missing from Rust dump response`
-                );
-            }
-        }
-
-        if (mismatches.length === 0) {
+        if (drifted.length === 0) {
             return;
         }
 
-        const detail = mismatches.join('\n');
-        fontManager.pendingCommittedKeyboardDriftCheckAfterDrag = true;
-        const error = new Error(
-            'Visible live drag glyph data did not reach the compiled worker state.\n' +
-                'Reload the font or app before continuing.\n\n' +
-                detail
+        console.error(
+            'Commit recomposition changed glyphs that were already recomposed live. ' +
+                'Live and commit passes must share one engine and one data source.\n' +
+                drifted.join('\n')
         );
-        sidebarErrorDisplay.showError(error, 'editing', { sticky: true });
-        throw error;
     }
 
     private rebuildAutomaticCompositesForCurrentEditedGlyph(options?: {

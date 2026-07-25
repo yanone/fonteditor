@@ -2146,7 +2146,7 @@ class FontManager {
         });
     }
 
-    private syncSerializedLayerIntoObjectModel(
+    syncSerializedLayerIntoObjectModel(
         glyphName: string,
         layerId: string,
         layerData: Babelfont.Layer
