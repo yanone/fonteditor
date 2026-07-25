@@ -78,78 +78,6 @@ export function decodeShapeNodesForRuntime(shapes: Unsafe[]): Unsafe[] {
 }
 
 /**
- * Invariant: any layer object the object model aliases (`Layer.data` is
- * `_parent[_index]`) must hold runtime-decoded node arrays, never
- * Rust-normalized node strings. The encoded form is for Yjs / the Rust worker
- * only.
- *
- * Violating this makes geometry unreadable, which historically degenerated
- * bounding boxes into advance-shaped boxes and silently corrupted sidebearing
- * math several layers downstream from the offending writer.
- *
- * Behaviour is deliberately asymmetric:
- *  - development: report loudly (event for UI + throw) so the writer gets fixed
- *  - production:  repair defensively and warn, never break the user's session
- *
- * @returns a layer object guaranteed safe for the object model. When a repair
- *          was needed a new object is returned; the input is never mutated, so
- *          callers may keep handing the original (encoded) object to Yjs.
- */
-export function ensureDecodedLayerGeometry<T extends { shapes?: Unsafe[] }>(
-    layerData: T,
-    context: string
-): T {
-    const shapes = layerData?.shapes;
-    if (!Array.isArray(shapes)) {
-        return layerData;
-    }
-
-    const decodedShapes = decodeShapeNodesForRuntime(shapes);
-    if (decodedShapes === shapes) {
-        return layerData;
-    }
-
-    const message =
-        '[Layer] Encoded node strings reached the object model from ' +
-        context +
-        '. Decode via decodeShapeNodesForRuntime before writing into ' +
-        'babelfontData.';
-
-    const scope = globalThis as {
-        isDevelopment?: () => boolean;
-        dispatchEvent?: (event: Event) => boolean;
-        CustomEvent?: typeof CustomEvent;
-    };
-    // Jest runs with isDevelopment() === true, but a throw there would turn a
-    // fixture that legitimately feeds storage-shaped layers into a suite
-    // failure. Keep the hard failure for the interactive dev app only.
-    const isTestRunner =
-        typeof process !== 'undefined' &&
-        !!(process as { env?: Record<string, string | undefined> }).env
-            ?.JEST_WORKER_ID;
-    const isDevelopment =
-        !isTestRunner &&
-        (typeof scope.isDevelopment === 'function'
-            ? !!scope.isDevelopment()
-            : false);
-
-    if (typeof scope.dispatchEvent === 'function' && scope.CustomEvent) {
-        scope.dispatchEvent(
-            new scope.CustomEvent('layerGeometryInvariantViolation', {
-                detail: { context, message }
-            })
-        );
-    }
-
-    if (isDevelopment) {
-        throw new Error(message);
-    }
-
-    console.warn(message + ' Decoded defensively.');
-    return { ...layerData, shapes: decodedShapes };
-}
-
-/**
  * Ensure every Node, Path, Component, Anchor, and Guide in the font has a stable `id`.
  * Called after font load / deserialization. Ids are generated for any element missing one;
  * existing ids are preserved. These ids support editor selection and the indexed-map
@@ -9149,11 +9077,27 @@ export class Layer extends ArrayElementBase {
         width: number;
         height: number;
     } | null {
+        // Nodes may arrive Rust-normalized (string-encoded) from storage or a
+        // Yjs round-trip. Decode up front so measurement always sees real
+        // geometry — an unreadable path would otherwise contribute no bounds
+        // and silently degrade this box into an advance-shaped placeholder.
+        const decodedShapes = Array.isArray(layerData.shapes)
+            ? decodeShapeNodesForRuntime(layerData.shapes as Unsafe[])
+            : layerData.shapes;
+        const measuredLayerData =
+            decodedShapes === layerData.shapes
+                ? layerData
+                : { ...layerData, shapes: decodedShapes };
+
         let bounds = null;
 
         // Get all paths (we need to use the static flattenComponents for compatibility)
         // since we're working with raw layer data, not a Layer instance
-        const paths = Layer.flattenComponents(layerData, font, masterId);
+        const paths = Layer.flattenComponents(
+            measuredLayerData,
+            font,
+            masterId
+        );
 
         // Process all paths
         for (const path of paths) {
@@ -9173,8 +9117,8 @@ export class Layer extends ArrayElementBase {
         }
 
         // Include anchors in bounding box if requested
-        if (includeAnchors && layerData.anchors) {
-            for (const anchor of layerData.anchors) {
+        if (includeAnchors && measuredLayerData.anchors) {
+            for (const anchor of measuredLayerData.anchors) {
                 bounds = bounds
                     ? {
                           minX: Math.min(bounds.minX, anchor.x),
@@ -9216,14 +9160,14 @@ export class Layer extends ArrayElementBase {
                 });
             if (hasPathGeometry) {
                 console.warn(
-                    '[Layer] Bounding box could not be measured despite present path geometry. ' +
-                        'Refusing to substitute advance-shaped bounds.',
+                    '[Layer] Bounding box could not be measured despite present ' +
+                        'path geometry. Falling back to advance-shaped bounds; ' +
+                        'sidebearing reads from this layer are not trustworthy.',
                     {
                         width: layerData.width,
                         shapeCount: layerData.shapes?.length
                     }
                 );
-                return null;
             }
 
             // No points found (e.g., space character) - use glyph width from layer data

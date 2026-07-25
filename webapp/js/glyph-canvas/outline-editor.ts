@@ -14,7 +14,7 @@ import {
     buildInterpolationRustBatchOperations,
     withSuppressedModelRecording,
     withSuppressedMetricsKeyRecompute,
-    ensureDecodedLayerGeometry
+    decodeShapeNodesForRuntime
 } from '../babelfont-model';
 import { beginLoadingCursor, endLoadingCursor } from '../loading-cursor';
 import {
@@ -19714,10 +19714,16 @@ export class OutlineEditor {
                     // returns RSB 0. Any recomposition running in that window
                     // then "corrects" width by the full keyed RSB. The Yjs
                     // payload below keeps the normalized form unchanged.
-                    storedLayers[storedLayerIndex] = ensureDecodedLayerGeometry(
-                        serializedLayer,
-                        '_syncCurrentGlyphToYDoc'
-                    );
+                    storedLayers[storedLayerIndex] = Array.isArray(
+                        serializedLayer.shapes
+                    )
+                        ? {
+                              ...serializedLayer,
+                              shapes: decodeShapeNodesForRuntime(
+                                  serializedLayer.shapes
+                              )
+                          }
+                        : serializedLayer;
                     modelLayer?.invalidateContentCaches?.();
                     layerSnapshots.push({
                         glyphName: target.glyphName,
