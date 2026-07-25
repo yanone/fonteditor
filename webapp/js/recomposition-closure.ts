@@ -115,6 +115,7 @@ export interface FontModelLike {
         options?: {
             allowedGlyphNames?: Set<string>;
             skipAutomaticCompositeRebuild?: boolean;
+            skipInitialAutomaticCompositeRebuild?: boolean;
         }
     ) => Set<string>;
     /**
@@ -435,6 +436,10 @@ export function computeLayerRecompositionClosure(options: {
         editKinds.has('anchor') ||
         editKinds.has('sidebearing') ||
         editKinds.has('component');
+    const needsMetricsPropagation =
+        editKinds.has('sidebearing') ||
+        editKinds.has('outline') ||
+        editKinds.has('component');
 
     // ── Invalidate-only: all component-reference dependents ─────────────
     // Manual and automatic composites that *draw* the edited source need
@@ -515,15 +520,17 @@ export function computeLayerRecompositionClosure(options: {
     // do not drive metrics-key inheritance. Automatic layers are mutated only
     // via rebuild above — never via metrics translate/bake.
     if (
-        (editKinds.has('sidebearing') ||
-            editKinds.has('outline') ||
-            editKinds.has('component')) &&
+        needsMetricsPropagation &&
         typeof fontModel.recomputeMetricsKeys === 'function'
     ) {
         const metricsDeps = wrap(() =>
             fontModel.recomputeMetricsKeys!(sourceGlyphNames, {
                 ...(allowedGlyphNames ? { allowedGlyphNames } : {}),
-                skipAutomaticCompositeRebuild: true
+                // The closure already performed the initial source-component
+                // rebuild above. Keep that work single-pass, but allow the
+                // metrics queue to rebuild automatic dependents after a keyed
+                // glyph changes (l -> n -> a -> adieresis).
+                skipInitialAutomaticCompositeRebuild: true
             })
         );
         for (const depGlyphName of metricsDeps) {
@@ -672,7 +679,8 @@ export function deriveEditKindsFromDrag(
  */
 export function resolveLayerSyncTargetsFromClosure(
     closure: RecompositionClosure,
-    sourceTargets: WorkerReplayTarget[]
+    sourceTargets: WorkerReplayTarget[],
+    previouslyRecomposedTargets: WorkerReplayTarget[] = []
 ): {
     changedLayerTargets: WorkerReplayTarget[];
     workerReplayTargets: WorkerReplayTarget[];
@@ -681,11 +689,18 @@ export function resolveLayerSyncTargetsFromClosure(
     return {
         changedLayerTargets: normalizeWorkerReplayTargets([
             ...normalizedSource,
+            // Live drag may already have converged visible descendants before
+            // the all-scope commit closure runs. A no-op final pass must still
+            // snapshot those layers into Yjs; otherwise the worker retains
+            // their pre-drag state and the full commit reshape rolls them back.
+            ...previouslyRecomposedTargets,
             ...closure.recomposeTargets
         ]),
-        workerReplayTargets:
-            closure.allTargets.length > 0
+        workerReplayTargets: normalizeWorkerReplayTargets([
+            ...previouslyRecomposedTargets,
+            ...(closure.allTargets.length > 0
                 ? closure.allTargets
-                : normalizedSource
+                : normalizedSource)
+        ])
     };
 }

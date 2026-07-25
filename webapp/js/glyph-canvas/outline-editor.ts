@@ -3004,6 +3004,15 @@ export class OutlineEditor {
         glyphName: string;
         layerId: string;
     }> = [];
+    /**
+     * Exact visible layers that the canonical live closure mutated. Commit
+     * reuses these identities for Yjs snapshots when its all-scope pass is a
+     * no-op for already-converged visible glyphs.
+     */
+    private _lastLiveSidebearingRecomposeTargets: Array<{
+        glyphName: string;
+        layerId: string;
+    }> = [];
     /** Monotonic preview generation; stale funnel stages must not compile. */
     private _liveSidebearingPreviewGeneration: number = 0;
     /** rAF handle for paint-only frames owned by a returning preview compile. */
@@ -4917,7 +4926,11 @@ export class OutlineEditor {
         });
         this.assertCommitRecompositionNoOpForVisibleGlyphs(visibleBaseline);
         const { changedLayerTargets, workerReplayTargets } =
-            resolveLayerSyncTargetsFromClosure(closure, sourceTargets);
+            resolveLayerSyncTargetsFromClosure(
+                closure,
+                sourceTargets,
+                this._lastLiveSidebearingRecomposeTargets
+            );
         this._sidebearingAffectedGlyphNames = closure.affectedGlyphNames;
         this._pendingSidebearingCommitSync = {
             changedLayerTargets,
@@ -5668,6 +5681,7 @@ export class OutlineEditor {
         this._keyboardSidebearingPreviewActive = false;
         this._sidebearingPointerBaselineReady = false;
         this._lastLiveSidebearingPreviewTargets = [];
+        this._lastLiveSidebearingRecomposeTargets = [];
         this._lastLiveSidebearingWidthGlyphNames = new Set();
         this._pendingSidebearingCommitSync = null;
         this._lastLiveAnchorPreviewTargets = [];
@@ -17431,6 +17445,8 @@ export class OutlineEditor {
             );
             this._lastLiveSidebearingAdvances = { ...glyphAdvances };
             this._lastLiveSidebearingPreviewTargets = closure.allTargets;
+            this._lastLiveSidebearingRecomposeTargets =
+                closure.recomposeTargets;
             this._lastLiveSidebearingWidthGlyphNames = widthGlyphNames;
             if (this.isDraggingSidebearing) {
                 this._liveSidebearingPreviewGeneration++;

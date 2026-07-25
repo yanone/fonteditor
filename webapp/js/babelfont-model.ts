@@ -11669,6 +11669,10 @@ export class Font extends ModelBase {
         options?: {
             allowedGlyphNames?: Set<string>;
             skipAutomaticCompositeRebuild?: boolean;
+            /** The caller already rebuilt automatic composites for the initial
+             *  sources, but metric-induced changes must still rebuild their
+             *  own automatic dependents. */
+            skipInitialAutomaticCompositeRebuild?: boolean;
         }
     ): Set<string> {
         if (this._isRecomputingMetricsKeys) {
@@ -11678,6 +11682,8 @@ export class Font extends ModelBase {
         this._isRecomputingMetricsKeys = true;
         const recomputedGlyphNames = new Set<string>();
         const skipCompositeRebuild = !!options?.skipAutomaticCompositeRebuild;
+        const skipInitialAutomaticCompositeRebuild =
+            !!options?.skipInitialAutomaticCompositeRebuild;
         try {
             const allowedGlyphNames = options?.allowedGlyphNames;
             const filterGlyphNames = (
@@ -11766,17 +11772,20 @@ export class Font extends ModelBase {
             // so that the source glyph's own composites stay in sync. Skip
             // only the downstream cascade rebuilds that are expensive and
             // unnecessary when only sidebearing widths have changed.
-            for (const glyphName of skipCompositeRebuild
-                ? this.rebuildAutomaticComposites(initialGlyphNames, {
-                      skipSelfGlyphNames: new Set<string>(),
-                      allowedGlyphNames
-                  })
-                : this.rebuildAutomaticComposites(initialGlyphNames, {
-                      skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames,
-                      allowedGlyphNames
-                  })) {
-                recomputedGlyphNames.add(glyphName);
-                enqueueGlyphName(glyphName);
+            if (!skipInitialAutomaticCompositeRebuild) {
+                for (const glyphName of skipCompositeRebuild
+                    ? this.rebuildAutomaticComposites(initialGlyphNames, {
+                          skipSelfGlyphNames: new Set<string>(),
+                          allowedGlyphNames
+                      })
+                    : this.rebuildAutomaticComposites(initialGlyphNames, {
+                          skipSelfGlyphNames:
+                              skipSelfAutomaticRebuildGlyphNames,
+                          allowedGlyphNames
+                      })) {
+                    recomputedGlyphNames.add(glyphName);
+                    enqueueGlyphName(glyphName);
+                }
             }
 
             if (dependencyEntries.length === 0) {

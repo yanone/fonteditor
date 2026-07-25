@@ -294,6 +294,170 @@ describe('lean cascading layer recomposition', () => {
         ).toBe(true);
     });
 
+    test('sidebearing metrics chains rebuild automatic composites from their final base width', () => {
+        // Mixed dependency graph:
+        // l RSB -> n RSB -> a RSB -> adieresis (automatic component edge).
+        // The final edge must run after metrics-key propagation changes a.
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [makeMaster()],
+            glyphs: [
+                {
+                    name: 'l',
+                    layers: [
+                        {
+                            id: 'l0',
+                            width: 400,
+                            master: { type: 'DefaultForMaster', master: 'M0' },
+                            shapes: [makeRectPath(40, 0, 360, 700)],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'n',
+                    layers: [
+                        {
+                            id: 'n0',
+                            width: 380,
+                            master: { type: 'DefaultForMaster', master: 'M0' },
+                            shapes: [makeRectPath(40, 0, 340, 700)],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: { metric_right: '=l-10' }
+                },
+                {
+                    name: 'a',
+                    layers: [
+                        {
+                            id: 'a0',
+                            width: 500,
+                            master: { type: 'DefaultForMaster', master: 'M0' },
+                            shapes: [makeRectPath(50, 0, 450, 700)],
+                            anchors: [{ name: 'top', x: 250, y: 700 }],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: { metric_right: '=n' }
+                },
+                {
+                    name: 'dieresiscomb',
+                    layers: [
+                        {
+                            id: 'dc0',
+                            width: 200,
+                            master: { type: 'DefaultForMaster', master: 'M0' },
+                            shapes: [makeRectPath(20, 0, 180, 120)],
+                            anchors: [{ name: '_top', x: 100, y: 0 }],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'adieresis',
+                    layers: [
+                        {
+                            id: 'ad0',
+                            width: 500,
+                            master: { type: 'DefaultForMaster', master: 'M0' },
+                            shapes: [
+                                makeComponent('a'),
+                                makeComponent('dieresiscomb')
+                            ],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                }
+            ],
+            names: {},
+            features: { classes: {}, prefixes: {}, features: [] },
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const lLayer = font.findGlyph('l').findLayerById('l0');
+        const nLayer = font.findGlyph('n').findLayerById('n0');
+        const aLayer = font.findGlyph('a').findLayerById('a0');
+        const adieresisLayer = font.findGlyph('adieresis').findLayerById('ad0');
+
+        lLayer.setDirectSidebearing('right', 100);
+
+        const closure = computeLayerRecompositionClosure({
+            sourceTargets: [{ glyphName: 'l', layerId: 'l0' }],
+            editKinds: new Set(['sidebearing']),
+            scope: 'all',
+            fontModel: font,
+            activeLayerId: 'l0',
+            sourceGlyphName: 'l'
+        });
+
+        expect(nLayer.rsb).toBe(90);
+        expect(aLayer.rsb).toBe(90);
+        expect(adieresisLayer.width).toBe(aLayer.width);
+        expect(adieresisLayer.rsb).toBe(aLayer.rsb);
+        expect(closure.recomposeGlyphNames.has('n')).toBe(true);
+        expect(closure.recomposeGlyphNames.has('a')).toBe(true);
+        expect(closure.recomposeGlyphNames.has('adieresis')).toBe(true);
+
+        // The live closure is the same mixed graph, merely restricted to the
+        // visible text-run closure. It must reach the same fixed point.
+        lLayer.setDirectSidebearing('right', 110);
+        const visibleClosure = computeLayerRecompositionClosure({
+            sourceTargets: [{ glyphName: 'l', layerId: 'l0' }],
+            editKinds: new Set(['sidebearing']),
+            scope: 'visible',
+            fontModel: font,
+            activeLayerId: 'l0',
+            sourceGlyphName: 'l',
+            visibleGlyphNames: new Set(['l', 'n', 'a', 'adieresis'])
+        });
+
+        expect(nLayer.rsb).toBe(100);
+        expect(aLayer.rsb).toBe(100);
+        expect(adieresisLayer.width).toBe(aLayer.width);
+        expect(adieresisLayer.rsb).toBe(aLayer.rsb);
+        expect(visibleClosure.recomposeGlyphNames.has('adieresis')).toBe(true);
+
+        // The all-scope settlement sees the already-converged visible model as
+        // a no-op, but must still snapshot the exact layers the live closure
+        // mutated or the worker will reshape from stale a/adieresis data.
+        const settledClosure = computeLayerRecompositionClosure({
+            sourceTargets: [{ glyphName: 'l', layerId: 'l0' }],
+            editKinds: new Set(['sidebearing']),
+            scope: 'all',
+            fontModel: font,
+            activeLayerId: 'l0',
+            sourceGlyphName: 'l'
+        });
+        const settledTargets = resolveLayerSyncTargetsFromClosure(
+            settledClosure,
+            [{ glyphName: 'l', layerId: 'l0' }],
+            visibleClosure.recomposeTargets
+        );
+
+        expect(
+            settledTargets.changedLayerTargets.map((target) => target.glyphName)
+        ).toEqual(expect.arrayContaining(['n', 'a', 'adieresis']));
+    });
+
     test('sidebearing commit still persists automatic composites after a no-op rebuild', () => {
         const font = makeLeanRecompositionFont();
         const auto = font.findGlyph('adieresisAuto').findLayerById('ada0');
@@ -414,7 +578,7 @@ describe('lean cascading layer recomposition', () => {
         });
 
         expect(metricsSpy).toHaveBeenCalledWith(new Set(['a']), {
-            skipAutomaticCompositeRebuild: true
+            skipInitialAutomaticCompositeRebuild: true
         });
         expect(closure.recomposeGlyphNames.has('n')).toBe(true);
         expect(closure.invalidateGlyphNames.has('adieresisManual')).toBe(true);
