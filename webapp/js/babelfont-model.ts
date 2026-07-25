@@ -78,6 +78,78 @@ export function decodeShapeNodesForRuntime(shapes: Unsafe[]): Unsafe[] {
 }
 
 /**
+ * Invariant: any layer object the object model aliases (`Layer.data` is
+ * `_parent[_index]`) must hold runtime-decoded node arrays, never
+ * Rust-normalized node strings. The encoded form is for Yjs / the Rust worker
+ * only.
+ *
+ * Violating this makes geometry unreadable, which historically degenerated
+ * bounding boxes into advance-shaped boxes and silently corrupted sidebearing
+ * math several layers downstream from the offending writer.
+ *
+ * Behaviour is deliberately asymmetric:
+ *  - development: report loudly (event for UI + throw) so the writer gets fixed
+ *  - production:  repair defensively and warn, never break the user's session
+ *
+ * @returns a layer object guaranteed safe for the object model. When a repair
+ *          was needed a new object is returned; the input is never mutated, so
+ *          callers may keep handing the original (encoded) object to Yjs.
+ */
+export function ensureDecodedLayerGeometry<T extends { shapes?: Unsafe[] }>(
+    layerData: T,
+    context: string
+): T {
+    const shapes = layerData?.shapes;
+    if (!Array.isArray(shapes)) {
+        return layerData;
+    }
+
+    const decodedShapes = decodeShapeNodesForRuntime(shapes);
+    if (decodedShapes === shapes) {
+        return layerData;
+    }
+
+    const message =
+        '[Layer] Encoded node strings reached the object model from ' +
+        context +
+        '. Decode via decodeShapeNodesForRuntime before writing into ' +
+        'babelfontData.';
+
+    const scope = globalThis as {
+        isDevelopment?: () => boolean;
+        dispatchEvent?: (event: Event) => boolean;
+        CustomEvent?: typeof CustomEvent;
+    };
+    // Jest runs with isDevelopment() === true, but a throw there would turn a
+    // fixture that legitimately feeds storage-shaped layers into a suite
+    // failure. Keep the hard failure for the interactive dev app only.
+    const isTestRunner =
+        typeof process !== 'undefined' &&
+        !!(process as { env?: Record<string, string | undefined> }).env
+            ?.JEST_WORKER_ID;
+    const isDevelopment =
+        !isTestRunner &&
+        (typeof scope.isDevelopment === 'function'
+            ? !!scope.isDevelopment()
+            : false);
+
+    if (typeof scope.dispatchEvent === 'function' && scope.CustomEvent) {
+        scope.dispatchEvent(
+            new scope.CustomEvent('layerGeometryInvariantViolation', {
+                detail: { context, message }
+            })
+        );
+    }
+
+    if (isDevelopment) {
+        throw new Error(message);
+    }
+
+    console.warn(message + ' Decoded defensively.');
+    return { ...layerData, shapes: decodedShapes };
+}
+
+/**
  * Ensure every Node, Path, Component, Anchor, and Guide in the font has a stable `id`.
  * Called after font load / deserialization. Ids are generated for any element missing one;
  * existing ids are preserved. These ids support editor selection and the indexed-map
