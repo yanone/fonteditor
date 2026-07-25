@@ -44,7 +44,7 @@ function parseRuntimeNodeArray(nodes: unknown): Babelfont.Node[] {
     }));
 }
 
-function decodeShapeNodesForRuntime(shapes: Unsafe[]): Unsafe[] {
+export function decodeShapeNodesForRuntime(shapes: Unsafe[]): Unsafe[] {
     let changed = false;
     const decodedShapes = shapes.map((shape) => {
         if (!shape || typeof shape !== 'object' || Array.isArray(shape)) {

@@ -13,7 +13,8 @@ import {
     DecomposedAffineTransform,
     buildInterpolationRustBatchOperations,
     withSuppressedModelRecording,
-    withSuppressedMetricsKeyRecompute
+    withSuppressedMetricsKeyRecompute,
+    decodeShapeNodesForRuntime
 } from '../babelfont-model';
 import { beginLoadingCursor, endLoadingCursor } from '../loading-cursor';
 import {
@@ -19705,7 +19706,25 @@ export class OutlineEditor {
                             `[OutlineEditor] Missing stored layer ${target.glyphName}/${target.layerId} for committed layer snapshot sync.`
                         );
                     }
-                    storedLayers[storedLayerIndex] = serializedLayer;
+                    // `Layer.data` aliases this stored array element, so it must
+                    // hold runtime-decoded geometry. The serialized form carries
+                    // Rust-normalized string-encoded nodes; handing that to the
+                    // model makes calculateBoundingBox unable to read ink, so it
+                    // degenerates to maxX === advance and every sidebearing read
+                    // returns RSB 0. Any recomposition running in that window
+                    // then "corrects" width by the full keyed RSB. The Yjs
+                    // payload below keeps the normalized form unchanged.
+                    storedLayers[storedLayerIndex] = Array.isArray(
+                        serializedLayer.shapes
+                    )
+                        ? {
+                              ...serializedLayer,
+                              shapes: decodeShapeNodesForRuntime(
+                                  serializedLayer.shapes
+                              )
+                          }
+                        : serializedLayer;
+                    modelLayer?.invalidateContentCaches?.();
                     layerSnapshots.push({
                         glyphName: target.glyphName,
                         layerId: target.layerId,
