@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { Bezier } = require('bezier-js');
 const { Font, Layer } = require('../js/babelfont-model');
+const { serializeNodeArray } = require('../js/node-encoding');
 const fontManager = require('../js/font-manager').default;
 const {
     open_font_file,
@@ -1175,6 +1176,29 @@ describe('Babelfont Object Model', () => {
         test('should have width property', () => {
             expect(layer.width).toBeDefined();
             expect(typeof layer.width).toBe('number');
+        });
+
+        test('measures Rust-normalized string nodes instead of fabricating advance-shaped bounds', () => {
+            // Regression: a serialized layer was written into the array that
+            // Layer.data aliases. String nodes then contributed no ink bounds,
+            // and calculateBoundingBox returned maxX === width, making RSB 0.
+            const layerData = {
+                width: 600,
+                shapes: [
+                    {
+                        nodes: serializeNodeArray([
+                            { x: 120, y: 0, type: 'l' },
+                            { x: 520, y: 0, type: 'l' }
+                        ]),
+                        closed: false
+                    }
+                ]
+            };
+
+            const bounds = Layer.calculateBoundingBox(layerData, false);
+
+            expect(bounds).toMatchObject({ minX: 120, maxX: 520 });
+            expect(layerData.width - bounds.maxX).toBe(80);
         });
 
         test('materializes a paired background only when it receives a path', () => {

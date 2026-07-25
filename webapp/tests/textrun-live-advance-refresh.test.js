@@ -145,6 +145,28 @@ describe('TextRunEditor live advance refresh', () => {
         expect(editor.intrinsicGlyphAdvances.get('a')).toBe(520);
     });
 
+    test('uses the current shaped advance as the live baseline for automatic composites', () => {
+        // Regression: after a settled drag, the model-derived width for an
+        // automatic composite could differ from HarfBuzz's current ax. The
+        // delta patch then preserved that difference as a fixed phantom RSB
+        // throughout the next drag.
+        editor.textBuffer = 'ä';
+        editor.shapedGlyphs = [{ ax: 564, dx: 0, dy: 0, g: 12, cl: 0 }];
+        editor.glyphNameBuffer = ['adieresis'];
+        editor.intrinsicGlyphAdvances = new Map([['adieresis', 533]]);
+
+        editor.rebuildIntrinsicGlyphAdvanceCache();
+
+        expect(editor.intrinsicGlyphAdvances.get('adieresis')).toBe(564);
+        expect(
+            editor.refreshGlyphAdvancesLive(
+                { adieresis: 567 },
+                { render: false }
+            )
+        ).toBe(true);
+        expect(editor.shapedGlyphs[0].ax).toBe(567);
+    });
+
     test('skips explicit outline prefetch while an outline drag is active', async () => {
         const sendMessage = jest.fn();
         window.fontCompilation = { sendMessage };
