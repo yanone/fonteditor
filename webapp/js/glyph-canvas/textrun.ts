@@ -2009,6 +2009,24 @@ export class TextRunEditor {
         return null;
     }
 
+    /**
+     * Seed the advance baseline that `refreshGlyphAdvancesLive` measures its
+     * deltas against.
+     *
+     * The baseline MUST come from `glyph.ax` — the value those deltas are
+     * applied to. Seeding it from a model layer width instead desynchronises
+     * the two, because the object model is recomposed ahead of the compiled
+     * font during a live drag. The difference then gets folded into `ax` and
+     * persists as a constant per-drag offset (derived glyphs such as an
+     * automatically composed `adieresis` showed a fixed phantom RSB, and the
+     * viewport pan computed by `computePrecedingAdvanceDelta` inherited the
+     * same error). `shapeText` masked it at commit by rebuilding `ax` from the
+     * font.
+     *
+     * `resolveIntrinsicAdvanceForGlyph` remains the fallback for glyphs with no
+     * usable shaped advance — notably explicit-name glyphs with `g === 0`,
+     * which carry no real font advance and must keep their estimate.
+     */
     private rebuildIntrinsicGlyphAdvanceCache(): void {
         this.intrinsicGlyphAdvances.clear();
 
@@ -2022,6 +2040,16 @@ export class TextRunEditor {
                 glyph.explicitGlyphName || this.glyphNameBuffer[glyphIndex];
 
             if (!glyphName || this.intrinsicGlyphAdvances.has(glyphName)) {
+                continue;
+            }
+
+            const shapedAdvance = glyph?.ax;
+            if (
+                !glyph?.explicitGlyphName &&
+                typeof shapedAdvance === 'number' &&
+                Number.isFinite(shapedAdvance)
+            ) {
+                this.intrinsicGlyphAdvances.set(glyphName, shapedAdvance);
                 continue;
             }
 
