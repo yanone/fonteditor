@@ -2434,7 +2434,7 @@ describe('Transactions', () => {
         ).toBe(125);
     });
 
-    test('multi-layer sync records one node-string operation per same-glyph layer', () => {
+    test('multi-layer snapshots replace shapes atomically per same-glyph layer', () => {
         const fontJson = makeThreeMasterThreeLayerFont();
         const receiverFontJson = cloneValue(fontJson);
         const bridge = new ChangeBridge('granular-linked-layer-sync');
@@ -2450,6 +2450,7 @@ describe('Transactions', () => {
         });
 
         const [extraThinLayer, regularLayer] = fontJson.glyphs[0].layers;
+        const extraThinShapeCount = extraThinLayer.shapes.length;
         extraThinLayer.shapes[0].nodes[0].x = 125;
         regularLayer.shapes[0].nodes[0].x = 175;
 
@@ -2463,8 +2464,8 @@ describe('Transactions', () => {
 
         const paths = bridge.getChangeLog().map((entry) => entry.path);
         expect(paths).toEqual([
-            'glyphs.A:layers.master-extrathin:shapes.0.nodes',
-            'glyphs.A:layers.master-regular:shapes.0.nodes'
+            'glyphs.A:layers.master-extrathin:shapes',
+            'glyphs.A:layers.master-regular:shapes'
         ]);
         expect(
             paths.some((path) => path.endsWith(':layers.master-extrathin'))
@@ -2482,6 +2483,24 @@ describe('Transactions', () => {
         );
         expect(receiverFontJson.glyphs[0].layers[1].shapes[0].nodes[0].x).toBe(
             175
+        );
+
+        // A second path edit must replace the array again, never append a
+        // duplicate parent shape through nested shapes[i].nodes Y.Text ops.
+        extraThinLayer.shapes[0].nodes[0].x = 225;
+        bridge.syncLayersFromJson(
+            [{ glyphName: 'A', layerId: extraThinLayer.id }],
+            'Move path again'
+        );
+        receiverBridge.applyRemoteUpdate(
+            update,
+            bridge.getNewChangeLogEntries()
+        );
+        expect(receiverFontJson.glyphs[0].layers[0].shapes).toHaveLength(
+            extraThinShapeCount
+        );
+        expect(receiverFontJson.glyphs[0].layers[0].shapes[0].nodes[0].x).toBe(
+            225
         );
 
         bridge.destroy();
@@ -2566,13 +2585,10 @@ describe('Transactions', () => {
 
         const log = bridge.getChangeLog().slice(logStart);
         expect(log.map((entry) => entry.path)).toContain(
-            'glyphs.A:layers.layer-1:shapes.0.nodes'
+            'glyphs.A:layers.layer-1:shapes'
         );
         expect(log.map((entry) => entry.path)).toEqual(
-            expect.arrayContaining([
-                'glyphs.B:layers.layer-2:shapes.1.transform.translation.0',
-                'glyphs.B:layers.layer-2:shapes.1.transform.translation.1'
-            ])
+            expect.arrayContaining(['glyphs.B:layers.layer-2:shapes'])
         );
         expect(
             cloneValue(
@@ -2776,8 +2792,7 @@ describe('Transactions', () => {
 
         const log = bridge.getChangeLog().slice(logStart);
         expect(log.map((entry) => entry.path)).toEqual([
-            `glyphs.A:layers.layer-1:shapes.${componentIndex}.transform.translation.0`,
-            `glyphs.A:layers.layer-1:shapes.${componentIndex}.transform.translation.1`
+            'glyphs.A:layers.layer-1:shapes'
         ]);
         expect(
             cloneValue(
@@ -9124,12 +9139,11 @@ describe('syncGlyphFromJson', () => {
             (entry) => entry.historyAction === 'change'
         );
 
-        expect(changeEntries).toHaveLength(4);
+        expect(changeEntries).toHaveLength(3);
         expect(changeEntries.map((entry) => entry.path)).toEqual([
             'glyphs.B:layers.layer-2:width',
             'glyphs.A:layers.layer-1:width',
-            'glyphs.A:layers.layer-1:shapes.1.transform.translation.0',
-            'glyphs.A:layers.layer-1:shapes.1.transform.translation.1'
+            'glyphs.A:layers.layer-1:shapes'
         ]);
         changeEntries.forEach((entry) => {
             expect(entry.workerReplayTargets).toEqual(changedTargets);

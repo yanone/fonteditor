@@ -310,6 +310,13 @@ type LayerSyncMetadata = {
     compileEditType?: string | null;
     visualAnchorSide?: 'left' | 'right' | null;
     workerReplayTargets?: WorkerReplayTarget[];
+    /**
+     * Layer snapshots are authoritative outline state. Yjs/Yrs must receive
+     * shapes as one replacement rather than nested `shapes[i].nodes` Y.Text
+     * edits: repeated nested node deltas can diverge in the Rust worker and
+     * append duplicate parent shapes while the browser Y.Doc stays correct.
+     */
+    forceAtomicShapes?: boolean;
 };
 
 const INDEXED_ARRAY_ORDER_KEYS: Record<string, string> = {
@@ -1456,7 +1463,8 @@ export class PatchSyncEngine {
                         compileChangeSource,
                         compileEditType,
                         visualAnchorSide,
-                        workerReplayTargets
+                        workerReplayTargets,
+                        forceAtomicShapes: true
                     }
                 )
             );
@@ -1590,7 +1598,8 @@ export class PatchSyncEngine {
                         compileChangeSource,
                         compileEditType,
                         visualAnchorSide,
-                        workerReplayTargets
+                        workerReplayTargets,
+                        forceAtomicShapes: true
                     }
                 )
             );
@@ -1814,6 +1823,22 @@ export class PatchSyncEngine {
         }
 
         const lastSegment = path[path.length - 1];
+        if (
+            metadata.forceAtomicShapes &&
+            lastSegment === 'shapes' &&
+            Array.isArray(previousValue) &&
+            Array.isArray(nextValue)
+        ) {
+            return [
+                this._createGranularLayerOperation(
+                    'set',
+                    path,
+                    previousValue,
+                    nextValue,
+                    metadata
+                )
+            ];
+        }
         if (
             typeof lastSegment === 'string' &&
             GRANULAR_LAYER_ARRAY_KEYS.has(lastSegment) &&
