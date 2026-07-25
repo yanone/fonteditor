@@ -2921,6 +2921,19 @@ function snapSmoothHandlePairToAxis(
 }
 
 export class OutlineEditor {
+    /**
+     * How long the tick path defers painting to an in-flight preview compile
+     * before painting anyway. Bounds worst-case perceived latency if the worker
+     * is slow, at the cost of one possibly-torn frame.
+     */
+    private static readonly SIDEBEARING_PREVIEW_PAINT_BUDGET_MS = 50;
+
+    /**
+     * Pointer-idle threshold (two frames) above which a returning preview owns
+     * its own paint. Below it, the imminent drag tick paints the swapped blob.
+     */
+    private static readonly SIDEBEARING_IDLE_PAINT_MS = 32;
+
     active: boolean = false;
     isPreviewMode: boolean = false;
     previewModeBeforeSlider: boolean = false;
@@ -2993,6 +3006,14 @@ export class OutlineEditor {
     }> = [];
     /** Monotonic preview generation; stale funnel stages must not compile. */
     private _liveSidebearingPreviewGeneration: number = 0;
+    /** rAF handle for paint-only frames owned by a returning preview compile. */
+    private _sidebearingPaintFrame: number | null = null;
+    /** True while a live preview stage/compile is in flight for this drag. */
+    private _sidebearingPreviewPending: boolean = false;
+    /** When the in-flight preview was requested, for the staleness valve. */
+    private _sidebearingPreviewRequestedAt: number = 0;
+    /** Timestamp of the last pointer-driven drag tick, for idle detection. */
+    private _lastSidebearingTickAt: number = 0;
     /** Glyphs whose stored width changed (source ∪ recompose) for live advances. */
     private _lastLiveSidebearingWidthGlyphNames: Set<string> = new Set();
     /**
@@ -5652,6 +5673,13 @@ export class OutlineEditor {
         this._lastLiveAnchorPreviewTargets = [];
         this._liveSidebearingPreviewGeneration = 0;
         this._liveAnchorPreviewGeneration = 0;
+        if (this._sidebearingPaintFrame !== null) {
+            cancelAnimationFrame(this._sidebearingPaintFrame);
+            this._sidebearingPaintFrame = null;
+        }
+        this._sidebearingPreviewPending = false;
+        this._sidebearingPreviewRequestedAt = 0;
+        this._lastSidebearingTickAt = 0;
     }
 
     isLiveSidebearingInteractionActive(): boolean {
@@ -5691,6 +5719,20 @@ export class OutlineEditor {
         if (!currentLayerId || previewTargets.length === 0) {
             return;
         }
+
+        // Rate gate: at most one preview generation in flight. Ticks keep
+        // mutating the model meanwhile, so the next stage after the compile
+        // returns carries the latest state — "latest generation wins" without
+        // issuing one worker compile per pointer sample.
+        if (
+            this._sidebearingPreviewPending &&
+            performance.now() - this._sidebearingPreviewRequestedAt <
+                OutlineEditor.SIDEBEARING_PREVIEW_PAINT_BUDGET_MS
+        ) {
+            return;
+        }
+        this._sidebearingPreviewPending = true;
+        this._sidebearingPreviewRequestedAt = performance.now();
 
         this.liveDragEditFunnel.queue({
             kind: 'sidebearing',
@@ -5748,6 +5790,25 @@ export class OutlineEditor {
         this.queueLiveVisibleSidebearingDependentRefresh();
     }
 
+    /**
+     * Coalesced paint-only frame. Applies model advances and the viewport
+     * anchor, then paints. Performs no pointer read and no model mutation.
+     */
+    private scheduleSidebearingPaintFrame(): void {
+        if (this._sidebearingPaintFrame !== null) {
+            return;
+        }
+        this._sidebearingPaintFrame = requestAnimationFrame(() => {
+            this._sidebearingPaintFrame = null;
+            if (!this.isLiveSidebearingInteractionActive()) {
+                return;
+            }
+            this.reapplyLastLiveSidebearingAdvances();
+            this.reapplyPendingSidebearingBboxCenterAnchor();
+            this.glyphCanvas.render();
+        });
+    }
+
     private scheduleSidebearingDragFrame(): void {
         if (this._sidebearingDragFrame !== null) {
             return;
@@ -5766,9 +5827,26 @@ export class OutlineEditor {
      * interaction. Coalesces with the mouse drag frame when both are pending.
      */
     scheduleSidebearingOwnedRepaint(): void {
+        // The preview result has landed; release the rate gate so the next
+        // pointer tick may stage a new generation.
+        this._sidebearingPreviewPending = false;
+
         if (this.isDraggingSidebearing) {
-            // The drag RAF already owns paint; just ensure one is scheduled.
-            this.scheduleSidebearingDragFrame();
+            // Never re-enter processSidebearingDragFrame: it re-reads the
+            // pointer and mutates, so a returning compile used to induce a full
+            // recomposition pass and paint model state newer than the outlines
+            // that had just arrived.
+            //
+            // While the pointer is moving, a tick will paint the swapped
+            // outlines within a frame, so no extra paint is needed. Scheduler
+            // state is NOT a usable signal here: _sidebearingDragFrame is
+            // routinely null between a completed tick and the next pointermove,
+            // so testing it produced a redundant paint ~2ms before every tick.
+            // Only genuine pointer idleness needs a paint-only frame.
+            const idleMs = performance.now() - this._lastSidebearingTickAt;
+            if (idleMs > OutlineEditor.SIDEBEARING_IDLE_PAINT_MS) {
+                this.scheduleSidebearingPaintFrame();
+            }
             return;
         }
         if (this._sidebearingDragFrame !== null) {
@@ -5790,6 +5868,10 @@ export class OutlineEditor {
      * last pointer sample is not dropped.
      */
     private flushSidebearingDragFrame(): void {
+        if (this._sidebearingPaintFrame !== null) {
+            cancelAnimationFrame(this._sidebearingPaintFrame);
+            this._sidebearingPaintFrame = null;
+        }
         if (this._sidebearingDragFrame === null) {
             return;
         }
@@ -5814,6 +5896,7 @@ export class OutlineEditor {
         if (deltaX !== 0) {
             this._hasMoved = true;
         }
+        this._lastSidebearingTickAt = performance.now();
         this._updateDraggedSidebearing(deltaX);
 
         const now = performance.now();
@@ -5821,6 +5904,11 @@ export class OutlineEditor {
             this._lastPropertyPanelUpdateTime = now;
             this.glyphCanvas.updatePropertyPanel();
         }
+
+        // One mutate + one paint per coalesced drag frame. Newly compiled
+        // composite outlines are picked up by whichever tick paints next, so a
+        // returning preview never needs a frame of its own — that is what used
+        // to produce two frames per generation with a visible 2-130ms gap.
         this.glyphCanvas.render();
     }
 
