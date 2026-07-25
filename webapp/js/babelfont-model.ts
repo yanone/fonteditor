@@ -78,6 +78,12 @@ export function decodeShapeNodesForRuntime(shapes: Unsafe[]): Unsafe[] {
 }
 
 /**
+ * Layers already reported as holding Rust-normalized geometry in stored data.
+ * Keyed `glyphName/layerId`; keeps the sentinel to one line per offender.
+ */
+const reportedEncodedGeometryLayers = new Set<string>();
+
+/**
  * Ensure every Node, Path, Component, Anchor, and Guide in the font has a stable `id`.
  * Called after font load / deserialization. Ids are generated for any element missing one;
  * existing ids are preserved. These ids support editor selection and the indexed-map
@@ -9214,6 +9220,39 @@ export class Layer extends ArrayElementBase {
 
         // Get the master ID from tagged layer data
         const masterId = this.data.master?.master;
+
+        // `this.data` aliases the stored layer object, whose invariant is that
+        // node geometry is decoded. Encoded nodes here mean a writer stored the
+        // Rust-normalized form; measurement repairs it defensively, but the
+        // offending writer must be found — historically this masqueraded as
+        // valid metrics and silently corrupted sidebearings. The scan below is
+        // allocation-free and short-circuits, so it is safe in this hot path.
+        const storedShapes = this.data.shapes;
+        if (Array.isArray(storedShapes)) {
+            const holdsEncodedNodes = storedShapes.some((shape: Unsafe) => {
+                if (!shape || typeof shape !== 'object') {
+                    return false;
+                }
+                const record = shape as Record<string, Unsafe>;
+                const pathRecord = (record.Path ?? record.Contour ?? record) as
+                    Record<string, Unsafe> | undefined;
+                return typeof pathRecord?.nodes === 'string';
+            });
+            if (holdsEncodedNodes) {
+                const key = `${glyph?.name ?? '<unknown glyph>'}/${
+                    this.id ?? '<unknown layer>'
+                }`;
+                if (!reportedEncodedGeometryLayers.has(key)) {
+                    reportedEncodedGeometryLayers.add(key);
+                    console.warn(
+                        `[Layer] ${key} holds Rust-normalized (string-encoded) node ` +
+                            'geometry in the stored data aliased by the object model. ' +
+                            'A writer skipped decodeShapeNodesForRuntime; metrics for ' +
+                            'this layer were repaired defensively on read.'
+                    );
+                }
+            }
+        }
 
         return Layer.calculateBoundingBox(
             this.data,
