@@ -9124,6 +9124,36 @@ export class Layer extends ArrayElementBase {
         }
 
         if (!bounds) {
+            // Distinguish "genuinely empty" (space) from "geometry present but
+            // unreadable". The advance-shaped fallback below is correct only for
+            // the former; for the latter it masquerades as valid ink bounds and
+            // makes every sidebearing read return 0.
+            const hasPathGeometry =
+                Array.isArray(layerData.shapes) &&
+                layerData.shapes.some((shape: Unsafe) => {
+                    if (!shape || typeof shape !== 'object') return false;
+                    const record = shape as Record<string, Unsafe>;
+                    const pathRecord = (record.Path ??
+                        record.Contour ??
+                        record) as Record<string, Unsafe>;
+                    const nodes = pathRecord?.nodes;
+                    return (
+                        (typeof nodes === 'string' && nodes.length > 0) ||
+                        (Array.isArray(nodes) && nodes.length > 0)
+                    );
+                });
+            if (hasPathGeometry) {
+                console.warn(
+                    '[Layer] Bounding box could not be measured despite present path geometry. ' +
+                        'Refusing to substitute advance-shaped bounds.',
+                    {
+                        width: layerData.width,
+                        shapeCount: layerData.shapes?.length
+                    }
+                );
+                return null;
+            }
+
             // No points found (e.g., space character) - use glyph width from layer data
             // Create a small bbox: 10 units high, centered on baseline, as wide as the glyph
             const glyphWidth = layerData.width || 250; // Fallback to 250 if no width

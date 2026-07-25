@@ -1,4 +1,5 @@
 import type { Babelfont } from './babelfont';
+import { parseNodeString } from './node-encoding';
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -496,7 +497,13 @@ export function calculateGlyphPathBounds(pathData: {
         return null;
     }
 
-    const nodes = pathData.nodes as Babelfont.Node[];
+    // Nodes may still be in Rust-normalized string form. Decode instead of
+    // reporting "no bounds" — a null here silently degenerates callers into
+    // advance-shaped bounding boxes and corrupts sidebearing math.
+    const rawNodes = pathData.nodes;
+    const nodes = (
+        typeof rawNodes === 'string' ? parseNodeString(rawNodes) : rawNodes
+    ) as Babelfont.Node[];
     if (!Array.isArray(nodes) || nodes.length === 0) {
         return null;
     }
@@ -713,7 +720,12 @@ export function calculateGlyphShapeBounds(
                     : null;
 
         if (pathData?.nodes) {
-            const nodes = pathData.nodes as Babelfont.Node[];
+            const rawShapeNodes = pathData.nodes;
+            const nodes = (
+                typeof rawShapeNodes === 'string'
+                    ? parseNodeString(rawShapeNodes)
+                    : rawShapeNodes
+            ) as Babelfont.Node[];
             if (Array.isArray(nodes) && nodes.length > 0) {
                 const transformedNodes = nodes.map((node: Unsafe) =>
                     transformNode(node, parentTransform)
