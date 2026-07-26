@@ -20,7 +20,9 @@ const PRECACHE_ASSETS = [
     // JavaScript bundles (webpack output)
     './js/bootstrap.js',
     './js/fontc-worker.js',
-    './js/node_modules_idb-keyval_dist_index_js.js',
+
+    // Async chunks (named via webpackChunkName magic comments)
+    './js/confirm-dialog.js',
 
     // Python files
     './py/fonteditor.py',

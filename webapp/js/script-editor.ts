@@ -891,8 +891,9 @@ def filter_glyphs(font):
             return true;
         }
 
-        const { showNamedUnsavedChangesDialog } =
-            await import('./ui/confirm-dialog');
+        const { showNamedUnsavedChangesDialog } = await import(
+            /* webpackChunkName: "confirm-dialog" */ './ui/confirm-dialog'
+        );
         const scriptName = currentFilePath?.split('/').pop() || 'Untitled';
         const choice = await showNamedUnsavedChangesDialog({
             subjectType: 'Script',
