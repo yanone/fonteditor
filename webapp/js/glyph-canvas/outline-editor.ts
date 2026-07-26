@@ -3134,6 +3134,10 @@ export class OutlineEditor {
     private interpolationRequestInFlight: boolean = false;
     private interpolationNeeded: boolean = false;
     private interpolationNeededForce: boolean = false;
+    private interpolationBboxCenterAnchorScreen: {
+        x: number;
+        y: number;
+    } | null = null;
     isDeterministicRefreshActive: boolean = false;
     lastGlyphX: number | null = null;
     lastGlyphY: number | null = null;
@@ -3153,6 +3157,21 @@ export class OutlineEditor {
         this.currentInterpolationId++;
         this.interpolationNeeded = false;
         this.interpolationNeededForce = false;
+    }
+
+    private captureInterpolationBboxCenterAnchor(): void {
+        this.interpolationBboxCenterAnchorScreen =
+            this.getBoundingBoxCenterScreenPosition();
+    }
+
+    private reapplyInterpolationBboxCenterAnchor(): void {
+        this.applyBoundingBoxCenterScreenAnchor(
+            this.interpolationBboxCenterAnchorScreen
+        );
+    }
+
+    private clearInterpolationBboxCenterAnchor(): void {
+        this.interpolationBboxCenterAnchorScreen = null;
     }
     marqueeInitialPoints: Point[] = [];
     private layerSelectionStateByKey = new Map<string, LayerSelectionState>();
@@ -8577,6 +8596,7 @@ export class OutlineEditor {
     cancelPendingLayerSwitchAnimation(): void {
         this.targetLayerData = null;
         this.isLayerSwitchAnimating = false;
+        this.clearInterpolationBboxCenterAnchor();
     }
 
     private syncAddLayerButtonForExplicitSelection(): void {
@@ -9977,6 +9997,7 @@ export class OutlineEditor {
 
     onSliderMouseDown() {
         if (!this.active) return;
+        this.captureInterpolationBboxCenterAnchor();
         // Remember if preview was already on (from keyboard toggle)
         this.previewModeBeforeSlider = this.isPreviewMode;
 
@@ -10050,6 +10071,7 @@ export class OutlineEditor {
                 }
             }
 
+            this.reapplyInterpolationBboxCenterAnchor();
             // Always render to update colors after clearing isInterpolating flag
             this.glyphCanvas.render();
         } else if (this.active) {
@@ -10091,10 +10113,20 @@ export class OutlineEditor {
 
             // If no exact layer match, keep showing interpolated data
 
+            this.reapplyInterpolationBboxCenterAnchor();
             // Render with updated data and cleared flags
             this.glyphCanvas.render();
             // Restore focus to canvas
             setTimeout(() => this.canvas!.focus(), 0);
+        }
+
+        if (
+            this.active &&
+            !this.glyphCanvas.axesManager!.isAnimating &&
+            !this.isLayerSwitchAnimating &&
+            !this.glyphCanvas.axesManager!.isLoopAnimating
+        ) {
+            this.clearInterpolationBboxCenterAnchor();
         }
     }
 
@@ -10159,6 +10191,9 @@ export class OutlineEditor {
             isLayerSwitchAnimating: this.isLayerSwitchAnimating
         });
         if (this.active && this.currentGlyphName) {
+            if (!this.interpolationBboxCenterAnchorScreen) {
+                this.captureInterpolationBboxCenterAnchor();
+            }
             if (
                 this.isInterpolating ||
                 this.isLayerSwitchAnimating ||
@@ -18459,6 +18494,8 @@ export class OutlineEditor {
                 textRun.shapeText(true);
             }
 
+            this.reapplyInterpolationBboxCenterAnchor();
+
             // Render with the new interpolated data
             console.log(
                 '[OutlineEditor] About to render with layerData.width:',
@@ -18925,6 +18962,9 @@ export class OutlineEditor {
         layer = this.resolveLayerForSelection(layer);
 
         this.cancelPendingLayerSwitchAnimation();
+        if (this.active) {
+            this.captureInterpolationBboxCenterAnchor();
+        }
         this.suppressAutoLayerMatching = true;
 
         // Clear all slider/play interpolation state so explicit layer selection
@@ -20819,10 +20859,12 @@ export class OutlineEditor {
 
             if (this.active) {
                 this.glyphCanvas.updatePropertyPanel();
+                this.reapplyInterpolationBboxCenterAnchor();
                 this.glyphCanvas.render();
             }
         }
 
+        this.clearInterpolationBboxCenterAnchor();
         this.suppressAutoLayerMatching = false;
     }
 }

@@ -75,6 +75,7 @@ const APP_SETTINGS = {
 
         // Debug/development
         INTERPOLATION_ANIMATION_DELAY: 0, // ms - delay between animation frames for debugging (0 = no delay)
+        SHOW_BBOX_CENTER_CROSSHAIR: false, // Draw the active layer bounding-box center in development
 
         // Node snapping
         SNAP_DISTANCE_PX: 3, // Snapping distance in screen pixels
@@ -231,7 +232,8 @@ const APP_SETTINGS = {
 // These settings override the defaults when running in production mode
 const PRODUCTION_OVERRIDES = {
     OUTLINE_EDITOR: {
-        SHOW_COMPONENT_ORIGIN_MARKERS: false // Hide component origin markers in production
+        SHOW_COMPONENT_ORIGIN_MARKERS: false, // Hide component origin markers in production
+        SHOW_BBOX_CENTER_CROSSHAIR: false // Hide the development bbox-center marker in production
     },
     FONT_MANAGER: {
         SAVE_DEBUG_FONTS: false // Disable debug font generation in production

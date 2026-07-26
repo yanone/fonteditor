@@ -2056,6 +2056,31 @@ export class GlyphCanvasRenderer {
 
         this.drawSelectionResizeBox(invScale, isDarkTheme);
 
+        if (APP_SETTINGS.OUTLINE_EDITOR.SHOW_BBOX_CENTER_CROSSHAIR) {
+            const bounds = Layer.calculateBoundingBox(currentLayerData, true);
+            if (bounds) {
+                const centerX = bounds.minX + bounds.width / 2;
+                const centerY = bounds.minY + bounds.height / 2;
+                const markerRadius = 10 * invScale;
+                const colors = isDarkTheme
+                    ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
+                    : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+
+                this.ctx.save();
+                this.ctx.translate(centerX, centerY);
+                this.applyInverseComponentTransform();
+                this.ctx.strokeStyle = colors.MEASUREMENT_TOOL_CROSSHAIR;
+                this.ctx.lineWidth = 1.5 * invScale;
+                this.ctx.beginPath();
+                this.ctx.moveTo(-markerRadius, 0);
+                this.ctx.lineTo(markerRadius, 0);
+                this.ctx.moveTo(0, -markerRadius);
+                this.ctx.lineTo(0, markerRadius);
+                this.ctx.stroke();
+                this.ctx.restore();
+            }
+        }
+
         // Draw component labels on top of everything
         componentLabels.forEach(({ componentName, bounds, transform }) => {
             const [a, b, c, d, tx, ty] = transform;

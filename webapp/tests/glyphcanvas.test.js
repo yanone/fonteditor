@@ -85,6 +85,25 @@ function createDefaultInterpolatedLayer(location = {}) {
     };
 }
 
+function createBoxLayer({ minX, minY, maxX, maxY, width }) {
+    return {
+        width,
+        shapes: [
+            {
+                nodes: [
+                    { x: minX, y: minY, nodetype: 'Line' },
+                    { x: maxX, y: minY, nodetype: 'Line' },
+                    { x: maxX, y: maxY, nodetype: 'Line' },
+                    { x: minX, y: maxY, nodetype: 'Line' }
+                ],
+                closed: true
+            }
+        ],
+        anchors: [],
+        guides: []
+    };
+}
+
 const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
 
 function makeAutomaticAnchorCascadeFont() {
@@ -252,6 +271,125 @@ beforeEach(() => {
 afterEach(() => {
     defaultInterpolateGlyphSpy?.mockRestore();
     defaultInterpolateGlyphSpy = null;
+});
+
+describe('Outline interpolation bbox anchoring', () => {
+    let canvas;
+
+    const getActiveBboxCenterScreen = () =>
+        canvas.outlineEditor['getBoundingBoxCenterScreenPosition']();
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.glyphStack = '';
+        canvas.outlineEditor.layerData = createBoxLayer({
+            minX: 100,
+            minY: 0,
+            maxX: 300,
+            maxY: 400,
+            width: 400
+        });
+        canvas.textRunEditor.selectedGlyphIndex = 1;
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 200, dx: 0, dy: 0, g: 0 },
+            { ax: 400, dx: 0, dy: 0, g: 1 }
+        ];
+        canvas.textRunEditor._getGlyphPosition = jest.fn((glyphIndex) => ({
+            xPosition: canvas.textRunEditor.shapedGlyphs
+                .slice(0, glyphIndex)
+                .reduce((position, glyph) => position + glyph.ax, 0),
+            xOffset: 0,
+            yOffset: 0
+        }));
+        canvas.textRunEditor.hbFont = {
+            setVariations: jest.fn(),
+            destroy: jest.fn()
+        };
+        canvas.axesManager.variationSettings = { wght: 500 };
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panX = 80;
+        canvas.viewportManager.panY = 120;
+        jest.spyOn(canvas, 'render').mockImplementation(() => {});
+        jest.spyOn(
+            canvas.outlineEditor,
+            'getAuthoringRootGlyphName'
+        ).mockReturnValue('A');
+        jest.spyOn(
+            canvas.outlineEditor,
+            'getRootFeatureVariationLayerIds'
+        ).mockReturnValue(undefined);
+    });
+
+    afterEach(() => {
+        canvas.destroy();
+    });
+
+    test('keeps the bbox center stationary through interpolated bounds and preceding-advance changes', async () => {
+        const before = getActiveBboxCenterScreen();
+        const interpolatedLayer = createBoxLayer({
+            minX: 220,
+            minY: 80,
+            maxX: 620,
+            maxY: 680,
+            width: 700
+        });
+        defaultInterpolateGlyphSpy.mockResolvedValue(interpolatedLayer);
+        jest.spyOn(
+            canvas.outlineEditor,
+            'applyRustLayerData'
+        ).mockImplementation((layerData) => {
+            canvas.outlineEditor.layerData = {
+                ...layerData,
+                isInterpolated: true
+            };
+        });
+        canvas.textRunEditor.shapeText = jest.fn(() => {
+            canvas.textRunEditor.shapedGlyphs[0].ax = 340;
+        });
+
+        canvas.outlineEditor.onSliderMouseDown();
+        await canvas.outlineEditor.interpolateCurrentGlyph();
+
+        expect(getActiveBboxCenterScreen()).toEqual(before);
+        expect(canvas.viewportManager.panX).not.toBe(80);
+        expect(canvas.textRunEditor.shapeText).toHaveBeenCalledWith(true);
+    });
+
+    test('keeps the bbox center stationary when the exact target layer replaces the final interpolation frame', async () => {
+        const before = getActiveBboxCenterScreen();
+        canvas.outlineEditor['captureInterpolationBboxCenterAnchor']();
+        canvas.outlineEditor.targetLayerData = createBoxLayer({
+            minX: 180,
+            minY: 40,
+            maxX: 580,
+            maxY: 640,
+            width: 650
+        });
+        canvas.outlineEditor.selectedLayerId = 'target-layer';
+        jest.spyOn(
+            canvas.outlineEditor,
+            'getCurrentLayerModel'
+        ).mockReturnValue(null);
+        jest.spyOn(
+            canvas.outlineEditor,
+            'updateLayerSelection'
+        ).mockImplementation(() => {});
+        jest.spyOn(
+            canvas.outlineEditor,
+            'syncAddLayerButtonForExplicitSelection'
+        ).mockImplementation(() => {});
+        jest.spyOn(canvas, 'updatePropertyPanel').mockImplementation(() => {});
+
+        await canvas.outlineEditor.restoreTargetLayerDataAfterAnimating();
+
+        expect(getActiveBboxCenterScreen()).toEqual(before);
+        expect(
+            canvas.outlineEditor['interpolationBboxCenterAnchorScreen']
+        ).toBeNull();
+    });
 });
 
 // ==================== Initialization Tests ====================

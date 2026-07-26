@@ -70,6 +70,9 @@ describe('settings bootstrap', () => {
         expect(
             settingsModule.default.OUTLINE_EDITOR.SHOW_COMPONENT_ORIGIN_MARKERS
         ).toBe(false);
+        expect(
+            settingsModule.default.OUTLINE_EDITOR.SHOW_BBOX_CENTER_CROSSHAIR
+        ).toBe(false);
     });
 
     test('enables in-browser live drift checks by default outside production', () => {
@@ -84,6 +87,9 @@ describe('settings bootstrap', () => {
         expect(
             settingsModule.default.IN_BROWSER_LIVE_TESTS
                 .ENABLE_WORKER_DRIFT_CHECKS
+        ).toBe(true);
+        expect(
+            settingsModule.default.OUTLINE_EDITOR.SHOW_BBOX_CENTER_CROSSHAIR
         ).toBe(true);
     });
 });
