@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Counterpunch (also known as "Context Font Editor") is a browser-based font editor with live compilation and rendering capabilities. It uses a WebAssembly-based font compilation pipeline (Rust fontc/babelfont compiled to WASM) and a JavaScript/TypeScript/HTML/CSS frontend. The editor provides a Python scripting environment via Pyodide, allowing users to manipulate font data programmatically.
+Counterpunch is a browser-based font editor with live compilation and rendering capabilities. It uses a WebAssembly-based font compilation pipeline (Rust fontc/babelfont-rs compiled to WASM) and a JavaScript/TypeScript/HTML/CSS frontend. The editor provides a Python scripting environment via Pyodide, allowing users to manipulate font data programmatically.
 
 ### Key Features
 
@@ -145,6 +145,7 @@ This script:
 
 ### General
 
+- Fix the root cause each time, no band-aids.
 - Be extremely concise in interactions, plans, and commit messages
 - Scan for reusable code across languages; avoid duplicate implementations
 - Don't write spaghetti code
