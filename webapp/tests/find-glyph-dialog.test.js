@@ -5,6 +5,8 @@ jest.mock('../js/glyph-tile-renderer-fast', () => ({
 }));
 
 describe('FindGlyphDialog', () => {
+    let clearFindGlyphSearchMemory;
+
     beforeEach(() => {
         jest.resetModules();
         global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
@@ -37,7 +39,8 @@ describe('FindGlyphDialog', () => {
             })
         };
 
-        require('../js/find-glyph-dialog');
+        ({ clearFindGlyphSearchMemory } = require('../js/find-glyph-dialog'));
+        clearFindGlyphSearchMemory();
         Object.defineProperty(
             document.querySelector('.find-glyph-list'),
             'clientHeight',
@@ -53,7 +56,7 @@ describe('FindGlyphDialog', () => {
         delete window.fontCompilation;
     });
 
-    test('lists glyphs in font order with assigned Unicode values', () => {
+    test('lists glyphs in font order and selects the first by default', () => {
         document.getElementById('find-glyph-btn').click();
 
         expect(document.getElementById('find-glyph-modal').style.display).toBe(
@@ -75,6 +78,11 @@ describe('FindGlyphDialog', () => {
             'oe',
             'B'
         ]);
+        expect(
+            document
+                .querySelector('[data-glyph-name="copyright"]')
+                .getAttribute('aria-selected')
+        ).toBe('true');
         expect(document.querySelector('.find-glyph-unicode').textContent).toBe(
             'U+00A9'
         );
@@ -91,6 +99,11 @@ describe('FindGlyphDialog', () => {
                 (element) => element.textContent
             )
         ).toEqual(['acutecomb']);
+        expect(
+            document
+                .querySelector('[data-glyph-name="acutecomb"]')
+                .getAttribute('aria-selected')
+        ).toBe('true');
     });
 
     test('ranks search matches by relevance and supports Unicode queries', () => {
@@ -108,6 +121,11 @@ describe('FindGlyphDialog', () => {
                 (element) => element.textContent
             )
         ).toEqual(['o', 'oe', 'odot', 'copyright', 'acutecomb', 'O']);
+        expect(
+            document
+                .querySelector('[data-glyph-name="o"]')
+                .getAttribute('aria-selected')
+        ).toBe('true');
 
         search.value = 'O';
         search.dispatchEvent(new Event('input', { bubbles: true }));
@@ -188,9 +206,12 @@ describe('FindGlyphDialog', () => {
                 .querySelector('[data-glyph-name="glyph32"]')
                 .getAttribute('aria-selected')
         ).toBe('true');
-        expect(
-            document.querySelector('.find-glyph-list').scrollTop
-        ).toBeGreaterThan(0);
+        expect(document.querySelector('.find-glyph-search-input').value).toBe(
+            ''
+        );
+        expect(document.querySelector('.find-glyph-list').scrollTop).toBe(
+            (32 - 2) * 68
+        );
     });
 
     test('confirms several glyphs in font order for multiple selection', () => {
@@ -200,6 +221,7 @@ describe('FindGlyphDialog', () => {
             onConfirm
         });
         const rows = document.querySelectorAll('.find-glyph-row');
+        rows[0].click();
         rows[9].click();
         rows[2].click();
         document.querySelector('.find-glyph-actions button:last-child').click();
@@ -245,10 +267,141 @@ describe('FindGlyphDialog', () => {
         ]);
 
         document.querySelector('[data-glyph-name="oe"]').click();
-        document.querySelector('[data-glyph-name="o"]').click();
         document.querySelector('.find-glyph-actions button:last-child').click();
 
         expect(onConfirm).toHaveBeenCalledWith(['o', 'oe']);
+    });
+
+    test('moves selection with arrow keys and confirms with Enter', () => {
+        const onConfirm = jest.fn();
+        window.findGlyphDialog.open({
+            selectionMode: 'single',
+            onConfirm
+        });
+
+        expect(
+            document
+                .querySelector('[data-glyph-name="copyright"]')
+                .getAttribute('aria-selected')
+        ).toBe('true');
+
+        const arrowDown = new KeyboardEvent('keydown', {
+            key: 'ArrowDown',
+            bubbles: true,
+            cancelable: true
+        });
+        document.dispatchEvent(arrowDown);
+        expect(arrowDown.defaultPrevented).toBe(true);
+        expect(
+            document
+                .querySelector('[data-glyph-name="odot"]')
+                .getAttribute('aria-selected')
+        ).toBe('true');
+
+        const enter = new KeyboardEvent('keydown', {
+            key: 'Enter',
+            bubbles: true,
+            cancelable: true
+        });
+        document.dispatchEvent(enter);
+        expect(enter.defaultPrevented).toBe(true);
+        expect(onConfirm).toHaveBeenCalledWith(['odot']);
+        expect(document.getElementById('find-glyph-modal').style.display).toBe(
+            'none'
+        );
+    });
+
+    test('remembers search per invocation type when no glyph was preselected', () => {
+        window.findGlyphDialog.open({
+            searchMemoryKey: 'find-glyphs'
+        });
+        const search = document.querySelector('.find-glyph-search-input');
+        search.value = 'o';
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+        window.findGlyphDialog.close();
+
+        window.findGlyphDialog.open({
+            title: 'Add Component',
+            searchMemoryKey: 'add-component'
+        });
+        expect(document.querySelector('.find-glyph-search-input').value).toBe(
+            ''
+        );
+        const addSearch = document.querySelector('.find-glyph-search-input');
+        addSearch.value = 'acute';
+        addSearch.dispatchEvent(new Event('input', { bubbles: true }));
+        window.findGlyphDialog.close();
+
+        window.findGlyphDialog.open({
+            searchMemoryKey: 'find-glyphs'
+        });
+        expect(document.querySelector('.find-glyph-search-input').value).toBe(
+            'o'
+        );
+        expect(
+            document
+                .querySelector('[data-glyph-name="o"]')
+                .getAttribute('aria-selected')
+        ).toBe('true');
+
+        window.findGlyphDialog.open({
+            title: 'Add Component',
+            searchMemoryKey: 'add-component'
+        });
+        expect(document.querySelector('.find-glyph-search-input').value).toBe(
+            'acute'
+        );
+
+        window.findGlyphDialog.open({
+            selectedGlyphNames: ['B'],
+            searchMemoryKey: 'find-glyphs'
+        });
+        expect(document.querySelector('.find-glyph-search-input').value).toBe(
+            ''
+        );
+        expect(
+            document
+                .querySelector('[data-glyph-name="B"]')
+                .getAttribute('aria-selected')
+        ).toBe('true');
+    });
+
+    test('remembers selected glyphs for the same search term and dialog type', () => {
+        window.findGlyphDialog.open({
+            searchMemoryKey: 'find-glyphs'
+        });
+        const search = document.querySelector('.find-glyph-search-input');
+        search.value = 'o';
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('[data-glyph-name="copyright"]').click();
+        window.findGlyphDialog.close();
+
+        window.findGlyphDialog.open({
+            searchMemoryKey: 'find-glyphs'
+        });
+        expect(document.querySelector('.find-glyph-search-input').value).toBe(
+            'o'
+        );
+        expect(
+            document
+                .querySelector('[data-glyph-name="copyright"]')
+                .getAttribute('aria-selected')
+        ).toBe('true');
+        // copyright is 4th match for "o" (index 3) → two rows above → scroll by 1 row
+        expect(document.querySelector('.find-glyph-list').scrollTop).toBe(68);
+
+        window.findGlyphDialog.open({
+            title: 'Add Component',
+            searchMemoryKey: 'add-component'
+        });
+        const addSearch = document.querySelector('.find-glyph-search-input');
+        addSearch.value = 'o';
+        addSearch.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(
+            document
+                .querySelector('[data-glyph-name="o"]')
+                .getAttribute('aria-selected')
+        ).toBe('true');
     });
 
     test('cancels on Escape before lower-priority keyboard handlers', () => {

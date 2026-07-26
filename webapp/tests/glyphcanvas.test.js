@@ -18264,11 +18264,17 @@ describe('GlyphCanvas keyboard handling', () => {
     });
 
     test('Cmd+F opens Find Glyph and inserts confirmed tokens at the cursor', () => {
+        jest.useFakeTimers();
         const insertText = jest.spyOn(canvas.textRunEditor, 'insertText');
-        const open = jest.fn((options) => options.onConfirm(['A', 'B']));
+        const focus = jest.spyOn(canvas.canvas, 'focus');
+        const open = jest.fn((options) => {
+            options.onConfirm(['A', 'B']);
+            options.onClose?.();
+        });
         window.findGlyphDialog = { open };
         canvas.outlineEditor.active = true;
         canvas.canvas.focus();
+        focus.mockClear();
 
         const event = new KeyboardEvent('keydown', {
             key: 'f',
@@ -18282,10 +18288,15 @@ describe('GlyphCanvas keyboard handling', () => {
         expect(open).toHaveBeenCalledWith(
             expect.objectContaining({
                 selectionMode: 'multiple',
-                confirmLabel: 'Insert'
+                confirmLabel: 'Insert',
+                searchMemoryKey: 'find-glyphs',
+                onClose: expect.any(Function)
             })
         );
         expect(insertText).toHaveBeenCalledWith('/A /B ');
+        jest.runAllTimers();
+        expect(focus).toHaveBeenCalled();
+        jest.useRealTimers();
         delete window.findGlyphDialog;
     });
 

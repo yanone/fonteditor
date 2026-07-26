@@ -4808,31 +4808,35 @@ kbd + kbd {
     display: flex;
     box-sizing: border-box;
     height: 68px;
-    align-items: center;
+    align-items: stretch;
     gap: 12px;
-    padding: 8px 12px;
+    padding: 0 12px 0 0;
     border-bottom: 1px solid var(--border-primary);
     cursor: pointer;
 }
 
-.find-glyph-row:hover {
-    background: var(--background-hover);
-}
-
 .find-glyph-row[aria-selected='true'] {
-    background: var(--background-hover);
-    box-shadow: inset 3px 0 0 var(--accent-primary);
+    background: color-mix(in srgb, var(--background-secondary) 94%, black);
+    box-shadow: inset 3px 0 0 var(--view-editor);
 }
 
 .find-glyph-preview {
-    width: 52px;
-    height: 52px;
-    flex: 0 0 52px;
+    width: 67px;
+    flex: 0 0 67px;
+    align-self: stretch;
+    background: color-mix(in srgb, var(--background-secondary) 50%, white);
+}
+
+.find-glyph-row[aria-selected='true'] .find-glyph-preview {
     background: var(--background-editor-sidebar);
 }
 
 .find-glyph-details {
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 8px 0;
 }
 
 .find-glyph-name {

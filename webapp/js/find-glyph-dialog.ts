@@ -9,6 +9,19 @@ import { Logger } from './logger';
 
 const console = new Logger('FindGlyphDialog');
 
+/** In-memory last search query per dialog invocation type (page session only). */
+const searchMemoryByInvocationType = new Map<string, string>();
+
+/**
+ * In-memory last selected glyph names per invocation type + search query.
+ * Key format: `${invocationType}\n${query}`
+ */
+const selectionMemoryByInvocationTypeAndQuery = new Map<string, string[]>();
+
+function selectionMemoryKey(invocationType: string, query: string): string {
+    return `${invocationType}\n${query}`;
+}
+
 interface FindableGlyph {
     name: string;
     codepoints?: readonly number[];
@@ -37,6 +50,12 @@ export type GlyphSelectionMode = 'single' | 'multiple';
 export interface FindGlyphDialogOptions {
     selectionMode?: GlyphSelectionMode;
     selectedGlyphNames?: readonly string[];
+    /**
+     * Session-memory key for the last search query. Restored on open when no
+     * selectedGlyphNames were provided. Typical values: 'find-glyphs',
+     * 'add-component'.
+     */
+    searchMemoryKey?: string;
     title?: string;
     cancelLabel?: string;
     confirmLabel?: string;
@@ -86,6 +105,28 @@ function formatUnicodeValue(codepoints?: readonly number[]): string | null {
 }
 
 /**
+ * Clear Find Glyph dialog search session memory (tests).
+ */
+export function clearFindGlyphSearchMemory(): void {
+    searchMemoryByInvocationType.clear();
+    selectionMemoryByInvocationTypeAndQuery.clear();
+}
+
+/**
+ * Scroll offset that places the active row third when two prior rows exist.
+ */
+export function getPreselectedGlyphScrollTop(
+    activeIndex: number,
+    rowHeight: number
+): number {
+    if (activeIndex < 0) {
+        return 0;
+    }
+
+    return Math.max(0, (activeIndex - 2) * rowHeight);
+}
+
+/**
  * A virtualized dialog for finding glyphs in the current font.
  */
 export class FindGlyphDialog {
@@ -104,6 +145,10 @@ export class FindGlyphDialog {
     private casePreservedSearchTerms: string[] = [];
     private selectionMode: GlyphSelectionMode = 'single';
     private selectedGlyphNames = new Set<string>();
+    private activeIndex = -1;
+    private searchMemoryKey: string | null = null;
+    private remembersSearch = false;
+    private lastPersistedQuery = '';
     private onConfirm: ((glyphNames: string[]) => void) | null = null;
     private onClose: (() => void) | null = null;
     private previewCanvases = new Map<string, HTMLCanvasElement>();
@@ -139,11 +184,11 @@ export class FindGlyphDialog {
 
         this.glyphs = getCurrentFontGlyphs();
         this.selectionMode = options.selectionMode ?? 'single';
-        this.selectedGlyphNames = new Set(
-            (options.selectedGlyphNames ?? []).filter((glyphName) =>
-                this.glyphs.some((glyph) => glyph.name === glyphName)
-            )
+        const providedSelection = (options.selectedGlyphNames ?? []).filter(
+            (glyphName) => this.glyphs.some((glyph) => glyph.name === glyphName)
         );
+        const hasProvidedSelection = providedSelection.length > 0;
+        this.selectedGlyphNames = new Set(providedSelection);
         if (
             this.selectionMode === 'single' &&
             this.selectedGlyphNames.size > 1
@@ -155,6 +200,9 @@ export class FindGlyphDialog {
         }
         this.onConfirm = options.onConfirm ?? null;
         this.onClose = options.onClose ?? null;
+        this.searchMemoryKey = options.searchMemoryKey ?? null;
+        this.remembersSearch =
+            !hasProvidedSelection && this.searchMemoryKey !== null;
         if (this.titleElement) {
             this.titleElement.textContent = options.title ?? 'Find Glyph';
         }
@@ -162,27 +210,31 @@ export class FindGlyphDialog {
             this.cancelButton.textContent = options.cancelLabel ?? 'Cancel';
         }
         this.confirmButton!.textContent = options.confirmLabel ?? 'Select';
-        this.syncConfirmButton();
-        this.searchTerms = [];
-        this.casePreservedSearchTerms = [];
+
+        const restoredQuery =
+            this.remembersSearch && this.searchMemoryKey
+                ? (searchMemoryByInvocationType.get(this.searchMemoryKey) ?? '')
+                : '';
+        this.applySearchQuery(restoredQuery);
+        this.lastPersistedQuery = restoredQuery;
         this.visibleGlyphs = this.getVisibleGlyphs();
+
+        if (hasProvidedSelection) {
+            this.activeIndex = this.visibleGlyphs.findIndex((glyph) =>
+                this.selectedGlyphNames.has(glyph.name)
+            );
+        } else {
+            this.restoreSelectionForCurrentQuery({ render: false });
+        }
+
+        this.syncConfirmButton();
         this.outlineCache.clear();
         this.pendingGlyphNames.clear();
-        this.searchInput!.value = '';
-        const selectedGlyphIndex = this.visibleGlyphs.findIndex((glyph) =>
-            this.selectedGlyphNames.has(glyph.name)
+
+        const selectedGlyphScrollTop = getPreselectedGlyphScrollTop(
+            this.activeIndex,
+            this.rowHeight
         );
-        const selectedGlyphScrollTop =
-            selectedGlyphIndex >= 0
-                ? Math.max(
-                      0,
-                      selectedGlyphIndex * this.rowHeight -
-                          Math.max(
-                              0,
-                              (this.list!.clientHeight - this.rowHeight) / 2
-                          )
-                  )
-                : 0;
         this.renderedRange = null;
         this.modal.style.display = 'flex';
         this.renderVisibleWindow(true, selectedGlyphScrollTop);
@@ -194,11 +246,114 @@ export class FindGlyphDialog {
      * Close the Find Glyph dialog.
      */
     public close(): void {
+        this.persistSearchMemory();
         if (this.modal) {
             this.modal.style.display = 'none';
         }
         this.onClose?.();
         this.onClose = null;
+    }
+
+    /**
+     * Whether the Find Glyph dialog is currently visible.
+     */
+    private isOpen(): boolean {
+        return !!this.modal?.isConnected && this.modal.style.display === 'flex';
+    }
+
+    /**
+     * Persist the current search query and selection for this invocation type.
+     */
+    private persistSearchMemory(): void {
+        if (
+            !this.remembersSearch ||
+            !this.searchMemoryKey ||
+            !this.searchInput
+        ) {
+            return;
+        }
+
+        const query = this.searchInput.value;
+        searchMemoryByInvocationType.set(this.searchMemoryKey, query);
+        this.persistSelectionMemory(query);
+    }
+
+    /**
+     * Persist the current selection for a specific search query.
+     */
+    private persistSelectionMemory(query: string): void {
+        if (!this.remembersSearch || !this.searchMemoryKey) {
+            return;
+        }
+
+        const selectedNames = Array.from(this.selectedGlyphNames);
+        const key = selectionMemoryKey(this.searchMemoryKey, query);
+        if (!selectedNames.length) {
+            selectionMemoryByInvocationTypeAndQuery.delete(key);
+            return;
+        }
+
+        selectionMemoryByInvocationTypeAndQuery.set(key, selectedNames);
+    }
+
+    /**
+     * Restore remembered selection for the current query, or select the first match.
+     */
+    private restoreSelectionForCurrentQuery(
+        options: { render?: boolean; scrollIntoView?: boolean } = {}
+    ): void {
+        const { render = true, scrollIntoView = false } = options;
+        if (!this.visibleGlyphs.length) {
+            this.selectIndex(-1, { render, scrollIntoView });
+            return;
+        }
+
+        const query = this.searchInput?.value ?? '';
+        const remembered =
+            this.remembersSearch && this.searchMemoryKey
+                ? selectionMemoryByInvocationTypeAndQuery.get(
+                      selectionMemoryKey(this.searchMemoryKey, query)
+                  )
+                : undefined;
+        const restoredNames = (remembered ?? []).filter((glyphName) =>
+            this.visibleGlyphs.some((glyph) => glyph.name === glyphName)
+        );
+
+        if (!restoredNames.length) {
+            this.selectIndex(0, { render, scrollIntoView });
+            return;
+        }
+
+        if (this.selectionMode === 'single') {
+            this.selectedGlyphNames = new Set([restoredNames[0]!]);
+        } else {
+            this.selectedGlyphNames = new Set(restoredNames);
+        }
+        this.activeIndex = this.visibleGlyphs.findIndex((glyph) =>
+            this.selectedGlyphNames.has(glyph.name)
+        );
+        this.syncConfirmButton();
+        if (scrollIntoView) {
+            this.list!.scrollTop = getPreselectedGlyphScrollTop(
+                this.activeIndex,
+                this.rowHeight
+            );
+        }
+        if (render) {
+            this.renderVisibleWindow(true);
+        }
+    }
+
+    /**
+     * Apply a search query string to the input and parsed term state.
+     */
+    private applySearchQuery(query: string): void {
+        if (this.searchInput) {
+            this.searchInput.value = query;
+        }
+        this.casePreservedSearchTerms =
+            parseGlyphSearchTermsPreserveCase(query);
+        this.searchTerms = parseGlyphSearchTerms(query);
     }
 
     /**
@@ -220,6 +375,82 @@ export class FindGlyphDialog {
                     this.casePreservedSearchTerms
                 )
             );
+    }
+
+    /**
+     * Select the glyph at the given visible-list index.
+     */
+    private selectIndex(
+        index: number,
+        options: { scrollIntoView?: boolean; render?: boolean } = {}
+    ): void {
+        const { scrollIntoView = true, render = true } = options;
+        if (!this.visibleGlyphs.length || index < 0) {
+            this.activeIndex = -1;
+            this.selectedGlyphNames = new Set();
+            this.syncConfirmButton();
+            if (render) {
+                this.renderVisibleWindow(true);
+            }
+            return;
+        }
+
+        const clamped = Math.max(
+            0,
+            Math.min(index, this.visibleGlyphs.length - 1)
+        );
+        this.activeIndex = clamped;
+        const glyphName = this.visibleGlyphs[clamped]!.name;
+        if (this.selectionMode === 'single') {
+            this.selectedGlyphNames = new Set([glyphName]);
+        } else {
+            // Keyboard navigation moves the primary selection; clicks still toggle.
+            this.selectedGlyphNames = new Set([glyphName]);
+        }
+        this.syncConfirmButton();
+        if (scrollIntoView) {
+            this.ensureActiveRowVisible();
+        }
+        if (render) {
+            this.renderVisibleWindow(true);
+        }
+    }
+
+    /**
+     * Move keyboard selection by a delta within the visible match list.
+     */
+    private moveSelection(delta: number): void {
+        if (!this.visibleGlyphs.length) {
+            return;
+        }
+
+        const nextIndex =
+            this.activeIndex < 0
+                ? delta > 0
+                    ? 0
+                    : this.visibleGlyphs.length - 1
+                : this.activeIndex + delta;
+        this.selectIndex(nextIndex);
+    }
+
+    /**
+     * Scroll the list so the active row stays in view.
+     */
+    private ensureActiveRowVisible(): void {
+        if (!this.list || this.activeIndex < 0) {
+            return;
+        }
+
+        const rowTop = this.activeIndex * this.rowHeight;
+        const rowBottom = rowTop + this.rowHeight;
+        const viewTop = this.list.scrollTop;
+        const viewBottom = viewTop + this.list.clientHeight;
+
+        if (rowTop < viewTop) {
+            this.list.scrollTop = rowTop;
+        } else if (rowBottom > viewBottom) {
+            this.list.scrollTop = rowBottom - this.list.clientHeight;
+        }
     }
 
     /**
@@ -251,7 +482,7 @@ export class FindGlyphDialog {
 
         this.list = document.createElement('div');
         this.list.className = 'find-glyph-list';
-        this.list.setAttribute('role', 'list');
+        this.list.setAttribute('role', 'listbox');
 
         this.content.replaceChildren(search, this.list);
 
@@ -281,7 +512,9 @@ export class FindGlyphDialog {
      * Connect dialog controls and keyboard behavior.
      */
     private registerEvents(): void {
-        this.openButton?.addEventListener('click', () => this.open());
+        this.openButton?.addEventListener('click', () =>
+            this.open({ searchMemoryKey: 'find-glyphs' })
+        );
         this.closeButton?.addEventListener('click', () => this.close());
         this.modal?.addEventListener('click', (event) => {
             if (event.target === this.modal) {
@@ -289,27 +522,59 @@ export class FindGlyphDialog {
             }
         });
         this.searchInput?.addEventListener('input', () => {
+            this.persistSelectionMemory(this.lastPersistedQuery);
             const query = this.searchInput!.value;
-            this.casePreservedSearchTerms =
-                parseGlyphSearchTermsPreserveCase(query);
-            this.searchTerms = parseGlyphSearchTerms(query);
+            this.applySearchQuery(query);
+            this.lastPersistedQuery = query;
+            if (this.remembersSearch && this.searchMemoryKey) {
+                searchMemoryByInvocationType.set(this.searchMemoryKey, query);
+            }
             this.visibleGlyphs = this.getVisibleGlyphs();
-            this.list!.scrollTop = 0;
+            this.restoreSelectionForCurrentQuery({
+                render: false,
+                scrollIntoView: false
+            });
+            const scrollTop = getPreselectedGlyphScrollTop(
+                this.activeIndex,
+                this.rowHeight
+            );
+            this.list!.scrollTop = scrollTop;
             this.renderedRange = null;
-            this.renderVisibleWindow(true);
+            this.renderVisibleWindow(true, scrollTop);
         });
         this.list?.addEventListener('scroll', () => this.renderVisibleWindow());
         document.addEventListener(
             'keydown',
             (event) => {
-                if (
-                    event.key === 'Escape' &&
-                    this.modal?.isConnected &&
-                    this.modal?.style.display === 'flex'
-                ) {
+                if (!this.isOpen()) {
+                    return;
+                }
+
+                if (event.key === 'Escape') {
                     event.preventDefault();
                     event.stopImmediatePropagation();
                     this.close();
+                    return;
+                }
+
+                if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    this.moveSelection(1);
+                    return;
+                }
+
+                if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    this.moveSelection(-1);
+                    return;
+                }
+
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    this.confirmSelection();
                 }
             },
             true
@@ -359,7 +624,7 @@ export class FindGlyphDialog {
 
         for (let index = start; index < end; index += 1) {
             fragment.appendChild(
-                this.createGlyphRow(this.visibleGlyphs[index])
+                this.createGlyphRow(this.visibleGlyphs[index]!, index)
             );
         }
 
@@ -385,26 +650,25 @@ export class FindGlyphDialog {
     /**
      * Create one glyph's preview and metadata row.
      */
-    private createGlyphRow(glyph: FindableGlyph): HTMLDivElement {
+    private createGlyphRow(
+        glyph: FindableGlyph,
+        index: number
+    ): HTMLDivElement {
         const row = document.createElement('div');
         row.className = 'find-glyph-row';
         row.dataset.glyphName = glyph.name;
-        row.setAttribute('role', 'listitem');
-        row.tabIndex = 0;
+        row.setAttribute('role', 'option');
+        row.tabIndex = -1;
         const selected = this.selectedGlyphNames.has(glyph.name);
         row.setAttribute('aria-selected', String(selected));
         row.addEventListener('click', () =>
-            this.toggleGlyphSelection(glyph.name)
+            this.toggleGlyphSelection(glyph.name, index)
         );
         row.addEventListener('dblclick', () => {
-            this.selectGlyphForDefaultAction(glyph.name);
+            this.activeIndex = index;
+            this.selectedGlyphNames = new Set([glyph.name]);
+            this.syncConfirmButton();
             this.confirmSelection();
-        });
-        row.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                this.toggleGlyphSelection(glyph.name);
-            }
         });
 
         const canvas = document.createElement('canvas');
@@ -436,7 +700,8 @@ export class FindGlyphDialog {
     /**
      * Update selection for a clicked glyph according to the configured mode.
      */
-    private toggleGlyphSelection(glyphName: string): void {
+    private toggleGlyphSelection(glyphName: string, index: number): void {
+        this.activeIndex = index;
         if (this.selectionMode === 'single') {
             this.selectedGlyphNames = new Set([glyphName]);
         } else if (this.selectedGlyphNames.has(glyphName)) {
@@ -447,19 +712,6 @@ export class FindGlyphDialog {
 
         this.syncConfirmButton();
         this.renderVisibleWindow(true);
-    }
-
-    /**
-     * Include a glyph in the current selection before invoking the default action.
-     */
-    private selectGlyphForDefaultAction(glyphName: string): void {
-        if (this.selectionMode === 'single') {
-            this.selectedGlyphNames = new Set([glyphName]);
-        } else {
-            this.selectedGlyphNames.add(glyphName);
-        }
-
-        this.syncConfirmButton();
     }
 
     /**
@@ -580,8 +832,8 @@ export class FindGlyphDialog {
             fastGlyphTileRenderer.renderToCanvas(
                 outline,
                 undefined,
-                52,
-                52,
+                67,
+                67,
                 canvas
             );
         });

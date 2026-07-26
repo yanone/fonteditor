@@ -1061,12 +1061,17 @@ class GlyphCanvas {
                 window.findGlyphDialog.open({
                     selectionMode: 'multiple',
                     confirmLabel: 'Insert',
+                    searchMemoryKey: 'find-glyphs',
                     onConfirm: (glyphNames) => {
                         const tokenText = glyphNames
                             .map((glyphName) => `/${glyphName}`)
                             .join(' ');
                         this.textRunEditor?.insertText(`${tokenText} `);
-                        this.canvas?.focus();
+                    },
+                    onClose: () => {
+                        if (this.canvas) {
+                            setTimeout(() => this.canvas!.focus(), 0);
+                        }
                     }
                 });
             },
@@ -4786,6 +4791,7 @@ class GlyphCanvas {
             selectionMode: 'single',
             title: 'Add Component',
             confirmLabel: 'Add',
+            searchMemoryKey: 'add-component',
             onConfirm: (glyphNames) => {
                 const reference = glyphNames[0];
                 if (reference) {
