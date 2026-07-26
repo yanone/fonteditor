@@ -1,5 +1,6 @@
 # Unreleased
 
+- ***Privacy Policy**: Implemented a Privacy Policy. It’s very lean. Counterpunch collects barely any data.
 - **Find Glyphs Dialog**: Implemented a dialog for inserting glyphs into the editing canvas and adding/chenging component references. It can filter for glyph names, and search for literal characters as well as hex Unicodes.
 - **Tool-Calling AI Agent**: Replaced the old chat-based AI assistant with a multi-round tool-calling agent (but still called assistant after the transition). The old assistant could only generate Python code from a single prompt, auto-execute it, and retry on failure. The new agent has 30 tools (as of now) for documentation lookup (handbook, Python API, binary font docs), font file management, Python execution with edit lifecycle guards, editor state inspection/modification, binary font compilation and inspection via an isolated analysis worker, OpenType feature analysis, and conversation state tracking. The agent runs multiple tool-calling rounds per prompt and streams results incrementally, with connection-drop recovery and per-round cost tracking.
 - **Anchor UI/UX**

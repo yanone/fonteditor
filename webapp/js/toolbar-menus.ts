@@ -329,6 +329,21 @@ function getDeveloperMenuItems(): ToolbarMenuItem[] {
     return items;
 }
 
+function getHelpMenuItems(): ToolbarMenuItem[] {
+    return [
+        {
+            label: 'Privacy Policy',
+            icon: 'privacy_tip',
+            action: async () => {
+                const modal = document.getElementById('privacy-policy-modal');
+                if (modal) {
+                    modal.style.display = 'flex';
+                }
+            }
+        }
+    ];
+}
+
 function createToolbarMenu(
     buttonId: string,
     backdropClassName: string,
@@ -383,6 +398,26 @@ function createToolbarMenu(
             instance.hide();
         } else {
             instance.show();
+        }
+    });
+}
+
+function setupPrivacyPolicyModal(): void {
+    const modal = document.getElementById('privacy-policy-modal');
+    const closeBtn = document.getElementById('privacy-policy-modal-close-btn');
+    if (!modal) return;
+
+    const close = () => {
+        modal.style.display = 'none';
+    };
+
+    closeBtn?.addEventListener('click', close);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) close();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.style.display === 'flex') {
+            close();
         }
     });
 }
@@ -466,6 +501,13 @@ function initToolbarMenus(): void {
         'toolbar-developer-menu-backdrop',
         getDeveloperMenuItems
     );
+    createToolbarMenu(
+        'toolbar-help-menu-btn',
+        'toolbar-help-menu-backdrop',
+        getHelpMenuItems
+    );
+
+    setupPrivacyPolicyModal();
     installGlobalShortcuts();
 
     // Listen for update-available events to toggle orange dot on File button

@@ -339,6 +339,16 @@
                             >expand_more</span
                         >
                     </button>
+                    <button
+                        id="toolbar-help-menu-btn"
+                        class="toolbar-menu-trigger"
+                        title="Help"
+                    >
+                        <span>Help</span>
+                        <span class="material-symbols-outlined"
+                            >expand_more</span
+                        >
+                    </button>
                 </div>
             </div>
             <div class="toolbar-center"></div>
@@ -1247,6 +1257,165 @@
                     id="assistant-info-modal-content"
                 >
                     <!-- Populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Privacy Policy Modal -->
+        <div
+            class="info-popup-overlay"
+            id="privacy-policy-modal"
+            style="display: none"
+        >
+            <div class="info-popup" style="max-width: 600px">
+                <div class="info-popup-header">
+                    <h3>Privacy Policy</h3>
+                    <button
+                        class="info-popup-close"
+                        id="privacy-policy-modal-close-btn"
+                    >
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <div
+                    class="info-popup-content"
+                    id="privacy-policy-modal-content"
+                >
+                    <h4>Data Controller</h4>
+                    <p>
+                        Counterpunch operates the editor at
+                        <strong>editor.counterpunch.space</strong> and the
+                        website at <strong>counterpunch.space</strong>. This
+                        Privacy Policy applies specifically to the editor
+                        application.
+                    </p>
+
+                    <h4>What Data We Collect</h4>
+                    <p>
+                        <strong>Account Information.</strong> When you create an
+                        account, we collect your email address. This is stored
+                        in our database on Cloudflare D1.
+                    </p>
+                    <p>
+                        <strong>Subscription Data.</strong> If you subscribe to
+                        a paid plan, we store Stripe customer and subscription
+                        identifiers, billing period, country code, and credit
+                        balance. No full payment details are stored on our
+                        servers &mdash; they are handled entirely by Stripe.
+                    </p>
+                    <p>
+                        <strong>AI Assistant Prompts.</strong> When you use the
+                        AI assistant, your prompts and a snapshot of the current
+                        editor state are sent to OpenRouter via our proxy. This
+                        snapshot <em>may</em> include text buffer content, glyph
+                        names, feature states, variation axis positions, or font
+                        data extracted by Python scripts running in your browser
+                        &mdash; only what the assistant needs to answer your
+                        request. Font data is extracted as lean, targeted
+                        metrics, not entire font files.
+                        <strong
+                            >Complete font files are never sent to an AI server,
+                            and your data is never used for model
+                            training.</strong
+                        >
+                        Only billing metadata (generation IDs, token costs) is
+                        retained on our servers. Prompt history is discarded.
+                    </p>
+                    <p>
+                        <strong>Error Reports.</strong> If an error occurs, we
+                        may store a technical error report including a font
+                        asset with contextual information to help diagnose the
+                        issue. While in <em>Alpha</em> and <em>Beta</em> phases,
+                        including your currently loaded font asset in error
+                        reports helps us identify and fix issues and the
+                        decision to include font assets is in our discretion.
+                        Once the software is stable, including font assets in
+                        error reports will be optional and you will be prompted
+                        to confirm before sending.
+                    </p>
+
+                    <h4>Cookies and Local Storage</h4>
+                    <p>
+                        <strong>Cookies.</strong> We set only one cookie:
+                        <code>editor_session</code>, which is strictly necessary
+                        for authentication. No analytics, tracking, or
+                        advertising cookies are used. Therefore, no cookie
+                        consent banner is required.
+                    </p>
+                    <p>
+                        <strong>Local Storage.</strong> The editor uses your
+                        browser&rsquo;s local storage and session storage to
+                        persist preferences (theme, view layout, script editor
+                        content, text buffer, plugin state, filter settings).
+                        This data never leaves your browser.
+                    </p>
+                    <p>
+                        <strong>Font assets.</strong> You grant the editor
+                        permission to read and write font files to and from your
+                        hard disk. The font assets are never uploaded to our
+                        servers, with the exception of error reports as declared
+                        above.
+                    </p>
+
+                    <h4>How We Use Your Data</h4>
+                    <p>
+                        We use your data solely to operate the editor: process
+                        AI assistant requests, manage subscriptions, and
+                        diagnose technical issues. We do not sell, share, or use
+                        your data for advertising or profiling.
+                    </p>
+
+                    <h4>Third-Party Services</h4>
+                    <p>
+                        <strong>OpenRouter.</strong> AI assistant requests are
+                        routed through OpenRouter, which processes prompts and
+                        returns responses. OpenRouter&rsquo;s privacy policy
+                        applies to that processing.
+                    </p>
+                    <p>
+                        <strong>Stripe.</strong> Subscription payments are
+                        processed by Stripe. We receive only subscription status
+                        and identifiers; full payment data is governed by
+                        Stripe&rsquo;s privacy policy.
+                    </p>
+                    <p>
+                        <strong>Cloudflare.</strong> The application is hosted
+                        on Cloudflare Pages and Workers. Cloudflare may process
+                        IP addresses and request metadata as part of its
+                        infrastructure services.
+                    </p>
+                    <p>
+                        <strong>DeepSeek.</strong> The AI assistant is powered
+                        by DeepSeek&rsquo;s models via OpenRouter. Prompts may
+                        be processed by DeepSeek in accordance with their
+                        privacy policy.
+                    </p>
+
+                    <h4>Data Retention</h4>
+                    <p>
+                        Account data is retained until you delete your account.
+                        AI billing metadata is retained for financial
+                        record-keeping. Error reports are periodically purged.
+                    </p>
+
+                    <h4>Your Rights</h4>
+                    <p>
+                        Depending on your jurisdiction, you may have the right
+                        to access, correct, delete, or port your data. Contact
+                        us at
+                        <strong>privacy@counterpunch.space</strong> to exercise
+                        these rights.
+                    </p>
+
+                    <h4>Changes</h4>
+                    <p>
+                        We may update this policy. Material changes will be
+                        notified via the editor or by email.
+                    </p>
+
+                    <p style="margin-top: 16px; font-size: 11px; opacity: 0.6">
+                        Last updated: July 2026
+                    </p>
                 </div>
             </div>
         </div>
