@@ -10033,9 +10033,6 @@ export class OutlineEditor {
 
             // Note: Don't clear isInterpolating here - let it stay true until animation completes
             // so auto-panning continues working. It will be cleared in animationComplete handler.
-            this.clearQueuedInterpolationRequest();
-            fontInterpolation.resetRequestTracking();
-
             // If we landed on an exact layer, update the saved state to this new layer
             // so Escape will return here, not to the original layer
             if (this.selectedLayerId) {
@@ -10050,6 +10047,8 @@ export class OutlineEditor {
 
                 // Fetch layer data but skip render - we'll render after clearing flags
                 await this.fetchLayerData(true);
+                this.clearQueuedInterpolationRequest();
+                fontInterpolation.resetRequestTracking();
 
                 // Clear interpolating flag immediately since we're now on an exact layer
                 // This ensures that if the user switches glyphs, the new glyph will properly
@@ -10065,10 +10064,7 @@ export class OutlineEditor {
                     await LayerDataNormalizer.restoreExactLayer(this);
                 }
 
-                // Still interpolating - only clear flags if animation is complete
-                if (!this.glyphCanvas.axesManager!.isAnimating) {
-                    this.isInterpolating = false;
-                }
+                // Keep the latest worker request alive through slider release.
             }
 
             this.reapplyInterpolationBboxCenterAnchor();
@@ -10089,9 +10085,6 @@ export class OutlineEditor {
 
             // Note: Don't clear isInterpolating here - let it stay true until animation completes
             // so auto-panning continues working. It will be cleared in animationComplete handler.
-            this.clearQueuedInterpolationRequest();
-            fontInterpolation.resetRequestTracking();
-
             // If we landed on an exact layer, update the saved state to this new layer
             // so Escape will return here, not to the original layer
             if (this.selectedLayerId) {
@@ -10106,6 +10099,8 @@ export class OutlineEditor {
 
                 // Fetch layer data but skip render - we'll render after clearing flags
                 await this.fetchLayerData(true);
+                this.clearQueuedInterpolationRequest();
+                fontInterpolation.resetRequestTracking();
 
                 // Clear interpolating flag immediately since we're on an exact layer
                 this.isInterpolating = false;
@@ -18404,9 +18399,9 @@ export class OutlineEditor {
             return;
         }
 
-        // Latest-request-wins coalescing: if a request is already in flight,
-        // mark that another is needed and abort — the in-flight one will pick
-        // up the latest location when it finishes.
+        // Coalesce to one follow-up request while allowing the in-flight frame
+        // to paint at its own location. This keeps the outline and text run
+        // synchronized without starving visible interpolation during dragging.
         if (this.interpolationRequestInFlight) {
             this.interpolationNeeded = true;
             this.interpolationNeededForce =
@@ -18481,17 +18476,17 @@ export class OutlineEditor {
             // Apply interpolated data via shared normalizer
             this.applyRustLayerData(interpolatedLayer, true);
 
-            // Keep HarfBuzz synchronized with the authoritative edit location.
-            const currentLocation =
-                this.glyphCanvas.axesManager!.variationSettings;
+            // Shape text at the exact location that produced this outline.
             const textRun = this.glyphCanvas.textRunEditor;
             if (
                 textRun &&
                 textRun.hbFont &&
-                Object.keys(currentLocation).length > 0
+                Object.keys(requestLocation).length > 0
             ) {
-                textRun.hbFont.setVariations(currentLocation);
-                textRun.shapeText(true);
+                // The renderer uses hbFont while shaping may use a separate
+                // shapingHbFont, so update both only when this outline arrives.
+                textRun.hbFont.setVariations(requestLocation);
+                textRun.shapeText(true, requestLocation);
             }
 
             this.reapplyInterpolationBboxCenterAnchor();
@@ -18535,6 +18530,15 @@ export class OutlineEditor {
                 const neededForce = this.interpolationNeededForce;
                 this.interpolationNeededForce = false;
                 void this.interpolateCurrentGlyph(neededForce);
+            } else if (
+                this.isInterpolating &&
+                !this.glyphCanvas.axesManager?.isSliderActive &&
+                !this.glyphCanvas.axesManager?.isAnimating &&
+                !this.isLayerSwitchAnimating &&
+                !this.glyphCanvas.axesManager?.isLoopAnimating
+            ) {
+                this.isInterpolating = false;
+                this.clearInterpolationBboxCenterAnchor();
             }
         }
     }

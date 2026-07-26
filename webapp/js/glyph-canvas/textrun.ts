@@ -8,6 +8,7 @@
 import { Logger } from '../logger';
 import type { FeaturesManager } from './features';
 import type { AxesManager } from './variations';
+import type { UserspaceLocation } from '../locations';
 import APP_SETTINGS from '../settings';
 import {
     get_glyph_name,
@@ -1896,7 +1897,10 @@ export class TextRunEditor {
         window.fontManager?.setFormatSpecific(key, escapedText);
     }
 
-    shapeText(skipRender: boolean = false) {
+    shapeText(
+        skipRender: boolean = false,
+        variationLocation?: UserspaceLocation
+    ) {
         if (!this.hb || !this.textBuffer) {
             this.shapedGlyphs = [];
             this.bidiRuns = [];
@@ -1916,12 +1920,10 @@ export class TextRunEditor {
             // Single-stage processing with editing font.
             const shapingFont = this.getActiveShapingFont();
             if (shapingFont) {
-                if (
-                    Object.keys(this.axesManager.variationSettings).length > 0
-                ) {
-                    shapingFont.setVariations(
-                        this.axesManager.variationSettings
-                    );
+                const location =
+                    variationLocation ?? this.axesManager.variationSettings;
+                if (Object.keys(location).length > 0) {
+                    shapingFont.setVariations(location);
                 }
                 if (this.bidi) {
                     this.shapeTextWithBidi(shapingFont);

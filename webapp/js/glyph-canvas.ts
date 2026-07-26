@@ -1428,19 +1428,8 @@ class GlyphCanvas {
                 this.applyTextModeAutoPanAdjustment();
                 this.render(); // Single render after both HarfBuzz and auto-pan are updated
             } else {
-                // In editing mode, sync HarfBuzz to the current variation settings
-                // before calling outlineEditor. The outline handles interpolation of
-                // glyph shapes, but HarfBuzz must match the current axis location
-                // so text preview stays in sync during play-loop or slider animation.
-                const textRun = this.textRunEditor;
-                const location = this.axesManager!.variationSettings;
-                if (
-                    textRun &&
-                    textRun.hbFont &&
-                    Object.keys(location).length > 0
-                ) {
-                    textRun.hbFont.setVariations(location);
-                }
+                // The worker response updates both the active outline and
+                // HarfBuzz together at one immutable interpolation location.
                 this.outlineEditor.animationInProgress();
             }
         });
@@ -1477,22 +1466,16 @@ class GlyphCanvas {
                 return;
             }
 
-            // Final HarfBuzz sync — ensure text preview matches the final
-            // axis location, even during or after outline interpolation.
-            // This fixes the case where HarfBuzz lagged behind after stop or
-            // layer switch animation completion.
-            this.textRunEditor!.shapeText();
-
-            // During manual slider interpolation (isInterpolating), clear flags
-            // if slider is no longer active. The interpolation callback already
-            // synced HarfBuzz, but we sync again here for safety.
+            // During edit interpolation, the accepted worker response shapes
+            // HarfBuzz at that response's exact location and owns the paint.
+            // A separate final reshape would pair a newer text run with an
+            // older outline and bypass its bbox-center anchoring.
             if (this.outlineEditor.isInterpolating) {
-                if (!this.axesManager!.isSliderActive) {
-                    this.outlineEditor.isInterpolating = false;
-                    this.textModeAutoPanAnchorScreen = null;
-                }
                 return;
             }
+
+            // No edit interpolation is active, so HarfBuzz owns the final paint.
+            this.textRunEditor!.shapeText();
 
             // Restore focus to canvas after animation completes (for text editing mode)
             if (!this.outlineEditor.active) {

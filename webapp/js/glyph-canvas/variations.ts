@@ -599,8 +599,8 @@ export class AxesManager {
                 await this.call('sliderMouseDown');
 
                 // 2. Change the value and trigger animation
-                this.call('onSliderChange', axis.tag, value);
                 this.setVariation(axis.tag, value);
+                this.call('onSliderChange', axis.tag, value);
 
                 // Note: Layer selection will be handled when animation completes
             });
@@ -628,8 +628,8 @@ export class AxesManager {
 
                 this.isTextFieldChange = true;
                 await this.call('sliderMouseDown');
-                this.call('onSliderChange', axis.tag, userspaceValue);
                 this.setVariation(axis.tag, userspaceValue);
+                this.call('onSliderChange', axis.tag, userspaceValue);
             });
 
             valueLabel.addEventListener('keydown', (e) => {
@@ -703,9 +703,8 @@ export class AxesManager {
                     axis.tag,
                     value
                 );
-                this.call('onSliderChange', axis.tag, value);
-
                 this.setVariation(axis.tag, value);
+                this.call('onSliderChange', axis.tag, value);
             });
             console.log(
                 '[Variations] Attached input listener to slider for axis:',

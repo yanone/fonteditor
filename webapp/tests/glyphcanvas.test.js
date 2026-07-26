@@ -355,7 +355,74 @@ describe('Outline interpolation bbox anchoring', () => {
 
         expect(getActiveBboxCenterScreen()).toEqual(before);
         expect(canvas.viewportManager.panX).not.toBe(80);
-        expect(canvas.textRunEditor.shapeText).toHaveBeenCalledWith(true);
+        expect(canvas.textRunEditor.shapeText).toHaveBeenCalledWith(true, {
+            wght: 500
+        });
+    });
+
+    test('shapes HarfBuzz at the response location rather than a newer slider value', async () => {
+        defaultInterpolateGlyphSpy.mockResolvedValue(
+            createBoxLayer({
+                minX: 160,
+                minY: 20,
+                maxX: 460,
+                maxY: 520,
+                width: 600
+            })
+        );
+        jest.spyOn(
+            canvas.outlineEditor,
+            'applyRustLayerData'
+        ).mockImplementation((layerData) => {
+            canvas.outlineEditor.layerData = {
+                ...layerData,
+                isInterpolated: true
+            };
+        });
+        canvas.textRunEditor.shapeText = jest.fn();
+
+        canvas.outlineEditor.onSliderMouseDown();
+        const interpolation = canvas.outlineEditor.interpolateCurrentGlyph();
+        canvas.axesManager.variationSettings = { wght: 800 };
+        await interpolation;
+
+        expect(canvas.textRunEditor.shapeText).toHaveBeenCalledWith(true, {
+            wght: 500
+        });
+    });
+
+    test('keeps the final between-layer request alive after slider release', async () => {
+        canvas.outlineEditor.isInterpolating = true;
+        canvas.outlineEditor.selectedLayerId = null;
+        canvas.outlineEditor.layerData.isInterpolated = true;
+        canvas.axesManager.isAnimating = true;
+        jest.spyOn(
+            canvas.outlineEditor,
+            'autoSelectMatchingLayer'
+        ).mockResolvedValue();
+        const resetTrackingSpy = jest
+            .spyOn(fontInterpolation, 'resetRequestTracking')
+            .mockImplementation(() => {});
+
+        await canvas.outlineEditor.onSliderMouseUp();
+
+        expect(resetTrackingSpy).not.toHaveBeenCalled();
+        expect(canvas.outlineEditor.isInterpolating).toBe(true);
+    });
+
+    test('defers HarfBuzz variation changes until an edit interpolation frame arrives', async () => {
+        const animationSpy = jest
+            .spyOn(canvas.outlineEditor, 'animationInProgress')
+            .mockImplementation(() => {});
+        const variationSpy = jest.spyOn(
+            canvas.textRunEditor.hbFont,
+            'setVariations'
+        );
+
+        await canvas.axesManager.call('animationInProgress');
+
+        expect(animationSpy).toHaveBeenCalled();
+        expect(variationSpy).not.toHaveBeenCalled();
     });
 
     test('keeps the bbox center stationary when the exact target layer replaces the final interpolation frame', async () => {
