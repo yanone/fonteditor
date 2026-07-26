@@ -1,7 +1,9 @@
 import { fastGlyphTileRenderer } from './glyph-tile-renderer-fast';
 import {
-    glyphNameMatchesSearchTerms,
-    parseGlyphSearchTerms
+    compareGlyphsBySearchRelevance,
+    glyphMatchesSearchTerms,
+    parseGlyphSearchTerms,
+    parseGlyphSearchTermsPreserveCase
 } from './glyph-search';
 import { Logger } from './logger';
 
@@ -99,6 +101,7 @@ export class FindGlyphDialog {
     private glyphs: FindableGlyph[] = [];
     private visibleGlyphs: FindableGlyph[] = [];
     private searchTerms: string[] = [];
+    private casePreservedSearchTerms: string[] = [];
     private selectionMode: GlyphSelectionMode = 'single';
     private selectedGlyphNames = new Set<string>();
     private onConfirm: ((glyphNames: string[]) => void) | null = null;
@@ -161,7 +164,8 @@ export class FindGlyphDialog {
         this.confirmButton!.textContent = options.confirmLabel ?? 'Select';
         this.syncConfirmButton();
         this.searchTerms = [];
-        this.visibleGlyphs = [...this.glyphs];
+        this.casePreservedSearchTerms = [];
+        this.visibleGlyphs = this.getVisibleGlyphs();
         this.outlineCache.clear();
         this.pendingGlyphNames.clear();
         this.searchInput!.value = '';
@@ -198,6 +202,27 @@ export class FindGlyphDialog {
     }
 
     /**
+     * Filter and rank glyphs for the current search terms.
+     * Empty search keeps font order; active search ranks by relevance.
+     */
+    private getVisibleGlyphs(): FindableGlyph[] {
+        if (!this.searchTerms.length) {
+            return [...this.glyphs];
+        }
+
+        return this.glyphs
+            .filter((glyph) => glyphMatchesSearchTerms(glyph, this.searchTerms))
+            .sort((left, right) =>
+                compareGlyphsBySearchRelevance(
+                    left,
+                    right,
+                    this.searchTerms,
+                    this.casePreservedSearchTerms
+                )
+            );
+    }
+
+    /**
      * Build the reusable dialog's search and virtual-list content.
      */
     private buildContent(): void {
@@ -216,8 +241,12 @@ export class FindGlyphDialog {
         this.searchInput = document.createElement('input');
         this.searchInput.className = 'find-glyph-search-input';
         this.searchInput.type = 'search';
-        this.searchInput.placeholder = 'Search glyph names';
-        this.searchInput.setAttribute('aria-label', 'Search glyph names');
+        this.searchInput.placeholder =
+            'Search glyph names, characters, or hex Unicodes.';
+        this.searchInput.setAttribute(
+            'aria-label',
+            'Search glyph names, characters, or hex Unicodes.'
+        );
         search.appendChild(this.searchInput);
 
         this.list = document.createElement('div');
@@ -260,10 +289,11 @@ export class FindGlyphDialog {
             }
         });
         this.searchInput?.addEventListener('input', () => {
-            this.searchTerms = parseGlyphSearchTerms(this.searchInput!.value);
-            this.visibleGlyphs = this.glyphs.filter((glyph) =>
-                glyphNameMatchesSearchTerms(glyph.name, this.searchTerms)
-            );
+            const query = this.searchInput!.value;
+            this.casePreservedSearchTerms =
+                parseGlyphSearchTermsPreserveCase(query);
+            this.searchTerms = parseGlyphSearchTerms(query);
+            this.visibleGlyphs = this.getVisibleGlyphs();
             this.list!.scrollTop = 0;
             this.renderedRange = null;
             this.renderVisibleWindow(true);

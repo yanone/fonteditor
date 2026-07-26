@@ -19,9 +19,15 @@ describe('FindGlyphDialog', () => {
         `;
         window.currentFontModel = {
             glyphs: [
+                { name: 'copyright', codepoints: [0xa9] },
+                { name: 'odot', codepoints: [0x2299] },
                 { name: 'A', codepoints: [0x41] },
                 { name: 'acutecomb', codepoints: [0x301] },
                 { name: 'acute' },
+                { name: 'O', codepoints: [0x4f] },
+                { name: 'o', codepoints: [0x6f] },
+                { name: 'adieresis', codepoints: [0xe4] },
+                { name: 'oe', codepoints: [0x153] },
                 { name: 'B', codepoints: [0x42] }
             ]
         };
@@ -32,6 +38,14 @@ describe('FindGlyphDialog', () => {
         };
 
         require('../js/find-glyph-dialog');
+        Object.defineProperty(
+            document.querySelector('.find-glyph-list'),
+            'clientHeight',
+            {
+                configurable: true,
+                get: () => 2000
+            }
+        );
     });
 
     afterEach(() => {
@@ -49,9 +63,20 @@ describe('FindGlyphDialog', () => {
             Array.from(document.querySelectorAll('.find-glyph-name')).map(
                 (element) => element.textContent
             )
-        ).toEqual(['A', 'acutecomb', 'acute', 'B']);
+        ).toEqual([
+            'copyright',
+            'odot',
+            'A',
+            'acutecomb',
+            'acute',
+            'O',
+            'o',
+            'adieresis',
+            'oe',
+            'B'
+        ]);
         expect(document.querySelector('.find-glyph-unicode').textContent).toBe(
-            'U+0041'
+            'U+00A9'
         );
     });
 
@@ -68,6 +93,47 @@ describe('FindGlyphDialog', () => {
         ).toEqual(['acutecomb']);
     });
 
+    test('ranks search matches by relevance and supports Unicode queries', () => {
+        document.getElementById('find-glyph-btn').click();
+        const search = document.querySelector('.find-glyph-search-input');
+
+        expect(search.placeholder).toBe(
+            'Search glyph names, characters, or hex Unicodes.'
+        );
+
+        search.value = 'o';
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(
+            Array.from(document.querySelectorAll('.find-glyph-name')).map(
+                (element) => element.textContent
+            )
+        ).toEqual(['o', 'oe', 'odot', 'copyright', 'acutecomb', 'O']);
+
+        search.value = 'O';
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(
+            Array.from(document.querySelectorAll('.find-glyph-name')).map(
+                (element) => element.textContent
+            )
+        ).toEqual(['O', 'o', 'oe', 'odot', 'copyright', 'acutecomb']);
+
+        search.value = 'ä';
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(
+            Array.from(document.querySelectorAll('.find-glyph-name')).map(
+                (element) => element.textContent
+            )
+        ).toEqual(['adieresis']);
+
+        search.value = '00E4';
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(
+            Array.from(document.querySelectorAll('.find-glyph-name')).map(
+                (element) => element.textContent
+            )
+        ).toEqual(['adieresis']);
+    });
+
     test('confirms one glyph when configured for single selection', () => {
         const onConfirm = jest.fn();
         window.findGlyphDialog.open({
@@ -76,10 +142,10 @@ describe('FindGlyphDialog', () => {
         });
         const rows = document.querySelectorAll('.find-glyph-row');
         rows[0].click();
-        rows[3].click();
+        rows[2].click();
         document.querySelector('.find-glyph-actions button:last-child').click();
 
-        expect(onConfirm).toHaveBeenCalledWith(['B']);
+        expect(onConfirm).toHaveBeenCalledWith(['A']);
     });
 
     test('uses configured labels and reveals a preselected glyph', () => {
@@ -134,8 +200,8 @@ describe('FindGlyphDialog', () => {
             onConfirm
         });
         const rows = document.querySelectorAll('.find-glyph-row');
-        rows[3].click();
-        rows[0].click();
+        rows[9].click();
+        rows[2].click();
         document.querySelector('.find-glyph-actions button:last-child').click();
 
         expect(onConfirm).toHaveBeenCalledWith(['A', 'B']);
@@ -148,12 +214,41 @@ describe('FindGlyphDialog', () => {
             onConfirm
         });
         const rows = document.querySelectorAll('.find-glyph-row');
-        rows[1].dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        rows[3].dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
 
         expect(onConfirm).toHaveBeenCalledWith(['acutecomb']);
         expect(document.getElementById('find-glyph-modal').style.display).toBe(
             'none'
         );
+    });
+
+    test('multi-select confirm stays in font order after ranked search', () => {
+        const onConfirm = jest.fn();
+        window.findGlyphDialog.open({
+            selectionMode: 'multiple',
+            onConfirm
+        });
+        const search = document.querySelector('.find-glyph-search-input');
+        search.value = 'o';
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+
+        const rankedNames = Array.from(
+            document.querySelectorAll('.find-glyph-name')
+        ).map((element) => element.textContent);
+        expect(rankedNames).toEqual([
+            'o',
+            'oe',
+            'odot',
+            'copyright',
+            'acutecomb',
+            'O'
+        ]);
+
+        document.querySelector('[data-glyph-name="oe"]').click();
+        document.querySelector('[data-glyph-name="o"]').click();
+        document.querySelector('.find-glyph-actions button:last-child').click();
+
+        expect(onConfirm).toHaveBeenCalledWith(['o', 'oe']);
     });
 
     test('cancels on Escape before lower-priority keyboard handlers', () => {
