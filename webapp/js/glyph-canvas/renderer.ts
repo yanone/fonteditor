@@ -2816,10 +2816,12 @@ export class GlyphCanvasRenderer {
                 if (type === 'offcurve') {
                     this.ctx.beginPath();
                     this.ctx.arc(0, 0, pointSize, 0, Math.PI * 2);
-                    this.ctx.fillStyle = colors.CONTROL_POINT_NORMAL;
+                    this.ctx.fillStyle = desaturateColor(
+                        colors.CONTROL_POINT_NORMAL
+                    );
                     this.ctx.fill();
                 } else {
-                    this.ctx.fillStyle = colors.NODE_NORMAL;
+                    this.ctx.fillStyle = desaturateColor(colors.NODE_NORMAL);
                     this.ctx.fillRect(
                         -pointSize,
                         -pointSize,
