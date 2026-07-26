@@ -221,12 +221,15 @@ describe('FindGlyphDialog', () => {
             onConfirm
         });
         const rows = document.querySelectorAll('.find-glyph-row');
-        rows[0].click();
-        rows[9].click();
-        rows[2].click();
+        rows[9].dispatchEvent(
+            new MouseEvent('click', { bubbles: true, metaKey: true })
+        );
+        rows[2].dispatchEvent(
+            new MouseEvent('click', { bubbles: true, metaKey: true })
+        );
         document.querySelector('.find-glyph-actions button:last-child').click();
 
-        expect(onConfirm).toHaveBeenCalledWith(['A', 'B']);
+        expect(onConfirm).toHaveBeenCalledWith(['copyright', 'A', 'B']);
     });
 
     test('double-click confirms the glyph with the default action', () => {
@@ -266,10 +269,143 @@ describe('FindGlyphDialog', () => {
             'O'
         ]);
 
-        document.querySelector('[data-glyph-name="oe"]').click();
+        document
+            .querySelector('[data-glyph-name="oe"]')
+            .dispatchEvent(
+                new MouseEvent('click', { bubbles: true, metaKey: true })
+            );
         document.querySelector('.find-glyph-actions button:last-child').click();
 
         expect(onConfirm).toHaveBeenCalledWith(['o', 'oe']);
+    });
+
+    test('uses cmd-click toggle and shift-click range in multiple mode', () => {
+        const onConfirm = jest.fn();
+        window.findGlyphDialog.open({
+            selectionMode: 'multiple',
+            onConfirm
+        });
+
+        document
+            .querySelector('[data-glyph-name="odot"]')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        expect(
+            document
+                .querySelector('[data-glyph-name="copyright"]')
+                .getAttribute('aria-selected')
+        ).toBe('false');
+        expect(
+            document
+                .querySelector('[data-glyph-name="odot"]')
+                .getAttribute('aria-selected')
+        ).toBe('true');
+
+        document
+            .querySelector('[data-glyph-name="acute"]')
+            .dispatchEvent(
+                new MouseEvent('click', { bubbles: true, shiftKey: true })
+            );
+        expect(
+            Array.from(
+                document.querySelectorAll(
+                    '.find-glyph-row[aria-selected="true"]'
+                )
+            ).map((row) => row.getAttribute('data-glyph-name'))
+        ).toEqual(['odot', 'A', 'acutecomb', 'acute']);
+
+        document
+            .querySelector('[data-glyph-name="B"]')
+            .dispatchEvent(
+                new MouseEvent('click', { bubbles: true, metaKey: true })
+            );
+        document.querySelector('.find-glyph-actions button:last-child').click();
+
+        expect(onConfirm).toHaveBeenCalledWith([
+            'odot',
+            'A',
+            'acutecomb',
+            'acute',
+            'B'
+        ]);
+    });
+
+    test('arrow keys leave multi-selection from the top or bottom edge', () => {
+        window.findGlyphDialog.open({
+            selectionMode: 'multiple'
+        });
+
+        document
+            .querySelector('[data-glyph-name="A"]')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document
+            .querySelector('[data-glyph-name="acute"]')
+            .dispatchEvent(
+                new MouseEvent('click', { bubbles: true, shiftKey: true })
+            );
+
+        document.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowDown',
+                bubbles: true,
+                cancelable: true
+            })
+        );
+        expect(
+            Array.from(
+                document.querySelectorAll(
+                    '.find-glyph-row[aria-selected="true"]'
+                )
+            ).map((row) => row.getAttribute('data-glyph-name'))
+        ).toEqual(['O']);
+
+        document
+            .querySelector('[data-glyph-name="A"]')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document
+            .querySelector('[data-glyph-name="acute"]')
+            .dispatchEvent(
+                new MouseEvent('click', { bubbles: true, shiftKey: true })
+            );
+
+        document.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowUp',
+                bubbles: true,
+                cancelable: true
+            })
+        );
+        expect(
+            Array.from(
+                document.querySelectorAll(
+                    '.find-glyph-row[aria-selected="true"]'
+                )
+            ).map((row) => row.getAttribute('data-glyph-name'))
+        ).toEqual(['odot']);
+
+        document
+            .querySelector('[data-glyph-name="A"]')
+            .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document
+            .querySelector('[data-glyph-name="acute"]')
+            .dispatchEvent(
+                new MouseEvent('click', { bubbles: true, shiftKey: true })
+            );
+
+        document.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowDown',
+                shiftKey: true,
+                bubbles: true,
+                cancelable: true
+            })
+        );
+        expect(
+            Array.from(
+                document.querySelectorAll(
+                    '.find-glyph-row[aria-selected="true"]'
+                )
+            ).map((row) => row.getAttribute('data-glyph-name'))
+        ).toEqual(['acute', 'O']);
     });
 
     test('moves selection with arrow keys and confirms with Enter', () => {

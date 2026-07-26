@@ -146,6 +146,7 @@ export class FindGlyphDialog {
     private selectionMode: GlyphSelectionMode = 'single';
     private selectedGlyphNames = new Set<string>();
     private activeIndex = -1;
+    private selectionAnchorName: string | null = null;
     private searchMemoryKey: string | null = null;
     private remembersSearch = false;
     private lastPersistedQuery = '';
@@ -223,6 +224,10 @@ export class FindGlyphDialog {
             this.activeIndex = this.visibleGlyphs.findIndex((glyph) =>
                 this.selectedGlyphNames.has(glyph.name)
             );
+            this.selectionAnchorName =
+                this.activeIndex >= 0
+                    ? this.visibleGlyphs[this.activeIndex]!.name
+                    : null;
         } else {
             this.restoreSelectionForCurrentQuery({ render: false });
         }
@@ -326,8 +331,10 @@ export class FindGlyphDialog {
 
         if (this.selectionMode === 'single') {
             this.selectedGlyphNames = new Set([restoredNames[0]!]);
+            this.selectionAnchorName = restoredNames[0]!;
         } else {
             this.selectedGlyphNames = new Set(restoredNames);
+            this.selectionAnchorName = restoredNames[0]!;
         }
         this.activeIndex = this.visibleGlyphs.findIndex((glyph) =>
             this.selectedGlyphNames.has(glyph.name)
@@ -378,7 +385,7 @@ export class FindGlyphDialog {
     }
 
     /**
-     * Select the glyph at the given visible-list index.
+     * Select the glyph at the given visible-list index as the sole selection.
      */
     private selectIndex(
         index: number,
@@ -387,6 +394,7 @@ export class FindGlyphDialog {
         const { scrollIntoView = true, render = true } = options;
         if (!this.visibleGlyphs.length || index < 0) {
             this.activeIndex = -1;
+            this.selectionAnchorName = null;
             this.selectedGlyphNames = new Set();
             this.syncConfirmButton();
             if (render) {
@@ -401,12 +409,8 @@ export class FindGlyphDialog {
         );
         this.activeIndex = clamped;
         const glyphName = this.visibleGlyphs[clamped]!.name;
-        if (this.selectionMode === 'single') {
-            this.selectedGlyphNames = new Set([glyphName]);
-        } else {
-            // Keyboard navigation moves the primary selection; clicks still toggle.
-            this.selectedGlyphNames = new Set([glyphName]);
-        }
+        this.selectedGlyphNames = new Set([glyphName]);
+        this.selectionAnchorName = glyphName;
         this.syncConfirmButton();
         if (scrollIntoView) {
             this.ensureActiveRowVisible();
@@ -417,20 +421,142 @@ export class FindGlyphDialog {
     }
 
     /**
-     * Move keyboard selection by a delta within the visible match list.
+     * Return visible-list indices of currently selected glyphs, ascending.
      */
-    private moveSelection(delta: number): void {
+    private getSelectedIndices(): number[] {
+        const indices: number[] = [];
+        this.visibleGlyphs.forEach((glyph, index) => {
+            if (this.selectedGlyphNames.has(glyph.name)) {
+                indices.push(index);
+            }
+        });
+        return indices;
+    }
+
+    /**
+     * Handle a list-row click using overview-style modifiers.
+     */
+    private handleRowClick(
+        glyphName: string,
+        index: number,
+        event: MouseEvent
+    ): void {
+        this.activeIndex = index;
+
+        if (this.selectionMode === 'single') {
+            this.selectedGlyphNames = new Set([glyphName]);
+            this.selectionAnchorName = glyphName;
+        } else if (event.shiftKey) {
+            this.applyMouseRangeSelection(index);
+            this.selectionAnchorName = glyphName;
+        } else if (event.metaKey || event.ctrlKey) {
+            if (this.selectedGlyphNames.has(glyphName)) {
+                this.selectedGlyphNames.delete(glyphName);
+            } else {
+                this.selectedGlyphNames.add(glyphName);
+            }
+            this.selectionAnchorName = glyphName;
+        } else {
+            this.selectedGlyphNames = new Set([glyphName]);
+            this.selectionAnchorName = glyphName;
+        }
+
+        this.syncConfirmButton();
+        this.renderVisibleWindow(true);
+        this.searchInput?.focus();
+    }
+
+    /**
+     * Shift+click range selection: add every glyph between the last selected
+     * visible item and the clicked index (overview behavior).
+     */
+    private applyMouseRangeSelection(targetIndex: number): void {
+        const selectedIndices = this.getSelectedIndices();
+        const fromIndex =
+            selectedIndices.length > 0
+                ? selectedIndices[selectedIndices.length - 1]!
+                : targetIndex;
+        const [from, to] =
+            fromIndex < targetIndex
+                ? [fromIndex, targetIndex]
+                : [targetIndex, fromIndex];
+
+        for (let index = from; index <= to; index += 1) {
+            this.selectedGlyphNames.add(this.visibleGlyphs[index]!.name);
+        }
+    }
+
+    /**
+     * Shift+arrow range selection from the keyboard anchor to the target.
+     */
+    private applyKeyboardRangeSelection(targetName: string): void {
+        if (!this.selectionAnchorName) {
+            const selectedIndices = this.getSelectedIndices();
+            this.selectionAnchorName =
+                selectedIndices.length > 0
+                    ? this.visibleGlyphs[selectedIndices[0]!]!.name
+                    : targetName;
+        }
+
+        const anchorIndex = this.visibleGlyphs.findIndex(
+            (glyph) => glyph.name === this.selectionAnchorName
+        );
+        const targetIndex = this.visibleGlyphs.findIndex(
+            (glyph) => glyph.name === targetName
+        );
+        if (anchorIndex < 0 || targetIndex < 0) {
+            return;
+        }
+
+        const [from, to] =
+            anchorIndex < targetIndex
+                ? [anchorIndex, targetIndex]
+                : [targetIndex, anchorIndex];
+        this.selectedGlyphNames = new Set();
+        for (let index = from; index <= to; index += 1) {
+            this.selectedGlyphNames.add(this.visibleGlyphs[index]!.name);
+        }
+    }
+
+    /**
+     * Move keyboard selection by a delta within the visible match list.
+     * ArrowDown continues from the bottom of the selection; ArrowUp from the top.
+     */
+    private moveSelection(delta: number, shiftKey: boolean = false): void {
         if (!this.visibleGlyphs.length) {
             return;
         }
 
-        const nextIndex =
-            this.activeIndex < 0
-                ? delta > 0
-                    ? 0
-                    : this.visibleGlyphs.length - 1
-                : this.activeIndex + delta;
-        this.selectIndex(nextIndex);
+        const selectedIndices = this.getSelectedIndices();
+        let currentIndex: number;
+        if (selectedIndices.length > 0) {
+            currentIndex =
+                delta > 0
+                    ? selectedIndices[selectedIndices.length - 1]!
+                    : selectedIndices[0]!;
+        } else if (this.activeIndex >= 0) {
+            currentIndex = this.activeIndex;
+        } else {
+            currentIndex = delta > 0 ? -1 : this.visibleGlyphs.length;
+        }
+
+        const targetIndex = currentIndex + delta;
+        if (targetIndex < 0 || targetIndex >= this.visibleGlyphs.length) {
+            return;
+        }
+
+        const targetName = this.visibleGlyphs[targetIndex]!.name;
+        this.activeIndex = targetIndex;
+
+        if (this.selectionMode === 'multiple' && shiftKey) {
+            this.applyKeyboardRangeSelection(targetName);
+            this.syncConfirmButton();
+            this.ensureActiveRowVisible();
+            this.renderVisibleWindow(true);
+            return;
+        }
+
+        this.selectIndex(targetIndex);
     }
 
     /**
@@ -560,14 +686,14 @@ export class FindGlyphDialog {
                 if (event.key === 'ArrowDown') {
                     event.preventDefault();
                     event.stopImmediatePropagation();
-                    this.moveSelection(1);
+                    this.moveSelection(1, event.shiftKey);
                     return;
                 }
 
                 if (event.key === 'ArrowUp') {
                     event.preventDefault();
                     event.stopImmediatePropagation();
-                    this.moveSelection(-1);
+                    this.moveSelection(-1, event.shiftKey);
                     return;
                 }
 
@@ -661,12 +787,13 @@ export class FindGlyphDialog {
         row.tabIndex = -1;
         const selected = this.selectedGlyphNames.has(glyph.name);
         row.setAttribute('aria-selected', String(selected));
-        row.addEventListener('click', () =>
-            this.toggleGlyphSelection(glyph.name, index)
+        row.addEventListener('click', (event) =>
+            this.handleRowClick(glyph.name, index, event)
         );
         row.addEventListener('dblclick', () => {
             this.activeIndex = index;
             this.selectedGlyphNames = new Set([glyph.name]);
+            this.selectionAnchorName = glyph.name;
             this.syncConfirmButton();
             this.confirmSelection();
         });
@@ -695,23 +822,6 @@ export class FindGlyphDialog {
 
         row.appendChild(details);
         return row;
-    }
-
-    /**
-     * Update selection for a clicked glyph according to the configured mode.
-     */
-    private toggleGlyphSelection(glyphName: string, index: number): void {
-        this.activeIndex = index;
-        if (this.selectionMode === 'single') {
-            this.selectedGlyphNames = new Set([glyphName]);
-        } else if (this.selectedGlyphNames.has(glyphName)) {
-            this.selectedGlyphNames.delete(glyphName);
-        } else {
-            this.selectedGlyphNames.add(glyphName);
-        }
-
-        this.syncConfirmButton();
-        this.renderVisibleWindow(true);
     }
 
     /**
