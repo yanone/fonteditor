@@ -244,7 +244,16 @@ export class FindGlyphDialog {
         this.modal.style.display = 'flex';
         this.renderVisibleWindow(true, selectedGlyphScrollTop);
         this.list!.scrollTop = selectedGlyphScrollTop;
-        setTimeout(() => this.searchInput?.focus(), 50);
+        setTimeout(() => {
+            if (!this.searchInput) {
+                return;
+            }
+
+            this.searchInput.focus();
+            if (restoredQuery) {
+                this.searchInput.select();
+            }
+        }, 50);
     }
 
     /**

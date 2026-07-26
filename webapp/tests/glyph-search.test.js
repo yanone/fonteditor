@@ -1,6 +1,7 @@
 const {
     compareGlyphsBySearchRelevance,
     countGlyphSearchCaseMismatches,
+    countUnicodeCharacterCaseMismatches,
     getNonAsciiCharacterCodepoints,
     getUnicodeTargetsForSearchTerm,
     glyphMatchesSearchTerms,
@@ -33,6 +34,18 @@ describe('glyph search', () => {
         expect(parseHexUnicodeTerm('u+00e4')).toBe(0xe4);
         expect(parseHexUnicodeTerm('0x41')).toBe(0x41);
         expect(parseHexUnicodeTerm('adieresis')).toBeNull();
+    });
+
+    test('matches partial hex Unicode fragments against padded codepoints', () => {
+        const letterL = { name: 'L', codepoints: [0x4c] };
+        const adieresis = { name: 'adieresis', codepoints: [0xe4] };
+
+        expect(glyphMatchesSearchTerms(letterL, ['004'])).toBe(true);
+        expect(glyphMatchesSearchTerms(letterL, ['004c'])).toBe(true);
+        expect(glyphMatchesSearchTerms(letterL, ['4c'])).toBe(true);
+        expect(glyphMatchesSearchTerms(letterL, ['005'])).toBe(false);
+        expect(glyphMatchesSearchTerms(adieresis, ['00e'])).toBe(true);
+        expect(glyphMatchesSearchTerms(adieresis, ['u+00e'])).toBe(true);
     });
 
     test('maps non-ASCII characters to upper and lower codepoints', () => {
@@ -71,8 +84,8 @@ describe('glyph search', () => {
         expect(getUnicodeTargetsForSearchTerm('o')).toEqual([]);
         expect(glyphMatchesSearchTerms(letterO, ['o'])).toBe(false);
 
-        // "a" can still accidentally match as bare hex U+000A, but not as U+0061.
-        expect(getUnicodeTargetsForSearchTerm('a')).toEqual([0xa]);
+        // "a" can still accidentally match as bare hex containing "a" (e.g. U+000A).
+        expect(getUnicodeTargetsForSearchTerm('a')).toEqual([]);
         expect(glyphMatchesSearchTerms(letterA, ['a'])).toBe(false);
         expect(
             glyphMatchesSearchTerms({ name: 'x', codepoints: [0xa] }, ['a'])
@@ -114,6 +127,53 @@ describe('glyph search', () => {
             .map((glyph) => glyph.name);
 
         expect(byHex).toEqual(['adieresis']);
+    });
+
+    test('keeps partial hex matches below name prefixes', () => {
+        const glyphs = [
+            { name: 'J', codepoints: [0x4a] },
+            { name: 'a.ss01', codepoints: [] },
+            { name: 'yen', codepoints: [0xa5] },
+            { name: 'a', codepoints: [0x61] },
+            { name: 'z', codepoints: [0x7a] }
+        ];
+
+        const byA = [...glyphs]
+            .filter((glyph) => glyphMatchesSearchTerms(glyph, ['a']))
+            .sort((left, right) =>
+                compareGlyphsBySearchRelevance(left, right, ['a'], ['a'])
+            )
+            .map((glyph) => glyph.name);
+
+        expect(byA).toEqual(['a', 'a.ss01', 'J', 'z', 'yen']);
+    });
+
+    test('prefers the Unicode character case that was typed', () => {
+        const glyphs = [
+            { name: 'Adieresis', codepoints: [0xc4] },
+            { name: 'adieresis', codepoints: [0xe4] }
+        ];
+
+        expect(countUnicodeCharacterCaseMismatches([0xe4], ['ä'])).toBe(0);
+        expect(countUnicodeCharacterCaseMismatches([0xc4], ['ä'])).toBe(1);
+        expect(countUnicodeCharacterCaseMismatches([0xc4], ['Ä'])).toBe(0);
+        expect(countUnicodeCharacterCaseMismatches([0xe4], ['Ä'])).toBe(1);
+
+        const byLower = [...glyphs]
+            .filter((glyph) => glyphMatchesSearchTerms(glyph, ['ä']))
+            .sort((left, right) =>
+                compareGlyphsBySearchRelevance(left, right, ['ä'], ['ä'])
+            )
+            .map((glyph) => glyph.name);
+        expect(byLower).toEqual(['adieresis', 'Adieresis']);
+
+        const byUpper = [...glyphs]
+            .filter((glyph) => glyphMatchesSearchTerms(glyph, ['ä']))
+            .sort((left, right) =>
+                compareGlyphsBySearchRelevance(left, right, ['ä'], ['Ä'])
+            )
+            .map((glyph) => glyph.name);
+        expect(byUpper).toEqual(['Adieresis', 'adieresis']);
     });
 
     test('deprioritizes opposite-case matches behind all same-case hits', () => {

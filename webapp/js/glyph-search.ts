@@ -41,6 +41,24 @@ const ASCII_MAX = 0x7f;
  * Bare hex is the primary form; optional U+/0x prefixes are accepted.
  */
 export function parseHexUnicodeTerm(term: string): number | null {
+    const hex = extractHexUnicodeSearchText(term);
+    if (hex === null) {
+        return null;
+    }
+
+    const codepoint = Number.parseInt(hex, 16);
+    if (!Number.isInteger(codepoint) || codepoint < 0 || codepoint > 0x10ffff) {
+        return null;
+    }
+
+    return codepoint;
+}
+
+/**
+ * Extract normalized hex digits from a Unicode search term, or null if not hex.
+ * Bare hex is the primary form; optional U+/0x prefixes are accepted.
+ */
+export function extractHexUnicodeSearchText(term: string): string | null {
     const normalized = term.trim().toLowerCase();
     if (!normalized) {
         return null;
@@ -57,12 +75,68 @@ export function parseHexUnicodeTerm(term: string): number | null {
         return null;
     }
 
-    const codepoint = Number.parseInt(hex, 16);
-    if (!Number.isInteger(codepoint) || codepoint < 0 || codepoint > 0x10ffff) {
-        return null;
+    return hex;
+}
+
+/**
+ * Return whether a codepoint's hex form contains the typed hex fragment.
+ * Matches both bare (`4c`) and padded (`004c`) spellings, so `004` hits `004C`.
+ */
+export function codepointMatchesHexUnicodeSearch(
+    codepoint: number,
+    hexTerm: string
+): boolean {
+    if (
+        !Number.isInteger(codepoint) ||
+        codepoint < 0 ||
+        codepoint > 0x10ffff ||
+        !hexTerm
+    ) {
+        return false;
     }
 
-    return codepoint;
+    const bare = codepoint.toString(16).toLowerCase();
+    const padded = bare.padStart(4, '0');
+    return padded.includes(hexTerm) || bare.includes(hexTerm);
+}
+
+/**
+ * Return whether a codepoint is an exact hex spelling of the typed term
+ * (`4c` or `004c` for U+004C), not merely a substring fragment.
+ */
+export function codepointExactHexUnicodeSearch(
+    codepoint: number,
+    hexTerm: string
+): boolean {
+    if (
+        !Number.isInteger(codepoint) ||
+        codepoint < 0 ||
+        codepoint > 0x10ffff ||
+        !hexTerm
+    ) {
+        return false;
+    }
+
+    const bare = codepoint.toString(16).toLowerCase();
+    const padded = bare.padStart(4, '0');
+    return hexTerm === bare || hexTerm === padded;
+}
+
+/**
+ * Return whether any glyph codepoint matches a hex Unicode search term.
+ */
+export function glyphMatchesHexUnicodeTerm(
+    codepoints: readonly number[] | undefined,
+    term: string
+): boolean {
+    const hexTerm = extractHexUnicodeSearchText(term);
+    if (!hexTerm || !codepoints?.length) {
+        return false;
+    }
+
+    return codepoints.some((codepoint) =>
+        codepointMatchesHexUnicodeSearch(codepoint, hexTerm)
+    );
 }
 
 /**
@@ -70,18 +144,13 @@ export function parseHexUnicodeTerm(term: string): number | null {
  * simple upper/lower case variants. ASCII characters never contribute.
  */
 export function getNonAsciiCharacterCodepoints(term: string): number[] {
-    const characters = Array.from(term);
-    if (characters.length !== 1) {
+    const exact = getExactNonAsciiCharacterCodepoint(term);
+    if (exact === null) {
         return [];
     }
 
-    const codepoint = characters[0].codePointAt(0);
-    if (codepoint === undefined || codepoint <= ASCII_MAX) {
-        return [];
-    }
-
-    const targets = new Set<number>([codepoint]);
-    const character = String.fromCodePoint(codepoint);
+    const targets = new Set<number>([exact]);
+    const character = String.fromCodePoint(exact);
     for (const cased of [character.toLowerCase(), character.toUpperCase()]) {
         const casedPoints = Array.from(cased).map((unit) =>
             unit.codePointAt(0)!
@@ -95,15 +164,30 @@ export function getNonAsciiCharacterCodepoints(term: string): number[] {
 }
 
 /**
- * Unicode codepoints a search term can match via character or hex forms.
+ * Return the exact non-ASCII codepoint for a single-character term, or null.
+ */
+export function getExactNonAsciiCharacterCodepoint(
+    term: string
+): number | null {
+    const characters = Array.from(term);
+    if (characters.length !== 1) {
+        return null;
+    }
+
+    const codepoint = characters[0].codePointAt(0);
+    if (codepoint === undefined || codepoint <= ASCII_MAX) {
+        return null;
+    }
+
+    return codepoint;
+}
+
+/**
+ * Unicode codepoints a search term can match via non-ASCII character forms.
+ * Hex matching is handled separately so partial hex fragments can match.
  */
 export function getUnicodeTargetsForSearchTerm(term: string): number[] {
-    const targets = new Set<number>(getNonAsciiCharacterCodepoints(term));
-    const hex = parseHexUnicodeTerm(term);
-    if (hex !== null) {
-        targets.add(hex);
-    }
-    return Array.from(targets);
+    return getNonAsciiCharacterCodepoints(term);
 }
 
 function glyphHasAnyCodepoint(
@@ -117,6 +201,51 @@ function glyphHasAnyCodepoint(
     return targets.some((target) => codepoints.includes(target));
 }
 
+function glyphHasUnicodeMatch(glyph: GlyphSearchTarget, term: string): boolean {
+    return (
+        glyphHasAnyCodepoint(
+            glyph.codepoints,
+            getNonAsciiCharacterCodepoints(term)
+        ) || glyphMatchesHexUnicodeTerm(glyph.codepoints, term)
+    );
+}
+
+/**
+ * Strong Unicode identity: typed non-ASCII character, or an exact hex spelling
+ * of a codepoint. Partial hex fragments like "a" in U+004A do not qualify.
+ */
+function glyphHasExactUnicodeIdentityMatch(
+    glyph: GlyphSearchTarget,
+    casePreservedTerms: readonly string[],
+    searchTerms: readonly string[]
+): boolean {
+    if (
+        casePreservedTerms.some((term) =>
+            glyphHasAnyCodepoint(
+                glyph.codepoints,
+                getNonAsciiCharacterCodepoints(term)
+            )
+        )
+    ) {
+        return true;
+    }
+
+    if (!glyph.codepoints?.length) {
+        return false;
+    }
+
+    return searchTerms.some((term) => {
+        const hexTerm = extractHexUnicodeSearchText(term);
+        if (!hexTerm) {
+            return false;
+        }
+
+        return glyph.codepoints!.some((codepoint) =>
+            codepointExactHexUnicodeSearch(codepoint, hexTerm)
+        );
+    });
+}
+
 /**
  * Return whether one search term matches a glyph by name or Unicode.
  */
@@ -128,10 +257,7 @@ export function glyphMatchesSearchTerm(
         return true;
     }
 
-    return glyphHasAnyCodepoint(
-        glyph.codepoints,
-        getUnicodeTargetsForSearchTerm(term)
-    );
+    return glyphHasUnicodeMatch(glyph, term);
 }
 
 /**
@@ -197,6 +323,38 @@ export function countGlyphSearchCaseMismatches(
     return mismatches;
 }
 
+/**
+ * Count Unicode character case mismatches for glyphs matched via codepoint.
+ * Typing "ä" prefers U+00E4 over U+00C4; typing "Ä" prefers the reverse.
+ */
+export function countUnicodeCharacterCaseMismatches(
+    codepoints: readonly number[] | undefined,
+    casePreservedTerms: readonly string[]
+): number {
+    if (!casePreservedTerms.length || !codepoints?.length) {
+        return 0;
+    }
+
+    let mismatches = 0;
+    for (const term of casePreservedTerms) {
+        const exact = getExactNonAsciiCharacterCodepoint(term);
+        if (exact === null) {
+            continue;
+        }
+
+        const foldedTargets = getNonAsciiCharacterCodepoints(term);
+        if (!foldedTargets.some((target) => codepoints.includes(target))) {
+            continue;
+        }
+
+        if (!codepoints.includes(exact)) {
+            mismatches += 1;
+        }
+    }
+
+    return mismatches;
+}
+
 function earliestNameMatchIndex(
     normalizedName: string,
     searchTerms: readonly string[]
@@ -239,10 +397,12 @@ export function getGlyphSearchRelevance(
     const nameLength = normalizedName.length;
     const joinedTerms = searchTerms.join('');
     const spacedTerms = searchTerms.join(' ');
-    const caseMismatch = countGlyphSearchCaseMismatches(
-        glyph.name,
-        casePreservedTerms
-    );
+    const caseMismatch =
+        countGlyphSearchCaseMismatches(glyph.name, casePreservedTerms) +
+        countUnicodeCharacterCaseMismatches(
+            glyph.codepoints,
+            casePreservedTerms
+        );
     const base = {
         caseMismatch,
         nameLength,
@@ -264,17 +424,19 @@ export function getGlyphSearchRelevance(
     const allTermsInName = searchTerms.every((term) =>
         normalizedName.includes(term)
     );
-    const unicodeTargets = searchTerms.flatMap((term) =>
-        getUnicodeTargetsForSearchTerm(term)
+    const hasExactUnicodeIdentity = glyphHasExactUnicodeIdentityMatch(
+        glyph,
+        casePreservedTerms,
+        searchTerms
     );
-    const hasUnicodeMatch = glyphHasAnyCodepoint(
-        glyph.codepoints,
-        unicodeTargets
+    const hasUnicodeMatch = searchTerms.some((term) =>
+        glyphHasUnicodeMatch(glyph, term)
     );
 
-    // Prefer Unicode identity when the name itself does not already explain
-    // the match (e.g. typing "ä" or "00e4" for adieresis).
-    if (hasUnicodeMatch && !allTermsInName) {
+    // Prefer true Unicode identity (character or exact hex spelling) when the
+    // name itself does not already explain the match. Partial hex fragments
+    // such as "a" inside U+004A stay below name matches.
+    if (hasExactUnicodeIdentity && !allTermsInName) {
         return {
             ...base,
             tier: GlyphSearchMatchTier.ExactUnicode,

@@ -468,12 +468,18 @@ describe('FindGlyphDialog', () => {
         addSearch.dispatchEvent(new Event('input', { bubbles: true }));
         window.findGlyphDialog.close();
 
+        jest.useFakeTimers();
+        const restoredSearch = document.querySelector(
+            '.find-glyph-search-input'
+        );
+        const select = jest.spyOn(restoredSearch, 'select');
         window.findGlyphDialog.open({
             searchMemoryKey: 'find-glyphs'
         });
-        expect(document.querySelector('.find-glyph-search-input').value).toBe(
-            'o'
-        );
+        expect(restoredSearch.value).toBe('o');
+        jest.runAllTimers();
+        expect(select).toHaveBeenCalled();
+        jest.useRealTimers();
         expect(
             document
                 .querySelector('[data-glyph-name="o"]')
