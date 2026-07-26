@@ -14,12 +14,23 @@ const PRECACHE_ASSETS = [
     './index.html',
     './manifest.json',
 
-    // CSS
+    // CSS (style.css @imports tokens.css, glyph-overview.css, features-editor.css, editor-left-sidebar.css, editor-right-sidebar.css)
     './css/style.css',
+    './css/file-dialog.css',
+    './css/tokens.css',
+    './css/glyph-overview.css',
+    './css/features-editor.css',
+    './css/editor-left-sidebar.css',
+    './css/editor-right-sidebar.css',
 
     // JavaScript bundles (webpack output)
     './js/bootstrap.js',
     './js/fontc-worker.js',
+    './js/glyph-filter-worker.js',
+    './js/glyph-overview.js',
+    './js/find-glyph-dialog.js',
+    './js/translations.js',
+    './js/overview-view.js',
 
     // Async chunks (named via webpackChunkName magic comments)
     './js/confirm-dialog.js',
