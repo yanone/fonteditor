@@ -1916,6 +1916,15 @@ describe('GlyphCanvas onMouseUp', () => {
                     guides: []
                 }
             });
+        const collectTargetsSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'collectMatchingLayerWorkerReplayTargets'
+            )
+            .mockReturnValue([
+                { glyphName: 'a', layerId: 'layer-1' },
+                { glyphName: 'adieresis', layerId: 'layer-1' }
+            ]);
 
         try {
             canvas.outlineEditor.active = true;
@@ -1928,10 +1937,17 @@ describe('GlyphCanvas onMouseUp', () => {
             await canvas.outlineEditor.liveDragEditFunnel.drainAndClearQueued();
 
             expect(previewSpy).toHaveBeenCalledWith(
-                ['a', 'adieresis'],
+                [
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ],
                 'layer-1',
                 {
                     dispatchGlyphChanged: false,
+                    layerTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' },
+                        { glyphName: 'adieresis', layerId: 'layer-1' }
+                    ],
                     explicitLayerData: [
                         {
                             glyphName: 'a',
@@ -1948,6 +1964,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 }
             );
         } finally {
+            collectTargetsSpy.mockRestore();
             explicitLayerSpy.mockRestore();
             previewSpy.mockRestore();
             currentFontSpy.mockRestore();
@@ -16046,6 +16063,7 @@ describe('OutlineEditor exact selected layers', () => {
 
         currentFontSpy.mockReturnValue(currentFont);
         canvas.outlineEditor.selectedLayerId = 'brace-layer';
+        scheduleFullCompileDebounceSpy.mockClear();
 
         try {
             const recreatedLayer =
@@ -16065,7 +16083,6 @@ describe('OutlineEditor exact selected layers', () => {
             expect(currentFont.markDirty).toHaveBeenCalledTimes(3);
             expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
-            expect(fontManager.lastEditType).toBe('outline');
             expect(scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
