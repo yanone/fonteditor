@@ -126,6 +126,9 @@ export interface FontModelLike {
     collectMetricsKeyDependentGlyphs?: (
         sourceGlyphNames: Iterable<string>
     ) => Set<string>;
+    collectMetricsKeyPrerequisiteGlyphs?: (
+        glyphNames: Iterable<string>
+    ) => Set<string>;
     invalidateLayoutCachesForGlyphs?: (glyphNames: Set<string>) => void;
 }
 
@@ -468,12 +471,25 @@ export function computeLayerRecompositionClosure(options: {
     // - component retain expansion (hidden intermediates → visible)
     // - all currently visible glyphs (so metrics-key dependents like `n`
     //   that reference the source without being component users still update)
+    const visibleMetricsPrerequisites =
+        scope === 'visible' &&
+        visibleSet &&
+        typeof fontModel.collectMetricsKeyPrerequisiteGlyphs === 'function'
+            ? wrap(() =>
+                  fontModel.collectMetricsKeyPrerequisiteGlyphs!(visibleSet)
+              )
+            : new Set<string>();
+
     const allowedGlyphNames =
         scope === 'visible' && visibleSet
             ? new Set([
                   ...sourceGlyphNames,
                   ...invalidateGlyphNames,
-                  ...visibleSet
+                  ...visibleSet,
+                  // Visible keyed glyphs require their hidden metric sources
+                  // to settle too; otherwise live and all-scope commit passes
+                  // resolve the same key chain against different values.
+                  ...visibleMetricsPrerequisites
               ])
             : null;
 

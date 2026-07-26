@@ -11664,6 +11664,46 @@ export class Font extends ModelBase {
         return dependentGlyphNames;
     }
 
+    /**
+     * Return the transitive metrics-key prerequisites of glyphs that must be
+     * recomposed live. A visible glyph can reference a hidden glyph through a
+     * metrics key (for example a.ss03 =|n); its value is not correct until the
+     * hidden reference and its own prerequisites have settled. The live
+     * recomposition closure uses this to close its allowed mutation set before
+     * running the same work queue as the all-scope commit path.
+     */
+    collectMetricsKeyPrerequisiteGlyphs(
+        glyphNames: Iterable<string>
+    ): Set<string> {
+        const entriesByGlyph = new Map<string, MetricsKeyDependencyEntry[]>();
+        for (const entry of this.collectMetricsKeyDependencyEntries()) {
+            appendMapArrayValue(entriesByGlyph, entry.glyphName, entry);
+        }
+
+        const prerequisites = new Set<string>();
+        const pending = Array.from(glyphNames).filter(
+            (glyphName): glyphName is string =>
+                typeof glyphName === 'string' && glyphName.length > 0
+        );
+        const visited = new Set<string>(pending);
+
+        while (pending.length > 0) {
+            const glyphName = pending.shift() as string;
+            for (const entry of entriesByGlyph.get(glyphName) || []) {
+                for (const referencedGlyphName of entry.parsed
+                    .referencedGlyphNames) {
+                    if (!visited.has(referencedGlyphName)) {
+                        visited.add(referencedGlyphName);
+                        prerequisites.add(referencedGlyphName);
+                        pending.push(referencedGlyphName);
+                    }
+                }
+            }
+        }
+
+        return prerequisites;
+    }
+
     recomputeMetricsKeys(
         changedGlyphNames?: Set<string>,
         options?: {

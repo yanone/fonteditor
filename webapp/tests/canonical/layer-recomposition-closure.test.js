@@ -458,6 +458,94 @@ describe('lean cascading layer recomposition', () => {
         ).toEqual(expect.arrayContaining(['n', 'a', 'adieresis']));
     });
 
+    test('visible scope includes hidden metrics-key prerequisites', () => {
+        // Text can visibly contain a.ss03 while its =n key references hidden
+        // n, which in turn references the edited l. The live closure must
+        // include n as a prerequisite or commit resolves a.ss03 differently.
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [makeMaster()],
+            glyphs: [
+                {
+                    name: 'l',
+                    layers: [
+                        {
+                            id: 'l0',
+                            width: 400,
+                            master: { type: 'DefaultForMaster', master: 'M0' },
+                            shapes: [makeRectPath(40, 0, 360, 700)],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'n',
+                    layers: [
+                        {
+                            id: 'n0',
+                            width: 380,
+                            master: { type: 'DefaultForMaster', master: 'M0' },
+                            shapes: [makeRectPath(40, 0, 340, 700)],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: { metric_right: '=l-10' }
+                },
+                {
+                    name: 'a.ss03',
+                    layers: [
+                        {
+                            id: 'ss0',
+                            width: 500,
+                            master: { type: 'DefaultForMaster', master: 'M0' },
+                            shapes: [makeRectPath(50, 0, 450, 700)],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: { metric_right: '=n' }
+                }
+            ],
+            names: {},
+            features: { classes: {}, prefixes: {}, features: [] },
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+        const lLayer = font.findGlyph('l').findLayerById('l0');
+        const nLayer = font.findGlyph('n').findLayerById('n0');
+        const ssLayer = font.findGlyph('a.ss03').findLayerById('ss0');
+
+        lLayer.setDirectSidebearing('right', 100);
+        const closure = computeLayerRecompositionClosure({
+            sourceTargets: [{ glyphName: 'l', layerId: 'l0' }],
+            editKinds: new Set(['sidebearing']),
+            scope: 'visible',
+            fontModel: font,
+            activeLayerId: 'l0',
+            sourceGlyphName: 'l',
+            // n is intentionally omitted: it must be retained from a.ss03's
+            // metrics-key prerequisite closure.
+            visibleGlyphNames: new Set(['l', 'a.ss03'])
+        });
+
+        expect(nLayer.rsb).toBe(90);
+        expect(ssLayer.rsb).toBe(90);
+        expect(closure.recomposeGlyphNames.has('n')).toBe(true);
+        expect(closure.recomposeGlyphNames.has('a.ss03')).toBe(true);
+    });
+
     test('sidebearing commit still persists automatic composites after a no-op rebuild', () => {
         const font = makeLeanRecompositionFont();
         const auto = font.findGlyph('adieresisAuto').findLayerById('ada0');
