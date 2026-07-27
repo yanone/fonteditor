@@ -1,7 +1,10 @@
 const {
     cancelManagedFileInternalWrite,
     consumeManagedFileInternalWritePaths,
+    dispatchManagedFileChanged,
+    hasManagedFileInternalWrite,
     markManagedFileInternalWrite,
+    wereAllBasenamesInternalWrites,
     wereAllManagedPathsInternalWrites
 } = require('../js/managed-file-events');
 
@@ -57,7 +60,7 @@ describe('managed file internal writes', () => {
         ).toEqual([]);
     });
 
-    test('wereAllManagedPathsInternalWrites suppresses a complete settings echo', () => {
+    test('wereAllManagedPathsInternalWrites peeks without consuming', () => {
         markManagedFileInternalWrite('settings', '/Filters/example.py');
 
         expect(
@@ -65,12 +68,15 @@ describe('managed file internal writes', () => {
                 '/Filters/example.py'
             ])
         ).toBe(true);
-        // Marker is consumed; a second echo is not suppressed.
+        // Peek-only: a second echo within the TTL is still suppressed.
         expect(
             wereAllManagedPathsInternalWrites('settings', [
                 '/Filters/example.py'
             ])
-        ).toBe(false);
+        ).toBe(true);
+        expect(
+            hasManagedFileInternalWrite('settings', '/Filters/example.py')
+        ).toBe(true);
     });
 
     test('wereAllManagedPathsInternalWrites keeps mixed batches external', () => {
@@ -82,12 +88,42 @@ describe('managed file internal writes', () => {
                 '/Filters/other.py'
             ])
         ).toBe(false);
-
-        // Mixed batch must not consume the marker for the internal path.
         expect(
             wereAllManagedPathsInternalWrites('settings', [
                 '/Filters/example.py'
             ])
+        ).toBe(true);
+    });
+
+    test('wereAllBasenamesInternalWrites matches pending filter files', () => {
+        markManagedFileInternalWrite('settings', '/Filters/nested/example.py');
+
+        expect(wereAllBasenamesInternalWrites('settings', ['example.py'])).toBe(
+            true
+        );
+        expect(
+            wereAllBasenamesInternalWrites('settings', [
+                'example.py',
+                'other.py'
+            ])
+        ).toBe(false);
+    });
+
+    test('dispatchManagedFileChanged re-arms internalWrite markers', () => {
+        jest.useFakeTimers();
+        markManagedFileInternalWrite('settings', '/Filters/example.py');
+        jest.advanceTimersByTime(4000);
+
+        dispatchManagedFileChanged({
+            pluginId: 'settings',
+            source: 'script-editor-save',
+            paths: ['/Filters/example.py'],
+            internalWrite: true
+        });
+
+        jest.advanceTimersByTime(2000);
+        expect(
+            hasManagedFileInternalWrite('settings', '/Filters/example.py')
         ).toBe(true);
     });
 });

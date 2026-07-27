@@ -81,10 +81,21 @@ export function consumeManagedFileInternalWritePaths(
     return internallyWrittenPaths;
 }
 
+/** Peek whether a path still has an unexpired self-write marker. */
+export function hasManagedFileInternalWrite(
+    pluginId: string,
+    path: string
+): boolean {
+    const expiresAt = pendingInternalWrites.get(
+        internalWriteKey(pluginId, path)
+    );
+    return expiresAt !== undefined && expiresAt >= Date.now();
+}
+
 /**
- * True when every observed path was a pending self-write for `pluginId`.
- * Only consumes markers when the whole batch is suppressed, so a mixed
- * internal+external batch still leaves markers available for a later echo.
+ * True when every observed path still has a pending self-write marker.
+ * Peek-only: markers stay valid for the full TTL so multiple FileSystemObserver
+ * echoes from one createWritable() close are all suppressed.
  */
 export function wereAllManagedPathsInternalWrites(
     pluginId: string,
@@ -94,23 +105,37 @@ export function wereAllManagedPathsInternalWrites(
         return false;
     }
 
-    const normalizedPaths = paths.map((path) => normalizeManagedPath(path));
-    const now = Date.now();
-    const allInternal = normalizedPaths.every((path) => {
-        const expiresAt = pendingInternalWrites.get(
-            internalWriteKey(pluginId, path)
-        );
-        return expiresAt !== undefined && expiresAt >= now;
-    });
+    return paths.every((path) => hasManagedFileInternalWrite(pluginId, path));
+}
 
-    if (!allInternal) {
+/**
+ * True when every basename (e.g. `foo.py`) matches some pending internal write
+ * path for `pluginId`. Used when observer records don't resolve to full paths.
+ */
+export function wereAllBasenamesInternalWrites(
+    pluginId: string,
+    basenames: string[]
+): boolean {
+    if (basenames.length === 0) {
         return false;
     }
 
-    for (const path of normalizedPaths) {
-        pendingInternalWrites.delete(internalWriteKey(pluginId, path));
+    const prefix = `${pluginId}:`;
+    const now = Date.now();
+    const pendingBasenames = new Set<string>();
+
+    for (const [key, expiresAt] of pendingInternalWrites) {
+        if (!key.startsWith(prefix) || expiresAt < now) {
+            continue;
+        }
+        const path = key.slice(prefix.length);
+        const basename = path.split('/').pop();
+        if (basename) {
+            pendingBasenames.add(basename);
+        }
     }
-    return true;
+
+    return basenames.every((basename) => pendingBasenames.has(basename));
 }
 
 export function extractManagedChangedPaths(
@@ -170,6 +195,15 @@ export function extractManagedChangedPaths(
 export function dispatchManagedFileChanged(
     detail: ManagedFileChangedDetail
 ): void {
+    // Re-arm the TTL when an intentional in-app write notifies listeners, so
+    // FileSystemObserver echoes that arrive after createWritable() closes are
+    // still recognized as self-writes.
+    if (detail.internalWrite) {
+        for (const path of detail.paths || []) {
+            markManagedFileInternalWrite(detail.pluginId, path);
+        }
+    }
+
     window.dispatchEvent(
         new CustomEvent<ManagedFileChangedDetail>(MANAGED_FILE_CHANGED_EVENT, {
             detail

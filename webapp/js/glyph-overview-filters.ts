@@ -23,6 +23,7 @@ import {
     extractManagedChangedPaths,
     markManagedFileInternalWrite,
     normalizeManagedPath,
+    wereAllBasenamesInternalWrites,
     wereAllManagedPathsInternalWrites
 } from './managed-file-events';
 import type { ManagedFileChangedDetail } from './managed-file-events';
@@ -153,6 +154,8 @@ export class GlyphOverviewFilterManager {
     private pendingUserFilterChangeRecords: unknown[] = [];
     private pendingUserFilterChangePaths: Set<string> = new Set();
     private userFilterChangeFlushScheduled: boolean = false;
+    /** True while discoverUserFilters is running for a queued file change. */
+    private userFilterChangeFlushInFlight: boolean = false;
     private managedFileChangeListener: EventListener;
     /**
      * Last observed `Glyph.isCompatible` per glyph name. Used so
@@ -302,11 +305,21 @@ export class GlyphOverviewFilterManager {
             }
         }
 
-        if (!isRelevant || this.userFilterChangeFlushScheduled) {
+        if (!isRelevant) {
+            return;
+        }
+
+        // Coalesce: if a flush is already scheduled or running, just keep the
+        // pending paths/records. A trailing microtask runs after in-flight work.
+        if (this.userFilterChangeFlushScheduled) {
             return;
         }
 
         this.userFilterChangeFlushScheduled = true;
+        if (this.userFilterChangeFlushInFlight) {
+            return;
+        }
+
         queueMicrotask(() => {
             void this.flushUserFilterFileChangeRefresh();
         });
@@ -314,11 +327,53 @@ export class GlyphOverviewFilterManager {
 
     private async flushUserFilterFileChangeRefresh(): Promise<void> {
         this.userFilterChangeFlushScheduled = false;
+        this.userFilterChangeFlushInFlight = true;
 
-        const records = this.pendingUserFilterChangeRecords.splice(0);
-        const changedPaths = [...this.pendingUserFilterChangePaths];
-        this.pendingUserFilterChangePaths.clear();
+        try {
+            // Collect everything that arrives while we are about to refresh,
+            // then rediscover once. Overlapping FSO echoes during discovery
+            // should not produce a second sidebar reload.
+            const records: unknown[] = [];
+            const changedPaths = new Set<string>();
 
+            do {
+                records.push(...this.pendingUserFilterChangeRecords.splice(0));
+                for (const path of this.pendingUserFilterChangePaths) {
+                    changedPaths.add(path);
+                }
+                this.pendingUserFilterChangePaths.clear();
+
+                // Yield once so any same-turn observer callbacks can enqueue.
+                await Promise.resolve();
+            } while (
+                this.pendingUserFilterChangeRecords.length > 0 ||
+                this.pendingUserFilterChangePaths.size > 0
+            );
+
+            await this.applyUserFilterFileChangeRefresh(records, [
+                ...changedPaths
+            ]);
+        } finally {
+            this.userFilterChangeFlushInFlight = false;
+            if (this.userFilterChangeFlushScheduled) {
+                this.userFilterChangeFlushScheduled = false;
+                if (
+                    this.pendingUserFilterChangeRecords.length > 0 ||
+                    this.pendingUserFilterChangePaths.size > 0
+                ) {
+                    this.userFilterChangeFlushScheduled = true;
+                    queueMicrotask(() => {
+                        void this.flushUserFilterFileChangeRefresh();
+                    });
+                }
+            }
+        }
+    }
+
+    private async applyUserFilterFileChangeRefresh(
+        records: unknown[],
+        changedPaths: string[]
+    ): Promise<void> {
         if (!records.length && !changedPaths.length) {
             return;
         }
@@ -1366,20 +1421,43 @@ export class GlyphOverviewFilterManager {
                     }
 
                     // Script Editor / in-app writes already refresh via
-                    // managedFileChanged. Suppress the FSO echo for those
-                    // same paths while still reacting to external edits.
+                    // managedFileChanged. Suppress FileSystemObserver echoes
+                    // for those same paths for the full internal-write TTL
+                    // (createWritable can emit more than one record/callback).
                     const observedPaths =
                         this.resolveFilterObserverRecordPaths(records);
-                    if (
-                        wereAllManagedPathsInternalWrites(
-                            SETTINGS_FOLDER_SOURCE_ID,
-                            observedPaths
+                    const pyBasenames = records
+                        .map((record) =>
+                            record && typeof record === 'object'
+                                ? (
+                                      record as {
+                                          changedHandle?: { name?: string };
+                                      }
+                                  ).changedHandle?.name
+                                : undefined
                         )
-                    ) {
+                        .filter(
+                            (name): name is string =>
+                                typeof name === 'string' && name.endsWith('.py')
+                        );
+
+                    const suppressEcho =
+                        (observedPaths.length > 0 &&
+                            wereAllManagedPathsInternalWrites(
+                                SETTINGS_FOLDER_SOURCE_ID,
+                                observedPaths
+                            )) ||
+                        (pyBasenames.length > 0 &&
+                            wereAllBasenamesInternalWrites(
+                                SETTINGS_FOLDER_SOURCE_ID,
+                                pyBasenames
+                            ));
+
+                    if (suppressEcho) {
                         console.log(
                             '[GlyphOverviewFilters]',
                             'Ignoring FileSystemObserver echo of internal filter write',
-                            observedPaths
+                            { observedPaths, pyBasenames }
                         );
                         return;
                     }
