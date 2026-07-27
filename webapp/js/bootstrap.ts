@@ -522,6 +522,7 @@ import './python-post-execution';
 import './resizer';
 import './save-button';
 import './script-editor';
+import './run-python-script-dialog';
 import './share-button';
 import './theme-switcher';
 import './toolbar-menus';

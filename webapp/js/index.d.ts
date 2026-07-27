@@ -580,6 +580,12 @@ declare global {
             get currentPluginId(): string | null;
         };
 
+        runPythonScriptDialog: {
+            open: () => Promise<void>;
+            reRunLast: () => Promise<void>;
+            getLastRun: () => { path: string; title: string } | null;
+        };
+
         // From file-browser.ts
         pluginRegistry: {
             get: (id: string) => any;

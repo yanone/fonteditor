@@ -1412,22 +1412,28 @@
             return;
         }
 
-        // Prevent page reload shortcuts in production (allow in development)
-        if (!window.isDevelopment?.()) {
-            // Cmd+R (macOS) or Ctrl+R (Windows/Linux)
-            if (
-                (cmdKey || event.ctrlKey) &&
-                key === 'r' &&
-                !shiftKey &&
-                !event.altKey
-            ) {
+        // Prevent browser reload / hard-reload shortcuts and route to Run Python Script
+        // Cmd/Ctrl+R opens the dialog; Cmd/Ctrl+Shift+R re-runs the last script.
+        if ((cmdKey || event.ctrlKey) && key === 'r' && !event.altKey) {
+            event.preventDefault();
+            if (event.shiftKey) {
                 console.log(
                     '[KeyboardNav]',
-                    'Blocking page reload shortcut (Cmd/Ctrl+R) in production'
+                    'Routing Cmd/Ctrl+Shift+R to Re-run Python Script'
                 );
-                event.preventDefault();
-                return;
+                void window.runPythonScriptDialog?.reRunLast();
+            } else {
+                console.log(
+                    '[KeyboardNav]',
+                    'Routing Cmd/Ctrl+R to Run Python Script'
+                );
+                void window.runPythonScriptDialog?.open();
             }
+            return;
+        }
+
+        // Prevent remaining page reload shortcuts in production (allow in development)
+        if (!window.isDevelopment?.()) {
             // F5 - reload page
             if (key === 'f5') {
                 console.log(

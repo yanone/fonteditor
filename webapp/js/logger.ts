@@ -53,6 +53,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     OutlineEditor: false,
     PythonPostExecution: false,
     Renderer: false,
+    RunPythonScriptDialog: false,
     ScriptEditor: false,
     ShareButton: false,
     SidebarErrorDisplay: false,

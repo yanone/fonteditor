@@ -1920,6 +1920,124 @@ kbd + kbd {
     margin: 0;
 }
 
+.run-python-script-popup {
+    max-width: min(640px, calc(100vw - 32px));
+    width: 90%;
+}
+
+#run-python-script-modal .info-popup-content,
+#run-python-script-modal .run-python-script-list,
+#run-python-script-modal .run-python-script-item {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+#run-python-script-modal .info-popup-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    box-sizing: border-box;
+}
+
+.run-python-script-folder-select {
+    width: 100%;
+    max-width: 100%;
+    margin: 10px 0 0;
+    padding: 6px 8px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+    box-sizing: border-box;
+}
+
+.run-python-script-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 180px;
+    max-height: min(42vh, 420px);
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.run-python-script-item {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    text-align: left;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-primary);
+    cursor: pointer;
+    font: inherit;
+    padding: 10px 12px;
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+}
+
+.run-python-script-item:hover {
+    border-color: var(--border-secondary);
+    background: var(--background-hover);
+}
+
+.run-python-script-item.selected {
+    border-color: var(--accent-green);
+    background: color-mix(in srgb, var(--accent-green) 12%, transparent);
+}
+
+.run-python-script-item-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.run-python-script-item-path {
+    margin-top: 2px;
+    font-size: 9px;
+    color: var(--text-faint);
+    font-family: var(--font-families-mono);
+    overflow-wrap: anywhere;
+}
+
+.run-python-script-item-description {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    line-height: 1.5;
+    white-space: normal;
+    overflow-wrap: break-word;
+}
+
+.run-python-script-item-keywords {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-faint);
+    overflow-wrap: anywhere;
+}
+
+.run-python-script-item-keywords code {
+    background: var(--background-hover);
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-right: 4px;
+    overflow-wrap: anywhere;
+}
+
+.run-python-script-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-primary);
+}
+
 .ai-info-note {
     font-size: 11px;
     color: var(--text-subtle);

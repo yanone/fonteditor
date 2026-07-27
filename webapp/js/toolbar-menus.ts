@@ -16,6 +16,11 @@ import { getPendingUpdate } from './update-manager';
 import { exportBinaryFont, exportBinaryFontAs } from './binary-font-export';
 import { fontDestinationPluginManager } from './font-destination-plugin-manager';
 import { showFontDestinationPluginManager } from './font-destination-plugin-ui';
+import {
+    openRunPythonScriptDialog,
+    reRunLastPythonScript,
+    getLastRunPythonScript
+} from './run-python-script-dialog';
 
 const console = new Logger('ToolbarMenus');
 
@@ -275,6 +280,29 @@ function getToolsMenuItems(): ToolbarMenuItem[] {
             }))
         });
     }
+
+    items.push({ label: '', icon: '', separator: true });
+    items.push({
+        label: 'Run Python Script',
+        icon: 'play_arrow',
+        shortcut: '⌘R',
+        action: async () => {
+            await openRunPythonScriptDialog();
+        }
+    });
+
+    const lastRun = getLastRunPythonScript();
+    if (lastRun) {
+        items.push({
+            label: `Re-run ${lastRun.title}`,
+            icon: 'replay',
+            shortcut: '⌘⇧R',
+            action: async () => {
+                await reRunLastPythonScript();
+            }
+        });
+    }
+
     return items;
 }
 

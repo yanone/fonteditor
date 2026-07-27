@@ -15,6 +15,7 @@ import {
 } from './python-document-kind';
 import { SETTINGS_FOLDER_PATHS } from './settings-folder-paths';
 import { settingsFolder, SETTINGS_FOLDER_SOURCE_ID } from './settings-folder';
+import { suggestFileNameFromScriptHeader } from './python-script-header';
 import { dispatchManagedFileChanged } from './managed-file-events';
 import type { FileSystemAdapter } from './file-system-adapter';
 
@@ -1107,22 +1108,6 @@ def filter_glyphs(font):
     }
 
     /**
-     * Suggest a Save As filename from the first line when it is a `#` title comment.
-     * Only the first line is considered; otherwise fall back to a placeholder name.
-     */
-    function suggestSaveAsFileNameFromHeader(content: string): string {
-        const firstLine = (content.split(/\r?\n/, 1)[0] ?? '').trimStart();
-        if (!firstLine.startsWith('#')) {
-            return 'Choose file name.py';
-        }
-        const title = firstLine.replace(/^#\s?/, '').trim();
-        if (!title) {
-            return 'Choose file name.py';
-        }
-        return title.toLowerCase().endsWith('.py') ? title : `${title}.py`;
-    }
-
-    /**
      * Handle Save As file
      */
     async function handleSaveAs() {
@@ -1141,7 +1126,7 @@ def filter_glyphs(font):
                     currentFilePath.lastIndexOf('/')
                 );
             } else {
-                suggestedName = suggestSaveAsFileNameFromHeader(
+                suggestedName = suggestFileNameFromScriptHeader(
                     editor.getValue()
                 );
                 startFolder =
