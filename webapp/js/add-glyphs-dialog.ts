@@ -7,6 +7,39 @@ import { Logger } from './logger';
 
 const console = new Logger('AddGlyphsDialog');
 
+const GENERAL_CATEGORY_LABELS: Record<string, string> = {
+    Lu: 'Uppercase Letter',
+    Ll: 'Lowercase Letter',
+    Lt: 'Titlecase Letter',
+    Lm: 'Modifier Letter',
+    Lo: 'Other Letter',
+    Mn: 'Nonspacing Mark',
+    Mc: 'Spacing Mark',
+    Me: 'Enclosing Mark',
+    Nd: 'Decimal Number',
+    Nl: 'Letter Number',
+    No: 'Other Number',
+    Pc: 'Connector Punctuation',
+    Pd: 'Dash Punctuation',
+    Ps: 'Open Punctuation',
+    Pe: 'Close Punctuation',
+    Pi: 'Initial Punctuation',
+    Pf: 'Final Punctuation',
+    Po: 'Other Punctuation',
+    Sm: 'Math Symbol',
+    Sc: 'Currency Symbol',
+    Sk: 'Modifier Symbol',
+    So: 'Other Symbol',
+    Zs: 'Space Separator',
+    Zl: 'Line Separator',
+    Zp: 'Paragraph Separator',
+    Cc: 'Control',
+    Cf: 'Format Control',
+    Cs: 'Surrogate',
+    Co: 'Private Use',
+    Cn: 'Unassigned'
+};
+
 /**
  * Searches the bundled Unicode data and adds selected records to the font.
  * This intentionally has independent state from Find Glyph, whose list is
@@ -130,6 +163,9 @@ export class AddGlyphsDialog {
                         event.shiftKey
                     );
                 } else if (event.key === ' ') {
+                    if (event.target === this.searchInput) {
+                        return;
+                    }
                     event.preventDefault();
                     event.stopImmediatePropagation();
                     this.toggleActive();
@@ -161,7 +197,6 @@ export class AddGlyphsDialog {
         this.results.forEach((record, index) => {
             const existing = font?.findGlyphByCodepoint(record.codepoint);
             const nameCollision = font?.findGlyph(record.glyph_name);
-            const unavailable = Boolean(existing || nameCollision);
             const row = document.createElement('button');
             row.type = 'button';
             row.className = 'add-glyph-row';
@@ -170,7 +205,6 @@ export class AddGlyphsDialog {
                 'is-selected',
                 this.selectedCodepoints.has(record.codepoint)
             );
-            row.disabled = unavailable;
             row.setAttribute('role', 'option');
             row.setAttribute(
                 'aria-selected',
@@ -196,9 +230,6 @@ export class AddGlyphsDialog {
             const name = document.createElement('strong');
             name.textContent = record.glyph_name;
             details.appendChild(name);
-            const unicodeName = document.createElement('span');
-            unicodeName.textContent = record.name;
-            details.appendChild(unicodeName);
             row.appendChild(details);
 
             const properties = document.createElement('span');
@@ -206,15 +237,28 @@ export class AddGlyphsDialog {
             const extras = [
                 `U+${record.codepoint.toString(16).toUpperCase().padStart(4, '0')}`,
                 record.script,
-                record.general_category,
                 record.joining_type ? `join ${record.joining_type}` : ''
             ].filter(Boolean);
-            properties.textContent = existing
+            const metadata = document.createElement('span');
+            metadata.textContent = existing
                 ? 'Already in font'
                 : nameCollision
                   ? 'Glyph name already in font'
                   : extras.join(' · ');
+            properties.appendChild(metadata);
+            const category = document.createElement('span');
+            category.className = 'add-glyph-category';
+            const categoryName =
+                GENERAL_CATEGORY_LABELS[record.general_category] ||
+                'Unicode Character';
+            category.textContent = `${categoryName} (${record.general_category})`;
+            properties.appendChild(category);
             row.appendChild(properties);
+
+            const unicodeName = document.createElement('span');
+            unicodeName.className = 'add-glyph-unicode-name';
+            unicodeName.textContent = record.name;
+            row.appendChild(unicodeName);
             fragment.appendChild(row);
         });
         this.list.replaceChildren(fragment);
@@ -223,7 +267,7 @@ export class AddGlyphsDialog {
 
     private selectRow(index: number, range: boolean, toggle: boolean): void {
         const record = this.results[index];
-        if (!record || this.isUnavailable(record)) {
+        if (!record) {
             return;
         }
         this.activeIndex = index;
@@ -234,9 +278,7 @@ export class AddGlyphsDialog {
             );
             for (let candidate = start; candidate <= end; candidate += 1) {
                 const codepoint = this.results[candidate]!.codepoint;
-                if (!this.isUnavailable(this.results[candidate]!)) {
-                    this.selectedCodepoints.add(codepoint);
-                }
+                this.selectedCodepoints.add(codepoint);
             }
         } else if (toggle) {
             if (this.selectedCodepoints.has(record.codepoint)) {
@@ -275,14 +317,6 @@ export class AddGlyphsDialog {
         this.confirmButton.disabled = count === 0;
         this.confirmButton.textContent =
             count === 1 ? 'Add Glyph' : `Add ${count} Glyphs`;
-    }
-
-    private isUnavailable(record: GlyphDataSearchResult): boolean {
-        const font = window.currentFontModel;
-        return Boolean(
-            font?.findGlyphByCodepoint(record.codepoint) ||
-            font?.findGlyph(record.glyph_name)
-        );
     }
 
     private addSelected(): void {

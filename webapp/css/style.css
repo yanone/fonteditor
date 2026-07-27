@@ -22,6 +22,7 @@
 
 .add-glyph-list {
     max-height: min(58vh, 580px);
+    max-width: 100%;
     overflow-y: auto;
     border: 1px solid var(--border-primary);
     border-radius: 6px;
@@ -38,7 +39,9 @@
     display: grid;
     font: inherit;
     gap: 12px;
-    grid-template-columns: 44px minmax(0, 1fr) auto;
+    grid-template-columns: 44px minmax(0, 1fr) minmax(0, 190px);
+    min-width: 0;
+    overflow: hidden;
     padding: 8px 12px;
     text-align: left;
     width: 100%;
@@ -67,7 +70,9 @@
 }
 
 .add-glyph-preview {
-    font-family: system-ui, sans-serif;
+    font-family:
+        system-ui, 'Segoe UI Symbol', 'Segoe UI Historic', 'Apple Symbols',
+        'Noto Sans Symbols 2', 'Noto Sans Symbols', 'Noto Sans', sans-serif;
     font-size: 28px;
     line-height: 1;
     text-align: center;
@@ -93,8 +98,25 @@
     white-space: nowrap;
 }
 
+.add-glyph-category {
+    color: var(--text-secondary);
+}
+
 .add-glyph-properties {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
     text-align: right;
+}
+
+.add-glyph-unicode-name {
+    color: var(--text-tertiary);
+    font-size: 11px;
+    grid-column: 1 / -1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Local Inter UI font for canvas labels */

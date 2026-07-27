@@ -74,6 +74,9 @@ export class GlyphDataPluginManager {
 
         const hex = normalized.replace(/^u\+|^0x/, '');
         const queryWords = normalized.split(/\s+/).filter(Boolean);
+        const suffixSegment = normalized.startsWith('-')
+            ? normalized
+            : undefined;
         const results: Array<{ record: GlyphDataSearchResult; score: number }> =
             [];
         for (const record of this.records) {
@@ -83,6 +86,12 @@ export class GlyphDataPluginManager {
             let score = 0;
             if (name === normalized || codepoint === hex) {
                 score = 4;
+            } else if (
+                suffixSegment &&
+                (name.endsWith(suffixSegment) ||
+                    name.includes(`${suffixSegment}.`))
+            ) {
+                score = 3;
             } else if (
                 name.startsWith(normalized) ||
                 codepoint.startsWith(hex)
@@ -112,6 +121,9 @@ export class GlyphDataPluginManager {
             .sort(
                 (left, right) =>
                     right.score - left.score ||
+                    left.record.glyph_name.localeCompare(
+                        right.record.glyph_name
+                    ) ||
                     left.record.codepoint - right.record.codepoint
             )
             .slice(0, limit)
