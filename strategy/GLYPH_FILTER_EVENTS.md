@@ -12,7 +12,7 @@ Supported event types live in `webapp/js/glyph-filter-events.ts`. They use
 dotted names such as `glyph.unicode.changed`; browser `CustomEvent` names
 remain internal and are not a plugin API.
 
-The initial registry contains only events needed by shipped filters:
+The registry contains only these events currently:
 
 ```text
 font.opened
@@ -23,6 +23,44 @@ glyph.renamed
 glyph.unicode.changed
 glyph.compatibility.changed
 font.masters.changed
+```
+
+## Priority Future Event Names
+
+```text
+glyph.category.changed
+glyph.export.changed
+glyph.production-name.changed
+glyph.paths.changed
+glyph.components.changed
+glyph.component.reference.changed
+glyph.component.transform.changed
+glyph.anchors.changed
+glyph.guides.changed
+glyph.layers.changed
+glyph.layer.location.changed
+glyph.metrics.changed
+glyph.metrics-key.changed
+```
+
+## Useful Future Event Names
+
+```text
+font.glyph-order.changed
+font.axes.changed
+font.instances.changed
+font.kerning.changed
+font.features.changed
+font.classes.changed
+font.prefixes.changed
+font.compile.completed
+font.compile.failed
+font.shaping-data.changed
+language-packs.changed
+glyph-data.provider.changed
+glyph-filter.settings.changed
+glyph-filter.source.changed
+glyph-filter.enabled.changed
 ```
 
 Every filter runs once on `font.opened` and `font.replaced`. Afterward, the
