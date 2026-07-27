@@ -123,7 +123,7 @@ describe('OverviewView initial active glyph sync', () => {
         expect(renderGlyphOutlines).not.toHaveBeenCalled();
     });
 
-    test('re-scans user glyph filters after a Disk root change before filters finish loading', async () => {
+    test('re-scans user glyph filters after a Settings Folder change before filters finish loading', async () => {
         const discoverUserFilters = jest.fn().mockResolvedValue(undefined);
         window.glyphOverviewFilterManager = {
             discoverUserFilters,
@@ -134,13 +134,13 @@ describe('OverviewView initial active glyph sync', () => {
         require('../js/overview-view');
         discoverUserFilters.mockClear();
 
-        window.dispatchEvent(new CustomEvent('diskFolderAccessChanged'));
+        window.dispatchEvent(new CustomEvent('settingsFolderAccessChanged'));
         await Promise.resolve();
 
         expect(discoverUserFilters).toHaveBeenCalled();
     });
 
-    test('does not duplicate a user-filter scan completed by the folder picker', async () => {
+    test('always re-scans user filters on settingsFolderAccessChanged', async () => {
         const discoverUserFilters = jest.fn().mockResolvedValue(undefined);
         window.glyphOverviewFilterManager = {
             discoverUserFilters,
@@ -152,12 +152,12 @@ describe('OverviewView initial active glyph sync', () => {
         discoverUserFilters.mockClear();
 
         window.dispatchEvent(
-            new CustomEvent('diskFolderAccessChanged', {
-                detail: { userFiltersRefreshed: true }
+            new CustomEvent('settingsFolderAccessChanged', {
+                detail: { hasSettingsFolderAccess: true, source: 'attach' }
             })
         );
         await Promise.resolve();
 
-        expect(discoverUserFilters).not.toHaveBeenCalled();
+        expect(discoverUserFilters).toHaveBeenCalled();
     });
 });

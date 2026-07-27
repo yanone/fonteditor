@@ -1,6 +1,5 @@
-import { pluginRegistry } from './filesystem-plugins';
 import type { FileSystemAdapter, FileInfo } from './file-system-adapter';
-import { DISK_ROOT_PATHS } from './disk-root-paths';
+import { settingsFolder, SETTINGS_FOLDER_PATHS } from './settings-folder';
 import { Logger } from './logger';
 import { resolveWebsiteURL } from './website-url';
 
@@ -9,7 +8,7 @@ const console = new Logger('FontDestinationPlugins');
 export const FONT_DESTINATION_PLUGIN_MARKER =
     'counterpunch-plugin:font-destination:v1';
 const MANIFEST_FILENAME = 'counterpunch-plugin.json';
-const PLUGINS_DIRECTORY = DISK_ROOT_PATHS.plugins;
+const PLUGINS_DIRECTORY = SETTINGS_FOLDER_PATHS.plugins;
 const ENTRY_POINT_GROUP = 'counterpunch_font_destination_plugins';
 
 type JsonRecord = Record<string, unknown>;
@@ -56,7 +55,7 @@ export type InstalledFontDestination = {
 };
 
 export type PluginStorageStatus =
-    'disk-folder-not-connected' | 'plugins-folder-missing' | 'ready';
+    'settings-folder-not-connected' | 'plugins-folder-missing' | 'ready';
 
 type OpenFontDestination = InstalledFontDestination & {
     window: Window;
@@ -183,9 +182,8 @@ function getPyodide(): PyodideRuntime | null {
     return runtime || null;
 }
 
-function getDiskAdapter(): FileSystemAdapter | null {
-    const diskPlugin = pluginRegistry.get('disk');
-    return diskPlugin?.getAdapter() || null;
+function getSettingsFolderAdapter(): FileSystemAdapter {
+    return settingsFolder.getAdapter();
 }
 
 function toUint8Array(content: string | Uint8Array): Uint8Array {
@@ -276,7 +274,7 @@ async function fetchReleaseAsset(
     return response;
 }
 
-/** Manage discoverable Font Destination wheels stored in the selected Disk folder. */
+/** Manage discoverable Font Destination wheels stored in the Settings Folder. */
 export class FontDestinationPluginManager {
     private installedDestinations: InstalledFontDestination[] = [];
     private diagnostics: string[] = [];
@@ -292,43 +290,40 @@ export class FontDestinationPluginManager {
         return [...this.diagnostics];
     }
 
-    /** Check the connected Disk folder and its Plugins subfolder. */
+    /** Check the connected Settings Folder and its Plugins subfolder. */
     async getPluginStorageStatus(): Promise<PluginStorageStatus> {
-        const adapter = getDiskAdapter();
-        const diskPlugin = pluginRegistry.get('disk');
-        if (!adapter || !diskPlugin || !(await diskPlugin.isReady())) {
-            return 'disk-folder-not-connected';
+        if (!(await settingsFolder.isReady())) {
+            return 'settings-folder-not-connected';
         }
+        const adapter = getSettingsFolderAdapter();
         return (await adapter.fileExists(PLUGINS_DIRECTORY))
             ? 'ready'
             : 'plugins-folder-missing';
     }
 
-    /** Prompt for a writable Disk folder. */
-    async connectDiskFolder(): Promise<boolean> {
-        const diskPlugin = pluginRegistry.get('disk');
-        return diskPlugin ? diskPlugin.showSetupUI() : false;
+    /** Prompt for a writable Settings Folder. */
+    async connectSettingsFolder(): Promise<boolean> {
+        return settingsFolder.selectFolder();
     }
 
-    /** Create the dedicated wheel directory inside the connected Disk folder. */
+    /** Create the dedicated wheel directory inside the Settings Folder. */
     async createPluginsDirectory(): Promise<void> {
-        const adapter = getDiskAdapter();
-        const diskPlugin = pluginRegistry.get('disk');
-        if (!adapter || !diskPlugin || !(await diskPlugin.isReady())) {
+        if (!(await settingsFolder.isReady())) {
             throw new Error(
-                'Choose a writable Disk folder before creating Plugins.'
+                'Choose a Settings Folder before creating Plugins.'
             );
         }
+        const adapter = getSettingsFolderAdapter();
         if ((await adapter.requestPermission?.()) !== 'granted') {
             throw new Error('Write permission is required to create Plugins.');
         }
         await adapter.createFolder(PLUGINS_DIRECTORY);
     }
 
-    /** List wheels physically present in the selected Disk folder. */
+    /** List wheels physically present in the Settings Folder. */
     async getInstalledWheelFiles(): Promise<FileInfo[]> {
-        const adapter = getDiskAdapter();
-        if (!adapter) {
+        const adapter = getSettingsFolderAdapter();
+        if (!(await settingsFolder.isReady())) {
             return [];
         }
         const files = await adapter.scanDirectory(PLUGINS_DIRECTORY);
@@ -370,15 +365,14 @@ export class FontDestinationPluginManager {
         );
     }
 
-    /** Download, checksum, and write a release wheel into the Disk Plugins folder. */
+    /** Download, checksum, and write a release wheel into the Settings Folder Plugins directory. */
     async install(manifest: FontDestinationManifest): Promise<void> {
-        const adapter = getDiskAdapter();
-        const diskPlugin = pluginRegistry.get('disk');
-        if (!adapter || !diskPlugin || !(await diskPlugin.isReady())) {
+        if (!(await settingsFolder.isReady())) {
             throw new Error(
-                'Choose a writable Disk folder before installing plugins.'
+                'Choose a Settings Folder before installing plugins.'
             );
         }
+        const adapter = getSettingsFolderAdapter();
         if ((await adapter.requestPermission?.()) !== 'granted') {
             throw new Error('Write permission is required to install plugins.');
         }
@@ -474,10 +468,10 @@ export class FontDestinationPluginManager {
 
     /** Remove a wheel; the next Pyodide initialization makes removal effective. */
     async uninstall(wheelPath: string): Promise<void> {
-        const adapter = getDiskAdapter();
-        if (!adapter) {
-            throw new Error('Disk plugin is not available.');
+        if (!(await settingsFolder.isReady())) {
+            throw new Error('Settings Folder is not available.');
         }
+        const adapter = getSettingsFolderAdapter();
         await this.uninstallWheelFromPyodide(wheelPath);
         await adapter.deleteItem(wheelPath, false);
         await this.discoverInstalledDestinations();
@@ -486,8 +480,11 @@ export class FontDestinationPluginManager {
 
     /** Reinstall every stored wheel after Pyodide starts, without prompting for permission. */
     async reinstallStoredPlugins(): Promise<void> {
-        const adapter = getDiskAdapter();
-        if (!adapter || (await adapter.checkPermission?.()) !== 'granted') {
+        const adapter = getSettingsFolderAdapter();
+        if (
+            !(await settingsFolder.isReady()) ||
+            (await adapter.checkPermission?.()) !== 'granted'
+        ) {
             return;
         }
         this.diagnostics = [];

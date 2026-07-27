@@ -99,16 +99,17 @@ async function renderPluginManager(content: HTMLElement): Promise<void> {
 }
 
 function createPluginStorageNotice(
-    storageStatus: 'disk-folder-not-connected' | 'plugins-folder-missing',
+    storageStatus: 'settings-folder-not-connected' | 'plugins-folder-missing',
     content: HTMLElement
 ): HTMLElement {
     const notice = document.createElement('section');
     notice.className = 'plugin-manager-storage-notice';
-    const isDiskFolderMissing = storageStatus === 'disk-folder-not-connected';
+    const isSettingsFolderMissing =
+        storageStatus === 'settings-folder-not-connected';
     notice.appendChild(
         createTextElement(
             'h4',
-            isDiskFolderMissing
+            isSettingsFolderMissing
                 ? 'Connect a Settings Folder'
                 : 'Create the Plugins Folder'
         )
@@ -116,22 +117,22 @@ function createPluginStorageNotice(
     notice.appendChild(
         createTextElement(
             'p',
-            isDiskFolderMissing
-                ? 'Choose the folder Counterpunch should use for your files and Font Destination plugins.'
+            isSettingsFolderMissing
+                ? 'Choose the Settings Folder Counterpunch should use for Font Destination plugins.'
                 : 'The connected Settings Folder has no /Plugins directory. Plugin wheels are stored there.'
         )
     );
     const action = document.createElement('button');
     action.className = 'plugin-manager-action';
     action.type = 'button';
-    action.textContent = isDiskFolderMissing
+    action.textContent = isSettingsFolderMissing
         ? 'Connect Folder'
         : 'Create Plugins Folder';
     action.addEventListener('click', async () => {
         action.disabled = true;
         try {
-            if (isDiskFolderMissing) {
-                await fontDestinationPluginManager.connectDiskFolder();
+            if (isSettingsFolderMissing) {
+                await fontDestinationPluginManager.connectSettingsFolder();
             } else {
                 await fontDestinationPluginManager.createPluginsDirectory();
             }

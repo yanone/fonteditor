@@ -3,8 +3,7 @@
  * Handles light/dark/auto theme switching with OS preference detection
  */
 
-import { changeDiskRootFolder } from './file-browser';
-import { DiskPlugin, pluginRegistry } from './filesystem-plugins';
+import { settingsFolder } from './settings-folder';
 
 (function () {
     'use strict';
@@ -21,8 +20,8 @@ import { DiskPlugin, pluginRegistry } from './filesystem-plugins';
         settingsBtn: HTMLElement | null;
         settingsPanel: HTMLElement | null;
         settingsCloseBtn: HTMLElement | null;
-        diskRootName: HTMLElement | null;
-        diskRootChangeButton: HTMLButtonElement | null;
+        settingsFolderName: HTMLElement | null;
+        settingsFolderChangeButton: HTMLButtonElement | null;
         themeOptions: NodeListOf<HTMLElement>;
         mediaQuery: MediaQueryList;
 
@@ -31,10 +30,10 @@ import { DiskPlugin, pluginRegistry } from './filesystem-plugins';
             this.settingsPanel = document.getElementById('settings-panel');
             this.settingsCloseBtn =
                 document.getElementById('settings-close-btn');
-            this.diskRootName = document.getElementById(
+            this.settingsFolderName = document.getElementById(
                 'settings-disk-root-name'
             );
-            this.diskRootChangeButton = document.getElementById(
+            this.settingsFolderChangeButton = document.getElementById(
                 'settings-disk-root-change-btn'
             ) as HTMLButtonElement | null;
             this.themeOptions = document.querySelectorAll('.theme-option');
@@ -66,19 +65,22 @@ import { DiskPlugin, pluginRegistry } from './filesystem-plugins';
             this.settingsCloseBtn?.addEventListener('click', () =>
                 this.closeSettings()
             );
-            this.diskRootChangeButton?.addEventListener('click', async () => {
-                this.diskRootChangeButton!.disabled = true;
-                try {
-                    await changeDiskRootFolder({ source: 'settings' });
-                    await this.updateDiskRootSetting();
-                } finally {
-                    this.diskRootChangeButton!.disabled = false;
+            this.settingsFolderChangeButton?.addEventListener(
+                'click',
+                async () => {
+                    this.settingsFolderChangeButton!.disabled = true;
+                    try {
+                        await settingsFolder.selectFolder();
+                        await this.updateSettingsFolderSetting();
+                    } finally {
+                        this.settingsFolderChangeButton!.disabled = false;
+                    }
                 }
+            );
+            window.addEventListener('settingsFolderAccessChanged', () => {
+                void this.updateSettingsFolderSetting();
             });
-            window.addEventListener('diskFolderAccessChanged', () => {
-                void this.updateDiskRootSetting();
-            });
-            void this.updateDiskRootSetting();
+            void this.updateSettingsFolderSetting();
 
             // Click anywhere outside to close
             document.addEventListener('click', (e: MouseEvent) => {
@@ -169,25 +171,24 @@ import { DiskPlugin, pluginRegistry } from './filesystem-plugins';
         toggleSettings() {
             const isOpen = this.settingsPanel?.classList.toggle('open');
             if (isOpen) {
-                void this.updateDiskRootSetting();
+                void this.updateSettingsFolderSetting();
                 void window.authManager?.checkAuthStatus?.();
             }
         }
 
-        /** Render the currently selected user-controlled Disk root. */
-        async updateDiskRootSetting(): Promise<void> {
-            const diskPlugin = pluginRegistry.get('disk');
-            const directoryName =
-                diskPlugin instanceof DiskPlugin && (await diskPlugin.isReady())
-                    ? diskPlugin.getDirectoryName()
-                    : null;
-            if (this.diskRootName) {
-                this.diskRootName.textContent = directoryName || 'Not selected';
-                this.diskRootName.title =
-                    directoryName || 'No Settings Folder selected';
+        /** Render the currently selected Settings Folder. */
+        async updateSettingsFolderSetting(): Promise<void> {
+            const folderName = (await settingsFolder.isReady())
+                ? settingsFolder.getFolderName()
+                : null;
+            if (this.settingsFolderName) {
+                this.settingsFolderName.textContent =
+                    folderName || 'Not selected';
+                this.settingsFolderName.title =
+                    folderName || 'No Settings Folder selected';
             }
-            if (this.diskRootChangeButton) {
-                this.diskRootChangeButton.textContent = directoryName
+            if (this.settingsFolderChangeButton) {
+                this.settingsFolderChangeButton.textContent = folderName
                     ? 'Change Folder'
                     : 'Choose Folder';
             }

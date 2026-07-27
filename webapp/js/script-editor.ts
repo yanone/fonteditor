@@ -1,7 +1,7 @@
 // Script Editor for Python code execution
 import tippy, { Instance as TippyInstance } from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
-import { pluginRegistry, FilesystemPlugin } from './filesystem-plugins';
+import { pluginRegistry } from './filesystem-plugins';
 import {
     getOrCreateBackdrop,
     addTippyBackdropSupport,
@@ -13,8 +13,10 @@ import {
     getPythonDocumentKindInfo,
     type ScriptDocumentKind
 } from './python-document-kind';
-import { DISK_ROOT_PATHS } from './disk-root-paths';
+import { SETTINGS_FOLDER_PATHS } from './settings-folder-paths';
+import { settingsFolder, SETTINGS_FOLDER_SOURCE_ID } from './settings-folder';
 import { dispatchManagedFileChanged } from './managed-file-events';
+import type { FileSystemAdapter } from './file-system-adapter';
 
 const console = new Logger('ScriptEditor');
 
@@ -63,7 +65,7 @@ def filter_glyphs(font):
 
     // File state
     let currentFilePath: string | null = null; // Full path to the file
-    let currentPluginId: string | null = null; // Plugin ID (memory, disk)
+    let currentPluginId: string | null = null; // Source id (settings, disk, memory, …)
     let isModified = false;
     let savedContent = ''; // Content when last saved/opened
 
@@ -76,10 +78,10 @@ def filter_glyphs(font):
 
     function getPathKind(path: string | null): ScriptDocumentKind | null {
         if (!path) return null;
-        if (path.startsWith(`${DISK_ROOT_PATHS.filters}/`)) {
+        if (path.startsWith(`${SETTINGS_FOLDER_PATHS.filters}/`)) {
             return 'glyph-filter';
         }
-        if (path.startsWith(`${DISK_ROOT_PATHS.scripts}/`)) {
+        if (path.startsWith(`${SETTINGS_FOLDER_PATHS.scripts}/`)) {
             return 'general-script';
         }
         return null;
@@ -215,39 +217,37 @@ def filter_glyphs(font):
     }
 
     /**
-     * Get the current filesystem plugin from file-browser
+     * Whether a Settings Folder is selected (Plugins/Filters/Scripts gate).
      */
-    function getCurrentPlugin(): FilesystemPlugin | null {
-        if (
-            (window as any).fileBrowser &&
-            (window as any).fileBrowser.getCurrentPlugin
-        ) {
-            return (window as any).fileBrowser.getCurrentPlugin();
+    function hasSettingsFolderAccess(): boolean {
+        return settingsFolder.hasFolder();
+    }
+
+    /**
+     * Resolve a read/write adapter for a script source id.
+     * `settings` is the Settings Folder; everything else is a filesystem plugin.
+     */
+    function getAdapterForSource(sourceId: string): FileSystemAdapter | null {
+        if (sourceId === SETTINGS_FOLDER_SOURCE_ID) {
+            return settingsFolder.getAdapter();
         }
-        // Fallback: try to get from pluginRegistry
-        return pluginRegistry.getDefault();
+        return pluginRegistry.get(sourceId)?.getAdapter() ?? null;
     }
 
-    /**
-     * Whether a Disk folder is selected (same gate as Glyph Overview user filters).
-     */
-    function hasDiskFolderAccess(): boolean {
-        const diskPlugin = pluginRegistry.get('disk');
-        const adapter = diskPlugin?.getAdapter() as
-            { hasDirectory?: () => boolean } | undefined;
-        return !!(
-            diskPlugin &&
-            adapter &&
-            typeof adapter.hasDirectory === 'function' &&
-            adapter.hasDirectory()
-        );
-    }
-
-    /**
-     * Get plugin by ID
-     */
-    function getPluginById(pluginId: string): FilesystemPlugin | null {
-        return pluginRegistry.get(pluginId);
+    function migrateLegacyScriptSourceId(
+        sourceId: string,
+        path: string
+    ): string {
+        if (
+            sourceId === 'disk' &&
+            (path.startsWith(`${SETTINGS_FOLDER_PATHS.scripts}/`) ||
+                path.startsWith(`${SETTINGS_FOLDER_PATHS.filters}/`) ||
+                path === SETTINGS_FOLDER_PATHS.scripts ||
+                path === SETTINGS_FOLDER_PATHS.filters)
+        ) {
+            return SETTINGS_FOLDER_SOURCE_ID;
+        }
+        return sourceId;
     }
 
     /**
@@ -289,16 +289,27 @@ def filter_glyphs(font):
         if (restoredUri) {
             const match = restoredUri.match(/^([^:]+):\/\/(.*)$/);
             if (match) {
-                currentPluginId = match[1];
                 currentFilePath = match[2];
+                currentPluginId = migrateLegacyScriptSourceId(
+                    match[1],
+                    currentFilePath
+                );
                 setDocumentKind(getPathKind(currentFilePath) || documentKind);
+                if (currentPluginId !== match[1]) {
+                    localStorage.setItem(
+                        SCRIPT_URI_STORAGE_KEY,
+                        `${currentPluginId}://${currentFilePath}`
+                    );
+                }
                 console.log(
                     '[ScriptEditor]',
                     'Restored file association:',
-                    restoredUri
+                    `${currentPluginId}://${currentFilePath}`
                 );
             }
         }
+
+        void settingsFolder.initialize();
 
         // Create Ace editor
         editor = (window as any).ace.edit('script-editor');
@@ -562,7 +573,7 @@ def filter_glyphs(font):
         );
 
         // Start file watcher if we have a restored file association
-        // Only for disk files and only if the adapter is ready
+        // Settings/Disk adapters may not be ready yet (still restoring from IndexedDB)
         if (currentFilePath && currentPluginId) {
             console.log(
                 '[ScriptEditor]',
@@ -570,39 +581,49 @@ def filter_glyphs(font):
                 currentPluginId,
                 currentFilePath
             );
-            if (currentPluginId === 'disk') {
-                // Disk adapter may not be ready yet (still restoring from IndexedDB)
-                // Retry a few times with delays
+            if (isWatchableSource(currentPluginId)) {
                 const tryStartWatcher = async (attempts: number = 0) => {
-                    const plugin = getPluginById(currentPluginId!);
-                    if (!plugin) {
+                    const adapter = getAdapterForSource(currentPluginId!);
+                    if (!adapter) {
                         console.warn(
                             '[ScriptEditor]',
-                            'Plugin not found:',
+                            'Storage source not found:',
                             currentPluginId
                         );
                         return;
                     }
 
-                    const adapter = plugin.getAdapter();
-                    const hasDir = (adapter as any).hasDirectory?.();
+                    if (
+                        currentPluginId === SETTINGS_FOLDER_SOURCE_ID &&
+                        !(await settingsFolder.isReady())
+                    ) {
+                        if (attempts < 10) {
+                            setTimeout(
+                                () => tryStartWatcher(attempts + 1),
+                                500
+                            );
+                        }
+                        return;
+                    }
+
+                    const hasDir = (
+                        adapter as { hasDirectory?: () => boolean }
+                    ).hasDirectory?.();
                     console.log(
                         '[ScriptEditor]',
-                        'Disk adapter hasDirectory (attempt',
+                        'Adapter hasDirectory (attempt',
                         attempts + 1,
                         '):',
                         hasDir
                     );
 
                     if (hasDir !== false) {
-                        // Adapter is ready - check if file changed while app was closed
                         try {
                             const fileInfo = await getFileInfo(
                                 adapter,
                                 currentFilePath!
                             );
                             if (fileInfo) {
-                                // Compare file timestamp with localStorage timestamp
                                 const localStorageTimestamp =
                                     localStorage.getItem(
                                         SCRIPT_TIMESTAMP_STORAGE_KEY
@@ -644,15 +665,13 @@ def filter_glyphs(font):
                             );
                         }
 
-                        // Start file watcher
                         startFileWatcher(currentFilePath!, currentPluginId!);
                     } else if (attempts < 10) {
-                        // Retry after a delay (up to 10 attempts = ~5 seconds)
                         setTimeout(() => tryStartWatcher(attempts + 1), 500);
                     } else {
                         console.log(
                             '[ScriptEditor]',
-                            'Gave up waiting for disk adapter to be ready'
+                            'Gave up waiting for adapter to be ready'
                         );
                     }
                 };
@@ -708,24 +727,18 @@ def filter_glyphs(font):
     }
 
     /**
-     * Generate file menu HTML based on current state and plugin capabilities
+     * Generate file menu HTML based on Settings Folder access
      */
     function getFileMenuHtml() {
-        const plugin = getCurrentPlugin();
-        const hasDisk = hasDiskFolderAccess();
-        const supportsOpen =
-            hasDisk &&
-            !!plugin &&
-            !!plugin.supportsOpenFilePicker &&
-            plugin.supportsOpenFilePicker();
-        const supportsSaveAs =
-            hasDisk &&
-            !!plugin &&
-            !!plugin.supportsSaveAsFilePicker &&
-            plugin.supportsSaveAsFilePicker();
+        const hasSettingsFolder = hasSettingsFolderAccess();
+        const supportsOpen = hasSettingsFolder;
+        const supportsSaveAs = hasSettingsFolder;
         const canSave =
-            hasDisk && currentFilePath !== null && currentPluginId !== null;
-        const diskAccessTitle = 'Select a Disk folder to enable saving scripts';
+            hasSettingsFolder &&
+            currentFilePath !== null &&
+            currentPluginId !== null;
+        const settingsFolderTitle =
+            'Select a Settings Folder to enable saving scripts';
 
         // File path display
         let pathDisplay = 'Untitled';
@@ -745,8 +758,8 @@ def filter_glyphs(font):
         // File path header
         html += `<div class="script-file-menu-path">${modifiedIndicator}${escapeHtml(pathDisplay)}</div>`;
 
-        if (!hasDisk) {
-            html += `<div class="script-file-menu-notice">${escapeHtml(diskAccessTitle)}</div>`;
+        if (!hasSettingsFolder) {
+            html += `<div class="script-file-menu-notice">${escapeHtml(settingsFolderTitle)}</div>`;
         }
 
         // New
@@ -757,7 +770,7 @@ def filter_glyphs(font):
             </div>
         `;
 
-        // Open (only if plugin supports it and a Disk folder is selected)
+        // Open (requires Settings Folder)
         if (supportsOpen) {
             html += `
                 <div class="script-file-menu-item" data-action="open">
@@ -767,14 +780,14 @@ def filter_glyphs(font):
             `;
         } else {
             html += `
-                <div class="script-file-menu-item disabled" title="${hasDisk ? 'Open files requires plugin support' : diskAccessTitle}">
+                <div class="script-file-menu-item disabled" title="${settingsFolderTitle}">
                     <span class="material-symbols-outlined">folder_open</span>
                     <span>Open...</span>
                 </div>
             `;
         }
 
-        // Save (requires Disk folder + existing path)
+        // Save (requires Settings Folder + existing path)
         if (canSave) {
             html += `
                 <div class="script-file-menu-item" data-action="save">
@@ -783,8 +796,8 @@ def filter_glyphs(font):
                 </div>
             `;
         } else {
-            const saveTitle = !hasDisk
-                ? diskAccessTitle
+            const saveTitle = !hasSettingsFolder
+                ? settingsFolderTitle
                 : 'No file path - use Save As or open a file first';
             html += `
                 <div class="script-file-menu-item disabled" title="${saveTitle}">
@@ -794,7 +807,7 @@ def filter_glyphs(font):
             `;
         }
 
-        // Save As (requires Disk folder + plugin picker support)
+        // Save As (requires Settings Folder)
         if (supportsSaveAs) {
             html += `
                 <div class="script-file-menu-item" data-action="save-as">
@@ -804,7 +817,7 @@ def filter_glyphs(font):
             `;
         } else {
             html += `
-                <div class="script-file-menu-item disabled" title="${diskAccessTitle}">
+                <div class="script-file-menu-item disabled" title="${settingsFolderTitle}">
                     <span class="material-symbols-outlined">save_as</span>
                     <span>Save As...</span>
                 </div>
@@ -946,21 +959,8 @@ def filter_glyphs(font):
      * Handle Open file
      */
     async function handleOpen() {
-        if (!hasDiskFolderAccess()) {
-            alert('Select a Disk folder to enable saving scripts');
-            return;
-        }
-
-        const plugin = getCurrentPlugin();
-        if (
-            !plugin ||
-            !plugin.supportsOpenFilePicker ||
-            !plugin.supportsOpenFilePicker()
-        ) {
-            console.log(
-                '[ScriptEditor]',
-                'Open file picker not supported by current plugin'
-            );
+        if (!(await settingsFolder.isReady())) {
+            alert('Select a Settings Folder to enable saving scripts');
             return;
         }
 
@@ -968,9 +968,11 @@ def filter_glyphs(font):
             // Get current folder to start in
             const startFolder = currentFilePath
                 ? currentFilePath.substring(0, currentFilePath.lastIndexOf('/'))
-                : undefined;
+                : documentKind === 'glyph-filter'
+                  ? SETTINGS_FOLDER_PATHS.filters
+                  : SETTINGS_FOLDER_PATHS.scripts;
 
-            const path = await plugin.showOpenFilePicker({
+            const path = await settingsFolder.showOpenFilePicker({
                 types: [
                     {
                         description: 'Python files',
@@ -989,7 +991,7 @@ def filter_glyphs(font):
                 return;
             }
 
-            await openFile(path, plugin.getId());
+            await openFile(path, SETTINGS_FOLDER_SOURCE_ID);
         } catch (error: any) {
             console.error('[ScriptEditor]', 'Error opening file:', error);
             alert('Failed to open file: ' + (error?.message || String(error)));
@@ -1000,8 +1002,11 @@ def filter_glyphs(font):
      * Handle Save file
      */
     async function handleSave() {
-        if (!hasDiskFolderAccess()) {
-            alert('Select a Disk folder to enable saving scripts');
+        if (
+            currentPluginId === SETTINGS_FOLDER_SOURCE_ID &&
+            !(await settingsFolder.isReady())
+        ) {
+            alert('Select a Settings Folder to enable saving scripts');
             return false;
         }
 
@@ -1012,12 +1017,11 @@ def filter_glyphs(font):
         }
 
         try {
-            const plugin = getPluginById(currentPluginId);
-            if (!plugin) {
-                throw new Error('Plugin not found: ' + currentPluginId);
+            const adapter = getAdapterForSource(currentPluginId);
+            if (!adapter) {
+                throw new Error('Storage source not found: ' + currentPluginId);
             }
 
-            const adapter = plugin.getAdapter();
             const content = editor.getValue();
 
             // Convert string to Uint8Array for consistent handling
@@ -1106,27 +1110,12 @@ def filter_glyphs(font):
      * Handle Save As file
      */
     async function handleSaveAs() {
-        if (!hasDiskFolderAccess()) {
-            alert('Select a Disk folder to enable saving scripts');
-            return false;
-        }
-
-        const plugin = getCurrentPlugin();
-        if (
-            !plugin ||
-            !plugin.supportsSaveAsFilePicker ||
-            !plugin.supportsSaveAsFilePicker()
-        ) {
-            console.log(
-                '[ScriptEditor]',
-                'Save As not supported by current plugin'
-            );
+        if (!(await settingsFolder.isReady())) {
+            alert('Select a Settings Folder to enable saving scripts');
             return false;
         }
 
         try {
-            // Suggest a filename
-            // Suggest a filename and folder
             let suggestedName =
                 documentKind === 'glyph-filter' ? 'New Filter.py' : 'script.py';
             let startFolder: string | undefined;
@@ -1139,11 +1128,11 @@ def filter_glyphs(font):
             } else {
                 startFolder =
                     documentKind === 'glyph-filter'
-                        ? DISK_ROOT_PATHS.filters
-                        : DISK_ROOT_PATHS.scripts;
+                        ? SETTINGS_FOLDER_PATHS.filters
+                        : SETTINGS_FOLDER_PATHS.scripts;
             }
 
-            const path = await plugin.showSaveFilePicker({
+            const path = await settingsFolder.showSaveFilePicker({
                 suggestedName: suggestedName,
                 types: [
                     {
@@ -1191,16 +1180,13 @@ def filter_glyphs(font):
                 }
             }
 
-            // Update current file info
             currentFilePath = path;
-            currentPluginId = plugin.getId();
+            currentPluginId = SETTINGS_FOLDER_SOURCE_ID;
 
-            // Save the file
             const success = await handleSave();
 
-            // Start file watcher if save succeeded
             if (success) {
-                await startFileWatcher(path, plugin.getId());
+                await startFileWatcher(path, SETTINGS_FOLDER_SOURCE_ID);
             }
 
             return success;
@@ -1212,7 +1198,7 @@ def filter_glyphs(font):
     }
 
     /**
-     * Open a file from a given path and plugin
+     * Open a file from a given path and source id (settings / disk / memory / …)
      * Can be called externally (e.g., from Files view context menu)
      */
     async function openFile(path: string, pluginId: string): Promise<boolean> {
@@ -1221,12 +1207,19 @@ def filter_glyphs(font):
                 return false;
             }
 
-            const plugin = getPluginById(pluginId);
-            if (!plugin) {
-                throw new Error('Plugin not found: ' + pluginId);
+            const sourceId = migrateLegacyScriptSourceId(pluginId, path);
+            const adapter = getAdapterForSource(sourceId);
+            if (!adapter) {
+                throw new Error('Storage source not found: ' + sourceId);
             }
 
-            const adapter = plugin.getAdapter();
+            if (
+                sourceId === SETTINGS_FOLDER_SOURCE_ID &&
+                !(await settingsFolder.isReady())
+            ) {
+                throw new Error('Select a Settings Folder to open this script');
+            }
+
             const data = await adapter.readFile(path);
 
             // Convert Uint8Array to string
@@ -1243,22 +1236,21 @@ def filter_glyphs(font):
             savedContent = content;
             persistSavedContent();
             currentFilePath = path;
-            currentPluginId = pluginId;
+            currentPluginId = sourceId;
             setDocumentKind(getPathKind(path) || 'general-script');
 
             // Reset external changes state
             hasExternalChanges = false;
             updateReloadButton();
 
-            // Start file watcher if plugin is disk
-            await startFileWatcher(path, pluginId);
+            await startFileWatcher(path, sourceId);
             setModified(false);
 
             // Save to localStorage for persistence (content and file association)
             localStorage.setItem(SCRIPT_CONTENT_STORAGE_KEY, content);
             localStorage.setItem(
                 SCRIPT_URI_STORAGE_KEY,
-                `${pluginId}://${path}`
+                `${sourceId}://${path}`
             );
 
             // Save file timestamp
@@ -1275,7 +1267,7 @@ def filter_glyphs(font):
             // Dispatch event for file change
             window.dispatchEvent(
                 new CustomEvent('scriptEditorFileChanged', {
-                    detail: { pluginId: pluginId, filePath: path }
+                    detail: { pluginId: sourceId, filePath: path }
                 })
             );
 
@@ -1294,10 +1286,10 @@ def filter_glyphs(font):
     }
 
     /**
-     * Open a file from a file URI (e.g., memory:///user/script.py or disk:///path/to/file.py)
+     * Open a file from a file URI (e.g., settings:///Scripts/a.py or disk:///Fonts/a.py)
      */
     async function openFileFromUri(uri: string): Promise<boolean> {
-        // Parse URI format: pluginId:///path
+        // Parse URI format: sourceId:///path
         const match = uri.match(/^([^:]+):\/\/\/(.*)$/);
         if (!match) {
             console.error('[ScriptEditor]', 'Invalid file URI:', uri);
@@ -1308,6 +1300,10 @@ def filter_glyphs(font):
         const path = '/' + match[2];
 
         return await openFile(path, pluginId);
+    }
+
+    function isWatchableSource(sourceId: string): boolean {
+        return sourceId === SETTINGS_FOLDER_SOURCE_ID || sourceId === 'disk';
     }
 
     /**
@@ -1417,28 +1413,28 @@ def filter_glyphs(font):
         // Stop any existing watcher
         stopFileWatcher();
 
-        // Only watch disk files (memory files can't change externally)
-        if (pluginId !== 'disk') {
+        // Only watch settings/disk files (memory files can't change externally)
+        if (!isWatchableSource(pluginId)) {
             console.log(
                 '[ScriptEditor]',
-                'Skipping file watcher - not a disk file'
+                'Skipping file watcher - not a watchable source'
             );
             return;
         }
 
         try {
-            const plugin = getPluginById(pluginId);
-            if (!plugin) {
+            const adapter = getAdapterForSource(pluginId);
+            if (!adapter) {
                 return;
             }
 
-            const adapter = plugin.getAdapter();
-
             // Check if adapter is ready (for NativeAdapter, check if directory is selected)
-            if (
-                (adapter as any).hasDirectory &&
-                !(adapter as any).hasDirectory()
-            ) {
+            const hasDirectory = (
+                adapter as FileSystemAdapter & {
+                    hasDirectory?: () => boolean;
+                }
+            ).hasDirectory;
+            if (hasDirectory && !hasDirectory()) {
                 console.log(
                     '[ScriptEditor]',
                     'Adapter not ready yet, will not start file watcher'
@@ -1536,18 +1532,17 @@ def filter_glyphs(font):
         if (
             !currentFilePath ||
             !currentPluginId ||
-            currentPluginId !== 'disk'
+            !isWatchableSource(currentPluginId)
         ) {
             return;
         }
 
         try {
-            const plugin = getPluginById(currentPluginId);
-            if (!plugin) {
+            const adapter = getAdapterForSource(currentPluginId);
+            if (!adapter) {
                 return;
             }
 
-            const adapter = plugin.getAdapter();
             const fileInfo = await getFileInfo(adapter, currentFilePath);
 
             if (!fileInfo) {
@@ -1605,12 +1600,11 @@ def filter_glyphs(font):
         }
 
         try {
-            const plugin = getPluginById(currentPluginId);
-            if (!plugin) {
+            const adapter = getAdapterForSource(currentPluginId);
+            if (!adapter) {
                 return;
             }
 
-            const adapter = plugin.getAdapter();
             const data = await adapter.readFile(currentFilePath);
 
             // Convert Uint8Array to string

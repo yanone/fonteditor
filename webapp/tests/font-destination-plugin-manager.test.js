@@ -17,7 +17,7 @@ describe('Font Destination plugins', () => {
         checksumAssetSuffix: '.sha256'
     });
 
-    const installDiskAdapter = (overrides = {}) => ({
+    const installSettingsFolderAdapter = (overrides = {}) => ({
         deleteItem: jest.fn().mockResolvedValue(undefined),
         fileExists: jest.fn().mockResolvedValue(true),
         requestPermission: jest.fn().mockResolvedValue('granted'),
@@ -25,6 +25,25 @@ describe('Font Destination plugins', () => {
         writeFile: jest.fn().mockResolvedValue(undefined),
         ...overrides
     });
+
+    const mockSettingsFolder = (adapter, { ready = true } = {}) => {
+        const { settingsFolder } = require('../js/settings-folder.ts');
+        const originals = {
+            getAdapter: settingsFolder.getAdapter,
+            isReady: settingsFolder.isReady,
+            selectFolder: settingsFolder.selectFolder
+        };
+        settingsFolder.getAdapter = jest.fn(() => adapter);
+        settingsFolder.isReady = jest.fn().mockResolvedValue(ready);
+        return {
+            settingsFolder,
+            restore() {
+                settingsFolder.getAdapter = originals.getAdapter;
+                settingsFolder.isReady = originals.isReady;
+                settingsFolder.selectFolder = originals.selectFolder;
+            }
+        };
+    };
 
     beforeEach(() => {
         jest.resetModules();
@@ -168,9 +187,7 @@ describe('Font Destination plugins', () => {
         expect(global.fetch.mock.calls[0][1].cache).toBe('no-store');
     });
 
-    test('downloads release assets through the website proxy into the Disk Plugins folder', async () => {
-        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
-        const originalGetPlugin = pluginRegistry.get;
+    test('downloads release assets through the website proxy into the Settings Folder Plugins directory', async () => {
         const originalCrypto = Object.getOwnPropertyDescriptor(
             global,
             'crypto'
@@ -187,14 +204,8 @@ describe('Font Destination plugins', () => {
             }),
             writeFile: jest.fn().mockResolvedValue(undefined)
         };
-        pluginRegistry.get = jest.fn((id) =>
-            id === 'disk'
-                ? {
-                      getAdapter: () => adapter,
-                      isReady: jest.fn().mockResolvedValue(true)
-                  }
-                : null
-        );
+        const settingsFolderMock = mockSettingsFolder(adapter);
+
         window.pyodide = {
             FS: { mkdirTree: jest.fn(), writeFile: jest.fn() },
             runPythonAsync: jest
@@ -295,7 +306,7 @@ describe('Font Destination plugins', () => {
                 })
             ]);
         } finally {
-            pluginRegistry.get = originalGetPlugin;
+            settingsFolderMock.restore();
             window.pyodide = originalPyodide;
             if (originalCrypto) {
                 Object.defineProperty(global, 'crypto', originalCrypto);
@@ -306,17 +317,9 @@ describe('Font Destination plugins', () => {
     });
 
     test('reports a contextual error when a manifest has no GitHub release yet', async () => {
-        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
-        const originalGetPlugin = pluginRegistry.get;
-        const adapter = installDiskAdapter();
-        pluginRegistry.get = jest.fn((id) =>
-            id === 'disk'
-                ? {
-                      getAdapter: () => adapter,
-                      isReady: jest.fn().mockResolvedValue(true)
-                  }
-                : null
-        );
+        const adapter = installSettingsFolderAdapter();
+        const settingsFolderMock = mockSettingsFolder(adapter);
+
         global.fetch = jest.fn().mockResolvedValueOnce({
             ok: false,
             status: 404
@@ -333,22 +336,14 @@ describe('Font Destination plugins', () => {
             ).rejects.toThrow('Could not read the latest GitHub release');
             expect(adapter.writeFile).not.toHaveBeenCalled();
         } finally {
-            pluginRegistry.get = originalGetPlugin;
+            settingsFolderMock.restore();
         }
     });
 
     test('reports when the latest release has no matching wheel', async () => {
-        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
-        const originalGetPlugin = pluginRegistry.get;
-        const adapter = installDiskAdapter();
-        pluginRegistry.get = jest.fn((id) =>
-            id === 'disk'
-                ? {
-                      getAdapter: () => adapter,
-                      isReady: jest.fn().mockResolvedValue(true)
-                  }
-                : null
-        );
+        const adapter = installSettingsFolderAdapter();
+        const settingsFolderMock = mockSettingsFolder(adapter);
+
         global.fetch = jest.fn().mockResolvedValueOnce({
             ok: true,
             status: 200,
@@ -366,22 +361,14 @@ describe('Font Destination plugins', () => {
             ).rejects.toThrow('does not contain a wheel whose filename starts');
             expect(adapter.writeFile).not.toHaveBeenCalled();
         } finally {
-            pluginRegistry.get = originalGetPlugin;
+            settingsFolderMock.restore();
         }
     });
 
     test('reports when the latest release has no checksum asset', async () => {
-        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
-        const originalGetPlugin = pluginRegistry.get;
-        const adapter = installDiskAdapter();
-        pluginRegistry.get = jest.fn((id) =>
-            id === 'disk'
-                ? {
-                      getAdapter: () => adapter,
-                      isReady: jest.fn().mockResolvedValue(true)
-                  }
-                : null
-        );
+        const adapter = installSettingsFolderAdapter();
+        const settingsFolderMock = mockSettingsFolder(adapter);
+
         global.fetch = jest.fn().mockResolvedValueOnce({
             ok: true,
             status: 200,
@@ -406,26 +393,18 @@ describe('Font Destination plugins', () => {
             ).rejects.toThrow('required checksum asset');
             expect(adapter.writeFile).not.toHaveBeenCalled();
         } finally {
-            pluginRegistry.get = originalGetPlugin;
+            settingsFolderMock.restore();
         }
     });
 
     test('reports checksum mismatches before writing the wheel', async () => {
-        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
-        const originalGetPlugin = pluginRegistry.get;
         const originalCrypto = Object.getOwnPropertyDescriptor(
             global,
             'crypto'
         );
-        const adapter = installDiskAdapter();
-        pluginRegistry.get = jest.fn((id) =>
-            id === 'disk'
-                ? {
-                      getAdapter: () => adapter,
-                      isReady: jest.fn().mockResolvedValue(true)
-                  }
-                : null
-        );
+        const adapter = installSettingsFolderAdapter();
+        const settingsFolderMock = mockSettingsFolder(adapter);
+
         Object.defineProperty(global, 'crypto', {
             configurable: true,
             value: {
@@ -471,7 +450,7 @@ describe('Font Destination plugins', () => {
             ).rejects.toThrow('Checksum mismatch');
             expect(adapter.writeFile).not.toHaveBeenCalled();
         } finally {
-            pluginRegistry.get = originalGetPlugin;
+            settingsFolderMock.restore();
             if (originalCrypto) {
                 Object.defineProperty(global, 'crypto', originalCrypto);
             } else {
@@ -481,22 +460,14 @@ describe('Font Destination plugins', () => {
     });
 
     test('rolls back the stored wheel when Python installation fails', async () => {
-        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
-        const originalGetPlugin = pluginRegistry.get;
         const originalCrypto = Object.getOwnPropertyDescriptor(
             global,
             'crypto'
         );
         const originalPyodide = window.pyodide;
-        const adapter = installDiskAdapter();
-        pluginRegistry.get = jest.fn((id) =>
-            id === 'disk'
-                ? {
-                      getAdapter: () => adapter,
-                      isReady: jest.fn().mockResolvedValue(true)
-                  }
-                : null
-        );
+        const adapter = installSettingsFolderAdapter();
+        const settingsFolderMock = mockSettingsFolder(adapter);
+
         window.pyodide = {
             FS: { mkdirTree: jest.fn(), writeFile: jest.fn() },
             runPythonAsync: jest
@@ -564,7 +535,7 @@ describe('Font Destination plugins', () => {
                 false
             );
         } finally {
-            pluginRegistry.get = originalGetPlugin;
+            settingsFolderMock.restore();
             window.pyodide = originalPyodide;
             if (originalCrypto) {
                 Object.defineProperty(global, 'crypto', originalCrypto);
@@ -575,10 +546,8 @@ describe('Font Destination plugins', () => {
     });
 
     test('continues restoring stored wheels after one wheel fails', async () => {
-        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
-        const originalGetPlugin = pluginRegistry.get;
         const originalPyodide = window.pyodide;
-        const adapter = installDiskAdapter({
+        const adapter = installSettingsFolderAdapter({
             checkPermission: jest.fn().mockResolvedValue('granted'),
             readFile: jest
                 .fn()
@@ -595,9 +564,7 @@ describe('Font Destination plugins', () => {
                 }
             })
         });
-        pluginRegistry.get = jest.fn((id) =>
-            id === 'disk' ? { getAdapter: () => adapter } : null
-        );
+        const settingsFolderMock = mockSettingsFolder(adapter);
         window.pyodide = {
             FS: { mkdirTree: jest.fn(), writeFile: jest.fn() },
             runPythonAsync: jest
@@ -634,27 +601,19 @@ describe('Font Destination plugins', () => {
                 expect.stringContaining('/Plugins/bad-1.0.0.whl')
             ]);
         } finally {
-            pluginRegistry.get = originalGetPlugin;
+            settingsFolderMock.restore();
             window.pyodide = originalPyodide;
         }
     });
 
-    test('reports missing Plugins storage and creates it inside the Disk root', async () => {
-        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
-        const originalGetPlugin = pluginRegistry.get;
+    test('reports missing Plugins storage and creates it inside the Settings Folder', async () => {
         const adapter = {
             createFolder: jest.fn().mockResolvedValue(undefined),
             fileExists: jest.fn().mockResolvedValue(false),
             requestPermission: jest.fn().mockResolvedValue('granted')
         };
-        pluginRegistry.get = jest.fn((id) =>
-            id === 'disk'
-                ? {
-                      getAdapter: () => adapter,
-                      isReady: jest.fn().mockResolvedValue(true)
-                  }
-                : null
-        );
+        const settingsFolderMock = mockSettingsFolder(adapter);
+
         const {
             FontDestinationPluginManager
         } = require('../js/font-destination-plugin-manager.ts');
@@ -667,21 +626,16 @@ describe('Font Destination plugins', () => {
             await manager.createPluginsDirectory();
             expect(adapter.createFolder).toHaveBeenCalledWith('/Plugins');
         } finally {
-            pluginRegistry.get = originalGetPlugin;
+            settingsFolderMock.restore();
         }
     });
 
-    test('reports when no Disk folder is connected', async () => {
-        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
-        const originalGetPlugin = pluginRegistry.get;
-        pluginRegistry.get = jest.fn((id) =>
-            id === 'disk'
-                ? {
-                      getAdapter: () => null,
-                      isReady: jest.fn().mockResolvedValue(false)
-                  }
-                : null
+    test('reports when no Settings Folder is connected', async () => {
+        const settingsFolderMock = mockSettingsFolder(
+            { fileExists: jest.fn() },
+            { ready: false }
         );
+
         const {
             FontDestinationPluginManager
         } = require('../js/font-destination-plugin-manager.ts');
@@ -689,23 +643,20 @@ describe('Font Destination plugins', () => {
         try {
             await expect(
                 new FontDestinationPluginManager().getPluginStorageStatus()
-            ).resolves.toBe('disk-folder-not-connected');
+            ).resolves.toBe('settings-folder-not-connected');
         } finally {
-            pluginRegistry.get = originalGetPlugin;
+            settingsFolderMock.restore();
         }
     });
 
     test('uninstalls the Pyodide distribution before removing its wheel from disk', async () => {
-        const { pluginRegistry } = require('../js/filesystem-plugins.ts');
-        const originalGetPlugin = pluginRegistry.get;
         const originalPyodide = window.pyodide;
         const adapter = {
             deleteItem: jest.fn().mockResolvedValue(undefined),
             scanDirectory: jest.fn().mockResolvedValue({})
         };
-        pluginRegistry.get = jest.fn((id) =>
-            id === 'disk' ? { getAdapter: () => adapter } : null
-        );
+        const settingsFolderMock = mockSettingsFolder(adapter);
+
         window.pyodide = {
             runPythonAsync: jest.fn().mockResolvedValue([])
         };
@@ -732,7 +683,7 @@ describe('Font Destination plugins', () => {
                 false
             );
         } finally {
-            pluginRegistry.get = originalGetPlugin;
+            settingsFolderMock.restore();
             window.pyodide = originalPyodide;
         }
     });

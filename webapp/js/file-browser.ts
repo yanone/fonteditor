@@ -37,7 +37,6 @@ import { reloadLinkedEditorWindows } from './window-buttons';
 import { updateUrlState } from './url-state';
 import { shouldHandleOpenPathBeforeEditorReady } from './open-font-readiness';
 import { serializeFontForSourceSave } from './font-manager';
-import { ensureManagedDiskRootFolders } from './disk-root-paths';
 import {
     cancelManagedFileInternalWrite,
     consumeManagedFileInternalWritePaths,
@@ -2347,10 +2346,11 @@ function updateOpenFolderPromptForDetachedLaunch() {
 }
 
 /**
- * Change the selected Disk root while preserving the current Disk-context
- * refresh, observer setup, and dependent-view notifications.
+ * Change the selected Fonts folder (Disk plugin root) while preserving the
+ * current Disk-context refresh, observer setup, and dependent-view notifications.
+ * This does not affect the Settings Folder used for Plugins/Filters/Scripts.
  */
-export async function changeDiskRootFolder(options?: {
+export async function changeFontsFolder(options?: {
     startIn?: FileSystemHandle;
     source?: 'attach' | 'settings';
 }): Promise<boolean> {
@@ -2381,8 +2381,12 @@ export async function changeDiskRootFolder(options?: {
                     currentFont.path = resolvedPath;
                     const adapter = plugin.getAdapter() as {
                         directoryHandle?: FileSystemDirectoryHandle;
+                        getDirectoryHandle?: () => FileSystemDirectoryHandle | null;
                     };
-                    currentFont.directoryHandle = adapter.directoryHandle;
+                    currentFont.directoryHandle =
+                        adapter.getDirectoryHandle?.() ??
+                        adapter.directoryHandle ??
+                        null;
 
                     targetPath =
                         resolvedPath.substring(
@@ -2409,20 +2413,11 @@ export async function changeDiskRootFolder(options?: {
             updateOpenFolderPromptForDetachedLaunch();
             hideOpenFolderUI();
 
-            // Ensure managed app folders exist under the selected Settings Folder.
-            const adapter = plugin.getAdapter();
-            await ensureManagedDiskRootFolders(adapter);
-
-            // The selected NativeAdapter handle now points at the new root.
-            // Refresh user-created Python filters before notifying dependent UI.
-            await window.glyphOverviewFilterManager?.discoverUserFilters();
-
             window.dispatchEvent(
-                new CustomEvent('diskFolderAccessChanged', {
+                new CustomEvent('fontsFolderAccessChanged', {
                     detail: {
-                        hasDiskAccess: true,
-                        source: options?.source || 'attach',
-                        userFiltersRefreshed: true
+                        hasFontsFolderAccess: true,
+                        source: options?.source || 'attach'
                     }
                 })
             );
@@ -2447,15 +2442,18 @@ export async function changeDiskRootFolder(options?: {
         }
         return success;
     } catch (error: unknown) {
-        console.error('[FileBrowser]', 'Error selecting folder:', error);
+        console.error('[FileBrowser]', 'Error selecting Fonts folder:', error);
         alert(`Error selecting folder: ${getErrorMessage(error)}`);
         return false;
     }
 }
 
-/** Open the Disk folder picker from the File Browser. */
+/** @deprecated Use changeFontsFolder */
+export const changeDiskRootFolder = changeFontsFolder;
+
+/** Open the Fonts folder picker from the File Browser. */
 async function selectDiskFolder(): Promise<void> {
-    await changeDiskRootFolder({
+    await changeFontsFolder({
         startIn: detachedLaunchFileHandle || undefined,
         source: 'attach'
     });
@@ -4128,9 +4126,9 @@ window.addEventListener('pluginFolderClosed', async () => {
     }
 
     window.dispatchEvent(
-        new CustomEvent('diskFolderAccessChanged', {
+        new CustomEvent('fontsFolderAccessChanged', {
             detail: {
-                hasDiskAccess: false,
+                hasFontsFolderAccess: false,
                 source: 'detach'
             }
         })

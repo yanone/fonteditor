@@ -4,9 +4,12 @@
 import tippy, { Instance as TippyInstance } from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import { Logger } from './logger';
-import { pluginRegistry } from './filesystem-plugins';
 import { NativeAdapter } from './file-system-adapter';
-import { DISK_ROOT_PATHS } from './disk-root-paths';
+import {
+    settingsFolder,
+    SETTINGS_FOLDER_PATHS,
+    SETTINGS_FOLDER_SOURCE_ID
+} from './settings-folder';
 import {
     getOrCreateBackdrop,
     addTippyBackdropSupport,
@@ -113,7 +116,7 @@ export class GlyphOverviewFilterManager {
     private rootNode: TreeNode;
     private userFiltersNode: TreeNode;
     private readonly STORAGE_KEY = 'glyphFilterActive';
-    private readonly USER_FILTERS_PATH = DISK_ROOT_PATHS.filters;
+    private readonly USER_FILTERS_PATH = SETTINGS_FOLDER_PATHS.filters;
     private readonly FILTER_TIMEOUT_MS = 5000;
     private fileSystemObserver: any = null; // FileSystemObserver instance
     private observerSupported: boolean = 'FileSystemObserver' in window;
@@ -141,7 +144,7 @@ export class GlyphOverviewFilterManager {
         this.managedFileChangeListener = (event: Event) => {
             const detail = (event as CustomEvent<ManagedFileChangedDetail>)
                 .detail;
-            if (!detail || detail.pluginId !== 'disk') {
+            if (!detail || detail.pluginId !== SETTINGS_FOLDER_SOURCE_ID) {
                 return;
             }
 
@@ -774,7 +777,7 @@ export class GlyphOverviewFilterManager {
     }
 
     /**
-     * Discover user-defined filters from /Filters/ in the selected Disk folder
+     * Discover user-defined filters from /Filters/ in the Settings Folder
      * @param skipObserverSetup - If true, skip setting up file system observer (used when called from observer callback)
      * @param renamedToDisplayName - If provided, look for filter with this display_name when keyword match fails (for renames)
      */
@@ -795,19 +798,9 @@ export class GlyphOverviewFilterManager {
         this.userFiltersNode = this.buildUserFiltersTree();
         this.userFilters = [];
 
-        // Get disk adapter
-        const diskPlugin = pluginRegistry.get('disk');
-        if (!diskPlugin) {
-            console.log('Disk plugin not available');
-            if (isCurrentScan()) {
-                this.renderSidebar();
-            }
-            return;
-        }
-
-        const adapter = diskPlugin.getAdapter();
+        const adapter = settingsFolder.getAdapter();
         if (!this.isDiskAdapterLike(adapter)) {
-            console.log('Disk adapter is not NativeAdapter');
+            console.log('Settings adapter is not NativeAdapter');
             if (isCurrentScan()) {
                 this.renderSidebar();
             }
@@ -815,16 +808,14 @@ export class GlyphOverviewFilterManager {
         }
 
         // Ensure adapter is initialized (restores directory handle from IndexedDB)
-        if (!adapter.hasDirectory()) {
-            await adapter.initialize();
-        }
+        await settingsFolder.initialize();
         if (!isCurrentScan()) {
             return;
         }
 
-        // Check if disk folder is selected
-        if (!adapter.hasDirectory()) {
-            console.log('No disk folder selected');
+        // Check if Settings Folder is selected
+        if (!settingsFolder.hasFolder()) {
+            console.log('No Settings Folder selected');
             if (isCurrentScan()) {
                 this.renderSidebar();
             }
@@ -1161,13 +1152,11 @@ export class GlyphOverviewFilterManager {
     private renderUserFiltersSection(): void {
         if (!this.sidebarContainer) return;
 
-        // Check if disk is available
-        const diskPlugin = pluginRegistry.get('disk');
-        const diskAdapter = diskPlugin?.getAdapter();
-        const hasDisk =
-            diskPlugin &&
-            this.isDiskAdapterLike(diskAdapter) &&
-            diskAdapter.hasDirectory();
+        // Check if Settings Folder is available
+        const settingsAdapter = settingsFolder.getAdapter();
+        const hasSettingsFolder =
+            this.isDiskAdapterLike(settingsAdapter) &&
+            settingsAdapter.hasDirectory();
 
         // Create header with refresh button
         const header = document.createElement('div');
@@ -1177,7 +1166,7 @@ export class GlyphOverviewFilterManager {
         titleSpan.textContent = 'User Filters';
         header.appendChild(titleSpan);
 
-        if (hasDisk) {
+        if (hasSettingsFolder) {
             const buttonContainer = document.createElement('div');
             buttonContainer.className = 'glyph-filter-header-buttons';
 
@@ -1215,11 +1204,11 @@ export class GlyphOverviewFilterManager {
         userTreeContainer.className =
             'glyph-filter-tree glyph-filter-user-tree';
 
-        if (!hasDisk) {
+        if (!hasSettingsFolder) {
             const noAccessMsg = document.createElement('div');
             noAccessMsg.className = 'glyph-filter-no-access';
             noAccessMsg.textContent =
-                'Select a Disk folder to enable user filters';
+                'Select a Settings Folder to enable user filters';
             userTreeContainer.appendChild(noAccessMsg);
         } else if (this.userFilters.length === 0) {
             const emptyMsg = document.createElement('div');
@@ -1495,7 +1484,10 @@ export class GlyphOverviewFilterManager {
     private async openFilterInScriptEditor(filePath: string): Promise<void> {
         if (window.scriptEditor && window.scriptEditor.openFile) {
             try {
-                await window.scriptEditor.openFile(filePath, 'disk');
+                await window.scriptEditor.openFile(
+                    filePath,
+                    SETTINGS_FOLDER_SOURCE_ID
+                );
                 console.log(`Opened ${filePath} in Script Editor`);
             } catch (error) {
                 console.error('Error opening in Script Editor:', error);
@@ -2425,21 +2417,15 @@ export class GlyphOverviewFilterManager {
      * Create a new filter file using file picker
      */
     private async createNewFilter(): Promise<void> {
-        const diskPlugin = pluginRegistry.get('disk');
-        if (!diskPlugin) {
-            alert('Disk plugin not available');
-            return;
-        }
-
-        const adapter = diskPlugin.getAdapter();
+        const adapter = settingsFolder.getAdapter();
         if (!this.isDiskAdapterLike(adapter) || !adapter.hasDirectory()) {
-            alert('Disk directory not available');
+            alert('Settings Folder not available');
             return;
         }
 
         try {
             // Get the directory handle
-            const dirHandle = (adapter as any).directoryHandle;
+            const dirHandle = adapter.getDirectoryHandle();
             if (!dirHandle) {
                 alert('Directory handle not available');
                 return;
@@ -2629,10 +2615,7 @@ def filter_glyphs(font):
         const filePath = plugin.filePath;
         if (!filePath) return;
 
-        const diskPlugin = pluginRegistry.get('disk');
-        if (!diskPlugin) return;
-
-        const adapter = diskPlugin.getAdapter();
+        const adapter = settingsFolder.getAdapter();
         if (!this.isDiskAdapterLike(adapter)) return;
 
         // Find the label element
@@ -2756,10 +2739,7 @@ def filter_glyphs(font):
             return;
         }
 
-        const diskPlugin = pluginRegistry.get('disk');
-        if (!diskPlugin) return;
-
-        const adapter = diskPlugin.getAdapter();
+        const adapter = settingsFolder.getAdapter();
         if (!this.isDiskAdapterLike(adapter)) return;
 
         try {

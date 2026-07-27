@@ -33,7 +33,6 @@ jest.mock('../js/glyph-filter-worker-client', () => ({
 
 const { GlyphOverviewFilterManager } = require('../js/glyph-overview-filters');
 const { GlyphFilterWorkerClient } = require('../js/glyph-filter-worker-client');
-const { pluginRegistry } = require('../js/filesystem-plugins');
 
 describe('GlyphOverviewFilterManager auto-update events', () => {
     let manager;
@@ -281,6 +280,7 @@ describe('GlyphOverviewFilterManager Settings Folder changes', () => {
     });
 
     test('does not restore filters from an older folder scan after the new folder has no Filters directory', async () => {
+        const { settingsFolder } = require('../js/settings-folder');
         let resolveOldFolderFiles;
         const oldFolderFiles = new Promise((resolve) => {
             resolveOldFolderFiles = resolve;
@@ -295,9 +295,9 @@ describe('GlyphOverviewFilterManager Settings Folder changes', () => {
             listFilesRecursive: jest.fn().mockReturnValueOnce(oldFolderFiles),
             readFile: jest.fn()
         };
-        jest.spyOn(pluginRegistry, 'get').mockReturnValue({
-            getAdapter: () => adapter
-        });
+        jest.spyOn(settingsFolder, 'getAdapter').mockReturnValue(adapter);
+        jest.spyOn(settingsFolder, 'initialize').mockResolvedValue(true);
+        jest.spyOn(settingsFolder, 'hasFolder').mockReturnValue(true);
 
         const oldFolderScan = manager.discoverUserFilters();
         await Promise.resolve();

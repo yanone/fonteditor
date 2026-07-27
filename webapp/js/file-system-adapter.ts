@@ -124,21 +124,40 @@ export class OPFSAdapter implements FileSystemAdapter {
     }
 }
 
-// Native File System Access API Adapter for disk-based file system
+// Native File System Access API Adapter for disk-based file system.
+// Each instance persists its directory handle under a dedicated IndexedDB key
+// so Fonts folder and Settings folder remain independent.
+export const FONTS_FOLDER_HANDLE_KEY = 'disk-directory-handle';
+export const SETTINGS_FOLDER_HANDLE_KEY = 'settings-directory-handle';
+
 export class NativeAdapter implements FileSystemAdapter {
     private directoryHandle: FileSystemDirectoryHandle | null = null;
     private rootPath: string = '';
-    private static readonly STORAGE_KEY = 'disk-directory-handle';
+    private readonly storageKey: string;
+
+    constructor(storageKey: string = FONTS_FOLDER_HANDLE_KEY) {
+        this.storageKey = storageKey;
+    }
+
+    /** The persisted IndexedDB key for this adapter's directory handle. */
+    getHandleStorageKey(): string {
+        return this.storageKey;
+    }
+
+    /** The currently selected directory handle, if any. */
+    getDirectoryHandle(): FileSystemDirectoryHandle | null {
+        return this.directoryHandle;
+    }
 
     async initialize(): Promise<boolean> {
         // Try to restore persisted directory handle
-        const handle = await get(NativeAdapter.STORAGE_KEY);
+        const handle = await get(this.storageKey);
         if (handle && handle instanceof FileSystemDirectoryHandle) {
             this.directoryHandle = handle;
             this.rootPath = '/';
             console.log(
                 '[NativeAdapter]',
-                'Restored directory handle:',
+                `Restored directory handle (${this.storageKey}):`,
                 handle.name
             );
             return true;
@@ -165,12 +184,16 @@ export class NativeAdapter implements FileSystemAdapter {
             this.rootPath = '/';
 
             // Persist handle in IndexedDB
-            await set(NativeAdapter.STORAGE_KEY, handle);
+            await set(this.storageKey, handle);
 
             // Request permission immediately
             await this.requestPermission();
 
-            console.log('[NativeAdapter]', 'Selected directory:', handle.name);
+            console.log(
+                '[NativeAdapter]',
+                `Selected directory (${this.storageKey}):`,
+                handle.name
+            );
             return true;
         } catch (error: any) {
             if (error.name === 'AbortError') {
@@ -188,10 +211,13 @@ export class NativeAdapter implements FileSystemAdapter {
     }
 
     async clearDirectory(): Promise<void> {
-        await del(NativeAdapter.STORAGE_KEY);
+        await del(this.storageKey);
         this.directoryHandle = null;
         this.rootPath = '';
-        console.log('[NativeAdapter]', 'Directory handle cleared');
+        console.log(
+            '[NativeAdapter]',
+            `Directory handle cleared (${this.storageKey})`
+        );
     }
 
     hasDirectory(): boolean {

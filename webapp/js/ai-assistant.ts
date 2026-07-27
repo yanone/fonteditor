@@ -30,7 +30,7 @@ import {
     runAssistantPythonExecution
 } from './assistant-execution-context';
 import { awaitStableWorkerState } from './font-compilation';
-import { DISK_ROOT_PATHS } from './disk-root-paths';
+import { SETTINGS_FOLDER_PATHS, settingsFolder } from './settings-folder';
 import {
     getPythonDocumentKindInfo,
     type PythonDocumentKindInfo
@@ -2562,22 +2562,22 @@ class AIAssistant {
     private isManagedPythonPath(path: string): boolean {
         return (
             path.endsWith('.py') &&
-            (path.startsWith(`${DISK_ROOT_PATHS.scripts}/`) ||
-                path.startsWith(`${DISK_ROOT_PATHS.filters}/`))
+            (path.startsWith(`${SETTINGS_FOLDER_PATHS.scripts}/`) ||
+                path.startsWith(`${SETTINGS_FOLDER_PATHS.filters}/`))
         );
     }
 
     private getPythonDocumentKind(
         path: string
     ): 'general-script' | 'glyph-filter' {
-        return path.startsWith(`${DISK_ROOT_PATHS.filters}/`)
+        return path.startsWith(`${SETTINGS_FOLDER_PATHS.filters}/`)
             ? 'glyph-filter'
             : 'general-script';
     }
 
-    private async getPythonDiskAdapter(): Promise<{
+    private async getPythonSettingsFolderAdapter(): Promise<{
         hasDirectory?: () => boolean;
-        initialize?: () => Promise<void>;
+        initialize?: () => Promise<boolean | void>;
         fileExists?: (path: string) => Promise<boolean>;
         listFilesRecursive?: (
             path: string,
@@ -2585,27 +2585,11 @@ class AIAssistant {
         ) => Promise<Array<{ path: string }>>;
         readFile: (path: string) => Promise<string | Uint8Array>;
     }> {
-        const plugin = window.pluginRegistry.get('disk') as {
-            getAdapter: () => {
-                hasDirectory?: () => boolean;
-                initialize?: () => Promise<void>;
-                fileExists?: (path: string) => Promise<boolean>;
-                listFilesRecursive?: (
-                    path: string,
-                    depth: number
-                ) => Promise<Array<{ path: string }>>;
-                readFile: (path: string) => Promise<string | Uint8Array>;
-            };
-        } | null;
-        if (!plugin) throw new Error('Disk storage is not available.');
-
-        const adapter = plugin.getAdapter();
-        if (adapter.hasDirectory && !adapter.hasDirectory()) {
-            await adapter.initialize?.();
-        }
-        if (adapter.hasDirectory && !adapter.hasDirectory()) {
+        const adapter = settingsFolder.getAdapter();
+        await settingsFolder.initialize();
+        if (!settingsFolder.hasFolder()) {
             throw new Error(
-                'Choose a disk folder before reading Python files.'
+                'Choose a Settings Folder before reading Python files.'
             );
         }
         return adapter;
@@ -2616,16 +2600,19 @@ class AIAssistant {
     ): Promise<
         Array<{ path: string; kind: 'general-script' | 'glyph-filter' }>
     > {
-        const adapter = await this.getPythonDiskAdapter();
+        const adapter = await this.getPythonSettingsFolderAdapter();
         if (!adapter.listFilesRecursive) {
-            throw new Error('Disk storage cannot list Python files.');
+            throw new Error('Settings Folder cannot list Python files.');
         }
         const roots =
             collection === 'scripts'
-                ? [DISK_ROOT_PATHS.scripts]
+                ? [SETTINGS_FOLDER_PATHS.scripts]
                 : collection === 'filters'
-                  ? [DISK_ROOT_PATHS.filters]
-                  : [DISK_ROOT_PATHS.scripts, DISK_ROOT_PATHS.filters];
+                  ? [SETTINGS_FOLDER_PATHS.filters]
+                  : [
+                        SETTINGS_FOLDER_PATHS.scripts,
+                        SETTINGS_FOLDER_PATHS.filters
+                    ];
         const files: Array<{
             path: string;
             kind: 'general-script' | 'glyph-filter';
@@ -3066,7 +3053,7 @@ if '_assistant_original_stdout' in dir():
                     .toLowerCase();
                 if (!query) throw new Error('Search query is empty.');
 
-                const adapter = await this.getPythonDiskAdapter();
+                const adapter = await this.getPythonSettingsFolderAdapter();
                 const files = await this.listManagedPythonFiles(
                     String(args.collection || 'both')
                 );
@@ -3108,11 +3095,11 @@ if '_assistant_original_stdout' in dir():
                 const path = String(args.path || '');
                 if (!this.isManagedPythonPath(path)) {
                     throw new Error(
-                        `Python files must be under ${DISK_ROOT_PATHS.scripts} or ${DISK_ROOT_PATHS.filters}.`
+                        `Python files must be under ${SETTINGS_FOLDER_PATHS.scripts} or ${SETTINGS_FOLDER_PATHS.filters}.`
                     );
                 }
                 const active = window.scriptEditor.getDocumentState();
-                const adapter = await this.getPythonDiskAdapter();
+                const adapter = await this.getPythonSettingsFolderAdapter();
                 const data =
                     active.path === path
                         ? active.content
@@ -3146,10 +3133,13 @@ if '_assistant_original_stdout' in dir():
                 const path = String(args.path || '');
                 if (!this.isManagedPythonPath(path)) {
                     throw new Error(
-                        `Python files must be under ${DISK_ROOT_PATHS.scripts} or ${DISK_ROOT_PATHS.filters}.`
+                        `Python files must be under ${SETTINGS_FOLDER_PATHS.scripts} or ${SETTINGS_FOLDER_PATHS.filters}.`
                     );
                 }
-                const opened = await window.scriptEditor.openFile(path, 'disk');
+                const opened = await window.scriptEditor.openFile(
+                    path,
+                    'settings'
+                );
                 if (!opened) throw new Error(`Could not open ${path}.`);
                 return JSON.stringify(window.scriptEditor.getDocumentState());
             }

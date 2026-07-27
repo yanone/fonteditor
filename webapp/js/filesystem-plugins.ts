@@ -2,7 +2,11 @@
 // Defines extensible plugin system for different filesystem access methods
 
 import type { FileSystemAdapter } from './file-system-adapter';
-import { OPFSAdapter, NativeAdapter } from './file-system-adapter';
+import {
+    OPFSAdapter,
+    NativeAdapter,
+    FONTS_FOLDER_HANDLE_KEY
+} from './file-system-adapter';
 import { Logger } from './logger';
 import { dispatchManagedFileChanged } from './managed-file-events';
 
@@ -331,7 +335,7 @@ export class DiskPlugin extends FilesystemPlugin {
     private observerSupported: boolean = 'FileSystemObserver' in window;
 
     constructor() {
-        const adapter = new NativeAdapter();
+        const adapter = new NativeAdapter(FONTS_FOLDER_HANDLE_KEY);
         super(adapter);
         this.nativeAdapter = adapter;
     }
