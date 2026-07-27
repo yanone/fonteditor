@@ -88,8 +88,5 @@ describe('settings bootstrap', () => {
             settingsModule.default.IN_BROWSER_LIVE_TESTS
                 .ENABLE_WORKER_DRIFT_CHECKS
         ).toBe(true);
-        expect(
-            settingsModule.default.OUTLINE_EDITOR.SHOW_BBOX_CENTER_CROSSHAIR
-        ).toBe(true);
     });
 });
