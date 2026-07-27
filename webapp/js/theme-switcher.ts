@@ -184,7 +184,7 @@ import { DiskPlugin, pluginRegistry } from './filesystem-plugins';
             if (this.diskRootName) {
                 this.diskRootName.textContent = directoryName || 'Not selected';
                 this.diskRootName.title =
-                    directoryName || 'No Disk root selected';
+                    directoryName || 'No Settings Folder selected';
             }
             if (this.diskRootChangeButton) {
                 this.diskRootChangeButton.textContent = directoryName

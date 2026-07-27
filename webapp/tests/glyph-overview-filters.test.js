@@ -267,7 +267,7 @@ describe('GlyphOverviewFilterManager All Glyphs behavior', () => {
     });
 });
 
-describe('GlyphOverviewFilterManager Storage Folder changes', () => {
+describe('GlyphOverviewFilterManager Settings Folder changes', () => {
     let manager;
 
     beforeEach(() => {

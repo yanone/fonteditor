@@ -109,7 +109,7 @@ function createPluginStorageNotice(
         createTextElement(
             'h4',
             isDiskFolderMissing
-                ? 'Connect a Disk Folder'
+                ? 'Connect a Settings Folder'
                 : 'Create the Plugins Folder'
         )
     );
@@ -118,7 +118,7 @@ function createPluginStorageNotice(
             'p',
             isDiskFolderMissing
                 ? 'Choose the folder Counterpunch should use for your files and Font Destination plugins.'
-                : 'The connected Disk folder has no /Plugins directory. Plugin wheels are stored there.'
+                : 'The connected Settings Folder has no /Plugins directory. Plugin wheels are stored there.'
         )
     );
     const action = document.createElement('button');

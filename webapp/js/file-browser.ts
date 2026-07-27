@@ -37,6 +37,7 @@ import { reloadLinkedEditorWindows } from './window-buttons';
 import { updateUrlState } from './url-state';
 import { shouldHandleOpenPathBeforeEditorReady } from './open-font-readiness';
 import { serializeFontForSourceSave } from './font-manager';
+import { ensureManagedDiskRootFolders } from './disk-root-paths';
 import {
     cancelManagedFileInternalWrite,
     consumeManagedFileInternalWritePaths,
@@ -2407,6 +2408,10 @@ export async function changeDiskRootFolder(options?: {
             detachedLaunchFileHandle = null;
             updateOpenFolderPromptForDetachedLaunch();
             hideOpenFolderUI();
+
+            // Ensure managed app folders exist under the selected Settings Folder.
+            const adapter = plugin.getAdapter();
+            await ensureManagedDiskRootFolders(adapter);
 
             // The selected NativeAdapter handle now points at the new root.
             // Refresh user-created Python filters before notifying dependent UI.

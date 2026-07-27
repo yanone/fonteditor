@@ -2550,6 +2550,14 @@ kbd + kbd {
     color: var(--accent-orange);
 }
 
+.script-file-menu-notice {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    padding: 8px 12px;
+    font-style: italic;
+    border-bottom: 1px solid var(--border-primary);
+}
+
 .script-file-menu-item {
     display: flex;
     align-items: center;

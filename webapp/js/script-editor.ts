@@ -229,6 +229,21 @@ def filter_glyphs(font):
     }
 
     /**
+     * Whether a Disk folder is selected (same gate as Glyph Overview user filters).
+     */
+    function hasDiskFolderAccess(): boolean {
+        const diskPlugin = pluginRegistry.get('disk');
+        const adapter = diskPlugin?.getAdapter() as
+            { hasDirectory?: () => boolean } | undefined;
+        return !!(
+            diskPlugin &&
+            adapter &&
+            typeof adapter.hasDirectory === 'function' &&
+            adapter.hasDirectory()
+        );
+    }
+
+    /**
      * Get plugin by ID
      */
     function getPluginById(pluginId: string): FilesystemPlugin | null {
@@ -697,15 +712,20 @@ def filter_glyphs(font):
      */
     function getFileMenuHtml() {
         const plugin = getCurrentPlugin();
+        const hasDisk = hasDiskFolderAccess();
         const supportsOpen =
-            plugin &&
-            plugin.supportsOpenFilePicker &&
+            hasDisk &&
+            !!plugin &&
+            !!plugin.supportsOpenFilePicker &&
             plugin.supportsOpenFilePicker();
         const supportsSaveAs =
-            plugin &&
-            plugin.supportsSaveAsFilePicker &&
+            hasDisk &&
+            !!plugin &&
+            !!plugin.supportsSaveAsFilePicker &&
             plugin.supportsSaveAsFilePicker();
-        const canSave = currentFilePath !== null && currentPluginId !== null;
+        const canSave =
+            hasDisk && currentFilePath !== null && currentPluginId !== null;
+        const diskAccessTitle = 'Select a Disk folder to enable saving scripts';
 
         // File path display
         let pathDisplay = 'Untitled';
@@ -725,6 +745,10 @@ def filter_glyphs(font):
         // File path header
         html += `<div class="script-file-menu-path">${modifiedIndicator}${escapeHtml(pathDisplay)}</div>`;
 
+        if (!hasDisk) {
+            html += `<div class="script-file-menu-notice">${escapeHtml(diskAccessTitle)}</div>`;
+        }
+
         // New
         html += `
             <div class="script-file-menu-item" data-action="new">
@@ -733,7 +757,7 @@ def filter_glyphs(font):
             </div>
         `;
 
-        // Open (only if plugin supports it)
+        // Open (only if plugin supports it and a Disk folder is selected)
         if (supportsOpen) {
             html += `
                 <div class="script-file-menu-item" data-action="open">
@@ -743,14 +767,14 @@ def filter_glyphs(font):
             `;
         } else {
             html += `
-                <div class="script-file-menu-item disabled" title="Open files requires plugin support">
+                <div class="script-file-menu-item disabled" title="${hasDisk ? 'Open files requires plugin support' : diskAccessTitle}">
                     <span class="material-symbols-outlined">folder_open</span>
                     <span>Open...</span>
                 </div>
             `;
         }
 
-        // Save (only enabled if file has a path)
+        // Save (requires Disk folder + existing path)
         if (canSave) {
             html += `
                 <div class="script-file-menu-item" data-action="save">
@@ -759,15 +783,18 @@ def filter_glyphs(font):
                 </div>
             `;
         } else {
+            const saveTitle = !hasDisk
+                ? diskAccessTitle
+                : 'No file path - use Save As or open a file first';
             html += `
-                <div class="script-file-menu-item disabled" title="No file path - use Save As or open a file first">
+                <div class="script-file-menu-item disabled" title="${saveTitle}">
                     <span class="material-symbols-outlined">save</span>
                     <span>Save</span>
                 </div>
             `;
         }
 
-        // Save As (only if plugin supports it)
+        // Save As (requires Disk folder + plugin picker support)
         if (supportsSaveAs) {
             html += `
                 <div class="script-file-menu-item" data-action="save-as">
@@ -777,7 +804,7 @@ def filter_glyphs(font):
             `;
         } else {
             html += `
-                <div class="script-file-menu-item disabled" title="Save As requires disk folder access">
+                <div class="script-file-menu-item disabled" title="${diskAccessTitle}">
                     <span class="material-symbols-outlined">save_as</span>
                     <span>Save As...</span>
                 </div>
@@ -919,6 +946,11 @@ def filter_glyphs(font):
      * Handle Open file
      */
     async function handleOpen() {
+        if (!hasDiskFolderAccess()) {
+            alert('Select a Disk folder to enable saving scripts');
+            return;
+        }
+
         const plugin = getCurrentPlugin();
         if (
             !plugin ||
@@ -968,6 +1000,11 @@ def filter_glyphs(font):
      * Handle Save file
      */
     async function handleSave() {
+        if (!hasDiskFolderAccess()) {
+            alert('Select a Disk folder to enable saving scripts');
+            return false;
+        }
+
         if (!currentFilePath || !currentPluginId) {
             // No path yet - need Save As
             console.log('[ScriptEditor]', 'No file path, cannot save');
@@ -1069,6 +1106,11 @@ def filter_glyphs(font):
      * Handle Save As file
      */
     async function handleSaveAs() {
+        if (!hasDiskFolderAccess()) {
+            alert('Select a Disk folder to enable saving scripts');
+            return false;
+        }
+
         const plugin = getCurrentPlugin();
         if (
             !plugin ||
