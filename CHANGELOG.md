@@ -1,5 +1,6 @@
 # Unreleased
 
+- **Add Glyphs Dialog**: Added Font > Add Glyphs (`Cmd/Ctrl+Shift+G`) for browsing the bundled Unicode glyph-data catalog and creating several encoded glyphs at once. The dialog searches canonical glyph names, Unicode names, literal characters, and codepoints; shows Unicode metadata and system-font previews; supports keyboard/range selection and double-click/Enter as the default add action. New glyphs receive an empty default layer for every master, while existing Unicode assignments are ignored during the final add operation.
 - **Run Python Script**: Added a Tools menu command (`Cmd/Ctrl+R`) to browse and run scripts from the Settings Folder `/Scripts` tree. The dialog lists each script’s title, relative path, description, and keywords parsed from the conventional header comment block, with search, folder filtering, and keyword chips. After a script runs, Tools also offers **Re-run [title]** (`Cmd/Ctrl+Alt+R`). The last selected script is remembered across sessions.
 - ***Privacy Policy**: Implemented a Privacy Policy. It’s very lean. Counterpunch collects barely any data.
 - **Find Glyphs Dialog**: Implemented a dialog for inserting glyphs into the editing canvas and adding/chenging component references. It can filter for glyph names, and search for literal characters as well as hex Unicodes.
