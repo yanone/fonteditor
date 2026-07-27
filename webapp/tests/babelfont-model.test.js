@@ -3867,13 +3867,18 @@ describe('Babelfont Object Model', () => {
             expect(matchingLayer).toBeUndefined();
         });
 
-        test('should return undefined if target glyph has no matching master', () => {
+        test('should return undefined if target glyph has no matching designspace location', () => {
             const glyphA = font.findGlyph('A');
             expect(glyphA).toBeDefined();
             expect(glyphA.layers).toBeDefined();
 
-            // Create a test glyph with a single layer but different master
+            // addGlyph() seeds a DefaultForMaster layer for every font master.
+            // Strip those so the glyph only has a layer whose master cannot
+            // resolve an effective designspace location.
             const testGlyph = font.addGlyph('TestGlyph', 'Base');
+            while (testGlyph.layers.length > 0) {
+                testGlyph.removeLayer(0);
+            }
             const testLayer = testGlyph.addLayer(500);
             testLayer.master = {
                 type: 'DefaultForMaster',
