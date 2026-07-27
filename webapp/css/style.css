@@ -1958,7 +1958,7 @@ kbd + kbd {
     flex-direction: column;
     gap: 8px;
     min-height: 180px;
-    max-height: min(42vh, 420px);
+    max-height: min(70vh, 720px);
     overflow-x: hidden;
     overflow-y: auto;
 }
@@ -4816,7 +4816,7 @@ kbd + kbd {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     max-width: 500px;
     width: 90%;
-    max-height: 80vh;
+    max-height: 92vh;
     overflow: hidden;
     display: flex;
     flex-direction: column;
