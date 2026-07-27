@@ -7,9 +7,10 @@ font-editing script: Glyph Overview calls it to decide which glyphs to display.
 ## Required Contract
 
 Every filter must define `EVENT_TYPES` and `filter_glyphs(font)`. `EVENT_TYPES`
-contains only incremental event types from the central registry. The host always
-runs `filter_glyphs(font)` on font open, filter activate, and filter file reload
-— those are not events. An optional
+contains only incremental event types from the central registry. Subscribe only
+to events the filter actually needs for correctness; do not over-subscribe to
+unrelated types. The host always runs `filter_glyphs(font)` on font open, filter
+activate, and filter file reload — those are not events. An optional
 `apply_changes(change_batch, current_results, font)` may maintain the cached
 result incrementally; it returns `None` to request complete reconciliation.
 The filter function receives the current font directly; do not call `Font()`

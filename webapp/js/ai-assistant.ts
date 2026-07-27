@@ -2777,6 +2777,8 @@ __counterpunch_assistant_validate_syntax(${sourceKey})`
             case 'glyph_filter_event_types':
                 return `${JSON.stringify(getGlyphFilterEventAssistantView(), null, 2)}
 
+Subscribe EVENT_TYPES only to events this filter must handle for correctness. Do not over-subscribe to unrelated types.
+
 Example single-file filter:
 
 \`\`\`python
