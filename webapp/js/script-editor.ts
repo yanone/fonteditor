@@ -1107,6 +1107,22 @@ def filter_glyphs(font):
     }
 
     /**
+     * Suggest a Save As filename from the first line when it is a `#` title comment.
+     * Only the first line is considered; otherwise fall back to a placeholder name.
+     */
+    function suggestSaveAsFileNameFromHeader(content: string): string {
+        const firstLine = (content.split(/\r?\n/, 1)[0] ?? '').trimStart();
+        if (!firstLine.startsWith('#')) {
+            return 'Choose file name.py';
+        }
+        const title = firstLine.replace(/^#\s?/, '').trim();
+        if (!title) {
+            return 'Choose file name.py';
+        }
+        return title.toLowerCase().endsWith('.py') ? title : `${title}.py`;
+    }
+
+    /**
      * Handle Save As file
      */
     async function handleSaveAs() {
@@ -1116,8 +1132,7 @@ def filter_glyphs(font):
         }
 
         try {
-            let suggestedName =
-                documentKind === 'glyph-filter' ? 'New Filter.py' : 'script.py';
+            let suggestedName: string;
             let startFolder: string | undefined;
             if (currentFilePath) {
                 suggestedName = currentFilePath.split('/').pop() || 'script.py';
@@ -1126,6 +1141,9 @@ def filter_glyphs(font):
                     currentFilePath.lastIndexOf('/')
                 );
             } else {
+                suggestedName = suggestSaveAsFileNameFromHeader(
+                    editor.getValue()
+                );
                 startFolder =
                     documentKind === 'glyph-filter'
                         ? SETTINGS_FOLDER_PATHS.filters
