@@ -94,17 +94,170 @@ The host removes first, then adds. Removing an absent glyph and adding an alread
 | `unicode` | `number | null` | Yes | The glyph's new Unicode value, if any. |
 | `previousUnicode` | `number | null` | Yes | The glyph's previous Unicode value, if any. |
 
+## `glyph.category.changed`
+
+- Name: Glyph Category Changed
+- Description: A glyph's category assignment changed.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+
+## `glyph.export.changed`
+
+- Name: Glyph Export Changed
+- Description: A glyph's export flag changed.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+
+## `glyph.production-name.changed`
+
+- Name: Glyph Production Name Changed
+- Description: A glyph's production name changed.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+
+## `glyph.paths.changed`
+
+- Name: Glyph Paths Changed
+- Description: Path geometry or path structure on one or more layers of a glyph changed.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+| `layerIds` | `string[]` | No | Layer IDs touched by the change, when known. |
+
+## `glyph.components.changed`
+
+- Name: Glyph Components Changed
+- Description: Component membership on one or more layers of a glyph changed (add, remove, or replace).
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+| `layerIds` | `string[]` | No | Layer IDs touched by the change, when known. |
+
+## `glyph.component.reference.changed`
+
+- Name: Glyph Component Reference Changed
+- Description: A component instance changed which glyph it references.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+| `layerIds` | `string[]` | No | Layer IDs touched by the change, when known. |
+
+## `glyph.component.transform.changed`
+
+- Name: Glyph Component Transform Changed
+- Description: A component instance transform changed.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+| `layerIds` | `string[]` | No | Layer IDs touched by the change, when known. |
+
+## `glyph.anchors.changed`
+
+- Name: Glyph Anchors Changed
+- Description: Anchors on one or more layers of a glyph changed.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+| `layerIds` | `string[]` | No | Layer IDs touched by the change, when known. |
+
+## `glyph.guides.changed`
+
+- Name: Glyph Guides Changed
+- Description: Guides on one or more layers of a glyph changed.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+| `layerIds` | `string[]` | No | Layer IDs touched by the change, when known. |
+
+## `glyph.layers.changed`
+
+- Name: Glyph Layers Changed
+- Description: A glyph layer was added, removed, or otherwise structurally changed.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+| `layerIds` | `string[]` | No | Layer IDs touched by the change, when known. |
+
+## `glyph.layer.location.changed`
+
+- Name: Glyph Layer Location Changed
+- Description: An intermediate layer location (designspace coordinates) changed.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+| `layerIds` | `string[]` | No | Layer IDs touched by the change, when known. |
+
+## `glyph.metrics.changed`
+
+- Name: Glyph Metrics Changed
+- Description: Layer metrics such as advance width or sidebearings changed.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+| `layerIds` | `string[]` | No | Layer IDs touched by the change, when known. |
+
+## `glyph.metrics-key.changed`
+
+- Name: Glyph Metrics Key Changed
+- Description: A glyph- or layer-level metrics key (LSB/RSB formula) changed.
+
+### Metadata
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `glyphName` | `string` | Yes | The affected glyph's name. |
+| `layerIds` | `string[]` | No | Layer IDs touched by the change, when known. |
+
 ## `glyph.compatibility.changed`
 
 - Name: Glyph Compatibility Changed
-- Description: A glyph's layer compatibility changed.
+- Description: A glyph's outline compatibility boolean (`Glyph.isCompatible`) toggled.
 
 ### Metadata
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `glyphName` | `string` | Yes | The glyph whose compatibility changed. |
-| `compatible` | `boolean` | Yes | Whether the glyph's relevant layers are compatible. |
+| `compatible` | `boolean` | Yes | Whether the glyph's relevant layers are compatible after the change. |
 | `layerIds` | `string[]` | Yes | The layer IDs considered by the compatibility check. |
 
 ## `font.masters.changed`

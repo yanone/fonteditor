@@ -12,7 +12,12 @@ Supported event types live in `webapp/js/glyph-filter-events.ts`. They use
 dotted names such as `glyph.unicode.changed`; browser `CustomEvent` names
 remain internal and are not a plugin API.
 
-The registry contains only these events currently:
+Path-to-event derivation lives in
+`webapp/js/glyph-filter-change-derivation.ts`. Compatibility is special:
+`glyph.compatibility.changed` fires only when `Glyph.isCompatible` toggles,
+not on every layer edit.
+
+The registry contains these events currently:
 
 ```text
 font.opened
@@ -21,13 +26,6 @@ glyph.created
 glyph.deleted
 glyph.renamed
 glyph.unicode.changed
-glyph.compatibility.changed
-font.masters.changed
-```
-
-## Priority Future Event Names
-
-```text
 glyph.category.changed
 glyph.export.changed
 glyph.production-name.changed
@@ -41,6 +39,8 @@ glyph.layers.changed
 glyph.layer.location.changed
 glyph.metrics.changed
 glyph.metrics-key.changed
+glyph.compatibility.changed
+font.masters.changed
 ```
 
 ## Useful Future Event Names
@@ -122,11 +122,9 @@ There is no compatibility path for old filters without these declarations.
 The host passes JSON-like immutable data:
 
 ```text
-revision
-source
-event_types
-glyphs[glyph name].changed_fields
-glyphs[glyph name].layer_ids
+changes[]
+  type
+  metadata
 ```
 
 It never exposes Yjs bytes, Yjs structures, raw JSON pointers, undo internals,

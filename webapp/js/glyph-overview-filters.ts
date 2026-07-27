@@ -29,6 +29,10 @@ import {
     type GlyphFilterChangeBatch,
     type GlyphFilterEventType
 } from './glyph-filter-events';
+import {
+    dedupeGlyphFilterChanges,
+    deriveGlyphFilterChangesFromCommittedEntry
+} from './glyph-filter-change-derivation';
 
 const console = new Logger('GlyphOverviewFilters');
 
@@ -147,6 +151,12 @@ export class GlyphOverviewFilterManager {
     private pendingUserFilterChangePaths: Set<string> = new Set();
     private userFilterChangeFlushScheduled: boolean = false;
     private managedFileChangeListener: EventListener;
+    /**
+     * Last observed `Glyph.isCompatible` per glyph name. Used so
+     * `glyph.compatibility.changed` fires only on an actual boolean toggle,
+     * not on every layer edit that might affect outlines.
+     */
+    private glyphCompatibilityByName: Map<string, boolean> = new Map();
 
     constructor() {
         this.rootNode = this.buildEmptyTree();
@@ -502,6 +512,12 @@ export class GlyphOverviewFilterManager {
             return;
         }
 
+        // Full-font lifecycle events reset the compatibility baseline so later
+        // edits can detect true toggles against the freshly opened font.
+        if (eventTypes.has('font.opened') || eventTypes.has('font.replaced')) {
+            this.seedGlyphCompatibilityState();
+        }
+
         for (const plugin of this.getAllLoadedPlugins()) {
             if (
                 !plugin.eventTypes.some((eventType) =>
@@ -519,7 +535,108 @@ export class GlyphOverviewFilterManager {
         }
     }
 
-    /** Derive the filter-facing semantic contract from committed change paths. */
+    /**
+     * Snapshot every glyph's current `isCompatible` boolean without emitting
+     * events. Called on font open/replace so subsequent edits can toggle.
+     */
+    seedGlyphCompatibilityState(): void {
+        this.glyphCompatibilityByName.clear();
+        const glyphs = window.currentFontModel?.glyphs;
+        if (!Array.isArray(glyphs)) {
+            return;
+        }
+        for (const glyph of glyphs) {
+            const glyphName =
+                typeof glyph?.name === 'string' ? glyph.name : undefined;
+            if (!glyphName) {
+                continue;
+            }
+            this.glyphCompatibilityByName.set(
+                glyphName,
+                Boolean(glyph.isCompatible)
+            );
+        }
+    }
+
+    /**
+     * Recheck outline compatibility for the given glyphs (or every glyph when
+     * masters change) and emit `glyph.compatibility.changed` only when the
+     * boolean toggles relative to the last observed value.
+     */
+    private collectCompatibilityToggleChanges(
+        glyphNames: Iterable<string>,
+        recheckAllGlyphs: boolean
+    ): GlyphFilterChange[] {
+        const changes: GlyphFilterChange[] = [];
+        const font = window.currentFontModel;
+        if (!font) {
+            return changes;
+        }
+
+        const names = recheckAllGlyphs
+            ? Array.isArray(font.glyphs)
+                ? font.glyphs
+                      .map((glyph: { name?: string }) => glyph?.name)
+                      .filter(
+                          (name: unknown): name is string =>
+                              typeof name === 'string' && name.length > 0
+                      )
+                : []
+            : [...new Set(glyphNames)];
+
+        for (const glyphName of names) {
+            const glyph =
+                typeof font.findGlyph === 'function'
+                    ? font.findGlyph(glyphName)
+                    : Array.isArray(font.glyphs)
+                      ? font.glyphs.find(
+                            (candidate: { name?: string }) =>
+                                candidate?.name === glyphName
+                        )
+                      : undefined;
+
+            if (!glyph) {
+                this.glyphCompatibilityByName.delete(glyphName);
+                continue;
+            }
+
+            const compatible = Boolean(glyph.isCompatible);
+            const previous = this.glyphCompatibilityByName.get(glyphName);
+            this.glyphCompatibilityByName.set(glyphName, compatible);
+
+            // First observation seeds state only — a toggle requires a prior
+            // known value (normally established by seedGlyphCompatibilityState).
+            if (previous === undefined || previous === compatible) {
+                continue;
+            }
+
+            const layerIds = Array.isArray(glyph.layers)
+                ? glyph.layers
+                      .map((layer: { id?: string }) => layer?.id)
+                      .filter(
+                          (id: unknown): id is string =>
+                              typeof id === 'string' && id.length > 0
+                      )
+                : [];
+
+            changes.push({
+                type: 'glyph.compatibility.changed',
+                metadata: {
+                    glyphName,
+                    compatible,
+                    layerIds
+                }
+            });
+        }
+
+        return changes;
+    }
+
+    /**
+     * Derive the filter-facing semantic contract from committed change paths.
+     * Path classification is delegated to glyph-filter-change-derivation.ts;
+     * compatibility events are appended only when `Glyph.isCompatible` toggles.
+     */
     async handleCommittedChangeEntries(
         entries: Array<{
             path: string;
@@ -529,63 +646,59 @@ export class GlyphOverviewFilterManager {
         }>
     ): Promise<void> {
         const changes: GlyphFilterChange[] = [];
+        const compatibilityCheckGlyphNames = new Set<string>();
+        let mastersChanged = false;
+        const masterIds =
+            window.currentFontModel?.masters?.map(
+                (master: { id: string }) => master.id
+            ) || [];
+
         for (const entry of entries) {
-            const path = entry.path.split('.');
-            if (path[0] === 'masters') {
-                changes.push({
-                    type: 'font.masters.changed',
-                    metadata: {
-                        masterIds:
-                            window.currentFontModel?.masters?.map(
-                                (master) => master.id
-                            ) || []
-                    }
-                });
-                continue;
+            const derived = deriveGlyphFilterChangesFromCommittedEntry(entry, {
+                masterIds
+            });
+            changes.push(...derived.changes);
+            for (const glyphName of derived.compatibilityCheckGlyphNames) {
+                compatibilityCheckGlyphNames.add(glyphName);
             }
-            if (path[0] !== 'glyphs' || !path[1]) {
-                continue;
+            if (derived.mastersChanged) {
+                mastersChanged = true;
             }
-            const glyphName = path[1];
-            if (path.length === 2 && entry.op === 'add') {
-                changes.push({
-                    type: 'glyph.created',
-                    metadata: { glyphName }
-                });
-            } else if (path.length === 2 && entry.op === 'remove') {
-                changes.push({
-                    type: 'glyph.deleted',
-                    metadata: { glyphName }
-                });
-            } else if (path[2] === 'name') {
-                changes.push({
-                    type: 'glyph.renamed',
-                    metadata: {
-                        glyphName: String(entry.newValue || glyphName),
-                        previousGlyphName: String(entry.oldValue || glyphName)
+
+            // Keep the compatibility map aligned with glyph lifetime events.
+            for (const change of derived.changes) {
+                if (change.type === 'glyph.deleted') {
+                    const deletedName = change.metadata.glyphName;
+                    if (typeof deletedName === 'string') {
+                        this.glyphCompatibilityByName.delete(deletedName);
                     }
-                });
-            } else if (path[2] === 'codepoints') {
-                changes.push({
-                    type: 'glyph.unicode.changed',
-                    metadata: { glyphName }
-                });
-            } else if (path[2] === 'layers') {
-                changes.push({
-                    type: 'glyph.compatibility.changed',
-                    metadata: { glyphName }
-                });
+                } else if (change.type === 'glyph.created') {
+                    const createdName = change.metadata.glyphName;
+                    if (typeof createdName === 'string') {
+                        compatibilityCheckGlyphNames.add(createdName);
+                    }
+                } else if (change.type === 'glyph.renamed') {
+                    const previousName = change.metadata.previousGlyphName;
+                    const nextName = change.metadata.glyphName;
+                    if (typeof previousName === 'string') {
+                        this.glyphCompatibilityByName.delete(previousName);
+                    }
+                    if (typeof nextName === 'string') {
+                        compatibilityCheckGlyphNames.add(nextName);
+                    }
+                }
             }
         }
-        const deduplicated = new Map<string, GlyphFilterChange>();
-        for (const change of changes) {
-            deduplicated.set(
-                `${change.type}:${JSON.stringify(change.metadata)}`,
-                change
-            );
-        }
+
+        changes.push(
+            ...this.collectCompatibilityToggleChanges(
+                compatibilityCheckGlyphNames,
+                mastersChanged
+            )
+        );
+
         await this.handleCommittedGlyphFilterBatch({
-            changes: [...deduplicated.values()]
+            changes: dedupeGlyphFilterChanges(changes)
         });
     }
 

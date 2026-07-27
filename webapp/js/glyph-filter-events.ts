@@ -1,6 +1,12 @@
 /**
  * Stable event contract used to decide when glyph filters should refresh.
  * Event emission and filter execution intentionally live outside this registry.
+ *
+ * Host derivation lives in `glyph-filter-change-derivation.ts` and is invoked
+ * from `GlyphOverviewFilterManager.handleCommittedChangeEntries` after each
+ * committed change-bridge batch. Filters subscribe via `EVENT_TYPES` /
+ * `event_types` using these dotted names only — browser `CustomEvent` names
+ * are not part of the plugin API.
  */
 export const GLYPH_FILTER_EVENT_TYPES = [
     'font.opened',
@@ -9,6 +15,19 @@ export const GLYPH_FILTER_EVENT_TYPES = [
     'glyph.deleted',
     'glyph.renamed',
     'glyph.unicode.changed',
+    'glyph.category.changed',
+    'glyph.export.changed',
+    'glyph.production-name.changed',
+    'glyph.paths.changed',
+    'glyph.components.changed',
+    'glyph.component.reference.changed',
+    'glyph.component.transform.changed',
+    'glyph.anchors.changed',
+    'glyph.guides.changed',
+    'glyph.layers.changed',
+    'glyph.layer.location.changed',
+    'glyph.metrics.changed',
+    'glyph.metrics-key.changed',
     'glyph.compatibility.changed',
     'font.masters.changed'
 ] as const;
@@ -30,6 +49,20 @@ export interface GlyphFilterEventDefinition {
     description: string;
     metadataFields: readonly GlyphFilterEventMetadataField[];
 }
+
+const GLYPH_NAME_FIELD: GlyphFilterEventMetadataField = {
+    name: 'glyphName',
+    type: 'string',
+    description: "The affected glyph's name.",
+    required: true
+};
+
+const LAYER_IDS_FIELD: GlyphFilterEventMetadataField = {
+    name: 'layerIds',
+    type: 'string[]',
+    description: 'Layer IDs touched by the change, when known.',
+    required: false
+};
 
 export const GLYPH_FILTER_EVENT_REGISTRY = {
     'font.opened': {
@@ -141,9 +174,81 @@ export const GLYPH_FILTER_EVENT_REGISTRY = {
             }
         ]
     },
+    'glyph.category.changed': {
+        name: 'Glyph Category Changed',
+        description: "A glyph's category assignment changed.",
+        metadataFields: [GLYPH_NAME_FIELD]
+    },
+    'glyph.export.changed': {
+        name: 'Glyph Export Changed',
+        description: "A glyph's export flag changed.",
+        metadataFields: [GLYPH_NAME_FIELD]
+    },
+    'glyph.production-name.changed': {
+        name: 'Glyph Production Name Changed',
+        description: "A glyph's production name changed.",
+        metadataFields: [GLYPH_NAME_FIELD]
+    },
+    'glyph.paths.changed': {
+        name: 'Glyph Paths Changed',
+        description:
+            'Path geometry or path structure on one or more layers of a glyph changed.',
+        metadataFields: [GLYPH_NAME_FIELD, LAYER_IDS_FIELD]
+    },
+    'glyph.components.changed': {
+        name: 'Glyph Components Changed',
+        description:
+            'Component membership on one or more layers of a glyph changed (add, remove, or replace).',
+        metadataFields: [GLYPH_NAME_FIELD, LAYER_IDS_FIELD]
+    },
+    'glyph.component.reference.changed': {
+        name: 'Glyph Component Reference Changed',
+        description: 'A component instance changed which glyph it references.',
+        metadataFields: [GLYPH_NAME_FIELD, LAYER_IDS_FIELD]
+    },
+    'glyph.component.transform.changed': {
+        name: 'Glyph Component Transform Changed',
+        description: 'A component instance transform changed.',
+        metadataFields: [GLYPH_NAME_FIELD, LAYER_IDS_FIELD]
+    },
+    'glyph.anchors.changed': {
+        name: 'Glyph Anchors Changed',
+        description: 'Anchors on one or more layers of a glyph changed.',
+        metadataFields: [GLYPH_NAME_FIELD, LAYER_IDS_FIELD]
+    },
+    'glyph.guides.changed': {
+        name: 'Glyph Guides Changed',
+        description: 'Guides on one or more layers of a glyph changed.',
+        metadataFields: [GLYPH_NAME_FIELD, LAYER_IDS_FIELD]
+    },
+    'glyph.layers.changed': {
+        name: 'Glyph Layers Changed',
+        description:
+            'A glyph layer was added, removed, or otherwise structurally changed.',
+        metadataFields: [GLYPH_NAME_FIELD, LAYER_IDS_FIELD]
+    },
+    'glyph.layer.location.changed': {
+        name: 'Glyph Layer Location Changed',
+        description:
+            'An intermediate layer location (designspace coordinates) changed.',
+        metadataFields: [GLYPH_NAME_FIELD, LAYER_IDS_FIELD]
+    },
+    'glyph.metrics.changed': {
+        name: 'Glyph Metrics Changed',
+        description:
+            'Layer metrics such as advance width or sidebearings changed.',
+        metadataFields: [GLYPH_NAME_FIELD, LAYER_IDS_FIELD]
+    },
+    'glyph.metrics-key.changed': {
+        name: 'Glyph Metrics Key Changed',
+        description:
+            'A glyph- or layer-level metrics key (LSB/RSB formula) changed.',
+        metadataFields: [GLYPH_NAME_FIELD, LAYER_IDS_FIELD]
+    },
     'glyph.compatibility.changed': {
         name: 'Glyph Compatibility Changed',
-        description: "A glyph's layer compatibility changed.",
+        description:
+            "A glyph's outline compatibility boolean (`Glyph.isCompatible`) toggled.",
         metadataFields: [
             {
                 name: 'glyphName',
@@ -155,7 +260,7 @@ export const GLYPH_FILTER_EVENT_REGISTRY = {
                 name: 'compatible',
                 type: 'boolean',
                 description:
-                    "Whether the glyph's relevant layers are compatible.",
+                    "Whether the glyph's relevant layers are compatible after the change.",
                 required: true
             },
             {
