@@ -28,6 +28,13 @@ export type SettingsFolderAccessChangedDetail = {
 class SettingsFolderService {
     private readonly adapter: NativeAdapter;
     private initializePromise: Promise<boolean> | null = null;
+    /** Cached directory handles for picker startIn (must be sync at gesture time). */
+    private readonly startInHandles = new Map<
+        string,
+        FileSystemDirectoryHandle
+    >();
+    private openPickerInFlight = false;
+    private savePickerInFlight = false;
 
     constructor() {
         this.adapter = new NativeAdapter(SETTINGS_FOLDER_HANDLE_KEY);
@@ -55,12 +62,23 @@ class SettingsFolderService {
 
     async initialize(): Promise<boolean> {
         if (this.adapter.hasDirectory()) {
+            if (this.startInHandles.size === 0) {
+                await this.refreshStartInCache();
+            }
             return true;
         }
         if (!this.initializePromise) {
-            this.initializePromise = this.adapter.initialize().finally(() => {
-                this.initializePromise = null;
-            });
+            this.initializePromise = this.adapter
+                .initialize()
+                .then(async (restored) => {
+                    if (restored || this.adapter.hasDirectory()) {
+                        await this.refreshStartInCache();
+                    }
+                    return this.adapter.hasDirectory();
+                })
+                .finally(() => {
+                    this.initializePromise = null;
+                });
         }
         return this.initializePromise;
     }
@@ -78,6 +96,7 @@ class SettingsFolderService {
         }
 
         await ensureSettingsFolderSubdirectories(this.adapter);
+        await this.refreshStartInCache();
         this.dispatchAccessChanged({
             hasSettingsFolderAccess: true,
             source: 'attach'
@@ -91,6 +110,7 @@ class SettingsFolderService {
 
     async clearFolder(): Promise<void> {
         await this.adapter.clearDirectory();
+        this.startInHandles.clear();
         this.dispatchAccessChanged({
             hasSettingsFolderAccess: false,
             source: 'detach'
@@ -103,103 +123,186 @@ class SettingsFolderService {
             throw new Error('Choose a Settings Folder first.');
         }
         await ensureSettingsFolderSubdirectories(this.adapter);
+        await this.refreshStartInCache();
     }
 
-    async showOpenFilePicker(options?: {
+    /**
+     * Resolve a cached startIn handle without awaiting filesystem I/O.
+     * Awaits before show*FilePicker consume user activation and cause
+     * NotAllowedError even when a picker still appears from a concurrent call.
+     */
+    private getCachedStartInHandle(
+        path?: string
+    ): FileSystemDirectoryHandle | undefined {
+        if (path && this.startInHandles.has(path)) {
+            return this.startInHandles.get(path);
+        }
+        if (path === '/' || !path) {
+            return this.startInHandles.get('/');
+        }
+        return this.startInHandles.get('/') ?? undefined;
+    }
+
+    private async refreshStartInCache(): Promise<void> {
+        this.startInHandles.clear();
+        const root = this.adapter.getDirectoryHandle();
+        if (!root) {
+            return;
+        }
+        this.startInHandles.set('/', root);
+
+        for (const path of Object.values(SETTINGS_FOLDER_PATHS)) {
+            try {
+                const handle = await this.adapter.getHandleAtPath(path);
+                if (handle && handle.kind === 'directory') {
+                    this.startInHandles.set(
+                        path,
+                        handle as FileSystemDirectoryHandle
+                    );
+                }
+            } catch {
+                // Subfolder may not exist yet.
+            }
+        }
+    }
+
+    showOpenFilePicker(options?: {
         types?: { description: string; accept: Record<string, string[]> }[];
         startIn?: string;
     }): Promise<string | null> {
         if (!this.adapter.hasDirectory()) {
-            return null;
+            return Promise.resolve(null);
+        }
+        if (this.openPickerInFlight) {
+            return Promise.resolve(null);
         }
 
+        const pickerOptions: Record<string, unknown> = {
+            multiple: false
+        };
+
+        if (options?.types) {
+            pickerOptions.types = options.types;
+        }
+
+        const startHandle = this.getCachedStartInHandle(
+            options?.startIn || '/'
+        );
+        if (startHandle) {
+            pickerOptions.startIn = startHandle;
+        }
+
+        this.openPickerInFlight = true;
+
+        let nativePromise: Promise<FileSystemFileHandle[]>;
         try {
-            const pickerOptions: Record<string, unknown> = {
-                multiple: false
-            };
-
-            if (options?.types) {
-                pickerOptions.types = options.types;
-            }
-
-            const startPath = options?.startIn || '/';
-            try {
-                const startHandle =
-                    await this.adapter.getHandleAtPath(startPath);
-                if (startHandle) {
-                    pickerOptions.startIn = startHandle;
-                }
-            } catch {
-                // Preferred start folder may not exist; fall back to root.
-            }
-
-            const [fileHandle] = await (
+            // Invoke synchronously so the call stays inside the user gesture.
+            nativePromise = (
                 window as unknown as {
                     showOpenFilePicker: (
                         options?: Record<string, unknown>
                     ) => Promise<FileSystemFileHandle[]>;
                 }
             ).showOpenFilePicker(pickerOptions);
-
-            return this.getRelativePath(fileHandle);
         } catch (error: unknown) {
+            this.openPickerInFlight = false;
             if (error instanceof DOMException && error.name === 'AbortError') {
-                console.log('Open file picker cancelled');
-                return null;
+                return Promise.resolve(null);
             }
             console.error('Error opening Settings Folder file picker:', error);
-            throw error;
+            return Promise.reject(error);
         }
+
+        return nativePromise
+            .then(async ([fileHandle]) => this.getRelativePath(fileHandle))
+            .catch((error: unknown) => {
+                if (
+                    error instanceof DOMException &&
+                    error.name === 'AbortError'
+                ) {
+                    console.log('Open file picker cancelled');
+                    return null;
+                }
+                console.error(
+                    'Error opening Settings Folder file picker:',
+                    error
+                );
+                throw error;
+            })
+            .finally(() => {
+                this.openPickerInFlight = false;
+            });
     }
 
-    async showSaveFilePicker(options?: {
+    showSaveFilePicker(options?: {
         suggestedName?: string;
         types?: { description: string; accept: Record<string, string[]> }[];
         startIn?: string;
     }): Promise<string | null> {
         if (!this.adapter.hasDirectory()) {
-            return null;
+            return Promise.resolve(null);
+        }
+        if (this.savePickerInFlight) {
+            return Promise.resolve(null);
         }
 
+        const pickerOptions: Record<string, unknown> = {};
+
+        if (options?.suggestedName) {
+            pickerOptions.suggestedName = options.suggestedName;
+        }
+
+        if (options?.types) {
+            pickerOptions.types = options.types;
+        }
+
+        const startHandle = this.getCachedStartInHandle(
+            options?.startIn || '/'
+        );
+        if (startHandle) {
+            pickerOptions.startIn = startHandle;
+        }
+
+        this.savePickerInFlight = true;
+
+        let nativePromise: Promise<FileSystemFileHandle>;
         try {
-            const pickerOptions: Record<string, unknown> = {};
-
-            if (options?.suggestedName) {
-                pickerOptions.suggestedName = options.suggestedName;
-            }
-
-            if (options?.types) {
-                pickerOptions.types = options.types;
-            }
-
-            const startPath = options?.startIn || '/';
-            try {
-                const startHandle =
-                    await this.adapter.getHandleAtPath(startPath);
-                if (startHandle) {
-                    pickerOptions.startIn = startHandle;
-                }
-            } catch {
-                // Preferred start folder may not exist; fall back to root.
-            }
-
-            const fileHandle = await (
+            // Invoke synchronously so the call stays inside the user gesture.
+            nativePromise = (
                 window as unknown as {
                     showSaveFilePicker: (
                         options?: Record<string, unknown>
                     ) => Promise<FileSystemFileHandle>;
                 }
             ).showSaveFilePicker(pickerOptions);
-
-            return this.getRelativePath(fileHandle);
         } catch (error: unknown) {
+            this.savePickerInFlight = false;
             if (error instanceof DOMException && error.name === 'AbortError') {
-                console.log('Save file picker cancelled');
-                return null;
+                return Promise.resolve(null);
             }
             console.error('Error saving Settings Folder file picker:', error);
-            throw error;
+            return Promise.reject(error);
         }
+
+        return nativePromise
+            .then(async (fileHandle) => this.getRelativePath(fileHandle))
+            .catch((error: unknown) => {
+                if (
+                    error instanceof DOMException &&
+                    error.name === 'AbortError'
+                ) {
+                    console.log('Save file picker cancelled');
+                    return null;
+                }
+                console.error(
+                    'Error saving Settings Folder file picker:',
+                    error
+                );
+                throw error;
+            })
+            .finally(() => {
+                this.savePickerInFlight = false;
+            });
     }
 
     private async getRelativePath(

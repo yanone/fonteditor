@@ -702,7 +702,9 @@ def filter_glyphs(font):
             arrow: false,
             offset: [0, 0],
             appendTo: document.body,
-            hideOnClick: true,
+            // Hide only from our item handlers so we can start file pickers
+            // before tippy tears down the gesture context.
+            hideOnClick: false,
             zIndex: 9999,
             onShow: (instance) => {
                 // Update menu content before showing
@@ -848,38 +850,221 @@ def filter_glyphs(font):
     }
 
     /**
-     * Setup click handlers for file menu items
+     * Setup click handlers for file menu items.
+     * Uses a single delegated onclick (replaces any prior handler) and starts
+     * Save/Open pickers before tippy.hide() so user activation is preserved.
      */
+    let fileMenuActionInProgress = false;
+
     function setupFileMenuHandlers(instance: TippyInstance): void {
-        const menu = instance.popper.querySelector('.script-file-menu');
+        const menu = instance.popper.querySelector(
+            '.script-file-menu'
+        ) as HTMLElement | null;
         if (!menu) return;
 
-        menu.querySelectorAll('.script-file-menu-item:not(.disabled)').forEach(
-            (item: Element) => {
-                item.addEventListener('click', async () => {
-                    const action = item.getAttribute('data-action');
-                    instance.hide();
+        menu.onclick = (event: MouseEvent) => {
+            const target = event.target as Element | null;
+            const item = target?.closest(
+                '.script-file-menu-item:not(.disabled)'
+            ) as HTMLElement | null;
+            if (!item || !menu.contains(item)) {
+                return;
+            }
 
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (fileMenuActionInProgress) {
+                return;
+            }
+
+            const action = item.getAttribute('data-action');
+            if (!action) {
+                return;
+            }
+
+            fileMenuActionInProgress = true;
+
+            const run = async () => {
+                try {
                     switch (action) {
                         case 'new':
+                            instance.hide();
                             await handleNew();
                             break;
-                        case 'open':
-                            await handleOpen();
+                        case 'open': {
+                            // Start the picker while the click gesture is still
+                            // active, then hide the menu.
+                            const pickerPromise = beginOpenFilePicker();
+                            instance.hide();
+                            if (pickerPromise) {
+                                await completeOpenFilePicker(pickerPromise);
+                            }
                             break;
+                        }
                         case 'save':
+                            instance.hide();
                             await handleSave();
                             break;
-                        case 'save-as':
-                            await handleSaveAs();
+                        case 'save-as': {
+                            const pickerPromise = beginSaveAsFilePicker();
+                            instance.hide();
+                            if (pickerPromise) {
+                                await completeSaveAsFilePicker(pickerPromise);
+                            }
                             break;
+                        }
                         case 'revert-saved':
+                            instance.hide();
                             revertToSaved();
                             break;
+                        default:
+                            instance.hide();
+                            break;
                     }
-                });
+                } finally {
+                    fileMenuActionInProgress = false;
+                }
+            };
+
+            void run();
+        };
+    }
+
+    function buildScriptPickerTypes(): {
+        description: string;
+        accept: Record<string, string[]>;
+    }[] {
+        return [
+            {
+                description: 'Python files',
+                accept: { 'text/x-python': ['.py'] }
+            },
+            {
+                description: 'Text files',
+                accept: { 'text/plain': ['.txt'] }
             }
-        );
+        ];
+    }
+
+    /**
+     * Synchronously start the open picker (must run inside the user gesture).
+     */
+    function beginOpenFilePicker(): Promise<string | null> | null {
+        if (!settingsFolder.hasFolder()) {
+            alert('Select a Settings Folder to enable saving scripts');
+            return null;
+        }
+        const startFolder = currentFilePath
+            ? currentFilePath.substring(0, currentFilePath.lastIndexOf('/'))
+            : documentKind === 'glyph-filter'
+              ? SETTINGS_FOLDER_PATHS.filters
+              : SETTINGS_FOLDER_PATHS.scripts;
+        return settingsFolder.showOpenFilePicker({
+            types: buildScriptPickerTypes(),
+            startIn: startFolder || undefined
+        });
+    }
+
+    async function completeOpenFilePicker(
+        pickerPromise: Promise<string | null>
+    ): Promise<void> {
+        try {
+            const path = await pickerPromise;
+            if (!path) {
+                return;
+            }
+            await openFile(path, SETTINGS_FOLDER_SOURCE_ID);
+        } catch (error: any) {
+            console.error('[ScriptEditor]', 'Error opening file:', error);
+            alert('Failed to open file: ' + (error?.message || String(error)));
+        }
+    }
+
+    /**
+     * Synchronously start the Save As picker (must run inside the user gesture).
+     */
+    function beginSaveAsFilePicker(): Promise<string | null> | null {
+        if (!settingsFolder.hasFolder()) {
+            alert('Select a Settings Folder to enable saving scripts');
+            return null;
+        }
+
+        let suggestedName: string;
+        let startFolder: string | undefined;
+        if (currentFilePath) {
+            suggestedName = currentFilePath.split('/').pop() || 'script.py';
+            startFolder = currentFilePath.substring(
+                0,
+                currentFilePath.lastIndexOf('/')
+            );
+        } else {
+            suggestedName = suggestFileNameFromScriptHeader(editor.getValue());
+            startFolder =
+                documentKind === 'glyph-filter'
+                    ? SETTINGS_FOLDER_PATHS.filters
+                    : SETTINGS_FOLDER_PATHS.scripts;
+        }
+
+        return settingsFolder.showSaveFilePicker({
+            suggestedName,
+            types: buildScriptPickerTypes(),
+            startIn: startFolder || undefined
+        });
+    }
+
+    async function completeSaveAsFilePicker(
+        pickerPromise: Promise<string | null>
+    ): Promise<boolean> {
+        try {
+            const path = await pickerPromise;
+            if (!path) {
+                return false;
+            }
+
+            const destinationKind = getPathKind(path);
+            if (destinationKind && destinationKind !== documentKind) {
+                const draftLabel =
+                    documentKind === 'glyph-filter'
+                        ? 'Glyph Overview filter'
+                        : 'general-purpose script';
+                const destinationLabel =
+                    destinationKind === 'glyph-filter'
+                        ? 'Glyph Overview filter'
+                        : 'general-purpose script';
+                if (
+                    !confirm(
+                        `This draft was created as a ${draftLabel}. Saving it here makes it a ${destinationLabel}. Continue?`
+                    )
+                ) {
+                    return false;
+                }
+                setDocumentKind(destinationKind);
+            } else if (!destinationKind) {
+                if (
+                    !confirm(
+                        'This location is outside Counterpunch Scripts and Filters. The file will not appear in either managed collection. Save it as an external Python file?'
+                    )
+                ) {
+                    return false;
+                }
+            }
+
+            currentFilePath = path;
+            currentPluginId = SETTINGS_FOLDER_SOURCE_ID;
+
+            const success = await handleSave();
+
+            if (success) {
+                await startFileWatcher(path, SETTINGS_FOLDER_SOURCE_ID);
+            }
+
+            return success;
+        } catch (error: any) {
+            console.error('[ScriptEditor]', 'Error in Save As:', error);
+            alert('Failed to save file: ' + (error?.message || String(error)));
+            return false;
+        }
     }
 
     /**
@@ -960,43 +1145,11 @@ def filter_glyphs(font):
      * Handle Open file
      */
     async function handleOpen() {
-        if (!(await settingsFolder.isReady())) {
-            alert('Select a Settings Folder to enable saving scripts');
+        const pickerPromise = beginOpenFilePicker();
+        if (!pickerPromise) {
             return;
         }
-
-        try {
-            // Get current folder to start in
-            const startFolder = currentFilePath
-                ? currentFilePath.substring(0, currentFilePath.lastIndexOf('/'))
-                : documentKind === 'glyph-filter'
-                  ? SETTINGS_FOLDER_PATHS.filters
-                  : SETTINGS_FOLDER_PATHS.scripts;
-
-            const path = await settingsFolder.showOpenFilePicker({
-                types: [
-                    {
-                        description: 'Python files',
-                        accept: { 'text/x-python': ['.py'] }
-                    },
-                    {
-                        description: 'Text files',
-                        accept: { 'text/plain': ['.txt'] }
-                    }
-                ],
-                startIn: startFolder || undefined
-            });
-
-            if (!path) {
-                // User cancelled
-                return;
-            }
-
-            await openFile(path, SETTINGS_FOLDER_SOURCE_ID);
-        } catch (error: any) {
-            console.error('[ScriptEditor]', 'Error opening file:', error);
-            alert('Failed to open file: ' + (error?.message || String(error)));
-        }
+        await completeOpenFilePicker(pickerPromise);
     }
 
     /**
@@ -1108,96 +1261,14 @@ def filter_glyphs(font):
     }
 
     /**
-     * Handle Save As file
+     * Handle Save As file (also used outside the file menu, e.g. unsaved prompts).
      */
     async function handleSaveAs() {
-        if (!(await settingsFolder.isReady())) {
-            alert('Select a Settings Folder to enable saving scripts');
+        const pickerPromise = beginSaveAsFilePicker();
+        if (!pickerPromise) {
             return false;
         }
-
-        try {
-            let suggestedName: string;
-            let startFolder: string | undefined;
-            if (currentFilePath) {
-                suggestedName = currentFilePath.split('/').pop() || 'script.py';
-                startFolder = currentFilePath.substring(
-                    0,
-                    currentFilePath.lastIndexOf('/')
-                );
-            } else {
-                suggestedName = suggestFileNameFromScriptHeader(
-                    editor.getValue()
-                );
-                startFolder =
-                    documentKind === 'glyph-filter'
-                        ? SETTINGS_FOLDER_PATHS.filters
-                        : SETTINGS_FOLDER_PATHS.scripts;
-            }
-
-            const path = await settingsFolder.showSaveFilePicker({
-                suggestedName: suggestedName,
-                types: [
-                    {
-                        description: 'Python files',
-                        accept: { 'text/x-python': ['.py'] }
-                    },
-                    {
-                        description: 'Text files',
-                        accept: { 'text/plain': ['.txt'] }
-                    }
-                ],
-                startIn: startFolder || undefined
-            });
-
-            if (!path) {
-                // User cancelled
-                return false;
-            }
-
-            const destinationKind = getPathKind(path);
-            if (destinationKind && destinationKind !== documentKind) {
-                const draftLabel =
-                    documentKind === 'glyph-filter'
-                        ? 'Glyph Overview filter'
-                        : 'general-purpose script';
-                const destinationLabel =
-                    destinationKind === 'glyph-filter'
-                        ? 'Glyph Overview filter'
-                        : 'general-purpose script';
-                if (
-                    !confirm(
-                        `This draft was created as a ${draftLabel}. Saving it here makes it a ${destinationLabel}. Continue?`
-                    )
-                ) {
-                    return false;
-                }
-                setDocumentKind(destinationKind);
-            } else if (!destinationKind) {
-                if (
-                    !confirm(
-                        'This location is outside Counterpunch Scripts and Filters. The file will not appear in either managed collection. Save it as an external Python file?'
-                    )
-                ) {
-                    return false;
-                }
-            }
-
-            currentFilePath = path;
-            currentPluginId = SETTINGS_FOLDER_SOURCE_ID;
-
-            const success = await handleSave();
-
-            if (success) {
-                await startFileWatcher(path, SETTINGS_FOLDER_SOURCE_ID);
-            }
-
-            return success;
-        } catch (error: any) {
-            console.error('[ScriptEditor]', 'Error in Save As:', error);
-            alert('Failed to save file: ' + (error?.message || String(error)));
-            return false;
-        }
+        return completeSaveAsFilePicker(pickerPromise);
     }
 
     /**
@@ -1432,12 +1503,13 @@ def filter_glyphs(font):
             }
 
             // Check if adapter is ready (for NativeAdapter, check if directory is selected)
-            const hasDirectory = (
-                adapter as FileSystemAdapter & {
-                    hasDirectory?: () => boolean;
-                }
-            ).hasDirectory;
-            if (hasDirectory && !hasDirectory()) {
+            const adapterWithDirectory = adapter as FileSystemAdapter & {
+                hasDirectory?: () => boolean;
+            };
+            if (
+                typeof adapterWithDirectory.hasDirectory === 'function' &&
+                !adapterWithDirectory.hasDirectory()
+            ) {
                 console.log(
                     '[ScriptEditor]',
                     'Adapter not ready yet, will not start file watcher'

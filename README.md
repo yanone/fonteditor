@@ -100,7 +100,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ Edit sidebearings
 - ◻️ Edit guidelines
 - ✅ Draw new outlines
-- ◻️ Python script inference UI
+- ✅ Python script inference UI
 - ✅ Undo/redo system
 - ◻️ Clipboard operations
 - ✅ Selection tools

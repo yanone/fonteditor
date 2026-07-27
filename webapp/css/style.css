@@ -1926,8 +1926,7 @@ kbd + kbd {
 }
 
 #run-python-script-modal .info-popup-content,
-#run-python-script-modal .run-python-script-list,
-#run-python-script-modal .run-python-script-item {
+#run-python-script-modal .run-python-script-list {
     min-width: 0;
     max-width: 100%;
     overflow-x: hidden;
@@ -1966,6 +1965,7 @@ kbd + kbd {
 
 .run-python-script-item {
     display: block;
+    flex-shrink: 0;
     width: 100%;
     max-width: 100%;
     text-align: left;
@@ -1975,8 +1975,9 @@ kbd + kbd {
     color: var(--text-primary);
     cursor: pointer;
     font: inherit;
-    padding: 10px 12px;
+    padding: 7px 10px;
     box-sizing: border-box;
+    overflow: visible;
     overflow-wrap: anywhere;
 }
 
@@ -1998,7 +1999,7 @@ kbd + kbd {
 }
 
 .run-python-script-item-path {
-    margin-top: 2px;
+    margin-top: 0;
     font-size: 9px;
     color: var(--text-faint);
     font-family: var(--font-families-mono);
@@ -2006,16 +2007,16 @@ kbd + kbd {
 }
 
 .run-python-script-item-description {
-    margin-top: 6px;
+    margin-top: 3px;
     font-size: 12px;
     color: var(--text-tertiary);
-    line-height: 1.5;
+    line-height: 1.45;
     white-space: normal;
     overflow-wrap: break-word;
 }
 
 .run-python-script-item-keywords {
-    margin-top: 8px;
+    margin-top: 4px;
     font-size: 11px;
     color: var(--text-faint);
     overflow-wrap: anywhere;
