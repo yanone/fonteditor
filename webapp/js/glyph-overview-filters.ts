@@ -840,6 +840,10 @@ export class GlyphOverviewFilterManager {
     private invalidatePluginCache(plugin: GlyphFilterPlugin): void {
         plugin.cachedDataVersion = undefined;
         plugin.cachedContextVersion = undefined;
+        // Drop the displayed count so the sidebar shows "—" while a reload
+        // runs (event-engine batches, auto-update, file-change re-run).
+        plugin.glyphCount = undefined;
+        this.updatePluginCount(plugin);
     }
 
     private refreshAutoUpdateListeners(): void {
@@ -2038,6 +2042,7 @@ export class GlyphOverviewFilterManager {
                 return;
             }
             if (execResult.status === 'incremental') {
+                this.mergeFilterGroups(plugin, execResult.groups);
                 this.applyFilterDelta(plugin, execResult.delta);
                 this.applyCachedFilterResults(plugin);
                 return;
@@ -2193,19 +2198,31 @@ export class GlyphOverviewFilterManager {
         );
     }
 
-    private applyCachedFilterResults(plugin: GlyphFilterPlugin): void {
-        const results = plugin.lastResults || [];
-        const groups = plugin.groups || {};
-
-        const usedGroupKeywords = new Set<string>();
-        for (const result of results) {
-            if (!result.groups) continue;
-            for (const groupKeyword of result.groups) {
-                if (groupKeyword) {
-                    usedGroupKeywords.add(groupKeyword);
-                }
-            }
+    /**
+     * Merge worker-returned GROUPS into the host cache.
+     * apply_changes may mutate GROUPS (e.g. new anchor names); pick those up
+     * without waiting for a full filter_glyphs rebuild.
+     */
+    private mergeFilterGroups(
+        plugin: GlyphFilterPlugin,
+        groups: Record<string, GroupDefinition> | undefined
+    ): void {
+        if (!groups || Object.keys(groups).length === 0) {
+            return;
         }
+        plugin.groups = { ...(plugin.groups || {}), ...groups };
+    }
+
+    private applyCachedFilterResults(plugin: GlyphFilterPlugin): void {
+        // Re-resolve colors/legend after incremental deltas: add records from
+        // apply_changes usually carry group keywords but not host color fields.
+        const { results, usedGroupKeywords, augmentedGroups } =
+            this.processFilterResults(
+                plugin.lastResults || [],
+                plugin.groups || {}
+            );
+        plugin.lastResults = results;
+        plugin.groups = augmentedGroups;
 
         plugin.glyphCount = results.length;
         plugin.hasError = false;
@@ -2677,6 +2694,11 @@ export class GlyphOverviewFilterManager {
             return;
         }
 
+        // Show "—" on every filter while counts refresh (font open, etc.).
+        for (const plugin of this.getAllLoadedPlugins()) {
+            this.invalidatePluginCache(plugin);
+        }
+
         // Refresh active filter first so visible glyphs and count update immediately.
         // runFilter() already updates count and cache metadata.
         if (this.activeFilter) {
@@ -2783,8 +2805,16 @@ export class GlyphOverviewFilterManager {
                 return;
             }
             if (execResult.status === 'incremental') {
+                this.mergeFilterGroups(plugin, execResult.groups);
                 this.applyFilterDelta(plugin, execResult.delta);
-                plugin.glyphCount = plugin.lastResults?.length || 0;
+                const { results: processedResults, augmentedGroups } =
+                    this.processFilterResults(
+                        plugin.lastResults || [],
+                        plugin.groups || {}
+                    );
+                plugin.lastResults = processedResults;
+                plugin.groups = augmentedGroups;
+                plugin.glyphCount = processedResults.length;
                 plugin.hasError = false;
                 this.updatePluginCount(plugin);
                 return;
@@ -2794,14 +2824,13 @@ export class GlyphOverviewFilterManager {
 
             // Process results (consolidate duplicates, normalize groups)
             const groups = plugin.groups || {};
-            const { results: processedResults } = this.processFilterResults(
-                results,
-                groups
-            );
+            const { results: processedResults, augmentedGroups } =
+                this.processFilterResults(results, groups);
 
             plugin.glyphCount = processedResults.length;
             plugin.hasError = false;
             plugin.lastResults = processedResults;
+            plugin.groups = augmentedGroups;
             plugin.cachedDataVersion =
                 dataVersion === null ? undefined : dataVersion;
             plugin.cachedContextVersion = this.sharedPluginContextVersion;
