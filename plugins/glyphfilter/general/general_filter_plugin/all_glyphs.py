@@ -49,3 +49,19 @@ class AllGlyphsFilter:
                 results.append({"glyph_name": glyph_name})
         
         return results
+
+    def apply_changes(self, change_batch, current_results, font):
+        """Maintain plain glyph membership without rescanning the font."""
+        add = []
+        remove = []
+        for change in change_batch["changes"]:
+            metadata = change["metadata"]
+            glyph_name = metadata.get("glyphName")
+            if change["type"] == "glyph.deleted":
+                remove.append(glyph_name)
+            elif change["type"] == "glyph.renamed":
+                remove.append(metadata["previousGlyphName"])
+                add.append(glyph_name)
+            elif change["type"] == "glyph.created":
+                add.append(glyph_name)
+        return {"add": add, "remove": remove}

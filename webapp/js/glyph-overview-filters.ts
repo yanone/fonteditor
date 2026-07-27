@@ -102,7 +102,7 @@ interface FilterExecutionResult {
     groups: Record<string, GroupDefinition>;
     status: string;
     contextPatch?: Record<string, any>;
-    delta?: { add?: string[]; remove?: string[] };
+    delta?: { add?: Array<string | FilterResult>; remove?: string[] };
 }
 
 interface RefreshPluginsOptions {
@@ -1936,7 +1936,9 @@ export class GlyphOverviewFilterManager {
     /** Apply idempotent glyph-name additions/removals to a complete result cache. */
     private applyFilterDelta(
         plugin: GlyphFilterPlugin,
-        delta: { add?: string[]; remove?: string[] } | undefined
+        delta:
+            | { add?: Array<string | FilterResult>; remove?: string[] }
+            | undefined
     ): void {
         const results = new Map(
             (plugin.lastResults || []).map((result) => [
@@ -1944,9 +1946,13 @@ export class GlyphOverviewFilterManager {
                 result
             ])
         );
-        for (const glyphName of delta?.add || []) {
-            if (!results.has(glyphName)) {
-                results.set(glyphName, { glyph_name: glyphName });
+        for (const addition of delta?.add || []) {
+            const result =
+                typeof addition === 'string'
+                    ? { glyph_name: addition }
+                    : addition;
+            if (!results.has(result.glyph_name)) {
+                results.set(result.glyph_name, result);
             }
         }
         for (const glyphName of delta?.remove || []) {

@@ -4,6 +4,22 @@
 
 This document defines the central event contract that glyph filters may use to decide when to refresh.
 
+## Incremental Results
+
+`filter_glyphs(font)` produces the complete reconciliation result. Optional `apply_changes(change_batch, current_results, font)` appears after it and returns `None` for complete reconciliation or an idempotent delta:
+
+```python
+{'add': ['adieresis'], 'remove': ['aacute']}
+```
+
+`add` also accepts the normal filter-result dictionaries when group membership must be supplied or replaced:
+
+```python
+{'add': [{'glyph_name': 'adieresis', 'groups': ['latin_ext_a']}], 'remove': ['adieresis']}
+```
+
+The host removes first, then adds. Removing an absent glyph and adding an already-present glyph are no-ops.
+
 ## Events
 
 ## `font.opened`

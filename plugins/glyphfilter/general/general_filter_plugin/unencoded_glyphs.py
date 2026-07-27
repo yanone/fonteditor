@@ -54,3 +54,20 @@ class UnencodedGlyphsFilter:
                 results.append({"glyph_name": glyph_name})
         
         return results
+
+    def apply_changes(self, change_batch, current_results, font):
+        """Update unencoded membership from changed glyph identities only."""
+        add = []
+        remove = []
+        for change in change_batch["changes"]:
+            metadata = change["metadata"]
+            glyph_name = metadata.get("glyphName")
+            if change["type"] == "glyph.deleted":
+                remove.append(glyph_name)
+                continue
+            glyph = font.findGlyph(glyph_name)
+            if glyph is None or glyph.codepoints:
+                remove.append(glyph_name)
+            else:
+                add.append(glyph_name)
+        return {"add": add, "remove": remove}

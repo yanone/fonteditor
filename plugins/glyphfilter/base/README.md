@@ -61,18 +61,28 @@ def filter_glyphs(self, font):
     return results
 ```
 
-### Optional Auto Updates
+### Required Event Types And Optional Incremental Updates
 
-Set `auto_update_events` on class-based plugins to refresh them when the app
-dispatches matching window events:
+Set `event_types` to the semantic changes that can affect this filter. The
+host runs `filter_glyphs(font)` after matching changes unless optional
+`apply_changes` returns an incremental delta:
 
 ```python
 class MyFilter(BaseGlyphFilterPlugin):
-    auto_update_events = ["layerFingerprintChanged"]
+    event_types = {"glyph.unicode.changed"}
+
+    def apply_changes(self, change_batch, current_results, font):
+        return {
+            "remove": ["adieresis"],
+            "add": [
+                {"glyph_name": "adieresis", "groups": ["latin_ext_a"]}
+            ]
+        }
 ```
 
-When one of those events fires, the active filter is re-run immediately and
-inactive filters refresh their sidebar counts.
+Return `None` from `apply_changes` to run the complete filter. `remove` always
+contains glyph names. `add` accepts either glyph names or the same result
+dictionaries returned by `filter_glyphs`; removals happen before additions.
 
 ## Building
 

@@ -12,7 +12,12 @@ export interface GlyphFilterWorkerResult {
     status: string;
     contextPatch?: Record<string, any>;
     needsRebuild?: boolean;
-    delta?: { add?: string[]; remove?: string[] };
+    delta?: {
+        add?: Array<
+            string | { glyph_name: string; group?: string; groups?: string[] }
+        >;
+        remove?: string[];
+    };
 }
 
 export interface UserFilterSourceInspection {
@@ -56,7 +61,12 @@ interface WorkerSuccessResponse {
     applied?: boolean;
     version?: number;
     needsRebuild?: boolean;
-    delta?: { add?: string[]; remove?: string[] };
+    delta?: {
+        add?: Array<
+            string | { glyph_name: string; group?: string; groups?: string[] }
+        >;
+        remove?: string[];
+    };
     eventTypes?: GlyphFilterEventType[];
     diagnostic?: string;
 }

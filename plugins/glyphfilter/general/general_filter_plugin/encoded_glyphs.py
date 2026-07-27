@@ -139,3 +139,29 @@ class EncodedGlyphsFilter:
                 results.append({"glyph_name": glyph_name, "groups": groups})
 
         return results
+
+    def apply_changes(self, change_batch, current_results, font):
+        """Replace changed entries with freshly calculated Unicode-block groups."""
+        add = []
+        remove = []
+        for change in change_batch["changes"]:
+            metadata = change["metadata"]
+            glyph_name = metadata.get("glyphName")
+            if change["type"] == "glyph.deleted":
+                remove.append(glyph_name)
+                continue
+            glyph = font.findGlyph(glyph_name)
+            if glyph is None or not glyph.codepoints:
+                remove.append(glyph_name)
+            else:
+                groups = []
+                if len(glyph.codepoints) > 1:
+                    groups.append("multiple_codepoints")
+                for cp in glyph.codepoints:
+                    for start, end, key, description, color in self.UNICODE_BLOCKS:
+                        if start <= cp <= end and key not in groups:
+                            groups.append(key)
+                            break
+                remove.append(glyph_name)
+                add.append({"glyph_name": glyph_name, "groups": groups})
+        return {"add": add, "remove": remove}

@@ -66,3 +66,21 @@ class IncompatibleOutlinesFilter(BaseGlyphFilterPlugin):
                 results.append({"glyph_name": glyph_name})
 
         return results
+
+    def apply_changes(self, change_batch, current_results, font):
+        """Compatibility is glyph-local except when the master list changes."""
+        add = []
+        remove = []
+        for change in change_batch["changes"]:
+            if change["type"] == "font.masters.changed":
+                return None
+            glyph_name = change["metadata"].get("glyphName")
+            if change["type"] == "glyph.deleted":
+                remove.append(glyph_name)
+                continue
+            glyph = font.findGlyph(glyph_name)
+            if glyph and not glyph.calculateOutlineCompatibility().compatible:
+                add.append(glyph_name)
+            else:
+                remove.append(glyph_name)
+        return {"add": add, "remove": remove}

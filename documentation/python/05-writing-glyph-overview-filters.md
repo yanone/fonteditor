@@ -31,9 +31,6 @@ list and a complete compact example. Do not invent event types.
 
 EVENT_TYPES = {'glyph.unicode.changed'}
 
-def needs_rebuild(change_batch):
-    return 'glyph.unicode.changed' in change_batch['event_types']
-
 def filter_glyphs(font):
     for glyph in font.glyphs:
         if not glyph.codepoints:
@@ -42,6 +39,85 @@ def filter_glyphs(font):
 
 Use `yield` for large fonts so the filter does not need to build a full list in
 memory. Returning a list of the same dictionaries also works.
+
+Put optional `apply_changes` after `filter_glyphs`. Its `add` entries use the
+same result dictionaries, so an incremental update can replace group
+membership:
+
+```python
+def apply_changes(change_batch, current_results, font):
+    return {
+        'remove': ['adieresis'],
+        'add': [
+            {'glyph_name': 'adieresis', 'groups': ['latin_ext_a']}
+        ]
+    }
+```
+
+`add` also accepts bare glyph names when no group metadata is needed:
+
+```python
+{'add': ['adieresis'], 'remove': ['aacute']}
+```
+
+Removals happen before additions. Removing an absent glyph or adding a glyph
+already present in the cached result is a no-op.
+
+### Complete `apply_changes` Example
+
+The following example is adapted from the built-in All Glyphs filter. It
+handles every event type that the filter subscribes to, with annotated lines
+showing where filter-specific membership logic would go:
+
+```python
+EVENT_TYPES = {'glyph.created', 'glyph.deleted', 'glyph.renamed'}
+
+def filter_glyphs(font):
+    """Return every glyph in the font."""
+    for glyph in font.glyphs:
+        yield {'glyph_name': glyph.name}
+
+def apply_changes(change_batch, current_results, font):
+    add = []
+    remove = []
+
+    for change in change_batch['changes']:
+        metadata = change['metadata']
+        glyph_name = metadata.get('glyphName')
+
+        if change['type'] == 'glyph.deleted':
+            # A glyph was removed from the font.
+            remove.append(glyph_name)
+            continue
+
+        if change['type'] == 'glyph.renamed':
+            # The old name leaves the result set.
+            remove.append(metadata['previousGlyphName'])
+            # The new name enters the result set.
+            add.append(glyph_name)
+            # ── Additional filter logic ──────────────────────────
+            # If groups depend on the glyph name, recalculate them
+            # here and use a result-record instead of a bare name.
+            # add.append({'glyph_name': glyph_name, 'groups': [...]})
+            # ────────────────────────────────────────────────────
+            continue
+
+        if change['type'] == 'glyph.created':
+            # A new glyph was added to the font.
+            add.append(glyph_name)
+            # ── Additional filter logic ──────────────────────────
+            # Check glyph properties, category, codepoints, etc.
+            # to decide whether to skip this addition.
+            # ────────────────────────────────────────────────────
+            continue
+
+    return {'add': add, 'remove': remove}
+```
+
+The same pattern applies to any filter. The annotation lines mark where
+filter-specific conditions belong: for example, an encoded-glyph filter
+adds a glyph only when it has codepoints, and an incompatible-outlines
+filter adds a glyph only when its compatibility check fails.
 
 ## Optional Groups
 
@@ -61,10 +137,6 @@ GROUPS = {
 }
 
 EVENT_TYPES = {'font.opened', 'font.replaced'}
-
-def needs_rebuild(change_batch):
-    return bool(EVENT_TYPES.intersection(change_batch['event_types']))
-
 
 def filter_glyphs(font):
     for glyph in font.glyphs:
@@ -100,9 +172,6 @@ GROUPS = {
 }
 
 EVENT_TYPES = {'font.opened', 'font.replaced'}
-
-def needs_rebuild(change_batch):
-    return bool(EVENT_TYPES.intersection(change_batch['event_types']))
 
 
 def filter_glyphs(font):

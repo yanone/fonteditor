@@ -3202,13 +3202,9 @@ if '_assistant_original_stdout' in dir():
                 const hasEventTypes = /^\s*EVENT_TYPES\s*=/m.test(
                     state.content
                 );
-                const hasNeedsRebuild =
-                    /^\s*def\s+needs_rebuild\s*\(\s*change_batch\s*\)\s*:/m.test(
-                        state.content
-                    );
                 const structureValid =
                     kindInfo.editorKind !== 'glyph-filter' ||
-                    (hasEventTypes && hasNeedsRebuild && hasFilterFunction);
+                    (hasEventTypes && hasFilterFunction);
                 const messages: string[] = [];
                 if (!syntax.valid) {
                     const location = syntax.line
@@ -3225,11 +3221,6 @@ if '_assistant_original_stdout' in dir():
                 if (kindInfo.editorKind === 'glyph-filter') {
                     if (!hasEventTypes) {
                         messages.push('Glyph filters must define EVENT_TYPES.');
-                    }
-                    if (!hasNeedsRebuild) {
-                        messages.push(
-                            'Glyph filters must define needs_rebuild(change_batch).'
-                        );
                     }
                     if (!hasFilterFunction) {
                         messages.push(

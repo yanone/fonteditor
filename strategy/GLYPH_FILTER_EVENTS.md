@@ -27,7 +27,7 @@ font.masters.changed
 
 Every filter runs once on `font.opened` and `font.replaced`. Afterward, the
 host intersects each filter's declared event types with a committed change
-batch and runs only matching filters that request a rebuild.
+batch and runs only matching filters.
 
 ## Wheel Filters
 
@@ -44,7 +44,10 @@ def apply_changes(self, change_batch, current_results, font_view):
 ```
 
 The host calls optional `apply_changes` first. It returns `None` to request
-`filter_glyphs(font)`, or an idempotent `{'add': [...], 'remove': [...]}` delta.
+`filter_glyphs(font)`, or an idempotent delta. `remove` is a list of glyph
+names. `add` accepts either bare glyph names or ordinary filter-result records,
+including `group` or `groups`; removals apply before additions so one glyph can
+be intentionally replaced with new group membership.
 
 ## Single-File User Filters
 
@@ -54,19 +57,25 @@ stripped module-level contract:
 ```python
 EVENT_TYPES = {"glyph.unicode.changed", "glyph.created"}
 
-def needs_rebuild(change_batch):
-    return "glyph.unicode.changed" in change_batch["event_types"]
-
 GROUPS = {}
 
 def filter_glyphs(font):
     return []
+
+def apply_changes(change_batch, current_results, font):
+    return {
+        "remove": ["adieresis"],
+        "add": [
+            {"glyph_name": "adieresis", "groups": ["latin_ext_a"]}
+        ]
+    }
 ```
 
-`EVENT_TYPES`, `needs_rebuild(change_batch)`, and `filter_glyphs(font)` are
-mandatory. Discovery parses these declarations with `ast` without executing
-the file. A matched batch executes the file in the isolated filter worker,
-calls `needs_rebuild`, and only then calls `filter_glyphs`.
+`EVENT_TYPES` and `filter_glyphs(font)` are mandatory. Optional
+`apply_changes(change_batch, current_results, font)` is parsed with `ast`
+without executing the file. A matched batch executes the file in the isolated
+filter worker, calls `apply_changes` when present, and only calls
+`filter_glyphs` when it returns `None`.
 
 There is no compatibility path for old filters without these declarations.
 
