@@ -217,6 +217,10 @@ export class AddGlyphsDialog {
                     event.metaKey || event.ctrlKey
                 )
             );
+            row.addEventListener('dblclick', () => {
+                this.selectRow(index, false, false);
+                this.addSelected();
+            });
 
             const preview = document.createElement('span');
             preview.className = 'add-glyph-preview';
