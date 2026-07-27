@@ -119,6 +119,9 @@ interface RefreshPluginsOptions {
 
 const ALL_GLYPHS_FILTER_KEYWORD = 'com.context.allglyphs';
 
+/** Empty batch → host full rebuild via `filter_glyphs` (skips `apply_changes`). */
+const FULL_FILTER_REBUILD_BATCH: GlyphFilterChangeBatch = { changes: [] };
+
 export class GlyphOverviewFilterManager {
     private plugins: GlyphFilterPlugin[] = [];
     private userFilters: GlyphFilterPlugin[] = [];
@@ -628,12 +631,6 @@ export class GlyphOverviewFilterManager {
             return;
         }
 
-        // Full-font lifecycle events reset the compatibility baseline so later
-        // edits can detect true toggles against the freshly opened font.
-        if (eventTypes.has('font.opened') || eventTypes.has('font.replaced')) {
-            this.seedGlyphCompatibilityState();
-        }
-
         for (const plugin of this.getAllLoadedPlugins()) {
             if (
                 !plugin.eventTypes.some((eventType) =>
@@ -653,7 +650,7 @@ export class GlyphOverviewFilterManager {
 
     /**
      * Snapshot every glyph's current `isCompatible` boolean without emitting
-     * events. Called on font open/replace so subsequent edits can toggle.
+     * events. Called on full filter rebuilds so subsequent edits can toggle.
      */
     seedGlyphCompatibilityState(): void {
         this.glyphCompatibilityByName.clear();
@@ -1962,13 +1959,12 @@ export class GlyphOverviewFilterManager {
     }
 
     /**
-     * Run a filter plugin and apply results
+     * Run a filter plugin and apply results.
+     * Default empty change batch forces a full `filter_glyphs` rebuild.
      */
     async runFilter(
         plugin: GlyphFilterPlugin,
-        changeBatch: GlyphFilterChangeBatch = {
-            changes: [{ type: 'font.opened', metadata: {} }]
-        }
+        changeBatch: GlyphFilterChangeBatch = FULL_FILTER_REBUILD_BATCH
     ): Promise<void> {
         if (plugin.validationDiagnostic) {
             plugin.hasError = true;
@@ -1983,6 +1979,10 @@ export class GlyphOverviewFilterManager {
         if (!window.currentFontModel) {
             console.error('Font not available');
             return;
+        }
+
+        if (changeBatch.changes.length === 0) {
+            this.seedGlyphCompatibilityState();
         }
 
         if (
@@ -2239,17 +2239,17 @@ export class GlyphOverviewFilterManager {
                 result
             ])
         );
+        // Removals apply before additions so one glyph can be replaced with
+        // updated group membership in a single delta.
+        for (const glyphName of delta?.remove || []) {
+            results.delete(glyphName);
+        }
         for (const addition of delta?.add || []) {
             const result =
                 typeof addition === 'string'
                     ? { glyph_name: addition }
                     : addition;
-            if (!results.has(result.glyph_name)) {
-                results.set(result.glyph_name, result);
-            }
-        }
-        for (const glyphName of delta?.remove || []) {
-            results.delete(glyphName);
+            results.set(result.glyph_name, result);
         }
         plugin.lastResults = [...results.values()];
         plugin.cachedDataVersion = this.getCurrentDataVersion() ?? undefined;
@@ -2739,9 +2739,7 @@ export class GlyphOverviewFilterManager {
     private async runPluginForCount(
         plugin: GlyphFilterPlugin,
         fontSnapshotJson: string | null = null,
-        changeBatch: GlyphFilterChangeBatch = {
-            changes: [{ type: 'font.opened', metadata: {} }]
-        }
+        changeBatch: GlyphFilterChangeBatch = FULL_FILTER_REBUILD_BATCH
     ): Promise<void> {
         if (!window.currentFontModel) return;
         if (plugin.validationDiagnostic) {

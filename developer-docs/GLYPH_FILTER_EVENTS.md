@@ -22,30 +22,6 @@ The host removes first, then adds. Removing an absent glyph and adding an alread
 
 ## Events
 
-## `font.opened`
-
-- Name: Font Opened
-- Description: A font finished opening and is available to glyph filters.
-
-### Metadata
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `fontName` | `string` | Yes | The opened font's display name. |
-| `source` | `string` | Yes | The source from which the font was opened. |
-
-## `font.replaced`
-
-- Name: Font Replaced
-- Description: The active font was replaced by a different font.
-
-### Metadata
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `fontName` | `string` | Yes | The replacement font's display name. |
-| `previousFontName` | `string` | Yes | The replaced font's display name. |
-
 ## `glyph.created`
 
 - Name: Glyph Created

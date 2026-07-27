@@ -165,7 +165,10 @@ def _run_builtin_filter(keyword: str, change_batch, current_results):
         return {'results': [], 'groups': groups, 'status': 'no_filter_function'}
 
     _font = Font()
-    if change_batch and hasattr(plugin, 'apply_changes'):
+    # Full rebuilds use an empty change batch. apply_changes is only for
+    # incremental committed edits when the host already has cached results.
+    _changes = (change_batch or {}).get('changes') or []
+    if _changes and hasattr(plugin, 'apply_changes'):
         _delta = plugin.apply_changes(change_batch, current_results, _font)
         if _delta is not None:
             return {'results': [], 'groups': groups, 'status': 'incremental', 'delta': _delta}
@@ -245,7 +248,10 @@ def _run_user_filter(code: str, change_batch, current_results):
         _filter_func = _user_globals.get('filter_glyphs')
         _font = Font()
         _apply_changes = _user_globals.get('apply_changes')
-        if _apply_changes:
+        # Empty change batches are full rebuilds from the host (font open,
+        # filter activate/reload). Skip apply_changes and run filter_glyphs.
+        _changes = (change_batch or {}).get('changes') or []
+        if _apply_changes and _changes:
             _delta = _apply_changes(change_batch, current_results, _font)
             if _delta is not None:
                 _filter_result = {'results': [], 'groups': _groups or {}, 'status': 'incremental', 'delta': _delta}

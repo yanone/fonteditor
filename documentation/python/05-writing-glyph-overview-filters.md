@@ -7,7 +7,9 @@ font-editing script: Glyph Overview calls it to decide which glyphs to display.
 ## Required Contract
 
 Every filter must define `EVENT_TYPES` and `filter_glyphs(font)`. `EVENT_TYPES`
-contains only event types supported by the central registry. An optional
+contains only incremental event types from the central registry. The host always
+runs `filter_glyphs(font)` on font open, filter activate, and filter file reload
+— those are not events. An optional
 `apply_changes(change_batch, current_results, font)` may maintain the cached
 result incrementally; it returns `None` to request complete reconciliation.
 The filter function receives the current font directly; do not call `Font()`
@@ -136,7 +138,7 @@ GROUPS = {
     }
 }
 
-EVENT_TYPES = {'font.opened', 'font.replaced'}
+EVENT_TYPES = set()
 
 def filter_glyphs(font):
     for glyph in font.glyphs:
@@ -171,7 +173,13 @@ GROUPS = {
     'empty': {'description': 'Empty glyph', 'color': 'red'}
 }
 
-EVENT_TYPES = {'font.opened', 'font.replaced'}
+EVENT_TYPES = {
+    'glyph.created',
+    'glyph.deleted',
+    'glyph.renamed',
+    'glyph.anchors.changed',
+    'glyph.components.changed',
+}
 
 
 def filter_glyphs(font):

@@ -17,11 +17,14 @@ Path-to-event derivation lives in
 `glyph.compatibility.changed` fires only when `Glyph.isCompatible` toggles,
 not on every layer edit.
 
+Full rebuilds are **not** events. On font open, filter activate, and filter
+file reload, the host calls `filter_glyphs(font)` directly with an empty
+change batch and skips `apply_changes`. `EVENT_TYPES` / `event_types` cover
+incremental edits only.
+
 The registry contains these events currently:
 
 ```text
-font.opened
-font.replaced
 glyph.created
 glyph.deleted
 glyph.renamed
@@ -63,9 +66,9 @@ glyph-filter.source.changed
 glyph-filter.enabled.changed
 ```
 
-Every filter runs once on `font.opened` and `font.replaced`. Afterward, the
-host intersects each filter's declared event types with a committed change
-batch and runs only matching filters.
+After the host's full `filter_glyphs` rebuild, the host intersects each
+filter's declared event types with a committed change batch and runs only
+matching filters (preferring `apply_changes` when present).
 
 ## Wheel Filters
 
@@ -81,11 +84,12 @@ def apply_changes(self, change_batch, current_results, font_view):
     return None
 ```
 
-The host calls optional `apply_changes` first. It returns `None` to request
-`filter_glyphs(font)`, or an idempotent delta. `remove` is a list of glyph
-names. `add` accepts either bare glyph names or ordinary filter-result records,
-including `group` or `groups`; removals apply before additions so one glyph can
-be intentionally replaced with new group membership.
+The host calls optional `apply_changes` first for incremental batches only.
+It returns `None` to request `filter_glyphs(font)`, or an idempotent delta.
+`remove` is a list of glyph names. `add` accepts either bare glyph names or
+ordinary filter-result records, including `group` or `groups`; removals apply
+before additions so one glyph can be intentionally replaced with new group
+membership.
 
 ## Single-File User Filters
 
@@ -111,9 +115,10 @@ def apply_changes(change_batch, current_results, font):
 
 `EVENT_TYPES` and `filter_glyphs(font)` are mandatory. Optional
 `apply_changes(change_batch, current_results, font)` is parsed with `ast`
-without executing the file. A matched batch executes the file in the isolated
-filter worker, calls `apply_changes` when present, and only calls
-`filter_glyphs` when it returns `None`.
+without executing the file. A matched incremental batch executes the file in
+the isolated filter worker, calls `apply_changes` when present, and only
+calls `filter_glyphs` when it returns `None`. Full rebuilds never call
+`apply_changes`.
 
 There is no compatibility path for old filters without these declarations.
 
@@ -127,8 +132,9 @@ changes[]
   metadata
 ```
 
-It never exposes Yjs bytes, Yjs structures, raw JSON pointers, undo internals,
-or worker transport metadata.
+An empty `changes` list means a host-driven full rebuild. It never exposes
+Yjs bytes, Yjs structures, raw JSON pointers, undo internals, or worker
+transport metadata.
 
 ## Documentation
 

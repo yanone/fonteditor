@@ -523,7 +523,7 @@ describe('GlyphOverviewFilterManager compatibility toggles', () => {
         expect(typesOf(batch)).not.toContain('glyph.compatibility.changed');
     });
 
-    test('seeds compatibility baseline on font.opened batches', async () => {
+    test('seeds compatibility baseline on full rebuilds', async () => {
         const glyph = {
             name: 'A',
             isCompatible: false,
@@ -532,16 +532,7 @@ describe('GlyphOverviewFilterManager compatibility toggles', () => {
         window.currentFontModel.glyphs = [glyph];
         window.currentFontModel.findGlyph.mockReturnValue(glyph);
 
-        jest.spyOn(manager, 'getAllLoadedPlugins').mockReturnValue([]);
-
-        await manager.handleCommittedGlyphFilterBatch({
-            changes: [
-                {
-                    type: 'font.opened',
-                    metadata: { fontName: 'Test', source: 'test' }
-                }
-            ]
-        });
+        manager.seedGlyphCompatibilityState();
 
         // After seeding, a no-op outline edit must not claim a toggle.
         const batchSpy = jest
@@ -550,7 +541,7 @@ describe('GlyphOverviewFilterManager compatibility toggles', () => {
 
         await manager.handleCommittedChangeEntries([
             {
-                path: 'glyphs.A.layers.layer-1.shapes.0.nodes.0.x',
+                path: 'glyphs.A:layers.layer-1:shapes.0.nodes.0.x',
                 op: 'set',
                 oldValue: 0,
                 newValue: 1

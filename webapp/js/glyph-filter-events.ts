@@ -7,10 +7,12 @@
  * committed change-bridge batch. Filters subscribe via `EVENT_TYPES` /
  * `event_types` using these dotted names only — browser `CustomEvent` names
  * are not part of the plugin API.
+ *
+ * Full rebuilds (font open, filter activate/reload) are host-driven: the host
+ * calls `filter_glyphs(font)` directly with an empty change batch and does
+ * not go through `apply_changes`. Event types cover incremental edits only.
  */
 export const GLYPH_FILTER_EVENT_TYPES = [
-    'font.opened',
-    'font.replaced',
     'glyph.created',
     'glyph.deleted',
     'glyph.renamed',
@@ -65,43 +67,6 @@ const LAYER_IDS_FIELD: GlyphFilterEventMetadataField = {
 };
 
 export const GLYPH_FILTER_EVENT_REGISTRY = {
-    'font.opened': {
-        name: 'Font Opened',
-        description:
-            'A font finished opening and is available to glyph filters.',
-        metadataFields: [
-            {
-                name: 'fontName',
-                type: 'string',
-                description: "The opened font's display name.",
-                required: true
-            },
-            {
-                name: 'source',
-                type: 'string',
-                description: 'The source from which the font was opened.',
-                required: true
-            }
-        ]
-    },
-    'font.replaced': {
-        name: 'Font Replaced',
-        description: 'The active font was replaced by a different font.',
-        metadataFields: [
-            {
-                name: 'fontName',
-                type: 'string',
-                description: "The replacement font's display name.",
-                required: true
-            },
-            {
-                name: 'previousFontName',
-                type: 'string',
-                description: "The replaced font's display name.",
-                required: true
-            }
-        ]
-    },
     'glyph.created': {
         name: 'Glyph Created',
         description: 'A glyph was added to the active font.',
