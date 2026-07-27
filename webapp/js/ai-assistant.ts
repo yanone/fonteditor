@@ -2775,18 +2775,32 @@ __counterpunch_assistant_validate_syntax(${sourceKey})`
                 return await this.fetchText(guidePath);
             }
             case 'glyph_filter_event_types':
-                return JSON.stringify({
-                    ...getGlyphFilterEventAssistantView(),
-                    example: `EVENT_TYPES = {'glyph.unicode.changed'}
+                return `${JSON.stringify(getGlyphFilterEventAssistantView(), null, 2)}
 
-def needs_rebuild(change_batch):
-    return 'glyph.unicode.changed' in change_batch['event_types']
+Example single-file filter:
+
+\`\`\`python
+EVENT_TYPES = {'glyph.unicode.changed'}
 
 def filter_glyphs(font):
     for glyph in font.glyphs:
         if not glyph.codepoints:
-            yield {'glyph_name': glyph.name}`
-                });
+            yield {'glyph_name': glyph.name}
+
+def apply_changes(change_batch, current_results, font):
+    add = []
+    remove = []
+    for change in change_batch['changes']:
+        if change['type'] != 'glyph.unicode.changed':
+            continue
+        glyph_name = change['metadata'].get('glyphName')
+        glyph = font.findGlyph(glyph_name) if glyph_name else None
+        if glyph and not glyph.codepoints:
+            add.append(glyph_name)
+        else:
+            remove.append(glyph_name)
+    return {'add': add, 'remove': remove}
+\`\`\``;
             case 'list_available_fonts': {
                 const pluginRegistry = (window as any).pluginRegistry;
                 if (!pluginRegistry) return 'Plugin registry not available.';

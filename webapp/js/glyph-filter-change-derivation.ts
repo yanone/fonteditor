@@ -2,8 +2,9 @@
  * Derive filter-facing semantic events from committed change-bridge entries.
  *
  * The change bridge records dotted paths such as
- * `glyphs.A.layers.<id>.shapes.0.nodes.1.x`. This module maps those paths
- * onto the stable `GlyphFilterEventType` contract. It does **not** emit
+ * `glyphs.A:layers.<id>:shapes.0.nodes.1.x` (colon separators protect glyph
+ * names and layer IDs that themselves contain dots). This module maps those
+ * paths onto the stable `GlyphFilterEventType` contract. It does **not** emit
  * `glyph.compatibility.changed`; that event is produced separately when
  * `Glyph.isCompatible` toggles (see GlyphOverviewFilterManager).
  */
@@ -12,6 +13,7 @@ import type {
     GlyphFilterChange,
     GlyphFilterEventType
 } from './glyph-filter-events';
+import { getPathSegments } from './change-log';
 
 /** Minimal committed-entry shape needed for filter event derivation. */
 export interface GlyphFilterCommittedEntry {
@@ -309,6 +311,10 @@ function deriveShapesSubtreeChanges(
 
 /**
  * Map one committed change-log entry to filter events and compatibility hints.
+ *
+ * Committed paths use colon separators at glyph-name and layer-id boundaries
+ * (`glyphs.A:layers.<id>:anchors.0`). Always parse with `getPathSegments` —
+ * never `path.split('.')`, which breaks on those separators.
  */
 export function deriveGlyphFilterChangesFromCommittedEntry(
     entry: GlyphFilterCommittedEntry,
@@ -316,7 +322,7 @@ export function deriveGlyphFilterChangesFromCommittedEntry(
         masterIds?: string[];
     }
 ): GlyphFilterEntryDerivation {
-    const path = entry.path.split('.');
+    const path = getPathSegments(entry.path);
     const changes: GlyphFilterChange[] = [];
     const compatibilityCheckGlyphNames: string[] = [];
     let mastersChanged = false;

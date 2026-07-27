@@ -564,7 +564,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         function: {
             name: 'glyph_filter_event_types',
             description:
-                'Return the central Glyph Overview filter event list plus a compact single-file example. You must call this before authoring or substantially editing a glyph filter so its required EVENT_TYPES and needs_rebuild(change_batch) declarations use supported event types.',
+                'Return the central Glyph Overview filter event list plus a compact single-file example. You must call this before authoring or substantially editing a glyph filter so its required EVENT_TYPES and optional apply_changes(change_batch, current_results, font) declarations use supported event types.',
             parameters: {
                 type: 'object',
                 properties: {},

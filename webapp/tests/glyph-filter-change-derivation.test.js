@@ -268,6 +268,54 @@ describe('deriveGlyphFilterChangesFromCommittedEntry', () => {
         expect(result.compatibilityCheckGlyphNames).toEqual(['A']);
     });
 
+    test('glyph.anchors.changed from colon-separated committed path', () => {
+        const result = deriveGlyphFilterChangesFromCommittedEntry({
+            path: 'glyphs.A:layers.layer-1:anchors.0',
+            op: 'add',
+            oldValue: undefined,
+            newValue: { id: 'anchor-1', name: 'top', x: 100, y: 700 }
+        });
+        expect(typesOf(result)).toEqual(['glyph.anchors.changed']);
+        expect(result.changes[0].metadata).toEqual({
+            glyphName: 'A',
+            layerIds: ['layer-1']
+        });
+        expect(result.compatibilityCheckGlyphNames).toEqual(['A']);
+    });
+
+    test('glyph.paths.changed from colon-separated committed path', () => {
+        const result = deriveGlyphFilterChangesFromCommittedEntry({
+            path: 'glyphs.behDotless-ar.medi:layers.layer.regular.v1:shapes.0.nodes.2.x',
+            op: 'set',
+            oldValue: 10,
+            newValue: 20
+        });
+        expect(typesOf(result)).toEqual(['glyph.paths.changed']);
+        expect(result.changes[0].metadata).toEqual({
+            glyphName: 'behDotless-ar.medi',
+            layerIds: ['layer.regular.v1']
+        });
+    });
+
+    test('glyph.unicode.changed from colon-separated glyph field path', () => {
+        const result = deriveGlyphFilterChangesFromCommittedEntry({
+            path: 'glyphs.A:codepoints',
+            op: 'set',
+            oldValue: [65],
+            newValue: [66]
+        });
+        expect(result.changes).toEqual([
+            {
+                type: 'glyph.unicode.changed',
+                metadata: {
+                    glyphName: 'A',
+                    unicode: 66,
+                    previousUnicode: 65
+                }
+            }
+        ]);
+    });
+
     test('glyph.guides.changed does not request compatibility check', () => {
         const result = deriveGlyphFilterChangesFromCommittedEntry({
             path: 'glyphs.A.layers.layer-1.guides.0.pos',
@@ -512,5 +560,29 @@ describe('GlyphOverviewFilterManager compatibility toggles', () => {
         const batch = batchSpy.mock.calls[0][0];
         expect(typesOf(batch)).toEqual(['glyph.paths.changed']);
         expect(typesOf(batch)).not.toContain('glyph.compatibility.changed');
+    });
+
+    test('emits glyph.anchors.changed for Add anchor commits', async () => {
+        const batchSpy = jest
+            .spyOn(manager, 'handleCommittedGlyphFilterBatch')
+            .mockResolvedValue(undefined);
+
+        await manager.handleCommittedChangeEntries([
+            {
+                path: 'glyphs.A:layers.layer-1:anchors.0',
+                op: 'add',
+                oldValue: undefined,
+                newValue: { id: 'a1', name: 'top', x: 100, y: 700 }
+            }
+        ]);
+
+        expect(batchSpy).toHaveBeenCalledWith({
+            changes: [
+                {
+                    type: 'glyph.anchors.changed',
+                    metadata: { glyphName: 'A', layerIds: ['layer-1'] }
+                }
+            ]
+        });
     });
 });
