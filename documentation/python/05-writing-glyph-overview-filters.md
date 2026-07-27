@@ -4,15 +4,34 @@ Use a Glyph Overview filter to select and optionally categorize glyphs in the
 Overview. Save the file in `Counterpunch/Filters`. A filter is not a reusable
 font-editing script: Glyph Overview calls it to decide which glyphs to display.
 
-## Required Function
+## Required Contract
 
-Every filter must define `filter_glyphs(font)`. The function receives the
-current font directly; do not call `Font()` or import the font API. Yield or
-return dictionaries containing a `glyph_name` key for each glyph to include.
+Every filter must define `EVENT_TYPES`, `needs_rebuild(change_batch)`, and
+`filter_glyphs(font)`. `EVENT_TYPES` contains only event types supported by
+the central registry. `needs_rebuild` receives the committed change batch and
+returns whether the filter should rerun. The function receives the current
+font directly; do not call `Font()` or import the font API. Yield or return
+dictionaries containing a `glyph_name` key for each glyph to include.
+
+```python
+EVENT_TYPES = {'glyph.unicode.changed'}
+
+def needs_rebuild(change_batch):
+    return 'glyph.unicode.changed' in change_batch['event_types']
+```
+
+When authoring a filter with Assistant, it must call
+`glyph_filter_event_types` first. That tool returns the current registry event
+list and a complete compact example. Do not invent event types.
 
 ```python
 # Show glyphs without Unicode values
 # Keywords: glyphs, unicode
+
+EVENT_TYPES = {'glyph.unicode.changed'}
+
+def needs_rebuild(change_batch):
+    return 'glyph.unicode.changed' in change_batch['event_types']
 
 def filter_glyphs(font):
     for glyph in font.glyphs:
@@ -39,6 +58,11 @@ GROUPS = {
         'color': '#2196F3'
     }
 }
+
+EVENT_TYPES = {'font.opened', 'font.replaced'}
+
+def needs_rebuild(change_batch):
+    return bool(EVENT_TYPES.intersection(change_batch['event_types']))
 
 
 def filter_glyphs(font):
@@ -73,6 +97,11 @@ GROUPS = {
     'has_components': {'description': 'Has components', 'color': 'blue'},
     'empty': {'description': 'Empty glyph', 'color': 'red'}
 }
+
+EVENT_TYPES = {'font.opened', 'font.replaced'}
+
+def needs_rebuild(change_batch):
+    return bool(EVENT_TYPES.intersection(change_batch['event_types']))
 
 
 def filter_glyphs(font):

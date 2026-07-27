@@ -35,6 +35,7 @@ import {
     getPythonDocumentKindInfo,
     type PythonDocumentKindInfo
 } from './python-document-kind';
+import { getGlyphFilterEventAssistantView } from './glyph-filter-events';
 
 const console = new Logger('AIAssistant');
 const DEFAULT_PROMPT_HISTORY_SUMMARY = 'Assistant changes';
@@ -2773,6 +2774,19 @@ __counterpunch_assistant_validate_syntax(${sourceKey})`
                 }
                 return await this.fetchText(guidePath);
             }
+            case 'glyph_filter_event_types':
+                return JSON.stringify({
+                    ...getGlyphFilterEventAssistantView(),
+                    example: `EVENT_TYPES = {'glyph.unicode.changed'}
+
+def needs_rebuild(change_batch):
+    return 'glyph.unicode.changed' in change_batch['event_types']
+
+def filter_glyphs(font):
+    for glyph in font.glyphs:
+        if not glyph.codepoints:
+            yield {'glyph_name': glyph.name}`
+                });
             case 'list_available_fonts': {
                 const pluginRegistry = (window as any).pluginRegistry;
                 if (!pluginRegistry) return 'Plugin registry not available.';
@@ -3185,8 +3199,16 @@ if '_assistant_original_stdout' in dir():
                     /^\s*def\s+filter_glyphs\s*\(\s*font\s*\)\s*:/m.test(
                         state.content
                     );
+                const hasEventTypes = /^\s*EVENT_TYPES\s*=/m.test(
+                    state.content
+                );
+                const hasNeedsRebuild =
+                    /^\s*def\s+needs_rebuild\s*\(\s*change_batch\s*\)\s*:/m.test(
+                        state.content
+                    );
                 const structureValid =
-                    kindInfo.editorKind !== 'glyph-filter' || hasFilterFunction;
+                    kindInfo.editorKind !== 'glyph-filter' ||
+                    (hasEventTypes && hasNeedsRebuild && hasFilterFunction);
                 const messages: string[] = [];
                 if (!syntax.valid) {
                     const location = syntax.line
@@ -3200,10 +3222,20 @@ if '_assistant_original_stdout' in dir():
                             : syntax.message
                     );
                 }
-                if (!structureValid) {
-                    messages.push(
-                        'Glyph filters must define filter_glyphs(font).'
-                    );
+                if (kindInfo.editorKind === 'glyph-filter') {
+                    if (!hasEventTypes) {
+                        messages.push('Glyph filters must define EVENT_TYPES.');
+                    }
+                    if (!hasNeedsRebuild) {
+                        messages.push(
+                            'Glyph filters must define needs_rebuild(change_batch).'
+                        );
+                    }
+                    if (!hasFilterFunction) {
+                        messages.push(
+                            'Glyph filters must define filter_glyphs(font).'
+                        );
+                    }
                 }
                 if (kindInfo.confidence !== 'saved-path') {
                     messages.push(kindInfo.message);

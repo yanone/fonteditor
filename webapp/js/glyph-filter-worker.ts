@@ -1,6 +1,8 @@
 /// <reference lib="webworker" />
 
 import { Font } from './babelfont-model';
+import { GLYPH_FILTER_EVENT_TYPES } from './glyph-filter-events';
+import type { GlyphFilterChangeBatch } from './glyph-filter-events';
 
 type WorkerRequest =
     | {
@@ -12,6 +14,7 @@ type WorkerRequest =
           keyword: string;
           fontJson: string;
           timeoutMs: number;
+          changeBatch: GlyphFilterChangeBatch;
       }
     | {
           type: 'runUserFilter';
@@ -19,6 +22,12 @@ type WorkerRequest =
           code: string;
           fontJson: string;
           timeoutMs: number;
+          changeBatch: GlyphFilterChangeBatch;
+      }
+    | {
+          type: 'inspectUserFilterSource';
+          id: number;
+          code: string;
       }
     | {
           type: 'installPackages';
@@ -42,6 +51,7 @@ const installedDynamicPackages = new Set<string>();
 let sharedContextVersion = 0;
 let sharedPluginContext: Record<string, any> = {};
 let pendingContextPatch: Record<string, any> | null = null;
+const EMPTY_CHANGE_BATCH: GlyphFilterChangeBatch = { changes: [] };
 
 async function installWheels(py: any): Promise<void> {
     const manifestResponse = await fetch('/wheels/wheels.json');
@@ -82,11 +92,14 @@ async function ensureWorkerRuntime(): Promise<void> {
 
         await pyodide.runPythonAsync(`
 import sys
+import ast
 from io import StringIO
 import types
 from importlib.metadata import entry_points
 import js
 import pyodide.ffi
+
+_CP_GLYPH_FILTER_EVENT_TYPES = set(${JSON.stringify(GLYPH_FILTER_EVENT_TYPES)})
 
 _CP_PLUGIN_CACHE = {}
 _CP_DISCOVERED = None
@@ -139,7 +152,7 @@ def _get_builtin_plugin(keyword):
     return plugin
 
 
-def _run_builtin_filter(keyword: str):
+def _run_builtin_filter(keyword: str, change_batch):
     plugin = _get_builtin_plugin(keyword)
 
     groups = {}
@@ -150,32 +163,95 @@ def _run_builtin_filter(keyword: str):
         return {'results': [], 'groups': groups, 'status': 'no_filter_function'}
 
     _font = Font()
+    if change_batch and not hasattr(plugin, 'needs_rebuild'):
+        raise RuntimeError('Glyph filter plugin is missing needs_rebuild(change_batch, font_view)')
+    if change_batch:
+        _decision = plugin.needs_rebuild(change_batch, _font)
+        if not isinstance(_decision, dict) or _decision.get('action') not in {'refresh', 'skip'}:
+            raise RuntimeError('needs_rebuild must return {"action": "refresh"} or {"action": "skip"}')
+        if _decision['action'] == 'skip':
+            return {'results': [], 'groups': groups, 'status': 'not_needed', 'needsRebuild': False}
     _result = plugin.filter_glyphs(_font)
     if isinstance(_result, types.GeneratorType):
         _result = list(_result)
 
-    return {'results': _result or [], 'groups': groups, 'status': 'ok'}
+    return {'results': _result or [], 'groups': groups, 'status': 'ok', 'needsRebuild': True}
 
 
-def _run_user_filter(code: str):
+def _inspect_user_filter_source(code: str):
+    try:
+        tree = ast.parse(code, '<filter>', 'exec')
+    except SyntaxError as error:
+        return {'eventTypes': [], 'diagnostic': f'Syntax error: {error.msg} (line {error.lineno})'}
+
+    event_types = None
+    functions = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == 'EVENT_TYPES':
+                    if not isinstance(node.value, (ast.List, ast.Tuple, ast.Set)) or not all(
+                        isinstance(element, ast.Constant) and isinstance(element.value, str)
+                        for element in node.value.elts
+                    ):
+                        return {'eventTypes': [], 'diagnostic': 'EVENT_TYPES must be a literal list, tuple, or set of registered event strings'}
+                    event_types = [element.value for element in node.value.elts]
+        elif isinstance(node, ast.FunctionDef):
+            functions[node.name] = node
+
+    if event_types is None:
+        return {'eventTypes': [], 'diagnostic': 'Missing required literal EVENT_TYPES'}
+
+    unknown_event_types = [event_type for event_type in event_types if event_type not in _CP_GLYPH_FILTER_EVENT_TYPES]
+    if unknown_event_types:
+        return {'eventTypes': [], 'diagnostic': f'Unknown EVENT_TYPES value: {unknown_event_types[0]}'}
+
+    for name, parameter_name in (('needs_rebuild', 'change_batch'), ('filter_glyphs', 'font')):
+        function = functions.get(name)
+        if function is None:
+            return {'eventTypes': event_types, 'diagnostic': f'Missing required {name}({parameter_name}) function'}
+        arguments = function.args
+        positional = arguments.posonlyargs + arguments.args
+        if (
+            len(positional) != 1
+            or positional[0].arg != parameter_name
+            or arguments.vararg is not None
+            or arguments.kwonlyargs
+            or arguments.kwarg is not None
+            or arguments.defaults
+            or arguments.kw_defaults
+        ):
+            return {'eventTypes': event_types, 'diagnostic': f'{name} must declare exactly one parameter: {parameter_name}'}
+
+    return {'eventTypes': event_types, 'diagnostic': None}
+
+
+def _run_user_filter(code: str, change_batch):
     _captured_output = StringIO()
     _old_stdout = sys.stdout
     sys.stdout = _captured_output
 
     _filter_result = {'results': [], 'groups': {}, 'status': 'ok'}
     try:
+        _inspection = _inspect_user_filter_source(code)
+        if _inspection['diagnostic']:
+            raise RuntimeError(_inspection['diagnostic'])
+
         _compiled_code = compile(code, '<filter>', 'exec')
         _user_globals = {}
         exec(_compiled_code, _user_globals)
 
         _groups = _user_globals.get('GROUPS', {})
+        _needs_rebuild = _user_globals['needs_rebuild']
         _filter_func = _user_globals.get('filter_glyphs')
+        _should_rebuild = _needs_rebuild(change_batch)
 
-        if _filter_func is None:
+        if not _should_rebuild:
             _filter_result = {
                 'results': [],
-                'groups': {},
-                'status': 'no_filter_function'
+                'groups': _groups or {},
+                'status': 'not_needed',
+                'needsRebuild': False
             }
         else:
             _font = Font()
@@ -186,7 +262,8 @@ def _run_user_filter(code: str):
             _filter_result = {
                 'results': _results or [],
                 'groups': _groups or {},
-                'status': 'ok'
+                'status': 'ok',
+                'needsRebuild': True
             }
     finally:
         sys.stdout = _old_stdout
@@ -235,8 +312,8 @@ async function executeFilter(request: FilterExecutionRequest) {
     try {
         const pythonCode =
             request.type === 'runBuiltinFilter'
-                ? `_run_builtin_filter(${JSON.stringify(request.keyword)})`
-                : `_run_user_filter(${JSON.stringify(request.code)})`;
+                ? `_run_builtin_filter(${JSON.stringify(request.keyword)}, ${JSON.stringify(request.changeBatch || EMPTY_CHANGE_BATCH)})`
+                : `_run_user_filter(${JSON.stringify(request.code)}, ${JSON.stringify(request.changeBatch || EMPTY_CHANGE_BATCH)})`;
 
         const resultProxy: any = await runWithTimeout<any>(
             pyodide.runPythonAsync(pythonCode),
@@ -262,6 +339,7 @@ async function executeFilter(request: FilterExecutionRequest) {
             results: result.results || [],
             groups: result.groups || {},
             status: result.status || 'ok',
+            needsRebuild: result.needsRebuild,
             contextPatch: pendingContextPatch || undefined
         });
     } catch (error: any) {
@@ -273,6 +351,32 @@ async function executeFilter(request: FilterExecutionRequest) {
     } finally {
         (self as any).currentFontModel = null;
         pendingContextPatch = null;
+    }
+}
+
+async function inspectUserFilterSource(
+    request: Extract<WorkerRequest, { type: 'inspectUserFilterSource' }>
+) {
+    await ensureWorkerRuntime();
+
+    try {
+        const resultProxy: any = await pyodide.runPythonAsync(
+            `_inspect_user_filter_source(${JSON.stringify(request.code)})`
+        );
+        const result = resultProxy.toJs({ dict_converter: Object.fromEntries });
+        resultProxy.destroy();
+        (self as unknown as DedicatedWorkerGlobalScope).postMessage({
+            id: request.id,
+            ok: true,
+            eventTypes: result.eventTypes || [],
+            diagnostic: result.diagnostic || undefined
+        });
+    } catch (error: any) {
+        (self as unknown as DedicatedWorkerGlobalScope).postMessage({
+            id: request.id,
+            ok: false,
+            error: error?.message || String(error)
+        });
     }
 }
 
@@ -382,6 +486,11 @@ async function syncSharedContext(
 
     if (request.type === 'syncSharedContext') {
         await syncSharedContext(request);
+        return;
+    }
+
+    if (request.type === 'inspectUserFilterSource') {
+        await inspectUserFilterSource(request);
         return;
     }
 

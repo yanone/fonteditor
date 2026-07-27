@@ -1,4 +1,8 @@
 import { Logger } from './logger';
+import type {
+    GlyphFilterChangeBatch,
+    GlyphFilterEventType
+} from './glyph-filter-events';
 
 const console = new Logger('GlyphFilterWorkerClient');
 
@@ -7,6 +11,12 @@ export interface GlyphFilterWorkerResult {
     groups: Record<string, any>;
     status: string;
     contextPatch?: Record<string, any>;
+    needsRebuild?: boolean;
+}
+
+export interface UserFilterSourceInspection {
+    eventTypes: GlyphFilterEventType[];
+    diagnostic?: string;
 }
 
 interface PendingRequest {
@@ -20,6 +30,7 @@ interface RunBuiltinFilterRequest {
     keyword: string;
     fontJson: string;
     timeoutMs: number;
+    changeBatch: GlyphFilterChangeBatch;
 }
 
 interface RunUserFilterRequest {
@@ -28,6 +39,7 @@ interface RunUserFilterRequest {
     code: string;
     fontJson: string;
     timeoutMs: number;
+    changeBatch: GlyphFilterChangeBatch;
 }
 
 interface WorkerSuccessResponse {
@@ -40,6 +52,9 @@ interface WorkerSuccessResponse {
     contextPatch?: Record<string, any>;
     applied?: boolean;
     version?: number;
+    needsRebuild?: boolean;
+    eventTypes?: GlyphFilterEventType[];
+    diagnostic?: string;
 }
 
 interface WorkerErrorResponse {
@@ -54,12 +69,18 @@ type WorkerRequestPayload =
           keyword: string;
           fontJson: string;
           timeoutMs: number;
+          changeBatch: GlyphFilterChangeBatch;
       }
     | {
           type: 'runUserFilter';
           code: string;
           fontJson: string;
           timeoutMs: number;
+          changeBatch: GlyphFilterChangeBatch;
+      }
+    | {
+          type: 'inspectUserFilterSource';
+          code: string;
       }
     | {
           type: 'installPackages';
@@ -148,7 +169,16 @@ export class GlyphFilterWorkerClient {
                     results: success.results || [],
                     groups: success.groups || {},
                     status: success.status || 'ok',
+                    needsRebuild: success.needsRebuild,
                     contextPatch: success.contextPatch
+                });
+            } else if (
+                Array.isArray(success.eventTypes) ||
+                success.diagnostic
+            ) {
+                pending.resolve({
+                    eventTypes: success.eventTypes || [],
+                    diagnostic: success.diagnostic
                 });
             } else {
                 pending.resolve({ installed: success.installed || [] });
@@ -162,13 +192,13 @@ export class GlyphFilterWorkerClient {
         );
     }
 
-    private async sendRequest(
+    private async sendRequest<T = GlyphFilterWorkerResult>(
         payload: WorkerRequestPayload
-    ): Promise<GlyphFilterWorkerResult> {
+    ): Promise<T> {
         await this.ensureWorker();
 
         const id = this.requestId++;
-        return new Promise((resolve, reject) => {
+        return new Promise<T>((resolve, reject) => {
             this.pending.set(id, { resolve, reject });
 
             try {
@@ -183,26 +213,39 @@ export class GlyphFilterWorkerClient {
     async runBuiltinFilter(
         keyword: string,
         fontJson: string,
-        timeoutMs: number
+        timeoutMs: number,
+        changeBatch: GlyphFilterChangeBatch = { changes: [] }
     ): Promise<GlyphFilterWorkerResult> {
         return this.sendRequest({
             type: 'runBuiltinFilter',
             keyword,
             fontJson,
-            timeoutMs
+            timeoutMs,
+            changeBatch
         });
     }
 
     async runUserFilter(
         code: string,
         fontJson: string,
-        timeoutMs: number
+        timeoutMs: number,
+        changeBatch: GlyphFilterChangeBatch = { changes: [] }
     ): Promise<GlyphFilterWorkerResult> {
         return this.sendRequest({
             type: 'runUserFilter',
             code,
             fontJson,
-            timeoutMs
+            timeoutMs,
+            changeBatch
+        });
+    }
+
+    async inspectUserFilterSource(
+        code: string
+    ): Promise<UserFilterSourceInspection> {
+        return this.sendRequest<UserFilterSourceInspection>({
+            type: 'inspectUserFilterSource',
+            code
         });
     }
 

@@ -24,12 +24,16 @@ class UnencodedGlyphsFilter:
     path = "basic/glyph_categories"
     keyword = "com.context.unencoded"
     display_name = "Unencoded Glyphs"
+    event_types = {"glyph.created", "glyph.deleted", "glyph.unicode.changed"}
     
     def __init__(self):
         pass
     
     def visible(self):
         return True
+
+    def needs_rebuild(self, change_batch, font_view):
+        return {"action": "refresh"}
     
     def get_groups(self):
         return {}

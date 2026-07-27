@@ -20,9 +20,15 @@ import { GlyphFilterWorkerClient } from './glyph-filter-worker-client';
 import {
     MANAGED_FILE_CHANGED_EVENT,
     extractManagedChangedPaths,
-    normalizeManagedPath,
-    type ManagedFileChangedDetail
+    normalizeManagedPath
 } from './managed-file-events';
+import type { ManagedFileChangedDetail } from './managed-file-events';
+import {
+    isGlyphFilterEventType,
+    type GlyphFilterChange,
+    type GlyphFilterChangeBatch,
+    type GlyphFilterEventType
+} from './glyph-filter-events';
 
 const console = new Logger('GlyphOverviewFilters');
 
@@ -64,6 +70,7 @@ interface GlyphFilterPlugin {
     keyword: string;
     display_name: string;
     instance: any; // Python plugin instance
+    eventTypes: GlyphFilterEventType[];
     autoUpdateEvents?: string[];
     groups?: Record<string, GroupDefinition>;
     lastResults?: FilterResult[];
@@ -73,6 +80,7 @@ interface GlyphFilterPlugin {
     isUserFilter?: boolean; // True if this is a user-defined filter from disk
     filePath?: string; // Path to .py file for user filters
     pythonCode?: string; // Source code for user filters
+    validationDiagnostic?: string;
     cachedDataVersion?: number;
     cachedContextVersion?: number;
 }
@@ -128,6 +136,8 @@ export class GlyphOverviewFilterManager {
     private inFlightCountRequests: number = 0;
     private sharedPluginContext: Record<string, any> = {};
     private sharedPluginContextVersion: number = 1;
+    // Retained only while old UI lifecycle code is removed; semantic batches do
+    // the actual filter scheduling.
     private autoUpdateListeners: Map<string, EventListener> = new Map();
     private pendingAutoUpdatePluginKeywords: Set<string> = new Set();
     private autoUpdateFlushScheduled: boolean = false;
@@ -482,6 +492,102 @@ export class GlyphOverviewFilterManager {
         return { ...this.sharedPluginContext };
     }
 
+    /** Route one committed semantic batch to only subscribed filters. */
+    async handleCommittedGlyphFilterBatch(
+        batch: GlyphFilterChangeBatch
+    ): Promise<void> {
+        const eventTypes = new Set(batch.changes.map((change) => change.type));
+        if (eventTypes.size === 0 || !window.currentFontModel) {
+            return;
+        }
+
+        for (const plugin of this.getAllLoadedPlugins()) {
+            if (
+                !plugin.eventTypes.some((eventType) =>
+                    eventTypes.has(eventType)
+                )
+            ) {
+                continue;
+            }
+            this.invalidatePluginCache(plugin);
+            if (plugin === this.activeFilter) {
+                await this.runFilter(plugin, batch);
+            } else {
+                await this.runPluginForCount(plugin, undefined, batch);
+            }
+        }
+    }
+
+    /** Derive the filter-facing semantic contract from committed change paths. */
+    async handleCommittedChangeEntries(
+        entries: Array<{
+            path: string;
+            op: string;
+            oldValue: unknown;
+            newValue: unknown;
+        }>
+    ): Promise<void> {
+        const changes: GlyphFilterChange[] = [];
+        for (const entry of entries) {
+            const path = entry.path.split('.');
+            if (path[0] === 'masters') {
+                changes.push({
+                    type: 'font.masters.changed',
+                    metadata: {
+                        masterIds:
+                            window.currentFontModel?.masters?.map(
+                                (master) => master.id
+                            ) || []
+                    }
+                });
+                continue;
+            }
+            if (path[0] !== 'glyphs' || !path[1]) {
+                continue;
+            }
+            const glyphName = path[1];
+            if (path.length === 2 && entry.op === 'add') {
+                changes.push({
+                    type: 'glyph.created',
+                    metadata: { glyphName }
+                });
+            } else if (path.length === 2 && entry.op === 'remove') {
+                changes.push({
+                    type: 'glyph.deleted',
+                    metadata: { glyphName }
+                });
+            } else if (path[2] === 'name') {
+                changes.push({
+                    type: 'glyph.renamed',
+                    metadata: {
+                        glyphName: String(entry.newValue || glyphName),
+                        previousGlyphName: String(entry.oldValue || glyphName)
+                    }
+                });
+            } else if (path[2] === 'codepoints') {
+                changes.push({
+                    type: 'glyph.unicode.changed',
+                    metadata: { glyphName }
+                });
+            } else if (path[2] === 'layers') {
+                changes.push({
+                    type: 'glyph.compatibility.changed',
+                    metadata: { glyphName }
+                });
+            }
+        }
+        const deduplicated = new Map<string, GlyphFilterChange>();
+        for (const change of changes) {
+            deduplicated.set(
+                `${change.type}:${JSON.stringify(change.metadata)}`,
+                change
+            );
+        }
+        await this.handleCommittedGlyphFilterBatch({
+            changes: [...deduplicated.values()]
+        });
+    }
+
     private getAllLoadedPlugins(): GlyphFilterPlugin[] {
         return [...this.plugins, ...this.userFilters];
     }
@@ -631,7 +737,7 @@ export class GlyphOverviewFilterManager {
                             'path': getattr(plugin_instance, 'path', ''),
                             'keyword': getattr(plugin_instance, 'keyword', ep.name),
                             'display_name': getattr(plugin_instance, 'display_name', ep.name),
-                            'auto_update_events': getattr(plugin_instance, 'auto_update_events', []),
+                            'event_types': list(getattr(plugin_instance, 'event_types', [])),
                             'instance': plugin_instance
                         })
                     except Exception as e:
@@ -704,9 +810,22 @@ export class GlyphOverviewFilterManager {
                     plugin.groups = {};
                 }
 
-                plugin.autoUpdateEvents = this.normalizeAutoUpdateEvents(
-                    plugin.auto_update_events
-                );
+                const eventTypes = Array.isArray(plugin.event_types)
+                    ? plugin.event_types.filter(
+                          (
+                              eventType: unknown
+                          ): eventType is GlyphFilterEventType =>
+                              typeof eventType === 'string' &&
+                              isGlyphFilterEventType(eventType)
+                      )
+                    : [];
+                if (eventTypes.length === 0) {
+                    console.error(
+                        `Plugin "${plugin.keyword}" must declare supported event_types.`
+                    );
+                    continue;
+                }
+                plugin.eventTypes = eventTypes;
 
                 this.plugins.push(plugin as GlyphFilterPlugin);
             }
@@ -724,7 +843,6 @@ export class GlyphOverviewFilterManager {
                 this.plugins.map((p) => p.display_name)
             );
             this.loaded = true;
-            this.refreshAutoUpdateListeners();
 
             // Apply pending active filter if any
             if ((this as any)._pendingActiveFilter) {
@@ -864,6 +982,9 @@ export class GlyphOverviewFilterManager {
                     const fileName = pathParts.pop()!;
                     const folderPath = pathParts.join('/');
 
+                    const inspection =
+                        await this.workerClient.inspectUserFilterSource(code);
+
                     // Parse GROUPS from code (simple regex extraction)
                     let groups: Record<string, GroupDefinition> = {};
                     try {
@@ -884,6 +1005,8 @@ export class GlyphOverviewFilterManager {
                         display_name: fileName,
                         instance: null, // Will be created at runtime
                         groups: groups,
+                        eventTypes: inspection.eventTypes,
+                        validationDiagnostic: inspection.diagnostic,
                         isUserFilter: true,
                         filePath: file.path,
                         pythonCode: code
@@ -950,6 +1073,9 @@ export class GlyphOverviewFilterManager {
             // Update counts for user filters if font is loaded
             if (window.currentFontModel) {
                 for (const filter of this.userFilters) {
+                    if (filter.validationDiagnostic) {
+                        continue;
+                    }
                     await this.runPluginForCount(filter);
                     if (!isCurrentScan()) {
                         return;
@@ -1341,12 +1467,22 @@ export class GlyphOverviewFilterManager {
 
         const label = document.createElement('span');
         label.className = 'glyph-filter-item-label';
-        label.textContent = plugin.display_name;
+        label.textContent = plugin.validationDiagnostic
+            ? `${plugin.display_name} (Invalid)`
+            : plugin.display_name;
 
         const count = document.createElement('span');
         count.className = 'glyph-filter-item-count';
-        count.textContent =
-            plugin.glyphCount !== undefined ? String(plugin.glyphCount) : '—';
+        count.textContent = plugin.validationDiagnostic
+            ? 'Error'
+            : plugin.glyphCount !== undefined
+              ? String(plugin.glyphCount)
+              : '—';
+
+        if (plugin.validationDiagnostic) {
+            item.classList.add('has-error');
+            item.title = plugin.validationDiagnostic;
+        }
 
         item.appendChild(label);
         item.appendChild(count);
@@ -1534,7 +1670,22 @@ export class GlyphOverviewFilterManager {
     /**
      * Run a filter plugin and apply results
      */
-    async runFilter(plugin: GlyphFilterPlugin): Promise<void> {
+    async runFilter(
+        plugin: GlyphFilterPlugin,
+        changeBatch: GlyphFilterChangeBatch = {
+            changes: [{ type: 'font.opened', metadata: {} }]
+        }
+    ): Promise<void> {
+        if (plugin.validationDiagnostic) {
+            plugin.hasError = true;
+            plugin.glyphCount = 0;
+            this.updatePluginCount(plugin);
+            this.glyphOverview?.showFilterError(
+                plugin.display_name,
+                plugin.validationDiagnostic
+            );
+            return;
+        }
         if (!window.currentFontModel) {
             console.error('Font not available');
             return;
@@ -1586,8 +1737,12 @@ export class GlyphOverviewFilterManager {
 
             const execResult = await this.executeFilter(
                 plugin,
-                fontSnapshotJson
+                fontSnapshotJson,
+                changeBatch
             );
+            if (execResult.status === 'not_needed') {
+                return;
+            }
             let results = execResult.results;
             const groups = execResult.groups;
             const status = execResult.status || 'ok';
@@ -1790,7 +1945,8 @@ export class GlyphOverviewFilterManager {
 
     private async executeFilter(
         plugin: GlyphFilterPlugin,
-        fontSnapshotJson: string | null
+        fontSnapshotJson: string | null,
+        changeBatch: GlyphFilterChangeBatch
     ): Promise<FilterExecutionResult> {
         if (!fontSnapshotJson) {
             throw new Error('No font snapshot available for worker execution');
@@ -1816,13 +1972,15 @@ export class GlyphOverviewFilterManager {
             result = await this.workerClient.runUserFilter(
                 plugin.pythonCode,
                 fontSnapshotJson,
-                this.FILTER_TIMEOUT_MS
+                this.FILTER_TIMEOUT_MS,
+                changeBatch
             );
         } else {
             result = await this.workerClient.runBuiltinFilter(
                 plugin.keyword,
                 fontSnapshotJson,
-                this.FILTER_TIMEOUT_MS
+                this.FILTER_TIMEOUT_MS,
+                changeBatch
             );
         }
 
@@ -2249,9 +2407,18 @@ export class GlyphOverviewFilterManager {
      */
     private async runPluginForCount(
         plugin: GlyphFilterPlugin,
-        fontSnapshotJson: string | null = null
+        fontSnapshotJson: string | null = null,
+        changeBatch: GlyphFilterChangeBatch = {
+            changes: [{ type: 'font.opened', metadata: {} }]
+        }
     ): Promise<void> {
         if (!window.currentFontModel) return;
+        if (plugin.validationDiagnostic) {
+            plugin.hasError = true;
+            plugin.glyphCount = 0;
+            this.updatePluginCount(plugin);
+            return;
+        }
 
         const dataVersion = this.getCurrentDataVersion();
         if (this.canUseCachedFilterResults(plugin, dataVersion)) {
@@ -2272,7 +2439,7 @@ export class GlyphOverviewFilterManager {
         try {
             const countTimeoutMs = this.FILTER_TIMEOUT_MS + 2000;
             const execResult = (await Promise.race([
-                this.executeFilter(plugin, snapshotJson),
+                this.executeFilter(plugin, snapshotJson, changeBatch),
                 new Promise<never>((_, reject) => {
                     window.setTimeout(() => {
                         reject(
@@ -2283,6 +2450,9 @@ export class GlyphOverviewFilterManager {
                     }, countTimeoutMs);
                 })
             ])) as FilterExecutionResult;
+            if (execResult.status === 'not_needed') {
+                return;
+            }
             const results = execResult.results;
             plugin.groups = execResult.groups;
 

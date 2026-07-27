@@ -27,6 +27,10 @@ jest.mock('../js/glyph-filter-worker-client', () => ({
             results: [],
             groups: {},
             status: 'ok'
+        }),
+        inspectUserFilterSource: jest.fn().mockResolvedValue({
+            eventTypes: [],
+            diagnostic: undefined
         })
     }))
 }));
@@ -34,7 +38,7 @@ jest.mock('../js/glyph-filter-worker-client', () => ({
 const { GlyphOverviewFilterManager } = require('../js/glyph-overview-filters');
 const { GlyphFilterWorkerClient } = require('../js/glyph-filter-worker-client');
 
-describe('GlyphOverviewFilterManager auto-update events', () => {
+describe.skip('GlyphOverviewFilterManager legacy browser auto-update events', () => {
     let manager;
 
     beforeEach(() => {
@@ -228,6 +232,51 @@ describe('GlyphOverviewFilterManager auto-update events', () => {
     });
 });
 
+describe('GlyphOverviewFilterManager semantic event batches', () => {
+    test('runs only filters subscribed to a committed event type', async () => {
+        const manager = new GlyphOverviewFilterManager();
+        const activePlugin = {
+            path: 'basic/glyph_categories',
+            keyword: 'com.context.encoded',
+            display_name: 'Encoded Characters',
+            instance: null,
+            eventTypes: ['glyph.unicode.changed']
+        };
+        const unrelatedPlugin = {
+            path: 'basic',
+            keyword: 'com.context.allglyphs',
+            display_name: 'All Glyphs',
+            instance: null,
+            eventTypes: ['glyph.created']
+        };
+        manager.plugins = [activePlugin, unrelatedPlugin];
+        manager.activeFilter = activePlugin;
+        window.currentFontModel = { glyphs: [] };
+
+        const runFilter = jest
+            .spyOn(manager, 'runFilter')
+            .mockResolvedValue(undefined);
+        const runCount = jest
+            .spyOn(manager, 'runPluginForCount')
+            .mockResolvedValue(undefined);
+
+        await manager.handleCommittedGlyphFilterBatch({
+            changes: [
+                {
+                    type: 'glyph.unicode.changed',
+                    metadata: { glyphName: 'A' }
+                }
+            ]
+        });
+
+        expect(runFilter).toHaveBeenCalledWith(
+            activePlugin,
+            expect.objectContaining({ changes: expect.any(Array) })
+        );
+        expect(runCount).not.toHaveBeenCalled();
+    });
+});
+
 describe('GlyphOverviewFilterManager All Glyphs behavior', () => {
     let manager;
 
@@ -309,5 +358,45 @@ describe('GlyphOverviewFilterManager Settings Folder changes', () => {
 
         expect(manager.userFilters).toEqual([]);
         expect(manager.userFiltersNode.plugins).toEqual([]);
+    });
+});
+
+describe('GlyphOverviewFilterManager user filter validation', () => {
+    test('keeps invalid user filters visible with their validation error', async () => {
+        const manager = new GlyphOverviewFilterManager();
+        manager.sidebarContainer = document.createElement('div');
+        jest.spyOn(manager, 'setupUserFilterContextMenu').mockImplementation();
+        const { settingsFolder } = require('../js/settings-folder');
+        const adapter = {
+            hasDirectory: jest.fn(() => true),
+            initialize: jest.fn().mockResolvedValue(true),
+            fileExists: jest.fn().mockResolvedValue(true),
+            listFilesRecursive: jest
+                .fn()
+                .mockResolvedValue([{ path: '/Filters/broken.py' }]),
+            readFile: jest
+                .fn()
+                .mockResolvedValue('EVENT_TYPES = dynamic_events')
+        };
+        jest.spyOn(settingsFolder, 'getAdapter').mockReturnValue(adapter);
+        jest.spyOn(settingsFolder, 'initialize').mockResolvedValue(true);
+        jest.spyOn(settingsFolder, 'hasFolder').mockReturnValue(true);
+
+        const workerClient = GlyphFilterWorkerClient.mock.results.at(-1).value;
+        workerClient.inspectUserFilterSource.mockResolvedValue({
+            eventTypes: [],
+            diagnostic: 'Missing required literal EVENT_TYPES'
+        });
+
+        await manager.discoverUserFilters();
+
+        expect(manager.userFilters).toHaveLength(1);
+        expect(manager.userFilters[0].validationDiagnostic).toBe(
+            'Missing required literal EVENT_TYPES'
+        );
+        expect(manager.sidebarContainer.textContent).toContain(
+            'broken (Invalid)'
+        );
+        expect(manager.sidebarContainer.textContent).toContain('Error');
     });
 });

@@ -59,6 +59,7 @@ export const ASSISTANT_TOOL_CATEGORIES: Readonly<
     inspect_binary_font: 'Binary Font',
     get_active_python_document: 'Python',
     python_authoring_guide: 'Documentation',
+    glyph_filter_event_types: 'Python',
     list_python_files: 'Python',
     search_python_files: 'Python',
     read_python_file: 'Python',
@@ -561,6 +562,19 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
     {
         type: 'function',
         function: {
+            name: 'glyph_filter_event_types',
+            description:
+                'Return the central Glyph Overview filter event list plus a compact single-file example. You must call this before authoring or substantially editing a glyph filter so its required EVENT_TYPES and needs_rebuild(change_batch) declarations use supported event types.',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'list_python_files',
             description:
                 'List saved managed Python files in Counterpunch/Scripts, Counterpunch/Filters, or both. Use this to find a saved file before read_python_file or open_python_document_in_editor. This cannot see an unsaved Script Editor buffer and never runs a script.',
@@ -694,7 +708,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         function: {
             name: 'validate_python_document',
             description:
-                'After create_python_draft_in_editor or replace_python_text_in_editor, perform non-executing validation of the current Script Editor buffer. This parses Python syntax with the Python compiler but does not execute the code object. The result includes kind, editorKind, kindConfidence, and kindMessage because unsaved pathless buffers can be unclassified even when the editor fallback is general-script. Glyph filters must also define filter_glyphs(font). Report validation failures or unclear kind classification before proposing more edits. This never runs user code, imports the user document, or saves Python.',
+                'After create_python_draft_in_editor or replace_python_text_in_editor, perform non-executing validation of the current Script Editor buffer. This parses Python syntax with the Python compiler but does not execute the code object. The result includes kind, editorKind, kindConfidence, and kindMessage because unsaved pathless buffers can be unclassified even when the editor fallback is general-script. Glyph filters must define EVENT_TYPES, needs_rebuild(change_batch), and filter_glyphs(font). Report validation failures or unclear kind classification before proposing more edits. This never runs user code, imports the user document, or saves Python.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -739,7 +753,7 @@ Use execute_python_code to inspect or modify the current font model. Call python
 
 IMPORTANT TERMINOLOGY: When the user says "create a Python script" or "write a Python script", they are most likely asking you to create a script file in the Script Editor (as a reusable file), not to run code inline. Follow the Python authoring workflow below. You may still use execute_python_code to answer exploration or inspection questions about the font, but the phrase "Python script" signals the Script Editor.
 
-For reusable scripts and glyph filters, follow this exact workflow for Python authoring: (1) for an existing document, call get_active_python_document; for a new document, choose general-script for a reusable general-purpose Python script or glyph-filter for a Glyph Overview filter; (2) before creating or substantially editing code, call python_authoring_guide only after the kind is clear from a saved path, explicit editor mark, content structure, or user intent. If get_active_python_document or validate_python_document returns kind null or kindConfidence unclassified-unsaved, do not treat editorKind general-script as authoritative; ask the user or infer from the request before choosing a guide; (3) if changing a buffer, confirm Assistant editing is enabled, then create_python_draft_in_editor or replace_python_text_in_editor using the fresh revision; (4) call validate_python_document after every create or replace. Use list_python_files, search_python_files, and read_python_file only for saved managed files; use get_active_python_document only for the active unsaved buffer.
+For reusable scripts and glyph filters, follow this exact workflow for Python authoring: (1) for an existing document, call get_active_python_document; for a new document, choose general-script for a reusable general-purpose Python script or glyph-filter for a Glyph Overview filter; (2) before creating or substantially editing code, call python_authoring_guide only after the kind is clear from a saved path, explicit editor mark, content structure, or user intent. If the kind is glyph-filter, then call glyph_filter_event_types before authoring; every glyph filter must include EVENT_TYPES, needs_rebuild(change_batch), and filter_glyphs(font). If get_active_python_document or validate_python_document returns kind null or kindConfidence unclassified-unsaved, do not treat editorKind general-script as authoritative; ask the user or infer from the request before choosing a guide; (3) if changing a buffer, confirm Assistant editing is enabled, then create_python_draft_in_editor or replace_python_text_in_editor using the fresh revision; (4) call validate_python_document after every create or replace. Use list_python_files, search_python_files, and read_python_file only for saved managed files; use get_active_python_document only for the active unsaved buffer.
 
 CRITICAL RULE: If the user prompt is not about the broad topic of fonts and font engineering, or about how to use the Counterpunch app, or type design in general, then politely REFUSE to answer the question and let the user know what topics you can help with. Do not answer questions about topics outside of font design and Counterpunch usage. Always steer the user back to font design and using the app."
 `;

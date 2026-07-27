@@ -24,6 +24,7 @@ class EncodedGlyphsFilter:
     path = "basic/glyph_categories"
     keyword = "com.context.encoded"
     display_name = "Encoded Characters"
+    event_types = {"glyph.created", "glyph.deleted", "glyph.unicode.changed"}
 
     # Unicode block ranges
     UNICODE_BLOCKS = [
@@ -86,6 +87,9 @@ class EncodedGlyphsFilter:
 
     def visible(self):
         return True
+
+    def needs_rebuild(self, change_batch, font_view):
+        return {"action": "refresh"}
 
     def get_groups(self):
         groups = {

@@ -27,7 +27,12 @@ class IncompatibleOutlinesFilter(BaseGlyphFilterPlugin):
     path = "basic/debugging"
     keyword = "com.context.incompatible_outlines"
     display_name = "Incompatible Outlines"
-    auto_update_events = ["layerFingerprintChanged"]
+    event_types = {
+        "glyph.created",
+        "glyph.deleted",
+        "glyph.compatibility.changed",
+        "font.masters.changed",
+    }
 
     def __init__(self):
         pass
@@ -37,6 +42,9 @@ class IncompatibleOutlinesFilter(BaseGlyphFilterPlugin):
 
     def get_groups(self):
         return {}
+
+    def needs_rebuild(self, change_batch, font_view):
+        return {"action": "refresh"}
 
     def filter_glyphs(self, font):
         """Return glyphs whose outline compatibility check fails."""

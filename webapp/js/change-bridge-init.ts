@@ -2488,6 +2488,9 @@ export async function handleCommittedChangeRefresh(
     }
 
     await refreshGlyphOverviewFromCommittedEntries(entries);
+    await window.glyphOverviewFilterManager?.handleCommittedChangeEntries(
+        entries
+    );
 }
 
 export async function handleRemoteChangeRefresh(

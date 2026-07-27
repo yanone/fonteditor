@@ -294,6 +294,14 @@ declare global {
             setSharedPluginContext: (context: Record<string, any>) => void;
             updateSharedPluginContext: (patch: Record<string, any>) => void;
             getSharedPluginContext: () => Record<string, any>;
+            handleCommittedChangeEntries: (
+                entries: Array<{
+                    path: string;
+                    op: string;
+                    oldValue: unknown;
+                    newValue: unknown;
+                }>
+            ) => Promise<void>;
         };
 
         // From glyph-overview.ts / overview-view.ts
