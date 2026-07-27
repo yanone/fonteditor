@@ -21,6 +21,7 @@ import {
     reRunLastPythonScript,
     getLastRunPythonScript
 } from './run-python-script-dialog';
+import './add-glyphs-dialog';
 
 const console = new Logger('ToolbarMenus');
 
@@ -239,6 +240,21 @@ function getEditMenuItems(): ToolbarMenuItem[] {
             shortcut: '⌘⇧Z',
             disabled: !hasFontOpen,
             action: triggerRedo
+        }
+    ];
+}
+
+function getFontMenuItems(): ToolbarMenuItem[] {
+    const hasFontOpen = !!window.fontManager?.currentFont;
+    return [
+        {
+            label: 'Add Glyph(s)…',
+            icon: 'add_circle',
+            shortcut: '⌘⇧G',
+            disabled: !hasFontOpen,
+            action: async () => {
+                await window.addGlyphsDialog?.open();
+            }
         }
     ];
 }
@@ -481,6 +497,18 @@ function installGlobalShortcuts(): void {
                 return;
             }
 
+            if (
+                event.shiftKey &&
+                key === 'g' &&
+                window.fontManager?.currentFont
+            ) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+                void window.addGlyphsDialog?.open();
+                return;
+            }
+
             if (event.shiftKey && key === 's') {
                 event.preventDefault();
                 event.stopPropagation();
@@ -512,6 +540,11 @@ function initToolbarMenus(): void {
         'toolbar-edit-menu-btn',
         'toolbar-edit-menu-backdrop',
         getEditMenuItems
+    );
+    createToolbarMenu(
+        'toolbar-font-menu-btn',
+        'toolbar-font-menu-backdrop',
+        getFontMenuItems
     );
     createToolbarMenu(
         'toolbar-window-menu-btn',

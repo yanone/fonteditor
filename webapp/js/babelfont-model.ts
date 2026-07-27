@@ -13,6 +13,10 @@
 
 import type { Babelfont } from './babelfont';
 import { setYPath } from './change-bridge-ydoc';
+import {
+    glyphDataPluginManager,
+    type GlyphDataSearchResult
+} from './glyph-data-plugin-manager';
 import { assertModelMutationAllowed } from './model-mutation-policy';
 import { parseNodeString, serializeNodeArray } from './node-encoding';
 
@@ -10039,6 +10043,26 @@ export class Glyph extends ArrayElementBase {
         recordAndMarkDirty(this, 'codepoints', old, value);
     }
 
+    /**
+     * Read-only Unicode metadata from the active Glyph Data provider.
+     * Encoded base glyphs win over editable glyph names; dotted glyphs inherit
+     * the identity of their base glyph before a name fallback is attempted.
+     */
+    get glyphData(): GlyphDataSearchResult | undefined {
+        const font = this.parent() as Font | null;
+        const baseName = this.name.split('.', 1)[0] || this.name;
+        const baseGlyph =
+            baseName !== this.name ? font?.findGlyph(baseName) : this;
+        const target = baseGlyph || this;
+        return (
+            glyphDataPluginManager.getGlyphDataForUnicode(target.codepoints) ||
+            glyphDataPluginManager.getGlyphDataForName(target.name) ||
+            (baseGlyph
+                ? undefined
+                : glyphDataPluginManager.getGlyphDataForName(baseName))
+        );
+    }
+
     get layers(): Layer[] | undefined {
         if (!this.data.layers) return undefined;
 
@@ -12873,6 +12897,26 @@ export class Font extends ModelBase {
         this.invalidateReverseComponentIndex();
         recordAddAndMarkDirty(['glyphs', name], glyphData);
         return new Glyph(this._data.glyphs, this._data.glyphs.length - 1, this);
+    }
+
+    /** Add several Unicode-backed glyphs as one undoable document edit. */
+    addGlyphs(
+        glyphs: Array<{
+            name: string;
+            codepoints: number[];
+            category?: Babelfont.GlyphCategory | string;
+        }>
+    ): Glyph[] {
+        return withBridgeTransaction('Add glyphs', () =>
+            glyphs.map((glyph) => {
+                const added = this.addGlyph(
+                    glyph.name,
+                    glyph.category || 'Base'
+                );
+                added.codepoints = glyph.codepoints;
+                return added;
+            })
+        );
     }
 
     /**

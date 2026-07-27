@@ -16,6 +16,8 @@ import type { WindowRoleManager } from './window-role';
 import type { AutomationWindowMetadata } from './automation-runtime';
 import type { CloudPlugin, CloudEligibility, CloudAsset } from './cloud-plugin';
 import type { FindGlyphDialog } from './find-glyph-dialog';
+import type { GlyphDataPluginManager } from './glyph-data-plugin-manager';
+import type { AddGlyphsDialog } from './add-glyphs-dialog';
 
 declare global {
     var marked: any;
@@ -297,6 +299,10 @@ declare global {
         // From glyph-overview.ts / overview-view.ts
         GlyphOverview: new (container: HTMLElement) => any;
         glyphOverviewInstance: any;
+
+        // From glyph-data-plugin-manager.ts
+        glyphDataPluginManager: GlyphDataPluginManager;
+        addGlyphsDialog: AddGlyphsDialog;
 
         // From file-browser.js
         navigateToPath: (

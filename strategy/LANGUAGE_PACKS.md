@@ -67,7 +67,7 @@ One package may provide any combination of the following plugin roles:
 | Role                 | Responsibility                                                                          |
 | -------------------- | --------------------------------------------------------------------------------------- |
 | Character database   | Characters, Unicode sequences, unencoded glyph concepts, aliases, and language coverage |
-| Glyph-name resolver  | Unicode-to-name and name-to-glyph-identity lookup                                       |
+| Glyph Data           | Unicode/name lookup and read-only Unicode glyph metadata                                |
 | Composition provider | Candidate component recipes, starting with Unicode decomposition and adding overrides   |
 | Anchor provider      | Initial anchor recipes and placement expressions                                        |
 | Feature generator    | Regenerable OpenType feature-code blocks                                                |
@@ -313,6 +313,15 @@ Conflicting active artifacts must be ordered explicitly by the selected
 profiles or reported as a conflict. The resolved index is the normal lookup
 mechanism for glyph creation, name completion, search, and preview; it is not
 a second editable glyph database.
+
+The baseline Glyph Data provider ships a flattened, versioned Unicode Character
+Database artifact inside its wheel. It never downloads Unicode data at editor
+runtime. It includes `ArabicShaping.txt` joining type/group data and Unicode
+compatibility decompositions, so Arabic joining and presentation-form metadata
+remain derived from authoritative Unicode data. A glyph's stored Unicode
+sequence remains authoritative over its editable name: for `base.alt`, the host
+first resolves `base`, then looks up its Unicode sequence, and only falls back
+to that base glyph's current name when no Unicode sequence is present.
 
 ## Composition And Anchors
 
@@ -652,7 +661,8 @@ The plugin types work together as follows:
 
 - A **Character database** says which encoded characters, Unicode sequences,
   and unencoded glyph concepts matter for a language or coverage set.
-- A **Glyph-name resolver** supplies its versioned glyph-identity artifact.
+- A **Glyph Data** provider supplies its versioned glyph-identity artifact and
+  read-only Unicode metadata.
   Counterpunch combines active artifacts in the font's saved priority order so
   a glyph name and a Unicode sequence resolve to one authoritative identity.
 - A **Composition provider** uses Unicode decomposition where possible and

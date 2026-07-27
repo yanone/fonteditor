@@ -8,8 +8,8 @@
 
 - [Overview](#overview)
 - [Class Reference](#class-reference)
-    - [Font](#font) -
-    - [Glyph](#glyph) -
+  - [Font](#font) -
+  - [Glyph](#glyph) -
   - [FeatureVariationGlyph](#featurevariationglyph) - An authorable view over one conditional Glyphs feature-variation layer family.
   - [Layer](#layer) - Layer in a glyph representing a master or intermediate design
   - [Shape](#shape) - Shape wrapper that can contain either a Component or a Path
@@ -130,7 +130,21 @@ font = Font()
 ### Methods
 
 #### `rebuildAutomaticCompositesForGlyphs(changedGlyphNames: Set<string> | None = None, options: { allowedGlyphNames?: Set<string>; preferredLayerId?: string | null; preferredSourceGlyphName?: string | null; } | None = None) -> Set<string>`
-#### `recomputeMetricsKeys(changedGlyphNames: Set<string> | None = None, options: { allowedGlyphNames?: Set<string>; skipAutomaticCompositeRebuild?: boolean; } | None = None) -> Set<string>`
+#### `collectMetricsKeyDependentGlyphs(sourceGlyphNames: Iterable<string>) -> Set<string>`
+Collect glyphs whose metrics keys / automatic-offset edges depend on the
+given source glyphs, whether or not their stored sidebearings currently
+need updating. Used by cascading commit so live-already-synced
+dependents are still persisted into Yjs.
+
+#### `collectMetricsKeyPrerequisiteGlyphs(glyphNames: Iterable<string>) -> Set<string>`
+Return the transitive metrics-key prerequisites of glyphs that must be
+recomposed live. A visible glyph can reference a hidden glyph through a
+metrics key (for example a.ss03 =|n); its value is not correct until the
+hidden reference and its own prerequisites have settled. The live
+recomposition closure uses this to close its allowed mutation set before
+running the same work queue as the all-scope commit path.
+
+#### `recomputeMetricsKeys(changedGlyphNames: Set<string> | None = None, options: { allowedGlyphNames?: Set<string>; skipAutomaticCompositeRebuild?: boolean; /** The caller already rebuilt automatic composites for the initial * sources | None = None, but metric-induced changes must still rebuild their * own automatic dependents. */ skipInitialAutomaticCompositeRebuild?: boolean; }) -> Set<string>`
 #### `findGlyph(name: str) -> [Glyph](#glyph) | None`
 Find a glyph by name
 
@@ -155,6 +169,10 @@ glyph = font.findGlyphByCodepoint(0x0041)  # Find 'A'
 ```
 
 #### `invalidateReverseComponentIndex() -> None`
+#### `invalidateMetricsKeyDependencyEntries() -> None`
+Drop only the metrics-key dependency cache. Call when a metrics key is
+added, changed, or removed without the glyph set changing.
+
 #### `getGlyphNamesByLengthDesc() -> list[str]`
 Returns glyph names sorted by length descending, cached. Used by metrics-key
 parsing for longest-prefix matching. Cache is invalidated when glyphs are
@@ -209,6 +227,9 @@ Add a new glyph to the font
 glyph = font.addGlyph("myGlyph", "Base")
 ```
 
+#### `addGlyphs(glyphs: Array<{ name: string; codepoints: number[]; category?: Babelfont.GlyphCategory | string; }>) -> list[[Glyph](#glyph)]`
+Add several Unicode-backed glyphs as one undoable document edit.
+
 #### `removeGlyph(name: str) -> bool`
 Remove a glyph by name
 
@@ -217,7 +238,7 @@ Remove a glyph by name
 font.removeGlyph("oldGlyph")
 ```
 
-#### `toJSONString() -> str`
+#### `toJSONString(options: { compileFacing?: boolean } | None = None) -> str`
 Serialize the font back to JSON string
 
 #### `fromJSONString(json: str) -> [Font](#font)`
@@ -285,6 +306,9 @@ glyph = font.findGlyph("A")
 
 - **`featureVariations`** (list[FeatureVariationGlyph]): Synthetic, authorable views over this glyph's raw Glyphs feature-variation layers.
 - **`BUILTIN_CATEGORIES`** (Any)
+- **`glyphData`** (GlyphDataSearchResult | None): Read-only Unicode metadata from the active Glyph Data provider.
+Encoded base glyphs win over editable glyph names; dotted glyphs inherit
+the identity of their base glyph before a name fallback is attempted.
 - **`layers`** (list[[Layer](#layer)] | None)
 - **`isCompatible`** (bool): Returns True/False based on whether the outline structure (components + paths + anchors) is compatible across all main layers of this glyph.
 
@@ -293,7 +317,8 @@ glyph = font.findGlyph("A")
 #### `getPathSegment() -> list[(string | number)]`
 #### `getFeatureVariationLayerEntries(familyId: str | None = None) -> Array<{ familyId: string; layer: Layer }>`
 #### `addFeatureVariation(axisRules: list[Unsafe]) -> FeatureVariationGlyph`
-Create one associated feature-variation layer for every base master layer.
+Create one associated feature-variation layer for every base master layer,
+copying each layer's materialized background when present.
 
 #### `removeFeatureVariation(featureVariation: FeatureVariationGlyph | str) -> None`
 Delete every raw layer belonging to a feature-variation family.
@@ -404,6 +429,13 @@ sorted by name and guides excluded.
 ### Methods
 
 #### `toJSON() -> Unsafe`
+[object Object],[object Object],[object Object]
+
+#### `toCompileJSON() -> Unsafe`
+Compile-facing serialization: applies automatic `=+/-=` left offsets to
+component translates so fontc / worker preview see physical ink and
+advance. Must not be written back into the resting model or Yjs.
+
 #### `invalidateShapeCache() -> None`
 Force shape wrapper rebuild on next access.
 Call after replacing `data.shapes` externally so that

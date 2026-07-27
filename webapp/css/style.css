@@ -14,6 +14,89 @@
     font-display: swap;
 }
 
+/* Glyph Data search uses the shared info-popup language with a denser result row. */
+.add-glyphs-popup {
+    width: min(860px, calc(100vw - 32px));
+    max-width: 860px;
+}
+
+.add-glyph-list {
+    max-height: min(58vh, 580px);
+    overflow-y: auto;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    margin-top: 12px;
+}
+
+.add-glyph-row {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--border-primary);
+    color: var(--text-primary);
+    cursor: pointer;
+    display: grid;
+    font: inherit;
+    gap: 12px;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    padding: 8px 12px;
+    text-align: left;
+    width: 100%;
+}
+
+.add-glyph-row:last-child {
+    border-bottom: 0;
+}
+
+.add-glyph-row:hover,
+.add-glyph-row.is-active {
+    background: var(--background-hover);
+}
+
+.add-glyph-row.is-selected {
+    background: color-mix(
+        in srgb,
+        var(--accent-blue) 18%,
+        var(--background-primary)
+    );
+}
+
+.add-glyph-row:disabled {
+    color: var(--text-faint);
+    cursor: default;
+}
+
+.add-glyph-preview {
+    font-family: system-ui, sans-serif;
+    font-size: 28px;
+    line-height: 1;
+    text-align: center;
+}
+
+.add-glyph-details {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.add-glyph-details strong {
+    font-family: var(--font-families-mono);
+    font-size: 13px;
+}
+
+.add-glyph-details span,
+.add-glyph-properties {
+    color: var(--text-tertiary);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.add-glyph-properties {
+    text-align: right;
+}
+
 /* Local Inter UI font for canvas labels */
 @font-face {
     font-family: 'Inter UI';

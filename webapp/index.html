@@ -310,6 +310,16 @@
                         >
                     </button>
                     <button
+                        id="toolbar-font-menu-btn"
+                        class="toolbar-menu-trigger"
+                        title="Font"
+                    >
+                        <span>Font</span>
+                        <span class="material-symbols-outlined"
+                            >expand_more</span
+                        >
+                    </button>
+                    <button
                         id="toolbar-window-menu-btn"
                         class="toolbar-menu-trigger"
                         title="Window"
@@ -1470,6 +1480,35 @@
                 <div
                     class="info-popup-content find-glyph-content"
                     id="find-glyph-modal-content"
+                ></div>
+            </div>
+        </div>
+
+        <!-- Add Glyphs Modal -->
+        <div
+            class="info-popup-overlay"
+            id="add-glyphs-modal"
+            style="display: none"
+        >
+            <div
+                class="info-popup add-glyphs-popup"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="add-glyphs-modal-title"
+            >
+                <div class="info-popup-header">
+                    <h3 id="add-glyphs-modal-title">Add Glyphs</h3>
+                    <button
+                        class="info-popup-close"
+                        id="add-glyphs-modal-close-btn"
+                        aria-label="Close Add Glyphs"
+                    >
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <div
+                    class="info-popup-content add-glyphs-content"
+                    id="add-glyphs-modal-content"
                 ></div>
             </div>
         </div>
