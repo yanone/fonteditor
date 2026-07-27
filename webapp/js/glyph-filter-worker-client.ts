@@ -12,6 +12,7 @@ export interface GlyphFilterWorkerResult {
     status: string;
     contextPatch?: Record<string, any>;
     needsRebuild?: boolean;
+    delta?: { add?: string[]; remove?: string[] };
 }
 
 export interface UserFilterSourceInspection {
@@ -31,6 +32,7 @@ interface RunBuiltinFilterRequest {
     fontJson: string;
     timeoutMs: number;
     changeBatch: GlyphFilterChangeBatch;
+    currentResults: unknown[];
 }
 
 interface RunUserFilterRequest {
@@ -40,6 +42,7 @@ interface RunUserFilterRequest {
     fontJson: string;
     timeoutMs: number;
     changeBatch: GlyphFilterChangeBatch;
+    currentResults: unknown[];
 }
 
 interface WorkerSuccessResponse {
@@ -53,6 +56,7 @@ interface WorkerSuccessResponse {
     applied?: boolean;
     version?: number;
     needsRebuild?: boolean;
+    delta?: { add?: string[]; remove?: string[] };
     eventTypes?: GlyphFilterEventType[];
     diagnostic?: string;
 }
@@ -70,6 +74,7 @@ type WorkerRequestPayload =
           fontJson: string;
           timeoutMs: number;
           changeBatch: GlyphFilterChangeBatch;
+          currentResults: unknown[];
       }
     | {
           type: 'runUserFilter';
@@ -77,6 +82,7 @@ type WorkerRequestPayload =
           fontJson: string;
           timeoutMs: number;
           changeBatch: GlyphFilterChangeBatch;
+          currentResults: unknown[];
       }
     | {
           type: 'inspectUserFilterSource';
@@ -170,6 +176,7 @@ export class GlyphFilterWorkerClient {
                     groups: success.groups || {},
                     status: success.status || 'ok',
                     needsRebuild: success.needsRebuild,
+                    delta: success.delta,
                     contextPatch: success.contextPatch
                 });
             } else if (
@@ -214,14 +221,16 @@ export class GlyphFilterWorkerClient {
         keyword: string,
         fontJson: string,
         timeoutMs: number,
-        changeBatch: GlyphFilterChangeBatch = { changes: [] }
+        changeBatch: GlyphFilterChangeBatch = { changes: [] },
+        currentResults: unknown[] = []
     ): Promise<GlyphFilterWorkerResult> {
         return this.sendRequest({
             type: 'runBuiltinFilter',
             keyword,
             fontJson,
             timeoutMs,
-            changeBatch
+            changeBatch,
+            currentResults
         });
     }
 
@@ -229,14 +238,16 @@ export class GlyphFilterWorkerClient {
         code: string,
         fontJson: string,
         timeoutMs: number,
-        changeBatch: GlyphFilterChangeBatch = { changes: [] }
+        changeBatch: GlyphFilterChangeBatch = { changes: [] },
+        currentResults: unknown[] = []
     ): Promise<GlyphFilterWorkerResult> {
         return this.sendRequest({
             type: 'runUserFilter',
             code,
             fontJson,
             timeoutMs,
-            changeBatch
+            changeBatch,
+            currentResults
         });
     }
 

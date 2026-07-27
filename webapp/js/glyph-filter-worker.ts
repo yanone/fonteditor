@@ -15,6 +15,7 @@ type WorkerRequest =
           fontJson: string;
           timeoutMs: number;
           changeBatch: GlyphFilterChangeBatch;
+          currentResults: unknown[];
       }
     | {
           type: 'runUserFilter';
@@ -23,6 +24,7 @@ type WorkerRequest =
           fontJson: string;
           timeoutMs: number;
           changeBatch: GlyphFilterChangeBatch;
+          currentResults: unknown[];
       }
     | {
           type: 'inspectUserFilterSource';
@@ -152,7 +154,7 @@ def _get_builtin_plugin(keyword):
     return plugin
 
 
-def _run_builtin_filter(keyword: str, change_batch):
+def _run_builtin_filter(keyword: str, change_batch, current_results):
     plugin = _get_builtin_plugin(keyword)
 
     groups = {}
@@ -163,19 +165,15 @@ def _run_builtin_filter(keyword: str, change_batch):
         return {'results': [], 'groups': groups, 'status': 'no_filter_function'}
 
     _font = Font()
-    if change_batch and not hasattr(plugin, 'needs_rebuild'):
-        raise RuntimeError('Glyph filter plugin is missing needs_rebuild(change_batch, font_view)')
-    if change_batch:
-        _decision = plugin.needs_rebuild(change_batch, _font)
-        if not isinstance(_decision, dict) or _decision.get('action') not in {'refresh', 'skip'}:
-            raise RuntimeError('needs_rebuild must return {"action": "refresh"} or {"action": "skip"}')
-        if _decision['action'] == 'skip':
-            return {'results': [], 'groups': groups, 'status': 'not_needed', 'needsRebuild': False}
+    if change_batch and hasattr(plugin, 'apply_changes'):
+        _delta = plugin.apply_changes(change_batch, current_results, _font)
+        if _delta is not None:
+            return {'results': [], 'groups': groups, 'status': 'incremental', 'delta': _delta}
     _result = plugin.filter_glyphs(_font)
     if isinstance(_result, types.GeneratorType):
         _result = list(_result)
 
-    return {'results': _result or [], 'groups': groups, 'status': 'ok', 'needsRebuild': True}
+    return {'results': _result or [], 'groups': groups, 'status': 'ok'}
 
 
 def _inspect_user_filter_source(code: str):
@@ -206,27 +204,29 @@ def _inspect_user_filter_source(code: str):
     if unknown_event_types:
         return {'eventTypes': [], 'diagnostic': f'Unknown EVENT_TYPES value: {unknown_event_types[0]}'}
 
-    for name, parameter_name in (('needs_rebuild', 'change_batch'), ('filter_glyphs', 'font')):
+    for name, parameter_names in (('filter_glyphs', ('font',)), ('apply_changes', ('change_batch', 'current_results', 'font'))):
         function = functions.get(name)
+        if function is None and name == 'apply_changes':
+            continue
         if function is None:
-            return {'eventTypes': event_types, 'diagnostic': f'Missing required {name}({parameter_name}) function'}
+            return {'eventTypes': event_types, 'diagnostic': 'Missing required filter_glyphs(font) function'}
         arguments = function.args
         positional = arguments.posonlyargs + arguments.args
         if (
-            len(positional) != 1
-            or positional[0].arg != parameter_name
+            len(positional) != len(parameter_names)
+            or tuple(argument.arg for argument in positional) != parameter_names
             or arguments.vararg is not None
             or arguments.kwonlyargs
             or arguments.kwarg is not None
             or arguments.defaults
             or arguments.kw_defaults
         ):
-            return {'eventTypes': event_types, 'diagnostic': f'{name} must declare exactly one parameter: {parameter_name}'}
+            return {'eventTypes': event_types, 'diagnostic': f'{name} must declare parameters: {", ".join(parameter_names)}'}
 
     return {'eventTypes': event_types, 'diagnostic': None}
 
 
-def _run_user_filter(code: str, change_batch):
+def _run_user_filter(code: str, change_batch, current_results):
     _captured_output = StringIO()
     _old_stdout = sys.stdout
     sys.stdout = _captured_output
@@ -242,29 +242,18 @@ def _run_user_filter(code: str, change_batch):
         exec(_compiled_code, _user_globals)
 
         _groups = _user_globals.get('GROUPS', {})
-        _needs_rebuild = _user_globals['needs_rebuild']
         _filter_func = _user_globals.get('filter_glyphs')
-        _should_rebuild = _needs_rebuild(change_batch)
-
-        if not _should_rebuild:
-            _filter_result = {
-                'results': [],
-                'groups': _groups or {},
-                'status': 'not_needed',
-                'needsRebuild': False
-            }
-        else:
-            _font = Font()
-            _results = _filter_func(_font)
-            if isinstance(_results, types.GeneratorType):
-                _results = list(_results)
-
-            _filter_result = {
-                'results': _results or [],
-                'groups': _groups or {},
-                'status': 'ok',
-                'needsRebuild': True
-            }
+        _font = Font()
+        _apply_changes = _user_globals.get('apply_changes')
+        if _apply_changes:
+            _delta = _apply_changes(change_batch, current_results, _font)
+            if _delta is not None:
+                _filter_result = {'results': [], 'groups': _groups or {}, 'status': 'incremental', 'delta': _delta}
+                return _filter_result
+        _results = _filter_func(_font)
+        if isinstance(_results, types.GeneratorType):
+            _results = list(_results)
+        _filter_result = {'results': _results or [], 'groups': _groups or {}, 'status': 'ok'}
     finally:
         sys.stdout = _old_stdout
 
@@ -312,8 +301,8 @@ async function executeFilter(request: FilterExecutionRequest) {
     try {
         const pythonCode =
             request.type === 'runBuiltinFilter'
-                ? `_run_builtin_filter(${JSON.stringify(request.keyword)}, ${JSON.stringify(request.changeBatch || EMPTY_CHANGE_BATCH)})`
-                : `_run_user_filter(${JSON.stringify(request.code)}, ${JSON.stringify(request.changeBatch || EMPTY_CHANGE_BATCH)})`;
+                ? `_run_builtin_filter(${JSON.stringify(request.keyword)}, ${JSON.stringify(request.changeBatch || EMPTY_CHANGE_BATCH)}, ${JSON.stringify(request.currentResults || [])})`
+                : `_run_user_filter(${JSON.stringify(request.code)}, ${JSON.stringify(request.changeBatch || EMPTY_CHANGE_BATCH)}, ${JSON.stringify(request.currentResults || [])})`;
 
         const resultProxy: any = await runWithTimeout<any>(
             pyodide.runPythonAsync(pythonCode),
@@ -339,6 +328,7 @@ async function executeFilter(request: FilterExecutionRequest) {
             results: result.results || [],
             groups: result.groups || {},
             status: result.status || 'ok',
+            delta: result.delta,
             needsRebuild: result.needsRebuild,
             contextPatch: pendingContextPatch || undefined
         });

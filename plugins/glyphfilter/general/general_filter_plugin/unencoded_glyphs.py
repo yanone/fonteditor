@@ -32,9 +32,6 @@ class UnencodedGlyphsFilter:
     def visible(self):
         return True
 
-    def needs_rebuild(self, change_batch, font_view):
-        return {"action": "refresh"}
-    
     def get_groups(self):
         return {}
     

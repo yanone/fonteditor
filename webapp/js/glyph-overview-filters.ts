@@ -102,6 +102,7 @@ interface FilterExecutionResult {
     groups: Record<string, GroupDefinition>;
     status: string;
     contextPatch?: Record<string, any>;
+    delta?: { add?: string[]; remove?: string[] };
 }
 
 interface RefreshPluginsOptions {
@@ -1743,6 +1744,11 @@ export class GlyphOverviewFilterManager {
             if (execResult.status === 'not_needed') {
                 return;
             }
+            if (execResult.status === 'incremental') {
+                this.applyFilterDelta(plugin, execResult.delta);
+                this.applyCachedFilterResults(plugin);
+                return;
+            }
             let results = execResult.results;
             const groups = execResult.groups;
             const status = execResult.status || 'ok';
@@ -1927,6 +1933,30 @@ export class GlyphOverviewFilterManager {
         }
     }
 
+    /** Apply idempotent glyph-name additions/removals to a complete result cache. */
+    private applyFilterDelta(
+        plugin: GlyphFilterPlugin,
+        delta: { add?: string[]; remove?: string[] } | undefined
+    ): void {
+        const results = new Map(
+            (plugin.lastResults || []).map((result) => [
+                result.glyph_name,
+                result
+            ])
+        );
+        for (const glyphName of delta?.add || []) {
+            if (!results.has(glyphName)) {
+                results.set(glyphName, { glyph_name: glyphName });
+            }
+        }
+        for (const glyphName of delta?.remove || []) {
+            results.delete(glyphName);
+        }
+        plugin.lastResults = [...results.values()];
+        plugin.cachedDataVersion = this.getCurrentDataVersion() ?? undefined;
+        plugin.cachedContextVersion = this.sharedPluginContextVersion;
+    }
+
     private scheduleRefreshRetry(delayMs: number = 200): void {
         if (this.refreshRetryTimer !== null) {
             return;
@@ -1973,14 +2003,16 @@ export class GlyphOverviewFilterManager {
                 plugin.pythonCode,
                 fontSnapshotJson,
                 this.FILTER_TIMEOUT_MS,
-                changeBatch
+                changeBatch,
+                plugin.lastResults || []
             );
         } else {
             result = await this.workerClient.runBuiltinFilter(
                 plugin.keyword,
                 fontSnapshotJson,
                 this.FILTER_TIMEOUT_MS,
-                changeBatch
+                changeBatch,
+                plugin.lastResults || []
             );
         }
 
@@ -2451,6 +2483,13 @@ export class GlyphOverviewFilterManager {
                 })
             ])) as FilterExecutionResult;
             if (execResult.status === 'not_needed') {
+                return;
+            }
+            if (execResult.status === 'incremental') {
+                this.applyFilterDelta(plugin, execResult.delta);
+                plugin.glyphCount = plugin.lastResults?.length || 0;
+                plugin.hasError = false;
+                this.updatePluginCount(plugin);
                 return;
             }
             const results = execResult.results;

@@ -35,9 +35,6 @@ class AllGlyphsFilter:
     def get_groups(self):
         return {}
 
-    def needs_rebuild(self, change_batch, font_view):
-        return {"action": "refresh"}
-    
     def filter_glyphs(self, font):
         """Return all glyphs in the font."""
         results = []

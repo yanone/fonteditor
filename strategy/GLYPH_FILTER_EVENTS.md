@@ -36,12 +36,15 @@ Wheel filters must expose:
 ```python
 event_types = {"glyph.unicode.changed"}
 
-def needs_rebuild(self, change_batch, font_view):
-    return {"action": "refresh"}
+def filter_glyphs(self, font):
+    return []
+
+def apply_changes(self, change_batch, current_results, font_view):
+    return None
 ```
 
-The host calls `filter_glyphs(font)` only after `needs_rebuild` returns
-`{"action": "refresh"}`. `{"action": "skip"}` prevents execution.
+The host calls optional `apply_changes` first. It returns `None` to request
+`filter_glyphs(font)`, or an idempotent `{'add': [...], 'remove': [...]}` delta.
 
 ## Single-File User Filters
 

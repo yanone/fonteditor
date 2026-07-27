@@ -6,18 +6,19 @@ font-editing script: Glyph Overview calls it to decide which glyphs to display.
 
 ## Required Contract
 
-Every filter must define `EVENT_TYPES`, `needs_rebuild(change_batch)`, and
-`filter_glyphs(font)`. `EVENT_TYPES` contains only event types supported by
-the central registry. `needs_rebuild` receives the committed change batch and
-returns whether the filter should rerun. The function receives the current
-font directly; do not call `Font()` or import the font API. Yield or return
+Every filter must define `EVENT_TYPES` and `filter_glyphs(font)`. `EVENT_TYPES`
+contains only event types supported by the central registry. An optional
+`apply_changes(change_batch, current_results, font)` may maintain the cached
+result incrementally; it returns `None` to request complete reconciliation.
+The filter function receives the current font directly; do not call `Font()`
+or import the font API. Yield or return
 dictionaries containing a `glyph_name` key for each glyph to include.
 
 ```python
 EVENT_TYPES = {'glyph.unicode.changed'}
 
-def needs_rebuild(change_batch):
-    return 'glyph.unicode.changed' in change_batch['event_types']
+def filter_glyphs(font):
+    return []
 ```
 
 When authoring a filter with Assistant, it must call

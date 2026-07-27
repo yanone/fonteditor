@@ -39,8 +39,8 @@ class BaseGlyphFilterPlugin:
     Required attributes:
     - event_types: Semantic change types that can affect this filter
 
-    Required methods:
-    - needs_rebuild(change_batch, font_view): Return refresh or skip
+    Optional methods:
+    - apply_changes(change_batch, current_results, font_view): Return an incremental delta or None
     """
     
     # Plugin path - must match a registered path in FILTER_PATHS
@@ -96,9 +96,6 @@ class BaseGlyphFilterPlugin:
         """
         return {}
 
-    def needs_rebuild(self, change_batch, font_view):
-        """Return the conservative default refresh decision."""
-        return {"action": "refresh"}
     
     def filter_glyphs(self, font):
         """
