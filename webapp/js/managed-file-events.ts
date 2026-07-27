@@ -81,6 +81,38 @@ export function consumeManagedFileInternalWritePaths(
     return internallyWrittenPaths;
 }
 
+/**
+ * True when every observed path was a pending self-write for `pluginId`.
+ * Only consumes markers when the whole batch is suppressed, so a mixed
+ * internal+external batch still leaves markers available for a later echo.
+ */
+export function wereAllManagedPathsInternalWrites(
+    pluginId: string,
+    paths: string[]
+): boolean {
+    if (paths.length === 0) {
+        return false;
+    }
+
+    const normalizedPaths = paths.map((path) => normalizeManagedPath(path));
+    const now = Date.now();
+    const allInternal = normalizedPaths.every((path) => {
+        const expiresAt = pendingInternalWrites.get(
+            internalWriteKey(pluginId, path)
+        );
+        return expiresAt !== undefined && expiresAt >= now;
+    });
+
+    if (!allInternal) {
+        return false;
+    }
+
+    for (const path of normalizedPaths) {
+        pendingInternalWrites.delete(internalWriteKey(pluginId, path));
+    }
+    return true;
+}
+
 export function extractManagedChangedPaths(
     detail: ManagedFileChangedDetail
 ): string[] {

@@ -16,7 +16,11 @@ import {
 import { SETTINGS_FOLDER_PATHS } from './settings-folder-paths';
 import { settingsFolder, SETTINGS_FOLDER_SOURCE_ID } from './settings-folder';
 import { suggestFileNameFromScriptHeader } from './python-script-header';
-import { dispatchManagedFileChanged } from './managed-file-events';
+import {
+    cancelManagedFileInternalWrite,
+    dispatchManagedFileChanged,
+    markManagedFileInternalWrite
+} from './managed-file-events';
 import type { FileSystemAdapter } from './file-system-adapter';
 
 const console = new Logger('ScriptEditor');
@@ -1188,7 +1192,29 @@ def filter_glyphs(font):
             const encoder = new TextEncoder();
             const data = encoder.encode(content);
 
-            await adapter.writeFile(currentFilePath, data);
+            // Mark before the write so a later FileSystemObserver echo can be
+            // suppressed by consumers (e.g. Filters sidebar) after the
+            // intentional managedFileChanged refresh already ran.
+            const markInternalSettingsWrite =
+                currentPluginId === SETTINGS_FOLDER_SOURCE_ID;
+            if (markInternalSettingsWrite) {
+                markManagedFileInternalWrite(
+                    SETTINGS_FOLDER_SOURCE_ID,
+                    currentFilePath
+                );
+            }
+
+            try {
+                await adapter.writeFile(currentFilePath, data);
+            } catch (error) {
+                if (markInternalSettingsWrite) {
+                    cancelManagedFileInternalWrite(
+                        SETTINGS_FOLDER_SOURCE_ID,
+                        currentFilePath
+                    );
+                }
+                throw error;
+            }
 
             savedContent = content;
             persistSavedContent();

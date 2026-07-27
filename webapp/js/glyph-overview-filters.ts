@@ -19,8 +19,11 @@ import {
 import { GlyphFilterWorkerClient } from './glyph-filter-worker-client';
 import {
     MANAGED_FILE_CHANGED_EVENT,
+    cancelManagedFileInternalWrite,
     extractManagedChangedPaths,
-    normalizeManagedPath
+    markManagedFileInternalWrite,
+    normalizeManagedPath,
+    wereAllManagedPathsInternalWrites
 } from './managed-file-events';
 import type { ManagedFileChangedDetail } from './managed-file-events';
 import {
@@ -203,6 +206,64 @@ export class GlyphOverviewFilterManager {
 
     private isPythonFilterPath(path: string): boolean {
         return this.isUserFilterPath(path) && path.endsWith('.py');
+    }
+
+    /**
+     * Resolve Filters-root FileSystemObserver records to Settings Folder paths
+     * such as `/Filters/foo.py` so they can match internal-write markers from
+     * Script Editor saves.
+     */
+    private resolveFilterObserverRecordPaths(records: unknown[]): string[] {
+        const filtersRoot = this.normalizeFilterPath(this.USER_FILTERS_PATH);
+        const paths = new Set<string>();
+
+        for (const record of records) {
+            if (!record || typeof record !== 'object') {
+                continue;
+            }
+
+            const changedRecord = record as {
+                changedHandle?: { name?: string };
+                relativePathComponents?: unknown;
+                relativePathMovedFrom?: unknown;
+            };
+
+            const relativeComponents = changedRecord.relativePathComponents;
+            if (
+                Array.isArray(relativeComponents) &&
+                relativeComponents.length > 0 &&
+                relativeComponents.every(
+                    (component) => typeof component === 'string'
+                )
+            ) {
+                paths.add(
+                    normalizeManagedPath(
+                        `${filtersRoot}/${relativeComponents.join('/')}`
+                    )
+                );
+                continue;
+            }
+
+            const name = changedRecord.changedHandle?.name;
+            if (typeof name === 'string' && name.trim()) {
+                paths.add(normalizeManagedPath(`${filtersRoot}/${name}`));
+            }
+
+            const movedFrom = changedRecord.relativePathMovedFrom;
+            if (
+                Array.isArray(movedFrom) &&
+                movedFrom.length > 0 &&
+                movedFrom.every((component) => typeof component === 'string')
+            ) {
+                paths.add(
+                    normalizeManagedPath(
+                        `${filtersRoot}/${movedFrom.join('/')}`
+                    )
+                );
+            }
+        }
+
+        return [...paths];
     }
 
     private queueUserFilterFileChangeRefresh({
@@ -1300,13 +1361,34 @@ export class GlyphOverviewFilterManager {
                         }
                     }
 
-                    if (needsRefresh) {
+                    if (!needsRefresh) {
+                        return;
+                    }
+
+                    // Script Editor / in-app writes already refresh via
+                    // managedFileChanged. Suppress the FSO echo for those
+                    // same paths while still reacting to external edits.
+                    const observedPaths =
+                        this.resolveFilterObserverRecordPaths(records);
+                    if (
+                        wereAllManagedPathsInternalWrites(
+                            SETTINGS_FOLDER_SOURCE_ID,
+                            observedPaths
+                        )
+                    ) {
                         console.log(
                             '[GlyphOverviewFilters]',
-                            'File system change detected, refreshing user filters'
+                            'Ignoring FileSystemObserver echo of internal filter write',
+                            observedPaths
                         );
-                        this.queueUserFilterFileChangeRefresh({ records });
+                        return;
                     }
+
+                    console.log(
+                        '[GlyphOverviewFilters]',
+                        'File system change detected, refreshing user filters'
+                    );
+                    this.queueUserFilterFileChangeRefresh({ records });
                 }
             );
 
@@ -2857,13 +2939,23 @@ def filter_glyphs(font):
         `;
 
             // Write file using the file handle
-            const writable = await fileHandle.createWritable();
-            await writable.write(template);
-            await writable.close();
+            markManagedFileInternalWrite(SETTINGS_FOLDER_SOURCE_ID, filePath);
+            try {
+                const writable = await fileHandle.createWritable();
+                await writable.write(template);
+                await writable.close();
+            } catch (error) {
+                cancelManagedFileInternalWrite(
+                    SETTINGS_FOLDER_SOURCE_ID,
+                    filePath
+                );
+                throw error;
+            }
 
             console.log('[GlyphOverviewFilters] Created new filter:', filePath);
 
-            // Trigger refresh (file system observer will pick it up)
+            // Trigger refresh; FileSystemObserver echo is suppressed via the
+            // internal-write marker above.
             await this.discoverUserFilters();
 
             // Select the newly created filter
