@@ -1,15 +1,15 @@
 # Writing General Python Scripts
 
-Use a general Python script for a reusable font operation that you run yourself
+Use a general-purpose Python script for a reusable font operation that you run yourself
 from the Script Editor. Save it in `Counterpunch/Scripts` when you want to keep
-it for later. It is different from a Glyph Overview filter: a general script
+it for later. It is different from a Glyph Overview filter: a general-purpose script
 may inspect or modify the active font, while a filter only describes glyphs for
 Overview to show.
 
 ## Start With the Active Font
 
 Counterpunch already provides the font API in the scripting environment. Start
-with `Font()` and do not import `fonteditor` or `context`:
+with `Font()` which does not need to be imported:
 
 ```python
 # Report glyph and master counts
@@ -21,13 +21,14 @@ print(f'Masters: {len(font.masters)}')
 ```
 
 `Font()` returns the current open font and raises an error when no font is
-open. Use the Python API reference when you need an exact property or method.
+open. Use the Python API reference (tool python_api_docs) when you need an exact property or method.
 
 ## Write Reusable Scripts
 
 Keep a script self-contained and focused on one operation. Start with a small,
 read-only report when you are exploring data. Before a script changes font data,
 save the font and make the intended change clear in its header and comments.
+Font manipulation by a Python script can be undone with the undo command.
 
 Use `print()` for results, counts, skipped items, and next steps. This makes a
 script useful when you return to it later and makes errors easier to diagnose.
@@ -64,17 +65,27 @@ else:
     print(f'{glyph_name} width: {glyph.width}')
 ```
 
-## Suggested File Header
+## File Header
 
-Use a short command-style summary, a focused keyword line, and a few comments
-that explain the operation. This makes a saved script easy to scan in the
-Scripts folder.
+At the top of a file you include information that is displayed to the user in the Run Python Script dialog. The file name used as the script title, and the file header includes auxiliary information such as a description and keywords.
 
+The description consists of several optional comment lines, followed by an optional commented keywords line that starts with `Keywords:` and contains a comma-delimited list of keywords that will be displayed to the user in a keyword cloud in the Run Python Script dialog.
+
+Update the description and the keywords if the script purpose changes significantly from the stated description.
+
+The keywords are primarily chosen from the below list, and only if they pertain to the actual target functionality of the script. If for example glyphs and layers are merely used for filtering in a for loop, omit glyphs and layers from the keywords list.
+
+The following keywords are permitted, and may be extended manually by the user:
+glyphs, layers, paths, nodes, anchors, components, metrics, names, masters, unicode, kerning, groups, features, guidelines
+
+Don't remove keywords that a user has put in that list.
+
+Example:
 ```python
-# Add 10 units to selected glyph widths
-# Keywords: metrics
+# This script updates the selected glyphs
+# and prints a summary.
 #
-# This script updates the selected glyphs and prints a summary.
+# Keywords: metrics
 ```
 
 ## Agent Boundary
