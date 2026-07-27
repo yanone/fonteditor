@@ -147,6 +147,10 @@ This script:
 
 - Fix the root cause each time, no band-aids.
 - Be extremely concise in interactions, plans, and commit messages
+- **Keep commentary, docs, and tests proportional.** Code comments should explain only
+  non-obvious current invariants—not narrate obsolete behavior or routine mechanics.
+  Keep docs concise and relevant to their audiences. Add focused tests for meaningful
+  regression risks, not exhaustive coverage of every small copy or cosmetic adjustment.
 - Scan for reusable code across languages; avoid duplicate implementations
 - Don't write spaghetti code
 - Clean up temporary code, excessive logs, and debug statements
