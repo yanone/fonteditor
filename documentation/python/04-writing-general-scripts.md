@@ -13,6 +13,9 @@ with `Font()` which does not need to be imported:
 
 ```python
 # Report glyph and master counts
+# 
+# Prints the font's glyphs and masters
+# 
 # Keywords: glyphs, masters
 
 font = Font()
@@ -35,6 +38,10 @@ script useful when you return to it later and makes errors easier to diagnose.
 
 ```python
 # List glyphs without Unicode values
+#
+# Walks the font's glyph list and find and prints glyphs
+# without a Unicode value
+#
 # Keywords: glyphs, unicode
 
 font = Font()
@@ -53,11 +60,14 @@ the Script Editor traceback is useful while developing a script.
 
 ```python
 # Report a required glyph width
-# Keywords: glyphs, metrics
+#
+# Finds glyph A and print its width
+#
+# Keywords: metrics
 
 font = Font()
 glyph_name = 'A'
-glyph = font.glyphs.get(glyph_name)
+glyph = font.glyphs.findGlyph(glyph_name)
 
 if glyph is None:
     print(f'Glyph not found: {glyph_name}')
@@ -67,9 +77,13 @@ else:
 
 ## File Header
 
-At the top of a file you include information that is displayed to the user in the Run Python Script dialog. The file name used as the script title, and the file header includes auxiliary information such as a description and keywords.
+At the top of a file you include information that is displayed to the user in the Run Python Script dialog as commented annotations. They consist of three parts: a title, a description, and a list of keywords.
 
-The description consists of several optional comment lines, followed by an optional commented keywords line that starts with `Keywords:` and contains a comma-delimited list of keywords that will be displayed to the user in a keyword cloud in the Run Python Script dialog.
+The first line consists of a short title which is re-used as the file name suggestion when saving the file to disk, with a .py suffix appended.
+
+The description consists of several optional lines describing the script functionality briefly.
+
+The optional keywords line that starts with `Keywords:` and contains a comma-delimited list of keywords that will be displayed to the user in a keyword cloud in the Run Python Script dialog.
 
 Update the description and the keywords if the script purpose changes significantly from the stated description.
 
@@ -82,6 +96,8 @@ Don't remove keywords that a user has put in that list.
 
 Example:
 ```python
+# Update glyphs
+# 
 # This script updates the selected glyphs
 # and prints a summary.
 #
