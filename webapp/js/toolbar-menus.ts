@@ -296,7 +296,7 @@ function getToolsMenuItems(): ToolbarMenuItem[] {
         items.push({
             label: `Re-run ${lastRun.title}`,
             icon: 'replay',
-            shortcut: '⌘⇧R',
+            shortcut: '⌘⌥R',
             action: async () => {
                 await reRunLastPythonScript();
             }

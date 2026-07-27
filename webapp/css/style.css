@@ -998,10 +998,11 @@ kbd + kbd {
     font-size: 10px;
 }
 
-/* Keyboard shortcut styling in buttons */
+/* Keyboard shortcut styling in buttons — match view title shortcut tone */
 .button-shortcut {
     font-size: 10px !important;
     white-space: nowrap;
+    color: var(--text-faint);
 }
 
 /* Keyboard shortcut styling in buttons */
@@ -1009,6 +1010,7 @@ kbd + kbd {
     font-size: 12px !important;
     position: relative;
     top: -1px;
+    color: inherit;
 }
 
 /* Content containers for views with text content */

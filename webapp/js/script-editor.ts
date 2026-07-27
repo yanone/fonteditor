@@ -35,7 +35,7 @@ const console = new Logger('ScriptEditor');
     const SCRIPT_SAVED_CONTENT_STORAGE_KEY = 'python_script_saved_content';
     const SCRIPT_TIMESTAMP_STORAGE_KEY = 'python_script_timestamp';
     const RUN_BUTTON_DEFAULT_HTML =
-        'Run <span style="opacity: 0.5;"><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>R</span>';
+        'Run <span class="button-shortcut run-script-shortcut" hidden><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_return</span></span>';
 
     const GENERAL_SCRIPT_TEMPLATE = '# New Python script\n';
     const GLYPH_FILTER_TEMPLATE = `# "New Filter" Filter
@@ -62,6 +62,7 @@ def filter_glyphs(font):
     let fileButton: HTMLButtonElement | null = null;
     let reloadButton: HTMLButtonElement | null = null;
     let isScriptViewFocused = false;
+    let isAceEditorFocused = false;
     let tippyInstance: TippyInstance | null = null;
 
     // File state
@@ -131,6 +132,24 @@ def filter_glyphs(font):
         );
     }
 
+    function updateRunButtonShortcutVisibility(): void {
+        if (!runButton) {
+            return;
+        }
+        const shortcut = runButton.querySelector(
+            '.run-script-shortcut'
+        ) as HTMLElement | null;
+        const showShortcut = isAceEditorFocused && !isGlyphFilterDocument();
+        if (shortcut) {
+            shortcut.hidden = !showShortcut;
+        }
+        if (!isGlyphFilterDocument()) {
+            runButton.title = showShortcut
+                ? 'Run script (Cmd+Enter)'
+                : 'Run script';
+        }
+    }
+
     function updateRunButtonState(): void {
         if (!runButton) {
             return;
@@ -146,8 +165,9 @@ def filter_glyphs(font):
         runButton.style.cursor = isGlyphFilter ? 'not-allowed' : '';
         runButton.title = isGlyphFilter
             ? 'This script is a glyph filter and must be invoked via the glyph filter UI in the Glyph Overview.'
-            : 'Run script (Cmd+Alt+R)';
+            : 'Run script';
         runButton.innerHTML = RUN_BUTTON_DEFAULT_HTML;
+        updateRunButtonShortcutVisibility();
     }
 
     /**
@@ -420,13 +440,22 @@ def filter_glyphs(font):
         // Initialize file menu
         initFileMenu();
 
-        // Add custom keyboard shortcuts
+        // Add custom keyboard shortcuts — only while Ace has focus
         editor.commands.addCommand({
             name: 'runScript',
-            bindKey: { win: 'Ctrl-Alt-R', mac: 'Command-Alt-R' },
+            bindKey: { win: 'Ctrl-Enter', mac: 'Command-Enter' },
             exec: function () {
                 runScript();
             }
+        });
+
+        editor.on('focus', () => {
+            isAceEditorFocused = true;
+            updateRunButtonShortcutVisibility();
+        });
+        editor.on('blur', () => {
+            isAceEditorFocused = false;
+            updateRunButtonShortcutVisibility();
         });
 
         // Add file operation shortcuts
@@ -489,29 +518,6 @@ def filter_glyphs(font):
                 await handleReloadExternalChanges();
             });
         }
-
-        // Handle keyboard shortcuts when script view is focused
-        document.addEventListener('keydown', (event) => {
-            // Skip if event already handled
-            if (event.defaultPrevented) return;
-
-            const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-            const cmdKey = isMac ? event.metaKey : event.ctrlKey;
-            const altKey = event.altKey;
-            const shiftKey = event.shiftKey;
-            const code = event.code;
-
-            // Only handle shortcuts when script view is focused
-            if (!isScriptViewFocused) return;
-
-            // Cmd+Alt+R - Run script
-            if (cmdKey && altKey && code === 'KeyR') {
-                event.preventDefault();
-                event.stopPropagation();
-                runScript();
-                return;
-            }
-        });
 
         // Track cursor position and focus state
         let savedCursorPosition: any = null;

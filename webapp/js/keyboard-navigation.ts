@@ -1412,24 +1412,30 @@
             return;
         }
 
-        // Prevent browser reload / hard-reload shortcuts and route to Run Python Script
-        // Cmd/Ctrl+R opens the dialog; Cmd/Ctrl+Shift+R re-runs the last script.
-        if ((cmdKey || event.ctrlKey) && key === 'r' && !event.altKey) {
-            event.preventDefault();
-            if (event.shiftKey) {
+        // Prevent browser reload and route script-runner shortcuts:
+        // Cmd/Ctrl+R opens Run Python Script; Cmd/Ctrl+Alt+R re-runs the last script.
+        // Use event.code — with Alt held, macOS remaps event.key (e.g. R → ®).
+        if ((cmdKey || event.ctrlKey) && event.code === 'KeyR') {
+            if (event.altKey && !shiftKey) {
+                event.preventDefault();
+                event.stopPropagation();
                 console.log(
                     '[KeyboardNav]',
-                    'Routing Cmd/Ctrl+Shift+R to Re-run Python Script'
+                    'Routing Cmd/Ctrl+Alt+R to Re-run Python Script'
                 );
                 void window.runPythonScriptDialog?.reRunLast();
-            } else {
+                return;
+            }
+            if (!event.altKey && !shiftKey) {
+                event.preventDefault();
+                event.stopPropagation();
                 console.log(
                     '[KeyboardNav]',
                     'Routing Cmd/Ctrl+R to Run Python Script'
                 );
                 void window.runPythonScriptDialog?.open();
+                return;
             }
-            return;
         }
 
         // Prevent remaining page reload shortcuts in production (allow in development)
