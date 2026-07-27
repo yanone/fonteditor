@@ -41,7 +41,7 @@ const VIEW_SETTINGS = {
         },
         'view-assistant': {
             // Assistant view
-            key: 'g',
+            key: 'a',
             modifiers: { cmd: true, shift: true },
             displayModifiers: ['⌘', '⇧'],
             secondaryBehavior: 'expandToTarget'
