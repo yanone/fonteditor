@@ -196,7 +196,7 @@ json.dumps(provider.search_records())
 }
 
 export const glyphDataPluginManager = new GlyphDataPluginManager();
-window.glyphDataPluginManager = glyphDataPluginManager;
+(globalThis as any).glyphDataPluginManager = glyphDataPluginManager;
 
 // The wheel is bundled with every editor build. Begin loading once Pyodide is
 // available so model lookups are normally ready before the user opens Font.
