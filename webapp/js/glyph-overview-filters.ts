@@ -964,6 +964,15 @@ export class GlyphOverviewFilterManager {
             console.log(`Found ${pyFiles.length} user filter file(s)`);
 
             for (const file of pyFiles) {
+                // Extract relative path from /Filters/ (used in both
+                // success and error paths, so compute it outside try).
+                const relativePath = file.path
+                    .substring(filtersPath.length + 1)
+                    .replace(/\.py$/, '');
+                const pathParts = relativePath.split('/');
+                const fileName = pathParts.pop()!;
+                const folderPath = pathParts.join('/');
+
                 try {
                     // Read file content
                     const content = await adapter.readFile(file.path);
@@ -974,14 +983,6 @@ export class GlyphOverviewFilterManager {
                         typeof content === 'string'
                             ? content
                             : new TextDecoder().decode(content);
-
-                    // Extract relative path from /Filters/
-                    const relativePath = file.path
-                        .substring(filtersPath.length + 1)
-                        .replace(/\.py$/, '');
-                    const pathParts = relativePath.split('/');
-                    const fileName = pathParts.pop()!;
-                    const folderPath = pathParts.join('/');
 
                     const inspection =
                         await this.workerClient.inspectUserFilterSource(code);
@@ -1022,6 +1023,25 @@ export class GlyphOverviewFilterManager {
                         `Error loading user filter ${file.path}:`,
                         error
                     );
+                    // Still show the filter with an error diagnostic so the
+                    // user can see and edit it even when inspection fails.
+                    const userFilter: GlyphFilterPlugin = {
+                        path: folderPath ? `user/${folderPath}` : 'user',
+                        keyword: `user.${relativePath.replace(/\//g, '.')}`,
+                        display_name: fileName,
+                        instance: null,
+                        groups: {},
+                        eventTypes: [],
+                        validationDiagnostic:
+                            error instanceof Error
+                                ? error.message
+                                : String(error),
+                        isUserFilter: true,
+                        filePath: file.path,
+                        pythonCode: ''
+                    };
+                    this.userFilters.push(userFilter);
+                    this.addUserFilterToTree(userFilter, folderPath);
                 }
             }
 
