@@ -12888,7 +12888,14 @@ export class Font extends ModelBase {
         const glyphData: Babelfont.Glyph = {
             name,
             category: Glyph.normalizeCategory(category),
-            layers: [],
+            layers: this._data.masters.map((master: Babelfont.Master) => ({
+                id: master.id,
+                width: 500,
+                master: {
+                    type: 'DefaultForMaster',
+                    master: master.id
+                }
+            })),
             exported: true
         };
         assertModelMutationAllowed();
