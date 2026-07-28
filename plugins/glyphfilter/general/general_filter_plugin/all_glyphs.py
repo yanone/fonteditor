@@ -24,44 +24,14 @@ class AllGlyphsFilter:
     path = "basic"
     keyword = "com.context.allglyphs"
     display_name = "All Glyphs"
-    event_types = {"glyph.created", "glyph.deleted", "glyph.renamed"}
+    event_types = set()
     
     def __init__(self):
         pass
     
     def visible(self):
         return True
-    
-    def get_groups(self):
-        return {}
 
-    def filter_glyphs(self, font):
-        """Return all glyphs in the font."""
-        results = []
-        
-        glyphs = getattr(font, 'glyphs', None)
-        if glyphs is None:
-            return results
-        
-        for glyph in glyphs:
-            glyph_name = getattr(glyph, 'name', None)
-            if glyph_name:
-                results.append({"glyph_name": glyph_name})
-        
-        return results
-
-    def apply_changes(self, change_batch, current_results, font):
-        """Maintain plain glyph membership without rescanning the font."""
-        add = []
-        remove = []
-        for change in change_batch["changes"]:
-            metadata = change["metadata"]
-            glyph_name = metadata.get("glyphName")
-            if change["type"] == "glyph.deleted":
-                remove.append(glyph_name)
-            elif change["type"] == "glyph.renamed":
-                remove.append(metadata["previousGlyphName"])
-                add.append(glyph_name)
-            elif change["type"] == "glyph.created":
-                add.append(glyph_name)
-        return {"add": add, "remove": remove}
+    def classify_glyph(self, glyph):
+        """The host renders this special filter as the unfiltered overview."""
+        return True

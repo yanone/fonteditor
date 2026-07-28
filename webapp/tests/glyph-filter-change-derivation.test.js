@@ -19,27 +19,6 @@ jest.mock('tippy.js', () => {
 
 jest.mock('tippy.js/dist/tippy.css', () => ({}), { virtual: true });
 
-jest.mock('../js/glyph-filter-worker-client', () => ({
-    GlyphFilterWorkerClient: jest.fn().mockImplementation(() => ({
-        installPackages: jest.fn().mockResolvedValue(undefined),
-        syncSharedContext: jest.fn().mockResolvedValue(undefined),
-        runBuiltinFilter: jest.fn().mockResolvedValue({
-            results: [],
-            groups: {},
-            status: 'ok'
-        }),
-        runUserFilter: jest.fn().mockResolvedValue({
-            results: [],
-            groups: {},
-            status: 'ok'
-        }),
-        inspectUserFilterSource: jest.fn().mockResolvedValue({
-            eventTypes: [],
-            diagnostic: undefined
-        })
-    }))
-}));
-
 const {
     deriveGlyphFilterChangesFromCommittedEntry,
     dedupeGlyphFilterChanges,
@@ -84,23 +63,15 @@ describe('shape value classifiers', () => {
 });
 
 describe('deriveGlyphFilterChangesFromCommittedEntry', () => {
-    test('font.masters.changed', () => {
-        const result = deriveGlyphFilterChangesFromCommittedEntry(
-            {
-                path: 'masters.0',
-                op: 'add',
-                oldValue: null,
-                newValue: { id: 'm1' }
-            },
-            { masterIds: ['m1', 'm2'] }
-        );
+    test('records master changes internally without a public event', () => {
+        const result = deriveGlyphFilterChangesFromCommittedEntry({
+            path: 'masters.0',
+            op: 'add',
+            oldValue: null,
+            newValue: { id: 'm1' }
+        });
         expect(result.mastersChanged).toBe(true);
-        expect(result.changes).toEqual([
-            {
-                type: 'font.masters.changed',
-                metadata: { masterIds: ['m1', 'm2'] }
-            }
-        ]);
+        expect(result.changes).toEqual([]);
     });
 
     test('glyph.created', () => {
@@ -110,8 +81,10 @@ describe('deriveGlyphFilterChangesFromCommittedEntry', () => {
             oldValue: null,
             newValue: { name: 'A' }
         });
-        expect(typesOf(result)).toEqual(['glyph.created']);
-        expect(result.changes[0].metadata).toEqual({ glyphName: 'A' });
+        expect(result.changes).toEqual([]);
+        expect(result.lifecycleChanges).toEqual([
+            { kind: 'created', glyphName: 'A' }
+        ]);
     });
 
     test('glyph.deleted', () => {
@@ -121,7 +94,10 @@ describe('deriveGlyphFilterChangesFromCommittedEntry', () => {
             oldValue: { name: 'A' },
             newValue: null
         });
-        expect(typesOf(result)).toEqual(['glyph.deleted']);
+        expect(result.changes).toEqual([]);
+        expect(result.lifecycleChanges).toEqual([
+            { kind: 'deleted', glyphName: 'A' }
+        ]);
     });
 
     test('glyph.renamed', () => {
@@ -131,11 +107,9 @@ describe('deriveGlyphFilterChangesFromCommittedEntry', () => {
             oldValue: 'A',
             newValue: 'B'
         });
-        expect(result.changes).toEqual([
-            {
-                type: 'glyph.renamed',
-                metadata: { glyphName: 'B', previousGlyphName: 'A' }
-            }
+        expect(result.changes).toEqual([]);
+        expect(result.lifecycleChanges).toEqual([
+            { kind: 'renamed', glyphName: 'B', previousGlyphName: 'A' }
         ]);
     });
 

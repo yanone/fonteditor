@@ -331,7 +331,11 @@ function postCompiledResult(
     const postMessageSpanId = timelineSpanStart(
         'font.worker.compiledResult.postMessage'
     );
-    self.postMessage(
+    (
+        self as unknown as {
+            postMessage: (message: unknown, transfer: Transferable[]) => void;
+        }
+    ).postMessage(
         {
             type: 'compiled',
             ...payload,

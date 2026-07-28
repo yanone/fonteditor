@@ -1,143 +1,213 @@
-# Glyph Filter Events
+# Simple Glyph Filters
 
 ## Purpose
 
-Glyph filters refresh from one committed semantic change batch, not from raw
-Yjs packets or broad browser events. The Yjs update remains an internal
-transport; the host derives a stable, read-only filter-facing summary.
+Glyph filters classify individual glyphs for the glyph overview. They are
+read-only, glyph-local Python code. The application owns cache identity,
+incremental updates, group aggregation, and all glyph lifecycle management.
 
-## Event Contract
+This replaces the former whole-font and filter-managed incremental API. There
+is no `filter_glyphs()`, `apply_changes()`, `GROUPS`, result delta, or
+filter-managed glyph add/remove/rename handling.
 
-Supported event types live in `webapp/js/glyph-filter-events.ts`. They use
-dotted names such as `glyph.unicode.changed`; browser `CustomEvent` names
-remain internal and are not a plugin API.
+## Filter Contract
 
-Path-to-event derivation lives in
-`webapp/js/glyph-filter-change-derivation.ts`. Compatibility is special:
-`glyph.compatibility.changed` fires only when `Glyph.isCompatible` toggles,
-not on every layer edit.
+Every filter is a Python module with a literal `EVENT_TYPES` declaration and
+a `classify_glyph(glyph)` function:
 
-Full rebuilds are **not** events. On font open, filter activate, and filter
-file reload, the host calls `filter_glyphs(font)` directly with an empty
-change batch and skips `apply_changes`. `EVENT_TYPES` / `event_types` cover
-incremental edits only.
+```python
+EVENT_TYPES = ["glyph.anchors.changed"]
 
-The registry contains these events currently:
+def classify_glyph(glyph):
+    if glyph.anchors:
+        return False
+
+    return {
+        "groups": [
+            {
+                "name": "No anchors",
+                "color": "orange",
+            }
+        ]
+    }
+```
+
+`EVENT_TYPES` is mandatory. It must be a literal list, tuple, or set of
+registered non-lifecycle event names.
+
+`classify_glyph(glyph)` is mandatory. It receives one live glyph model and
+returns either:
+
+- `False`, meaning that glyph has no result in this filter.
+- `True`, meaning that glyph is shown without groups.
+- A classification mapping containing a non-empty `groups` list.
+
+The host already knows the glyph name, so a classification never includes
+`glyph_name`.
+
+### Candidate Gate
+
+`is_candidate(glyph)` is optional; its default result is `True`.
+
+```python
+def is_candidate(glyph):
+    return glyph.name.endswith(".sc")
+
+def classify_glyph(glyph):
+    if glyph.anchors:
+        return False
+    return {
+        "groups": [
+            {"name": "Unanchored small caps", "color": "orange"}
+        ]
+    }
+```
+
+The host calls `is_candidate()` before `classify_glyph()`. When it returns
+`False`, `classify_glyph()` is not called and the host removes any existing
+cached classification for that glyph.
+
+`is_candidate()` is a cheap glyph-local domain gate, not a prediction of the
+final classification. `classify_glyph()` may still return `False` for a
+candidate glyph. For example, a filter for glyphs without anchors leaves the
+candidate gate at its default so that glyphs with and without anchors are
+both evaluated.
+
+Both functions must be deterministic, synchronous, read-only, and based only
+on the supplied glyph and its intrinsic layer data. Cross-glyph and font-wide
+analysis are intentionally out of scope for this filter type.
+
+## Groups
+
+Groups are optional and emitted only by `classify_glyph()`. There is no `GROUPS` constant,
+no group ID distinct from its name, and no imperative group mutation.
+
+Every group contribution is a complete definition:
+
+```python
+{
+    "name": "Anchor: top",
+    "color": "green",
+}
+```
+
+`name` is both the group identity and its visible label. `color` is required.
+Each classified glyph emits a complete group definition for every group to
+which it belongs.
+
+The host derives the legend and membership from all current cached glyph
+classifications:
+
+- Equal group names are the same group.
+- A group exists while at least one glyph emits it.
+- Group counts are derived from current membership.
+- Removing or reclassifying a glyph removes its previous contributions.
+- The most recently evaluated current contribution supplies a group color.
+- If that contributing glyph is removed or stops emitting the group, the host
+  uses the newest remaining contribution's color.
+
+Color is intentionally last-wins. Reclassifying one glyph may therefore
+change the legend color of other glyphs in the same named group.
+
+## Events
+
+The canonical registry lives in `webapp/js/glyph-filter-events.ts`.
+`webapp/js/glyph-filter-change-derivation.ts` derives those semantic events
+from committed changes. Browser `CustomEvent` names, raw Yjs data, JSON
+pointers, undo internals, and worker transport details are not filter APIs.
+
+`EVENT_TYPES` declares only glyph-content changes that can alter a filter's
+classification. For a committed batch, the host reclassifies an affected
+glyph once for each filter that subscribes to any event in that batch.
+
+Example:
+
+```python
+EVENT_TYPES = [
+    "glyph.anchors.changed",
+    "glyph.unicode.changed",
+]
+```
+
+The simple filter API does not subscribe to these lifecycle events:
 
 ```text
 glyph.created
 glyph.deleted
 glyph.renamed
-glyph.unicode.changed
-glyph.category.changed
-glyph.export.changed
-glyph.production-name.changed
-glyph.paths.changed
-glyph.components.changed
-glyph.component.reference.changed
-glyph.component.transform.changed
-glyph.anchors.changed
-glyph.guides.changed
-glyph.layers.changed
-glyph.layer.location.changed
-glyph.metrics.changed
-glyph.metrics-key.changed
-glyph.compatibility.changed
-font.masters.changed
 ```
 
-## Useful Future Event Names
+The host handles them universally for every loaded filter:
 
-```text
-font.glyph-order.changed
-font.axes.changed
-font.instances.changed
-font.kerning.changed
-font.features.changed
-font.classes.changed
-font.prefixes.changed
-font.compile.completed
-font.compile.failed
-font.shaping-data.changed
-language-packs.changed
-glyph-data.provider.changed
-glyph-filter.settings.changed
-glyph-filter.source.changed
-glyph-filter.enabled.changed
-```
+| Change | Host action |
+| --- | --- |
+| Glyph created | Evaluate the new glyph and add its classification, if any. |
+| Glyph deleted | Remove its cached classification. Python is not called. |
+| Glyph renamed | Remove the old-name classification, then evaluate the renamed glyph. |
+| Subscribed glyph-content event | Reclassify that current glyph and atomically replace or remove its cached classification. |
 
-After the host's full `filter_glyphs` rebuild, the host intersects each
-filter's declared event types with a committed change batch and runs only
-matching filters (preferring `apply_changes` when present).
+`glyph.compatibility.changed` is the targeted event for compatibility filters.
+The host emits it only when `Glyph.isCompatible` actually toggles. Simple
+filters do not subscribe to `font.masters.changed`; master changes are
+translated by the host into the targeted glyph events whose values changed.
 
-## Wheel Filters
+## Execution And Cache Lifecycle
 
-Wheel filters must expose:
+Filter code runs in the existing main-thread Python runtime under the
+application's mutation-forbidden object-model scope. It receives the live
+glyph wrapper directly; no font or glyph JSON is serialized, transferred, or
+reconstructed for filter execution.
 
-```python
-event_types = {"glyph.unicode.changed"}
+The host stores one complete classification per `{filter, glyph name}`. A
+reclassification replaces that glyph's entire prior contribution before the
+host derives group membership, counts, and colors.
 
-def filter_glyphs(self, font):
-    return []
+A complete scan is a bootstrap operation only. The host scans all current
+glyphs when:
 
-def apply_changes(self, change_batch, current_results, font_view):
-    return None
-```
+- A font opens or is replaced.
+- A filter first loads.
+- A filter source file reloads or changes.
+- The user explicitly refreshes a filter.
 
-The host calls optional `apply_changes` first for incremental batches only.
-It returns `None` to request `filter_glyphs(font)`, or an idempotent delta.
-`remove` is a list of glyph names. `add` accepts either bare glyph names or
-ordinary filter-result records, including `group` or `groups`; removals apply
-before additions so one glyph can be intentionally replaced with new group
-membership.
+After a filter has a complete cache for the current font and source revision,
+all font edits are perpetual incremental updates. Selecting an already loaded
+filter reuses its cache and does not scan the font again.
 
-## Single-File User Filters
+Incremental reclassification is a serialized post-commit reaction. It runs
+after the authoritative model/Yjs commit and event derivation, so it reads
+the current live glyph and updates the overview cache coherently with that
+commit. When a transaction produces multiple subscribed events for the same
+glyph, the host classifies that glyph once.
 
-User files under `Counterpunch/Filters` are not class plugins. They require a
-stripped module-level contract:
+Bootstrap scans are not part of an edit commit. They may present pending
+filter state while they complete.
 
-```python
-EVENT_TYPES = {"glyph.unicode.changed", "glyph.created"}
+## Validation And Limits
 
-GROUPS = {}
+Source validation is structural and rejects:
 
-def filter_glyphs(font):
-    return []
+- Missing or non-literal `EVENT_TYPES`.
+- Unknown event names.
+- Lifecycle events in `EVENT_TYPES`.
+- Font-wide events in `EVENT_TYPES`, including `font.masters.changed`.
+- Missing or incorrectly declared `classify_glyph(glyph)`.
+- Incorrectly declared optional `is_candidate(glyph)`.
+- Invalid classifications or group records without non-empty `name` and
+  `color` strings.
 
-def apply_changes(change_batch, current_results, font):
-    return {
-        "remove": ["adieresis"],
-        "add": [
-            {"glyph_name": "adieresis", "groups": ["latin_ext_a"]}
-        ]
-    }
-```
+The host must restore the mutation-forbidden scope in `finally`, including
+when source loading or classification raises an exception.
 
-`EVENT_TYPES` and `filter_glyphs(font)` are mandatory. Optional
-`apply_changes(change_batch, current_results, font)` is parsed with `ast`
-without executing the file. A matched incremental batch executes the file in
-the isolated filter worker, calls `apply_changes` when present, and only
-calls `filter_glyphs` when it returns `None`. Full rebuilds never call
-`apply_changes`.
-
-There is no compatibility path for old filters without these declarations.
-
-## Change Batch
-
-The host passes JSON-like immutable data:
-
-```text
-changes[]
-  type
-  metadata
-```
-
-An empty `changes` list means a host-driven full rebuild. It never exposes
-Yjs bytes, Yjs structures, raw JSON pointers, undo internals, or worker
-transport metadata.
+Filters must remain cheap enough for a single-glyph reclassification to be a
+normal post-commit operation. The application should measure and diagnose
+slow classifications. Whole-font algorithms, persistent filter state,
+asynchronous work, model mutation, cross-glyph queries, and custom cache
+delta logic are deferred until a concrete requirement justifies an advanced
+filter design.
 
 ## Documentation
 
 `npm run generate-glyph-filter-event-docs` writes
-`developer-docs/GLYPH_FILTER_EVENTS.md` from the central registry. Run it with
-the normal generated documentation commands after changing the registry.
+`developer-docs/GLYPH_FILTER_EVENTS.md` from the central event registry. Run
+it whenever the registry changes.

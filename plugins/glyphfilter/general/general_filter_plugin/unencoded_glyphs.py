@@ -24,7 +24,7 @@ class UnencodedGlyphsFilter:
     path = "basic/glyph_categories"
     keyword = "com.context.unencoded"
     display_name = "Unencoded Glyphs"
-    event_types = {"glyph.created", "glyph.deleted", "glyph.unicode.changed"}
+    event_types = {"glyph.unicode.changed"}
     
     def __init__(self):
         pass
@@ -32,42 +32,9 @@ class UnencodedGlyphsFilter:
     def visible(self):
         return True
 
-    def get_groups(self):
-        return {}
-    
-    def filter_glyphs(self, font):
-        """Return glyphs that have no Unicode codepoint defined."""
-        results = []
-        
-        glyphs = getattr(font, 'glyphs', None)
-        if glyphs is None:
-            return results
-        
-        for glyph in glyphs:
-            glyph_name = getattr(glyph, 'name', None)
-            if not glyph_name:
-                continue
-            
-            # Check for unicode codepoints
-            codepoints = getattr(glyph, 'codepoints', None)
-            if not codepoints or len(codepoints) == 0:
-                results.append({"glyph_name": glyph_name})
-        
-        return results
+    def is_candidate(self, glyph):
+        return not glyph.codepoints
 
-    def apply_changes(self, change_batch, current_results, font):
-        """Update unencoded membership from changed glyph identities only."""
-        add = []
-        remove = []
-        for change in change_batch["changes"]:
-            metadata = change["metadata"]
-            glyph_name = metadata.get("glyphName")
-            if change["type"] == "glyph.deleted":
-                remove.append(glyph_name)
-                continue
-            glyph = font.findGlyph(glyph_name)
-            if glyph is None or glyph.codepoints:
-                remove.append(glyph_name)
-            else:
-                add.append(glyph_name)
-        return {"add": add, "remove": remove}
+    def classify_glyph(self, glyph):
+        """Classify one glyph without a Unicode codepoint."""
+        return True

@@ -71,7 +71,6 @@ module.exports = {
     entry: {
         'bootstrap': './js/bootstrap.ts',
         'fontc-worker': './js/fontc-worker.ts',
-        'glyph-filter-worker': './js/glyph-filter-worker.ts',
         'glyph-overview': './js/glyph-overview.ts',
         'find-glyph-dialog': './js/find-glyph-dialog.ts',
         'translations': './js/translations.ts',
@@ -182,8 +181,8 @@ module.exports = {
         liveReload: false,
         client: {
             // The webpack runtime overlay touches `window`, which breaks
-            // worker-executed bundles like glyph-filter-worker and any shared
-            // entry loaded outside the browser main thread.
+            // worker-executed bundles and any shared entry loaded outside the
+            // browser main thread.
             overlay: false,
             webSocketURL: {
                 hostname: 'localhost',

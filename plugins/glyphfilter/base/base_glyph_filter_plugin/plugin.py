@@ -24,8 +24,8 @@ class BaseGlyphFilterPlugin:
     """
     Base template for glyph filter plugins.
     
-    Glyph filter plugins define filters that return subsets of glyphs
-    with optional group coding. They appear in the glyph overview sidebar.
+    Glyph filter plugins classify one glyph at a time. The host owns full
+    scans, incremental cache updates, glyph lifetime handling, and groups.
     
     Required attributes:
     - path: The category path where this filter appears (must match a registered path)
@@ -33,14 +33,13 @@ class BaseGlyphFilterPlugin:
     - display_name: Human-readable name shown in the sidebar
     
     Required methods:
-    - get_groups(): Return group definitions for group keywords
-    - filter_glyphs(font): Return list of glyphs matching the filter
+    - classify_glyph(glyph): Return a classification mapping or None
 
     Required attributes:
-    - event_types: Semantic change types that can affect this filter
+    - event_types: Glyph-content events that can change a classification
 
     Optional methods:
-    - apply_changes(change_batch, current_results, font_view): Return an incremental delta or None
+    - is_candidate(glyph): Cheap early rejection predicate
     """
     
     # Plugin path - must match a registered path in FILTER_PATHS
@@ -71,101 +70,6 @@ class BaseGlyphFilterPlugin:
         """
         return False
     
-    def get_groups(self):
-        """
-        Return group definitions for group keywords.
-        
-        Each group has a keyword key, with a dict containing:
-        - description: Human-readable description of what this group means
-        - color: Hex color value for visual identification
-        
-        Example:
-            {
-                "error": {
-                    "description": "Glyphs with errors",
-                    "color": "#ff0000"
-                },
-                "warning": {
-                    "description": "Glyphs with warnings", 
-                    "color": "#ffaa00"
-                }
-            }
-        
-        Returns:
-            Dict mapping group keywords to group definitions
-        """
-        return {}
-
-    
-    def filter_glyphs(self, font):
-        """
-        Filter glyphs from the font and return results.
-        
-        This is the main filter method. The font object is passed in as a parameter.
-        Should return (or yield) a list of dicts, each containing:
-        - glyph_name: Name of the glyph
-        - group (optional): A single group keyword (from get_groups) or a raw CSS color
-        - groups (optional): A list of group keywords or raw CSS colors
-        
-        A glyph can belong to multiple groups in two ways:
-        1. Using the 'groups' key with a list of keywords
-        2. Yielding the same glyph multiple times with different 'group' values
-           (results are automatically merged by glyph_name)
-        
-        Group values can be:
-        - A keyword matching a key in get_groups() → uses the defined color
-        - A raw CSS color (hex, named, rgb(), etc.) → auto-generates a group for the legend
-        
-        When filtering by groups in the UI, glyphs will appear if they match ANY of the selected groups.
-        
-        Args:
-            font: The font object (babelfont model)
-            
-        Example (single group with definition):
-            def filter_glyphs(self, font):
-                results = []
-                for glyph in font.glyphs:
-                    if some_condition(glyph):
-                        results.append({
-                            "glyph_name": glyph.name,
-                            "group": "error"  # Must match a key in get_groups()
-                        })
-                return results
-        
-        Example (raw colors without group definitions):
-            # No GROUPS definition needed - colors become legend entries automatically
-            def filter_glyphs(self, font):
-                for glyph in font.glyphs:
-                    if glyph.name.startswith("A"):
-                        yield {"glyph_name": glyph.name, "group": "#ff6600"}
-                    elif glyph.name.startswith("B"):
-                        yield {"glyph_name": glyph.name, "group": "lightblue"}
-        
-        Example (multiple groups using 'groups' list):
-            def filter_glyphs(self, font):
-                results = []
-                for glyph in font.glyphs:
-                    groups = []
-                    if has_error(glyph):
-                        groups.append("error")
-                    if has_warning(glyph):
-                        groups.append("warning")
-                    results.append({
-                        "glyph_name": glyph.name,
-                        "groups": groups  # Can be empty, one, or multiple groups
-                    })
-                return results
-        
-        Example (multiple groups via yield - same glyph emitted multiple times):
-            def filter_glyphs(self, font):
-                for glyph in font.glyphs:
-                    if has_error(glyph):
-                        yield {"glyph_name": glyph.name, "group": "error"}
-                    if has_warning(glyph):
-                        yield {"glyph_name": glyph.name, "group": "warning"}
-                    # If glyph has both, it will appear once with both groups merged
-            
-        Returns:
-            List of filter result dicts (or generator yielding them)
-        """
-        return []
+    def classify_glyph(self, glyph):
+        """Return True, False, or {'groups': [{'name': str, 'color': str}]}."""
+        return False

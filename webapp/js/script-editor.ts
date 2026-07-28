@@ -22,6 +22,7 @@ import {
     markManagedFileInternalWrite
 } from './managed-file-events';
 import type { FileSystemAdapter } from './file-system-adapter';
+import { createGlyphFilterTemplate } from './glyph-filter-template';
 
 const console = new Logger('ScriptEditor');
 
@@ -42,24 +43,7 @@ const console = new Logger('ScriptEditor');
         'Run <span class="button-shortcut run-script-shortcut" hidden><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_return</span></span>';
 
     const GENERAL_SCRIPT_TEMPLATE = '# New Python script\n';
-    const GLYPH_FILTER_TEMPLATE = `# "New Filter" Filter
-# Define your filter function below
-
-# Optional: Define groups with colors
-# GROUPS = {
-#     "uppercase": {"description": "Uppercase letters", "color": "#ff6b6b"},
-#     "lowercase": {"description": "Lowercase letters", "color": "#4ecdc4"}
-# }
-
-def filter_glyphs(font):
-    """Filter glyphs and return results.
-
-    Yield or return dictionaries with 'glyph_name' keys. Optional 'group'
-    or 'groups' keys place glyphs in groups declared by GROUPS.
-    """
-    for glyph in font.glyphs:
-        yield {"glyph_name": glyph.name}
-`;
+    const GLYPH_FILTER_TEMPLATE = createGlyphFilterTemplate();
 
     let editor: any = null;
     let runButton: HTMLButtonElement | null = null;

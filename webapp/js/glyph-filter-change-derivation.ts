@@ -34,7 +34,14 @@ export interface GlyphFilterEntryDerivation {
     compatibilityCheckGlyphNames: string[];
     /** True when the font master list changed (may affect every glyph). */
     mastersChanged: boolean;
+    /** Host-owned glyph identity changes; never exposed in EVENT_TYPES. */
+    lifecycleChanges: GlyphFilterLifecycleChange[];
 }
+
+export type GlyphFilterLifecycleChange =
+    | { kind: 'created'; glyphName: string }
+    | { kind: 'deleted'; glyphName: string }
+    | { kind: 'renamed'; glyphName: string; previousGlyphName: string };
 
 const METRICS_KEY_SUFFIXES = [
     '.format_specific.metric_left',
@@ -325,46 +332,72 @@ export function deriveGlyphFilterChangesFromCommittedEntry(
     const path = getPathSegments(entry.path);
     const changes: GlyphFilterChange[] = [];
     const compatibilityCheckGlyphNames: string[] = [];
+    const lifecycleChanges: GlyphFilterLifecycleChange[] = [];
     let mastersChanged = false;
 
     if (path[0] === 'masters') {
         mastersChanged = true;
-        changes.push({
-            type: 'font.masters.changed',
-            metadata: {
-                masterIds: options?.masterIds || []
-            }
-        });
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
     if (path[0] !== 'glyphs' || !path[1]) {
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
     const glyphName = path[1];
 
     if (path.length === 2 && entry.op === 'add') {
-        pushUniqueChange(changes, 'glyph.created', { glyphName });
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        lifecycleChanges.push({ kind: 'created', glyphName });
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
     if (path.length === 2 && entry.op === 'remove') {
-        pushUniqueChange(changes, 'glyph.deleted', { glyphName });
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        lifecycleChanges.push({ kind: 'deleted', glyphName });
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
     const field = path[2];
     if (!field) {
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
     if (field === 'name') {
-        pushUniqueChange(changes, 'glyph.renamed', {
+        lifecycleChanges.push({
+            kind: 'renamed',
             glyphName: String(entry.newValue || glyphName),
             previousGlyphName: String(entry.oldValue || glyphName)
         });
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
     if (field === 'codepoints') {
@@ -373,24 +406,44 @@ export function deriveGlyphFilterChangesFromCommittedEntry(
             unicode: firstCodepoint(entry.newValue),
             previousUnicode: firstCodepoint(entry.oldValue)
         });
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
     if (field === 'category') {
         pushUniqueChange(changes, 'glyph.category.changed', { glyphName });
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
     if (field === 'exported') {
         pushUniqueChange(changes, 'glyph.export.changed', { glyphName });
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
     if (field === 'production_name') {
         pushUniqueChange(changes, 'glyph.production-name.changed', {
             glyphName
         });
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
     if (field === 'format_specific') {
@@ -401,7 +454,12 @@ export function deriveGlyphFilterChangesFromCommittedEntry(
                 glyphName
             });
         }
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
     if (field === 'layers') {
@@ -410,7 +468,12 @@ export function deriveGlyphFilterChangesFromCommittedEntry(
         if (!layerId) {
             pushUniqueChange(changes, 'glyph.layers.changed', { glyphName });
             compatibilityCheckGlyphNames.push(glyphName);
-            return { changes, compatibilityCheckGlyphNames, mastersChanged };
+            return {
+                changes,
+                compatibilityCheckGlyphNames,
+                mastersChanged,
+                lifecycleChanges
+            };
         }
 
         // glyphs.<name>.layers.<id> add/remove
@@ -423,7 +486,12 @@ export function deriveGlyphFilterChangesFromCommittedEntry(
                 layerIds: [layerId]
             });
             compatibilityCheckGlyphNames.push(glyphName);
-            return { changes, compatibilityCheckGlyphNames, mastersChanged };
+            return {
+                changes,
+                compatibilityCheckGlyphNames,
+                mastersChanged,
+                lifecycleChanges
+            };
         }
 
         const layerResult = deriveLayerSubtreeChanges(
@@ -436,10 +504,20 @@ export function deriveGlyphFilterChangesFromCommittedEntry(
         if (layerResult.mayAffectCompatibility) {
             compatibilityCheckGlyphNames.push(glyphName);
         }
-        return { changes, compatibilityCheckGlyphNames, mastersChanged };
+        return {
+            changes,
+            compatibilityCheckGlyphNames,
+            mastersChanged,
+            lifecycleChanges
+        };
     }
 
-    return { changes, compatibilityCheckGlyphNames, mastersChanged };
+    return {
+        changes,
+        compatibilityCheckGlyphNames,
+        mastersChanged,
+        lifecycleChanges
+    };
 }
 
 /** Deduplicate filter changes by type + metadata identity. */

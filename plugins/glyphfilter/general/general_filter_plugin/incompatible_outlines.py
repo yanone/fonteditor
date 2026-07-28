@@ -27,12 +27,7 @@ class IncompatibleOutlinesFilter(BaseGlyphFilterPlugin):
     path = "basic/debugging"
     keyword = "com.context.incompatible_outlines"
     display_name = "Incompatible Outlines"
-    event_types = {
-        "glyph.created",
-        "glyph.deleted",
-        "glyph.compatibility.changed",
-        "font.masters.changed",
-    }
+    event_types = {"glyph.compatibility.changed"}
 
     def __init__(self):
         pass
@@ -40,47 +35,9 @@ class IncompatibleOutlinesFilter(BaseGlyphFilterPlugin):
     def visible(self):
         return True
 
-    def get_groups(self):
-        return {}
+    def is_candidate(self, glyph):
+        return not glyph.isCompatible
 
-    def filter_glyphs(self, font):
-        """Return glyphs whose outline compatibility check fails."""
-        results = []
-
-        glyphs = getattr(font, "glyphs", None)
-        if glyphs is None:
-            return results
-
-        for glyph in glyphs:
-            glyph_name = getattr(glyph, "name", None)
-            if not glyph_name:
-                continue
-
-            checker = getattr(glyph, "calculateOutlineCompatibility", None)
-            if checker is None:
-                continue
-
-            report = checker()
-            compatible = getattr(report, "compatible", True)
-            if not compatible:
-                results.append({"glyph_name": glyph_name})
-
-        return results
-
-    def apply_changes(self, change_batch, current_results, font):
-        """Compatibility is glyph-local except when the master list changes."""
-        add = []
-        remove = []
-        for change in change_batch["changes"]:
-            if change["type"] == "font.masters.changed":
-                return None
-            glyph_name = change["metadata"].get("glyphName")
-            if change["type"] == "glyph.deleted":
-                remove.append(glyph_name)
-                continue
-            glyph = font.findGlyph(glyph_name)
-            if glyph and not glyph.calculateOutlineCompatibility().compatible:
-                add.append(glyph_name)
-            else:
-                remove.append(glyph_name)
-        return {"add": add, "remove": remove}
+    def classify_glyph(self, glyph):
+        """Classify one glyph whose outline compatibility check fails."""
+        return True

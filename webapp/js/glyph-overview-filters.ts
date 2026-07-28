@@ -16,7 +16,8 @@ import {
     getTheme,
     setupMenuKeyboardNav
 } from './tippy-utils';
-import { GlyphFilterWorkerClient } from './glyph-filter-worker-client';
+import { runAssistantPythonExecution } from './assistant-execution-context';
+import { createGlyphFilterTemplate } from './glyph-filter-template';
 import {
     MANAGED_FILE_CHANGED_EVENT,
     cancelManagedFileInternalWrite,
@@ -35,7 +36,8 @@ import {
 } from './glyph-filter-events';
 import {
     dedupeGlyphFilterChanges,
-    deriveGlyphFilterChangesFromCommittedEntry
+    deriveGlyphFilterChangesFromCommittedEntry,
+    type GlyphFilterLifecycleChange
 } from './glyph-filter-change-derivation';
 
 const console = new Logger('GlyphOverviewFilters');
@@ -79,18 +81,31 @@ interface GlyphFilterPlugin {
     display_name: string;
     instance: any; // Python plugin instance
     eventTypes: GlyphFilterEventType[];
-    autoUpdateEvents?: string[];
     groups?: Record<string, GroupDefinition>;
     lastResults?: FilterResult[];
     glyphCount?: number;
     hasError?: boolean; // True if last run resulted in an error
-    hasNoFilterFunction?: boolean; // True if plugin has no filter_glyphs method
+    hasNoFilterFunction?: boolean; // True if plugin lacks classify_glyph
     isUserFilter?: boolean; // True if this is a user-defined filter from disk
     filePath?: string; // Path to .py file for user filters
     pythonCode?: string; // Source code for user filters
     validationDiagnostic?: string;
+    classifications: Map<string, GlyphClassification>;
+    sourceLoaded?: boolean;
+    sourceNamespace?: string;
     cachedDataVersion?: number;
     cachedContextVersion?: number;
+}
+
+interface GlyphClassification {
+    groups: Array<{ name: string; color: string }>;
+}
+
+interface FilterExecutionResult {
+    results: FilterResult[];
+    groups: Record<string, GroupDefinition>;
+    status: string;
+    delta?: { add?: Array<string | FilterResult>; remove?: string[] };
 }
 
 /**
@@ -105,21 +120,13 @@ interface TreeNode {
     expanded: boolean;
 }
 
-interface FilterExecutionResult {
-    results: FilterResult[];
-    groups: Record<string, GroupDefinition>;
-    status: string;
-    contextPatch?: Record<string, any>;
-    delta?: { add?: Array<string | FilterResult>; remove?: string[] };
-}
-
 interface RefreshPluginsOptions {
     deferCounts?: boolean;
 }
 
 const ALL_GLYPHS_FILTER_KEYWORD = 'com.context.allglyphs';
 
-/** Empty batch → host full rebuild via `filter_glyphs` (skips `apply_changes`). */
+/** Empty batch requests a host-owned full cache rebuild. */
 const FULL_FILTER_REBUILD_BATCH: GlyphFilterChangeBatch = { changes: [] };
 
 export class GlyphOverviewFilterManager {
@@ -141,18 +148,11 @@ export class GlyphOverviewFilterManager {
     private fileSystemObserver: any = null; // FileSystemObserver instance
     private observerSupported: boolean = 'FileSystemObserver' in window;
     private tippyInstances: TippyInstance[] = []; // Context menu instances
-    private workerClient: GlyphFilterWorkerClient =
-        new GlyphFilterWorkerClient();
     private refreshRetryTimer: number | null = null;
     private deferredCountRefreshScheduled: boolean = false;
     private inFlightCountRequests: number = 0;
     private sharedPluginContext: Record<string, any> = {};
     private sharedPluginContextVersion: number = 1;
-    // Retained only while old UI lifecycle code is removed; semantic batches do
-    // the actual filter scheduling.
-    private autoUpdateListeners: Map<string, EventListener> = new Map();
-    private pendingAutoUpdatePluginKeywords: Set<string> = new Set();
-    private autoUpdateFlushScheduled: boolean = false;
     private userFilterScanGeneration: number = 0;
     private pendingUserFilterChangeRecords: unknown[] = [];
     private pendingUserFilterChangePaths: Set<string> = new Set();
@@ -579,16 +579,9 @@ export class GlyphOverviewFilterManager {
         this.renderSidebar();
     }
 
-    /**
-     * Install packages in the glyph filter worker runtime.
-     * Used to keep worker Pyodide in sync with main-thread lazy installs.
-     */
+    /** Main-thread Pyodide already owns package installation. */
     async syncWorkerPackages(packages: string[]): Promise<void> {
-        if (!packages || packages.length === 0) {
-            return;
-        }
-
-        await this.workerClient.installPackages(packages);
+        void packages;
     }
 
     /**
@@ -626,24 +619,16 @@ export class GlyphOverviewFilterManager {
     async handleCommittedGlyphFilterBatch(
         batch: GlyphFilterChangeBatch
     ): Promise<void> {
-        const eventTypes = new Set(batch.changes.map((change) => change.type));
-        if (eventTypes.size === 0 || !window.currentFontModel) {
+        if (batch.changes.length === 0 || !window.currentFontModel) {
             return;
         }
 
         for (const plugin of this.getAllLoadedPlugins()) {
-            if (
-                !plugin.eventTypes.some((eventType) =>
-                    eventTypes.has(eventType)
-                )
-            ) {
-                continue;
-            }
-            this.invalidatePluginCache(plugin);
+            await this.applyCommittedChanges(plugin, batch.changes);
             if (plugin === this.activeFilter) {
-                await this.runFilter(plugin, batch);
+                this.applyCachedFilterResults(plugin);
             } else {
-                await this.runPluginForCount(plugin, undefined, batch);
+                this.updatePluginCount(plugin);
             }
         }
     }
@@ -759,18 +744,13 @@ export class GlyphOverviewFilterManager {
         }>
     ): Promise<void> {
         const changes: GlyphFilterChange[] = [];
+        const lifecycleChanges: GlyphFilterLifecycleChange[] = [];
         const compatibilityCheckGlyphNames = new Set<string>();
         let mastersChanged = false;
-        const masterIds =
-            window.currentFontModel?.masters?.map(
-                (master: { id: string }) => master.id
-            ) || [];
-
         for (const entry of entries) {
-            const derived = deriveGlyphFilterChangesFromCommittedEntry(entry, {
-                masterIds
-            });
+            const derived = deriveGlyphFilterChangesFromCommittedEntry(entry);
             changes.push(...derived.changes);
+            lifecycleChanges.push(...derived.lifecycleChanges);
             for (const glyphName of derived.compatibilityCheckGlyphNames) {
                 compatibilityCheckGlyphNames.add(glyphName);
             }
@@ -778,27 +758,16 @@ export class GlyphOverviewFilterManager {
                 mastersChanged = true;
             }
 
-            // Keep the compatibility map aligned with glyph lifetime events.
-            for (const change of derived.changes) {
-                if (change.type === 'glyph.deleted') {
-                    const deletedName = change.metadata.glyphName;
-                    if (typeof deletedName === 'string') {
-                        this.glyphCompatibilityByName.delete(deletedName);
-                    }
-                } else if (change.type === 'glyph.created') {
-                    const createdName = change.metadata.glyphName;
-                    if (typeof createdName === 'string') {
-                        compatibilityCheckGlyphNames.add(createdName);
-                    }
-                } else if (change.type === 'glyph.renamed') {
-                    const previousName = change.metadata.previousGlyphName;
-                    const nextName = change.metadata.glyphName;
-                    if (typeof previousName === 'string') {
-                        this.glyphCompatibilityByName.delete(previousName);
-                    }
-                    if (typeof nextName === 'string') {
-                        compatibilityCheckGlyphNames.add(nextName);
-                    }
+            for (const lifecycle of derived.lifecycleChanges) {
+                if (lifecycle.kind === 'deleted') {
+                    this.glyphCompatibilityByName.delete(lifecycle.glyphName);
+                } else if (lifecycle.kind === 'created') {
+                    compatibilityCheckGlyphNames.add(lifecycle.glyphName);
+                } else {
+                    this.glyphCompatibilityByName.delete(
+                        lifecycle.previousGlyphName
+                    );
+                    compatibilityCheckGlyphNames.add(lifecycle.glyphName);
                 }
             }
         }
@@ -810,9 +779,43 @@ export class GlyphOverviewFilterManager {
             )
         );
 
+        await this.applyLifecycleChanges(lifecycleChanges);
         await this.handleCommittedGlyphFilterBatch({
             changes: dedupeGlyphFilterChanges(changes)
         });
+    }
+
+    /** Apply host-owned glyph identity maintenance to every loaded filter. */
+    private async applyLifecycleChanges(
+        lifecycleChanges: readonly GlyphFilterLifecycleChange[]
+    ): Promise<void> {
+        if (!lifecycleChanges.length || !window.currentFontModel) {
+            return;
+        }
+
+        for (const plugin of this.getAllLoadedPlugins()) {
+            for (const change of lifecycleChanges) {
+                if (change.kind === 'deleted') {
+                    plugin.classifications.delete(change.glyphName);
+                    continue;
+                }
+                if (change.kind === 'renamed') {
+                    plugin.classifications.delete(change.previousGlyphName);
+                }
+                const glyph = window.currentFontModel.findGlyph(
+                    change.glyphName
+                );
+                if (glyph) {
+                    await this.classifyGlyph(plugin, glyph);
+                }
+            }
+            this.derivePluginResults(plugin);
+            if (plugin === this.activeFilter) {
+                this.applyCachedFilterResults(plugin);
+            } else {
+                this.updatePluginCount(plugin);
+            }
+        }
     }
 
     private getAllLoadedPlugins(): GlyphFilterPlugin[] {
@@ -838,99 +841,12 @@ export class GlyphOverviewFilterManager {
     }
 
     private invalidatePluginCache(plugin: GlyphFilterPlugin): void {
-        plugin.cachedDataVersion = undefined;
-        plugin.cachedContextVersion = undefined;
+        plugin.classifications.clear();
+        plugin.sourceLoaded = false;
         // Drop the displayed count so the sidebar shows "—" while a reload
-        // runs (event-engine batches, auto-update, file-change re-run).
+        // runs (event-engine batches, font open, file-change re-run).
         plugin.glyphCount = undefined;
         this.updatePluginCount(plugin);
-    }
-
-    private refreshAutoUpdateListeners(): void {
-        const requiredEvents = new Set(
-            this.getAllLoadedPlugins().flatMap(
-                (plugin) => plugin.autoUpdateEvents || []
-            )
-        );
-
-        for (const [eventName, listener] of this.autoUpdateListeners) {
-            if (requiredEvents.has(eventName)) {
-                continue;
-            }
-
-            window.removeEventListener(eventName, listener);
-            this.autoUpdateListeners.delete(eventName);
-        }
-
-        for (const eventName of requiredEvents) {
-            if (this.autoUpdateListeners.has(eventName)) {
-                continue;
-            }
-
-            const listener: EventListener = () => {
-                const pluginsToRefresh = this.getAllLoadedPlugins().filter(
-                    (plugin) =>
-                        (plugin.autoUpdateEvents || []).includes(eventName)
-                );
-
-                if (pluginsToRefresh.length === 0) {
-                    return;
-                }
-
-                for (const plugin of pluginsToRefresh) {
-                    this.invalidatePluginCache(plugin);
-                    this.pendingAutoUpdatePluginKeywords.add(plugin.keyword);
-                }
-
-                if (this.autoUpdateFlushScheduled) {
-                    return;
-                }
-
-                this.autoUpdateFlushScheduled = true;
-                queueMicrotask(() => {
-                    void this.flushPendingAutoUpdatePlugins();
-                });
-            };
-
-            window.addEventListener(eventName, listener);
-            this.autoUpdateListeners.set(eventName, listener);
-        }
-    }
-
-    private async flushPendingAutoUpdatePlugins(): Promise<void> {
-        this.autoUpdateFlushScheduled = false;
-
-        if (this.pendingAutoUpdatePluginKeywords.size === 0) {
-            return;
-        }
-
-        const pendingKeywords = [...this.pendingAutoUpdatePluginKeywords];
-        this.pendingAutoUpdatePluginKeywords.clear();
-
-        const pendingPlugins = pendingKeywords
-            .map((keyword) =>
-                this.getAllLoadedPlugins().find(
-                    (plugin) => plugin.keyword === keyword
-                )
-            )
-            .filter((plugin): plugin is GlyphFilterPlugin => Boolean(plugin));
-
-        const activePlugin =
-            this.activeFilter && pendingPlugins.includes(this.activeFilter)
-                ? this.activeFilter
-                : null;
-
-        if (activePlugin) {
-            await this.runFilter(activePlugin);
-        }
-
-        for (const plugin of pendingPlugins) {
-            if (plugin === activePlugin) {
-                continue;
-            }
-
-            await this.runPluginForCount(plugin);
-        }
     }
 
     /**
@@ -1050,13 +966,17 @@ export class GlyphOverviewFilterManager {
                               isGlyphFilterEventType(eventType)
                       )
                     : [];
-                if (eventTypes.length === 0) {
+                if (
+                    eventTypes.length === 0 &&
+                    plugin.keyword !== ALL_GLYPHS_FILTER_KEYWORD
+                ) {
                     console.error(
                         `Plugin "${plugin.keyword}" must declare supported event_types.`
                     );
                     continue;
                 }
                 plugin.eventTypes = eventTypes;
+                plugin.classifications = new Map();
 
                 this.plugins.push(plugin as GlyphFilterPlugin);
             }
@@ -1214,8 +1134,7 @@ export class GlyphOverviewFilterManager {
                             ? content
                             : new TextDecoder().decode(content);
 
-                    const inspection =
-                        await this.workerClient.inspectUserFilterSource(code);
+                    const inspection = this.inspectUserFilterSource(code);
 
                     // Parse GROUPS from code (simple regex extraction)
                     let groups: Record<string, GroupDefinition> = {};
@@ -1241,7 +1160,8 @@ export class GlyphOverviewFilterManager {
                         validationDiagnostic: inspection.diagnostic,
                         isUserFilter: true,
                         filePath: file.path,
-                        pythonCode: code
+                        pythonCode: code,
+                        classifications: new Map()
                     };
 
                     this.userFilters.push(userFilter);
@@ -1268,7 +1188,8 @@ export class GlyphOverviewFilterManager {
                                 : String(error),
                         isUserFilter: true,
                         filePath: file.path,
-                        pythonCode: ''
+                        pythonCode: '',
+                        classifications: new Map()
                     };
                     this.userFilters.push(userFilter);
                     this.addUserFilterToTree(userFilter, folderPath);
@@ -1342,11 +1263,52 @@ export class GlyphOverviewFilterManager {
             if (isCurrentScan()) {
                 console.error('Error discovering user filters:', error);
             }
-        } finally {
-            if (isCurrentScan()) {
-                this.refreshAutoUpdateListeners();
-            }
         }
+    }
+
+    private inspectUserFilterSource(code: string): {
+        eventTypes: GlyphFilterEventType[];
+        diagnostic?: string;
+    } {
+        const eventTypesMatch = code.match(
+            /^\s*EVENT_TYPES\s*=\s*([\[\(\{])([\s\S]*?)[\]\)\}]/m
+        );
+        if (!eventTypesMatch) {
+            return {
+                eventTypes: [],
+                diagnostic: 'Missing literal EVENT_TYPES.'
+            };
+        }
+        const quotedEvents = [
+            ...eventTypesMatch[2].matchAll(/['"]([^'"]+)['"]/g)
+        ].map((match) => match[1]);
+        if (
+            quotedEvents.length === 0 ||
+            quotedEvents.some((eventType) => !isGlyphFilterEventType(eventType))
+        ) {
+            return {
+                eventTypes: [],
+                diagnostic:
+                    'EVENT_TYPES must be a literal list, tuple, or set of supported content events.'
+            };
+        }
+        if (!/^\s*def\s+classify_glyph\s*\(\s*glyph\s*\)\s*:/m.test(code)) {
+            return {
+                eventTypes: [],
+                diagnostic: 'Missing classify_glyph(glyph).'
+            };
+        }
+        if (
+            /(^|\n)\s*def\s+is_candidate\s*\((?!\s*glyph\s*\)\s*:)/.test(code)
+        ) {
+            return {
+                eventTypes: [],
+                diagnostic: 'is_candidate(), when present, must accept glyph.'
+            };
+        }
+        return {
+            eventTypes: [...new Set(quotedEvents)] as GlyphFilterEventType[]
+        };
     }
 
     /**
@@ -1934,7 +1896,9 @@ export class GlyphOverviewFilterManager {
     }
 
     /**
-     * Activate a filter plugin
+     * Activate a filter plugin.
+     * If the filter already has results for the current font data version,
+     * reuse them instead of re-executing.
      */
     private async activateFilter(
         plugin: GlyphFilterPlugin,
@@ -1958,13 +1922,18 @@ export class GlyphOverviewFilterManager {
         itemElement.classList.add('active');
         this.saveActiveState();
 
-        // Run filter
+        const dataVersion = this.getCurrentDataVersion();
+        if (this.canUseCachedFilterResults(plugin, dataVersion)) {
+            this.applyCachedFilterResults(plugin);
+            return;
+        }
+
         await this.runFilter(plugin);
     }
 
     /**
      * Run a filter plugin and apply results.
-     * Default empty change batch forces a full `filter_glyphs` rebuild.
+     * An empty change batch forces a host-owned cache rebuild.
      */
     async runFilter(
         plugin: GlyphFilterPlugin,
@@ -1989,34 +1958,12 @@ export class GlyphOverviewFilterManager {
             this.seedGlyphCompatibilityState();
         }
 
-        if (
-            !plugin.isUserFilter &&
-            plugin.keyword === ALL_GLYPHS_FILTER_KEYWORD
-        ) {
-            const glyphCount = window.currentFontModel?.glyphs?.length || 0;
-
-            plugin.glyphCount = glyphCount;
-            plugin.hasError = false;
-            plugin.hasNoFilterFunction = false;
-            plugin.lastResults = [];
-            plugin.groups = {};
-            plugin.cachedDataVersion =
-                this.getCurrentDataVersion() ?? undefined;
-            plugin.cachedContextVersion = this.sharedPluginContextVersion;
-
-            this.updatePluginCount(plugin);
-            this.updateGroupLegend(plugin, new Set());
-
-            if (this.glyphOverview) {
-                this.glyphOverview.setActiveFilter(null);
-                this.glyphOverview.updateSelectedGlyphGroups();
-            }
-
-            return;
-        }
-
         try {
             console.log(`Running filter: ${plugin.display_name}`);
+
+            await this.rebuildFilterCache(plugin);
+            this.applyCachedFilterResults(plugin);
+            return;
 
             const dataVersion = this.getCurrentDataVersion();
             if (this.canUseCachedFilterResults(plugin, dataVersion)) {
@@ -2059,8 +2006,8 @@ export class GlyphOverviewFilterManager {
                 this.updatePluginCount(plugin);
                 if (this.glyphOverview) {
                     const message = plugin.isUserFilter
-                        ? 'No filter_glyphs() function found in the filter file.\n\nDefine a function like:\n\ndef filter_glyphs(font):\n    for glyph in font.glyphs:\n        yield {"glyph_name": glyph.name}'
-                        : 'Plugin has no filter_glyphs() method.';
+                        ? 'No classify_glyph(glyph) function found in the filter file.'
+                        : 'Plugin has no classify_glyph(glyph) function.';
                     this.glyphOverview.showFilterNotice(
                         plugin.display_name,
                         message,
@@ -2084,8 +2031,7 @@ export class GlyphOverviewFilterManager {
             plugin.glyphCount = results.length;
             plugin.hasError = false;
             plugin.hasNoFilterFunction = false;
-            plugin.cachedDataVersion =
-                dataVersion === null ? undefined : dataVersion;
+            plugin.cachedDataVersion = dataVersion ?? undefined;
             plugin.cachedContextVersion = this.sharedPluginContextVersion;
 
             // Update count in sidebar
@@ -2144,39 +2090,16 @@ export class GlyphOverviewFilterManager {
         }
     }
 
-    /**
-     * Execute a user-defined filter with sandboxing and timeout
-     */
-    private getCurrentFontSnapshotJson(): string | null {
-        const font = window.currentFontModel as any;
-        if (font?.toJSONString && typeof font.toJSONString === 'function') {
-            try {
-                return font.toJSONString();
-            } catch (error) {
-                console.warn('Failed to serialize currentFontModel:', error);
-            }
-        }
-
-        if (font?.toJSON && typeof font.toJSON === 'function') {
-            try {
-                return JSON.stringify(font.toJSON());
-            } catch (error) {
-                console.warn(
-                    'Failed to stringify currentFontModel.toJSON():',
-                    error
-                );
-            }
-        }
-
-        const fontManagerFont = window.fontManager?.currentFont;
-        if (
-            fontManagerFont?.babelfontJson &&
-            typeof fontManagerFont.babelfontJson === 'string'
-        ) {
-            return fontManagerFont.babelfontJson;
-        }
-
-        return null;
+    private canUseCachedFilterResults(
+        plugin: GlyphFilterPlugin,
+        _dataVersion?: number | null
+    ): boolean {
+        return (
+            plugin.sourceLoaded === true &&
+            Array.isArray(plugin.lastResults) &&
+            !plugin.hasError &&
+            !plugin.hasNoFilterFunction
+        );
     }
 
     private getCurrentDataVersion(): number | null {
@@ -2184,24 +2107,13 @@ export class GlyphOverviewFilterManager {
         return typeof version === 'number' ? version : null;
     }
 
-    private canUseCachedFilterResults(
-        plugin: GlyphFilterPlugin,
-        dataVersion: number | null
-    ): boolean {
-        return (
-            dataVersion !== null &&
-            plugin.cachedDataVersion === dataVersion &&
-            plugin.cachedContextVersion === this.sharedPluginContextVersion &&
-            Array.isArray(plugin.lastResults) &&
-            !plugin.hasError &&
-            !plugin.hasNoFilterFunction
-        );
+    /** Compatibility sentinel for count-refresh callers; no font is serialized. */
+    private getCurrentFontSnapshotJson(): string | null {
+        return window.currentFontModel ? 'main-thread' : null;
     }
 
     /**
-     * Merge worker-returned GROUPS into the host cache.
-     * apply_changes may mutate GROUPS (e.g. new anchor names); pick those up
-     * without waiting for a full filter_glyphs rebuild.
+     * Legacy group-cache helper retained for sidebar rendering compatibility.
      */
     private mergeFilterGroups(
         plugin: GlyphFilterPlugin,
@@ -2214,8 +2126,7 @@ export class GlyphOverviewFilterManager {
     }
 
     private applyCachedFilterResults(plugin: GlyphFilterPlugin): void {
-        // Re-resolve colors/legend after incremental deltas: add records from
-        // apply_changes usually carry group keywords but not host color fields.
+        // Re-resolve colors and legend entries from the current host cache.
         const { results, usedGroupKeywords, augmentedGroups } =
             this.processFilterResults(
                 plugin.lastResults || [],
@@ -2289,54 +2200,223 @@ export class GlyphOverviewFilterManager {
         }, delayMs);
     }
 
+    private async rebuildFilterCache(plugin: GlyphFilterPlugin): Promise<void> {
+        plugin.classifications.clear();
+        for (const glyph of window.currentFontModel?.glyphs || []) {
+            await this.classifyGlyph(plugin, glyph);
+        }
+        this.derivePluginResults(plugin);
+    }
+
+    private async applyCommittedChanges(
+        plugin: GlyphFilterPlugin,
+        changes: readonly GlyphFilterChange[]
+    ): Promise<void> {
+        const names = new Set<string>();
+        for (const change of changes) {
+            const glyphName = change.metadata.glyphName;
+            if (plugin.eventTypes.includes(change.type)) {
+                if (typeof glyphName === 'string') {
+                    names.add(glyphName);
+                }
+            }
+        }
+        for (const name of names) {
+            const glyph = window.currentFontModel?.findGlyph(name);
+            if (glyph) {
+                await this.classifyGlyph(plugin, glyph);
+            } else {
+                plugin.classifications.delete(name);
+            }
+        }
+        this.derivePluginResults(plugin);
+    }
+
+    private async classifyGlyph(
+        plugin: GlyphFilterPlugin,
+        glyph: { name?: string }
+    ): Promise<void> {
+        if (!glyph.name) {
+            return;
+        }
+        await this.ensureFilterSource(plugin);
+        const candidate = await this.callFilterFunction(
+            plugin,
+            'is_candidate',
+            glyph,
+            true
+        );
+        plugin.classifications.delete(glyph.name);
+        if (candidate === false) {
+            return;
+        }
+        const classification = await this.callFilterFunction(
+            plugin,
+            'classify_glyph',
+            glyph,
+            null
+        );
+        if (classification === false) {
+            return;
+        }
+        if (classification === true) {
+            plugin.classifications.set(glyph.name, { groups: [] });
+            return;
+        }
+        if (!classification || typeof classification !== 'object') {
+            throw new Error(
+                'classify_glyph() must return True, False, or a mapping with groups.'
+            );
+        }
+        const groups = (classification as { groups?: unknown }).groups;
+        if (!Array.isArray(groups) || groups.length === 0) {
+            throw new Error(
+                'A classification mapping must contain a non-empty groups list.'
+            );
+        }
+        const normalizedGroups = groups.map((group) => {
+            if (
+                !group ||
+                typeof group !== 'object' ||
+                typeof (group as { name?: unknown }).name !== 'string' ||
+                !(group as { name: string }).name.trim() ||
+                typeof (group as { color?: unknown }).color !== 'string' ||
+                !(group as { color: string }).color.trim()
+            ) {
+                throw new Error(
+                    'Each classification group requires non-empty name and color strings.'
+                );
+            }
+            return {
+                name: (group as { name: string }).name,
+                color: (group as { color: string }).color
+            };
+        });
+        plugin.classifications.set(glyph.name, { groups: normalizedGroups });
+    }
+
+    private async ensureFilterSource(plugin: GlyphFilterPlugin): Promise<void> {
+        if (plugin.sourceLoaded) {
+            return;
+        }
+        if (!window.pyodide) {
+            throw new Error('Pyodide is not available.');
+        }
+        plugin.sourceNamespace = `__glyph_filter_${plugin.keyword.replace(/[^A-Za-z0-9_]/g, '_')}`;
+        await runAssistantPythonExecution(
+            {
+                id: `glyph-filter:${plugin.keyword}`,
+                allowFontEdits: false,
+                historySummary: null
+            },
+            async () => {
+                const pyodide = window.pyodide as any;
+                pyodide.globals.set(
+                    '__glyph_filter_namespace',
+                    plugin.sourceNamespace
+                );
+                if (plugin.isUserFilter) {
+                    pyodide.globals.set(
+                        '__glyph_filter_source',
+                        plugin.pythonCode || ''
+                    );
+                    await (
+                        pyodide._originalRunPythonAsync ||
+                        pyodide.runPythonAsync
+                    )(
+                        "globals()[__glyph_filter_namespace] = {}\nexec(__glyph_filter_source, globals()[__glyph_filter_namespace])\nif not callable(globals()[__glyph_filter_namespace].get('classify_glyph')):\n    raise ValueError('Missing classify_glyph(glyph).')"
+                    );
+                } else {
+                    pyodide.globals.set(
+                        '__glyph_filter_instance',
+                        plugin.instance
+                    );
+                    await (
+                        pyodide._originalRunPythonAsync ||
+                        pyodide.runPythonAsync
+                    )(
+                        "if not callable(getattr(__glyph_filter_instance, 'classify_glyph', None)):\n    raise ValueError('Missing classify_glyph(glyph).')"
+                    );
+                }
+            }
+        );
+        plugin.sourceLoaded = true;
+    }
+
+    private async callFilterFunction(
+        plugin: GlyphFilterPlugin,
+        functionName: 'is_candidate' | 'classify_glyph',
+        glyph: object,
+        fallback: boolean | null
+    ): Promise<unknown> {
+        return runAssistantPythonExecution(
+            {
+                id: `glyph-filter:${plugin.keyword}`,
+                allowFontEdits: false,
+                historySummary: null
+            },
+            async () => {
+                const pyodide = window.pyodide as any;
+                pyodide.globals.set('__glyph_filter_glyph', glyph);
+                pyodide.globals.set('__glyph_filter_function', functionName);
+                pyodide.globals.set('__glyph_filter_fallback', fallback);
+                if (!plugin.isUserFilter) {
+                    pyodide.globals.set(
+                        '__glyph_filter_instance',
+                        plugin.instance
+                    );
+                }
+                const result = await (
+                    pyodide._originalRunPythonAsync || pyodide.runPythonAsync
+                )(
+                    plugin.isUserFilter
+                        ? '_fn = globals()[__glyph_filter_namespace].get(__glyph_filter_function)\n_filter_result = __glyph_filter_fallback if _fn is None else _fn(__glyph_filter_glyph)\n_filter_result'
+                        : '_fn = getattr(__glyph_filter_instance, __glyph_filter_function, None)\n_filter_result = __glyph_filter_fallback if _fn is None else _fn(__glyph_filter_glyph)\n_filter_result'
+                );
+                try {
+                    return result?.toJs
+                        ? result.toJs({ dict_converter: Object.fromEntries })
+                        : result;
+                } finally {
+                    result?.destroy?.();
+                }
+            }
+        );
+    }
+
+    private derivePluginResults(plugin: GlyphFilterPlugin): void {
+        const groups: Record<string, GroupDefinition> = {};
+        const results: FilterResult[] = [];
+        for (const [glyphName, classification] of plugin.classifications) {
+            const names: string[] = [];
+            for (const group of classification.groups) {
+                names.push(group.name);
+                groups[group.name] = {
+                    description: group.name,
+                    color: group.color
+                };
+            }
+            results.push({ glyph_name: glyphName, groups: names });
+        }
+        plugin.groups = groups;
+        plugin.lastResults = results;
+        plugin.glyphCount = results.length;
+        plugin.hasError = false;
+        plugin.hasNoFilterFunction = false;
+    }
+
+    /** Legacy internal adapter kept for count-refresh callers during migration. */
     private async executeFilter(
         plugin: GlyphFilterPlugin,
-        fontSnapshotJson: string | null,
-        changeBatch: GlyphFilterChangeBatch
+        _unusedSnapshot: string | null,
+        _unusedBatch: GlyphFilterChangeBatch
     ): Promise<FilterExecutionResult> {
-        if (!fontSnapshotJson) {
-            throw new Error('No font snapshot available for worker execution');
-        }
-
-        const runtimeContext = {
-            ...this.sharedPluginContext,
-            __meta: {
-                activeFilterKeyword: plugin.keyword,
-                activeFilterName: plugin.display_name,
-                timestamp: Date.now()
-            }
+        await this.rebuildFilterCache(plugin);
+        return {
+            results: plugin.lastResults || [],
+            groups: plugin.groups || {},
+            status: 'ok'
         };
-
-        await this.workerClient.syncSharedContext(
-            runtimeContext,
-            this.sharedPluginContextVersion
-        );
-
-        let result: FilterExecutionResult;
-
-        if (plugin.isUserFilter && plugin.pythonCode) {
-            result = await this.workerClient.runUserFilter(
-                plugin.pythonCode,
-                fontSnapshotJson,
-                this.FILTER_TIMEOUT_MS,
-                changeBatch,
-                plugin.lastResults || []
-            );
-        } else {
-            result = await this.workerClient.runBuiltinFilter(
-                plugin.keyword,
-                fontSnapshotJson,
-                this.FILTER_TIMEOUT_MS,
-                changeBatch,
-                plugin.lastResults || []
-            );
-        }
-
-        if (result.contextPatch && typeof result.contextPatch === 'object') {
-            this.updateSharedPluginContext(result.contextPatch);
-        }
-
-        return result;
     }
 
     /**
@@ -2632,11 +2712,6 @@ export class GlyphOverviewFilterManager {
      */
     private applyGroupFilter(): void {
         if (!this.glyphOverview || !this.activeFilter) return;
-
-        if (this.activeFilter.keyword === ALL_GLYPHS_FILTER_KEYWORD) {
-            this.glyphOverview.setActiveFilter(null);
-            return;
-        }
 
         const results = this.activeFilter.lastResults;
         if (!results) return;
@@ -3010,38 +3085,7 @@ export class GlyphOverviewFilterManager {
             const filterName = fileName.replace(/\.py$/, '');
 
             // Create empty filter file with template
-            const template = `# "${filterName}" Filter
-# Define your filter function below
-
-# Optional: Define groups with colors
-# GROUPS = {
-#     "uppercase": {"description": "Uppercase letters", "color": "#ff6b6b"},
-#     "lowercase": {"description": "Lowercase letters", "color": "#4ecdc4"}
-# }
-
-def filter_glyphs(font):
-    """Filter glyphs and return results.
-    
-    Yield or return a list of dictionaries with 'glyph_name' keys.
-    Optional: 'group' keys for grouping.
-    """
-    for glyph in font.glyphs:
-        # Example: yield all glyphs
-        yield {"glyph_name": glyph.name}
-        
-        # Example with group (defined in GROUPS above):
-        # yield {"glyph_name": glyph.name, "group": "uppercase"}
-
-        # Example with just color:
-        # yield {"glyph_name": glyph.name, "group": "#ff6b6b"}
-
-        # A glyph can belong to multiple groups by yielding 'groups' list...
-        # yield {"glyph_name": glyph.name, "groups": ["uppercase", "#ff6b6b"]}
-
-        # ...or by yielding multiple times with different groups
-        # yield {"glyph_name": glyph.name, "group": "uppercase"}
-        # yield {"glyph_name": glyph.name, "group": "#ff6b6b"}
-        `;
+            const template = createGlyphFilterTemplate(filterName);
 
             // Write file using the file handle
             markManagedFileInternalWrite(SETTINGS_FOLDER_SOURCE_ID, filePath);

@@ -55,37 +55,27 @@ window.glyphOverviewFilterManager.updateSharedPluginContext({
 const ctx = window.glyphOverviewFilterManager.getSharedPluginContext();
 ```
 
-Worker-side Python plugin example:
+Simple glyph filter example:
 
 ```python
-def filter_glyphs(font):
-    ctx = Context()  # Live Python mapping over shared context
-    thresholds = ctx.thresholds if hasattr(ctx, 'thresholds') else {}
-    max_nodes = thresholds.maxNodes if hasattr(thresholds, 'maxNodes') else 1000
+EVENT_TYPES = ["glyph.paths.changed"]
 
-    flagged = 0
-    for glyph in font.glyphs:
-        node_count = 0
-        for layer in glyph.layers:
-            for shape in layer.shapes:
-                if hasattr(shape, 'nodes') and shape.nodes:
-                    node_count += len(shape.nodes)
-
-        if node_count > max_nodes:
-            flagged += 1
-            yield {'glyph_name': glyph.name, 'group': 'complex'}
-
-    # Send patch back to main-thread context
-    SetContextPatch({'lastRun': {'flagged': flagged}})
+def classify_glyph(glyph):
+    node_count = sum(
+        len(shape.nodes)
+        for layer in glyph.layers
+        for shape in layer.shapes
+        if hasattr(shape, "nodes") and shape.nodes
+    )
+    return node_count > 1000
 ```
 
 Object model dictionaries are also live mappings, including `master.kerning`, `font.names`, and `instance.custom_names`, and can be read or written with normal Python dict syntax without calling `.to_py()` first.
 
 Notes:
 
-- Keep shared context JSON-like: objects, arrays, and primitives only
-- Worker uses versioned snapshots and drops stale context updates
-- `SetContextPatch` applies a shallow patch merge on the main-thread context
+- Return only `False`, `True`, or a mapping with non-empty `groups`.
+- Do not mutate the font from a filter.
 
 Quick DevTools verification:
 

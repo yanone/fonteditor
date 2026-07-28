@@ -2777,31 +2777,15 @@ __counterpunch_assistant_validate_syntax(${sourceKey})`
             case 'glyph_filter_event_types':
                 return `${JSON.stringify(getGlyphFilterEventAssistantView(), null, 2)}
 
-Subscribe EVENT_TYPES only to events this filter must handle for correctness. Do not over-subscribe to unrelated types.
+Write only the simple filter contract. Subscribe EVENT_TYPES only to glyph-content events that can change the classification. Do not subscribe to glyph.created, glyph.deleted, glyph.renamed, or font.masters.changed: the app handles those itself.
 
 Example single-file filter:
 
 \`\`\`python
-EVENT_TYPES = {'glyph.unicode.changed'}
+EVENT_TYPES = ["glyph.unicode.changed"]
 
-def filter_glyphs(font):
-    for glyph in font.glyphs:
-        if not glyph.codepoints:
-            yield {'glyph_name': glyph.name}
-
-def apply_changes(change_batch, current_results, font):
-    add = []
-    remove = []
-    for change in change_batch['changes']:
-        if change['type'] != 'glyph.unicode.changed':
-            continue
-        glyph_name = change['metadata'].get('glyphName')
-        glyph = font.findGlyph(glyph_name) if glyph_name else None
-        if glyph and not glyph.codepoints:
-            add.append(glyph_name)
-        else:
-            remove.append(glyph_name)
-    return {'add': add, 'remove': remove}
+def classify_glyph(glyph):
+    return not glyph.codepoints
 \`\`\``;
             case 'list_available_fonts': {
                 const pluginRegistry = (window as any).pluginRegistry;
@@ -3212,7 +3196,7 @@ if '_assistant_original_stdout' in dir():
                 const kindInfo = getPythonDocumentKindInfo(state);
                 const syntax = this.validatePythonSyntax(state.content || '');
                 const hasFilterFunction =
-                    /^\s*def\s+filter_glyphs\s*\(\s*font\s*\)\s*:/m.test(
+                    /^\s*def\s+classify_glyph\s*\(\s*glyph\s*\)\s*:/m.test(
                         state.content
                     );
                 const hasEventTypes = /^\s*EVENT_TYPES\s*=/m.test(
@@ -3240,7 +3224,7 @@ if '_assistant_original_stdout' in dir():
                     }
                     if (!hasFilterFunction) {
                         messages.push(
-                            'Glyph filters must define filter_glyphs(font).'
+                            'Glyph filters must define classify_glyph(glyph).'
                         );
                     }
                 }

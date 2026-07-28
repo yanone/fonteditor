@@ -24,7 +24,7 @@ class EncodedGlyphsFilter:
     path = "basic/glyph_categories"
     keyword = "com.context.encoded"
     display_name = "Encoded Characters"
-    event_types = {"glyph.created", "glyph.deleted", "glyph.unicode.changed"}
+    event_types = {"glyph.unicode.changed"}
 
     # Unicode block ranges
     UNICODE_BLOCKS = [
@@ -88,80 +88,25 @@ class EncodedGlyphsFilter:
     def visible(self):
         return True
 
-    def get_groups(self):
-        groups = {
-            "multiple_codepoints": {
-                "description": "Multiple Codepoints",
-                "color": "#ef4444",
-            }
-        }
+    def is_candidate(self, glyph):
+        return bool(glyph.codepoints)
 
-        # Add Unicode block groups
-        for start, end, key, description, color in self.UNICODE_BLOCKS:
-            groups[key] = {
-                "description": f"{description} (U+{start:04X}–U+{end:04X})",
-                "color": color,
-            }
+    def classify_glyph(self, glyph):
+        """Classify one glyph by its assigned Unicode blocks."""
+        codepoints = glyph.codepoints
+        if not codepoints:
+            return False
 
-        return groups
+        groups = []
+        if len(codepoints) > 1:
+            groups.append({"name": "Multiple Codepoints", "color": "#ef4444"})
 
-    def filter_glyphs(self, font):
-        """Return glyphs that have a Unicode codepoint defined."""
-        results = []
+        for codepoint in codepoints:
+            for start, end, _key, description, color in self.UNICODE_BLOCKS:
+                if start <= codepoint <= end:
+                    name = f"{description} (U+{start:04X}-U+{end:04X})"
+                    if not any(group["name"] == name for group in groups):
+                        groups.append({"name": name, "color": color})
+                    break
 
-        glyphs = getattr(font, "glyphs", None)
-        if glyphs is None:
-            return results
-
-        for glyph in glyphs:
-            glyph_name = getattr(glyph, "name", None)
-            if not glyph_name:
-                continue
-
-            # Check for unicode codepoints
-            codepoints = getattr(glyph, "codepoints", None)
-            if codepoints and len(codepoints) > 0:
-                # Build list of groups this glyph belongs to
-                groups = []
-
-                # Check for multiple codepoints
-                if len(codepoints) > 1:
-                    groups.append("multiple_codepoints")
-
-                # Determine which Unicode blocks the codepoints belong to
-                for cp in codepoints:
-                    for start, end, key, description, color in self.UNICODE_BLOCKS:
-                        if start <= cp <= end:
-                            if key not in groups:
-                                groups.append(key)
-                            break
-
-                results.append({"glyph_name": glyph_name, "groups": groups})
-
-        return results
-
-    def apply_changes(self, change_batch, current_results, font):
-        """Replace changed entries with freshly calculated Unicode-block groups."""
-        add = []
-        remove = []
-        for change in change_batch["changes"]:
-            metadata = change["metadata"]
-            glyph_name = metadata.get("glyphName")
-            if change["type"] == "glyph.deleted":
-                remove.append(glyph_name)
-                continue
-            glyph = font.findGlyph(glyph_name)
-            if glyph is None or not glyph.codepoints:
-                remove.append(glyph_name)
-            else:
-                groups = []
-                if len(glyph.codepoints) > 1:
-                    groups.append("multiple_codepoints")
-                for cp in glyph.codepoints:
-                    for start, end, key, description, color in self.UNICODE_BLOCKS:
-                        if start <= cp <= end and key not in groups:
-                            groups.append(key)
-                            break
-                remove.append(glyph_name)
-                add.append({"glyph_name": glyph_name, "groups": groups})
-        return {"add": add, "remove": remove}
+        return {"groups": groups or [{"name": "Encoded", "color": "blue"}]}

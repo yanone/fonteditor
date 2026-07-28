@@ -1,93 +1,43 @@
 # Base Glyph Filter Plugin
 
-This is a minimal template for creating glyph filter plugins for the Context Font Editor.
-
-## Overview
-
-Glyph filter plugins appear in the glyph overview sidebar and allow filtering/coloring
-of glyphs based on custom criteria.
-
-## Creating Your Own Plugin
-
-1. Copy this folder and rename it
-2. Rename the `base_glyph_filter_plugin` package folder
-3. Update `setup.py`:
-    - Change `name` to your plugin name
-    - Update the entry point to match your package and class names
-4. Implement your plugin in `plugin.py`:
-    - Set `path` to a valid filter path (e.g., 'basic', 'basic/glyph_categories')
-    - Set `keyword` to a unique reverse domain name identifier
-    - Set `display_name` to a human-readable name
-    - Implement `get_colors()` if you want color coding
-    - Implement `filter_glyphs(font)` to return filtered glyphs
+Glyph filters classify one glyph at a time. The host scans glyphs, owns the
+cache, handles creation/deletion/renaming, and builds groups.
 
 ## Plugin Interface
 
-### Required Attributes
-
-- `path`: Category path where the filter appears (must match a registered path)
-- `keyword`: Unique identifier using reverse domain name (e.g., 'com.example.myfilter')
-- `display_name`: Human-readable name shown in the sidebar
-
-### Required Methods
-
-#### `get_colors() -> dict`
-
-Return color definitions for color keywords:
-
-```python
-def get_colors(self):
-    return {
-        "error": {
-            "description": "Glyphs with errors",
-            "color": "#ff0000"
-        }
-    }
-```
-
-#### `filter_glyphs(font) -> list`
-
-Filter glyphs and return results:
-
-```python
-def filter_glyphs(self, font):
-    results = []
-    for glyph in font.glyphs:
-        if some_condition(glyph):
-            results.append({
-                "glyph_name": glyph.name,
-                "color": "error"  # or "#ff0000"
-            })
-    return results
-```
-
-### Required Event Types And Optional Incremental Updates
-
-Set `event_types` to the semantic changes that can affect this filter. The
-host runs `filter_glyphs(font)` after matching changes unless optional
-`apply_changes` returns an incremental delta:
+Set the sidebar metadata and `event_types`, then implement
+`classify_glyph(glyph)`:
 
 ```python
 class MyFilter(BaseGlyphFilterPlugin):
+    path = "basic"
+    keyword = "com.example.myfilter"
+    display_name = "My Filter"
     event_types = {"glyph.unicode.changed"}
 
-    def apply_changes(self, change_batch, current_results, font):
-        return {
-            "remove": ["adieresis"],
-            "add": [
-                {"glyph_name": "adieresis", "groups": ["latin_ext_a"]}
-            ]
-        }
+    def classify_glyph(self, glyph):
+        return not glyph.codepoints
 ```
 
-Return `None` from `apply_changes` to run the complete filter. `remove` always
-contains glyph names. `add` accepts either glyph names or the same result
-dictionaries returned by `filter_glyphs`; removals happen before additions.
+`classify_glyph()` has exactly three valid results:
+
+- `False`: hide the glyph.
+- `True`: show the glyph without a group.
+- A mapping with non-empty `groups`: show and categorize the glyph.
+
+```python
+return {"groups": [{"name": "Latin", "color": "blue"}]}
+```
+
+`is_candidate(glyph)` is optional. Add it only when a cheap check can avoid
+calling `classify_glyph()` for glyphs that cannot match.
+
+Do not implement `filter_glyphs`, `apply_changes`, `GROUPS`, or cache and
+lifecycle code. Do not subscribe to glyph creation, deletion, renaming, or
+font-wide events.
 
 ## Building
 
 ```bash
 ./build.sh
 ```
-
-This creates a wheel file in `dist/` that can be installed in the font editor.

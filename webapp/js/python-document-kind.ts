@@ -25,7 +25,7 @@ export function getPythonDocumentKindInfo(state: {
     }
 
     const hasFilterFunction =
-        /^\s*def\s+filter_glyphs\s*\(\s*font\s*\)\s*:/m.test(
+        /^\s*def\s+classify_glyph\s*\(\s*glyph\s*\)\s*:/m.test(
             state.content || ''
         );
     if (hasFilterFunction) {
@@ -34,8 +34,8 @@ export function getPythonDocumentKindInfo(state: {
             editorKind,
             confidence: 'content-inferred',
             message: state.path
-                ? 'This buffer has unsaved edits and defines filter_glyphs(font), so it is treated as a Glyph Overview filter until saved.'
-                : 'Unsaved buffer has no saved Counterpunch/Filters path yet, but it defines filter_glyphs(font), so it is treated as a Glyph Overview filter.'
+                ? 'This buffer has unsaved edits and defines classify_glyph(glyph), so it is treated as a Glyph Overview filter until saved.'
+                : 'Unsaved buffer has no saved Counterpunch/Filters path yet, but it defines classify_glyph(glyph), so it is treated as a Glyph Overview filter.'
         };
     }
     return {
@@ -43,7 +43,7 @@ export function getPythonDocumentKindInfo(state: {
         editorKind,
         confidence: 'unclassified-unsaved',
         message: state.path
-            ? 'This buffer has unsaved edits and no longer defines filter_glyphs(font), so it is not treated as a Glyph Overview filter until saved.'
-            : `Unsaved buffer has no saved Counterpunch/Filters path and does not define filter_glyphs(font), so it is not treated as a Glyph Overview filter; editor fallback is ${editorKind}, but callers must not treat that as authoritative.`
+            ? 'This buffer has unsaved edits and no longer defines classify_glyph(glyph), so it is not treated as a Glyph Overview filter until saved.'
+            : `Unsaved buffer has no saved Counterpunch/Filters path and does not define classify_glyph(glyph), so it is not treated as a Glyph Overview filter; editor fallback is ${editorKind}, but callers must not treat that as authoritative.`
     };
 }

@@ -710,7 +710,7 @@ describe('get_editor_state text-buffer interpretation', () => {
             "Python syntax error on line 1, column 23: expected ':'"
         );
         expect(result.message).toContain(
-            'Glyph filters must define filter_glyphs(font).'
+            'Glyph filters must define classify_glyph(glyph).'
         );
     });
 
