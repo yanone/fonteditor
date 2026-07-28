@@ -26,7 +26,6 @@ const PRECACHE_ASSETS = [
     // JavaScript bundles (webpack output)
     './js/bootstrap.js',
     './js/fontc-worker.js',
-    './js/glyph-filter-worker.js',
     './js/glyph-overview.js',
     './js/find-glyph-dialog.js',
     './js/translations.js',
