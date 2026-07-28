@@ -13,7 +13,8 @@ export function createGlyphFilterTemplate(name: string = 'New Filter'): string {
 # is_candidate(glyph) is an optional method that can
 # be used to quickly filter out glyphs that cannot match.
 # It is called before classify_glyph(glyph)
-# and can be used to improve performance for large fonts.
+# and can be used to improve performance for large fonts
+# or when the main classify_glyph() method is expensive to compute.
 
 # Example:
 # Re-run this filter only when Unicode assignments change.
