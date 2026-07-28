@@ -66,16 +66,188 @@ One package may provide any combination of the following plugin roles:
 
 | Role                 | Responsibility                                                                          |
 | -------------------- | --------------------------------------------------------------------------------------- |
-| Character database   | Characters, Unicode sequences, unencoded glyph concepts, aliases, and language coverage |
+| Character Set provider | Selectable character sets for glyph creation, including Unicode sequences, categories, and coverage levels |
 | Glyph Data           | Unicode/name lookup and read-only Unicode glyph metadata                                |
 | Composition provider | Candidate component recipes, starting with Unicode decomposition and adding overrides   |
 | Anchor provider      | Initial anchor recipes and placement expressions                                        |
 | Feature generator    | Regenerable OpenType feature-code blocks                                                |
 | Glyph filter         | A code-driven filter for glyph views, grouping, or analysis                             |
 
-Hyperglot and `gflanguages` are natural sources for character-database
-providers. A provider contributes query results; it does not copy an entire
-external database into each font.
+Hyperglot and `gflanguages` are natural sources for Character Set providers. A
+provider contributes query results; it does not copy an entire external
+database into each font.
+
+## Character Set Providers And Add Glyphs
+
+A **Character Set provider** supplies named, selectable collections of Unicode
+characters or sequences for the Add Glyphs dialog. It is deliberately not
+called a language provider: a provider may offer living languages, IPA
+inventories, a foundry coverage specification, a script repertoire, or any
+other useful set of glyph identities.
+
+The host owns glyph creation. A provider only supplies character-set metadata
+and Unicode sequences. Counterpunch resolves each sequence through the active
+glyph-identity index, removes already-present glyphs, presents the resulting
+selection, and writes any new glyphs through the normal undoable creation
+path.
+
+### Provider Contract
+
+Every Character Set provider has a stable reverse-domain identifier, version,
+and a tree of selectable sets. The tree is provider-defined so the host never
+needs language- or orthography-specific concepts. A node is either a
+non-selectable branch or a selectable leaf; leaf identifiers must be stable
+across releases where the represented set remains the same.
+
+```python
+class CharacterSetProvider:
+    provider_id = "org.rosettatype.hyperglot"
+    display_name = "Hyperglot"
+    version = "0.8.1"
+
+    def list_sets(self, query: str) -> list[CharacterSetNode]:
+        """Return a nested tree, filtered by a user-entered search query."""
+
+    def get_characters(
+        self,
+        set_ids: list[str],
+        levels: set[str],
+    ) -> list[CharacterSetEntry]:
+        """Return the deduplicated union for the selected leaf set IDs."""
+```
+
+`CharacterSetNode` contains a stable `id`, `label`, optional `description`,
+and `children`. Only leaves have `selectable: true`. `CharacterSetEntry`
+contains a Unicode sequence, a display string, and one or more provider-defined
+category tags. A provider that supports coverage selection declares its own
+ordered coverage-level definitions, including their labels and defaults; each
+entry then declares the provider level it belongs to. Providers without such
+definitions show no Include control and return their complete sets.
+
+The coverage levels are a host-wide vocabulary, not a claim that all providers
+describe languages. A provider maps its own categories to those levels. For
+example, a technical character-set provider may classify a core repertoire as
+essential and extension symbols as recommended.
+
+### Add Glyphs Dialog
+
+The Add Glyphs dialog gains a Character Set provider control at its top. The
+current Unicode experience becomes the built-in `Unicode` provider. Installed
+Character Set providers appear alongside it.
+
+```text
+Add Glyphs
+
+Character Set Provider: [ Unicode v ]
+
+[existing Unicode search and character list]
+```
+
+When a provider offers a set tree, the dialog changes to a three-part layout:
+
+```text
+Add Glyphs
+
+Character Set Provider: [ Hyperglot v ]
+
+[Search character sets... ]     [Include: Essential v] [Search characters...]
+
+Character Sets                   Characters
+
+v English                         A B C D E F ...
+  [x] Latin                       Selected: English / Latin
+> Serbian                         52 characters
+v Japanese
+  [ ] Hiragana
+  [x] Katakana
+  [ ] Kanji
+```
+
+The left column is generically titled **Character Sets**. The host flattens a
+provider's tree to selectable leaves and prefixes each leaf label with its
+ancestor labels. It therefore does not label rows as language, orthography,
+script, or any other domain term. Hyperglot may provide nested language and
+orthography data while the dialog presents rows such as `Serbian - Cyrillic`.
+An IPA or foundry provider may return a flat list or a different hierarchy.
+
+Rows use ordinary list selection: click selects one set, cmd/ctrl-click adds or
+removes a set, and shift-click selects a range. Users may select any number of
+sets. The right column displays the
+deduplicated union of every selected leaf after the active coverage-level
+filter is applied. A character or Unicode sequence that belongs to several
+selected sets appears once; its details retain all source-set and category
+provenance so the user can inspect why it is present.
+
+Searching the left column filters the provider's set tree, preserving matching
+branches and expanding matching descendants. Searching the right column filters
+the already-combined character result. Changing either search never changes
+the selected leaves.
+
+### Coverage-Level Control
+
+The right-column toolbar contains an `Include` multi-select control, not an
+exclusive mode selector:
+
+```text
+Include
+[x] Essential
+[ ] Recommended
+[ ] Optional
+```
+
+The default is Essential only. This lets a user request Essential plus
+Recommended without also adding punctuation, numerals, currency, symbols, or
+another provider's optional repertoire.
+
+For Hyperglot, categories map as follows:
+
+| Hyperglot data | Coverage level |
+| -------------- | -------------- |
+| `base`, plus marks required to write it | Essential |
+| `auxiliary`, plus its required marks | Recommended |
+| `punctuation`, `numerals`, `currency` | Optional |
+
+If a sequence appears at more than one level, the combined result uses the
+strongest level: Essential before Recommended before Optional. The details view
+still lists every source category and selected Character Set that contributed
+the sequence.
+
+### Hyperglot Tree And Identifiers
+
+Hyperglot should expose languages as branches and orthographies as selectable
+leaves, including entries with only one known orthography. The Add Glyphs
+dialog flattens these to consistently named rows:
+
+```text
+English - Latin
+Serbian - Cyrillic
+Serbian - Latin
+Japanese - Hiragana
+Japanese - Katakana
+Japanese - Kanji
+```
+
+The visible labels are provider-controlled. The selected leaf is recorded by a
+stable provider ID, for example:
+
+```text
+org.rosettatype.hyperglot / srp / Cyrillic / primary
+```
+
+The label may therefore be improved without breaking a saved dialog state,
+automation, or a future persisted font configuration.
+
+### Scope Of The First Implementation
+
+The first integration creates glyphs from the selected Unicode sequences only.
+It does not claim that a font supports a selected Character Set: complete
+coverage also depends on missing sequences, decomposed-versus-precomposed
+policy, mark handling, and for some scripts OpenType shaping. Those concerns
+belong to a later Character Set coverage report, not to Add Glyphs.
+
+The dialog retains its selected provider, leaf set IDs, and coverage-level
+selection for its current session. Persisting active providers and settings in
+the font follows the package activation and provenance model described below.
 
 ## Plugin Manager And Catalogue
 

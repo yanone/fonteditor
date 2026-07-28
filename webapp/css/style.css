@@ -20,6 +20,136 @@
     max-width: 860px;
 }
 
+.add-glyphs-popup.has-character-set-tree {
+    width: min(1720px, calc(100vw - 128px));
+    max-width: 1720px;
+}
+
+.add-glyph-provider-control {
+    align-items: center;
+    color: var(--text-secondary);
+    display: flex;
+    font-size: 12px;
+    gap: 8px;
+}
+
+.add-glyph-provider-select {
+    background: var(--background-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font: inherit;
+    padding: 5px 8px;
+}
+
+.add-glyph-body {
+    margin-top: 12px;
+}
+
+.add-glyphs-popup.has-character-set-tree .add-glyph-body {
+    align-items: stretch;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(260px, 0.32fr) minmax(0, 1fr);
+}
+
+.add-glyphs-popup.has-character-set-tree .add-glyph-list {
+    height: min(58vh, 580px);
+    max-height: none;
+}
+
+.add-glyphs-popup.has-character-set-tree .add-glyph-set-tree {
+    max-height: min(58vh, 580px);
+}
+
+.add-glyph-set-panel,
+.add-glyph-results-panel {
+    min-width: 0;
+}
+
+.add-glyph-set-panel {
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+}
+
+.add-glyphs-popup.has-character-set-tree .add-glyph-set-panel {
+    min-height: 0;
+    overflow: hidden;
+}
+
+.add-glyph-set-panel[hidden] {
+    display: none;
+}
+
+.add-glyph-set-panel h3 {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.add-glyph-set-panel .overview-search-control {
+    margin-bottom: 8px;
+}
+
+.add-glyph-set-tree {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+.add-glyph-set-row {
+    background: transparent;
+    border: 0;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: block;
+    font: inherit;
+    font-size: 12px;
+    padding: 6px 8px;
+    text-align: left;
+    width: 100%;
+}
+
+.add-glyph-set-row:hover,
+.add-glyph-set-row.is-active {
+    background: var(--background-hover);
+}
+
+.add-glyph-set-row.is-selected {
+    background: color-mix(
+        in srgb,
+        var(--accent-blue) 18%,
+        var(--background-primary)
+    );
+}
+
+.add-glyph-coverage-controls {
+    align-items: center;
+    border: 0;
+    color: var(--text-secondary);
+    display: flex;
+    font-size: 11px;
+    gap: 10px;
+    margin: 8px 0 0;
+    padding: 0;
+}
+
+.add-glyph-coverage-controls legend {
+    color: var(--text-secondary);
+    font-weight: 600;
+    margin-right: 2px;
+}
+
+.add-glyph-coverage-controls label {
+    align-items: center;
+    display: flex;
+    gap: 4px;
+}
+
 .add-glyph-list {
     max-height: min(58vh, 580px);
     max-width: 100%;
@@ -27,6 +157,20 @@
     border: 1px solid var(--border-primary);
     border-radius: 6px;
     margin-top: 12px;
+}
+
+@media (max-width: 700px) {
+    .add-glyphs-popup.has-character-set-tree {
+        width: calc(100vw - 32px);
+    }
+
+    .add-glyphs-popup.has-character-set-tree .add-glyph-body {
+        grid-template-columns: 1fr;
+    }
+
+    .add-glyphs-popup.has-character-set-tree .add-glyph-set-tree {
+        max-height: 180px;
+    }
 }
 
 .add-glyph-row {
@@ -62,6 +206,15 @@
         var(--accent-blue) 18%,
         var(--background-primary)
     );
+}
+
+.add-glyph-row.is-existing {
+    color: var(--text-faint);
+    opacity: 0.45;
+}
+
+.add-glyph-row.is-existing.is-selected {
+    opacity: 0.7;
 }
 
 .add-glyph-row:disabled {
