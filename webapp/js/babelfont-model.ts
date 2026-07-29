@@ -24,6 +24,7 @@ import { assertGlyphRenamePreflight } from './rename-glyphs-preflight';
 import { applyGlyphDeleteUiContext } from './delete-glyphs-ui-context';
 import {
     countDeletedGlyphTokensInFeatureCode,
+    collectFeatureLinesReferencingDeletedGlyphs,
     stripDeletedGlyphTokensFromClassCode,
     commentOutFeatureLinesReferencingDeletedGlyphs,
     type GlyphDeletePreflight
@@ -13264,8 +13265,9 @@ export class Font extends ModelBase {
     }
 
     /**
-     * Count optional cleanup hits for a proposed glyph deletion.
-     * Kerning is always cleaned by deleteGlyphs and is not reported here.
+     * Count cleanup hits for a proposed glyph deletion and collect preview
+     * details for the confirm dialog. Kerning is always cleaned and is not
+     * reported here.
      */
     preflightDeleteGlyphs(names: Iterable<string>): GlyphDeletePreflight {
         const deletedNames = new Set(
@@ -13276,7 +13278,10 @@ export class Font extends ModelBase {
         const result: GlyphDeletePreflight = {
             featureReferences: 0,
             metricsKeyReferences: 0,
-            componentReferences: 0
+            componentReferences: 0,
+            featureHits: [],
+            metricsHits: [],
+            componentGlyphNames: []
         };
         if (deletedNames.size === 0) {
             return result;
@@ -13294,41 +13299,58 @@ export class Font extends ModelBase {
             );
         };
 
+        const pushFeatureHit = (
+            kind: 'feature' | 'class' | 'prefix',
+            name: string,
+            code: string
+        ) => {
+            const tokenCount = countDeletedGlyphTokensInFeatureCode(
+                code,
+                deletedNames
+            );
+            if (tokenCount === 0) {
+                return;
+            }
+            result.featureReferences += tokenCount;
+            const lines = collectFeatureLinesReferencingDeletedGlyphs(
+                code,
+                deletedNames
+            );
+            if (lines.length > 0) {
+                result.featureHits.push({ kind, name, lines });
+            }
+        };
+
         if (this._data.features) {
-            for (const classData of Object.values(
+            for (const [className, classData] of Object.entries(
                 this._data.features.classes || {}
             )) {
                 const codeData = classData as { code?: string };
                 if (codeData.code) {
-                    result.featureReferences +=
-                        countDeletedGlyphTokensInFeatureCode(
-                            codeData.code,
-                            deletedNames
-                        );
+                    pushFeatureHit('class', className, codeData.code);
                 }
             }
-            for (const [, featureData] of this._data.features.features || []) {
+            for (const [featureTag, featureData] of this._data.features
+                .features || []) {
                 if (featureData?.code) {
-                    result.featureReferences +=
-                        countDeletedGlyphTokensInFeatureCode(
-                            featureData.code,
-                            deletedNames
-                        );
+                    pushFeatureHit(
+                        'feature',
+                        String(featureTag),
+                        featureData.code
+                    );
                 }
             }
-            for (const prefixData of Object.values(
+            for (const [prefixName, prefixData] of Object.entries(
                 this._data.features.prefixes || {}
             )) {
                 const codeData = prefixData as { code?: string };
                 if (codeData.code) {
-                    result.featureReferences +=
-                        countDeletedGlyphTokensInFeatureCode(
-                            codeData.code,
-                            deletedNames
-                        );
+                    pushFeatureHit('prefix', prefixName, codeData.code);
                 }
             }
         }
+
+        const componentGlyphNames = new Set<string>();
 
         for (
             let glyphIndex = 0;
@@ -13340,41 +13362,70 @@ export class Font extends ModelBase {
                 continue;
             }
             const glyph = new Glyph(this._data.glyphs, glyphIndex, this);
+            let leftKey: string | null = null;
+            let rightKey: string | null = null;
+
             if (metricsKeyHits(glyph.leftMetricsKey)) {
                 result.metricsKeyReferences += 1;
+                leftKey = glyph.leftMetricsKey || null;
             }
             if (metricsKeyHits(glyph.rightMetricsKey)) {
                 result.metricsKeyReferences += 1;
+                rightKey = glyph.rightMetricsKey || null;
             }
-            if (!Array.isArray(glyphData.layers)) {
-                continue;
-            }
-            for (
-                let layerIndex = 0;
-                layerIndex < glyphData.layers.length;
-                layerIndex++
-            ) {
-                const layer = new Layer(glyphData.layers, layerIndex, glyph);
-                if (metricsKeyHits(layer.leftMetricsKey)) {
-                    result.metricsKeyReferences += 1;
-                }
-                if (metricsKeyHits(layer.rightMetricsKey)) {
-                    result.metricsKeyReferences += 1;
-                }
-                for (const shape of glyphData.layers[layerIndex].shapes || []) {
-                    if (!shape || typeof shape !== 'object') continue;
-                    const reference =
-                        (shape as Unsafe).reference ??
-                        (shape as Unsafe).Component?.reference;
-                    if (
-                        typeof reference === 'string' &&
-                        deletedNames.has(reference)
-                    ) {
-                        result.componentReferences += 1;
+
+            if (Array.isArray(glyphData.layers)) {
+                for (
+                    let layerIndex = 0;
+                    layerIndex < glyphData.layers.length;
+                    layerIndex++
+                ) {
+                    const layer = new Layer(
+                        glyphData.layers,
+                        layerIndex,
+                        glyph
+                    );
+                    if (metricsKeyHits(layer.leftMetricsKey)) {
+                        result.metricsKeyReferences += 1;
+                        if (!leftKey) {
+                            leftKey = layer.leftMetricsKey || null;
+                        }
+                    }
+                    if (metricsKeyHits(layer.rightMetricsKey)) {
+                        result.metricsKeyReferences += 1;
+                        if (!rightKey) {
+                            rightKey = layer.rightMetricsKey || null;
+                        }
+                    }
+                    for (const shape of glyphData.layers[layerIndex].shapes ||
+                        []) {
+                        if (!shape || typeof shape !== 'object') continue;
+                        const reference =
+                            (shape as Unsafe).reference ??
+                            (shape as Unsafe).Component?.reference;
+                        if (
+                            typeof reference === 'string' &&
+                            deletedNames.has(reference)
+                        ) {
+                            result.componentReferences += 1;
+                            componentGlyphNames.add(glyphData.name);
+                        }
                     }
                 }
             }
+
+            if (leftKey || rightKey) {
+                result.metricsHits.push({
+                    glyphName: glyphData.name,
+                    leftKey,
+                    rightKey
+                });
+            }
         }
+
+        result.componentGlyphNames = [...componentGlyphNames].sort((a, b) =>
+            a.localeCompare(b)
+        );
 
         return result;
     }

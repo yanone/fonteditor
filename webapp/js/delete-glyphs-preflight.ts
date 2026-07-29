@@ -7,6 +7,23 @@
  * `feature tag { ... }` wrappers intact (unlike `;`-statement deletion).
  */
 
+export type GlyphDeleteFeatureLine = {
+    lineNumber: number;
+    text: string;
+};
+
+export type GlyphDeleteFeatureHit = {
+    kind: 'feature' | 'class' | 'prefix';
+    name: string;
+    lines: GlyphDeleteFeatureLine[];
+};
+
+export type GlyphDeleteMetricsHit = {
+    glyphName: string;
+    leftKey: string | null;
+    rightKey: string | null;
+};
+
 export type GlyphDeletePreflight = {
     /** Glyph-name tokens in features, classes, and prefixes. */
     featureReferences: number;
@@ -14,6 +31,12 @@ export type GlyphDeletePreflight = {
     metricsKeyReferences: number;
     /** Component instances on surviving glyphs that reference a deleted glyph. */
     componentReferences: number;
+    /** Feature/class/prefix blocks with affected source lines. */
+    featureHits: GlyphDeleteFeatureHit[];
+    /** Surviving glyphs whose metrics keys reference deleted glyphs. */
+    metricsHits: GlyphDeleteMetricsHit[];
+    /** Surviving glyphs that host component refs to deleted glyphs. */
+    componentGlyphNames: string[];
 };
 
 const FEA_TOKEN_RE = /#[^\n]*|@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+/g;
@@ -142,6 +165,35 @@ export function countDeletedGlyphTokensInFeatureCode(
         }
     );
     return count;
+}
+
+/**
+ * Collect 1-based source lines (outside featureNames) that reference deleted
+ * glyph names. Used for delete-confirm preview panels.
+ */
+export function collectFeatureLinesReferencingDeletedGlyphs(
+    code: string,
+    deletedNames: ReadonlySet<string>
+): GlyphDeleteFeatureLine[] {
+    const lines: GlyphDeleteFeatureLine[] = [];
+    let lineNumber = 0;
+    forEachFeatureCodeLineOutsideFeatureNames(
+        code,
+        (line, insideFeatureNames) => {
+            lineNumber += 1;
+            if (insideFeatureNames) {
+                return;
+            }
+            const body = line.trim();
+            if (!body || body.startsWith('#')) {
+                return;
+            }
+            if (featureCodeReferencesDeletedGlyph(line, deletedNames)) {
+                lines.push({ lineNumber, text: line });
+            }
+        }
+    );
+    return lines;
 }
 
 export function featureCodeReferencesDeletedGlyph(

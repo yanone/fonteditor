@@ -1,11 +1,13 @@
 const {
     countDeletedGlyphTokensInFeatureCode,
     stripDeletedGlyphTokensFromClassCode,
-    commentOutFeatureLinesReferencingDeletedGlyphs
+    commentOutFeatureLinesReferencingDeletedGlyphs,
+    collectFeatureLinesReferencingDeletedGlyphs
 } = require('../js/delete-glyphs-preflight');
 const {
     glyphStackReferencesDeletedGlyph
 } = require('../js/delete-glyphs-ui-context');
+const { highlightFeaSource } = require('../js/delete-glyphs-dialog');
 
 describe('delete glyphs helpers', () => {
     test('strips class tokens and comments out feature lines', () => {
@@ -62,6 +64,29 @@ describe('delete glyphs helpers', () => {
                 '} ss01;'
             ].join('\n')
         );
+    });
+
+    test('collects affected feature lines with numbers', () => {
+        const deleted = new Set(['a']);
+        expect(
+            collectFeatureLinesReferencingDeletedGlyphs(
+                'feature liga {\n  sub a by b;\n  sub f f by f_f;\n} liga;',
+                deleted
+            )
+        ).toEqual([{ lineNumber: 2, text: '  sub a by b;' }]);
+    });
+
+    test('highlights FEA tokens for preview panels', () => {
+        const html = highlightFeaSource(
+            'sub @letters by a; # note',
+            new Set(['a'])
+        );
+        expect(html).toContain('fea-keyword');
+        expect(html).toContain('fea-class');
+        expect(html).toContain('fea-comment');
+        expect(html).toContain('fea-glyph-hit');
+        expect(html).toContain('sub');
+        expect(html).toContain('@letters');
     });
 
     test('detects deleted glyphs in the glyph stack', () => {
