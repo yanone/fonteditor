@@ -4,6 +4,8 @@ const path = require('path');
 const SW_PATH = path.resolve(__dirname, '../coi-serviceworker.js');
 const CSS_DIR = path.resolve(__dirname, '../css');
 const JS_DIR = path.resolve(__dirname, '../build/js');
+const WEBPACK_CONFIG_PATH = path.resolve(__dirname, '../webpack.config.js');
+const JS_SOURCE_DIR = path.resolve(__dirname, '../js');
 
 function parsePrecacheAssets(fileContent) {
     const match = fileContent.match(
@@ -36,12 +38,52 @@ function scanFiles(dir, prefix) {
     return files.sort();
 }
 
+/**
+ * Expected webpack JS outputs: entry names + webpackChunkName async chunks.
+ * Prefer this over scanning build/js/, which can contain stale leftovers from
+ * long-running webpack-dev-server sessions that still hold removed entries.
+ */
+function expectedWebpackJsBundles() {
+    const webpackConfig = require(WEBPACK_CONFIG_PATH);
+    const entryBundles = Object.keys(webpackConfig.entry || {}).map(
+        (name) => `./js/${name}.js`
+    );
+
+    const chunkNames = new Set();
+    function walkSource(dir) {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                walkSource(full);
+                continue;
+            }
+            if (!entry.isFile() || !/\.(ts|tsx|js|jsx)$/.test(entry.name)) {
+                continue;
+            }
+            const source = fs.readFileSync(full, 'utf8');
+            const re = /webpackChunkName:\s*["']([^"']+)["']/g;
+            let match;
+            while ((match = re.exec(source)) !== null) {
+                chunkNames.add(match[1]);
+            }
+        }
+    }
+    walkSource(JS_SOURCE_DIR);
+
+    return [
+        ...entryBundles,
+        ...[...chunkNames].map((name) => `./js/${name}.js`)
+    ].sort();
+}
+
 describe('COI ServiceWorker PRECACHE_ASSETS', () => {
     let precacheAssets;
+    let expectedJsBundles;
 
     beforeAll(() => {
         const swContent = fs.readFileSync(SW_PATH, 'utf-8');
         precacheAssets = parsePrecacheAssets(swContent);
+        expectedJsBundles = expectedWebpackJsBundles();
     });
 
     test('includes every CSS file in the css/ directory', () => {
@@ -58,11 +100,10 @@ describe('COI ServiceWorker PRECACHE_ASSETS', () => {
         expect(missing).toEqual([]);
     });
 
-    test('includes every JS file in the build/js/ directory', () => {
-        const jsFiles = scanFiles(JS_DIR, './js/').filter(
-            (f) => f.endsWith('.js') && !f.endsWith('.js.map')
+    test('includes every webpack JS entry and async chunk', () => {
+        const missing = expectedJsBundles.filter(
+            (f) => !precacheAssets.includes(f)
         );
-        const missing = jsFiles.filter((f) => !precacheAssets.includes(f));
         if (missing.length) {
             console.log(
                 'Missing from PRECACHE_ASSETS:\n' +
@@ -90,19 +131,28 @@ describe('COI ServiceWorker PRECACHE_ASSETS', () => {
     });
 
     test('no orphaned JS entries in PRECACHE_ASSETS', () => {
-        const jsFiles = scanFiles(JS_DIR, './js/').filter(
-            (f) => f.endsWith('.js') && !f.endsWith('.js.map')
-        );
         const precacheJs = precacheAssets.filter(
             (f) => f.startsWith('./js/') && f.endsWith('.js')
         );
-        const orphaned = precacheJs.filter((f) => !jsFiles.includes(f));
+        const orphaned = precacheJs.filter(
+            (f) => !expectedJsBundles.includes(f)
+        );
         if (orphaned.length) {
             console.log(
-                'Orphaned in PRECACHE_ASSETS (file no longer exists):\n' +
+                'Orphaned in PRECACHE_ASSETS (not a current webpack output):\n' +
                     orphaned.map((f) => "    '" + f + "',").join('\n')
             );
         }
         expect(orphaned).toEqual([]);
+    });
+
+    test('expected webpack JS bundles exist in build/js when present', () => {
+        if (!fs.existsSync(JS_DIR)) {
+            return;
+        }
+        const missingOnDisk = expectedJsBundles.filter(
+            (f) => !fs.existsSync(path.join(JS_DIR, path.basename(f)))
+        );
+        expect(missingOnDisk).toEqual([]);
     });
 });
