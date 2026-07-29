@@ -27,6 +27,10 @@ import {
     collectFeatureLinesReferencingDeletedGlyphs,
     stripDeletedGlyphTokensFromClassCode,
     commentOutFeatureLinesReferencingDeletedGlyphs,
+    buildAffectedKerningKeys,
+    forEachKerningPair,
+    kerningPairIsAffected,
+    filterKerningMap,
     type GlyphDeletePreflight
 } from './delete-glyphs-preflight';
 
@@ -13266,8 +13270,7 @@ export class Font extends ModelBase {
 
     /**
      * Count cleanup hits for a proposed glyph deletion and collect preview
-     * details for the confirm dialog. Kerning is always cleaned and is not
-     * reported here.
+     * details for the confirm dialog.
      */
     preflightDeleteGlyphs(names: Iterable<string>): GlyphDeletePreflight {
         const deletedNames = new Set(
@@ -13279,9 +13282,13 @@ export class Font extends ModelBase {
             featureReferences: 0,
             metricsKeyReferences: 0,
             componentReferences: 0,
+            kerningPairReferences: 0,
             featureHits: [],
             metricsHits: [],
-            componentGlyphNames: []
+            componentGlyphNames: [],
+            kerningMasters: [],
+            kerningLtrHits: [],
+            kerningRtlHits: []
         };
         if (deletedNames.size === 0) {
             return result;
@@ -13427,6 +13434,142 @@ export class Font extends ModelBase {
             a.localeCompare(b)
         );
 
+        const masters = this.masters || [];
+        result.kerningMasters = masters.map((master) => {
+            const name = master.name;
+            const label =
+                typeof name === 'string'
+                    ? name
+                    : name && typeof name === 'object'
+                      ? String(
+                            (name as { dflt?: string; en?: string }).dflt ||
+                                (name as { en?: string }).en ||
+                                Object.values(name)[0] ||
+                                master.id
+                        )
+                      : master.id;
+            return { id: master.id, label };
+        });
+
+        const {
+            relatedLeftKeys,
+            relatedRightKeys,
+            removedLeftKeys,
+            removedRightKeys
+        } = buildAffectedKerningKeys(
+            deletedNames,
+            this.first_kern_groups,
+            this.second_kern_groups
+        );
+
+        const ltrHits = new Map<
+            string,
+            {
+                left: string;
+                right: string;
+                values: Array<number | null>;
+                willRemove: boolean;
+            }
+        >();
+        const rtlHits = new Map<
+            string,
+            {
+                left: string;
+                right: string;
+                values: Array<number | null>;
+                willRemove: boolean;
+            }
+        >();
+        const emptyValues = (): Array<number | null> => masters.map(() => null);
+
+        masters.forEach((master, masterIndex) => {
+            forEachKerningPair(master.kerning, (left, right, value) => {
+                if (
+                    !kerningPairIsAffected(
+                        left,
+                        right,
+                        relatedLeftKeys,
+                        relatedRightKeys
+                    )
+                ) {
+                    return;
+                }
+                const key = `${left}\0${right}`;
+                let hit = ltrHits.get(key);
+                if (!hit) {
+                    hit = {
+                        left,
+                        right,
+                        values: emptyValues(),
+                        willRemove: kerningPairIsAffected(
+                            left,
+                            right,
+                            removedLeftKeys,
+                            removedRightKeys
+                        )
+                    };
+                    ltrHits.set(key, hit);
+                }
+                hit.values[masterIndex] = value;
+            });
+            forEachKerningPair(master.kerning_rtl, (left, right, value) => {
+                if (
+                    !kerningPairIsAffected(
+                        left,
+                        right,
+                        relatedLeftKeys,
+                        relatedRightKeys
+                    )
+                ) {
+                    return;
+                }
+                const key = `${left}\0${right}`;
+                let hit = rtlHits.get(key);
+                if (!hit) {
+                    hit = {
+                        left,
+                        right,
+                        values: emptyValues(),
+                        willRemove: kerningPairIsAffected(
+                            left,
+                            right,
+                            removedLeftKeys,
+                            removedRightKeys
+                        )
+                    };
+                    rtlHits.set(key, hit);
+                }
+                hit.values[masterIndex] = value;
+            });
+        });
+
+        const sortKernHits = (
+            hits: Map<
+                string,
+                {
+                    left: string;
+                    right: string;
+                    values: Array<number | null>;
+                    willRemove: boolean;
+                }
+            >
+        ) =>
+            [...hits.values()].sort((a, b) => {
+                if (a.willRemove !== b.willRemove) {
+                    return a.willRemove ? -1 : 1;
+                }
+                return (
+                    a.left.localeCompare(b.left) ||
+                    a.right.localeCompare(b.right)
+                );
+            });
+
+        result.kerningLtrHits = sortKernHits(ltrHits);
+        result.kerningRtlHits = sortKernHits(rtlHits);
+        result.kerningPairReferences =
+            result.kerningLtrHits.filter((hit) => hit.willRemove).length +
+            result.kerningRtlHits.filter((hit) => hit.willRemove).length;
+
         return result;
     }
 
@@ -13499,40 +13642,23 @@ export class Font extends ModelBase {
                     glyph._removeStoredLayerComponentReferences(deletedNames);
                 }
 
+                const { removedLeftKeys, removedRightKeys } =
+                    buildAffectedKerningKeys(
+                        deletedNames,
+                        this.first_kern_groups,
+                        this.second_kern_groups
+                    );
                 for (const master of this.masters || []) {
-                    const kerning: Record<string, Record<string, number>> = {};
-                    for (const [left, pairs] of Object.entries(
-                        master.kerning || {}
-                    )) {
-                        if (deletedNames.has(left)) {
-                            continue;
-                        }
-                        const nextPairs = Object.fromEntries(
-                            Object.entries(pairs).filter(
-                                ([right]) => !deletedNames.has(right)
-                            )
-                        );
-                        if (Object.keys(nextPairs).length > 0) {
-                            kerning[left] = nextPairs;
-                        }
-                    }
-                    master.kerning = kerning;
-
-                    const rtlKerning: Record<string, number> = {};
-                    for (const [pair, value] of Object.entries(
-                        master.kerning_rtl || {}
-                    )) {
-                        const separator = pair.indexOf(':');
-                        const left =
-                            separator < 0 ? pair : pair.slice(0, separator);
-                        const right =
-                            separator < 0 ? '' : pair.slice(separator + 1);
-                        if (deletedNames.has(left) || deletedNames.has(right)) {
-                            continue;
-                        }
-                        rtlKerning[pair] = value;
-                    }
-                    master.kerning_rtl = rtlKerning;
+                    master.kerning = filterKerningMap(
+                        master.kerning,
+                        removedLeftKeys,
+                        removedRightKeys
+                    ) as Record<string, Record<string, number>>;
+                    master.kerning_rtl = filterKerningMap(
+                        master.kerning_rtl,
+                        removedLeftKeys,
+                        removedRightKeys
+                    ) as Record<string, number>;
                 }
 
                 const filterKernGroups = (

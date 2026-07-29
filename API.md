@@ -236,8 +236,7 @@ Add several Unicode-backed glyphs as one undoable document edit.
 
 #### `preflightDeleteGlyphs(names: Iterable<string>) -> GlyphDeletePreflight`
 Count cleanup hits for a proposed glyph deletion and collect preview
-details for the confirm dialog. Kerning is always cleaned and is not
-reported here.
+details for the confirm dialog.
 
 #### `deleteGlyphs(names: Iterable<string>) -> None`
 Delete glyphs and clean font-owned references in one undoable

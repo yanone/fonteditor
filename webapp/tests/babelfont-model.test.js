@@ -5433,6 +5433,17 @@ describe('Babelfont Object Model', () => {
             expect(preflight.componentReferences).toBe(1);
             expect(preflight.featureReferences).toBeGreaterThan(0);
             expect(preflight.metricsKeyReferences).toBe(1);
+            expect(preflight.kerningPairReferences).toBe(3);
+            expect(preflight.kerningMasters).toEqual([
+                { id: 'master-1', label: 'Regular' }
+            ]);
+            expect(preflight.kerningLtrHits).toEqual([
+                { left: 'A', right: 'B', values: [-40], willRemove: true },
+                { left: 'A', right: 'C', values: [-10], willRemove: true }
+            ]);
+            expect(preflight.kerningRtlHits).toEqual([
+                { left: 'A', right: 'B', values: [-50], willRemove: true }
+            ]);
 
             font.deleteGlyphs(['A']);
 
@@ -5524,6 +5535,185 @@ describe('Babelfont Object Model', () => {
             expect(font.findGlyph('A')).toBeUndefined();
             expect(font.findGlyph('B').layers[0].components).toHaveLength(0);
             expect(font.masters[0].kerning).toEqual({});
+        });
+
+        test('preflight and delete include kerning class pairs across masters', () => {
+            const font = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: {
+                            '@A': { 'T': -80, '@T': -60 },
+                            'B': { C: -5 }
+                        },
+                        kerning_rtl: { '@A:T': -30 }
+                    },
+                    {
+                        name: { dflt: 'Bold' },
+                        id: 'master-2',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: { '@A': { T: -90 }, 'B': { C: -5 } },
+                        kerning_rtl: {}
+                    }
+                ],
+                glyphs: ['A', 'B', 'C', 'T'].map((name) => ({
+                    name,
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: `layer-${name}`,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: []
+                        },
+                        {
+                            width: 500,
+                            id: `layer-${name}-bold`,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-2'
+                            },
+                            shapes: [],
+                            anchors: []
+                        }
+                    ]
+                })),
+                first_kern_groups: { A: ['A'] },
+                second_kern_groups: { T: ['T'] },
+                note: '',
+                date: new Date('2020-01-01T00:00:00.000Z'),
+                names: {},
+                features: { classes: {}, prefixes: {}, features: [] }
+            });
+
+            const preflight = font.preflightDeleteGlyphs(['A']);
+            expect(preflight.kerningPairReferences).toBe(3);
+            expect(preflight.kerningMasters.map((m) => m.label)).toEqual([
+                'Regular',
+                'Bold'
+            ]);
+            expect(preflight.kerningLtrHits).toEqual([
+                {
+                    left: '@A',
+                    right: '@T',
+                    values: [-60, null],
+                    willRemove: true
+                },
+                {
+                    left: '@A',
+                    right: 'T',
+                    values: [-80, -90],
+                    willRemove: true
+                }
+            ]);
+            expect(preflight.kerningRtlHits).toEqual([
+                {
+                    left: '@A',
+                    right: 'T',
+                    values: [-30, null],
+                    willRemove: true
+                }
+            ]);
+
+            font.deleteGlyphs(['A']);
+            expect(font.masters[0].kerning).toEqual({ B: { C: -5 } });
+            expect(font.masters[1].kerning).toEqual({ B: { C: -5 } });
+            expect(font.masters[0].kerning_rtl).toEqual({});
+            expect(font.first_kern_groups).toEqual({});
+            expect(font.second_kern_groups).toEqual({ T: ['T'] });
+        });
+
+        test('marks shared-class kerning as kept while emptied classes remove', () => {
+            const font = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: {
+                            '@A': { T: -80 },
+                            '@shared': { T: -20 },
+                            'A': { B: -10 }
+                        },
+                        kerning_rtl: {}
+                    }
+                ],
+                glyphs: ['A', 'Agrave', 'B', 'T'].map((name) => ({
+                    name,
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            width: 500,
+                            id: `layer-${name}`,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: []
+                        }
+                    ]
+                })),
+                first_kern_groups: { A: ['A'], shared: ['A', 'Agrave'] },
+                second_kern_groups: {},
+                note: '',
+                date: new Date('2020-01-01T00:00:00.000Z'),
+                names: {},
+                features: { classes: {}, prefixes: {}, features: [] }
+            });
+
+            const preflight = font.preflightDeleteGlyphs(['A']);
+            expect(preflight.kerningPairReferences).toBe(2);
+            expect(preflight.kerningLtrHits).toEqual([
+                {
+                    left: '@A',
+                    right: 'T',
+                    values: [-80],
+                    willRemove: true
+                },
+                {
+                    left: 'A',
+                    right: 'B',
+                    values: [-10],
+                    willRemove: true
+                },
+                {
+                    left: '@shared',
+                    right: 'T',
+                    values: [-20],
+                    willRemove: false
+                }
+            ]);
+
+            font.deleteGlyphs(['A']);
+            expect(font.masters[0].kerning).toEqual({
+                '@shared': { T: -20 }
+            });
+            expect(font.first_kern_groups).toEqual({ shared: ['Agrave'] });
         });
 
         test('removes multiple component refs to a deleted glyph without crashing', () => {

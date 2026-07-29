@@ -5712,6 +5712,12 @@ kbd + kbd {
     border-top: 1px solid var(--border-primary);
 }
 
+.delete-glyphs-kern-block + .delete-glyphs-kern-block {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-primary);
+}
+
 .delete-glyphs-fea-line {
     display: grid;
     grid-template-columns: 3ch 1fr;
@@ -5801,6 +5807,34 @@ kbd + kbd {
     font-family: var(--font-families-mono);
     font-size: 11px;
     color: var(--text-secondary);
+}
+
+.delete-glyphs-kern-value {
+    font-family: var(--font-families-mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.delete-glyphs-kern-row-remove td {
+    color: var(--accent-red);
+    font-weight: 700;
+}
+
+.delete-glyphs-kern-row-keep td {
+    color: var(--text-primary);
+    font-weight: 400;
+}
+
+.delete-glyphs-kern-legend {
+    margin: 0 0 10px 0;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+.delete-glyphs-kern-legend-remove {
+    color: var(--accent-red);
+    font-weight: 700;
 }
 
 .confirm-dialog-option {

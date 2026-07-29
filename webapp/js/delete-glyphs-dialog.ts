@@ -200,6 +200,79 @@ function buildComponentsTableHtml(glyphNames: string[]): string {
     </table>`;
 }
 
+function buildKernPairTableHtml(
+    heading: string,
+    masters: Array<{ id: string; label: string }>,
+    pairs: Array<{
+        left: string;
+        right: string;
+        values: Array<number | null>;
+        willRemove: boolean;
+    }>
+): string {
+    if (pairs.length === 0) {
+        return `<section class="delete-glyphs-kern-block">
+            <header class="delete-glyphs-preview-heading">${escapeHtml(heading)}</header>
+            <div class="delete-glyphs-preview-empty">No pairs</div>
+        </section>`;
+    }
+    const masterHeaders = masters
+        .map((master) => `<th>${escapeHtml(master.label || master.id)}</th>`)
+        .join('');
+    const body = pairs
+        .map((pair) => {
+            const rowClass = pair.willRemove
+                ? ' class="delete-glyphs-kern-row-remove"'
+                : ' class="delete-glyphs-kern-row-keep"';
+            const valueCells = pair.values
+                .map((value) => {
+                    if (value === null || value === undefined) {
+                        return '<td></td>';
+                    }
+                    return `<td class="delete-glyphs-kern-value">${value}</td>`;
+                })
+                .join('');
+            return `<tr${rowClass}>
+                <td>${escapeHtml(pair.left)}</td>
+                <td>${escapeHtml(pair.right)}</td>
+                ${valueCells}
+            </tr>`;
+        })
+        .join('');
+    return `<section class="delete-glyphs-kern-block">
+        <header class="delete-glyphs-preview-heading">${escapeHtml(heading)}</header>
+        <table class="delete-glyphs-preview-table">
+            <thead>
+                <tr>
+                    <th>Left</th>
+                    <th>Right</th>
+                    ${masterHeaders}
+                </tr>
+            </thead>
+            <tbody>${body}</tbody>
+        </table>
+    </section>`;
+}
+
+function buildKerningPreviewHtml(preflight: GlyphDeletePreflight): string {
+    if (
+        preflight.kerningLtrHits.length === 0 &&
+        preflight.kerningRtlHits.length === 0
+    ) {
+        return '<div class="delete-glyphs-preview-empty">No kerning pairs</div>';
+    }
+    const masters = preflight.kerningMasters || [];
+    const legend = `<p class="delete-glyphs-kern-legend">
+        <span class="delete-glyphs-kern-legend-remove">Bold red</span> pairs are removed.
+        Normal pairs keep their class kerning; only the deleted glyph leaves the class.
+    </p>`;
+    return (
+        legend +
+        buildKernPairTableHtml('LTR', masters, preflight.kerningLtrHits) +
+        buildKernPairTableHtml('RTL', masters, preflight.kerningRtlHits)
+    );
+}
+
 export class DeleteGlyphsDialog {
     open(names?: string[]): void {
         const rawNames: unknown[] = Array.isArray(names)
@@ -243,25 +316,37 @@ export class DeleteGlyphsDialog {
                     ? `Delete glyph “${names[0]}”?`
                     : `Delete ${names.length} glyphs?`;
 
+            const kerningRelatedCount =
+                preflight.kerningLtrHits.length +
+                preflight.kerningRtlHits.length;
             const categories = (
                 [
                     {
                         id: 'features' as const,
                         label: 'Features & classes',
-                        count: preflight.featureReferences
+                        count: preflight.featureReferences,
+                        visible: preflight.featureReferences > 0
                     },
                     {
                         id: 'metrics' as const,
                         label: 'Metrics keys',
-                        count: preflight.metricsKeyReferences
+                        count: preflight.metricsKeyReferences,
+                        visible: preflight.metricsKeyReferences > 0
                     },
                     {
                         id: 'components' as const,
                         label: 'Components',
-                        count: preflight.componentReferences
+                        count: preflight.componentReferences,
+                        visible: preflight.componentReferences > 0
+                    },
+                    {
+                        id: 'kerning' as const,
+                        label: 'Kerning pairs',
+                        count: preflight.kerningPairReferences,
+                        visible: kerningRelatedCount > 0
                     }
                 ] as const
-            ).filter((category) => category.count > 0);
+            ).filter((category) => category.visible);
 
             const reportHtml =
                 categories.length === 0
@@ -270,13 +355,17 @@ export class DeleteGlyphsDialog {
                         <p>Will also clean:</p>
                         <ul class="confirm-dialog-report">
                             ${categories
-                                .map(
-                                    (category) =>
-                                        `<li class="confirm-dialog-report-item">
-                                            <span>${escapeHtml(category.label)} (${category.count})</span>
+                                .map((category) => {
+                                    const label =
+                                        category.id === 'kerning' &&
+                                        category.count === 0
+                                            ? category.label
+                                            : `${category.label} (${category.count})`;
+                                    return `<li class="confirm-dialog-report-item">
+                                            <span>${escapeHtml(label)}</span>
                                             <button type="button" class="confirm-dialog-info-btn material-symbols-outlined" data-preview="${category.id}" aria-label="Preview ${escapeHtml(category.label)}">info</button>
-                                        </li>`
-                                )
+                                        </li>`;
+                                })
                                 .join('')}
                         </ul>
                     </div>`;
@@ -315,6 +404,8 @@ export class DeleteGlyphsDialog {
                         content = `<div class="delete-glyphs-preview">${buildMetricsTableHtml(preflight.metricsHits)}</div>`;
                     } else if (previewId === 'components') {
                         content = `<div class="delete-glyphs-preview">${buildComponentsTableHtml(preflight.componentGlyphNames)}</div>`;
+                    } else if (previewId === 'kerning') {
+                        content = `<div class="delete-glyphs-preview">${buildKerningPreviewHtml(preflight)}</div>`;
                     }
                     previewTippyInstances.push(
                         tippy(button, {

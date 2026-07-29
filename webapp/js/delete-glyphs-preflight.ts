@@ -24,6 +24,20 @@ export type GlyphDeleteMetricsHit = {
     rightKey: string | null;
 };
 
+export type GlyphDeleteKernMasterColumn = {
+    id: string;
+    label: string;
+};
+
+export type GlyphDeleteKernPair = {
+    left: string;
+    right: string;
+    /** Parallel to GlyphDeletePreflight.kerningMasters; null = no value in that master. */
+    values: Array<number | null>;
+    /** True when deleteGlyphs will remove this pair (not merely drop a class member). */
+    willRemove: boolean;
+};
+
 export type GlyphDeletePreflight = {
     /** Glyph-name tokens in features, classes, and prefixes. */
     featureReferences: number;
@@ -31,16 +45,169 @@ export type GlyphDeletePreflight = {
     metricsKeyReferences: number;
     /** Component instances on surviving glyphs that reference a deleted glyph. */
     componentReferences: number;
+    /** Unique LTR+RTL kerning pairs that will be removed. */
+    kerningPairReferences: number;
     /** Feature/class/prefix blocks with affected source lines. */
     featureHits: GlyphDeleteFeatureHit[];
     /** Surviving glyphs whose metrics keys reference deleted glyphs. */
     metricsHits: GlyphDeleteMetricsHit[];
     /** Surviving glyphs that host component refs to deleted glyphs. */
     componentGlyphNames: string[];
+    /** Master columns for kerning preview tables. */
+    kerningMasters: GlyphDeleteKernMasterColumn[];
+    /** Unique LTR kerning pairs that will be removed. */
+    kerningLtrHits: GlyphDeleteKernPair[];
+    /** Unique RTL kerning pairs that will be removed. */
+    kerningRtlHits: GlyphDeleteKernPair[];
 };
 
 const FEA_TOKEN_RE = /#[^\n]*|@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+/g;
 const DELETED_GLYPH_COMMENT_MARKER = '[deleted glyph]';
+
+function normalizeKernGroupName(groupName: string): string {
+    return groupName.startsWith('@') ? groupName.slice(1) : groupName;
+}
+
+/**
+ * Kerning side keys for delete preflight / cleanup.
+ *
+ * - related*: glyph names + every `@class` containing a deleted glyph (preview).
+ * - removed*: glyph names + `@class` keys for classes that become empty after
+ *   removing deleted members (pairs that deleteGlyphs actually drops).
+ */
+export function buildAffectedKerningKeys(
+    deletedNames: ReadonlySet<string>,
+    firstGroups: Record<string, string[]> | undefined,
+    secondGroups: Record<string, string[]> | undefined
+): {
+    relatedLeftKeys: Set<string>;
+    relatedRightKeys: Set<string>;
+    removedLeftKeys: Set<string>;
+    removedRightKeys: Set<string>;
+} {
+    const relatedLeftKeys = new Set<string>(deletedNames);
+    const relatedRightKeys = new Set<string>(deletedNames);
+    const removedLeftKeys = new Set<string>(deletedNames);
+    const removedRightKeys = new Set<string>(deletedNames);
+
+    const addClassKeys = (
+        groups: Record<string, string[]> | undefined,
+        related: Set<string>,
+        removed: Set<string>
+    ) => {
+        for (const [groupName, members] of Object.entries(groups || {})) {
+            if (!Array.isArray(members)) {
+                continue;
+            }
+            if (!members.some((member) => deletedNames.has(member))) {
+                continue;
+            }
+            const classKey = `@${normalizeKernGroupName(groupName)}`;
+            related.add(classKey);
+            const remaining = members.filter(
+                (member) => !deletedNames.has(member)
+            );
+            if (remaining.length === 0) {
+                removed.add(classKey);
+            }
+        }
+    };
+
+    addClassKeys(firstGroups, relatedLeftKeys, removedLeftKeys);
+    addClassKeys(secondGroups, relatedRightKeys, removedRightKeys);
+    return {
+        relatedLeftKeys,
+        relatedRightKeys,
+        removedLeftKeys,
+        removedRightKeys
+    };
+}
+
+/**
+ * Walk nested or flat kerning maps. Flat entries use "left:right" keys.
+ */
+export function forEachKerningPair(
+    kerning: unknown,
+    onPair: (left: string, right: string, value: number) => void
+): void {
+    if (!kerning || typeof kerning !== 'object') {
+        return;
+    }
+    for (const [key, value] of Object.entries(
+        kerning as Record<string, unknown>
+    )) {
+        if (typeof value === 'number') {
+            const separator = key.indexOf(':');
+            if (separator < 0) {
+                continue;
+            }
+            onPair(key.slice(0, separator), key.slice(separator + 1), value);
+            continue;
+        }
+        if (!value || typeof value !== 'object') {
+            continue;
+        }
+        for (const [right, pairValue] of Object.entries(
+            value as Record<string, unknown>
+        )) {
+            if (typeof pairValue === 'number') {
+                onPair(key, right, pairValue);
+            }
+        }
+    }
+}
+
+export function kerningPairIsAffected(
+    left: string,
+    right: string,
+    leftKeys: ReadonlySet<string>,
+    rightKeys: ReadonlySet<string>
+): boolean {
+    return leftKeys.has(left) || rightKeys.has(right);
+}
+
+/** True when the map stores flat "left:right" → number pairs. */
+export function isFlatKerningMap(kerning: unknown): boolean {
+    if (!kerning || typeof kerning !== 'object') {
+        return false;
+    }
+    return Object.entries(kerning as Record<string, unknown>).some(
+        ([key, value]) => typeof value === 'number' || key.includes(':')
+    );
+}
+
+/**
+ * Drop pairs whose left/right keys are affected by a glyph deletion.
+ * Preserves flat vs nested storage shape.
+ */
+export function filterKerningMap(
+    kerning: unknown,
+    leftKeys: ReadonlySet<string>,
+    rightKeys: ReadonlySet<string>
+): Record<string, number> | Record<string, Record<string, number>> {
+    const flat = isFlatKerningMap(kerning);
+    if (flat) {
+        const next: Record<string, number> = {};
+        forEachKerningPair(kerning, (left, right, value) => {
+            if (kerningPairIsAffected(left, right, leftKeys, rightKeys)) {
+                return;
+            }
+            next[`${left}:${right}`] = value;
+        });
+        return next;
+    }
+    const next: Record<string, Record<string, number>> = {};
+    forEachKerningPair(kerning, (left, right, value) => {
+        if (kerningPairIsAffected(left, right, leftKeys, rightKeys)) {
+            return;
+        }
+        if (!next[left]) {
+            next[left] = {};
+        }
+        next[left][right] = value;
+    });
+    return next;
+}
 
 /**
  * Strip # comments and "..." / '...' strings so brace/`featureNames`

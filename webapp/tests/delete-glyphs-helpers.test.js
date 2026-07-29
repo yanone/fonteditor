@@ -2,7 +2,9 @@ const {
     countDeletedGlyphTokensInFeatureCode,
     stripDeletedGlyphTokensFromClassCode,
     commentOutFeatureLinesReferencingDeletedGlyphs,
-    collectFeatureLinesReferencingDeletedGlyphs
+    collectFeatureLinesReferencingDeletedGlyphs,
+    buildAffectedKerningKeys,
+    filterKerningMap
 } = require('../js/delete-glyphs-preflight');
 const {
     glyphStackReferencesDeletedGlyph
@@ -27,6 +29,29 @@ describe('delete glyphs helpers', () => {
                 deleted
             )
         ).toBe('# keep\n# [deleted glyph] sub A by B;\nsub B by C;');
+    });
+
+    test('affected kerning keys include class memberships', () => {
+        const keys = buildAffectedKerningKeys(
+            new Set(['A']),
+            { A: ['A'], shared: ['A', 'Agrave'] },
+            { T: ['T'], A: ['A'] }
+        );
+        expect([...keys.relatedLeftKeys].sort()).toEqual([
+            '@A',
+            '@shared',
+            'A'
+        ]);
+        expect([...keys.removedLeftKeys].sort()).toEqual(['@A', 'A']);
+        expect([...keys.relatedRightKeys].sort()).toEqual(['@A', 'A']);
+        expect([...keys.removedRightKeys].sort()).toEqual(['@A', 'A']);
+        expect(
+            filterKerningMap(
+                { '@A': { T: -80 }, '@shared': { T: -10 }, 'B': { C: -5 } },
+                keys.removedLeftKeys,
+                keys.removedRightKeys
+            )
+        ).toEqual({ '@shared': { T: -10 }, 'B': { C: -5 } });
     });
 
     test('keeps feature block wrappers when commenting rules', () => {
