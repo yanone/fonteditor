@@ -37,6 +37,15 @@ export type GlyphRename = {
     newName: string;
 };
 
+/** Operation type */
+export type ChangeOp = 'set' | 'add' | 'remove';
+
+/** Logical history action type */
+export type HistoryAction = 'change' | 'undo' | 'redo';
+
+/** Undo scope for a logical history item */
+export type UndoScope = 'font' | 'glyph' | 'layer';
+
 export function normalizeGlyphRenames(
     renames: Iterable<GlyphRename | null | undefined> | null | undefined
 ): GlyphRename[] {
@@ -59,15 +68,25 @@ export function normalizeGlyphRenames(
     return [...normalized.values()];
 }
 
-/** Operation type */
-export type ChangeOp = 'set' | 'add' | 'remove';
-
-/** Logical history action type */
-export type HistoryAction = 'change' | 'undo' | 'redo';
-
-/** Undo scope for a logical history item */
-export type UndoScope = 'font' | 'glyph' | 'layer';
-
+/**
+ * Adapt stored forward renames for undo/redo worker metadata.
+ * Undo inverts identity so apply_yjs_update resolves post-undo Y.Doc snapshots.
+ */
+export function glyphRenamesForHistoryAction(
+    renames: Iterable<GlyphRename | null | undefined> | null | undefined,
+    historyAction: HistoryAction
+): GlyphRename[] {
+    const normalized = normalizeGlyphRenames(renames);
+    if (historyAction !== 'undo') {
+        return normalized;
+    }
+    return normalizeGlyphRenames(
+        normalized.map(({ oldName, newName }) => ({
+            oldName: newName,
+            newName: oldName
+        }))
+    );
+}
 export function getLayerTouchKey(
     glyphName: string | null,
     layerId: string | null

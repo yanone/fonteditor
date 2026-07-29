@@ -5152,5 +5152,77 @@ describe('Babelfont Object Model', () => {
                 'sub A.alt B.alt by A.alt;'
             );
         });
+
+        test('rewrites metrics keys without substring damage to longer names', () => {
+            const renameFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: {}
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-a',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [],
+                                anchors: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'AA',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-aa',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [],
+                                anchors: []
+                            }
+                        ]
+                    }
+                ],
+                note: '',
+                date: new Date('2020-01-01T00:00:00.000Z'),
+                names: {},
+                features: { classes: {}, prefixes: {}, features: [] }
+            });
+
+            const aaBefore = renameFont.findGlyph('AA');
+            aaBefore.leftMetricsKey = '=A+10';
+            aaBefore.rightMetricsKey = '=AA';
+
+            renameFont.renameGlyphs(new Map([['A', 'A.alt']]));
+
+            const aa = renameFont.findGlyph('AA');
+            expect(aa.leftMetricsKey).toBe('=A.alt+10');
+            expect(aa.rightMetricsKey).toBe('=AA');
+            expect(renameFont.findGlyph('A.alt')).toBeDefined();
+            expect(renameFont.findGlyph('A')).toBeUndefined();
+        });
     });
 });

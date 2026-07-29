@@ -3946,6 +3946,11 @@ abstract class ArrayElementBase<
         return this._parent[this._index];
     }
 
+    /** True when this element still indexes into `array`. */
+    isBoundToArray(array: TData[]): boolean {
+        return this._parent === array;
+    }
+
     /**
      * Update underlying data reference and mark font as dirty
      */
@@ -11325,7 +11330,10 @@ export class Font extends ModelBase {
         if (!this._data.axes) return undefined;
         if (
             !this._axisWrappers ||
-            this._axisWrappers.length !== this._data.axes.length
+            this._axisWrappers.length !== this._data.axes.length ||
+            !this._axisWrappers.every((wrapper) =>
+                wrapper.isBoundToArray(this._data.axes!)
+            )
         ) {
             this._axisWrappers = this._data.axes.map(
                 (_: Unsafe, i: number) => new Axis(this._data.axes, i, this)
@@ -11347,7 +11355,10 @@ export class Font extends ModelBase {
         if (!this._data.instances) return undefined;
         if (
             !this._instanceWrappers ||
-            this._instanceWrappers.length !== this._data.instances.length
+            this._instanceWrappers.length !== this._data.instances.length ||
+            !this._instanceWrappers.every((wrapper) =>
+                wrapper.isBoundToArray(this._data.instances!)
+            )
         ) {
             this._instanceWrappers = this._data.instances.map(
                 (_: Unsafe, i: number) =>
@@ -11370,7 +11381,10 @@ export class Font extends ModelBase {
         if (!this._data.masters) return undefined;
         if (
             !this._masterWrappers ||
-            this._masterWrappers.length !== this._data.masters.length
+            this._masterWrappers.length !== this._data.masters.length ||
+            !this._masterWrappers.every((wrapper) =>
+                wrapper.isBoundToArray(this._data.masters!)
+            )
         ) {
             this._masterWrappers = this._data.masters.map(
                 (_: Unsafe, i: number) =>
@@ -11392,7 +11406,10 @@ export class Font extends ModelBase {
     get glyphs(): Glyph[] {
         if (
             !this._glyphWrappers ||
-            this._glyphWrappers.length !== this._data.glyphs.length
+            this._glyphWrappers.length !== this._data.glyphs.length ||
+            !this._glyphWrappers.every((wrapper) =>
+                wrapper.isBoundToArray(this._data.glyphs)
+            )
         ) {
             this._glyphWrappers = this._data.glyphs.map(
                 (_: Unsafe, i: number) => new Glyph(this._data.glyphs, i, this)
@@ -12194,12 +12211,35 @@ export class Font extends ModelBase {
         ): string | undefined => {
             if (!value) return value;
             const parsed = parseMetricsKey(this, value);
-            if ('error' in parsed || !parsed.referencedGlyphNames.length) {
+            if (
+                'error' in parsed ||
+                parsed.kind !== 'reference' ||
+                !parsed.glyphName
+            ) {
                 return value;
             }
-            const oldName = parsed.referencedGlyphNames[0];
-            const newName = renames.get(oldName);
-            return newName ? value.replace(oldName, newName) : value;
+            const newName = renames.get(parsed.glyphName);
+            if (!newName) return value;
+            // Rewrite only the parsed glyph-name segment so prefixes like AA
+            // are never disturbed when renaming A.
+            let body = value.trim();
+            let prefix = '';
+            if (body.startsWith('==')) {
+                prefix = '==';
+                body = body.slice(2);
+            } else if (body.startsWith('=')) {
+                prefix = '=';
+                body = body.slice(1);
+            }
+            let mirror = '';
+            if (body.startsWith('|')) {
+                mirror = '|';
+                body = body.slice(1);
+            }
+            if (!body.startsWith(parsed.glyphName)) {
+                return value;
+            }
+            return `${prefix}${mirror}${newName}${body.slice(parsed.glyphName.length)}`;
         };
         const replaceFeatureCode = (code: string): string => {
             // Glyph names are identifiers in feature source; preserve comments,
@@ -12214,6 +12254,17 @@ export class Font extends ModelBase {
         };
 
         withBridgeTransaction('Rename glyphs', () => {
+            // Preflight before any model writes — withBridgeTransaction commits
+            // buffered ops in `finally` even when the body throws.
+            const bridge = getPatchSyncEngine();
+            if (bridge && typeof bridge.hasGlyphInYDoc === 'function') {
+                for (const oldName of renames.keys()) {
+                    if (!bridge.hasGlyphInYDoc(oldName)) {
+                        throw new Error(`Cannot rename glyph "${oldName}".`);
+                    }
+                }
+            }
+
             for (const glyph of this.glyphs) {
                 const leftMetricsKey = replaceMetricsKey(glyph.leftMetricsKey);
                 const rightMetricsKey = replaceMetricsKey(
@@ -12324,9 +12375,8 @@ export class Font extends ModelBase {
                     return [{ oldName, newName, glyph }];
                 }
             );
-            const bridge = getPatchSyncEngine();
-            if (bridge && typeof (bridge as any).renameGlyphs === 'function') {
-                (bridge as any).renameGlyphs(glyphRenames, 'Rename glyphs');
+            if (bridge && typeof bridge.renameGlyphs === 'function') {
+                bridge.renameGlyphs(glyphRenames, 'Rename glyphs');
             } else {
                 markFontDirty();
             }

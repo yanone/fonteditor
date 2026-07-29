@@ -8,8 +8,8 @@
 
 - [Overview](#overview)
 - [Class Reference](#class-reference)
-  - [Font](#font) -
-  - [Glyph](#glyph) -
+  - [Font](#font) - 
+  - [Glyph](#glyph) - 
   - [FeatureVariationGlyph](#featurevariationglyph) - An authorable view over one conditional Glyphs feature-variation layer family.
   - [Layer](#layer) - Layer in a glyph representing a master or intermediate design
   - [Shape](#shape) - Shape wrapper that can contain either a Component or a Path
@@ -154,6 +154,10 @@ glyph = font.findGlyph("A")
 if glyph:
     print(glyph.name)
 ```
+
+#### `renameGlyphs(renameMap: ReadonlyMap<string, string>) -> None`
+Rename glyphs and every font-owned reference to them in one undoable
+transaction. The mapping is simultaneous, so swaps are safe.
 
 #### `resolveGlyphView(name: str) -> [Glyph](#glyph) | FeatureVariationGlyph | None`
 Resolve an editor glyph token to an authorable layer view. A literal glyph
@@ -925,16 +929,16 @@ font = Font()
 glyph_a = font.findGlyph("A")
 if glyph_a:
     layer = glyph_a.layers[0]
-
+    
     # Modify all nodes
     for path in layer.paths:
         for node in path.nodes:
             node.x += 10  # Shift 10 units right
             node.y += 5   # Shift 5 units up
-
+    
     # Add an anchor
     layer.addAnchor(250, 700, "top")
-
+    
     print(f"Modified {glyph_a.name}")
 ```
 
@@ -983,7 +987,7 @@ if font.axes:
     print("Variable font axes:")
     for axis in font.axes:
         print(f"  {axis.tag}: {axis.min} - {axis.max} (default: {axis.default})")
-
+    
     # Check masters
     if font.masters:
         print(f"\nFont has {len(font.masters)} masters:")
@@ -1005,13 +1009,13 @@ for glyph in font.glyphs:
         for layer in glyph.layers:
             # Scale width
             layer.width *= scale_factor
-
+            
             # Scale all outline paths
             for path in layer.paths:
                 for node in path.nodes:
                     node.x *= scale_factor
                     node.y *= scale_factor
-
+            
             # Scale anchors
             if layer.anchors:
                 for anchor in layer.anchors:

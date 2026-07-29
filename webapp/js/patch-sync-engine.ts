@@ -45,6 +45,7 @@ import {
     joinPathWithGlyphSeparator,
     normalizeWorkerReplayTargets,
     normalizeGlyphRenames,
+    glyphRenamesForHistoryAction,
     normalizeChangeLogEntry,
     resolveHistoryTargetItem,
     resetLogCounter
@@ -233,7 +234,11 @@ function cloneChangeLogEntryForHistoryAction(
         windowRoleLabel,
         historyAction,
         targetHistoryItemId,
-        transactionId: null
+        transactionId: null,
+        glyphRenames: glyphRenamesForHistoryAction(
+            fields.glyphRenames,
+            historyAction
+        )
     });
 }
 
@@ -1021,7 +1026,16 @@ export class PatchSyncEngine {
     }
 
     /**
+     * True when the Y.Doc glyph map still holds `glyphName`.
+     * Used to preflight renames before model mutation.
+     */
+    hasGlyphInYDoc(glyphName: string): boolean {
+        return this._readNormalizedGlyphSnapshotFromYDoc(glyphName) != null;
+    }
+
+    /**
      * Rename glyph-map keys while preserving their order and storage encoding.
+     * Removes every old key before inserting new keys so swaps stay collision-free.
      */
     renameGlyphs(
         renames: Array<{
@@ -1035,6 +1049,16 @@ export class PatchSyncEngine {
             return;
         }
 
+        const prepared = renames.map(({ oldName, newName, glyph }) => {
+            const oldGlyph = this._readNormalizedGlyphSnapshotFromYDoc(oldName);
+            if (!oldGlyph) {
+                throw new Error(
+                    `Cannot rename glyph "${oldName}": absent from Y.Doc`
+                );
+            }
+            return { oldName, newName, glyph, oldGlyph };
+        });
+
         const fontJson = this._fontJson as {
             glyphs?: Array<{ name?: string }>;
         } | null;
@@ -1042,16 +1066,13 @@ export class PatchSyncEngine {
             ? fontJson.glyphs.map((glyph) => glyph.name || '')
             : [];
         const renameMap = new Map(
-            renames.map(({ oldName, newName }) => [oldName, newName])
+            prepared.map(({ oldName, newName }) => [oldName, newName])
         );
         const nextOrder = oldOrder.map((name) => renameMap.get(name) || name);
         const operations: TransactionBufferedOperation[] = [];
 
-        for (const { oldName, newName, glyph } of renames) {
-            const oldGlyph = this._readNormalizedGlyphSnapshotFromYDoc(oldName);
-            if (!oldGlyph) {
-                continue;
-            }
+        // Phase 1: drop every old key (enables A↔B swaps).
+        for (const { oldName, newName, oldGlyph } of prepared) {
             operations.push({
                 op: 'remove',
                 path: ['glyphs', oldName],
@@ -1059,6 +1080,9 @@ export class PatchSyncEngine {
                 newValue: undefined,
                 glyphRenames: [{ oldName, newName }]
             });
+        }
+        // Phase 2: insert every new key from the prepared snapshots.
+        for (const { newName, glyph } of prepared) {
             operations.push({
                 op: 'add',
                 path: ['glyphs', newName],
@@ -1071,15 +1095,13 @@ export class PatchSyncEngine {
             });
         }
 
-        if (operations.length > 0) {
-            operations.push({
-                op: 'set',
-                path: ['glyphOrder'],
-                oldValue: oldOrder,
-                newValue: nextOrder
-            });
-            this._queueOrCommitOperations(operations, label);
-        }
+        operations.push({
+            op: 'set',
+            path: ['glyphOrder'],
+            oldValue: oldOrder,
+            newValue: nextOrder
+        });
+        this._queueOrCommitOperations(operations, label);
     }
 
     applySyntheticChangeSet(
