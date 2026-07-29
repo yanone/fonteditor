@@ -6,6 +6,7 @@ import {
     parseGlyphSearchTermsPreserveCase
 } from './glyph-search';
 import { Logger } from './logger';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 const console = new Logger('FindGlyphDialog');
 
@@ -159,6 +160,7 @@ export class FindGlyphDialog {
     private renderedRange: { start: number; end: number } | null = null;
     private readonly rowHeight = 68;
     private readonly overscanRows = 6;
+    private escapeBinding: ModalEscapeBinding | null = null;
 
     constructor() {
         this.modal = document.getElementById('find-glyph-modal');
@@ -242,6 +244,10 @@ export class FindGlyphDialog {
         );
         this.renderedRange = null;
         this.modal.style.display = 'flex';
+        this.escapeBinding?.release();
+        this.escapeBinding = bindModalEscape(() => this.close(), {
+            isOpen: () => this.isOpen()
+        });
         this.renderVisibleWindow(true, selectedGlyphScrollTop);
         this.list!.scrollTop = selectedGlyphScrollTop;
         setTimeout(() => {
@@ -261,6 +267,8 @@ export class FindGlyphDialog {
      */
     public close(): void {
         this.persistSearchMemory();
+        this.escapeBinding?.release();
+        this.escapeBinding = null;
         if (this.modal) {
             this.modal.style.display = 'none';
         }
@@ -682,13 +690,6 @@ export class FindGlyphDialog {
             'keydown',
             (event) => {
                 if (!this.isOpen()) {
-                    return;
-                }
-
-                if (event.key === 'Escape') {
-                    event.preventDefault();
-                    event.stopImmediatePropagation();
-                    this.close();
                     return;
                 }
 

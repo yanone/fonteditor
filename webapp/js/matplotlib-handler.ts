@@ -7,6 +7,8 @@
  * closed with ESC, clicking the X button, or clicking outside the plot.
  */
 
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
+
 (function () {
     'use strict';
 
@@ -14,6 +16,7 @@
     let matplotlibModalBody: HTMLElement | null = null;
     let matplotlibModalCloseBtn: HTMLElement | null = null;
     let observer: MutationObserver | null = null;
+    let escapeBinding: ModalEscapeBinding | null = null;
 
     // Track canvases we've already processed to avoid duplicates
     const processedCanvases = new WeakSet<HTMLElement>();
@@ -44,16 +47,6 @@
         // Close on background click
         matplotlibModal.addEventListener('click', function (event: MouseEvent) {
             if (event.target === matplotlibModal) {
-                closePlotModal();
-            }
-        });
-
-        // Close on Escape key
-        document.addEventListener('keydown', function (event: KeyboardEvent) {
-            const modal = matplotlibModal;
-            if (event.key === 'Escape' && modal?.classList.contains('active')) {
-                event.preventDefault();
-                event.stopPropagation();
                 closePlotModal();
             }
         });
@@ -363,6 +356,10 @@
 
         // Show the modal
         matplotlibModal.classList.add('active');
+        escapeBinding?.release();
+        escapeBinding = bindModalEscape(closePlotModal, {
+            isOpen: () => Boolean(matplotlibModal?.classList.contains('active'))
+        });
 
         console.log('[MatplotlibHandler]', 'Plot displayed in modal overlay');
     }
@@ -371,6 +368,9 @@
         if (!matplotlibModal) {
             return;
         }
+
+        escapeBinding?.release();
+        escapeBinding = null;
 
         // Hide the modal
         matplotlibModal.classList.remove('active');

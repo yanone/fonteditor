@@ -25,6 +25,7 @@ import './add-glyphs-dialog';
 import './rename-glyphs-dialog';
 import './delete-glyphs-dialog';
 import { canDeleteSelectedGlyphs } from './delete-glyphs-dialog';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 const console = new Logger('ToolbarMenus');
 
@@ -397,16 +398,38 @@ function getDeveloperMenuItems(): ToolbarMenuItem[] {
     return items;
 }
 
+let privacyPolicyEscapeBinding: ModalEscapeBinding | null = null;
+
+function closePrivacyPolicyModal(): void {
+    const modal = document.getElementById('privacy-policy-modal');
+    privacyPolicyEscapeBinding?.release();
+    privacyPolicyEscapeBinding = null;
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function openPrivacyPolicyModal(): void {
+    const modal = document.getElementById('privacy-policy-modal');
+    if (!modal) {
+        return;
+    }
+    modal.style.display = 'flex';
+    privacyPolicyEscapeBinding?.release();
+    privacyPolicyEscapeBinding = bindModalEscape(closePrivacyPolicyModal, {
+        isOpen: () =>
+            document.getElementById('privacy-policy-modal')?.style.display ===
+            'flex'
+    });
+}
+
 function getHelpMenuItems(): ToolbarMenuItem[] {
     return [
         {
             label: 'Privacy Policy',
             icon: 'privacy_tip',
             action: async () => {
-                const modal = document.getElementById('privacy-policy-modal');
-                if (modal) {
-                    modal.style.display = 'flex';
-                }
+                openPrivacyPolicyModal();
             }
         }
     ];
@@ -475,18 +498,9 @@ function setupPrivacyPolicyModal(): void {
     const closeBtn = document.getElementById('privacy-policy-modal-close-btn');
     if (!modal) return;
 
-    const close = () => {
-        modal.style.display = 'none';
-    };
-
-    closeBtn?.addEventListener('click', close);
+    closeBtn?.addEventListener('click', closePrivacyPolicyModal);
     modal.addEventListener('click', (e) => {
-        if (e.target === modal) close();
-    });
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && modal.style.display === 'flex') {
-            close();
-        }
+        if (e.target === modal) closePrivacyPolicyModal();
     });
 }
 

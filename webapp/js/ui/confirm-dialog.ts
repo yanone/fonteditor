@@ -5,6 +5,8 @@
  * Keyboard Shortcuts modals) and .localized-string-modal-button button styles.
  */
 
+import { bindModalEscape } from './modal-escape';
+
 export type ConfirmChoice = 'save' | 'discard' | 'cancel';
 
 type UnsavedChangesDialogOptions = {
@@ -53,9 +55,12 @@ export function showNamedUnsavedChangesDialog({
 
         document.body.appendChild(overlay);
 
+        let escapeBinding: ReturnType<typeof bindModalEscape> | null = null;
+
         function cleanup() {
+            escapeBinding?.release();
+            escapeBinding = null;
             overlay.remove();
-            document.removeEventListener('keydown', onKeyDown);
         }
 
         function handleChoice(choice: ConfirmChoice) {
@@ -63,13 +68,9 @@ export function showNamedUnsavedChangesDialog({
             resolve(choice);
         }
 
-        function onKeyDown(e: KeyboardEvent) {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                e.stopPropagation();
-                handleChoice('cancel');
-            }
-        }
+        escapeBinding = bindModalEscape(() => handleChoice('cancel'), {
+            isOpen: () => overlay.isConnected
+        });
 
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) {
@@ -90,8 +91,6 @@ export function showNamedUnsavedChangesDialog({
                 handleChoice(action);
             });
         });
-
-        document.addEventListener('keydown', onKeyDown);
 
         queueMicrotask(() => {
             const saveBtn = overlay.querySelector(

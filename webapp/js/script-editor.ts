@@ -23,6 +23,7 @@ import {
 } from './managed-file-events';
 import type { FileSystemAdapter } from './file-system-adapter';
 import { createGlyphFilterTemplate } from './glyph-filter-template';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 const console = new Logger('ScriptEditor');
 
@@ -1769,14 +1770,12 @@ const console = new Logger('ScriptEditor');
         );
 
         if (apiDocsBtn && apiDocsModal && apiDocsCloseBtn) {
-            // Open modal
-            apiDocsBtn.addEventListener('click', (event: Event) => {
-                event.stopPropagation();
-                apiDocsModal.style.display = 'flex';
-            });
+            let escapeBinding: ModalEscapeBinding | null = null;
 
             // Close modal
             const closeModal = () => {
+                escapeBinding?.release();
+                escapeBinding = null;
                 apiDocsModal.style.display = 'none';
                 // Restore focus to canvas if editor view was active
                 const editorView = document.getElementById('view-editor');
@@ -1790,23 +1789,21 @@ const console = new Logger('ScriptEditor');
                 }
             };
 
+            // Open modal
+            apiDocsBtn.addEventListener('click', (event: Event) => {
+                event.stopPropagation();
+                apiDocsModal.style.display = 'flex';
+                escapeBinding?.release();
+                escapeBinding = bindModalEscape(closeModal, {
+                    isOpen: () => apiDocsModal.style.display === 'flex'
+                });
+            });
+
             apiDocsCloseBtn.addEventListener('click', closeModal);
 
             // Close on backdrop click
             apiDocsModal.addEventListener('click', (e: Event) => {
                 if (e.target === apiDocsModal) {
-                    closeModal();
-                }
-            });
-
-            // Close on Escape key
-            document.addEventListener('keydown', (e) => {
-                if (
-                    e.key === 'Escape' &&
-                    apiDocsModal.style.display === 'flex'
-                ) {
-                    e.preventDefault();
-                    e.stopPropagation();
                     closeModal();
                 }
             });

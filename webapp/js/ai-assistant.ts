@@ -36,6 +36,7 @@ import {
     type PythonDocumentKindInfo
 } from './python-document-kind';
 import { getGlyphFilterEventAssistantView } from './glyph-filter-events';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 const console = new Logger('AIAssistant');
 const DEFAULT_PROMPT_HISTORY_SUMMARY = 'Assistant changes';
@@ -1163,30 +1164,28 @@ class AIAssistant {
         renderTools();
 
         // Open
+        let escapeBinding: ModalEscapeBinding | null = null;
+        const closeModal = () => {
+            escapeBinding?.release();
+            escapeBinding = null;
+            modal.style.display = 'none';
+        };
+
         btn.addEventListener('click', (e: Event) => {
             e.stopPropagation();
             modal.style.display = 'flex';
+            escapeBinding?.release();
+            escapeBinding = bindModalEscape(closeModal, {
+                isOpen: () => modal.style.display === 'flex'
+            });
             requestAnimationFrame(() => searchInput.focus());
         });
 
-        // Close
-        const closeModal = () => {
-            modal.style.display = 'none';
-        };
         close.addEventListener('click', closeModal);
 
         // Close on backdrop click
         modal.addEventListener('click', (e: Event) => {
             if (e.target === modal) closeModal();
-        });
-
-        // Close on Escape
-        document.addEventListener('keydown', (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && modal.style.display === 'flex') {
-                e.preventDefault();
-                e.stopPropagation();
-                closeModal();
-            }
         });
     }
 

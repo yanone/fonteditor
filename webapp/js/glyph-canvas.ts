@@ -47,6 +47,7 @@ import {
     syncModelSidebearingEditToCanvas
 } from './sidebearing-utils';
 import { getUndoRedoContext } from './undo-redo-context';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 let console: Logger = new Logger('GlyphCanvas');
 let latestOpenSessionId: string | null = null;
@@ -2706,22 +2707,20 @@ class GlyphCanvas {
             document.body.appendChild(modal);
 
             let settled = false;
+            let escapeBinding: ModalEscapeBinding | null = null;
             const close = (result: FeatureVariationAxisRule[] | null): void => {
                 if (settled) {
                     return;
                 }
                 settled = true;
-                document.removeEventListener('keydown', onKeyDown);
+                escapeBinding?.release();
+                escapeBinding = null;
                 modal.remove();
                 resolve(result);
             };
-            const onKeyDown = (event: KeyboardEvent): void => {
-                if (event.key === 'Escape') {
-                    event.preventDefault();
-                    close(null);
-                }
-            };
-            document.addEventListener('keydown', onKeyDown);
+            escapeBinding = bindModalEscape(() => close(null), {
+                isOpen: () => modal.isConnected
+            });
             closeButton.addEventListener('click', () => close(null));
             cancelButton.addEventListener('click', () => close(null));
             modal.addEventListener('click', (event) => {
@@ -9411,14 +9410,12 @@ function setupEditorShortcutsModal() {
 
     if (!infoButton || !modal || !closeBtn) return;
 
-    // Open modal
-    infoButton.addEventListener('click', (event: Event) => {
-        event.stopPropagation();
-        modal.style.display = 'flex';
-    });
+    let escapeBinding: ModalEscapeBinding | null = null;
 
     // Close modal
     const closeModal = () => {
+        escapeBinding?.release();
+        escapeBinding = null;
         modal.style.display = 'none';
         // Restore focus to canvas if editor view was active
         const editorView = document.getElementById('view-editor');
@@ -9432,20 +9429,21 @@ function setupEditorShortcutsModal() {
         }
     };
 
+    // Open modal
+    infoButton.addEventListener('click', (event: Event) => {
+        event.stopPropagation();
+        modal.style.display = 'flex';
+        escapeBinding?.release();
+        escapeBinding = bindModalEscape(closeModal, {
+            isOpen: () => modal.style.display === 'flex'
+        });
+    });
+
     closeBtn.addEventListener('click', closeModal);
 
     // Close on backdrop click
     modal.addEventListener('click', (e: Event) => {
         if (e.target === modal) {
-            closeModal();
-        }
-    });
-
-    // Close on Escape key
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && modal.style.display === 'flex') {
-            e.preventDefault();
-            e.stopPropagation();
             closeModal();
         }
     });

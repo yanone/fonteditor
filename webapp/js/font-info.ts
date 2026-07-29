@@ -35,6 +35,7 @@ import {
 } from './localized-string-editor';
 import { designspaceToUserspace } from './locations';
 import { AxisMapEditor } from './axis-map-editor';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 // Import FEA mode for Ace Editor (registers the mode automatically)
 import './mode-fea';
 const console = new Logger('FontInfo');
@@ -5765,6 +5766,8 @@ class FontInfoManager {
             const inputs = new Map<string, HTMLInputElement>();
 
             const closeModal = (value: Record<string, number> | null): void => {
+                escapeBinding?.release();
+                escapeBinding = null;
                 document.removeEventListener('keydown', onKeyDown, true);
                 modal.remove();
                 resolve(value);
@@ -5797,14 +5800,9 @@ class FontInfoManager {
                 closeModal(nextLocation);
             };
 
-            const onKeyDown = (event: KeyboardEvent): void => {
-                if (event.key === 'Escape') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    closeModal(null);
-                    return;
-                }
+            let escapeBinding: ModalEscapeBinding | null = null;
 
+            const onKeyDown = (event: KeyboardEvent): void => {
                 if (event.key === 'Enter') {
                     const target = event.target;
                     if (target instanceof HTMLInputElement) {
@@ -5854,6 +5852,9 @@ class FontInfoManager {
                 if (event.target === modal) {
                     closeModal(null);
                 }
+            });
+            escapeBinding = bindModalEscape(() => closeModal(null), {
+                isOpen: () => modal.isConnected
             });
             document.addEventListener('keydown', onKeyDown, true);
             document.body.appendChild(modal);

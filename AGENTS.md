@@ -282,6 +282,13 @@ addTippyBackdropSupport(tippyInstance, backdrop, {
 - Implement custom backdrop click handlers separately
 - Create tippy menus without backdrop support
 
+**Modals & Overlays:**
+
+- Centered dialogs use `.info-popup-overlay` > `.info-popup` (header/close/content). Confirm layouts add `.confirm-dialog`. Action buttons: `.localized-string-modal-button` (or `.ai-login-button` where that pattern is already used).
+- Every modal MUST register Escape via `bindModalEscape` from `js/ui/modal-escape.ts` on open and `release()` on every close path. Do not add per-modal Escape `keydown` listeners.
+- Tippy menus (via `addTippyBackdropSupport`) always win over modals when both are open.
+- Unsaved-changes confirms: reuse `js/ui/confirm-dialog.ts`. Anchored menus stay Tippy; blocking dialogs stay info-popup + `bindModalEscape`.
+
 **Property Panel Numeric Inputs:**
 
 - Numeric text fields in the editor property panel (for example sidebearings and component transform controls) MUST use `ArrowAdjustableTextInput` so Up/Down keyboard adjustments behave consistently.

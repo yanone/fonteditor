@@ -50,6 +50,20 @@ function removeFromVisibleStack(instance: any): void {
     }
 }
 
+/**
+ * Whether any tippy menu registered via addTippyBackdropSupport is visible.
+ * Used by modal Escape handling so tippy menus always win.
+ */
+export function hasVisibleTippyMenus(): boolean {
+    for (let i = visibleTippyStack.length - 1; i >= 0; i--) {
+        const instance = visibleTippyStack[i];
+        if (instance?.state?.isVisible) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function installEscapePriorityListener(): void {
     if (escapePriorityListenerInstalled) {
         return;

@@ -10,6 +10,7 @@ import tippy, { Instance as TippyInstance } from 'tippy.js';
 import { Logger } from './logger';
 import { getTheme } from './tippy-utils';
 import type { GlyphDeletePreflight } from './delete-glyphs-preflight';
+import { bindModalEscape } from './ui/modal-escape';
 
 const console = new Logger('DeleteGlyphsDialog');
 
@@ -432,12 +433,15 @@ export class DeleteGlyphsDialog {
                     );
                 });
 
+            let escapeBinding: ReturnType<typeof bindModalEscape> | null = null;
+
             const cleanup = () => {
                 for (const instance of previewTippyInstances) {
                     instance.destroy();
                 }
+                escapeBinding?.release();
+                escapeBinding = null;
                 overlay.remove();
-                document.removeEventListener('keydown', onKeyDown, true);
             };
 
             const finish = (confirmed: boolean) => {
@@ -445,13 +449,9 @@ export class DeleteGlyphsDialog {
                 resolve(confirmed);
             };
 
-            const onKeyDown = (event: KeyboardEvent) => {
-                if (event.key === 'Escape') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    finish(false);
-                }
-            };
+            escapeBinding = bindModalEscape(() => finish(false), {
+                isOpen: () => overlay.isConnected
+            });
 
             overlay.addEventListener('click', (event) => {
                 if (event.target === overlay) {
@@ -467,8 +467,6 @@ export class DeleteGlyphsDialog {
             overlay
                 .querySelector('[data-action="delete"]')
                 ?.addEventListener('click', () => finish(true));
-
-            document.addEventListener('keydown', onKeyDown, true);
 
             queueMicrotask(() => {
                 (

@@ -5,6 +5,7 @@ import {
     isLanguageSystemOptionTaken,
     LANGUAGE_SYSTEM_OPTIONS
 } from './language-system-tags';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 export interface LocalizedStringEditorOptions {
     label: string;
@@ -145,7 +146,7 @@ export function createLocalizedStringEditor(
     let currentValue = cloneLocalizedStringValue(options.value);
     let modalEl: HTMLElement | null = null;
     let modalOpen = false;
-    let detachEscapeHandler: (() => void) | null = null;
+    let escapeBinding: ModalEscapeBinding | null = null;
 
     const renderInline = (): void => {
         const selection = getLocalizedStringPrimarySelection(currentValue);
@@ -180,8 +181,8 @@ export function createLocalizedStringEditor(
     };
 
     const closeModal = (): void => {
-        detachEscapeHandler?.();
-        detachEscapeHandler = null;
+        escapeBinding?.release();
+        escapeBinding = null;
         modalOpen = false;
         modalEl?.remove();
         modalEl = null;
@@ -218,6 +219,10 @@ export function createLocalizedStringEditor(
 
         modalEl = modal;
         document.body.appendChild(modal);
+        escapeBinding?.release();
+        escapeBinding = bindModalEscape(closeModal, {
+            isOpen: () => modalOpen
+        });
 
         const localeSelect = modal.querySelector(
             '.localized-string-locale-select'
@@ -347,23 +352,6 @@ export function createLocalizedStringEditor(
             }
             closeModal();
         });
-
-        const escapeHandler = (event: KeyboardEvent): void => {
-            if (event.key !== 'Escape') {
-                return;
-            }
-            if (!modalOpen) {
-                return;
-            }
-            event.preventDefault();
-            event.stopPropagation();
-            closeModal();
-        };
-
-        document.addEventListener('keydown', escapeHandler, true);
-        detachEscapeHandler = () => {
-            document.removeEventListener('keydown', escapeHandler, true);
-        };
 
         rebuildLocaleSelect();
         rebuildRows();

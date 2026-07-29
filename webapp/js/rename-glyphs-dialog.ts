@@ -1,5 +1,6 @@
 import { Logger } from './logger';
 import { getGlyphRenamePreflightErrors } from './rename-glyphs-preflight';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 const console = new Logger('RenameGlyphsDialog');
 
@@ -78,6 +79,7 @@ export class RenameGlyphsDialog {
     private preview: HTMLTableSectionElement | null = null;
     private confirmButton: HTMLButtonElement | null = null;
     private selectedNames: string[] = [];
+    private escapeBinding: ModalEscapeBinding | null = null;
 
     constructor() {
         this.buildContent();
@@ -92,10 +94,16 @@ export class RenameGlyphsDialog {
         this.replaceInput!.value = '';
         this.updatePreview();
         this.modal.style.display = 'flex';
+        this.escapeBinding?.release();
+        this.escapeBinding = bindModalEscape(() => this.close(), {
+            isOpen: () => this.modal?.style.display === 'flex'
+        });
         requestAnimationFrame(() => this.searchInput?.focus());
     }
 
     private close(): void {
+        this.escapeBinding?.release();
+        this.escapeBinding = null;
         if (this.modal) this.modal.style.display = 'none';
     }
 
@@ -146,10 +154,6 @@ export class RenameGlyphsDialog {
             ?.addEventListener('click', () => this.close());
         this.modal?.addEventListener('click', (event) => {
             if (event.target === this.modal) this.close();
-        });
-        document.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape' && this.modal?.style.display === 'flex')
-                this.close();
         });
         this.searchInput?.addEventListener('input', () => this.updatePreview());
         this.replaceInput?.addEventListener('input', () =>

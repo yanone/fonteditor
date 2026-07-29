@@ -9,11 +9,12 @@ import type {
     CloudShareState
 } from './cloud-plugin';
 import { Logger } from './logger';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 const console = new Logger('ShareButton');
 
 let shareDialogOverlay: HTMLDivElement | null = null;
-let shareDialogDocumentListenerAttached = false;
+let shareDialogEscapeBinding: ModalEscapeBinding | null = null;
 
 type ShareRole = 'editor' | 'viewer';
 type PreviousOwnerPolicy = ShareRole | 'remove';
@@ -441,15 +442,6 @@ function ensureShareDialog(): HTMLDivElement {
     shareDialogOverlay.className = 'share-dialog-overlay';
     document.body.appendChild(shareDialogOverlay);
 
-    if (!shareDialogDocumentListenerAttached) {
-        document.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape' && shareDialogState.isOpen) {
-                closeShareDialog();
-            }
-        });
-        shareDialogDocumentListenerAttached = true;
-    }
-
     return shareDialogOverlay;
 }
 
@@ -476,11 +468,17 @@ function openShareDialog(): void {
     };
     shareDialogOverlay?.classList.add('visible');
     document.body.classList.add('share-dialog-open');
+    shareDialogEscapeBinding?.release();
+    shareDialogEscapeBinding = bindModalEscape(() => closeShareDialog(), {
+        isOpen: () => shareDialogState.isOpen
+    });
     renderShareDialog();
     void refreshShareDialogState();
 }
 
 function closeShareDialog(): void {
+    shareDialogEscapeBinding?.release();
+    shareDialogEscapeBinding = null;
     shareDialogState.isOpen = false;
     shareDialogOverlay?.classList.remove('visible');
     document.body.classList.remove('share-dialog-open');

@@ -9,6 +9,7 @@ import {
     type CharacterSetNode
 } from './character-set-plugin-manager';
 import { Logger } from './logger';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 const console = new Logger('AddGlyphsDialog');
 
@@ -73,6 +74,7 @@ export class AddGlyphsDialog {
     private setSelectionAnchor = -1;
     private enabledLevels = new Set<CharacterSetCoverageLevel>();
     private searchVersion = 0;
+    private escapeBinding: ModalEscapeBinding | null = null;
 
     constructor() {
         this.buildContent();
@@ -84,6 +86,10 @@ export class AddGlyphsDialog {
             return;
         }
         this.modal.style.display = 'flex';
+        this.escapeBinding?.release();
+        this.escapeBinding = bindModalEscape(() => this.close(), {
+            isOpen: () => this.isOpen()
+        });
         this.searchInput.disabled = true;
         this.searchInput.placeholder = 'Loading Glyph Data…';
         try {
@@ -110,6 +116,8 @@ export class AddGlyphsDialog {
     }
 
     private close(): void {
+        this.escapeBinding?.release();
+        this.escapeBinding = null;
         if (this.modal) {
             this.modal.style.display = 'none';
         }
@@ -239,11 +247,7 @@ export class AddGlyphsDialog {
                 if (!this.isOpen()) {
                     return;
                 }
-                if (event.key === 'Escape') {
-                    event.preventDefault();
-                    event.stopImmediatePropagation();
-                    this.close();
-                } else if (
+                if (
                     (event.metaKey || event.ctrlKey) &&
                     event.key.toLowerCase() === 'a' &&
                     !event.shiftKey &&

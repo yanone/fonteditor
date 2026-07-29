@@ -19,6 +19,8 @@
  * Manages the canvas plugins dropdown in the editor title bar.
  */
 
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
+
 type PluginOption = {
     label?: string;
     value: string;
@@ -49,6 +51,7 @@ class EditorPluginsUI {
     dropdownBtn: HTMLElement | null;
     dropdown: HTMLElement | null;
     isOpen: boolean;
+    private escapeBinding: ModalEscapeBinding | null = null;
 
     constructor() {
         this.dropdownBtn = document.getElementById(
@@ -104,22 +107,6 @@ class EditorPluginsUI {
             }
         });
 
-        // Close dropdown with Escape key
-        document.addEventListener(
-            'keydown',
-            (e: KeyboardEvent) => {
-                if (this.isOpen && e.key === 'Escape') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    this.closeDropdown();
-
-                    // Restore focus to canvas if editor view is active
-                    this.restoreFocusToCanvas();
-                }
-            },
-            true
-        ); // Use capture phase to intercept before other handlers
-
         window.addEventListener('editorModeChanged', () => {
             this.updateButtonVisibility();
         });
@@ -141,12 +128,22 @@ class EditorPluginsUI {
         this.updatePluginList();
         this.dropdown.style.display = 'block';
         this.isOpen = true;
+        this.escapeBinding?.release();
+        this.escapeBinding = bindModalEscape(
+            () => {
+                this.closeDropdown();
+                this.restoreFocusToCanvas();
+            },
+            { isOpen: () => this.isOpen }
+        );
     }
 
     closeDropdown() {
         if (!this.dropdown) {
             return;
         }
+        this.escapeBinding?.release();
+        this.escapeBinding = null;
         this.dropdown.style.display = 'none';
         this.isOpen = false;
     }

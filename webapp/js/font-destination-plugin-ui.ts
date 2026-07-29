@@ -3,8 +3,11 @@ import {
     fontDestinationPluginManager
 } from './font-destination-plugin-manager';
 import { Logger } from './logger';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 const console = new Logger('FontDestinationPluginUI');
+
+let pluginManagerEscapeBinding: ModalEscapeBinding | null = null;
 
 function createTextElement<K extends keyof HTMLElementTagNameMap>(
     tagName: K,
@@ -36,6 +39,8 @@ function getModalElements(): {
 }
 
 function closePluginManager(): void {
+    pluginManagerEscapeBinding?.release();
+    pluginManagerEscapeBinding = null;
     const overlay = document.getElementById('plugin-manager-modal');
     if (overlay) {
         overlay.style.display = 'none';
@@ -231,6 +236,12 @@ export async function showFontDestinationPluginManager(): Promise<void> {
         return;
     }
     elements.overlay.style.display = 'flex';
+    pluginManagerEscapeBinding?.release();
+    pluginManagerEscapeBinding = bindModalEscape(closePluginManager, {
+        isOpen: () =>
+            document.getElementById('plugin-manager-modal')?.style.display ===
+            'flex'
+    });
     elements.closeButton.onclick = closePluginManager;
     elements.overlay.onclick = (event) => {
         if (event.target === elements.overlay) {

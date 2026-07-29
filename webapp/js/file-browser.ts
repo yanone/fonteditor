@@ -37,6 +37,7 @@ import { reloadLinkedEditorWindows } from './window-buttons';
 import { updateUrlState } from './url-state';
 import { shouldHandleOpenPathBeforeEditorReady } from './open-font-readiness';
 import { serializeFontForSourceSave } from './font-manager';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 import {
     cancelManagedFileInternalWrite,
     consumeManagedFileInternalWritePaths,
@@ -133,6 +134,7 @@ let fileDialogBusyMessage: string | null = null;
 let fileDialogBusyActionLabel: string | null = null;
 let fileDialogSaveBlocked = false;
 let fileDialogSaveWarningRefreshToken = 0;
+let fileDialogEscapeBinding: ModalEscapeBinding | null = null;
 
 type FileDialogSaveWarningState = {
     visible: boolean;
@@ -536,6 +538,8 @@ function closeFontFileDialog(): void {
         return;
     }
 
+    fileDialogEscapeBinding?.release();
+    fileDialogEscapeBinding = null;
     dialog.style.display = 'none';
     selectedDialogPath = null;
     pendingDialogHighlightPath = null;
@@ -584,6 +588,10 @@ async function showFontFileDialog(
     }
 
     dialog.style.display = 'flex';
+    fileDialogEscapeBinding?.release();
+    fileDialogEscapeBinding = bindModalEscape(closeFontFileDialog, {
+        isOpen: () => isFileDialogOpen()
+    });
 
     if (targetPluginId !== fileSystemCache.currentPlugin.getId()) {
         await switchContext(targetPluginId);
@@ -3641,14 +3649,6 @@ function initFileDialogModal(): void {
         },
         true
     );
-
-    document.addEventListener('keydown', (event: KeyboardEvent) => {
-        if (event.key === 'Escape' && isFileDialogOpen()) {
-            event.preventDefault();
-            event.stopPropagation();
-            closeFontFileDialog();
-        }
-    });
 
     saveNameInput?.addEventListener('input', () => {
         updateFileDialogFooter();

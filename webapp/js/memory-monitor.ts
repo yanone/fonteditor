@@ -1,6 +1,8 @@
 // Memory Monitor for Browser
 // Monitors memory usage and provides cleanup utilities
 
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
+
 (function () {
     'use strict';
 
@@ -122,29 +124,29 @@
             }
 
             // Open popup
+            let escapeBinding: ModalEscapeBinding | null = null;
+            const closePopup = () => {
+                escapeBinding?.release();
+                escapeBinding = null;
+                popup.style.display = 'none';
+            };
+
             infoBtn.addEventListener('click', (e: MouseEvent) => {
                 e.preventDefault();
                 popup.style.display = 'flex';
+                escapeBinding?.release();
+                escapeBinding = bindModalEscape(closePopup, {
+                    isOpen: () => popup.style.display === 'flex'
+                });
             });
 
             // Close popup - close button
-            closeBtn.addEventListener('click', () => {
-                popup.style.display = 'none';
-            });
+            closeBtn.addEventListener('click', closePopup);
 
             // Close popup - click outside
             popup.addEventListener('click', (e: MouseEvent) => {
                 if (e.target === popup) {
-                    popup.style.display = 'none';
-                }
-            });
-
-            // Close popup - Escape key
-            document.addEventListener('keydown', (e: KeyboardEvent) => {
-                if (e.key === 'Escape' && popup.style.display === 'flex') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    popup.style.display = 'none';
+                    closePopup();
                 }
             });
         }

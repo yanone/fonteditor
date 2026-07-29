@@ -4,6 +4,8 @@
  */
 
 import { settingsFolder } from './settings-folder';
+import { hasVisibleTippyMenus } from './tippy-utils';
+import { hasBoundModalEscape } from './ui/modal-escape';
 
 (function () {
     'use strict';
@@ -155,9 +157,13 @@ import { settingsFolder } from './settings-folder';
                         }
                         // Check if any popup is currently open
                         const openPopups = document.querySelectorAll(
-                            '.info-popup-overlay[style*="display: flex"], .modal.active, .matplotlib-modal.active'
+                            '.info-popup-overlay[style*="display: flex"], .modal.active, .matplotlib-modal.active, .share-dialog-overlay.visible'
                         );
-                        if (openPopups.length === 0) {
+                        if (
+                            openPopups.length === 0 &&
+                            !hasBoundModalEscape() &&
+                            !hasVisibleTippyMenus()
+                        ) {
                             e.preventDefault();
                             e.stopImmediatePropagation(); // Prevent other escape handlers from firing
                             this.closeSettings();

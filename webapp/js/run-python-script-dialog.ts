@@ -8,6 +8,7 @@ import {
     type PythonScriptHeader
 } from './python-script-header';
 import { settingsFolder, SETTINGS_FOLDER_PATHS } from './settings-folder';
+import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
 const console = new Logger('RunPythonScriptDialog');
 
@@ -48,6 +49,7 @@ let keywordChips: HTMLElement | null = null;
 let scriptList: HTMLElement | null = null;
 let runButton: HTMLButtonElement | null = null;
 let emptyNotice: HTMLElement | null = null;
+let escapeBinding: ModalEscapeBinding | null = null;
 
 function relativeToScriptsRoot(path: string): string {
     if (path === SCRIPTS_ROOT) {
@@ -539,6 +541,8 @@ function closeDialog(): void {
     if (!modal) {
         return;
     }
+    escapeBinding?.release();
+    escapeBinding = null;
     modal.style.display = 'none';
     isOpen = false;
 }
@@ -551,6 +555,10 @@ export async function openRunPythonScriptDialog(): Promise<void> {
 
     isOpen = true;
     modal.style.display = 'flex';
+    escapeBinding?.release();
+    escapeBinding = bindModalEscape(() => closeDialog(), {
+        isOpen: () => isOpen && modal?.style.display === 'flex'
+    });
     searchTerm = searchInput?.value || '';
     await refreshScripts();
     requestAnimationFrame(() => searchInput?.focus());
@@ -558,13 +566,6 @@ export async function openRunPythonScriptDialog(): Promise<void> {
 
 function onDialogKeyDown(event: KeyboardEvent): void {
     if (!isOpen || !modal || modal.style.display !== 'flex') {
-        return;
-    }
-
-    if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        closeDialog();
         return;
     }
 
