@@ -5632,6 +5632,39 @@ kbd + kbd {
     gap: 8px;
 }
 
+.confirm-dialog-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0 0 20px 0;
+}
+
+.confirm-dialog-options > p {
+    margin: 0;
+}
+
+.confirm-dialog-report {
+    margin: 0;
+    padding-left: 1.25em;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+
+.confirm-dialog-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.confirm-dialog-option input {
+    margin: 0;
+}
+
 .confirm-dialog-btn {
     font-size: 12px !important;
     padding: 6px 14px !important;

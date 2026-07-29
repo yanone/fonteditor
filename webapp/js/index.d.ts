@@ -19,6 +19,7 @@ import type { FindGlyphDialog } from './find-glyph-dialog';
 import type { GlyphDataPluginManager } from './glyph-data-plugin-manager';
 import type { AddGlyphsDialog } from './add-glyphs-dialog';
 import type { RenameGlyphsDialog } from './rename-glyphs-dialog';
+import type { DeleteGlyphsDialog } from './delete-glyphs-dialog';
 
 declare global {
     var marked: any;
@@ -313,6 +314,7 @@ declare global {
         glyphDataPluginManager: GlyphDataPluginManager;
         addGlyphsDialog: AddGlyphsDialog;
         renameGlyphsDialog: RenameGlyphsDialog;
+        deleteGlyphsDialog: DeleteGlyphsDialog;
 
         // From file-browser.js
         navigateToPath: (

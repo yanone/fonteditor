@@ -23,6 +23,8 @@ import {
 } from './run-python-script-dialog';
 import './add-glyphs-dialog';
 import './rename-glyphs-dialog';
+import './delete-glyphs-dialog';
+import { canDeleteSelectedGlyphs } from './delete-glyphs-dialog';
 
 const console = new Logger('ToolbarMenus');
 
@@ -252,6 +254,15 @@ function getEditMenuItems(): ToolbarMenuItem[] {
             disabled: !hasFontOpen || !hasGlyphSelection,
             action: async () => {
                 window.renameGlyphsDialog?.open();
+            }
+        },
+        {
+            label: 'Delete Glyph(s)',
+            icon: 'delete',
+            shortcut: '⌫',
+            disabled: !canDeleteSelectedGlyphs(),
+            action: async () => {
+                window.deleteGlyphsDialog?.open();
             }
         }
     ];

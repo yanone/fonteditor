@@ -352,6 +352,26 @@ class GlyphOverview {
                 e.preventDefault();
                 this.insertSelectedGlyphTokens();
             } else if (
+                (e.key === 'Backspace' || e.key === 'Delete') &&
+                this.isViewActive()
+            ) {
+                const target = e.target as HTMLElement | null;
+                if (
+                    target &&
+                    (target.tagName === 'INPUT' ||
+                        target.tagName === 'TEXTAREA' ||
+                        target.isContentEditable)
+                ) {
+                    return;
+                }
+                if (
+                    this.getSelectedGlyphNames().length > 0 &&
+                    window.fontManager?.currentFont
+                ) {
+                    e.preventDefault();
+                    window.deleteGlyphsDialog?.open();
+                }
+            } else if (
                 ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(
                     e.key
                 )
@@ -2304,6 +2324,8 @@ class GlyphOverview {
                             backdrop.classList.remove('visible');
                             if (action === 'rename-glyphs') {
                                 window.renameGlyphsDialog?.open();
+                            } else if (action === 'delete-glyphs') {
+                                window.deleteGlyphsDialog?.open();
                             }
                         });
                     }
@@ -2347,12 +2369,12 @@ class GlyphOverview {
                 this.keyboardAnchorGlyphId = glyphId;
             }
 
-            const canRename =
+            const canAct =
                 !!window.fontManager?.currentFont &&
                 this.getSelectedGlyphNames().length > 0;
             this.tileContextMenu.hide();
             this.tileContextMenu.setContent(
-                this.createTileContextMenuHtml(canRename)
+                this.createTileContextMenuHtml(canAct)
             );
             this.tileContextMenu.setProps({
                 getReferenceClientRect: () => ({
@@ -2371,17 +2393,22 @@ class GlyphOverview {
         });
     }
 
-    private createTileContextMenuHtml(canRename = true): string {
-        const disabledClass = canRename
+    private createTileContextMenuHtml(canAct = true): string {
+        const disabledClass = canAct
             ? ''
             : ' disabled plugin-menu-item-disabled';
-        const disabledAttr = canRename ? '' : ' aria-disabled="true"';
+        const disabledAttr = canAct ? '' : ' aria-disabled="true"';
         return `
             <div class="plugin-menu">
                 <div class="plugin-menu-item${disabledClass}" data-action="rename-glyphs"${disabledAttr}>
                     <span class="material-symbols-outlined">edit</span>
                     <span>Rename Glyph(s)…</span>
                     <span class="plugin-menu-shortcut">⌘⇧F</span>
+                </div>
+                <div class="plugin-menu-item${disabledClass}" data-action="delete-glyphs"${disabledAttr}>
+                    <span class="material-symbols-outlined">delete</span>
+                    <span>Delete Glyph(s)</span>
+                    <span class="plugin-menu-shortcut">⌫</span>
                 </div>
             </div>
         `;

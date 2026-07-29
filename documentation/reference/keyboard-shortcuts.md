@@ -27,6 +27,7 @@ These shortcuts allow you to move quickly between different areas of Counterpunc
 
 - `Cmd/Ctrl + Shift + G` opens Add Glyph(s)
 - `Cmd/Ctrl + Shift + F` opens Rename Glyph(s) for the current overview selection
+- `Delete` / `Backspace` deletes the current overview glyph selection (with confirm)
 
 ## Script and Konsole Actions
 

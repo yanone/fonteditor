@@ -21,6 +21,15 @@ import { assertModelMutationAllowed } from './model-mutation-policy';
 import { parseNodeString, serializeNodeArray } from './node-encoding';
 import { applyGlyphRenameUiContext } from './rename-glyphs-ui-context';
 import { assertGlyphRenamePreflight } from './rename-glyphs-preflight';
+import { applyGlyphDeleteUiContext } from './delete-glyphs-ui-context';
+import {
+    countDeletedGlyphTokensInFeatureCode,
+    stripDeletedGlyphTokensFromClassCode,
+    commentOutFeatureLinesReferencingDeletedGlyphs,
+    type GlyphDeletePreflight
+} from './delete-glyphs-preflight';
+
+export type { GlyphDeletePreflight };
 
 /**
  * Generate a stable unique identifier for CRDT addressing.
@@ -10386,6 +10395,80 @@ export class Glyph extends ArrayElementBase {
     }
 
     /**
+     * Remove component instances whose reference is in `deletedNames`.
+     * Walks every stored layer, including backgrounds.
+     */
+    _removeStoredLayerComponentReferences(
+        deletedNames: ReadonlySet<string>
+    ): void {
+        if (!Array.isArray(this.data.layers) || deletedNames.size === 0) {
+            return;
+        }
+        for (let index = 0; index < this.data.layers.length; index++) {
+            const layer = new Layer(this.data.layers, index, this);
+            // Remove by descending index so later removals do not invalidate
+            // earlier indices, and never retain Component wrappers across splices.
+            for (
+                let shapeIndex = (layer.shapes?.length ?? 0) - 1;
+                shapeIndex >= 0;
+                shapeIndex--
+            ) {
+                const shapes = layer.shapes;
+                if (!shapes || shapeIndex >= shapes.length) {
+                    continue;
+                }
+                const shape = shapes[shapeIndex];
+                const rawShape = shape
+                    ? ((shape as Unsafe).data as Unsafe | undefined)
+                    : undefined;
+                if (!rawShape || typeof rawShape !== 'object') {
+                    continue;
+                }
+                const reference =
+                    rawShape.reference ?? rawShape.Component?.reference;
+                if (
+                    typeof reference === 'string' &&
+                    deletedNames.has(reference)
+                ) {
+                    layer.removeShape(shapeIndex);
+                }
+            }
+        }
+    }
+
+    /**
+     * Clear metrics keys on stored layers that reference deleted glyphs.
+     */
+    _clearStoredLayerMetricsKeysReferencing(
+        deletedNames: ReadonlySet<string>,
+        font: Font
+    ): void {
+        if (!Array.isArray(this.data.layers) || deletedNames.size === 0) {
+            return;
+        }
+        const shouldClear = (rawKey: string | undefined): boolean => {
+            if (!rawKey) return false;
+            const parsed = parseMetricsKey(font, rawKey);
+            if ('error' in parsed) return false;
+            if (parsed.kind === 'reference' && parsed.glyphName) {
+                return deletedNames.has(parsed.glyphName);
+            }
+            return (parsed.referencedGlyphNames || []).some((name) =>
+                deletedNames.has(name)
+            );
+        };
+        for (let index = 0; index < this.data.layers.length; index++) {
+            const layer = new Layer(this.data.layers, index, this);
+            if (shouldClear(layer.leftMetricsKey)) {
+                layer.leftMetricsKey = undefined;
+            }
+            if (shouldClear(layer.rightMetricsKey)) {
+                layer.rightMetricsKey = undefined;
+            }
+        }
+    }
+
+    /**
      * Find a layer by master ID
      */
     findLayerByMasterId(masterId: string): Layer | undefined {
@@ -11449,7 +11532,7 @@ export class Font extends ModelBase {
         }
         return getReadOnlyCollectionValue(
             this._glyphWrappers!,
-            'Font.glyphs is a read-only collection view. Use addGlyph(), removeGlyph(), or duplicateGlyph() for structural edits.'
+            'Font.glyphs is a read-only collection view. Use addGlyph(), removeGlyph(), deleteGlyphs(), or duplicateGlyph() for structural edits.'
         );
     }
 
@@ -13178,6 +13261,309 @@ export class Font extends ModelBase {
                 return added;
             })
         );
+    }
+
+    /**
+     * Count optional cleanup hits for a proposed glyph deletion.
+     * Kerning is always cleaned by deleteGlyphs and is not reported here.
+     */
+    preflightDeleteGlyphs(names: Iterable<string>): GlyphDeletePreflight {
+        const deletedNames = new Set(
+            [...names].filter(
+                (name) => typeof name === 'string' && name.length > 0
+            )
+        );
+        const result: GlyphDeletePreflight = {
+            featureReferences: 0,
+            metricsKeyReferences: 0,
+            componentReferences: 0
+        };
+        if (deletedNames.size === 0) {
+            return result;
+        }
+
+        const metricsKeyHits = (rawKey: string | undefined): boolean => {
+            if (!rawKey) return false;
+            const parsed = parseMetricsKey(this, rawKey);
+            if ('error' in parsed) return false;
+            if (parsed.kind === 'reference' && parsed.glyphName) {
+                return deletedNames.has(parsed.glyphName);
+            }
+            return (parsed.referencedGlyphNames || []).some((name) =>
+                deletedNames.has(name)
+            );
+        };
+
+        if (this._data.features) {
+            for (const classData of Object.values(
+                this._data.features.classes || {}
+            )) {
+                const codeData = classData as { code?: string };
+                if (codeData.code) {
+                    result.featureReferences +=
+                        countDeletedGlyphTokensInFeatureCode(
+                            codeData.code,
+                            deletedNames
+                        );
+                }
+            }
+            for (const [, featureData] of this._data.features.features || []) {
+                if (featureData?.code) {
+                    result.featureReferences +=
+                        countDeletedGlyphTokensInFeatureCode(
+                            featureData.code,
+                            deletedNames
+                        );
+                }
+            }
+            for (const prefixData of Object.values(
+                this._data.features.prefixes || {}
+            )) {
+                const codeData = prefixData as { code?: string };
+                if (codeData.code) {
+                    result.featureReferences +=
+                        countDeletedGlyphTokensInFeatureCode(
+                            codeData.code,
+                            deletedNames
+                        );
+                }
+            }
+        }
+
+        for (
+            let glyphIndex = 0;
+            glyphIndex < this._data.glyphs.length;
+            glyphIndex++
+        ) {
+            const glyphData = this._data.glyphs[glyphIndex];
+            if (deletedNames.has(glyphData.name)) {
+                continue;
+            }
+            const glyph = new Glyph(this._data.glyphs, glyphIndex, this);
+            if (metricsKeyHits(glyph.leftMetricsKey)) {
+                result.metricsKeyReferences += 1;
+            }
+            if (metricsKeyHits(glyph.rightMetricsKey)) {
+                result.metricsKeyReferences += 1;
+            }
+            if (!Array.isArray(glyphData.layers)) {
+                continue;
+            }
+            for (
+                let layerIndex = 0;
+                layerIndex < glyphData.layers.length;
+                layerIndex++
+            ) {
+                const layer = new Layer(glyphData.layers, layerIndex, glyph);
+                if (metricsKeyHits(layer.leftMetricsKey)) {
+                    result.metricsKeyReferences += 1;
+                }
+                if (metricsKeyHits(layer.rightMetricsKey)) {
+                    result.metricsKeyReferences += 1;
+                }
+                for (const shape of glyphData.layers[layerIndex].shapes || []) {
+                    if (!shape || typeof shape !== 'object') continue;
+                    const reference =
+                        (shape as Unsafe).reference ??
+                        (shape as Unsafe).Component?.reference;
+                    if (
+                        typeof reference === 'string' &&
+                        deletedNames.has(reference)
+                    ) {
+                        result.componentReferences += 1;
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Delete glyphs and clean font-owned references in one undoable
+     * transaction. Always cleans features/classes/prefixes, metrics keys,
+     * components, kerning (LTR + RTL), and kern-group membership (dropping
+     * empty groups).
+     */
+    deleteGlyphs(names: Iterable<string>): void {
+        assertModelMutationAllowed();
+
+        const deletedNames = new Set<string>();
+        for (const name of names) {
+            if (
+                typeof name === 'string' &&
+                name &&
+                this._data.glyphs.some((glyph: Unsafe) => glyph.name === name)
+            ) {
+                deletedNames.add(name);
+            }
+        }
+        if (deletedNames.size === 0) {
+            return;
+        }
+
+        const codepointsByDeletedName = new Map<string, number[]>();
+        for (const name of deletedNames) {
+            const glyph = this.findGlyph(name);
+            const codepoints = Array.isArray(glyph?.codepoints)
+                ? glyph.codepoints.filter(
+                      (value: unknown): value is number =>
+                          typeof value === 'number' && Number.isFinite(value)
+                  )
+                : [];
+            codepointsByDeletedName.set(name, codepoints);
+        }
+
+        const shouldClearMetricsKey = (rawKey: string | undefined): boolean => {
+            if (!rawKey) return false;
+            const parsed = parseMetricsKey(this, rawKey);
+            if ('error' in parsed) return false;
+            if (parsed.kind === 'reference' && parsed.glyphName) {
+                return deletedNames.has(parsed.glyphName);
+            }
+            return (parsed.referencedGlyphNames || []).some((name) =>
+                deletedNames.has(name)
+            );
+        };
+
+        withBridgeTransaction(
+            deletedNames.size === 1
+                ? `Delete glyph ${[...deletedNames][0]}`
+                : `Delete ${deletedNames.size} glyphs`,
+            () => {
+                for (const glyph of this.glyphs) {
+                    if (deletedNames.has(glyph.name)) {
+                        continue;
+                    }
+                    if (shouldClearMetricsKey(glyph.leftMetricsKey)) {
+                        glyph.leftMetricsKey = undefined;
+                    }
+                    if (shouldClearMetricsKey(glyph.rightMetricsKey)) {
+                        glyph.rightMetricsKey = undefined;
+                    }
+                    glyph._clearStoredLayerMetricsKeysReferencing(
+                        deletedNames,
+                        this
+                    );
+                    glyph._removeStoredLayerComponentReferences(deletedNames);
+                }
+
+                for (const master of this.masters || []) {
+                    const kerning: Record<string, Record<string, number>> = {};
+                    for (const [left, pairs] of Object.entries(
+                        master.kerning || {}
+                    )) {
+                        if (deletedNames.has(left)) {
+                            continue;
+                        }
+                        const nextPairs = Object.fromEntries(
+                            Object.entries(pairs).filter(
+                                ([right]) => !deletedNames.has(right)
+                            )
+                        );
+                        if (Object.keys(nextPairs).length > 0) {
+                            kerning[left] = nextPairs;
+                        }
+                    }
+                    master.kerning = kerning;
+
+                    const rtlKerning: Record<string, number> = {};
+                    for (const [pair, value] of Object.entries(
+                        master.kerning_rtl || {}
+                    )) {
+                        const separator = pair.indexOf(':');
+                        const left =
+                            separator < 0 ? pair : pair.slice(0, separator);
+                        const right =
+                            separator < 0 ? '' : pair.slice(separator + 1);
+                        if (deletedNames.has(left) || deletedNames.has(right)) {
+                            continue;
+                        }
+                        rtlKerning[pair] = value;
+                    }
+                    master.kerning_rtl = rtlKerning;
+                }
+
+                const filterKernGroups = (
+                    groups: Record<string, string[]> | undefined
+                ): Record<string, string[]> | undefined => {
+                    if (!groups) return groups;
+                    const next: Record<string, string[]> = {};
+                    for (const [groupName, members] of Object.entries(groups)) {
+                        const filtered = members.filter(
+                            (member) => !deletedNames.has(member)
+                        );
+                        if (filtered.length > 0) {
+                            next[groupName] = filtered;
+                        }
+                    }
+                    return next;
+                };
+                this.first_kern_groups = filterKernGroups(
+                    this.first_kern_groups
+                );
+                this.second_kern_groups = filterKernGroups(
+                    this.second_kern_groups
+                );
+
+                if (this._data.features) {
+                    const oldFeatures = cloneForHistory(this._data.features);
+                    const features = cloneForHistory(this._data.features);
+                    for (const classData of Object.values(
+                        features.classes || {}
+                    )) {
+                        const codeData = classData as { code?: string };
+                        if (codeData.code) {
+                            codeData.code =
+                                stripDeletedGlyphTokensFromClassCode(
+                                    codeData.code,
+                                    deletedNames
+                                );
+                        }
+                    }
+                    for (const [, featureData] of features.features || []) {
+                        if (featureData?.code) {
+                            featureData.code =
+                                commentOutFeatureLinesReferencingDeletedGlyphs(
+                                    featureData.code,
+                                    deletedNames
+                                );
+                        }
+                    }
+                    for (const prefixData of Object.values(
+                        features.prefixes || {}
+                    )) {
+                        const codeData = prefixData as { code?: string };
+                        if (codeData.code) {
+                            codeData.code =
+                                commentOutFeatureLinesReferencingDeletedGlyphs(
+                                    codeData.code,
+                                    deletedNames
+                                );
+                        }
+                    }
+                    this._data.features = features;
+                    recordAndMarkDirty(this, 'features', oldFeatures, features);
+                }
+
+                for (const name of deletedNames) {
+                    const index = this._data.glyphs.findIndex(
+                        (glyph: Unsafe) => glyph.name === name
+                    );
+                    if (index < 0) {
+                        continue;
+                    }
+                    const removedGlyph = this._data.glyphs[index];
+                    this._data.glyphs.splice(index, 1);
+                    recordRemoveAndMarkDirty(['glyphs', name], removedGlyph);
+                }
+
+                this._glyphWrappers = null;
+                this.invalidateReverseComponentIndex();
+            }
+        );
+
+        applyGlyphDeleteUiContext(deletedNames, codepointsByDeletedName);
     }
 
     /**

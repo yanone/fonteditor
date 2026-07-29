@@ -32,6 +32,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     CloudPlugin: true,
     ChangeBridgeInit: false,
     CriticalErrorHandler: false,
+    DeleteGlyphsDialog: false,
     Design: false,
     Features: false,
     FileBrowser: false,

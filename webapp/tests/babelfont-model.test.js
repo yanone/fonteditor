@@ -5337,4 +5337,294 @@ describe('Babelfont Object Model', () => {
             expect(renameFont.findGlyph('A')).toBeUndefined();
         });
     });
+
+    describe('Font.deleteGlyphs()', () => {
+        test('deletes glyphs and cleans references with defaults', () => {
+            const font = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: { A: { B: -40, C: -10 }, B: { C: -5 } },
+                        kerning_rtl: { 'A:B': -50, 'B:C': -20 }
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-a',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [],
+                                anchors: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'B',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-b',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        reference: 'A',
+                                        transform: [1, 0, 0, 1, 0, 0]
+                                    }
+                                ],
+                                anchors: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'C',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-c',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [],
+                                anchors: []
+                            }
+                        ]
+                    }
+                ],
+                first_kern_groups: { left: ['A'], emptySoon: ['A'] },
+                second_kern_groups: { right: ['B', 'C'] },
+                note: '',
+                date: new Date('2020-01-01T00:00:00.000Z'),
+                names: {},
+                features: {
+                    classes: { letters: { code: 'A B C' } },
+                    prefixes: { test: { code: 'sub A by B;' } },
+                    features: [['liga', { code: 'sub A B by C;' }]]
+                }
+            });
+
+            font.findGlyph('C').leftMetricsKey = '=A';
+
+            const preflight = font.preflightDeleteGlyphs(['A']);
+            expect(preflight.componentReferences).toBe(1);
+            expect(preflight.featureReferences).toBeGreaterThan(0);
+            expect(preflight.metricsKeyReferences).toBe(1);
+
+            font.deleteGlyphs(['A']);
+
+            expect(font.findGlyph('A')).toBeUndefined();
+            expect(font.findGlyph('B').layers[0].components).toHaveLength(0);
+            expect(font.findGlyph('C').leftMetricsKey).toBeUndefined();
+            expect(font.masters[0].kerning).toEqual({ B: { C: -5 } });
+            expect(font.masters[0].kerning_rtl).toEqual({ 'B:C': -20 });
+            expect(font.first_kern_groups).toEqual({});
+            expect(font.second_kern_groups).toEqual({ right: ['B', 'C'] });
+            expect(font._data.features.classes.letters.code).toBe('B C');
+            expect(font._data.features.prefixes.test.code).toBe(
+                '# [deleted glyph] sub A by B;'
+            );
+            expect(font._data.features.features[0][1].code).toBe(
+                '# [deleted glyph] sub A B by C;'
+            );
+        });
+
+        test('always cleans components and kerning together', () => {
+            const font = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: { A: { B: -40 } },
+                        kerning_rtl: {}
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-a',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [],
+                                anchors: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'B',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-b',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        reference: 'A',
+                                        transform: [1, 0, 0, 1, 0, 0]
+                                    }
+                                ],
+                                anchors: []
+                            }
+                        ]
+                    }
+                ],
+                first_kern_groups: {},
+                second_kern_groups: {},
+                note: '',
+                date: new Date('2020-01-01T00:00:00.000Z'),
+                names: {},
+                features: { classes: {}, prefixes: {}, features: [] }
+            });
+
+            font.deleteGlyphs(['A']);
+
+            expect(font.findGlyph('A')).toBeUndefined();
+            expect(font.findGlyph('B').layers[0].components).toHaveLength(0);
+            expect(font.masters[0].kerning).toEqual({});
+        });
+
+        test('removes multiple component refs to a deleted glyph without crashing', () => {
+            const font = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: {},
+                        kerning_rtl: {}
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'a',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-a',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [],
+                                anchors: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'aacute',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-aacute',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        reference: 'a',
+                                        transform: [1, 0, 0, 1, 0, 0]
+                                    },
+                                    {
+                                        reference: 'a',
+                                        transform: [1, 0, 0, 1, 100, 0]
+                                    },
+                                    {
+                                        reference: 'acute',
+                                        transform: [1, 0, 0, 1, 50, 200]
+                                    }
+                                ],
+                                anchors: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'acute',
+                        category: 'Mark',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 0,
+                                id: 'layer-acute',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [],
+                                anchors: []
+                            }
+                        ]
+                    }
+                ],
+                first_kern_groups: {},
+                second_kern_groups: {},
+                note: '',
+                date: new Date('2020-01-01T00:00:00.000Z'),
+                names: {},
+                features: { classes: {}, prefixes: {}, features: [] }
+            });
+
+            expect(() => font.deleteGlyphs(['a'])).not.toThrow();
+            expect(font.findGlyph('a')).toBeUndefined();
+            expect(
+                font
+                    .findGlyph('aacute')
+                    .layers[0].components.map((c) => c.reference)
+            ).toEqual(['acute']);
+        });
+    });
 });

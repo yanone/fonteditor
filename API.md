@@ -234,6 +234,16 @@ glyph = font.addGlyph("myGlyph", "Base")
 #### `addGlyphs(glyphs: Array<{ name: string; codepoints: number[]; category?: Babelfont.GlyphCategory | string; }>) -> list[[Glyph](#glyph)]`
 Add several Unicode-backed glyphs as one undoable document edit.
 
+#### `preflightDeleteGlyphs(names: Iterable<string>) -> GlyphDeletePreflight`
+Count optional cleanup hits for a proposed glyph deletion.
+Kerning is always cleaned by deleteGlyphs and is not reported here.
+
+#### `deleteGlyphs(names: Iterable<string>) -> None`
+Delete glyphs and clean font-owned references in one undoable
+transaction. Always cleans features/classes/prefixes, metrics keys,
+components, kerning (LTR + RTL), and kern-group membership (dropping
+empty groups).
+
 #### `removeGlyph(name: str) -> bool`
 Remove a glyph by name
 
