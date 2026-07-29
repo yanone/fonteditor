@@ -109,16 +109,18 @@ function createFontDocument() {
     features.set('classes', new Y.Map());
     features.set('prefixes', new Y.Map());
     const featureList = new Y.Array();
-    featureList.push([[
-        'locl',
-        {
-            code:
-                'script arab;\n' +
-                'language FAR;\n' +
-                'sub fourFarsi-ar by fourFarsi-ar.locl;\n' +
-                'sub sevenFarsi-ar by sevenFarsi-ar.locl;'
-        }
-    ]]);
+    featureList.push([
+        [
+            'locl',
+            {
+                code:
+                    'script arab;\n' +
+                    'language FAR;\n' +
+                    'sub fourFarsi-ar by fourFarsi-ar.locl;\n' +
+                    'sub sevenFarsi-ar by sevenFarsi-ar.locl;'
+            }
+        ]
+    ]);
     features.set('features', featureList);
 
     return { doc, glyphs, featureList };
@@ -181,16 +183,18 @@ try {
         setGlyph(glyphs, 'fourFarsi-arabic.locl', 'fourFarsi-ar');
         setGlyph(glyphs, 'sevenFarsi-arabic.locl', 'sevenFarsi-ar');
         featureList.delete(0, 1);
-        featureList.push([[
-            'locl',
-            {
-                code:
-                    'script arab;\n' +
-                    'language FAR;\n' +
-                    'sub fourFarsi-ar by fourFarsi-arabic.locl;\n' +
-                    'sub sevenFarsi-ar by sevenFarsi-arabic.locl;'
-            }
-        ]]);
+        featureList.push([
+            [
+                'locl',
+                {
+                    code:
+                        'script arab;\n' +
+                        'language FAR;\n' +
+                        'sub fourFarsi-ar by fourFarsi-arabic.locl;\n' +
+                        'sub sevenFarsi-ar by sevenFarsi-arabic.locl;'
+                }
+            ]
+        ]);
     });
 
     const result = JSON.parse(
@@ -272,10 +276,7 @@ try {
         wasm.apply_yjs_update(
             Y.encodeStateAsUpdate(composite.doc, compositeStateVector),
             JSON.stringify({
-                changedGlyphs: [
-                    'sevenFarsi-ar.tf',
-                    'sevenFarsi-arabic.tf'
-                ],
+                changedGlyphs: ['sevenFarsi-ar.tf', 'sevenFarsi-arabic.tf'],
                 layerTargets: [
                     {
                         glyphName: 'sevenFarsi-ar.tf',
