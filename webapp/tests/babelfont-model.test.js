@@ -5049,4 +5049,108 @@ describe('Babelfont Object Model', () => {
             metricsKeysFont.removeGlyph('zzz_duplicated_test');
         });
     });
+
+    describe('Font.renameGlyphs()', () => {
+        test('renames font-owned glyph references atomically', () => {
+            const renameFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: { A: { B: -40 } },
+                        kerning_rtl: { 'A:B': -50 }
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-a',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [],
+                                anchors: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'B',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-b',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        reference: 'A',
+                                        transform: [1, 0, 0, 1, 0, 0]
+                                    }
+                                ],
+                                anchors: []
+                            }
+                        ]
+                    }
+                ],
+                first_kern_groups: { left: ['A'] },
+                second_kern_groups: { right: ['B'] },
+                note: '',
+                date: new Date('2020-01-01T00:00:00.000Z'),
+                names: {},
+                features: {
+                    classes: { letters: { code: 'A B' } },
+                    prefixes: { test: { code: 'sub A by B;' } },
+                    features: [['liga', { code: 'sub A B by A;' }]]
+                }
+            });
+
+            renameFont.renameGlyphs(
+                new Map([
+                    ['A', 'A.alt'],
+                    ['B', 'B.alt']
+                ])
+            );
+
+            expect(renameFont.findGlyph('A')).toBeUndefined();
+            expect(renameFont.findGlyph('A.alt')).toBeDefined();
+            expect(
+                renameFont.findGlyph('B.alt').layers[0].components[0].reference
+            ).toBe('A.alt');
+            expect(renameFont.masters[0].kerning).toEqual({
+                'A.alt': { 'B.alt': -40 }
+            });
+            expect(renameFont.masters[0].kerning_rtl).toEqual({
+                'A.alt:B.alt': -50
+            });
+            expect(renameFont.first_kern_groups).toEqual({ left: ['A.alt'] });
+            expect(renameFont.second_kern_groups).toEqual({ right: ['B.alt'] });
+            expect(renameFont.features.classes.letters.code).toBe(
+                'A.alt B.alt'
+            );
+            expect(renameFont.features.prefixes.test.code).toBe(
+                'sub A.alt by B.alt;'
+            );
+            expect(renameFont.features.features[0][1].code).toBe(
+                'sub A.alt B.alt by A.alt;'
+            );
+        });
+    });
 });

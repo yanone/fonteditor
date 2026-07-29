@@ -38,6 +38,7 @@ import {
     timelineSpanEnd,
     timelineSpanStart
 } from './perf-timeline';
+import { buildApplyYjsUpdateMetadataJson } from './apply-yjs-update-metadata';
 
 // Note: This is a Web Worker, cannot import Logger from main thread
 // Using standard console.log with facility prefix
@@ -408,6 +409,13 @@ export function compileFromLastLayoutClosureWithReprime(
         return compileFromLastClosure(options);
     }
 }
+
+/**
+ * Build the JSON metadata payload for `apply_yjs_update`.
+ * Kept as a pure helper so Jest can assert the worker forwards rename
+ * identity records instead of silently dropping them.
+ */
+export { buildApplyYjsUpdateMetadataJson } from './apply-yjs-update-metadata';
 
 export function sanitizeDumpLayerTargets(
     layerTargets: unknown,
@@ -1622,24 +1630,19 @@ self.onmessage = async (event) => {
                 changedGlyphs,
                 layerTargets,
                 nonGlyphChangeHints,
+                glyphRenames,
                 invalidateLayoutClosure
             } = data;
             try {
                 if (!initialized) {
                     await initializeWasm();
                 }
-                const sanitizedLayerTargets = sanitizeDumpLayerTargets(
-                    Array.isArray(layerTargets) ? layerTargets : []
-                );
-                const updateMetadataJson = JSON.stringify({
-                    changedGlyphs: Array.isArray(changedGlyphs)
-                        ? changedGlyphs
-                        : [],
-                    nonGlyphChangeHints: Array.isArray(nonGlyphChangeHints)
-                        ? nonGlyphChangeHints
-                        : [],
-                    layerTargets: sanitizedLayerTargets,
-                    invalidateLayoutClosure: invalidateLayoutClosure === true
+                const updateMetadataJson = buildApplyYjsUpdateMetadataJson({
+                    changedGlyphs,
+                    nonGlyphChangeHints,
+                    layerTargets,
+                    glyphRenames,
+                    invalidateLayoutClosure
                 });
                 const resultJson = apply_yjs_update(
                     update instanceof Uint8Array

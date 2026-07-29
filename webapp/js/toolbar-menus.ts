@@ -22,6 +22,7 @@ import {
     getLastRunPythonScript
 } from './run-python-script-dialog';
 import './add-glyphs-dialog';
+import './rename-glyphs-dialog';
 
 const console = new Logger('ToolbarMenus');
 
@@ -225,6 +226,9 @@ function getFileMenuItems(): ToolbarMenuItem[] {
 
 function getEditMenuItems(): ToolbarMenuItem[] {
     const hasFontOpen = !!window.fontManager?.currentFont;
+    const hasGlyphSelection =
+        (window.glyphOverviewInstance?.getSelectedGlyphNames?.().length || 0) >
+        0;
 
     return [
         {
@@ -240,6 +244,14 @@ function getEditMenuItems(): ToolbarMenuItem[] {
             shortcut: '⌘⇧Z',
             disabled: !hasFontOpen,
             action: triggerRedo
+        },
+        {
+            label: 'Rename Glyph(s)…',
+            icon: 'edit',
+            disabled: !hasFontOpen || !hasGlyphSelection,
+            action: async () => {
+                window.renameGlyphsDialog?.open();
+            }
         }
     ];
 }

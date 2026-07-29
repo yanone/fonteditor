@@ -5,12 +5,14 @@ import {
     deriveObjectInfoFromPath,
     getPathSegments,
     joinPathWithGlyphSeparator,
+    normalizeGlyphRenames,
     normalizeWorkerReplayTargets,
     type ChangeLogEntry,
     type ChangeOp,
     type HistoryAction,
     type HistoryTargetType,
     type UndoScope,
+    type GlyphRename,
     type WorkerReplayTarget
 } from './change-log';
 
@@ -54,6 +56,7 @@ export type SyntheticChangeOperation = {
 export type CollaborationChangeDescriptor = {
     path: string;
     op: ChangeOp;
+    glyphRenames?: GlyphRename[];
     workerReplayTargets?: WorkerReplayTarget[];
     replayOldValue?: unknown;
     replayNewValue?: unknown;
@@ -261,6 +264,9 @@ export function createCollaborationMessageEnvelopeFromChangeLogEntries(
             return {
                 path: entry.path,
                 op: entry.op,
+                glyphRenames: entry.glyphRenames.length
+                    ? entry.glyphRenames
+                    : undefined,
                 replayOldValue: entry.replayOldValue,
                 replayNewValue: entry.replayNewValue,
                 workerReplayTargets: haveMatchingReplayTargets(
@@ -384,6 +390,7 @@ export function createChangeLogEntriesFromCollaborationMessageEnvelope(
             compileEditType: envelope.metadata.compileEditType ?? null,
             replayOldValue: change.replayOldValue,
             replayNewValue: change.replayNewValue,
+            glyphRenames: normalizeGlyphRenames(change.glyphRenames),
             workerReplayTargets: normalizeWorkerReplayTargets(
                 change.workerReplayTargets?.length
                     ? change.workerReplayTargets

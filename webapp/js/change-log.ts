@@ -31,6 +31,34 @@ export type WorkerReplayTarget = {
     layerId: string;
 };
 
+/** An atomic glyph-map key rename for worker cache maintenance. */
+export type GlyphRename = {
+    oldName: string;
+    newName: string;
+};
+
+export function normalizeGlyphRenames(
+    renames: Iterable<GlyphRename | null | undefined> | null | undefined
+): GlyphRename[] {
+    if (!renames) return [];
+
+    const normalized = new Map<string, GlyphRename>();
+    for (const rename of renames) {
+        if (
+            !rename?.oldName ||
+            !rename.newName ||
+            rename.oldName === rename.newName
+        ) {
+            continue;
+        }
+        normalized.set(rename.oldName, {
+            oldName: rename.oldName,
+            newName: rename.newName
+        });
+    }
+    return [...normalized.values()];
+}
+
 /** Operation type */
 export type ChangeOp = 'set' | 'add' | 'remove';
 
@@ -133,6 +161,8 @@ export interface ChangeLogEntry {
     visualAnchorSide?: 'left' | 'right' | null;
     /** Exact worker cache layer targets needed to replay this edit incrementally */
     workerReplayTargets: WorkerReplayTarget[];
+    /** Glyph-map key moves that must preserve cache ordering without a Y.Doc dump. */
+    glyphRenames: GlyphRename[];
     /** Original semantic entries represented by an undo/redo control row. */
     semanticChangeLogEntries?: ChangeLogEntry[];
 }
@@ -154,6 +184,7 @@ export function createLogEntry(
         | 'transactionDurationMs'
         | 'editSource'
         | 'workerReplayTargets'
+        | 'glyphRenames'
         | 'compileChangeSource'
         | 'compileEditType'
         | 'historySummary'
@@ -183,6 +214,7 @@ export function createLogEntry(
         promptGroupId?: string | null;
         visualAnchorSide?: 'left' | 'right' | null;
         workerReplayTargets?: WorkerReplayTarget[];
+        glyphRenames?: GlyphRename[];
         replayOldValue?: unknown;
         replayNewValue?: unknown;
         semanticChangeLogEntries?: ChangeLogEntry[];
@@ -221,6 +253,7 @@ export function createLogEntry(
         workerReplayTargets: normalizeWorkerReplayTargets(
             fields.workerReplayTargets
         ),
+        glyphRenames: normalizeGlyphRenames(fields.glyphRenames),
         semanticChangeLogEntries: fields.semanticChangeLogEntries ?? undefined
     });
 }
@@ -292,7 +325,14 @@ function getLayerScopeKey(
  * (axes, masters, features, etc.) use plain dot-joining.
  */
 export function joinPathWithGlyphSeparator(path: (string | number)[]): string {
-    if (path.length <= 2 || path[0] !== 'glyphs') return path.join('.');
+    if (path.length === 0) return '';
+    if (path[0] !== 'glyphs') return path.join('.');
+    if (path.length === 1) return 'glyphs';
+    // Glyph-root add/remove paths must terminate the name with ':' so dotted
+    // names like fourFarsi-ar.locl round-trip through getPathSegments.
+    if (path.length === 2) {
+        return `${path[0]}.${path[1]}:`;
+    }
     // Separator after glyph name
     let result = path[0] + '.' + path[1] + ':' + path[2];
     if (path.length <= 3) return result;
@@ -1015,6 +1055,7 @@ export function normalizeChangeLogEntry(
         workerReplayTargets: normalizeWorkerReplayTargets(
             entry.workerReplayTargets
         ),
+        glyphRenames: normalizeGlyphRenames(entry.glyphRenames),
         semanticChangeLogEntries: entry.semanticChangeLogEntries?.map(
             (semanticEntry) => normalizeChangeLogEntry(semanticEntry)
         ),

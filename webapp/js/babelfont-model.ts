@@ -12158,6 +12158,190 @@ export class Font extends ModelBase {
     }
 
     /**
+     * Rename glyphs and every font-owned reference to them in one undoable
+     * transaction. The mapping is simultaneous, so swaps are safe.
+     */
+    renameGlyphs(renameMap: ReadonlyMap<string, string>): void {
+        assertModelMutationAllowed();
+        const renames = new Map(
+            Array.from(renameMap).filter(
+                ([oldName, newName]) => oldName !== newName
+            )
+        );
+        if (renames.size === 0) return;
+
+        const existingNames = new Set(
+            this._data.glyphs.map((glyph: Unsafe) => glyph.name)
+        );
+        for (const [oldName, newName] of renames) {
+            if (!oldName || !newName || !existingNames.has(oldName)) {
+                throw new Error(`Cannot rename glyph "${oldName}".`);
+            }
+        }
+        const finalNames = new Set(
+            this._data.glyphs.map(
+                (glyph: Unsafe) => renames.get(glyph.name) || glyph.name
+            )
+        );
+        if (finalNames.size !== this._data.glyphs.length) {
+            throw new Error('Glyph rename would create duplicate names.');
+        }
+
+        const replaceName = (value: string): string =>
+            renames.get(value) || value;
+        const replaceMetricsKey = (
+            value: string | undefined
+        ): string | undefined => {
+            if (!value) return value;
+            const parsed = parseMetricsKey(this, value);
+            if ('error' in parsed || !parsed.referencedGlyphNames.length) {
+                return value;
+            }
+            const oldName = parsed.referencedGlyphNames[0];
+            const newName = renames.get(oldName);
+            return newName ? value.replace(oldName, newName) : value;
+        };
+        const replaceFeatureCode = (code: string): string => {
+            // Glyph names are identifiers in feature source; preserve comments,
+            // class references, and surrounding punctuation verbatim.
+            return code.replace(
+                /#[^\n]*|@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+/g,
+                (token) =>
+                    token.startsWith('#') || token.startsWith('@')
+                        ? token
+                        : replaceName(token)
+            );
+        };
+
+        withBridgeTransaction('Rename glyphs', () => {
+            for (const glyph of this.glyphs) {
+                const leftMetricsKey = replaceMetricsKey(glyph.leftMetricsKey);
+                const rightMetricsKey = replaceMetricsKey(
+                    glyph.rightMetricsKey
+                );
+                if (leftMetricsKey !== glyph.leftMetricsKey) {
+                    glyph.leftMetricsKey = leftMetricsKey;
+                }
+                if (rightMetricsKey !== glyph.rightMetricsKey) {
+                    glyph.rightMetricsKey = rightMetricsKey;
+                }
+                for (const layer of glyph.layers || []) {
+                    const leftLayerKey = replaceMetricsKey(
+                        layer.leftMetricsKey
+                    );
+                    const rightLayerKey = replaceMetricsKey(
+                        layer.rightMetricsKey
+                    );
+                    if (leftLayerKey !== layer.leftMetricsKey) {
+                        layer.leftMetricsKey = leftLayerKey;
+                    }
+                    if (rightLayerKey !== layer.rightMetricsKey) {
+                        layer.rightMetricsKey = rightLayerKey;
+                    }
+                    for (const component of layer.components) {
+                        const reference = replaceName(component.reference);
+                        if (reference !== component.reference) {
+                            component.reference = reference;
+                        }
+                    }
+                }
+            }
+
+            for (const master of this.masters || []) {
+                const kerning: Record<string, Record<string, number>> = {};
+                for (const [left, pairs] of Object.entries(
+                    master.kerning || {}
+                )) {
+                    kerning[replaceName(left)] = Object.fromEntries(
+                        Object.entries(pairs).map(([right, value]) => [
+                            replaceName(right),
+                            value
+                        ])
+                    );
+                }
+                master.kerning = kerning;
+
+                const rtlKerning: Record<string, number> = {};
+                for (const [pair, value] of Object.entries(
+                    master.kerning_rtl || {}
+                )) {
+                    const separator = pair.indexOf(':');
+                    const left =
+                        separator < 0 ? pair : pair.slice(0, separator);
+                    const right =
+                        separator < 0 ? '' : pair.slice(separator + 1);
+                    rtlKerning[`${replaceName(left)}:${replaceName(right)}`] =
+                        value;
+                }
+                master.kerning_rtl = rtlKerning;
+            }
+
+            const renameGroups = (
+                groups: Record<string, string[]> | undefined
+            ) =>
+                groups &&
+                Object.fromEntries(
+                    Object.entries(groups).map(([name, members]) => [
+                        name,
+                        members.map(replaceName)
+                    ])
+                );
+            this.first_kern_groups = renameGroups(this.first_kern_groups);
+            this.second_kern_groups = renameGroups(this.second_kern_groups);
+
+            if (this._data.features) {
+                const oldFeatures = cloneForHistory(this._data.features);
+                const features = cloneForHistory(this._data.features);
+                for (const classData of Object.values(features.classes || {})) {
+                    const codeData = classData as { code?: string };
+                    if (codeData.code) {
+                        codeData.code = replaceFeatureCode(codeData.code);
+                    }
+                }
+                for (const [, featureData] of features.features || []) {
+                    if (featureData?.code)
+                        featureData.code = replaceFeatureCode(featureData.code);
+                }
+                for (const prefixData of Object.values(
+                    features.prefixes || {}
+                )) {
+                    const codeData = prefixData as { code?: string };
+                    if (codeData.code) {
+                        codeData.code = replaceFeatureCode(codeData.code);
+                    }
+                }
+                this._data.features = features;
+                recordAndMarkDirty(this, 'features', oldFeatures, features);
+            }
+
+            const glyphRenames = this._data.glyphs.flatMap(
+                (glyphData: Unsafe) => {
+                    const oldName = glyphData.name;
+                    const newName = renames.get(oldName);
+                    if (!newName) return [];
+                    const glyph = cloneForHistory(glyphData);
+                    glyph.name = newName;
+                    return [{ oldName, newName, glyph }];
+                }
+            );
+            const bridge = getPatchSyncEngine();
+            if (bridge && typeof (bridge as any).renameGlyphs === 'function') {
+                (bridge as any).renameGlyphs(glyphRenames, 'Rename glyphs');
+            } else {
+                markFontDirty();
+            }
+            for (const glyphData of this._data.glyphs) {
+                const newName = renames.get(glyphData.name);
+                if (newName) {
+                    glyphData.name = newName;
+                }
+            }
+            this._glyphWrappers = null;
+            this.invalidateReverseComponentIndex();
+        });
+    }
+
+    /**
      * Resolve an editor glyph token to an authorable layer view. A literal glyph
      * name resolves to its persisted Glyph; `base.feaVar.N` resolves to the
      * corresponding synthetic feature-variation family.

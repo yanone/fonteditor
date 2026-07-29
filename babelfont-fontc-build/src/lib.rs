@@ -225,6 +225,12 @@ struct LayerTarget {
     layer_id: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+struct GlyphRename {
+    old_name: String,
+    new_name: String,
+}
+
 fn clear_preview_overlay_internal() {
     *PREVIEW_OVERLAY.lock().unwrap() = None;
     *LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
@@ -505,6 +511,45 @@ fn replace_glyph_json_entry(
             true
         }
     }
+}
+
+fn rename_glyph_json_entries(
+    font_json: &mut serde_json::Value,
+    glyph_index: &mut HashMap<String, usize>,
+    renames: &[GlyphRename],
+    renamed_glyphs: &HashMap<String, serde_json::Value>,
+) -> bool {
+    let Some(glyphs) = font_json
+        .get_mut("glyphs")
+        .and_then(|value| value.as_array_mut())
+    else {
+        return false;
+    };
+
+    let mut replacements = Vec::new();
+    for rename in renames {
+        let Some(&index) = glyph_index.get(&rename.old_name) else {
+            return false;
+        };
+        let Some(glyph_json) = renamed_glyphs.get(&rename.new_name) else {
+            return false;
+        };
+        replacements.push((index, rename, glyph_json.clone()));
+    }
+
+    for (index, _, glyph_json) in &replacements {
+        if *index >= glyphs.len() {
+            return false;
+        }
+        glyphs[*index] = glyph_json.clone();
+    }
+    for (_, rename, _) in &replacements {
+        glyph_index.remove(&rename.old_name);
+    }
+    for (index, rename, _) in replacements {
+        glyph_index.insert(rename.new_name.clone(), index);
+    }
+    true
 }
 
 fn replace_layer_json_entry(
@@ -894,8 +939,26 @@ fn replace_glyph_in_font_cache(
 
     match new_glyph_json {
         Some(glyph_json) => {
+            let mut native_glyph_json = glyph_json.clone();
+            if let Some(layers) = native_glyph_json
+                .get_mut("layers")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for layer in layers.iter_mut() {
+                    let layer_id = layer
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default();
+                    *layer = normalize_inserted_layer_for_native_cache(
+                        layer,
+                        glyph_name,
+                        layer_id,
+                    )
+                    .map_err(|e| JsValue::from_str(&e))?;
+                }
+            }
             let glyph: babelfont::Glyph =
-                serde_json::from_value(glyph_json.clone()).map_err(|e| {
+                serde_json::from_value(native_glyph_json).map_err(|e| {
                     JsValue::from_str(&format!(
                         "Glyph deserialization error for {}: {}",
                         glyph_name, e
@@ -917,6 +980,349 @@ fn replace_glyph_in_font_cache(
             Ok(false)
         }
     }
+}
+
+fn rename_glyphs_in_font_cache(
+    font: &mut babelfont::Font,
+    renames: &[GlyphRename],
+    renamed_glyphs: &HashMap<String, serde_json::Value>,
+) -> Result<bool, JsValue> {
+    let rename_by_old: HashMap<&str, &GlyphRename> = renames
+        .iter()
+        .map(|rename| (rename.old_name.as_str(), rename))
+        .collect();
+    if rename_by_old.len() != renames.len()
+        || renames
+            .iter()
+            .any(|rename| !renamed_glyphs.contains_key(&rename.new_name))
+    {
+        return Ok(false);
+    }
+    let mut replacements = Vec::new();
+
+    for (index, glyph) in font.glyphs.iter().enumerate() {
+        let Some(rename) = rename_by_old.get(glyph.name.as_str()) else {
+            continue;
+        };
+        let Some(glyph_json) = renamed_glyphs.get(&rename.new_name) else {
+            return Ok(false);
+        };
+        let mut native_glyph_json = glyph_json.clone();
+        if let Some(layers) = native_glyph_json
+            .get_mut("layers")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for layer in layers.iter_mut() {
+                let layer_id = layer
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                *layer = normalize_inserted_layer_for_native_cache(
+                    layer,
+                    &rename.new_name,
+                    layer_id,
+                )
+                .map_err(|e| JsValue::from_str(&e))?;
+            }
+        }
+        let native_glyph: babelfont::Glyph = serde_json::from_value(native_glyph_json)
+            .map_err(|e| {
+                JsValue::from_str(&format!(
+                    "Glyph deserialization error for {}: {}",
+                    rename.new_name, e
+                ))
+            })?;
+        replacements.push((index, native_glyph));
+    }
+
+    if replacements.len() != renames.len() {
+        return Ok(false);
+    }
+    for (index, glyph) in replacements {
+        font.glyphs[index] = glyph;
+    }
+    Ok(true)
+}
+
+/// Collect host→component pairs whose reference is absent from the glyph set.
+fn collect_missing_component_references(
+    font_json: &serde_json::Value,
+) -> HashSet<(String, String)> {
+    let glyphs = match font_json
+        .get("glyphs")
+        .and_then(serde_json::Value::as_array)
+    {
+        Some(glyphs) => glyphs,
+        None => return HashSet::new(),
+    };
+    let glyph_names: HashSet<&str> = glyphs
+        .iter()
+        .filter_map(|glyph| glyph.get("name").and_then(serde_json::Value::as_str))
+        .collect();
+    let mut missing = HashSet::new();
+    for glyph in glyphs {
+        let glyph_name = match glyph.get("name").and_then(serde_json::Value::as_str) {
+            Some(name) => name,
+            None => continue,
+        };
+        for layer in glyph
+            .get("layers")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            for shape in layer
+                .get("shapes")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let reference = shape
+                    .get("reference")
+                    .or_else(|| shape.get("Component")?.get("reference"))
+                    .and_then(serde_json::Value::as_str);
+                if let Some(reference) = reference {
+                    if !glyph_names.contains(reference) {
+                        missing.insert((glyph_name.to_string(), reference.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    missing
+}
+
+/// Reject a candidate rename when it introduces dangling composite references.
+///
+/// Pre-existing missing refs (for example Fustat `one.tf` → absent `one.ss05`
+/// background junk) must not block an unrelated rename. Still fail when a
+/// composite keeps pointing at a renamed-away old name, or when a *new*
+/// missing pair appears relative to the pre-rename baseline.
+fn validate_component_references(
+    font_json: &serde_json::Value,
+    glyph_renames: &[GlyphRename],
+    pre_existing_missing: &HashSet<(String, String)>,
+) -> Result<(), String> {
+    let glyphs = font_json
+        .get("glyphs")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "glyph rename transaction: missing glyphs".to_string())?;
+    let glyph_names: HashSet<&str> = glyphs
+        .iter()
+        .filter_map(|glyph| glyph.get("name").and_then(serde_json::Value::as_str))
+        .collect();
+    let old_names: HashSet<&str> = glyph_renames
+        .iter()
+        .map(|rename| rename.old_name.as_str())
+        .collect();
+    let new_to_old: HashMap<&str, &str> = glyph_renames
+        .iter()
+        .map(|rename| (rename.new_name.as_str(), rename.old_name.as_str()))
+        .collect();
+
+    for glyph in glyphs {
+        let glyph_name = glyph
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("<unnamed>");
+        for layer in glyph
+            .get("layers")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            for shape in layer
+                .get("shapes")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let reference = shape
+                    .get("reference")
+                    .or_else(|| shape.get("Component")?.get("reference"))
+                    .and_then(serde_json::Value::as_str);
+                if let Some(reference) = reference {
+                    if glyph_names.contains(reference) {
+                        continue;
+                    }
+                    // Stale identity after rename: still pointing at old name.
+                    if old_names.contains(reference) {
+                        return Err(format!(
+                            "glyph rename transaction: {} references missing component {}",
+                            glyph_name, reference
+                        ));
+                    }
+                    // Map renamed hosts back so pre-existing damage under the
+                    // old glyph name is still recognized as pre-existing.
+                    let pre_host = new_to_old.get(glyph_name).copied().unwrap_or(glyph_name);
+                    if pre_existing_missing
+                        .contains(&(pre_host.to_string(), reference.to_string()))
+                    {
+                        continue;
+                    }
+                    return Err(format!(
+                        "glyph rename transaction: {} references missing component {}",
+                        glyph_name, reference
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Parse and validate features against an unpublished native font cache.
+fn validate_feature_font(font: &babelfont::Font) -> Result<(), JsValue> {
+    let fea = font.features.to_fea();
+    let glyph_names: Vec<String> = font.glyphs.iter().map(|glyph| glyph.name.to_string()).collect();
+    let glyph_map: GlyphMap = glyph_names.iter().map(String::as_str).collect();
+    let include_dir = font
+        .source
+        .as_ref()
+        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()));
+    let (resolver, root_path) = feature_validation_resolver(&fea, include_dir);
+    let (ast, diagnostics) = parse_root(root_path, Some(&glyph_map), resolver)
+        .map_err(|error| JsValue::from_str(&format!(
+            "glyph rename transaction: feature parsing failed: {:?}",
+            error
+        )))?;
+    if diagnostics.has_errors() {
+        return Err(JsValue::from_str(&feature_diagnostics_to_error_string(
+            "glyph rename transaction: feature parsing failed",
+            diagnostics.diagnostics(),
+            &fea,
+            "glyph_rename_transaction",
+        )));
+    }
+    let validation_diagnostics =
+        fea_rs::compile::validate(&ast, &glyph_map, Some(&NopVariationInfo));
+    if validation_diagnostics.has_errors() {
+        return Err(JsValue::from_str(&feature_diagnostics_to_error_string(
+            "glyph rename transaction: feature validation failed",
+            validation_diagnostics.diagnostics(),
+            &fea,
+            "glyph_rename_transaction",
+        )));
+    }
+    Ok(())
+}
+
+/// Applies rename snapshots to private caches and publishes them only after
+/// native component and feature validation succeeds.
+fn apply_glyph_rename_transaction(
+    glyph_renames: &[GlyphRename],
+    renamed_glyph_snapshots: &HashMap<String, serde_json::Value>,
+    changed_glyph_snapshots: &[(String, Option<serde_json::Value>)],
+    changed_layer_snapshots: &[(LayerTarget, Option<serde_json::Value>)],
+    masters_json: Option<serde_json::Value>,
+    features_json: Option<serde_json::Value>,
+    refresh_masters: bool,
+    refresh_features: bool,
+) -> Result<(), JsValue> {
+    let mut candidate_canonical = CANONICAL_JSON_CACHE
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| JsValue::from_str(
+            "glyph rename transaction: canonical cache is not initialized"
+        ))?;
+    let pre_existing_missing = collect_missing_component_references(&candidate_canonical);
+    let mut candidate_index = build_glyph_index(&candidate_canonical);
+    if refresh_masters {
+        replace_top_level_json_entry(&mut candidate_canonical, "masters", masters_json);
+    }
+    if !rename_glyph_json_entries(
+        &mut candidate_canonical,
+        &mut candidate_index,
+        glyph_renames,
+        renamed_glyph_snapshots,
+    ) {
+        return Err(JsValue::from_str(
+            "glyph rename transaction: rename target is absent from canonical cache",
+        ));
+    }
+    for (target, layer_json) in changed_layer_snapshots {
+        let Some(layer_json) = layer_json else {
+            // Unresolved layer targets are skipped during rename. Pre-rename
+            // paths and dependents without a Y.Doc layer snapshot must not
+            // abort the identity transaction; renamed glyph snapshots already
+            // carry the authoritative post-edit layers.
+            continue;
+        };
+        if !replace_layer_json_entry(
+            &mut candidate_canonical,
+            &candidate_index,
+            &target.glyph_name,
+            &target.layer_id,
+            Some(layer_json.clone()),
+        ) {
+            // Glyph absent from the candidate cache (for example a dependent
+            // that was never mirrored into CANONICAL_JSON_CACHE) — skip rather
+            // than fail the whole rename transaction.
+            continue;
+        }
+    }
+    for (glyph_name, glyph_json) in changed_glyph_snapshots {
+        if !replace_glyph_json_entry(
+            &mut candidate_canonical,
+            &mut candidate_index,
+            glyph_name,
+            glyph_json.clone(),
+        ) {
+            return Err(JsValue::from_str(&format!(
+                "glyph rename transaction: missing glyph {}",
+                glyph_name
+            )));
+        }
+    }
+    if refresh_features {
+        replace_top_level_json_entry(&mut candidate_canonical, "features", features_json);
+    }
+
+    validate_component_references(
+        &candidate_canonical,
+        glyph_renames,
+        &pre_existing_missing,
+    )
+    .map_err(|message| JsValue::from_str(&message))?;
+    let candidate_native: babelfont::Font = serde_json::from_value(
+        decode_font_node_strings_for_native_cache(&candidate_canonical),
+    )
+    .map_err(|error| JsValue::from_str(&format!(
+        "glyph rename transaction: native cache validation failed: {}",
+        error
+    )))?;
+    validate_feature_font(&candidate_native)?;
+
+    let fea = candidate_native.features.to_fea();
+    let feature_glyphs: Vec<String> = candidate_native
+        .glyphs
+        .iter()
+        .map(|glyph| glyph.name.to_string())
+        .collect();
+    let feature_glyph_refs: Vec<&str> = feature_glyphs.iter().map(String::as_str).collect();
+    let feature_file = FeatureFile::new_from_fea(
+        &fea,
+        Some(&feature_glyph_refs),
+        candidate_native.source.clone(),
+    )
+    .map_err(|error| JsValue::from_str(&format!(
+        "glyph rename transaction: feature cache construction failed: {:?}",
+        error
+    )))?;
+
+    *CANONICAL_JSON_CACHE.lock().unwrap() = Some(candidate_canonical);
+    *CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap() = Some(candidate_index);
+    *FONT_CACHE.lock().unwrap() = Some(candidate_native);
+    *FEATURE_FILE_CACHE.lock().unwrap() = Some(feature_file);
+    *FEATURE_FEA_STRING_CACHE.lock().unwrap() = Some((fea, feature_glyphs));
+    clear_active_subset_caches_for_closure_invalidation();
+    LAYOUT_CLOSURE_CACHE.lock().unwrap().clear();
+    *LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
+    let next_epoch = FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed) + 1;
+    FONT_CACHE_BUILT_AT_EPOCH.store(next_epoch, Ordering::Relaxed);
+    glyph_outlines::clear_outline_cache();
+    Ok(())
 }
 
 fn replace_layer_in_font_cache(
@@ -2223,13 +2629,19 @@ fn extract_string_array(value: &serde_json::Value) -> Vec<String> {
 
 fn parse_apply_yjs_update_metadata(
     update_metadata_json: &str,
-) -> (Vec<String>, Vec<String>, Vec<LayerTarget>, bool) {
+) -> (
+    Vec<String>,
+    Vec<String>,
+    Vec<LayerTarget>,
+    Vec<GlyphRename>,
+    bool,
+) {
     if update_metadata_json.is_empty() || update_metadata_json == "[]" {
-        return (Vec::new(), Vec::new(), Vec::new(), false);
+        return (Vec::new(), Vec::new(), Vec::new(), Vec::new(), false);
     }
 
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(update_metadata_json) else {
-        return (Vec::new(), Vec::new(), Vec::new(), false);
+        return (Vec::new(), Vec::new(), Vec::new(), Vec::new(), false);
     };
 
     if parsed.is_array() {
@@ -2237,12 +2649,13 @@ fn parse_apply_yjs_update_metadata(
             extract_string_array(&parsed),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             false,
         );
     }
 
     let Some(object) = parsed.as_object() else {
-        return (Vec::new(), Vec::new(), Vec::new(), false);
+        return (Vec::new(), Vec::new(), Vec::new(), Vec::new(), false);
     };
 
     let changed_glyphs = object
@@ -2279,6 +2692,31 @@ fn parse_apply_yjs_update_metadata(
                 .collect()
         })
         .unwrap_or_default();
+    let mut seen_glyph_renames = HashSet::new();
+    let glyph_renames = object
+        .get("glyphRenames")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let object = item.as_object()?;
+                    let old_name = object.get("oldName")?.as_str()?;
+                    let new_name = object.get("newName")?.as_str()?;
+                    if old_name.is_empty() || new_name.is_empty() || old_name == new_name {
+                        return None;
+                    }
+                    if !seen_glyph_renames.insert(old_name.to_string()) {
+                        return None;
+                    }
+                    Some(GlyphRename {
+                        old_name: old_name.to_string(),
+                        new_name: new_name.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let invalidate_layout_closure = object
         .get("invalidateLayoutClosure")
         .and_then(|value| value.as_bool())
@@ -2288,6 +2726,7 @@ fn parse_apply_yjs_update_metadata(
         changed_glyphs,
         non_glyph_change_hints,
         layer_targets,
+        glyph_renames,
         invalidate_layout_closure,
     )
 }
@@ -2791,8 +3230,13 @@ fn apply_preview_layer_overlay_internal(
                 e
             ))
         })?;
-    let (metadata_changed_glyphs, _non_glyph_change_hints, metadata_layer_targets, _) =
-        parse_apply_yjs_update_metadata(update_metadata_json);
+    let (
+        metadata_changed_glyphs,
+        _non_glyph_change_hints,
+        metadata_layer_targets,
+        _glyph_renames,
+        _,
+    ) = parse_apply_yjs_update_metadata(update_metadata_json);
 
     let current_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
     let mut preview_lock = PREVIEW_OVERLAY.lock().unwrap();
@@ -2932,30 +3376,62 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
         let document_epoch = Y_DOC_EPOCH.fetch_add(1, Ordering::Relaxed) + 1;
 
         // -- 2. Parse JS-supplied update metadata -----------------------------
-        let (changed_glyphs, non_glyph_change_hints, layer_targets, invalidate_layout_closure) =
-            parse_apply_yjs_update_metadata(update_metadata_json);
-        let layer_target_glyphs: HashSet<String> = layer_targets
+        let (
+            changed_glyphs,
+            non_glyph_change_hints,
+            layer_targets,
+            glyph_renames,
+            invalidate_layout_closure,
+        ) = parse_apply_yjs_update_metadata(update_metadata_json);
+        let refresh_feature_caches = non_glyph_change_hints
             .iter()
-            .map(|target| target.glyph_name.clone())
-            .collect();
+            .any(|hint| hint == "feature-code");
         let refresh_masters = non_glyph_change_hints.iter().any(|hint| hint == "masters");
         let masters_json = if refresh_masters {
             ydoc_get_top_level_json_with_txn("masters", &txn)
         } else {
             None
         };
+        let renamed_glyph_names: HashSet<String> = glyph_renames
+            .iter()
+            .flat_map(|rename| [rename.old_name.clone(), rename.new_name.clone()])
+            .collect();
         let changed_layer_snapshots: Vec<(LayerTarget, Option<serde_json::Value>)> = layer_targets
             .iter()
-            .map(|target| {
-                (
-                    target.clone(),
-                    ydoc_get_layer_json_with_txn(&target.glyph_name, &target.layer_id, &txn),
-                )
+            // Component/metrics edits are recorded under the pre-rename glyph
+            // name before identity remove/add. Those stale targets are covered
+            // by the renamed glyph snapshot and must not hard-fail the rename.
+            .filter(|target| !renamed_glyph_names.contains(&target.glyph_name))
+            .filter_map(|target| {
+                let layer_json =
+                    ydoc_get_layer_json_with_txn(&target.glyph_name, &target.layer_id, &txn)?;
+                Some((target.clone(), Some(layer_json)))
             })
+            .collect();
+        let renamed_glyph_snapshots: HashMap<String, serde_json::Value> = glyph_renames
+            .iter()
+            .filter_map(|rename| {
+                ydoc_get_glyph_json_with_txn(&rename.new_name, &txn)
+                    .map(|glyph_json| (rename.new_name.clone(), glyph_json))
+            })
+            .collect();
+        if glyph_renames.iter().any(|rename| {
+            !renamed_glyph_snapshots.contains_key(&rename.new_name)
+        }) {
+            return Err(JsValue::from_str(
+                "apply_yjs_update: glyph rename metadata did not resolve to Y.Doc snapshots",
+            ));
+        }
+        let layer_target_glyphs: HashSet<String> = changed_layer_snapshots
+            .iter()
+            .map(|(target, _)| target.glyph_name.clone())
             .collect();
         let changed_glyph_snapshots: Vec<(String, Option<serde_json::Value>)> = changed_glyphs
             .iter()
-            .filter(|glyph_name| !layer_target_glyphs.contains(*glyph_name))
+            .filter(|glyph_name| {
+                !layer_target_glyphs.contains(*glyph_name)
+                    && !renamed_glyph_names.contains(*glyph_name)
+            })
             .map(|glyph_name| {
                 (
                     glyph_name.clone(),
@@ -2965,10 +3441,10 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
             .collect();
 
         // -- 3. Update CANONICAL_JSON_CACHE -----------------------------------
-        if changed_glyphs.is_empty() && changed_layer_snapshots.is_empty() {
-            let refresh_feature_caches = non_glyph_change_hints
-                .iter()
-                .any(|hint| hint == "feature-code");
+        if changed_glyphs.is_empty()
+            && changed_layer_snapshots.is_empty()
+            && glyph_renames.is_empty()
+        {
             let refresh_master_kerning = non_glyph_change_hints
                 .iter()
                 .any(|hint| hint == "kerning-value");
@@ -3017,6 +3493,23 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
             // Partial update. Prefer sparse layer patches when JS supplied
             // layerTargets; fall back to whole-glyph snapshots only for changed
             // glyphs that are not represented by a layer target.
+            if !glyph_renames.is_empty() {
+                let features_json = if refresh_feature_caches {
+                    ydoc_get_top_level_json_with_txn("features", &txn)
+                } else {
+                    None
+                };
+                apply_glyph_rename_transaction(
+                    &glyph_renames,
+                    &renamed_glyph_snapshots,
+                    &changed_glyph_snapshots,
+                    &changed_layer_snapshots,
+                    masters_json,
+                    features_json,
+                    refresh_masters,
+                    refresh_feature_caches,
+                )?;
+            } else {
             let _partial_span = PerfSpan::start("apply_yjs_update.partial_update");
             let mut canonical_lock = CANONICAL_JSON_CACHE.lock().unwrap();
             if let Some(ref mut canonical) = *canonical_lock {
@@ -3027,6 +3520,19 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
 
                     if refresh_masters {
                         replace_top_level_json_entry(canonical, "masters", masters_json.clone());
+                    }
+
+                    if !glyph_renames.is_empty()
+                        && !rename_glyph_json_entries(
+                            canonical,
+                            glyph_index,
+                            &glyph_renames,
+                            &renamed_glyph_snapshots,
+                        )
+                    {
+                        return Err(JsValue::from_str(
+                            "apply_yjs_update: glyph rename could not update canonical cache",
+                        ));
                     }
 
                     for (target, layer_json) in &changed_layer_snapshots {
@@ -3049,12 +3555,17 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                     }
                 }
 
+                // Feature refresh re-locks the canonical cache. The renamed
+                // glyph must be visible there first, but this guard cannot span
+                // feature parsing because parking_lot mutexes are not reentrant.
+                drop(canonical_lock);
+
                 let mut subset_cache_refresh: Option<(String, u64, Vec<String>)> = None;
                 // Component-graph (and other closure-affecting) changes must not
                 // leave an in-place-patched subset that references glyphs outside
                 // the previously closed set. Drop the active subset so the next
                 // primed compile rebuilds from the full font + new closure.
-                if invalidate_layout_closure {
+                if invalidate_layout_closure || !glyph_renames.is_empty() {
                     clear_active_subset_caches_for_closure_invalidation();
                 } else {
                     let mut subset_lock = SUBSET_JSON_CACHE.lock().unwrap();
@@ -3140,6 +3651,17 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                 }
 
                 if let Some(ref mut font_cache) = *FONT_CACHE.lock().unwrap() {
+                    if !glyph_renames.is_empty()
+                        && !rename_glyphs_in_font_cache(
+                            font_cache,
+                            &glyph_renames,
+                            &renamed_glyph_snapshots,
+                        )?
+                    {
+                        return Err(JsValue::from_str(
+                            "apply_yjs_update: glyph rename could not update native font cache",
+                        ));
+                    }
                     if refresh_masters {
                         replace_masters_in_font_cache(font_cache, masters_json.as_ref())?;
                     }
@@ -3156,8 +3678,18 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                     }
                 }
 
+                // Feature parsing resolves glyph names through the native font
+                // cache. Apply and validate rename records before rebuilding it.
+                if refresh_feature_caches {
+                    let _rebuild_span = PerfSpan::start("apply_yjs_update.feature_refresh");
+                    refresh_feature_related_caches_from_ydoc(&txn)?;
+                }
+
                 let filtered_cache_source_changed =
-                    refresh_masters || subset_cache_refresh.is_some() || invalidate_layout_closure;
+                    refresh_masters
+                        || subset_cache_refresh.is_some()
+                        || invalidate_layout_closure
+                        || !glyph_renames.is_empty();
 
                 if let Some((subset_key, subset_epoch, subset_glyphs)) = subset_cache_refresh {
                     if let Some((ref cached_key, ref mut cached_epoch, ref mut subset_font)) =
@@ -3194,13 +3726,20 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                     }
                 }
 
-                if filtered_cache_source_changed && !invalidate_layout_closure {
+                if filtered_cache_source_changed
+                    && !invalidate_layout_closure
+                    && glyph_renames.is_empty()
+                {
                     *FILTERED_FONT_CACHE.lock().unwrap() = None;
                     FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
                 }
 
                 // Also clear outline cache for affected glyphs.
-                for glyph_name in changed_glyphs.iter().chain(layer_target_glyphs.iter()) {
+                for glyph_name in changed_glyphs
+                    .iter()
+                    .chain(layer_target_glyphs.iter())
+                    .chain(renamed_glyph_names.iter())
+                {
                     glyph_outlines::clear_outline_cache_for_glyph(glyph_name);
                 }
             } else {
@@ -3215,6 +3754,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                 *FILTERED_FONT_CACHE.lock().unwrap() = None;
                 FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
                 SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+            }
             }
         }
 
@@ -5052,8 +5592,13 @@ mod tests {
 
     #[test]
     fn parse_apply_yjs_update_metadata_extracts_layer_targets() {
-        let (changed_glyphs, hints, layer_targets, invalidate_layout_closure) =
-            parse_apply_yjs_update_metadata(
+        let (
+            changed_glyphs,
+            hints,
+            layer_targets,
+            glyph_renames,
+            invalidate_layout_closure,
+        ) = parse_apply_yjs_update_metadata(
             r#"{
                 "changedGlyphs": ["alef"],
                 "nonGlyphChangeHints": [],
@@ -5062,12 +5607,22 @@ mod tests {
                     { "glyphName": "alef", "layerId": "regular" },
                     { "glyphName": "beh", "layerId": "regular" }
                 ],
+                "glyphRenames": [
+                    { "oldName": "alef", "newName": "alef.alt" }
+                ],
                 "invalidateLayoutClosure": true
             }"#,
         );
 
         assert_eq!(changed_glyphs, vec!["alef".to_string()]);
         assert!(hints.is_empty());
+        assert_eq!(
+            glyph_renames,
+            vec![GlyphRename {
+                old_name: "alef".to_string(),
+                new_name: "alef.alt".to_string(),
+            }]
+        );
         assert!(invalidate_layout_closure);
         assert_eq!(
             layer_targets,
@@ -5082,6 +5637,553 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn rename_glyph_json_entries_preserves_glyph_order() {
+        let mut font_json = json!({
+            "glyphs": [{ "name": "A" }, { "name": "B" }]
+        });
+        let mut glyph_index = build_glyph_index(&font_json);
+        let renames = vec![GlyphRename {
+            old_name: "A".to_string(),
+            new_name: "A.alt".to_string(),
+        }];
+        let renamed_glyphs = HashMap::from([(
+            "A.alt".to_string(),
+            json!({ "name": "A.alt" }),
+        )]);
+
+        assert!(rename_glyph_json_entries(
+            &mut font_json,
+            &mut glyph_index,
+            &renames,
+            &renamed_glyphs,
+        ));
+        assert_eq!(
+            font_json["glyphs"],
+            json!([{ "name": "A.alt" }, { "name": "B" }])
+        );
+        assert_eq!(glyph_index.get("A.alt"), Some(&0));
+        assert_eq!(glyph_index.get("B"), Some(&1));
+        assert!(!glyph_index.contains_key("A"));
+    }
+
+    #[test]
+    fn validate_component_references_allows_preexisting_dangling_refs() {
+        let before = json!({
+            "glyphs": [
+                {
+                    "name": "A",
+                    "layers": [{ "id": "layer-1", "shapes": [] }]
+                },
+                {
+                    "name": "one.tf",
+                    "layers": [{
+                        "id": "layer-1",
+                        "shapes": [{ "reference": "one.ss05" }]
+                    }]
+                }
+            ]
+        });
+        let pre_existing = collect_missing_component_references(&before);
+        assert!(pre_existing.contains(&("one.tf".to_string(), "one.ss05".to_string())));
+
+        // Unrelated rename A → A.alt leaves the dangling one.tf → one.ss05 intact.
+        let after = json!({
+            "glyphs": [
+                {
+                    "name": "A.alt",
+                    "layers": [{ "id": "layer-1", "shapes": [] }]
+                },
+                {
+                    "name": "one.tf",
+                    "layers": [{
+                        "id": "layer-1",
+                        "shapes": [{ "reference": "one.ss05" }]
+                    }]
+                }
+            ]
+        });
+        let renames = vec![GlyphRename {
+            old_name: "A".to_string(),
+            new_name: "A.alt".to_string(),
+        }];
+        assert!(
+            validate_component_references(&after, &renames, &pre_existing).is_ok(),
+            "pre-existing dangling refs unrelated to the rename must not fail"
+        );
+    }
+
+    #[test]
+    fn validate_component_references_rejects_stale_refs_to_old_rename_name() {
+        let before = json!({
+            "glyphs": [
+                {
+                    "name": "A",
+                    "layers": [{ "id": "layer-1", "shapes": [] }]
+                },
+                {
+                    "name": "C",
+                    "layers": [{
+                        "id": "layer-1",
+                        "shapes": [{ "reference": "A" }]
+                    }]
+                }
+            ]
+        });
+        let pre_existing = collect_missing_component_references(&before);
+        assert!(pre_existing.is_empty());
+
+        // A → A.alt but composite C still points at A.
+        let after = json!({
+            "glyphs": [
+                {
+                    "name": "A.alt",
+                    "layers": [{ "id": "layer-1", "shapes": [] }]
+                },
+                {
+                    "name": "C",
+                    "layers": [{
+                        "id": "layer-1",
+                        "shapes": [{ "reference": "A" }]
+                    }]
+                }
+            ]
+        });
+        let renames = vec![GlyphRename {
+            old_name: "A".to_string(),
+            new_name: "A.alt".to_string(),
+        }];
+        let err = validate_component_references(&after, &renames, &pre_existing);
+        assert!(err.is_err(), "stale refs to renamed-away names must fail");
+        let message = err.unwrap_err();
+        assert!(
+            message.contains("references missing component A"),
+            "unexpected error: {message}"
+        );
+    }
+
+    #[test]
+    fn rename_glyphs_in_font_cache_updates_identity_and_validates_targets() {
+        let mut font: babelfont::Font = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        let rename = GlyphRename {
+            old_name: "A".to_string(),
+            new_name: "A.alt".to_string(),
+        };
+
+        assert!(
+            !rename_glyphs_in_font_cache(&mut font, &[rename.clone()], &HashMap::new()).unwrap()
+        );
+        assert_eq!(font.glyphs[0].name, "A");
+
+        let renamed_glyphs = HashMap::from([(
+            "A.alt".to_string(),
+            json!({
+                "name": "A.alt",
+                "codepoints": [65],
+                "category": "Base",
+                "exported": true,
+                "layers": [{
+                    "id": "layer-1",
+                    "master": {
+                        "type": "DefaultForMaster",
+                        "master": "master-regular"
+                    },
+                    "width": 600,
+                    "shapes": [],
+                    "anchors": [],
+                    "guides": [],
+                    "format_specific": {}
+                }],
+                "format_specific": {}
+            }),
+        )]);
+        assert!(rename_glyphs_in_font_cache(&mut font, &[rename.clone()], &renamed_glyphs)
+            .unwrap());
+        assert_eq!(font.glyphs[0].name, "A.alt");
+
+        assert!(!rename_glyphs_in_font_cache(
+            &mut font,
+            &[GlyphRename {
+                old_name: "A".to_string(),
+                new_name: "A.alt".to_string(),
+            }],
+            &renamed_glyphs,
+        )
+        .unwrap());
+        assert_eq!(font.glyphs[0].name, "A.alt");
+    }
+
+    #[test]
+    fn apply_yjs_update_renames_glyph_cache_before_feature_refresh() {
+        clear_font_cache();
+
+        let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        store_font_from_value(font_json).unwrap();
+
+        let author_doc = Doc::new();
+        let font_map = author_doc.get_or_insert_map("font");
+        let glyphs: yrs::MapRef;
+        let renamed_class: yrs::MapRef;
+        {
+            let mut txn = author_doc.transact_mut();
+            glyphs = font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
+            let glyph: yrs::MapRef = glyphs.insert(&mut txn, "A", MapPrelim::<Any>::new());
+            glyph.insert(&mut txn, "category", "Base");
+            glyph.insert(&mut txn, "exported", true);
+            glyph.insert(&mut txn, "codepoints", ArrayPrelim::from(vec![Any::Number(65.0)]));
+            glyph.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+            let layers: yrs::MapRef = glyph.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            let layer: yrs::MapRef = layers.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
+            layer.insert(&mut txn, "id", "layer-1");
+            let master: yrs::MapRef = layer.insert(&mut txn, "master", MapPrelim::<Any>::new());
+            master.insert(&mut txn, "type", "DefaultForMaster");
+            master.insert(&mut txn, "master", "master-regular");
+            layer.insert(&mut txn, "width", Any::Number(600.0));
+            layer.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "guides", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+
+            let features: yrs::MapRef =
+                font_map.insert(&mut txn, "features", MapPrelim::<Any>::new());
+            let classes: yrs::MapRef =
+                features.insert(&mut txn, "classes", MapPrelim::<Any>::new());
+            renamed_class = classes.insert(&mut txn, "renamed", MapPrelim::<Any>::new());
+            renamed_class.insert(&mut txn, "code", "A");
+            features.insert(&mut txn, "prefixes", MapPrelim::<Any>::new());
+            features.insert(&mut txn, "features", ArrayPrelim::from(Vec::<Any>::new()));
+        }
+
+        let initial_update = author_doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let base_state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            glyphs.remove(&mut txn, "A");
+            let glyph: yrs::MapRef = glyphs.insert(&mut txn, "A.alt", MapPrelim::<Any>::new());
+            glyph.insert(&mut txn, "category", "Base");
+            glyph.insert(&mut txn, "exported", true);
+            glyph.insert(&mut txn, "codepoints", ArrayPrelim::from(vec![Any::Number(65.0)]));
+            glyph.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+            let layers: yrs::MapRef = glyph.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            let layer: yrs::MapRef = layers.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
+            layer.insert(&mut txn, "id", "layer-1");
+            let master: yrs::MapRef = layer.insert(&mut txn, "master", MapPrelim::<Any>::new());
+            master.insert(&mut txn, "type", "DefaultForMaster");
+            master.insert(&mut txn, "master", "master-regular");
+            layer.insert(&mut txn, "width", Any::Number(600.0));
+            layer.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "guides", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+            renamed_class.insert(&mut txn, "code", "A.alt");
+        }
+        let rename_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+
+        let worker_doc = Doc::new();
+        {
+            let update = yrs::Update::decode_v1(initial_update.as_slice()).unwrap();
+            let mut txn = worker_doc.transact_mut();
+            txn.apply_update(update);
+        }
+        *Y_DOC.lock().unwrap() = Some(worker_doc);
+
+        apply_yjs_update(
+            rename_update.as_slice(),
+            r#"{
+                "nonGlyphChangeHints": ["feature-code"],
+                "glyphRenames": [{ "oldName": "A", "newName": "A.alt" }],
+                "invalidateLayoutClosure": true
+            }"#,
+        )
+        .unwrap();
+
+        let canonical = CANONICAL_JSON_CACHE.lock().unwrap();
+        assert_eq!(canonical.as_ref().unwrap()["glyphs"][0]["name"], json!("A.alt"));
+        assert_eq!(
+            canonical.as_ref().unwrap()["features"]["classes"]["renamed"]["code"],
+            json!("A.alt")
+        );
+        drop(canonical);
+
+        // Rename transaction publishes a validated native cache that already
+        // carries the new glyph identity (features refreshed in-transaction).
+        assert_eq!(
+            FONT_CACHE.lock().unwrap().as_ref().unwrap().glyphs[0].name,
+            "A.alt"
+        );
+        assert_eq!(get_or_rebuild_font_cache().unwrap().glyphs[0].name, "A.alt");
+
+        clear_font_cache();
+    }
+
+    #[test]
+    fn apply_yjs_update_rename_ignores_stale_layer_targets_for_renamed_glyph() {
+        clear_font_cache();
+
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        font_json["glyphs"] = json!([
+            {
+                "name": "seven-ar.tf",
+                "codepoints": [],
+                "category": "Base",
+                "exported": true,
+                "layers": [{
+                    "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+                    "master": { "type": "DefaultForMaster", "master": "master-regular" },
+                    "width": 600,
+                    "shapes": [],
+                    "anchors": [],
+                    "guides": [],
+                    "format_specific": {}
+                }]
+            },
+            {
+                "name": "sevenFarsi-ar.tf",
+                "codepoints": [],
+                "category": "Base",
+                "exported": true,
+                "layers": [{
+                    "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+                    "master": { "type": "DefaultForMaster", "master": "master-regular" },
+                    "width": 600,
+                    "shapes": [{
+                        "reference": "seven-ar.tf",
+                        "transform": {}
+                    }],
+                    "anchors": [],
+                    "guides": [],
+                    "format_specific": {}
+                }]
+            }
+        ]);
+        store_font_from_value(font_json).unwrap();
+
+        let author_doc = Doc::new();
+        let font_map = author_doc.get_or_insert_map("font");
+        let glyphs: yrs::MapRef;
+        {
+            let mut txn = author_doc.transact_mut();
+            glyphs = font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
+            for (name, reference) in [
+                ("seven-ar.tf", None),
+                ("sevenFarsi-ar.tf", Some("seven-ar.tf")),
+            ] {
+                let glyph: yrs::MapRef = glyphs.insert(&mut txn, name, MapPrelim::<Any>::new());
+                glyph.insert(&mut txn, "category", "Base");
+                glyph.insert(&mut txn, "exported", true);
+                glyph.insert(&mut txn, "codepoints", ArrayPrelim::from(Vec::<Any>::new()));
+                glyph.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+                let layers: yrs::MapRef = glyph.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+                let layer: yrs::MapRef = layers.insert(
+                    &mut txn,
+                    "3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+                    MapPrelim::<Any>::new(),
+                );
+                layer.insert(&mut txn, "id", "3114FB65-9464-41A5-B67E-A8F9F43C0EF1");
+                let master: yrs::MapRef = layer.insert(&mut txn, "master", MapPrelim::<Any>::new());
+                master.insert(&mut txn, "type", "DefaultForMaster");
+                master.insert(&mut txn, "master", "master-regular");
+                layer.insert(&mut txn, "width", Any::Number(600.0));
+                if let Some(reference) = reference {
+                    let shapes =
+                        layer.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+                    let shape: yrs::MapRef = shapes.push_back(&mut txn, MapPrelim::<Any>::new());
+                    shape.insert(&mut txn, "reference", reference);
+                    shape.insert(&mut txn, "transform", MapPrelim::<Any>::new());
+                } else {
+                    layer.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+                }
+                layer.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+                layer.insert(&mut txn, "guides", ArrayPrelim::from(Vec::<Any>::new()));
+                layer.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+            }
+            let features: yrs::MapRef =
+                font_map.insert(&mut txn, "features", MapPrelim::<Any>::new());
+            features.insert(&mut txn, "classes", MapPrelim::<Any>::new());
+            features.insert(&mut txn, "prefixes", MapPrelim::<Any>::new());
+            features.insert(&mut txn, "features", ArrayPrelim::from(Vec::<Any>::new()));
+        }
+
+        let initial_update = author_doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let base_state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            glyphs.remove(&mut txn, "sevenFarsi-ar.tf");
+            let glyph: yrs::MapRef =
+                glyphs.insert(&mut txn, "sevenFarsi-arabic.tf", MapPrelim::<Any>::new());
+            glyph.insert(&mut txn, "category", "Base");
+            glyph.insert(&mut txn, "exported", true);
+            glyph.insert(&mut txn, "codepoints", ArrayPrelim::from(Vec::<Any>::new()));
+            glyph.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+            let layers: yrs::MapRef = glyph.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            let layer: yrs::MapRef = layers.insert(
+                &mut txn,
+                "3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+                MapPrelim::<Any>::new(),
+            );
+            layer.insert(&mut txn, "id", "3114FB65-9464-41A5-B67E-A8F9F43C0EF1");
+            let master: yrs::MapRef = layer.insert(&mut txn, "master", MapPrelim::<Any>::new());
+            master.insert(&mut txn, "type", "DefaultForMaster");
+            master.insert(&mut txn, "master", "master-regular");
+            layer.insert(&mut txn, "width", Any::Number(600.0));
+            let shapes = layer.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            let shape: yrs::MapRef = shapes.push_back(&mut txn, MapPrelim::<Any>::new());
+            shape.insert(&mut txn, "reference", "seven-ar.tf");
+            shape.insert(&mut txn, "transform", MapPrelim::<Any>::new());
+            layer.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "guides", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+        }
+        let rename_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+
+        let worker_doc = Doc::new();
+        {
+            let update = yrs::Update::decode_v1(initial_update.as_slice()).unwrap();
+            let mut txn = worker_doc.transact_mut();
+            txn.apply_update(update);
+        }
+        *Y_DOC.lock().unwrap() = Some(worker_doc);
+
+        let result = apply_yjs_update(
+            rename_update.as_slice(),
+            r#"{
+                "changedGlyphs": ["sevenFarsi-ar.tf", "sevenFarsi-arabic.tf"],
+                "layerTargets": [{
+                    "glyphName": "sevenFarsi-ar.tf",
+                    "layerId": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1"
+                }],
+                "nonGlyphChangeHints": ["feature-code"],
+                "glyphRenames": [{
+                    "oldName": "sevenFarsi-ar.tf",
+                    "newName": "sevenFarsi-arabic.tf"
+                }],
+                "invalidateLayoutClosure": true
+            }"#,
+        );
+        assert!(
+            result.is_ok(),
+            "stale layerTargets under the pre-rename glyph name must not fail rename: {:?}",
+            result.err()
+        );
+
+        let canonical = CANONICAL_JSON_CACHE.lock().unwrap();
+        let glyphs = canonical.as_ref().unwrap()["glyphs"].as_array().unwrap();
+        assert!(glyphs.iter().any(|glyph| glyph["name"] == "sevenFarsi-arabic.tf"));
+        assert!(!glyphs.iter().any(|glyph| glyph["name"] == "sevenFarsi-ar.tf"));
+        drop(canonical);
+
+        clear_font_cache();
+    }
+
+    #[test]
+    fn apply_yjs_update_rename_skips_unresolved_dependent_layer_targets() {
+        clear_font_cache();
+
+        let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        store_font_from_value(font_json).unwrap();
+
+        let author_doc = Doc::new();
+        let font_map = author_doc.get_or_insert_map("font");
+        let glyphs: yrs::MapRef;
+        let renamed_class: yrs::MapRef;
+        {
+            let mut txn = author_doc.transact_mut();
+            glyphs = font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
+            let glyph: yrs::MapRef = glyphs.insert(&mut txn, "A", MapPrelim::<Any>::new());
+            glyph.insert(&mut txn, "category", "Base");
+            glyph.insert(&mut txn, "exported", true);
+            glyph.insert(&mut txn, "codepoints", ArrayPrelim::from(vec![Any::Number(65.0)]));
+            glyph.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+            let layers: yrs::MapRef = glyph.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            let layer: yrs::MapRef = layers.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
+            layer.insert(&mut txn, "id", "layer-1");
+            let master: yrs::MapRef = layer.insert(&mut txn, "master", MapPrelim::<Any>::new());
+            master.insert(&mut txn, "type", "DefaultForMaster");
+            master.insert(&mut txn, "master", "master-regular");
+            layer.insert(&mut txn, "width", Any::Number(600.0));
+            layer.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "guides", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+
+            let features: yrs::MapRef =
+                font_map.insert(&mut txn, "features", MapPrelim::<Any>::new());
+            let classes: yrs::MapRef =
+                features.insert(&mut txn, "classes", MapPrelim::<Any>::new());
+            renamed_class = classes.insert(&mut txn, "renamed", MapPrelim::<Any>::new());
+            renamed_class.insert(&mut txn, "code", "A");
+            features.insert(&mut txn, "prefixes", MapPrelim::<Any>::new());
+            features.insert(&mut txn, "features", ArrayPrelim::from(Vec::<Any>::new()));
+        }
+
+        let initial_update = author_doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let base_state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            glyphs.remove(&mut txn, "A");
+            let glyph: yrs::MapRef = glyphs.insert(&mut txn, "A.alt", MapPrelim::<Any>::new());
+            glyph.insert(&mut txn, "category", "Base");
+            glyph.insert(&mut txn, "exported", true);
+            glyph.insert(&mut txn, "codepoints", ArrayPrelim::from(vec![Any::Number(65.0)]));
+            glyph.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+            let layers: yrs::MapRef = glyph.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            let layer: yrs::MapRef = layers.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
+            layer.insert(&mut txn, "id", "layer-1");
+            let master: yrs::MapRef = layer.insert(&mut txn, "master", MapPrelim::<Any>::new());
+            master.insert(&mut txn, "type", "DefaultForMaster");
+            master.insert(&mut txn, "master", "master-regular");
+            layer.insert(&mut txn, "width", Any::Number(600.0));
+            layer.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "guides", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "format_specific", MapPrelim::<Any>::new());
+            renamed_class.insert(&mut txn, "code", "A.alt");
+        }
+        let rename_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+
+        let worker_doc = Doc::new();
+        {
+            let update = yrs::Update::decode_v1(initial_update.as_slice()).unwrap();
+            let mut txn = worker_doc.transact_mut();
+            txn.apply_update(update);
+        }
+        *Y_DOC.lock().unwrap() = Some(worker_doc);
+
+        // Dependent composite path is present in metadata but absent from the
+        // Y.Doc (Fustat-shaped: layer target for sevenFarsi-ar.tf while renaming
+        // a different glyph). Must not abort the rename transaction.
+        let result = apply_yjs_update(
+            rename_update.as_slice(),
+            r#"{
+                "changedGlyphs": ["A", "A.alt"],
+                "layerTargets": [{
+                    "glyphName": "sevenFarsi-ar.tf",
+                    "layerId": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1"
+                }],
+                "nonGlyphChangeHints": ["feature-code"],
+                "glyphRenames": [{ "oldName": "A", "newName": "A.alt" }],
+                "invalidateLayoutClosure": true
+            }"#,
+        );
+        assert!(
+            result.is_ok(),
+            "unresolved dependent layerTargets must not fail rename: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            CANONICAL_JSON_CACHE.lock().unwrap().as_ref().unwrap()["glyphs"][0]["name"],
+            json!("A.alt")
+        );
+
+        clear_font_cache();
     }
 
     #[test]

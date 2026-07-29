@@ -31,6 +31,7 @@ import {
     type HistoryStackItem,
     type UndoScope,
     type WorkerReplayTarget,
+    type GlyphRename,
     createLogEntry,
     deriveGlyphName,
     deriveLayerId,
@@ -43,6 +44,7 @@ import {
     invalidateHistoryStateCache,
     joinPathWithGlyphSeparator,
     normalizeWorkerReplayTargets,
+    normalizeGlyphRenames,
     normalizeChangeLogEntry,
     resolveHistoryTargetItem,
     resetLogCounter
@@ -137,6 +139,7 @@ type SyntheticChangeOperation = {
     compileEditType?: string | null;
     visualAnchorSide?: 'left' | 'right' | null;
     workerReplayTargets?: WorkerReplayTarget[];
+    glyphRenames?: GlyphRename[];
 };
 
 export type BatchApplyMode =
@@ -1015,6 +1018,68 @@ export class PatchSyncEngine {
                 newValue: undefined
             }
         ]);
+    }
+
+    /**
+     * Rename glyph-map keys while preserving their order and storage encoding.
+     */
+    renameGlyphs(
+        renames: Array<{
+            oldName: string;
+            newName: string;
+            glyph: Record<string, unknown>;
+        }>,
+        label: string
+    ): void {
+        if (!renames.length || this._suppressRecording || this._isSyncing) {
+            return;
+        }
+
+        const fontJson = this._fontJson as {
+            glyphs?: Array<{ name?: string }>;
+        } | null;
+        const oldOrder = Array.isArray(fontJson?.glyphs)
+            ? fontJson.glyphs.map((glyph) => glyph.name || '')
+            : [];
+        const renameMap = new Map(
+            renames.map(({ oldName, newName }) => [oldName, newName])
+        );
+        const nextOrder = oldOrder.map((name) => renameMap.get(name) || name);
+        const operations: TransactionBufferedOperation[] = [];
+
+        for (const { oldName, newName, glyph } of renames) {
+            const oldGlyph = this._readNormalizedGlyphSnapshotFromYDoc(oldName);
+            if (!oldGlyph) {
+                continue;
+            }
+            operations.push({
+                op: 'remove',
+                path: ['glyphs', oldName],
+                oldValue: oldGlyph,
+                newValue: undefined,
+                glyphRenames: [{ oldName, newName }]
+            });
+            operations.push({
+                op: 'add',
+                path: ['glyphs', newName],
+                oldValue: undefined,
+                // New glyph snapshots need shape ids for Rust's Shape enum.
+                // The normal patch encoder strips those ids because existing
+                // shape patches address them structurally.
+                newValue: encodeNodeArraysForStorage(cloneHistoryValue(glyph)),
+                applyMode: 'glyph-snapshot'
+            });
+        }
+
+        if (operations.length > 0) {
+            operations.push({
+                op: 'set',
+                path: ['glyphOrder'],
+                oldValue: oldOrder,
+                newValue: nextOrder
+            });
+            this._queueOrCommitOperations(operations, label);
+        }
     }
 
     applySyntheticChangeSet(
@@ -3736,6 +3801,7 @@ export class PatchSyncEngine {
                               ),
                     visualAnchorSide: operation.visualAnchorSide ?? null,
                     workerReplayTargets,
+                    glyphRenames: operation.glyphRenames,
                     historyTargetType: operationHistoryTarget?.type ?? null,
                     historyTargetKey: operationHistoryTarget?.key ?? null,
                     historyTargetLabel: operationHistoryTarget?.label ?? null
@@ -4332,6 +4398,7 @@ export class PatchSyncEngine {
             workerReplayTargets: normalizeWorkerReplayTargets(
                 operation.workerReplayTargets
             ),
+            glyphRenames: normalizeGlyphRenames(operation.glyphRenames),
             applyPath: operation.applyPath
                 ? [...operation.applyPath]
                 : undefined,
@@ -4355,6 +4422,7 @@ export class PatchSyncEngine {
             workerReplayTargets: normalizeWorkerReplayTargets(
                 operation.workerReplayTargets
             ),
+            glyphRenames: normalizeGlyphRenames(operation.glyphRenames),
             applyPath: operation.applyPath
                 ? [...operation.applyPath]
                 : undefined,
@@ -4476,6 +4544,7 @@ export class PatchSyncEngine {
                 ),
                 visualAnchorSide: operation.visualAnchorSide ?? null,
                 workerReplayTargets,
+                glyphRenames: operation.glyphRenames,
                 historyTargetType: operationHistoryTarget?.type ?? null,
                 historyTargetKey: operationHistoryTarget?.key ?? null,
                 historyTargetLabel: operationHistoryTarget?.label ?? null

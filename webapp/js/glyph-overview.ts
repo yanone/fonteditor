@@ -2292,7 +2292,7 @@ class GlyphOverview {
         this.updateSelectedGlyphGroups();
     }
 
-    private getSelectedGlyphNames(): string[] {
+    public getSelectedGlyphNames(): string[] {
         return Array.from(this.tiles.values())
             .filter((tile) => tile.selected)
             .map((tile) => tile.glyphName);

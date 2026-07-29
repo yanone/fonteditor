@@ -2301,6 +2301,25 @@ export async function refreshGlyphOverviewFromGlyphNames(
 async function refreshGlyphOverviewFromCommittedEntries(
     entries: ChangeLogEntry[]
 ): Promise<void> {
+    const hasGlyphIdentityChange = entries.some((entry) => {
+        const path = getPathSegments(entry.path);
+        return (
+            path[0] === 'glyphs' &&
+            (path[2] === 'name' ||
+                (path.length === 2 &&
+                    (entry.op === 'add' || entry.op === 'remove')))
+        );
+    });
+    if (hasGlyphIdentityChange && window.glyphOverviewInstance?.updateGlyphs) {
+        const glyphs = window.currentFontModel?.glyphs || [];
+        await window.glyphOverviewInstance.updateGlyphs(
+            glyphs.map((glyph, index) => ({
+                id: String(index),
+                name: glyph.name
+            }))
+        );
+    }
+
     const changedGlyphNames = new Set<string>();
     for (const entry of entries) {
         for (const target of normalizeWorkerReplayTargets(
@@ -2400,6 +2419,17 @@ export async function handleCommittedChangeRefresh(
             ? (dependencies?.localCompileContext ??
               resolveLocalCommittedCompileContext(entries))
             : null;
+    let postCommitUiRefreshed = false;
+    const refreshPostCommitUi = async () => {
+        if (postCommitUiRefreshed) {
+            return;
+        }
+        postCommitUiRefreshed = true;
+        await refreshGlyphOverviewFromCommittedEntries(entries);
+        await window.glyphOverviewFilterManager?.handleCommittedChangeEntries(
+            entries
+        );
+    };
 
     if (origin === 'remote') {
         applyRemoteSidebearingVisualSync(entries);
@@ -2426,6 +2456,7 @@ export async function handleCommittedChangeRefresh(
                 awaitWorkerSync
             ))
         ) {
+            await refreshPostCommitUi();
             return;
         }
         await requestCompile(changeSource, editType);
@@ -2482,15 +2513,13 @@ export async function handleCommittedChangeRefresh(
                 awaitWorkerSync
             ))
         ) {
+            await refreshPostCommitUi();
             return;
         }
         await requestCompile(changeSource, editType);
     }
 
-    await refreshGlyphOverviewFromCommittedEntries(entries);
-    await window.glyphOverviewFilterManager?.handleCommittedChangeEntries(
-        entries
-    );
+    await refreshPostCommitUi();
 }
 
 export async function handleRemoteChangeRefresh(
@@ -2864,6 +2893,9 @@ function initializeBridge(detail: {
             collectNonGlyphChangeHints(changeLogEntries);
         const layerTargets =
             collectWorkerLayerTargetsFromChangeLogEntries(changeLogEntries);
+        const glyphRenames = changeLogEntries.flatMap(
+            (entry) => entry.glyphRenames
+        );
         const invalidateLayoutClosure =
             shouldInvalidateLayoutClosureForCommittedEntries(changeLogEntries);
 
@@ -2873,6 +2905,7 @@ function initializeBridge(detail: {
             {
                 invalidateLayoutClosure,
                 nonGlyphChangeHints,
+                ...(glyphRenames.length ? { glyphRenames } : undefined),
                 ...(layerTargets.length ? { layerTargets } : undefined)
             }
         );
@@ -2884,6 +2917,7 @@ function initializeBridge(detail: {
                     update,
                     changedGlyphs,
                     nonGlyphChangeHints,
+                    ...(glyphRenames.length ? { glyphRenames } : undefined),
                     ...(layerTargets.length ? { layerTargets } : undefined),
                     invalidateLayoutClosure
                 })

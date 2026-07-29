@@ -5986,7 +5986,7 @@ describe('syncGlyphFromJson', () => {
         expect(workerUpdates[0].changeLogEntries).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    path: 'glyphs.A',
+                    path: 'glyphs.A:',
                     workerReplayTargets: [
                         {
                             glyphName: 'A',
@@ -10235,8 +10235,8 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         expect(emittedUpdates).toHaveLength(1);
         expect(emittedUpdates[0].entries).toEqual(
             expect.arrayContaining([
-                expect.objectContaining({ op: 'remove', path: 'glyphs.B' }),
-                expect.objectContaining({ op: 'add', path: 'glyphs.C' }),
+                expect.objectContaining({ op: 'remove', path: 'glyphs.B:' }),
+                expect.objectContaining({ op: 'add', path: 'glyphs.C:' }),
                 expect.objectContaining({
                     op: 'remove',
                     path: 'glyphs.A:layers.layer-1:'

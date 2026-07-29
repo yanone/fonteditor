@@ -18,6 +18,7 @@ import type { CloudPlugin, CloudEligibility, CloudAsset } from './cloud-plugin';
 import type { FindGlyphDialog } from './find-glyph-dialog';
 import type { GlyphDataPluginManager } from './glyph-data-plugin-manager';
 import type { AddGlyphsDialog } from './add-glyphs-dialog';
+import type { RenameGlyphsDialog } from './rename-glyphs-dialog';
 
 declare global {
     var marked: any;
@@ -311,6 +312,7 @@ declare global {
         // From glyph-data-plugin-manager.ts
         glyphDataPluginManager: GlyphDataPluginManager;
         addGlyphsDialog: AddGlyphsDialog;
+        renameGlyphsDialog: RenameGlyphsDialog;
 
         // From file-browser.js
         navigateToPath: (

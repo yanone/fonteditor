@@ -25,6 +25,111 @@
     max-width: 1720px;
 }
 
+.rename-glyphs-popup {
+    width: min(620px, calc(100vw - 32px));
+    max-width: 620px;
+}
+
+.info-popup-content.rename-glyphs-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.rename-glyphs-fields {
+    display: grid;
+    flex-shrink: 0;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rename-glyphs-fields label {
+    color: var(--text-secondary);
+    display: grid;
+    font-size: 12px;
+    gap: 5px;
+}
+
+.rename-glyphs-input {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font: inherit;
+    padding: 7px 8px;
+}
+
+.rename-glyphs-preview-wrap {
+    flex: 1;
+    min-height: 0;
+    max-height: min(50vh, 420px);
+    overflow-y: auto;
+}
+
+.rename-glyphs-preview {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+}
+
+.rename-glyphs-preview col {
+    width: 50%;
+}
+
+.rename-glyphs-preview th,
+.rename-glyphs-preview td {
+    border-bottom: 1px solid var(--border-primary);
+    padding: 7px 8px;
+    text-align: left;
+}
+
+.rename-glyphs-preview th {
+    background: var(--modal-bg);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.rename-glyphs-preview td {
+    color: var(--text-primary);
+    font-family: var(--font-families-mono);
+    font-size: 12px;
+    word-break: break-all;
+}
+
+.rename-glyphs-search-mark {
+    color: var(--accent-orange);
+    font-weight: 600;
+}
+
+.rename-glyphs-replace-mark {
+    color: var(--accent-cyan);
+    font-weight: 600;
+}
+
+.rename-glyphs-result.has-error {
+    color: var(--accent-red);
+    font-weight: 700;
+}
+
+.rename-glyphs-comment {
+    color: var(--text-primary);
+    display: inline;
+    font-size: 10px;
+    font-weight: 400;
+    margin-left: 8px;
+}
+
+.rename-glyphs-content .find-glyph-actions {
+    flex-shrink: 0;
+}
+
 .add-glyph-provider-control {
     align-items: center;
     color: var(--text-secondary);
@@ -4278,9 +4383,15 @@ kbd + kbd {
     transition: all 0.15s ease;
 }
 
-.ai-login-button:hover {
+.ai-login-button:hover:not(:disabled) {
     background: var(--button-hover);
     border-color: var(--border-hover);
+}
+
+.ai-login-button:disabled {
+    color: var(--text-faint);
+    cursor: not-allowed;
+    opacity: 0.55;
 }
 
 .ai-login-button .material-symbols-outlined {

@@ -4426,7 +4426,8 @@ class FontManager {
         changedGlyphs: string[],
         invalidateLayoutClosure: boolean,
         nonGlyphChangeHints: string[] = [],
-        layerTargets: WorkerReplayTarget[] = []
+        layerTargets: WorkerReplayTarget[] = [],
+        glyphRenames: Array<{ oldName: string; newName: string }> = []
     ): Promise<boolean> {
         const runSend = async (): Promise<boolean> => {
             if (!fontCompilation) {
@@ -4447,7 +4448,8 @@ class FontManager {
             const hasRefreshMetadata =
                 changedGlyphs.length > 0 ||
                 nonGlyphChangeHints.length > 0 ||
-                layerTargets.length > 0;
+                layerTargets.length > 0 ||
+                glyphRenames.length > 0;
             const updateToSend =
                 update.length > 0
                     ? update
@@ -4470,6 +4472,7 @@ class FontManager {
                     ...(normalizedLayerTargets.length
                         ? { layerTargets: normalizedLayerTargets }
                         : undefined),
+                    ...(glyphRenames.length ? { glyphRenames } : undefined),
                     invalidateLayoutClosure
                 });
 
@@ -4814,6 +4817,7 @@ class FontManager {
             invalidateLayoutClosure?: boolean;
             layerTargets?: WorkerReplayTarget[];
             nonGlyphChangeHints?: string[];
+            glyphRenames?: Array<{ oldName: string; newName: string }>;
         }
     ): Promise<boolean> {
         const previousWorkerCacheUpdatePromise = this.workerCacheUpdatePromise;
@@ -4845,6 +4849,7 @@ class FontManager {
             invalidateLayoutClosure?: boolean;
             layerTargets?: WorkerReplayTarget[];
             nonGlyphChangeHints?: string[];
+            glyphRenames?: Array<{ oldName: string; newName: string }>;
         }
     ): Promise<boolean> {
         const normalizedChangedGlyphs = Array.from(
@@ -4863,7 +4868,8 @@ class FontManager {
                 [],
                 options?.invalidateLayoutClosure !== false,
                 normalizedNonGlyphChangeHints,
-                normalizedLayerTargets
+                normalizedLayerTargets,
+                options?.glyphRenames || []
             );
         }
         const targetLayerUpdates = normalizedLayerTargets.length
@@ -4900,7 +4906,8 @@ class FontManager {
             normalizedChangedGlyphs,
             options?.invalidateLayoutClosure !== false,
             normalizedNonGlyphChangeHints,
-            normalizedLayerTargets
+            normalizedLayerTargets,
+            options?.glyphRenames || []
         );
 
         if (!sent) {
