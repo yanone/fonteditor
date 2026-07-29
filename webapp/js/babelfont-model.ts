@@ -19,6 +19,7 @@ import {
 } from './glyph-data-plugin-manager';
 import { assertModelMutationAllowed } from './model-mutation-policy';
 import { parseNodeString, serializeNodeArray } from './node-encoding';
+import { applyGlyphRenameUiContext } from './rename-glyphs-ui-context';
 
 /**
  * Generate a stable unique identifier for CRDT addressing.
@@ -12283,6 +12284,18 @@ export class Font extends ModelBase {
             );
         };
 
+        const codepointsByOldName = new Map<string, number[]>();
+        for (const oldName of renames.keys()) {
+            const glyph = this.findGlyph(oldName);
+            const codepoints = Array.isArray(glyph?.codepoints)
+                ? glyph.codepoints.filter(
+                      (value: unknown): value is number =>
+                          typeof value === 'number' && Number.isFinite(value)
+                  )
+                : [];
+            codepointsByOldName.set(oldName, codepoints);
+        }
+
         withBridgeTransaction('Rename glyphs', () => {
             // Preflight before any model writes — withBridgeTransaction commits
             // buffered ops in `finally` even when the body throws.
@@ -12405,6 +12418,8 @@ export class Font extends ModelBase {
             this._glyphWrappers = null;
             this.invalidateReverseComponentIndex();
         });
+
+        applyGlyphRenameUiContext(renames, codepointsByOldName);
     }
 
     /**
