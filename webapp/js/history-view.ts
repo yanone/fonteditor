@@ -274,12 +274,14 @@ class HistoryViewController {
         );
         const undoContext = getUndoRedoContext();
         const changeLog = window.patchSyncEngine.getChangeLog?.() ?? [];
-        const { reachableHistoryItemIds, nextUndoHistoryItemId } =
-            getUndoReachabilityForContext(changeLog, {
+        const { reachableHistoryItemIds } = getUndoReachabilityForContext(
+            changeLog,
+            {
                 glyphName: undoContext.undoGlyphName,
                 layerId: undoContext.undoLayerId,
                 historyTargetKey: undoContext.historyTargetKey
-            });
+            }
+        );
         const fragment = document.createDocumentFragment();
 
         for (let index = displayItems.length - 1; index >= 0; index--) {
@@ -287,25 +289,17 @@ class HistoryViewController {
             const isReachable = item.historyItemIds.some((historyItemId) =>
                 reachableHistoryItemIds.has(historyItemId)
             );
-            const isNextUndo =
-                !!nextUndoHistoryItemId &&
-                item.historyItemIds.includes(nextUndoHistoryItemId);
             const row = document.createElement('div');
             row.className = [
                 'history-entry',
                 'history-entry-flat',
-                isReachable
-                    ? 'history-entry-cmdz-reachable'
-                    : 'history-entry-cmdz-unreachable',
-                isNextUndo ? 'history-entry-cmdz-next' : ''
+                isReachable ? '' : 'history-entry-cmdz-unreachable'
             ]
                 .filter(Boolean)
                 .join(' ');
-            row.title = isNextUndo
-                ? 'Next ⌘Z target in current editing context'
-                : isReachable
-                  ? 'Reachable by ⌘Z in current editing context'
-                  : 'Not reachable by ⌘Z in current editing context';
+            if (!isReachable) {
+                row.title = 'Not reachable by ⌘Z in current editing context';
+            }
             row.innerHTML = `
                 <div class="history-entry-main">
                     <div class="history-entry-summary">${this.escapeHtml(item.summary)}</div>

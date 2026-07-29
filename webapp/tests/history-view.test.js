@@ -185,8 +185,9 @@ describe('history view', () => {
         const undoRow = rows.find((row) =>
             row.textContent.trim().startsWith('Undo')
         );
-        expect(resizeRow.className).toContain('history-entry-cmdz-next');
-        expect(resizeRow.className).toContain('history-entry-cmdz-reachable');
+        expect(resizeRow.className).not.toContain(
+            'history-entry-cmdz-unreachable'
+        );
         expect(undoRow.className).toContain('history-entry-cmdz-unreachable');
     });
 
@@ -286,9 +287,7 @@ describe('history view', () => {
         const editA = rows.find((row) => row.textContent.includes('Edit A'));
         const editB = rows.find((row) => row.textContent.includes('Edit B'));
 
-        expect(editA.className).toContain('history-entry-cmdz-next');
-        expect(editA.className).toContain('history-entry-cmdz-reachable');
+        expect(editA.className).not.toContain('history-entry-cmdz-unreachable');
         expect(editB.className).toContain('history-entry-cmdz-unreachable');
-        expect(editB.className).not.toContain('history-entry-cmdz-next');
     });
 });

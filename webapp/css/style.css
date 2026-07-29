@@ -1554,17 +1554,8 @@ kbd + kbd {
     opacity: 0.55;
 }
 
-.history-entry-cmdz-next {
-    background-color: color-mix(in srgb, var(--accent-cyan) 12%, transparent);
-    box-shadow: inset 3px 0 0 var(--accent-cyan);
-}
-
 .history-entry:hover {
     background-color: var(--input-bg);
-}
-
-.history-entry-cmdz-next:hover {
-    background-color: color-mix(in srgb, var(--accent-cyan) 18%, transparent);
 }
 
 .history-meta {
