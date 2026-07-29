@@ -1092,6 +1092,68 @@ fn collect_missing_component_references(
     missing
 }
 
+/// Rewrite component `reference` fields (flat or nested Shape::Component) that
+/// still point at renamed-away glyph names. Used after identity rename so
+/// dependents soft-skipped from layerTargets cannot leave stale refs.
+fn rewrite_component_references_for_renames(
+    font_json: &mut serde_json::Value,
+    glyph_renames: &[GlyphRename],
+) {
+    if glyph_renames.is_empty() {
+        return;
+    }
+    let rename_map: HashMap<&str, &str> = glyph_renames
+        .iter()
+        .map(|rename| (rename.old_name.as_str(), rename.new_name.as_str()))
+        .collect();
+    let Some(glyphs) = font_json
+        .get_mut("glyphs")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for glyph in glyphs.iter_mut() {
+        let Some(layers) = glyph
+            .get_mut("layers")
+            .and_then(serde_json::Value::as_array_mut)
+        else {
+            continue;
+        };
+        for layer in layers.iter_mut() {
+            let Some(shapes) = layer
+                .get_mut("shapes")
+                .and_then(serde_json::Value::as_array_mut)
+            else {
+                continue;
+            };
+            for shape in shapes.iter_mut() {
+                let Some(shape_obj) = shape.as_object_mut() else {
+                    continue;
+                };
+                if let Some(serde_json::Value::String(reference)) =
+                    shape_obj.get_mut("reference")
+                {
+                    if let Some(new_name) = rename_map.get(reference.as_str()) {
+                        *reference = (*new_name).to_string();
+                    }
+                    continue;
+                }
+                if let Some(serde_json::Value::Object(component)) =
+                    shape_obj.get_mut("Component")
+                {
+                    if let Some(serde_json::Value::String(reference)) =
+                        component.get_mut("reference")
+                    {
+                        if let Some(new_name) = rename_map.get(reference.as_str()) {
+                            *reference = (*new_name).to_string();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Reject a candidate rename when it introduces dangling composite references.
 ///
 /// Pre-existing missing refs (for example Fustat `one.tf` → absent `one.ss05`
@@ -1278,6 +1340,10 @@ fn apply_glyph_rename_transaction(
     if refresh_features {
         replace_top_level_json_entry(&mut candidate_canonical, "features", features_json);
     }
+
+    // Authoritative rewrite: dependents may omit layerTargets (background
+    // layers filtered from Glyph.layers, soft-skipped Y.Doc reads, etc.).
+    rewrite_component_references_for_renames(&mut candidate_canonical, glyph_renames);
 
     validate_component_references(
         &candidate_canonical,
@@ -5761,6 +5827,56 @@ mod tests {
         assert!(
             message.contains("references missing component A"),
             "unexpected error: {message}"
+        );
+    }
+
+    #[test]
+    fn rewrite_component_references_for_renames_updates_background_layers() {
+        let mut font_json = json!({
+            "glyphs": [
+                {
+                    "name": "aaa",
+                    "layers": [{ "id": "fg", "shapes": [] }]
+                },
+                {
+                    "name": "ae",
+                    "layers": [
+                        {
+                            "id": "fg",
+                            "shapes": [{ "closed": true, "nodes": [] }]
+                        },
+                        {
+                            "id": "bg",
+                            "is_background": true,
+                            "shapes": [
+                                { "reference": "a" },
+                                { "Component": { "reference": "e" } }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "e",
+                    "layers": [{ "id": "fg", "shapes": [] }]
+                }
+            ]
+        });
+        let renames = vec![GlyphRename {
+            old_name: "a".to_string(),
+            new_name: "aaa".to_string(),
+        }];
+        rewrite_component_references_for_renames(&mut font_json, &renames);
+        assert_eq!(
+            font_json["glyphs"][1]["layers"][1]["shapes"][0]["reference"],
+            json!("aaa")
+        );
+        assert_eq!(
+            font_json["glyphs"][1]["layers"][1]["shapes"][1]["Component"]["reference"],
+            json!("e")
+        );
+        let pre_existing = HashSet::new();
+        assert!(
+            validate_component_references(&font_json, &renames, &pre_existing).is_ok()
         );
     }
 

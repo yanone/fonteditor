@@ -1,4 +1,6 @@
 import type { CollaborationLogItem } from './patch-sync-engine';
+import { getUndoReachabilityForContext } from './change-log';
+import { getUndoRedoContext } from './undo-redo-context';
 import { Logger } from './logger';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 import { getTheme } from './tippy-utils';
@@ -28,6 +30,10 @@ type HistoryUndoContext = {
     glyphName: string | null;
     layerId: string | null;
     historyTargetKey: string | null;
+};
+
+type HistoryDisplayItem = CollaborationLogItem & {
+    historyItemIds: string[];
 };
 
 class HistoryViewController {
@@ -161,6 +167,7 @@ class HistoryViewController {
         this.currentFeatureContext = this.resolveFeatureHistoryContext();
         this.currentGlyphName = this.resolveCurrentGlyphName();
         this.currentLayerId = this.resolveCurrentLayerId();
+        this.scheduleRender();
     }
 
     private resolveFeatureHistoryContext(): FeatureHistoryContext | null {
@@ -223,13 +230,14 @@ class HistoryViewController {
             return;
         }
 
-        const groupedItems = new Map<string, CollaborationLogItem>();
+        const groupedItems = new Map<string, HistoryDisplayItem>();
         for (const item of this.collaborationItems) {
             const groupKey = item.promptGroupId ?? item.id;
             const existing = groupedItems.get(groupKey);
             if (!existing) {
                 groupedItems.set(groupKey, {
                     ...item,
+                    historyItemIds: [item.historyItemId],
                     groupedMessageCount: 1
                 });
                 continue;
@@ -237,6 +245,9 @@ class HistoryViewController {
 
             groupedItems.set(groupKey, {
                 ...item,
+                historyItemIds: [
+                    ...new Set([...existing.historyItemIds, item.historyItemId])
+                ],
                 changedGlyphNames: [
                     ...new Set([
                         ...existing.changedGlyphNames,
@@ -261,12 +272,40 @@ class HistoryViewController {
         const displayItems = [...groupedItems.values()].sort(
             (left, right) => left.timestamp - right.timestamp
         );
+        const undoContext = getUndoRedoContext();
+        const changeLog = window.patchSyncEngine.getChangeLog?.() ?? [];
+        const { reachableHistoryItemIds, nextUndoHistoryItemId } =
+            getUndoReachabilityForContext(changeLog, {
+                glyphName: undoContext.undoGlyphName,
+                layerId: undoContext.undoLayerId,
+                historyTargetKey: undoContext.historyTargetKey
+            });
         const fragment = document.createDocumentFragment();
 
         for (let index = displayItems.length - 1; index >= 0; index--) {
             const item = displayItems[index];
+            const isReachable = item.historyItemIds.some((historyItemId) =>
+                reachableHistoryItemIds.has(historyItemId)
+            );
+            const isNextUndo =
+                !!nextUndoHistoryItemId &&
+                item.historyItemIds.includes(nextUndoHistoryItemId);
             const row = document.createElement('div');
-            row.className = 'history-entry history-entry-flat';
+            row.className = [
+                'history-entry',
+                'history-entry-flat',
+                isReachable
+                    ? 'history-entry-cmdz-reachable'
+                    : 'history-entry-cmdz-unreachable',
+                isNextUndo ? 'history-entry-cmdz-next' : ''
+            ]
+                .filter(Boolean)
+                .join(' ');
+            row.title = isNextUndo
+                ? 'Next ⌘Z target in current editing context'
+                : isReachable
+                  ? 'Reachable by ⌘Z in current editing context'
+                  : 'Not reachable by ⌘Z in current editing context';
             row.innerHTML = `
                 <div class="history-entry-main">
                     <div class="history-entry-summary">${this.escapeHtml(item.summary)}</div>

@@ -6,6 +6,8 @@ Undo in Counterpunch is designed to be powerful, but it is not purely “whateve
 
 Use this page to understand why some edits appear under layer, glyph, feature, or font history, and why undo sometimes requires switching the History view to a broader scope before the action becomes available.
 
+The History panel shows the full collaboration log, but dims items that the current Cmd+Z / Edit → Undo context cannot reach. The next Cmd+Z target is highlighted so you can always see which nearest reachable item (and the matching reachable ones below it) keyboard undo would hit.
+
 ## The Core Idea
 
 Counterpunch records edits with an **undo scope**. In practice, that means each change belongs to one of four contexts:
@@ -75,6 +77,8 @@ Each history item carries metadata that helps explain what you are seeing:
 - The **scope badge** shows whether the edit is layer, glyph, feature, or font scoped.
 - The **window badge** shows whether the change came from the Main window or a linked window.
 - The detailed metadata view shows the exact undo scope recorded for that item.
+- **Dimmed rows** are outside the current Cmd+Z editing context and will be skipped.
+- The **highlighted row** (cyan inset) is the next item Cmd+Z would undo; other non-dimmed rows below it are later matches in the same context.
 
 If an action seems to be “missing,” inspect the scope badge on nearby items and try a broader scope.
 

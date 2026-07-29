@@ -24,6 +24,7 @@ const {
 const {
     buildHistoryStackItems,
     createLogEntry,
+    getUndoReachabilityForContext,
     resetLogCounter,
     deriveGlyphName,
     deriveGlyphNameFromPath,
@@ -1787,6 +1788,55 @@ describe('change-log', () => {
         });
         expect(layerItems).toHaveLength(1);
         expect(layerItems[0].undoScope).toBe('font');
+    });
+
+    test('getUndoReachabilityForContext mirrors Cmd+Z active stack filtering', () => {
+        resetLogCounter();
+        const editA = createLogEntry({
+            timestamp: 1,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyItemId: 'history-a',
+            historyAction: 'change',
+            transactionLabel: 'Edit A',
+            transactionId: 1,
+            op: 'set',
+            undoScope: 'layer',
+            path: 'glyphs.A:layers.layer-1:width',
+            oldValue: 600,
+            newValue: 610
+        });
+        const editB = createLogEntry({
+            timestamp: 2,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyItemId: 'history-b',
+            historyAction: 'change',
+            transactionLabel: 'Edit B',
+            transactionId: 2,
+            op: 'set',
+            undoScope: 'layer',
+            path: 'glyphs.B:layers.layer-1:width',
+            oldValue: 600,
+            newValue: 620
+        });
+
+        const forA = getUndoReachabilityForContext([editA, editB], {
+            glyphName: 'A',
+            layerId: 'layer-1'
+        });
+        expect([...forA.reachableHistoryItemIds]).toEqual(['history-a']);
+        expect(forA.nextUndoHistoryItemId).toBe('history-a');
+
+        const forFont = getUndoReachabilityForContext([editA, editB], {
+            glyphName: null,
+            layerId: null
+        });
+        expect([...forFont.reachableHistoryItemIds].sort()).toEqual([
+            'history-a',
+            'history-b'
+        ]);
+        expect(forFont.nextUndoHistoryItemId).toBe('history-b');
     });
 
     test('path-derived history metadata resolves dotted glyph and layer names', () => {

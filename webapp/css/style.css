@@ -1518,11 +1518,53 @@ kbd + kbd {
 .history-entry {
     padding: 8px 10px;
     border-bottom: 1px solid var(--border-primary);
-    transition: background-color 0.2s ease;
+    transition:
+        background-color 0.2s ease,
+        opacity 0.15s ease;
+}
+
+.history-entry-flat {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.history-entry-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.history-entry-summary {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.history-entry-subtitle {
+    font-size: 10px;
+    color: var(--text-faint);
+    margin-top: 2px;
+}
+
+.history-entry-cmdz-unreachable {
+    opacity: 0.38;
+}
+
+.history-entry-cmdz-unreachable:hover {
+    opacity: 0.55;
+}
+
+.history-entry-cmdz-next {
+    background-color: color-mix(in srgb, var(--accent-cyan) 12%, transparent);
+    box-shadow: inset 3px 0 0 var(--accent-cyan);
 }
 
 .history-entry:hover {
     background-color: var(--input-bg);
+}
+
+.history-entry-cmdz-next:hover {
+    background-color: color-mix(in srgb, var(--accent-cyan) 18%, transparent);
 }
 
 .history-meta {

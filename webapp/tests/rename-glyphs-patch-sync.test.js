@@ -104,11 +104,25 @@ function createRenameRoundTripFontData() {
                             type: 'DefaultForMaster',
                             master: 'master-regular'
                         },
+                        background_layer_id: 'layer-1-bg',
                         width: 700,
                         shapes: [
                             {
                                 reference: 'A',
                                 transform: [1, 0, 0, 1, 0, 0]
+                            }
+                        ],
+                        anchors: []
+                    },
+                    {
+                        id: 'layer-1-bg',
+                        is_background: true,
+                        background_layer_id: 'layer-1',
+                        width: 700,
+                        shapes: [
+                            {
+                                reference: 'A',
+                                transform: [1, 0, 0, 1, 10, 0]
                             }
                         ],
                         anchors: []
@@ -129,12 +143,21 @@ function createRenameRoundTripFontData() {
     };
 }
 
+function expectBackgroundComponentRef(font, glyphName, expectedRef) {
+    const background = font.findGlyph(glyphName).findLayerById('layer-1-bg');
+    expect(background?.is_background).toBe(true);
+    expect(
+        background.components.map((component) => component.reference)
+    ).toEqual([expectedRef]);
+}
+
 function expectOriginalRenameRefs(font) {
     expect(font.findGlyph('A')).toBeDefined();
     expect(font.findGlyph('B')).toBeDefined();
     expect(font.findGlyph('A.alt')).toBeUndefined();
     expect(font.findGlyph('B.alt')).toBeUndefined();
     expect(font.findGlyph('B').layers[0].components[0].reference).toBe('A');
+    expectBackgroundComponentRef(font, 'B', 'A');
     expect(font.masters[0].kerning).toEqual({ A: { B: -40 } });
     expect(font.masters[0].kerning_rtl).toEqual({ 'A:B': -50 });
     expect(font.first_kern_groups).toEqual({ left: ['A'] });
@@ -152,6 +175,7 @@ function expectRenamedRefs(font) {
     expect(font.findGlyph('B.alt').layers[0].components[0].reference).toBe(
         'A.alt'
     );
+    expectBackgroundComponentRef(font, 'B.alt', 'A.alt');
     expect(font.masters[0].kerning).toEqual({ 'A.alt': { 'B.alt': -40 } });
     expect(font.masters[0].kerning_rtl).toEqual({ 'A.alt:B.alt': -50 });
     expect(font.first_kern_groups).toEqual({ left: ['A.alt'] });

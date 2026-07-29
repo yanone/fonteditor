@@ -818,6 +818,36 @@ export function resolveHistoryTargetItem(
     return visibleItems.length ? visibleItems[visibleItems.length - 1] : null;
 }
 
+/**
+ * History item ids Cmd+Z can still undo in the given editing context.
+ * Uses the same filter as bridge.undo / buildHistoryStackItems.
+ */
+export function getUndoReachabilityForContext(
+    entries: ChangeLogEntry[],
+    options: {
+        glyphName?: string | null;
+        layerId?: string | null;
+        historyTargetKey?: string | null;
+    } = {}
+): {
+    reachableHistoryItemIds: Set<string>;
+    nextUndoHistoryItemId: string | null;
+} {
+    const activeItems = buildHistoryStackItems(entries, {
+        glyphName: options.glyphName ?? null,
+        layerId: options.layerId ?? null,
+        historyTargetKey: options.historyTargetKey ?? null,
+        includeUndone: false
+    });
+
+    return {
+        reachableHistoryItemIds: new Set(activeItems.map((item) => item.id)),
+        nextUndoHistoryItemId: activeItems.length
+            ? activeItems[activeItems.length - 1].id
+            : null
+    };
+}
+
 export function buildHistoryStackItems(
     entries: ChangeLogEntry[],
     options?: {

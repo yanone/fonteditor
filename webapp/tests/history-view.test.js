@@ -6,6 +6,8 @@ jest.mock('tippy.js', () => {
     };
 });
 
+const { createLogEntry, resetLogCounter } = require('../js/change-log');
+
 describe('history view', () => {
     const originalPatchSyncEngine = window.patchSyncEngine;
     const originalGlyphCanvas = window.glyphCanvas;
@@ -22,9 +24,42 @@ describe('history view', () => {
         jest.clearAllMocks();
     });
 
-    test('renders a flat collaboration-message list and keeps undo items visible', () => {
+    function mountHistoryView({
+        collaborationItems,
+        changeLogEntries,
+        glyphName = 'A',
+        layerId = 'layer-1'
+    }) {
         document.body.innerHTML = '<div id="history-view-content"></div>';
+
+        window.patchSyncEngine = {
+            onCollaborationLogUpdate: jest.fn((callback) => {
+                callback(collaborationItems);
+                return jest.fn();
+            }),
+            getChangeLog: jest.fn(() => changeLogEntries)
+        };
+        window.glyphCanvas = {
+            outlineEditor: {
+                active: true,
+                selectedLayerId: layerId,
+                parseGlyphStack: jest.fn(() => [{ glyphName }]),
+                currentGlyphName: glyphName
+            },
+            getCurrentGlyphName: jest.fn(() => glyphName)
+        };
+        window.fontInfoManager = {
+            getHistoryScopeTarget: jest.fn(() => null)
+        };
+
+        jest.isolateModules(() => {
+            require('../js/history-view.ts');
+        });
+    }
+
+    test('renders a flat collaboration-message list and keeps undo items visible', () => {
         const tippy = require('tippy.js').default;
+        resetLogCounter();
 
         const collaborationItems = [
             {
@@ -91,28 +126,24 @@ describe('history view', () => {
             }
         ];
 
-        window.patchSyncEngine = {
-            onCollaborationLogUpdate: jest.fn((callback) => {
-                callback(collaborationItems);
-                return jest.fn();
+        const changeLogEntries = [
+            createLogEntry({
+                timestamp: 1000,
+                windowId: 'main-1',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-1',
+                historyAction: 'change',
+                transactionLabel: 'Resize glyph',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.A:layers.layer-1:width',
+                oldValue: 600,
+                newValue: 700
             })
-        };
-        window.glyphCanvas = {
-            outlineEditor: {
-                active: true,
-                selectedLayerId: 'layer-1',
-                parseGlyphStack: jest.fn(() => [{ glyphName: 'A' }]),
-                currentGlyphName: 'A'
-            },
-            getCurrentGlyphName: jest.fn(() => 'A')
-        };
-        window.fontInfoManager = {
-            getHistoryScopeTarget: jest.fn(() => null)
-        };
+        ];
 
-        jest.isolateModules(() => {
-            require('../js/history-view.ts');
-        });
+        mountHistoryView({ collaborationItems, changeLogEntries });
 
         const rows = [
             ...document.querySelectorAll('.history-entry.history-entry-flat')
@@ -147,5 +178,117 @@ describe('history view', () => {
             layerId: 'layer-1',
             historyTargetKey: null
         });
+
+        const resizeRow = rows.find((row) =>
+            row.textContent.includes('Resize glyph')
+        );
+        const undoRow = rows.find((row) =>
+            row.textContent.trim().startsWith('Undo')
+        );
+        expect(resizeRow.className).toContain('history-entry-cmdz-next');
+        expect(resizeRow.className).toContain('history-entry-cmdz-reachable');
+        expect(undoRow.className).toContain('history-entry-cmdz-unreachable');
+    });
+
+    test('dims history items outside the current Cmd+Z editing context', () => {
+        resetLogCounter();
+
+        const collaborationItems = [
+            {
+                id: 'message-a',
+                direction: 'local',
+                timestamp: 1000,
+                transactionDurationMs: null,
+                summary: 'Edit A',
+                label: 'Edit A',
+                source: 'change-bridge',
+                editSource: null,
+                windowId: 'main-1',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-a',
+                historyAction: 'change',
+                targetHistoryItemId: null,
+                undoScope: 'layer',
+                updateByteLength: 16,
+                updateBase64Preview: 'AAAA',
+                changedGlyphNames: ['A'],
+                changedLayerIds: ['layer-1'],
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }],
+                changes: [{ op: 'set', path: 'glyphs.A:layers.layer-1:width' }],
+                derivedForwardChanges: []
+            },
+            {
+                id: 'message-b',
+                direction: 'local',
+                timestamp: 2000,
+                transactionDurationMs: null,
+                summary: 'Edit B',
+                label: 'Edit B',
+                source: 'change-bridge',
+                editSource: null,
+                windowId: 'main-1',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-b',
+                historyAction: 'change',
+                targetHistoryItemId: null,
+                undoScope: 'layer',
+                updateByteLength: 16,
+                updateBase64Preview: 'BBBB',
+                changedGlyphNames: ['B'],
+                changedLayerIds: ['layer-1'],
+                workerReplayTargets: [{ glyphName: 'B', layerId: 'layer-1' }],
+                changes: [{ op: 'set', path: 'glyphs.B:layers.layer-1:width' }],
+                derivedForwardChanges: []
+            }
+        ];
+
+        const changeLogEntries = [
+            createLogEntry({
+                timestamp: 1000,
+                windowId: 'main-1',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-a',
+                historyAction: 'change',
+                transactionLabel: 'Edit A',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.A:layers.layer-1:width',
+                oldValue: 600,
+                newValue: 610
+            }),
+            createLogEntry({
+                timestamp: 2000,
+                windowId: 'main-1',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-b',
+                historyAction: 'change',
+                transactionLabel: 'Edit B',
+                transactionId: 2,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.B:layers.layer-1:width',
+                oldValue: 600,
+                newValue: 620
+            })
+        ];
+
+        mountHistoryView({
+            collaborationItems,
+            changeLogEntries,
+            glyphName: 'A',
+            layerId: 'layer-1'
+        });
+
+        const rows = [
+            ...document.querySelectorAll('.history-entry.history-entry-flat')
+        ];
+        const editA = rows.find((row) => row.textContent.includes('Edit A'));
+        const editB = rows.find((row) => row.textContent.includes('Edit B'));
+
+        expect(editA.className).toContain('history-entry-cmdz-next');
+        expect(editA.className).toContain('history-entry-cmdz-reachable');
+        expect(editB.className).toContain('history-entry-cmdz-unreachable');
+        expect(editB.className).not.toContain('history-entry-cmdz-next');
     });
 });

@@ -10354,6 +10354,36 @@ export class Glyph extends ArrayElementBase {
     }
 
     /**
+     * Rewrite metrics keys and component refs on every stored layer, including
+     * backgrounds filtered out of the public `layers` view.
+     */
+    _rewriteStoredLayerNameReferences(
+        replaceName: (value: string) => string,
+        replaceMetricsKey: (value: string | undefined) => string | undefined
+    ): void {
+        if (!Array.isArray(this.data.layers)) {
+            return;
+        }
+        for (let index = 0; index < this.data.layers.length; index++) {
+            const layer = new Layer(this.data.layers, index, this);
+            const leftLayerKey = replaceMetricsKey(layer.leftMetricsKey);
+            const rightLayerKey = replaceMetricsKey(layer.rightMetricsKey);
+            if (leftLayerKey !== layer.leftMetricsKey) {
+                layer.leftMetricsKey = leftLayerKey;
+            }
+            if (rightLayerKey !== layer.rightMetricsKey) {
+                layer.rightMetricsKey = rightLayerKey;
+            }
+            for (const component of layer.components) {
+                const reference = replaceName(component.reference);
+                if (reference !== component.reference) {
+                    component.reference = reference;
+                }
+            }
+        }
+    }
+
+    /**
      * Find a layer by master ID
      */
     findLayerByMasterId(masterId: string): Layer | undefined {
@@ -12276,26 +12306,12 @@ export class Font extends ModelBase {
                 if (rightMetricsKey !== glyph.rightMetricsKey) {
                     glyph.rightMetricsKey = rightMetricsKey;
                 }
-                for (const layer of glyph.layers || []) {
-                    const leftLayerKey = replaceMetricsKey(
-                        layer.leftMetricsKey
-                    );
-                    const rightLayerKey = replaceMetricsKey(
-                        layer.rightMetricsKey
-                    );
-                    if (leftLayerKey !== layer.leftMetricsKey) {
-                        layer.leftMetricsKey = leftLayerKey;
-                    }
-                    if (rightLayerKey !== layer.rightMetricsKey) {
-                        layer.rightMetricsKey = rightLayerKey;
-                    }
-                    for (const component of layer.components) {
-                        const reference = replaceName(component.reference);
-                        if (reference !== component.reference) {
-                            component.reference = reference;
-                        }
-                    }
-                }
+                // Glyph.layers hides backgrounds; Glyphs fonts often keep
+                // composite refs only there (e.g. Fustat ae → a).
+                glyph._rewriteStoredLayerNameReferences(
+                    replaceName,
+                    replaceMetricsKey
+                );
             }
 
             for (const master of this.masters || []) {

@@ -5153,6 +5153,118 @@ describe('Babelfont Object Model', () => {
             );
         });
 
+        test('rewrites component refs in background layers hidden from Glyph.layers', () => {
+            const renameFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: {}
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'a',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-a',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [],
+                                anchors: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'ae',
+                        category: 'Ligature',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 900,
+                                id: 'layer-ae',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                background_layer_id: 'layer-ae-bg',
+                                shapes: [{ closed: true, nodes: [] }],
+                                anchors: []
+                            },
+                            {
+                                width: 900,
+                                id: 'layer-ae-bg',
+                                is_background: true,
+                                background_layer_id: 'layer-ae',
+                                shapes: [
+                                    {
+                                        reference: 'a',
+                                        transform: [1, 0, 0, 1, 10, 0]
+                                    },
+                                    {
+                                        reference: 'e',
+                                        transform: [1, 0, 0, 1, 368, 0]
+                                    }
+                                ],
+                                anchors: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'e',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-e',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [],
+                                anchors: []
+                            }
+                        ]
+                    }
+                ],
+                first_kern_groups: {},
+                second_kern_groups: {},
+                note: '',
+                date: new Date('2020-01-01T00:00:00.000Z'),
+                names: {},
+                features: { classes: {}, prefixes: {}, features: [] }
+            });
+
+            // Background layers are filtered from Glyph.layers.
+            expect(
+                renameFont.findGlyph('ae').layers.map((layer) => layer.id)
+            ).toEqual(['layer-ae']);
+
+            renameFont.renameGlyphs(new Map([['a', 'aaa']]));
+
+            const background = renameFont
+                .findGlyph('ae')
+                .findLayerById('layer-ae-bg');
+            expect(background.components.map((c) => c.reference)).toEqual([
+                'aaa',
+                'e'
+            ]);
+        });
+
         test('rewrites metrics keys without substring damage to longer names', () => {
             const renameFont = Font.fromData({
                 upm: 1000,
