@@ -248,6 +248,7 @@ function getEditMenuItems(): ToolbarMenuItem[] {
         {
             label: 'Rename Glyph(s)…',
             icon: 'edit',
+            shortcut: '⌘⇧F',
             disabled: !hasFontOpen || !hasGlyphSelection,
             action: async () => {
                 window.renameGlyphsDialog?.open();
@@ -518,6 +519,20 @@ function installGlobalShortcuts(): void {
                 event.stopPropagation();
                 event.stopImmediatePropagation();
                 void window.addGlyphsDialog?.open();
+                return;
+            }
+
+            if (
+                event.shiftKey &&
+                key === 'f' &&
+                window.fontManager?.currentFont &&
+                (window.glyphOverviewInstance?.getSelectedGlyphNames?.()
+                    .length || 0) > 0
+            ) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+                window.renameGlyphsDialog?.open();
                 return;
             }
 

@@ -2,6 +2,8 @@
 // Displays grid of glyph tiles with selection support
 // Uses direct canvas rendering for fast display
 
+import tippy, { Instance as TippyInstance } from 'tippy.js';
+import 'tippy.js/dist/tippy.css';
 import { fastGlyphTileRenderer } from './glyph-tile-renderer-fast';
 import {
     glyphNameMatchesSearchTerms,
@@ -12,6 +14,12 @@ import {
 import './glyph-overview-filters';
 import { Logger } from './logger';
 import { timelineSpanStart, timelineSpanEnd } from './perf-timeline';
+import {
+    addTippyBackdropSupport,
+    getOrCreateBackdrop,
+    getTheme,
+    setupMenuKeyboardNav
+} from './tippy-utils';
 
 const console = new Logger('GlyphOverview');
 
@@ -94,6 +102,7 @@ class GlyphOverview {
         null;
     private readonly linesVirtualizationThreshold = 1200;
     private readonly linesVirtualizationBufferRows = 6;
+    private tileContextMenu: TippyInstance | null = null;
     private onContainerScrollBound = this.onContainerScroll.bind(this);
     private onCapturedScrollBound = this.onCapturedScroll.bind(this);
     private lazyBatchSize = 240;
@@ -168,6 +177,7 @@ class GlyphOverview {
         );
         document.addEventListener('mousemove', this.onMouseMove.bind(this));
         document.addEventListener('mouseup', this.onMouseUp.bind(this));
+        this.initTileContextMenu();
 
         // Listen for glyph changes to update tiles
         window.addEventListener('glyphChanged', this.onGlyphChanged.bind(this));
@@ -312,11 +322,12 @@ class GlyphOverview {
             });
         }
 
-        // Listen for keyboard shortcut (Cmd+F)
+        // Listen for keyboard shortcut (Cmd+F; Cmd+Shift+F is Rename Glyphs)
         document.addEventListener('keydown', (e) => {
             if (
                 (e.metaKey || e.ctrlKey) &&
-                e.key === 'f' &&
+                !e.shiftKey &&
+                e.key.toLowerCase() === 'f' &&
                 this.isViewActive()
             ) {
                 e.preventDefault();
@@ -2246,6 +2257,134 @@ class GlyphOverview {
             selected: false,
             canvas: canvas
         };
+    }
+
+    private initTileContextMenu(): void {
+        if (!this.container) {
+            return;
+        }
+
+        const backdrop = getOrCreateBackdrop(
+            'glyph-overview-tile-context-menu-backdrop'
+        );
+        this.tileContextMenu = tippy(this.container, {
+            content: this.createTileContextMenuHtml(),
+            allowHTML: true,
+            trigger: 'manual',
+            interactive: true,
+            placement: 'right-start',
+            theme: getTheme(),
+            arrow: false,
+            offset: [0, 0],
+            appendTo: document.body,
+            hideOnClick: false,
+            zIndex: 9999,
+            getReferenceClientRect: null as any,
+            onShown: (instance) => {
+                const menu = instance.popper.querySelector('.plugin-menu');
+                if (!menu) return;
+                setupMenuKeyboardNav(menu);
+                if ((menu as { _handlersSetup?: boolean })._handlersSetup) {
+                    return;
+                }
+                (menu as { _handlersSetup?: boolean })._handlersSetup = true;
+                menu.querySelectorAll('.plugin-menu-item').forEach(
+                    (menuItem) => {
+                        menuItem.addEventListener('click', () => {
+                            if (
+                                menuItem.classList.contains('disabled') ||
+                                menuItem.classList.contains(
+                                    'plugin-menu-item-disabled'
+                                )
+                            ) {
+                                return;
+                            }
+                            const action = menuItem.getAttribute('data-action');
+                            instance.hide();
+                            backdrop.classList.remove('visible');
+                            if (action === 'rename-glyphs') {
+                                window.renameGlyphsDialog?.open();
+                            }
+                        });
+                    }
+                );
+            }
+        });
+
+        addTippyBackdropSupport(this.tileContextMenu, backdrop);
+
+        this.container.addEventListener('contextmenu', (event) => {
+            if (!this.isViewActive()) {
+                return;
+            }
+            const target = event.target as HTMLElement | null;
+            const tileElement = target?.closest(
+                '.glyph-tile'
+            ) as HTMLElement | null;
+            if (!tileElement || !this.tileContextMenu) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            const glyphId = tileElement.dataset.glyphId;
+            if (!glyphId) {
+                return;
+            }
+
+            const tile = this.tiles.get(glyphId);
+            if (!tile) {
+                return;
+            }
+
+            // Right-click on an unselected tile selects it alone; keep
+            // multi-selection when right-clicking an already-selected tile.
+            if (!tile.selected) {
+                this.clearSelection();
+                this.selectTile(glyphId);
+                this.lastClickedGlyphId = glyphId;
+                this.keyboardAnchorGlyphId = glyphId;
+            }
+
+            const canRename =
+                !!window.fontManager?.currentFont &&
+                this.getSelectedGlyphNames().length > 0;
+            this.tileContextMenu.hide();
+            this.tileContextMenu.setContent(
+                this.createTileContextMenuHtml(canRename)
+            );
+            this.tileContextMenu.setProps({
+                getReferenceClientRect: () => ({
+                    width: 0,
+                    height: 0,
+                    top: event.clientY,
+                    bottom: event.clientY,
+                    left: event.clientX,
+                    right: event.clientX,
+                    x: event.clientX,
+                    y: event.clientY,
+                    toJSON: () => ({})
+                })
+            });
+            this.tileContextMenu.show();
+        });
+    }
+
+    private createTileContextMenuHtml(canRename = true): string {
+        const disabledClass = canRename
+            ? ''
+            : ' disabled plugin-menu-item-disabled';
+        const disabledAttr = canRename ? '' : ' aria-disabled="true"';
+        return `
+            <div class="plugin-menu">
+                <div class="plugin-menu-item${disabledClass}" data-action="rename-glyphs"${disabledAttr}>
+                    <span class="material-symbols-outlined">edit</span>
+                    <span>Rename Glyph(s)…</span>
+                    <span class="plugin-menu-shortcut">⌘⇧F</span>
+                </div>
+            </div>
+        `;
     }
 
     private handleTileClick(glyphId: string, event: MouseEvent): void {

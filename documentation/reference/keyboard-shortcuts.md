@@ -23,6 +23,11 @@ These shortcuts allow you to move quickly between different areas of Counterpunc
 - `Cmd/Ctrl + S` saves the current font
 - `Cmd/Ctrl + Shift + S` opens the font Save As dialog
 
+## Glyph Actions
+
+- `Cmd/Ctrl + Shift + G` opens Add Glyph(s)
+- `Cmd/Ctrl + Shift + F` opens Rename Glyph(s) for the current overview selection
+
 ## Script and Konsole Actions
 
 When working with Python, these shortcuts streamline common operations:
