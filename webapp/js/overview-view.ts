@@ -55,19 +55,22 @@ let pendingFallbackAttempts = 0;
 const maxFallbackAttempts = 4;
 
 function resolveCurrentOverviewLocation() {
-    const axesLocation = window.glyphCanvas?.axesManager?.variationSettings;
-    if (axesLocation && Object.keys(axesLocation).length > 0) {
+    // Prefer StateManager (URL restore source of truth) over live axes. Axes can
+    // still hold the font default when a concurrent setFont stomps them after
+    // restore; empty/default location would paint the font default implicitly.
+    const stateLocation = window.stateManager?.editor_variation_location;
+    if (stateLocation && Object.keys(stateLocation).length > 0) {
         const resolvedLocation: Record<string, number> = {};
-        for (const [tag, value] of Object.entries(axesLocation)) {
+        for (const [tag, value] of Object.entries(stateLocation)) {
             resolvedLocation[tag] = Number(value);
         }
         return resolvedLocation;
     }
 
-    const stateLocation = window.stateManager?.editor_variation_location;
-    if (stateLocation && Object.keys(stateLocation).length > 0) {
+    const axesLocation = window.glyphCanvas?.axesManager?.variationSettings;
+    if (axesLocation && Object.keys(axesLocation).length > 0) {
         const resolvedLocation: Record<string, number> = {};
-        for (const [tag, value] of Object.entries(stateLocation)) {
+        for (const [tag, value] of Object.entries(axesLocation)) {
             resolvedLocation[tag] = Number(value);
         }
         return resolvedLocation;
@@ -142,6 +145,7 @@ function scheduleFallbackRender(sessionId: string | null, delayMs = 1200) {
         }
 
         if (pendingFallbackAttempts >= maxFallbackAttempts) {
+            glyphOverviewInstance?.setOutlinePaintAllowed?.(true);
             return;
         }
 
@@ -189,8 +193,11 @@ async function renderOverviewAndEmit(
     let success = false;
 
     try {
+        // Force the single open paint while the gate is still closed, then open
+        // the gate for subsequent location-driven updates.
         await glyphOverviewInstance.renderGlyphOutlines(
-            resolveCurrentOverviewLocation()
+            resolveCurrentOverviewLocation(),
+            { force: true }
         );
         success = true;
 
@@ -222,6 +229,7 @@ async function renderOverviewAndEmit(
         timelineSpanEndSafe(settleSpanId);
 
         glyphOverviewInstance.syncActiveGlyphFocus?.();
+        glyphOverviewInstance.setOutlinePaintAllowed?.(true);
 
         if (openSessionId) {
             window.dispatchEvent(
@@ -309,19 +317,10 @@ async function initOverviewView() {
             glyphOverviewInstance = new window.GlyphOverview(glyphContainer);
             window.glyphOverviewInstance = glyphOverviewInstance;
 
-            // Populate with current font glyphs if available
+            // Populate with current font glyphs if available.
+            // Outline paint waits for fontReady so startup location/state settle first.
             if (window.currentFontModel?.glyphs) {
-                const glyphData = await updateOverviewTiles();
-
-                // Render glyphs if font is already compiled
-                // (font needs to be cached in Rust via store_font before rendering)
-                setTimeout(async () => {
-                    await renderOverviewAndEmit('init');
-                    console.log(
-                        '[OverviewView]',
-                        `Initial render: ${glyphData.length} glyph tiles`
-                    );
-                }, 500);
+                await updateOverviewTiles();
             }
         } else {
             console.warn(
@@ -408,6 +407,9 @@ const queueOverviewTilesRefresh = (reason: string) => {
             return;
         }
 
+        // Suppress all outline paints until the matching fontReady render.
+        glyphOverviewInstance.setOutlinePaintAllowed?.(false);
+
         const glyphData = await updateOverviewTiles();
         console.log(
             '[OverviewView]',
@@ -429,6 +431,8 @@ const queueOverviewRefresh = (
     setTimeout(async () => {
         try {
             if (glyphOverviewInstance && window.currentFontModel?.glyphs) {
+                glyphOverviewInstance.setOutlinePaintAllowed?.(false);
+
                 const glyphData = await updateOverviewTiles();
                 const renderReason =
                     openSessionId !== null

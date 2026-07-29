@@ -12,7 +12,6 @@ describe('FindGlyphDialog', () => {
         global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
 
         document.body.innerHTML = `
-            <button id="find-glyph-btn"></button>
             <div id="find-glyph-modal" style="display: none">
                 <h3 id="find-glyph-modal-title">Find Glyph</h3>
                 <button id="find-glyph-modal-close-btn"></button>
@@ -57,7 +56,7 @@ describe('FindGlyphDialog', () => {
     });
 
     test('lists glyphs in font order and selects the first by default', () => {
-        document.getElementById('find-glyph-btn').click();
+        window.findGlyphDialog.open({ searchMemoryKey: 'find-glyphs' });
 
         expect(document.getElementById('find-glyph-modal').style.display).toBe(
             'flex'
@@ -89,7 +88,7 @@ describe('FindGlyphDialog', () => {
     });
 
     test('filters using the overview search semantics', () => {
-        document.getElementById('find-glyph-btn').click();
+        window.findGlyphDialog.open({ searchMemoryKey: 'find-glyphs' });
         const search = document.querySelector('.find-glyph-search-input');
         search.value = 'acute comb';
         search.dispatchEvent(new Event('input', { bubbles: true }));
@@ -107,7 +106,7 @@ describe('FindGlyphDialog', () => {
     });
 
     test('ranks search matches by relevance and supports Unicode queries', () => {
-        document.getElementById('find-glyph-btn').click();
+        window.findGlyphDialog.open({ searchMemoryKey: 'find-glyphs' });
         const search = document.querySelector('.find-glyph-search-input');
 
         expect(search.placeholder).toBe(
@@ -567,7 +566,7 @@ describe('FindGlyphDialog', () => {
     });
 
     test('uses the Agent Sign In button style for dialog actions', () => {
-        document.getElementById('find-glyph-btn').click();
+        window.findGlyphDialog.open({ searchMemoryKey: 'find-glyphs' });
 
         expect(
             Array.from(
@@ -583,7 +582,7 @@ describe('FindGlyphDialog', () => {
                 name: `glyph${index}`
             })
         );
-        document.getElementById('find-glyph-btn').click();
+        window.findGlyphDialog.open({ searchMemoryKey: 'find-glyphs' });
 
         expect(
             document.querySelectorAll('.find-glyph-row').length

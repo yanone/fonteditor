@@ -23,17 +23,28 @@ export function disableSync() {
 export function enableSync() {
     window.stateManager?.enableUrlSync();
 
-    // Seed StateManager with current runtime variation settings immediately.
-    // Without this, editor_variation_location stays empty until the first
-    // axis animation completes.
+    // Align axes ↔ StateManager without clobbering a URL-restored location.
+    // A concurrent setFont can stomp axes back to the font default between
+    // restoreStateFromUrl and enableSync; prefer StateManager when it already
+    // holds a restored location and push that onto axes.
     const axesManager = window.glyphCanvas?.axesManager;
     if (axesManager && window.stateManager) {
-        const location = axesManager.variationSettings || {};
-        const roundedLocation: UserspaceLocation = {};
-        for (const [tag, value] of Object.entries(location)) {
-            roundedLocation[tag] = Math.round(Number(value));
+        const existing = window.stateManager.editor_variation_location;
+        const hasExisting = !!existing && Object.keys(existing).length > 0;
+
+        if (hasExisting) {
+            for (const [tag, value] of Object.entries(existing)) {
+                axesManager.setAxisValue(tag, Number(value));
+            }
+            axesManager.updateAxisSliders();
+        } else {
+            const location = axesManager.variationSettings || {};
+            const roundedLocation: UserspaceLocation = {};
+            for (const [tag, value] of Object.entries(location)) {
+                roundedLocation[tag] = Math.round(Number(value));
+            }
+            window.stateManager.editor_variation_location = roundedLocation;
         }
-        window.stateManager.editor_variation_location = roundedLocation;
     }
 
     console.log('URL sync enabled');

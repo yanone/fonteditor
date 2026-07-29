@@ -6,12 +6,22 @@ describe('OverviewView initial active glyph sync', () => {
     let updateGlyphs;
     let renderGlyphOutlines;
     let syncActiveGlyphFocus;
+    let setOutlinePaintAllowed;
     let originalPerformanceMark;
     let originalPerformanceMeasure;
 
-    async function flushOverviewInit() {
-        jest.advanceTimersByTime(500);
+    async function flushFontReadyOverview() {
+        window.dispatchEvent(
+            new CustomEvent('fontReady', {
+                detail: {
+                    path: 'test.babelfont',
+                    openSessionId: 'session-1',
+                    openedAt: 0
+                }
+            })
+        );
         await jest.runAllTimersAsync();
+        await Promise.resolve();
         await Promise.resolve();
     }
 
@@ -45,6 +55,7 @@ describe('OverviewView initial active glyph sync', () => {
         updateGlyphs = jest.fn().mockResolvedValue(undefined);
         renderGlyphOutlines = jest.fn().mockResolvedValue(undefined);
         syncActiveGlyphFocus = jest.fn();
+        setOutlinePaintAllowed = jest.fn();
 
         window.currentFontModel = {
             glyphs: [{ name: 'A' }, { name: 'B' }]
@@ -57,7 +68,9 @@ describe('OverviewView initial active glyph sync', () => {
         window.GlyphOverview = jest.fn().mockImplementation(() => ({
             updateGlyphs,
             renderGlyphOutlines,
-            syncActiveGlyphFocus
+            syncActiveGlyphFocus,
+            setOutlinePaintAllowed,
+            setLocationDrivenRendersEnabled: setOutlinePaintAllowed
         }));
         window.glyphOverviewFilterManager = null;
         window.timelineSpanStart = jest.fn(() => 'overview-span');
@@ -82,23 +95,61 @@ describe('OverviewView initial active glyph sync', () => {
         delete window.cancelAnimationFrame;
     });
 
-    test('marks the active glyph in the overview after the initial render', async () => {
+    test('marks the active glyph in the overview after the fontReady render', async () => {
         require('../js/overview-view');
 
-        await flushOverviewInit();
+        await jest.runAllTimersAsync();
+        await Promise.resolve();
+
+        expect(updateGlyphs).toHaveBeenCalledTimes(1);
+        expect(renderGlyphOutlines).not.toHaveBeenCalled();
+
+        updateGlyphs.mockClear();
+        await flushFontReadyOverview();
 
         expect(updateGlyphs).toHaveBeenCalledTimes(1);
         expect(renderGlyphOutlines).toHaveBeenCalledTimes(1);
+        expect(renderGlyphOutlines).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.objectContaining({ force: true })
+        );
         expect(syncActiveGlyphFocus).toHaveBeenCalledTimes(1);
+        expect(setOutlinePaintAllowed).toHaveBeenCalledWith(true);
+    });
+
+    test('ignores variationLocationChanged until after fontReady overview render', async () => {
+        require('../js/overview-view');
+        await jest.runAllTimersAsync();
+        await Promise.resolve();
+
+        renderGlyphOutlines.mockClear();
+        setOutlinePaintAllowed.mockClear();
+
+        window.dispatchEvent(
+            new CustomEvent('variationLocationChanged', {
+                detail: { location: { wght: 700 } }
+            })
+        );
+        await Promise.resolve();
+        expect(renderGlyphOutlines).not.toHaveBeenCalled();
+
+        await flushFontReadyOverview();
+        renderGlyphOutlines.mockClear();
+
+        // After fontReady enables outline paints, the real GlyphOverview
+        // would paint — the mock only records the enable call.
+        expect(setOutlinePaintAllowed).toHaveBeenCalledWith(true);
     });
 
     test('refreshes overview tiles on fontModelReady before fontReady', async () => {
         require('../js/overview-view');
 
-        await flushOverviewInit();
+        await jest.runAllTimersAsync();
+        await Promise.resolve();
 
         updateGlyphs.mockClear();
         renderGlyphOutlines.mockClear();
+        setOutlinePaintAllowed.mockClear();
 
         window.currentFontModel = {
             glyphs: [{ name: '.notdef' }]
@@ -116,6 +167,7 @@ describe('OverviewView initial active glyph sync', () => {
         await jest.runAllTimersAsync();
         await Promise.resolve();
 
+        expect(setOutlinePaintAllowed).toHaveBeenCalledWith(false);
         expect(updateGlyphs).toHaveBeenCalledTimes(1);
         expect(updateGlyphs).toHaveBeenCalledWith([
             { id: '0', name: '.notdef' }

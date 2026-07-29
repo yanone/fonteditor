@@ -14,6 +14,7 @@ import { OutlineEditor } from './glyph-canvas/outline-editor';
 import { Logger } from './logger';
 import APP_SETTINGS from './settings';
 import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
+import { isStartupStateReady } from './state-restore';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import {
@@ -2304,8 +2305,10 @@ class GlyphCanvas {
         try {
             this.textChangeLastSubsetKey = '';
 
-            // Store current variation settings to restore after font reload
-            const previousVariationSettings = {
+            // Store current variation settings to restore after font reload.
+            // Capture can go stale while awaiting HarfBuzz load if URL restore
+            // lands mid-flight — re-check StateManager below before applying.
+            let previousVariationSettings: UserspaceLocation = {
                 ...this.axesManager!.variationSettings
             };
 
@@ -2336,6 +2339,16 @@ class GlyphCanvas {
                 );
                 this.textRunEditor!.rebuildEditingFontNameToGid();
                 timelineSpanEnd(gidMapSpanId);
+
+                // During startup, prefer URL-restored StateManager location over a
+                // stale pre-await capture so we don't paint the font default first.
+                if (!isStartupStateReady()) {
+                    const restored =
+                        window.stateManager?.editor_variation_location;
+                    if (restored && Object.keys(restored).length > 0) {
+                        previousVariationSettings = { ...restored };
+                    }
+                }
 
                 // Restore previous variation settings before updating UI
                 this.axesManager!.variationSettings = previousVariationSettings;
@@ -2369,18 +2382,35 @@ class GlyphCanvas {
                     timelineSpanEnd(propertiesUiSpanId);
                 }
 
-                // Auto-select first master on initial load
-                if (
-                    !this.initialFontLoaded &&
-                    fontManager.currentFont?.fontModel?.masters
-                ) {
-                    const firstMaster =
-                        fontManager.currentFont.fontModel.masters[0];
-                    if (firstMaster && firstMaster.id && firstMaster.location) {
-                        await this.selectMaster(
-                            firstMaster.id,
-                            firstMaster.location
+                // Seed first master instantly on initial load (no animation).
+                // Startup URL/state restore may overwrite this before the single
+                // fontReady overview render; avoid variationLocationChanged races.
+                const mastersForInitialSeed = !this.initialFontLoaded
+                    ? fontManager.currentFont?.fontModel?.masters
+                    : undefined;
+                if (mastersForInitialSeed && mastersForInitialSeed.length > 0) {
+                    const fontModel = fontManager.currentFont!.fontModel!;
+                    const firstMaster = mastersForInitialSeed[0];
+                    if (
+                        firstMaster?.id &&
+                        firstMaster.location &&
+                        fontModel.axes &&
+                        this.axesManager
+                    ) {
+                        const userspaceLocation = designspaceToUserspace(
+                            firstMaster.location,
+                            fontModel.axes as any
                         );
+                        this.textModeEscapeState.clear();
+                        this.applyTextModeKerningMasterChange(firstMaster.id);
+                        for (const [tag, value] of Object.entries(
+                            userspaceLocation
+                        )) {
+                            this.axesManager.setAxisValue(tag, Number(value));
+                        }
+                        this.axesManager.updateAxisSliders();
+                        this.updateMasterSelection();
+                        this.updatePropertyPanel();
                     }
                 }
 

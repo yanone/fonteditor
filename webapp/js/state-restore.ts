@@ -17,6 +17,17 @@ function waitForNextAnimationFrame(): Promise<void> {
     });
 }
 
+/** True after the first open's URL/state restore has finished. */
+export function isStartupStateReady(): boolean {
+    return startupStateReady;
+}
+
+/** Clear startup gate so the next font open re-runs URL/state restore. */
+export function resetStartupStateReady(): void {
+    startupStateReady = false;
+    startupStateReadyPromise = null;
+}
+
 export async function ensureStartupStateReady(
     glyphCanvas: GlyphCanvas
 ): Promise<void> {
@@ -284,7 +295,6 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
                 }
 
                 glyphCanvas.renderer?.render();
-                window.glyphOverviewInstance?.syncActiveGlyphFocus?.();
             } else {
                 // If glyph selection failed, keep state as text mode to avoid inconsistent UI
                 glyphCanvas.outlineEditor.active = false;

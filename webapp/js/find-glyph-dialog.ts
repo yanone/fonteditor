@@ -134,7 +134,6 @@ export class FindGlyphDialog {
     private readonly modal: HTMLElement | null;
     private readonly titleElement: HTMLElement | null;
     private readonly closeButton: HTMLButtonElement | null;
-    private readonly openButton: HTMLButtonElement | null;
     private readonly content: HTMLElement | null;
     private searchInput: HTMLInputElement | null = null;
     private list: HTMLDivElement | null = null;
@@ -167,9 +166,6 @@ export class FindGlyphDialog {
         this.titleElement = document.getElementById('find-glyph-modal-title');
         this.closeButton = document.getElementById(
             'find-glyph-modal-close-btn'
-        ) as HTMLButtonElement | null;
-        this.openButton = document.getElementById(
-            'find-glyph-btn'
         ) as HTMLButtonElement | null;
         this.content = document.getElementById('find-glyph-modal-content');
 
@@ -655,9 +651,6 @@ export class FindGlyphDialog {
      * Connect dialog controls and keyboard behavior.
      */
     private registerEvents(): void {
-        this.openButton?.addEventListener('click', () =>
-            this.open({ searchMemoryKey: 'find-glyphs' })
-        );
         this.closeButton?.addEventListener('click', () => this.close());
         this.modal?.addEventListener('click', (event) => {
             if (event.target === this.modal) {

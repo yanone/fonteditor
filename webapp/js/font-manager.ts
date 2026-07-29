@@ -43,7 +43,10 @@ import {
 
 const NO_OP_YJS_UPDATE = new Uint8Array([0, 0]);
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
-import { ensureStartupStateReady } from './state-restore';
+import {
+    ensureStartupStateReady,
+    resetStartupStateReady
+} from './state-restore';
 import {
     normalizeWorkerReplayTargets,
     type WorkerReplayTarget
@@ -6420,6 +6423,10 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         const detail = (event as CustomEvent).detail;
         const openSessionId = createOpenSessionId();
         const openedAt = performance.now();
+
+        // Each open must re-run URL/state restore; otherwise a concurrent setFont
+        // can keep stomping axes to the font default after the first session.
+        resetStartupStateReady();
 
         activeOpenSessionDetail = {
             path: detail.path,

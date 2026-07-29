@@ -71,7 +71,7 @@ describe('ensureStartupStateReady', () => {
         );
     });
 
-    test('syncs the glyph overview highlight after restoring edit mode from URL', async () => {
+    test('restores edit mode from URL without premature overview highlight sync', async () => {
         global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
         global.cancelAnimationFrame = (id) => clearTimeout(id);
 
@@ -138,7 +138,9 @@ describe('ensureStartupStateReady', () => {
 
         expect(selectGlyphByIndex).toHaveBeenCalledWith(1);
         expect(fetchLayerData).toHaveBeenCalledWith(true);
-        expect(syncActiveGlyphFocus).toHaveBeenCalledTimes(1);
+        expect(glyphCanvas.outlineEditor.active).toBe(true);
+        // Overview highlight/scroll waits for the single fontReady overview paint.
+        expect(syncActiveGlyphFocus).not.toHaveBeenCalled();
 
         delete global.requestAnimationFrame;
         delete global.cancelAnimationFrame;

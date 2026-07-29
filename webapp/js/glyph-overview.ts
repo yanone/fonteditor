@@ -85,6 +85,12 @@ class GlyphOverview {
     private dragStartY = 0;
     private selectionBox: HTMLDivElement | null = null;
     private currentLocation: Record<string, number> = {};
+    /**
+     * When false, block all outline paints (including setActiveFilter / location
+     * events). Open path enables this only for the single fontReady paint.
+     */
+    private outlinePaintAllowed = false;
+    private outlineRenderGeneration = 0;
     private intersectionObserver: IntersectionObserver | null = null;
     private lazyLoadEnabled: boolean = false;
     // Batched lazy loading
@@ -198,10 +204,14 @@ class GlyphOverview {
             passive: true
         });
 
-        // Listen for variation location changes to re-render tiles
+        // Listen for variation location changes to re-render tiles.
+        // Blocked until overview-view allows paints after the fontReady open render.
         window.addEventListener('variationLocationChanged', ((
             e: CustomEvent
         ) => {
+            if (!this.outlinePaintAllowed) {
+                return;
+            }
             void this.renderGlyphOutlines(e.detail.location);
         }) as EventListener);
 
@@ -1235,20 +1245,43 @@ class GlyphOverview {
     }
 
     /**
+     * Allow/deny glyph-outline paints. Kept off during font open so only the
+     * forced fontReady path paints once at the final location.
+     */
+    public setOutlinePaintAllowed(allowed: boolean): void {
+        this.outlinePaintAllowed = allowed;
+    }
+
+    /** @deprecated Use setOutlinePaintAllowed */
+    public setLocationDrivenRendersEnabled(enabled: boolean): void {
+        this.setOutlinePaintAllowed(enabled);
+    }
+
+    /**
      * Render glyph outlines at a specific location in designspace
      * @param location - Axis location object, e.g., { wght: 400 }. Empty object uses default location.
      */
     public async renderGlyphOutlines(
-        location: Record<string, number> = {}
+        location: Record<string, number> = {},
+        options?: { force?: boolean }
     ): Promise<void> {
         if (!this.container) {
             console.warn('[GlyphOverview]', 'No container, cannot render');
             return;
         }
 
-        await this.tileBuildPromise;
+        if (!this.outlinePaintAllowed && !options?.force) {
+            return;
+        }
 
-        this.currentLocation = location;
+        const renderGeneration = ++this.outlineRenderGeneration;
+
+        await this.tileBuildPromise;
+        if (renderGeneration !== this.outlineRenderGeneration) {
+            return;
+        }
+
+        this.currentLocation = { ...location };
 
         // Invalidate cached outline data so tiles re-fetch at the new location
         this.tiles.forEach((tile) => {
@@ -1276,7 +1309,20 @@ class GlyphOverview {
             primedCount = this.primeInitialVisibleTileBatch();
         }
         if (primedCount > 0) {
-            await this.processBatchRender();
+            // Wait out any superseded in-flight batch so we don't skip priming.
+            while (
+                this.isBatchRendering &&
+                renderGeneration === this.outlineRenderGeneration
+            ) {
+                await new Promise<void>((resolve) => {
+                    requestAnimationFrame(() => resolve());
+                });
+            }
+            if (renderGeneration !== this.outlineRenderGeneration) {
+                timelineSpanEnd(totalSpanId);
+                return;
+            }
+            await this.processBatchRender(renderGeneration);
         }
 
         timelineSpanEnd(totalSpanId);
@@ -2054,8 +2100,14 @@ class GlyphOverview {
         }, 16);
     }
 
-    private async processBatchRender(): Promise<void> {
+    private async processBatchRender(
+        renderGeneration: number = this.outlineRenderGeneration
+    ): Promise<void> {
         if (this.isBatchRendering || this.pendingGlyphIds.size === 0) {
+            return;
+        }
+
+        if (renderGeneration !== this.outlineRenderGeneration) {
             return;
         }
 
@@ -2068,6 +2120,7 @@ class GlyphOverview {
         );
 
         this.isBatchRendering = true;
+        const batchLocation = { ...this.currentLocation };
 
         const batchSize = this.lazyBatchSize;
         const glyphIds = Array.from(this.pendingGlyphIds).slice(0, batchSize);
@@ -2087,7 +2140,10 @@ class GlyphOverview {
 
         if (glyphNames.length === 0) {
             this.isBatchRendering = false;
-            if (this.pendingGlyphIds.size > 0) {
+            if (
+                this.pendingGlyphIds.size > 0 &&
+                renderGeneration === this.outlineRenderGeneration
+            ) {
                 this.scheduleBatchRender();
             }
             timelineSpanEnd(batchSpanId);
@@ -2110,11 +2166,15 @@ class GlyphOverview {
                 response = await fontComp.sendMessage({
                     type: 'getGlyphOutlines',
                     glyphNames: glyphNames,
-                    location: this.currentLocation,
+                    location: batchLocation,
                     flattenComponents: false // Don't flatten - preserve component structure with layerData
                 });
             } finally {
                 timelineSpanEnd(fetchBatchSpanId);
+            }
+
+            if (renderGeneration !== this.outlineRenderGeneration) {
+                return;
             }
 
             if (response.error) {
@@ -2135,6 +2195,10 @@ class GlyphOverview {
                 timelineSpanEnd(parseBatchSpanId);
             }
 
+            if (renderGeneration !== this.outlineRenderGeneration) {
+                return;
+            }
+
             // Batch all renders in a single animation frame
             const dims = this.getTileDimensions();
             let renderDurationMs = 0;
@@ -2146,6 +2210,11 @@ class GlyphOverview {
             );
             await new Promise<void>((resolve) => {
                 requestAnimationFrame(() => {
+                    if (renderGeneration !== this.outlineRenderGeneration) {
+                        resolve();
+                        return;
+                    }
+
                     const renderBatchFrameSpanId = timelineSpanStart(
                         'overview.outlines.renderBatchFrame',
                         {
@@ -2179,6 +2248,10 @@ class GlyphOverview {
             });
             timelineSpanEnd(renderBatchSpanId);
 
+            if (renderGeneration !== this.outlineRenderGeneration) {
+                return;
+            }
+
             if (renderDurationMs > 18) {
                 this.lazyBatchSize = Math.max(
                     this.minLazyBatchSize,
@@ -2193,12 +2266,15 @@ class GlyphOverview {
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             console.error('[GlyphOverview]', `Batch render failed: ${msg}`);
+        } finally {
+            this.isBatchRendering = false;
         }
 
-        this.isBatchRendering = false;
-
         // Process remaining pending glyphs
-        if (this.pendingGlyphIds.size > 0) {
+        if (
+            this.pendingGlyphIds.size > 0 &&
+            renderGeneration === this.outlineRenderGeneration
+        ) {
             this.scheduleBatchRender();
         }
 
