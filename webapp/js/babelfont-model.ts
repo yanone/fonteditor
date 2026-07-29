@@ -20,6 +20,7 @@ import {
 import { assertModelMutationAllowed } from './model-mutation-policy';
 import { parseNodeString, serializeNodeArray } from './node-encoding';
 import { applyGlyphRenameUiContext } from './rename-glyphs-ui-context';
+import { assertGlyphRenamePreflight } from './rename-glyphs-preflight';
 
 /**
  * Generate a stable unique identifier for CRDT addressing.
@@ -12218,22 +12219,10 @@ export class Font extends ModelBase {
         );
         if (renames.size === 0) return;
 
-        const existingNames = new Set(
-            this._data.glyphs.map((glyph: Unsafe) => glyph.name)
+        const existingNames = this._data.glyphs.map(
+            (glyph: Unsafe) => glyph.name as string
         );
-        for (const [oldName, newName] of renames) {
-            if (!oldName || !newName || !existingNames.has(oldName)) {
-                throw new Error(`Cannot rename glyph "${oldName}".`);
-            }
-        }
-        const finalNames = new Set(
-            this._data.glyphs.map(
-                (glyph: Unsafe) => renames.get(glyph.name) || glyph.name
-            )
-        );
-        if (finalNames.size !== this._data.glyphs.length) {
-            throw new Error('Glyph rename would create duplicate names.');
-        }
+        assertGlyphRenamePreflight(renames, existingNames);
 
         const replaceName = (value: string): string =>
             renames.get(value) || value;

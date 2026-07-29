@@ -1,4 +1,5 @@
 import { Logger } from './logger';
+import { getGlyphRenamePreflightErrors } from './rename-glyphs-preflight';
 
 const console = new Logger('RenameGlyphsDialog');
 
@@ -176,35 +177,12 @@ export class RenameGlyphsDialog {
     private getPreflightErrors(
         renames: Map<string, string>
     ): Map<string, string> {
-        const allNames = new Set(
-            window.currentFontModel?.glyphs.map((glyph) => glyph.name) || []
-        );
-        const errors = new Map<string, string>();
-        const targetSources = new Map<string, string[]>();
+        const existingNames =
+            window.currentFontModel?.glyphs.map((glyph) => glyph.name) || [];
+        const errors = getGlyphRenamePreflightErrors(renames, existingNames);
         if (!this.searchInput?.value) {
             for (const name of this.selectedNames) {
                 errors.set(name, 'Enter text to search for.');
-            }
-        }
-        for (const [oldName, newName] of renames) {
-            if (!newName) {
-                errors.set(oldName, 'Glyph names cannot be empty.');
-            }
-            const sources = targetSources.get(newName) || [];
-            sources.push(oldName);
-            targetSources.set(newName, sources);
-            allNames.delete(oldName);
-        }
-        for (const [newName, sources] of targetSources) {
-            if (sources.length > 1) {
-                for (const source of sources) {
-                    errors.set(source, `Duplicates ${newName}.`);
-                }
-            }
-            if (allNames.has(newName)) {
-                for (const source of sources) {
-                    errors.set(source, 'already exists');
-                }
             }
         }
         return errors;
