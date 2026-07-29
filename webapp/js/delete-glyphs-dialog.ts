@@ -134,7 +134,10 @@ function buildFeaturesPreviewHtml(
     if (preflight.featureHits.length === 0) {
         return '<div class="delete-glyphs-preview-empty">No feature references</div>';
     }
-    return preflight.featureHits
+    const legend = `<p class="delete-glyphs-preview-legend">
+        Glyph names are removed from classes. Matching feature and prefix lines are commented out.
+    </p>`;
+    const blocks = preflight.featureHits
         .map((hit) => {
             const linesHtml = hit.lines
                 .map(
@@ -150,6 +153,7 @@ function buildFeaturesPreviewHtml(
             </section>`;
         })
         .join('');
+    return legend + blocks;
 }
 
 function buildMetricsTableHtml(
@@ -262,7 +266,7 @@ function buildKerningPreviewHtml(preflight: GlyphDeletePreflight): string {
         return '<div class="delete-glyphs-preview-empty">No kerning pairs</div>';
     }
     const masters = preflight.kerningMasters || [];
-    const legend = `<p class="delete-glyphs-kern-legend">
+    const legend = `<p class="delete-glyphs-preview-legend">
         <span class="delete-glyphs-kern-legend-remove">Bold red</span> pairs are removed.
         Normal pairs keep their class kerning; only the deleted glyph leaves the class.
     </p>`;

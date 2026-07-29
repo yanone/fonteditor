@@ -5825,7 +5825,7 @@ kbd + kbd {
     font-weight: 400;
 }
 
-.delete-glyphs-kern-legend {
+.delete-glyphs-preview-legend {
     margin: 0 0 10px 0;
     font-size: 11px;
     line-height: 1.45;
