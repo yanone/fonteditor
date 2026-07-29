@@ -291,26 +291,6 @@ async function initFontEditor() {
 
 // Initialize FontEditor when Pyodide is ready
 document.addEventListener('DOMContentLoaded', () => {
-    // Safety timeout - hide loading screen after 30 seconds no matter what
-    setTimeout(() => {
-        const extendedWindow = window as ExtendedWindow;
-        if (
-            extendedWindow.__unsupportedBrowserWarningRequired === true &&
-            extendedWindow.__unsupportedBrowserWarningAcknowledged !== true
-        ) {
-            return;
-        }
-
-        const loadingOverlay = document.getElementById('loading-overlay');
-        if (loadingOverlay && !loadingOverlay.classList.contains('hidden')) {
-            console.error(
-                '[FontEditor]',
-                'Loading timeout - forcing overlay hide after 30 seconds'
-            );
-            loadingOverlay.classList.add('hidden');
-        }
-    }, 30000);
-
     // Wait for pyodide to be available
     const checkPyodide = () => {
         if (window.pyodide) {

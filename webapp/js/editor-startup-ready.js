@@ -42,7 +42,7 @@ function markFontEditorReadyFailed(error) {
     );
 }
 
-async function waitForFontEditorReady(timeoutMs = 30000) {
+async function waitForFontEditorReady() {
     ensurePendingState();
 
     const stateWindow = getStateWindow();
@@ -70,7 +70,6 @@ async function waitForFontEditorReady(timeoutMs = 30000) {
                 FONT_EDITOR_READY_FAILED_EVENT,
                 onFailed
             );
-            window.clearTimeout(timeoutId);
             callback();
         };
 
@@ -86,16 +85,6 @@ async function waitForFontEditorReady(timeoutMs = 30000) {
                 );
             });
         };
-
-        const timeoutId = window.setTimeout(() => {
-            finish(() => {
-                reject(
-                    new Error(
-                        'Timed out waiting for font editor startup readiness'
-                    )
-                );
-            });
-        }, timeoutMs);
 
         window.addEventListener(FONT_EDITOR_READY_EVENT, onReady, {
             once: true

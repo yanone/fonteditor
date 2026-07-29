@@ -741,23 +741,12 @@ async function waitForFileBrowserReady(timeoutMs = 30000): Promise<void> {
     ]);
 }
 
-async function waitForPythonEnvironmentReady(timeoutMs = 30000): Promise<void> {
-    const startedAt = performance.now();
-
+async function waitForPythonEnvironmentReady(): Promise<void> {
     if (!window.pyodide) {
-        await new Promise<void>((resolve, reject) => {
+        await new Promise<void>((resolve) => {
             const checkReadiness = () => {
                 if (window.pyodide) {
                     resolve();
-                    return;
-                }
-
-                if (performance.now() - startedAt >= timeoutMs) {
-                    reject(
-                        new Error(
-                            'Timed out waiting for Python environment to initialize'
-                        )
-                    );
                     return;
                 }
 
@@ -771,7 +760,7 @@ async function waitForPythonEnvironmentReady(timeoutMs = 30000): Promise<void> {
         });
     }
 
-    await waitForFontEditorReady(timeoutMs);
+    await waitForFontEditorReady();
 }
 
 function normalizeObservedPath(path: string): string {

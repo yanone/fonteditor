@@ -46,7 +46,7 @@ describe('editor startup readiness', () => {
 
     it('waits for full font editor readiness before resolving', async () => {
         let resolved = false;
-        const readyPromise = waitForFontEditorReady(30000).then(() => {
+        const readyPromise = waitForFontEditorReady().then(() => {
             resolved = true;
         });
 
@@ -60,20 +60,26 @@ describe('editor startup readiness', () => {
     });
 
     it('rejects when startup fails before readiness', async () => {
-        const readyPromise = waitForFontEditorReady(30000);
+        const readyPromise = waitForFontEditorReady();
 
         markFontEditorReadyFailed(new Error('startup failed'));
 
         await expect(readyPromise).rejects.toThrow('startup failed');
     });
 
-    it('times out while startup remains pending', async () => {
-        const readyPromise = waitForFontEditorReady(1000);
+    it('remains pending beyond the former startup deadline', async () => {
+        let resolved = false;
+        const readyPromise = waitForFontEditorReady().then(() => {
+            resolved = true;
+        });
 
-        jest.advanceTimersByTime(1000);
+        jest.advanceTimersByTime(30000);
+        await Promise.resolve();
 
-        await expect(readyPromise).rejects.toThrow(
-            'Timed out waiting for font editor startup readiness'
-        );
+        expect(resolved).toBe(false);
+
+        markFontEditorReady();
+        await readyPromise;
+        expect(resolved).toBe(true);
     });
 });
