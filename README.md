@@ -124,6 +124,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ◻️ Variable components
 - ◻️ OpenType feature code generator
 - ◻️ Glyph composition UI (OpenType ccmp)
+- ◻️ Manual OpenType class editing
 - ◻️ Contextual kerning/positioning UI
 - ✅ Multiple font windows
 - ◻️ Plugin system architecture complete
