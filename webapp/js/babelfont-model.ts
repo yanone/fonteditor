@@ -12374,6 +12374,7 @@ export class Font extends ModelBase {
         }
 
         withBridgeTransaction('Rename glyphs', () => {
+            assertModelMutationAllowed();
             // Preflight before any model writes — withBridgeTransaction commits
             // buffered ops in `finally` even when the body throws.
             const bridge = getPatchSyncEngine();
@@ -13625,6 +13626,7 @@ export class Font extends ModelBase {
                 ? `Delete glyph ${[...deletedNames][0]}`
                 : `Delete ${deletedNames.size} glyphs`,
             () => {
+                assertModelMutationAllowed();
                 for (const glyph of this.glyphs) {
                     if (deletedNames.has(glyph.name)) {
                         continue;
