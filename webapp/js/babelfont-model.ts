@@ -13,10 +13,7 @@
 
 import type { Babelfont } from './babelfont';
 import { setYPath } from './change-bridge-ydoc';
-import {
-    glyphDataPluginManager,
-    type GlyphDataSearchResult
-} from './glyph-data-plugin-manager';
+import { glyphDataIndex, type GlyphDataSearchResult } from './glyph-data';
 import { assertModelMutationAllowed } from './model-mutation-policy';
 import { parseNodeString, serializeNodeArray } from './node-encoding';
 import { applyGlyphRenameUiContext } from './rename-glyphs-ui-context';
@@ -10065,7 +10062,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     /**
-     * Read-only Unicode metadata from the active Glyph Data provider.
+     * Read-only Unicode metadata from the bundled Glyph Data catalog.
      * Encoded base glyphs win over editable glyph names; dotted glyphs inherit
      * the identity of their base glyph before a name fallback is attempted.
      */
@@ -10076,11 +10073,11 @@ export class Glyph extends ArrayElementBase {
             baseName !== this.name ? font?.findGlyph(baseName) : this;
         const target = baseGlyph || this;
         return (
-            glyphDataPluginManager.getGlyphDataForUnicode(target.codepoints) ||
-            glyphDataPluginManager.getGlyphDataForName(target.name) ||
+            glyphDataIndex.getGlyphDataForUnicode(target.codepoints) ||
+            glyphDataIndex.getGlyphDataForName(target.name) ||
             (baseGlyph
                 ? undefined
-                : glyphDataPluginManager.getGlyphDataForName(baseName))
+                : glyphDataIndex.getGlyphDataForName(baseName))
         );
     }
 

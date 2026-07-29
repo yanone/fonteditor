@@ -1,6 +1,8 @@
 import { Logger } from './logger';
 
-const console = new Logger('GlyphDataPluginManager');
+const console = new Logger('GlyphData');
+
+const GLYPH_DATA_URL = '/data/glyph-data.json.gz';
 
 export interface GlyphData {
     codepoint: number;
@@ -9,28 +11,35 @@ export interface GlyphData {
     general_category: string;
     category?: string;
     script: string;
-    script_extensions?: string;
+    script_extensions?: string | string[];
     block?: string;
     age?: string;
     joining_type?: string;
     joining_group?: string;
     decomposition?: string;
+    combining_class?: string;
+    bidi_class?: string;
+    decimal?: string;
+    digit?: string;
+    numeric?: string;
+    mirrored?: string;
+    unicode_1_name?: string;
+    iso_comment?: string;
+    uppercase?: string;
+    lowercase?: string;
+    titlecase?: string;
+    name_aliases?: Array<[string, string] | string[]>;
 }
 
 export interface GlyphDataSearchResult extends GlyphData {
     character: string;
 }
 
-type PyodideLike = {
-    loadPackage(name: string): Promise<void>;
-    runPythonAsync(code: string): Promise<string>;
-};
-
 /**
- * Loads the bundled Glyph Data wheel once and keeps a JavaScript search index
- * so interactive searches never cross the Pyodide boundary.
+ * Loads the build-time Glyph Data JSON once and keeps a JavaScript search
+ * index for Add Glyphs and Glyph.glyphData lookups.
  */
-export class GlyphDataPluginManager {
+export class GlyphDataIndex {
     private records: GlyphDataSearchResult[] = [];
     private byCodepoint = new Map<number, GlyphDataSearchResult>();
     private byName = new Map<string, GlyphDataSearchResult>();
@@ -130,49 +139,40 @@ export class GlyphDataPluginManager {
             .map(({ record }) => record);
     }
 
+    /** Test helper: replace the index with an in-memory catalog. */
+    loadRecordsForTests(records: GlyphData[]): void {
+        this.applyRecords(records);
+        this.readyPromise = Promise.resolve();
+    }
+
+    /** Test helper: clear the index so ensureReady() reloads. */
+    resetForTests(): void {
+        this.records = [];
+        this.byCodepoint = new Map();
+        this.byName = new Map();
+        this.readyPromise = null;
+    }
+
     private async load(): Promise<void> {
-        const pyodide = await this.waitForPyodide();
-        const manifestResponse = await fetch('/wheels/wheels.json');
-        if (!manifestResponse.ok) {
+        const response = await fetch(GLYPH_DATA_URL);
+        if (!response.ok) {
             throw new Error(
-                'Unable to load bundled Glyph Data wheel manifest.'
+                `Unable to load Glyph Data catalog (${response.status}).`
             );
         }
-        const manifest = (await manifestResponse.json()) as {
-            wheels?: string[];
-        };
-        const wheel = manifest.wheels?.find((name) =>
-            name.startsWith('counterpunch_glyph_data-')
-        );
-        if (!wheel) {
-            throw new Error('The bundled Glyph Data wheel is missing.');
-        }
+        const records = JSON.parse(
+            await decompressGzipResponse(response)
+        ) as GlyphData[];
+        this.applyRecords(records);
+        window.dispatchEvent(new Event('counterpunch:glyph-data-ready'));
+        console.log(`Loaded ${this.records.length} Glyph Data records.`);
+    }
 
-        await pyodide.loadPackage('micropip');
-        await pyodide.runPythonAsync('import micropip');
-        await pyodide.runPythonAsync(
-            `await micropip.install(${JSON.stringify(`/wheels/${wheel}`)})`
-        );
-        const json = await pyodide.runPythonAsync(`
-import json
-from importlib.metadata import entry_points
-
-entries = list(entry_points(group='counterpunch_glyph_data_plugins'))
-if not entries:
-    raise RuntimeError('No Glyph Data provider entry point is installed.')
-provider = entries[0].load()()
-json.dumps(provider.search_records())
-`);
-        const records = JSON.parse(json) as GlyphData[];
+    private applyRecords(records: GlyphData[]): void {
         this.records = records.map((record) => ({
             ...record,
             general_category: record.general_category || record.category || '',
-            character:
-                record.codepoint >= 0x20 &&
-                record.codepoint !== 0x7f &&
-                record.codepoint <= 0x10ffff
-                    ? String.fromCodePoint(record.codepoint)
-                    : ''
+            character: characterForCodepoint(record.codepoint)
         }));
         this.byCodepoint = new Map(
             this.records.map((record) => [record.codepoint, record])
@@ -180,28 +180,36 @@ json.dumps(provider.search_records())
         this.byName = new Map(
             this.records.map((record) => [record.glyph_name, record])
         );
-        window.dispatchEvent(new Event('counterpunch:glyph-data-ready'));
-        console.log(`Loaded ${this.records.length} Glyph Data records.`);
-    }
-
-    private async waitForPyodide(): Promise<PyodideLike> {
-        for (let attempt = 0; attempt < 200; attempt += 1) {
-            if (window.pyodide) {
-                return window.pyodide as PyodideLike;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-        throw new Error('Pyodide did not become available for Glyph Data.');
     }
 }
 
-export const glyphDataPluginManager = new GlyphDataPluginManager();
-(globalThis as any).glyphDataPluginManager = glyphDataPluginManager;
+function characterForCodepoint(codepoint: number): string {
+    return codepoint >= 0x20 && codepoint !== 0x7f && codepoint <= 0x10ffff
+        ? String.fromCodePoint(codepoint)
+        : '';
+}
 
-// The wheel is bundled with every editor build. Begin loading once Pyodide is
-// available so model lookups are normally ready before the user opens Font.
-void glyphDataPluginManager
-    .ensureReady()
-    .catch((error) =>
-        console.warn('Glyph Data will be retried when opened.', error)
-    );
+async function decompressGzipResponse(response: Response): Promise<string> {
+    if (typeof DecompressionStream === 'undefined') {
+        throw new Error('Gzip DecompressionStream is not available.');
+    }
+    if (!response.body) {
+        throw new Error('Glyph Data response has no body.');
+    }
+    const stream = response.body.pipeThrough(new DecompressionStream('gzip'));
+    return new Response(stream).text();
+}
+
+export const glyphDataIndex = new GlyphDataIndex();
+(globalThis as { glyphDataIndex?: GlyphDataIndex }).glyphDataIndex =
+    glyphDataIndex;
+
+// Static catalog — safe to warm during boot (no Pyodide). Skip in Jest
+// where `fetch` is unset unless a test mocks it.
+if (typeof fetch === 'function') {
+    void glyphDataIndex
+        .ensureReady()
+        .catch((error) =>
+            console.warn('Glyph Data will be retried when opened.', error)
+        );
+}

@@ -320,7 +320,7 @@ glyph = font.findGlyph("A")
 
 - **`featureVariations`** (list[FeatureVariationGlyph]): Synthetic, authorable views over this glyph's raw Glyphs feature-variation layers.
 - **`BUILTIN_CATEGORIES`** (Any)
-- **`glyphData`** (GlyphDataSearchResult | None): Read-only Unicode metadata from the active Glyph Data provider.
+- **`glyphData`** (GlyphDataSearchResult | None): Read-only Unicode metadata from the bundled Glyph Data catalog.
 Encoded base glyphs win over editable glyph names; dotted glyphs inherit
 the identity of their base glyph before a name fallback is attempted.
 - **`layers`** (list[[Layer](#layer)] | None)

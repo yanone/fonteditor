@@ -177,8 +177,7 @@ json.dumps(result)
             ? manifest.wheels.filter(
                   (wheel): wheel is string =>
                       typeof wheel === 'string' &&
-                      wheel.startsWith('counterpunch_') &&
-                      !wheel.startsWith('counterpunch_glyph_data-')
+                      wheel.startsWith('counterpunch_')
               )
             : [];
         if (wheels.length) {

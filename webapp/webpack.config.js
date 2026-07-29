@@ -118,6 +118,7 @@ module.exports = {
                 { from: 'examples', to: 'examples' },
                 { from: 'py', to: 'py' },
                 { from: 'wheels', to: 'wheels' },
+                { from: 'data', to: 'data' },
                 { from: '_headers', to: '_headers' },
                 {
                     from: 'worktree-config.json',

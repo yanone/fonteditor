@@ -16,7 +16,7 @@ import type { WindowRoleManager } from './window-role';
 import type { AutomationWindowMetadata } from './automation-runtime';
 import type { CloudPlugin, CloudEligibility, CloudAsset } from './cloud-plugin';
 import type { FindGlyphDialog } from './find-glyph-dialog';
-import type { GlyphDataPluginManager } from './glyph-data-plugin-manager';
+import type { GlyphDataIndex } from './glyph-data';
 import type { AddGlyphsDialog } from './add-glyphs-dialog';
 import type { RenameGlyphsDialog } from './rename-glyphs-dialog';
 import type { DeleteGlyphsDialog } from './delete-glyphs-dialog';
@@ -310,8 +310,8 @@ declare global {
         GlyphOverview: new (container: HTMLElement) => any;
         glyphOverviewInstance: any;
 
-        // From glyph-data-plugin-manager.ts
-        glyphDataPluginManager: GlyphDataPluginManager;
+        // From glyph-data.ts
+        glyphDataIndex: GlyphDataIndex;
         addGlyphsDialog: AddGlyphsDialog;
         renameGlyphsDialog: RenameGlyphsDialog;
         deleteGlyphsDialog: DeleteGlyphsDialog;

@@ -43,6 +43,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     FontInfo: false,
     FontManager: false,
     GlyphCanvas: false,
+    GlyphData: false,
     GlyphOverview: false,
     GlyphOverviewFilters: false,
     GlyphTileRendererFast: false,

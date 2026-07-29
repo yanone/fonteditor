@@ -1,8 +1,5 @@
 import { Font } from './babelfont-model';
-import {
-    glyphDataPluginManager,
-    type GlyphDataSearchResult
-} from './glyph-data-plugin-manager';
+import { glyphDataIndex, type GlyphDataSearchResult } from './glyph-data';
 import {
     characterSetPluginManager,
     type CharacterSetCoverageLevel,
@@ -94,7 +91,7 @@ export class AddGlyphsDialog {
         this.searchInput.placeholder = 'Loading Glyph Data…';
         try {
             await Promise.all([
-                glyphDataPluginManager.ensureReady(),
+                glyphDataIndex.ensureReady(),
                 characterSetPluginManager.ensureReady()
             ]);
             this.renderProviderOptions();
@@ -296,7 +293,7 @@ export class AddGlyphsDialog {
         const version = ++this.searchVersion;
         const query = this.searchInput?.value || '';
         if (this.activeProviderId === 'unicode') {
-            this.results = glyphDataPluginManager.search(query);
+            this.results = glyphDataIndex.search(query);
         } else {
             const characters = await characterSetPluginManager.getCharacters(
                 this.activeProviderId,
@@ -308,9 +305,7 @@ export class AddGlyphsDialog {
             }
             this.results = characters
                 .map((character) =>
-                    glyphDataPluginManager.getGlyphDataForUnicode([
-                        character.codepoint
-                    ])
+                    glyphDataIndex.getGlyphDataForUnicode([character.codepoint])
                 )
                 .filter(
                     (record): record is GlyphDataSearchResult =>
