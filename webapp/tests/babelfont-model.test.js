@@ -5156,6 +5156,21 @@ describe('Babelfont Object Model', () => {
             expect(font.findGlyph('A.001').codepoints).toBeUndefined();
             expect(font.findGlyph('C.001').codepoints).toBeUndefined();
         });
+
+        test('addGlyph insertIndex places after namesake family', () => {
+            const font = makeDuplicateFont();
+            font.duplicateGlyph(font.findGlyph('A'), 'A.001');
+            const insertIndex = font.findInsertIndexAfterName('A');
+            expect(insertIndex).toBe(2);
+            font.addGlyph('A.002', 'Base', { insertIndex });
+            expect(font.glyphs.map((g) => g.name)).toEqual([
+                'A',
+                'A.001',
+                'A.002',
+                'B',
+                'C'
+            ]);
+        });
     });
 
     describe('Font.renameGlyphs()', () => {

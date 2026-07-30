@@ -14,13 +14,17 @@
 
 import { Logger } from './logger';
 import { getHighestVisibleVerticalMetricValue } from './glyph-canvas/vertical-metrics';
-import type { Font, Layer, Master } from './babelfont-model';
+import type { Font, Glyph, Layer, Master } from './babelfont-model';
 import type { Babelfont } from './babelfont';
+import type {
+    PasteFeatureVariation,
+    PasteGlyphLayer,
+    PasteGlyphsDocument
+} from './clipboard/json';
 import {
     canParseCounterpunchJson,
     COUNTERPUNCH_CLIPBOARD_MIME,
-    parseCounterpunchJson,
-    type PasteGlyphsDocument
+    parseCounterpunchJson
 } from './clipboard/json';
 import {
     SVG_MIME_TYPES,
@@ -43,6 +47,7 @@ export {
     buildSelectionClipboardDocument,
     serializeAnchorForClipboard,
     serializeComponentForClipboard,
+    serializeFontMastersForClipboard,
     serializeGlyphForClipboard,
     serializeGuideForClipboard,
     serializeLayerForClipboard,
@@ -107,6 +112,7 @@ export type ApplyPasteResult = {
 
 export type ApplyPasteGlyphsResult = ApplyPasteResult & {
     createdGlyphNames: string[];
+    warnings: string[];
 };
 
 export function collectClipboardPayloads(
@@ -347,14 +353,11 @@ export function applyPasteFragment(
 }
 
 /**
- * Paste a whole-glyph Counterpunch JSON document onto the current glyph.
- * Layers are matched by count (order). Metrics/width are applied per layer.
- */
-/**
  * Paste whole-glyph clipboard data as always-new glyphs.
- * Names use Glyphs-style uniqueness (`a` → `a.001` when `a` exists).
- * New glyphs get layers for this font's masters; source layer content is
- * zipped by count/order onto those layers (master IDs come from the target).
+ * Layers are matched by masterIndex (source master order → target master order).
+ * Layer copies and braces are recreated; braces whose location axes are missing
+ * in the target are skipped with a warning. Feature variations are attached to
+ * the new glyph as AssociatedWithMaster families.
  */
 export function applyPasteGlyphsDocument(
     document: PasteGlyphsDocument,
@@ -369,14 +372,16 @@ export function applyPasteGlyphsDocument(
             guides: [],
             keepAbsoluteCoords: true
         }),
-        createdGlyphNames: []
+        createdGlyphNames: [],
+        warnings: []
     });
 
     if (!document.glyphs.length) {
         return { ...empty(), error: 'Clipboard has no glyphs to paste.' };
     }
 
-    const masterCount = options.font.masters?.length ?? 0;
+    const targetMasters = options.font.masters || [];
+    const masterCount = targetMasters.length;
     if (masterCount < 1) {
         return {
             ...empty(),
@@ -384,20 +389,35 @@ export function applyPasteGlyphsDocument(
         };
     }
 
-    for (const sourceGlyph of document.glyphs) {
-        if (sourceGlyph.layers.length !== masterCount) {
-            return {
-                ...empty(),
-                error: `Glyph /${sourceGlyph.name}: clipboard has ${sourceGlyph.layers.length} layers, font has ${masterCount} masters.`
-            };
-        }
+    if (!document.masters?.length) {
+        return {
+            ...empty(),
+            error: 'Clipboard is missing masters metadata. Re-copy with the current Counterpunch / Glyphs script.'
+        };
     }
 
+    if (document.masters.length !== masterCount) {
+        return {
+            ...empty(),
+            error: `Clipboard has ${document.masters.length} masters, font has ${masterCount}. Master counts must match.`
+        };
+    }
+
+    const targetAxisKeys = collectTargetAxisKeys(options.font);
     const aggregate = empty();
+    let skippedBraceCount = 0;
 
     for (const sourceGlyph of document.glyphs) {
         const newName = options.font.allocateUniqueGlyphName(sourceGlyph.name);
-        const targetGlyph = options.font.addGlyph(newName);
+        const insertIndex =
+            typeof options.font.findInsertIndexAfterName === 'function'
+                ? options.font.findInsertIndexAfterName(sourceGlyph.name)
+                : undefined;
+        const targetGlyph = options.font.addGlyph(
+            newName,
+            'Base',
+            insertIndex === undefined ? undefined : { insertIndex }
+        );
         if (sourceGlyph.leftMetricsKey) {
             targetGlyph.leftMetricsKey = sourceGlyph.leftMetricsKey;
         }
@@ -405,65 +425,264 @@ export function applyPasteGlyphsDocument(
             targetGlyph.rightMetricsKey = sourceGlyph.rightMetricsKey;
         }
 
-        const targetLayers = (targetGlyph.layers || []).filter(
-            (layer) => !layer.is_background
+        const defaultLayersByMasterIndex = getDefaultLayersByMasterIndex(
+            targetGlyph,
+            targetMasters
         );
-        if (targetLayers.length !== sourceGlyph.layers.length) {
+        if (defaultLayersByMasterIndex.length !== masterCount) {
             return {
                 ...aggregate,
-                error: `Glyph /${newName}: created ${targetLayers.length} layers, clipboard has ${sourceGlyph.layers.length}.`
+                error: `Glyph /${newName}: expected ${masterCount} default layers, got ${defaultLayersByMasterIndex.length}.`
             };
         }
 
-        for (let index = 0; index < sourceGlyph.layers.length; index++) {
-            const sourceLayer = sourceGlyph.layers[index];
-            const targetLayer = targetLayers[index];
-            const fragment: PasteFragment = {
-                format: 'counterpunch-json',
-                paths: sourceLayer.paths,
-                components: sourceLayer.components,
-                anchors: sourceLayer.anchors,
-                guides: sourceLayer.guides,
-                keepAbsoluteCoords: true
-            };
+        skippedBraceCount += pasteLayersOntoGlyph(sourceGlyph.layers, {
+            targetGlyph,
+            defaultLayersByMasterIndex,
+            targetMasters,
+            targetAxisKeys,
+            glyphExists: options.glyphExists,
+            aggregate
+        });
 
-            for (const path of fragment.paths) {
-                appendPathToLayer(targetLayer, path);
-            }
-            aggregate.addedPathCount += fragment.paths.length;
-            aggregate.fragment.paths.push(...fragment.paths);
-            aggregate.fragment.components.push(...fragment.components);
-            aggregate.fragment.anchors.push(...fragment.anchors);
-            aggregate.fragment.guides.push(...fragment.guides);
-
-            applyNonPathObjectsToLayers(
-                fragment,
-                [targetLayer],
-                targetLayer,
-                targetLayer.getMaster?.() ?? null,
-                options.glyphExists,
-                aggregate,
-                { fanOutAnchors: false }
+        for (const featureVariation of sourceGlyph.featureVariations || []) {
+            skippedBraceCount += pasteFeatureVariationOntoGlyph(
+                featureVariation,
+                {
+                    targetGlyph,
+                    targetMasters,
+                    targetAxisKeys,
+                    glyphExists: options.glyphExists,
+                    aggregate
+                }
             );
-
-            if (
-                typeof sourceLayer.width === 'number' &&
-                Number.isFinite(sourceLayer.width)
-            ) {
-                targetLayer.width = sourceLayer.width;
-            }
-            if (sourceLayer.leftMetricsKey) {
-                targetLayer.leftMetricsKey = sourceLayer.leftMetricsKey;
-            }
-            if (sourceLayer.rightMetricsKey) {
-                targetLayer.rightMetricsKey = sourceLayer.rightMetricsKey;
-            }
         }
 
         aggregate.createdGlyphNames.push(newName);
     }
 
+    if (skippedBraceCount > 0) {
+        aggregate.warnings.push(
+            `Skipped ${skippedBraceCount} intermediate/brace layer${
+                skippedBraceCount === 1 ? '' : 's'
+            } because one or more axis ids are missing in this font.`
+        );
+    }
+
     return aggregate;
+}
+
+type PasteOntoGlyphContext = {
+    targetGlyph: Glyph;
+    defaultLayersByMasterIndex?: Layer[];
+    targetMasters: Master[];
+    targetAxisKeys: Set<string>;
+    glyphExists: (name: string) => boolean;
+    aggregate: ApplyPasteGlyphsResult;
+};
+
+function pasteLayersOntoGlyph(
+    sourceLayers: PasteGlyphLayer[],
+    context: PasteOntoGlyphContext
+): number {
+    let skippedBraces = 0;
+    for (const sourceLayer of sourceLayers) {
+        const master = sourceLayer.master;
+        if (master.type === 'FreeFloating') {
+            continue;
+        }
+
+        const masterIndex = master.masterIndex;
+        const targetMaster = context.targetMasters[masterIndex];
+        if (!targetMaster?.id) {
+            continue;
+        }
+
+        const location = sourceLayer.location;
+        const hasBraceLocation = !!location && Object.keys(location).length > 0;
+
+        if (master.type === 'DefaultForMaster') {
+            const targetLayer =
+                context.defaultLayersByMasterIndex?.[masterIndex];
+            if (!targetLayer) {
+                continue;
+            }
+            pasteLayerContent(sourceLayer, targetLayer, context);
+            continue;
+        }
+
+        // AssociatedWithMaster: brace or layer copy
+        if (hasBraceLocation) {
+            if (!locationAxesExistInTarget(location, context.targetAxisKeys)) {
+                skippedBraces += 1;
+                continue;
+            }
+            const width =
+                typeof sourceLayer.width === 'number' &&
+                Number.isFinite(sourceLayer.width)
+                    ? sourceLayer.width
+                    : 500;
+            const targetLayer = context.targetGlyph.addLayer(width, {
+                type: 'AssociatedWithMaster',
+                master: targetMaster.id
+            });
+            targetLayer.location = { ...location };
+            pasteLayerContent(sourceLayer, targetLayer, context);
+            continue;
+        }
+
+        const width =
+            typeof sourceLayer.width === 'number' &&
+            Number.isFinite(sourceLayer.width)
+                ? sourceLayer.width
+                : 500;
+        const targetLayer = context.targetGlyph.addLayer(width, {
+            type: 'AssociatedWithMaster',
+            master: targetMaster.id
+        });
+        pasteLayerContent(sourceLayer, targetLayer, context);
+    }
+    return skippedBraces;
+}
+
+function pasteFeatureVariationOntoGlyph(
+    featureVariation: PasteFeatureVariation,
+    context: Omit<PasteOntoGlyphContext, 'defaultLayersByMasterIndex'>
+): number {
+    let skippedBraces = 0;
+    const GLYPHS_ATTR_KEY = 'com.schriftgestalt.Glyphs.attr';
+
+    for (const sourceLayer of featureVariation.layers) {
+        const master = sourceLayer.master;
+        if (master.type === 'FreeFloating') {
+            continue;
+        }
+        const targetMaster = context.targetMasters[master.masterIndex];
+        if (!targetMaster?.id) {
+            continue;
+        }
+
+        const location = sourceLayer.location;
+        const hasBraceLocation = !!location && Object.keys(location).length > 0;
+        if (
+            hasBraceLocation &&
+            !locationAxesExistInTarget(location, context.targetAxisKeys)
+        ) {
+            skippedBraces += 1;
+            continue;
+        }
+
+        const width =
+            typeof sourceLayer.width === 'number' &&
+            Number.isFinite(sourceLayer.width)
+                ? sourceLayer.width
+                : 500;
+        const targetLayer = context.targetGlyph.addLayer(width, {
+            type: 'AssociatedWithMaster',
+            master: targetMaster.id
+        });
+        if (hasBraceLocation) {
+            targetLayer.location = { ...location };
+        }
+        targetLayer.format_specific = {
+            ...(targetLayer.format_specific || {}),
+            [GLYPHS_ATTR_KEY]: {
+                axisRules: featureVariation.axisRules
+            }
+        };
+        pasteLayerContent(sourceLayer, targetLayer, {
+            ...context,
+            aggregate: context.aggregate
+        });
+    }
+    return skippedBraces;
+}
+
+function pasteLayerContent(
+    sourceLayer: PasteGlyphLayer,
+    targetLayer: Layer,
+    context: {
+        glyphExists: (name: string) => boolean;
+        aggregate: ApplyPasteGlyphsResult;
+    }
+): void {
+    const fragment: PasteFragment = {
+        format: 'counterpunch-json',
+        paths: sourceLayer.paths,
+        components: sourceLayer.components,
+        anchors: sourceLayer.anchors,
+        guides: sourceLayer.guides,
+        keepAbsoluteCoords: true
+    };
+
+    for (const path of fragment.paths) {
+        appendPathToLayer(targetLayer, path);
+    }
+    context.aggregate.addedPathCount += fragment.paths.length;
+    context.aggregate.fragment.paths.push(...fragment.paths);
+    context.aggregate.fragment.components.push(...fragment.components);
+    context.aggregate.fragment.anchors.push(...fragment.anchors);
+    context.aggregate.fragment.guides.push(...fragment.guides);
+
+    applyNonPathObjectsToLayers(
+        fragment,
+        [targetLayer],
+        targetLayer,
+        targetLayer.getMaster?.() ?? null,
+        context.glyphExists,
+        context.aggregate,
+        { fanOutAnchors: false }
+    );
+
+    if (
+        typeof sourceLayer.width === 'number' &&
+        Number.isFinite(sourceLayer.width)
+    ) {
+        targetLayer.width = sourceLayer.width;
+    }
+    if (sourceLayer.leftMetricsKey) {
+        targetLayer.leftMetricsKey = sourceLayer.leftMetricsKey;
+    }
+    if (sourceLayer.rightMetricsKey) {
+        targetLayer.rightMetricsKey = sourceLayer.rightMetricsKey;
+    }
+}
+
+function getDefaultLayersByMasterIndex(
+    glyph: Glyph,
+    masters: Master[]
+): Layer[] {
+    const layers = (glyph.layers || []).filter((layer) => !layer.is_background);
+    return masters.map((master) => {
+        const match = layers.find((layer) => {
+            const layerMaster = layer.master;
+            return (
+                layerMaster?.type === 'DefaultForMaster' &&
+                layerMaster.master === master.id
+            );
+        });
+        return match!;
+    });
+}
+
+function collectTargetAxisKeys(font: Font): Set<string> {
+    const keys = new Set<string>();
+    for (const axis of font.axes || []) {
+        if (axis.id) {
+            keys.add(axis.id);
+        }
+        if (axis.tag) {
+            keys.add(axis.tag);
+        }
+    }
+    return keys;
+}
+
+function locationAxesExistInTarget(
+    location: Record<string, number>,
+    targetAxisKeys: Set<string>
+): boolean {
+    return Object.keys(location).every((key) => targetAxisKeys.has(key));
 }
 
 function applyNonPathObjectsToLayers(
@@ -773,10 +992,12 @@ export function describePasteResult(result: ApplyPasteResult): string {
         return result.error;
     }
     const createdNames = (result as ApplyPasteGlyphsResult).createdGlyphNames;
+    const warnings = (result as ApplyPasteGlyphsResult).warnings || [];
     if (createdNames?.length) {
-        return `Pasted ${createdNames.length} glyph${
+        const base = `Pasted ${createdNames.length} glyph${
             createdNames.length === 1 ? '' : 's'
         }: ${createdNames.map((name) => `/${name}`).join(', ')}`;
+        return warnings.length ? `${base}. ${warnings.join(' ')}` : base;
     }
     const parts: string[] = [];
     if (result.fragment.paths.length > 0) {

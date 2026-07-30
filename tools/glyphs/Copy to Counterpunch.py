@@ -6,7 +6,8 @@ Copy the current Glyphs selection to the system clipboard as Counterpunch JSON.
 - Edit view (Glyphs.font.currentTab): copy selected objects from
   Glyphs.font.selectedLayers[0]
 - Font view: copy each glyph in Glyphs.font.selection as a complete glyph
-  (all foreground layers, including metrics keys and width)
+  (master defaults, layer copies, braces, and feature-variation families,
+  with masterIndex association for Counterpunch paste)
 """
 
 from __future__ import division, print_function, unicode_literals
@@ -29,7 +30,7 @@ from GlyphsApp import (
 )
 
 CLIPBOARD_FORMAT = "counterpunch-clipboard"
-CLIPBOARD_VERSION = 1
+CLIPBOARD_VERSION = 2
 
 NODE_TYPE_MAP = {
     LINE: "Line",
@@ -106,8 +107,50 @@ def build_glyphs_payload(font):
         "version": CLIPBOARD_VERSION,
         "kind": "glyphs",
         "nodeOrder": "glyphs",
-        "glyphs": [serialize_glyph(glyph) for glyph in glyphs],
+        "masters": serialize_masters(font),
+        "glyphs": [serialize_glyph(glyph, font) for glyph in glyphs],
     }
+
+
+def serialize_masters(font):
+    masters = []
+    for master in font.masters:
+        entry = {
+            "id": master.id,
+            "name": master_display_name(master),
+        }
+        location = master_location(master, font)
+        if location:
+            entry["location"] = location
+        masters.append(entry)
+    return masters
+
+
+def master_display_name(master):
+    name = getattr(master, "name", None)
+    if name is None:
+        return master.id
+    try:
+        return str(name)
+    except Exception:
+        return master.id
+
+
+def master_location(master, font):
+    # Prefer explicit axis values when present; otherwise omit.
+    location = {}
+    axes = list(font.axes) if font.axes else []
+    values = getattr(master, "axesValues", None) or getattr(master, "weightValue", None)
+    if axes and isinstance(values, (list, tuple)) and len(values) == len(axes):
+        for axis, value in zip(axes, values):
+            axis_id = getattr(axis, "axisId", None) or getattr(axis, "tag", None)
+            if not axis_id:
+                continue
+            try:
+                location[str(axis_id)] = float(value)
+            except Exception:
+                pass
+    return location or None
 
 
 def collect_selected_layer_objects(layer):
@@ -144,28 +187,51 @@ def collect_selected_layer_objects(layer):
     return paths, components, anchors, guides
 
 
-def serialize_glyph(glyph):
-    layers = []
+def serialize_glyph(glyph, font):
+    masters = list(font.masters)
+    base_layers = []
+    feature_variations = {}
+
     for layer in glyph.layers:
-        # Skip background-only layer records if present; backgrounds live on
-        # layer.background and are not part of this export.
         if getattr(layer, "isBackground", False):
             continue
         if getattr(layer, "layerId", None) == "background":
             continue
-        layers.append(serialize_layer(layer))
 
-    return {
+        serialized = serialize_layer(layer, font, masters)
+        if serialized is None:
+            continue
+
+        axis_rules = feature_variation_axis_rules(layer)
+        if axis_rules is not None:
+            family_key = json.dumps(axis_rules, sort_keys=True)
+            family = feature_variations.get(family_key)
+            if family is None:
+                family = {"axisRules": axis_rules, "layers": []}
+                feature_variations[family_key] = family
+            family["layers"].append(serialized)
+            continue
+
+        base_layers.append(serialized)
+
+    payload = {
         "name": glyph.name,
         "leftMetricsKey": nullable_string(getattr(glyph, "leftMetricsKey", None)),
         "rightMetricsKey": nullable_string(
             getattr(glyph, "rightMetricsKey", None)
         ),
-        "layers": layers,
+        "layers": base_layers,
     }
+    if feature_variations:
+        payload["featureVariations"] = list(feature_variations.values())
+    return payload
 
 
-def serialize_layer(layer):
+def serialize_layer(layer, font, masters):
+    master = classify_layer_master(layer, masters)
+    if master is None:
+        return None
+
     paths = [serialize_path(path) for path in layer.paths]
     components = [serialize_component(component) for component in layer.components]
     anchors = [serialize_anchor(anchor) for anchor in layer.anchors]
@@ -173,9 +239,10 @@ def serialize_layer(layer):
         serialize_guide(guide, global_guide=False) for guide in layer.guides
     ]
 
-    return {
+    payload = {
         "layerId": layer.layerId,
         "name": layer.name,
+        "master": master,
         "width": float(layer.width),
         "leftMetricsKey": nullable_string(
             getattr(layer, "leftMetricsKey", None)
@@ -190,6 +257,73 @@ def serialize_layer(layer):
         "anchors": anchors,
         "guides": guides,
     }
+    location = layer_brace_location(layer, font)
+    if location:
+        payload["location"] = location
+    return payload
+
+
+def classify_layer_master(layer, masters):
+    master_ids = [master.id for master in masters]
+    layer_id = getattr(layer, "layerId", None)
+    if layer_id in master_ids:
+        return {
+            "type": "DefaultForMaster",
+            "masterIndex": master_ids.index(layer_id),
+        }
+    associated = getattr(layer, "associatedMasterId", None)
+    if associated in master_ids:
+        return {
+            "type": "AssociatedWithMaster",
+            "masterIndex": master_ids.index(associated),
+        }
+    return {"type": "FreeFloating"}
+
+
+def layer_brace_location(layer, font):
+    attributes = getattr(layer, "attributes", None)
+    if not attributes:
+        return None
+    coords = None
+    try:
+        coords = attributes.get("coordinates")
+    except Exception:
+        coords = attributes["coordinates"] if "coordinates" in attributes else None
+    if not coords:
+        return None
+    axes = list(font.axes) if font.axes else []
+    location = {}
+    if isinstance(coords, dict):
+        for key, value in coords.items():
+            try:
+                location[str(key)] = float(value)
+            except Exception:
+                pass
+        return location or None
+    if isinstance(coords, (list, tuple)) and axes and len(coords) == len(axes):
+        for axis, value in zip(axes, coords):
+            axis_id = getattr(axis, "axisId", None) or getattr(axis, "tag", None)
+            if not axis_id:
+                continue
+            try:
+                location[str(axis_id)] = float(value)
+            except Exception:
+                pass
+        return location or None
+    return None
+
+
+def feature_variation_axis_rules(layer):
+    attributes = getattr(layer, "attributes", None)
+    if not attributes:
+        return None
+    try:
+        axis_rules = attributes.get("axisRules")
+    except Exception:
+        axis_rules = attributes["axisRules"] if "axisRules" in attributes else None
+    if isinstance(axis_rules, (list, tuple)):
+        return list(axis_rules)
+    return None
 
 
 def serialize_path(path):

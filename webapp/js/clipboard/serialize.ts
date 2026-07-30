@@ -4,13 +4,18 @@
 
 import {
     DecomposedAffineTransform,
-    type Glyph,
-    type Layer
+    Layer,
+    type Font,
+    type Glyph
 } from '../babelfont-model';
 import {
     COUNTERPUNCH_CLIPBOARD_FORMAT,
+    COUNTERPUNCH_GLYPHS_CLIPBOARD_VERSION,
+    type PasteClipboardMaster,
+    type PasteFeatureVariation,
     type PasteGlyph,
-    type PasteGlyphLayer
+    type PasteGlyphLayer,
+    type PasteLayerMaster
 } from './json';
 import type {
     PasteAnchor,
@@ -21,6 +26,8 @@ import type {
 } from './types';
 
 export const COUNTERPUNCH_CLIPBOARD_VERSION = 1;
+
+const GLYPHS_ATTR_KEY = 'com.schriftgestalt.Glyphs.attr';
 
 export type CounterpunchSelectionClipboard = {
     format: typeof COUNTERPUNCH_CLIPBOARD_FORMAT;
@@ -41,6 +48,7 @@ export type CounterpunchGlyphsClipboard = {
     version: number;
     kind: 'glyphs';
     nodeOrder: 'start-first';
+    masters: PasteClipboardMaster[];
     glyphs: PasteGlyph[];
 };
 
@@ -80,37 +88,89 @@ export function buildSelectionClipboardDocument(options: {
 }
 
 export function buildGlyphsClipboardDocument(
-    glyphs: PasteGlyph[]
+    glyphs: PasteGlyph[],
+    masters: PasteClipboardMaster[]
 ): CounterpunchGlyphsClipboard | null {
-    if (glyphs.length === 0) {
+    if (glyphs.length === 0 || masters.length === 0) {
         return null;
     }
     return {
         format: COUNTERPUNCH_CLIPBOARD_FORMAT,
-        version: COUNTERPUNCH_CLIPBOARD_VERSION,
+        version: COUNTERPUNCH_GLYPHS_CLIPBOARD_VERSION,
         kind: 'glyphs',
         nodeOrder: 'start-first',
+        masters,
         glyphs
     };
 }
 
+export function serializeFontMastersForClipboard(
+    font: Font
+): PasteClipboardMaster[] {
+    return (font.masters || []).map((master) => {
+        const location = plainLocation(master.location);
+        return {
+            id: master.id,
+            name: masterDisplayName(master),
+            ...(location ? { location } : {})
+        };
+    });
+}
+
 export function serializeGlyphForClipboard(glyph: Glyph): PasteGlyph {
-    const layers: PasteGlyphLayer[] = [];
-    for (const layer of glyph.layers || []) {
-        if (layer.is_background) {
+    const font = glyph.parent() as Font | null;
+    const masterIds = (font?.masters || []).map((master) => master.id);
+    const masterIndexById = new Map(
+        masterIds.map((id, index) => [id, index] as const)
+    );
+
+    const baseLayers: PasteGlyphLayer[] = [];
+    const featureVariationMap = new Map<
+        string,
+        { axisRules: unknown[]; layers: PasteGlyphLayer[] }
+    >();
+
+    for (const layer of getRawForegroundLayers(glyph)) {
+        const serialized = serializeLayerForClipboard(layer, masterIndexById);
+        if (!serialized) {
             continue;
         }
-        layers.push(serializeLayerForClipboard(layer));
+        const axisRules = readFeatureVariationAxisRules(layer);
+        if (axisRules) {
+            const familyId = JSON.stringify(axisRules);
+            let family = featureVariationMap.get(familyId);
+            if (!family) {
+                family = { axisRules, layers: [] };
+                featureVariationMap.set(familyId, family);
+            }
+            family.layers.push(serialized);
+            continue;
+        }
+        baseLayers.push(serialized);
     }
+
+    const featureVariations: PasteFeatureVariation[] = [
+        ...featureVariationMap.values()
+    ];
+
     return {
         name: glyph.name,
         leftMetricsKey: glyph.leftMetricsKey ?? null,
         rightMetricsKey: glyph.rightMetricsKey ?? null,
-        layers
+        layers: baseLayers,
+        ...(featureVariations.length > 0 ? { featureVariations } : {})
     };
 }
 
-export function serializeLayerForClipboard(layer: Layer): PasteGlyphLayer {
+export function serializeLayerForClipboard(
+    layer: Layer,
+    masterIndexById?: Map<string, number>
+): PasteGlyphLayer | null {
+    const master = serializeLayerMaster(layer, masterIndexById);
+    if (!master) {
+        return null;
+    }
+
     const paths: PastePath[] = [];
     const components: PasteComponent[] = [];
     for (const shape of layer.shapes || []) {
@@ -122,9 +182,13 @@ export function serializeLayerForClipboard(layer: Layer): PasteGlyphLayer {
             );
         }
     }
+
+    const location = plainLocation(layer.location);
     return {
         layerId: layer.id,
         name: layer.name,
+        master,
+        ...(location ? { location } : {}),
         width: Number(layer.width),
         leftMetricsKey: layer.leftMetricsKey ?? null,
         rightMetricsKey: layer.rightMetricsKey ?? null,
@@ -340,6 +404,103 @@ function toAffineTuple(
     return DecomposedAffineTransform.toAffine(
         DecomposedAffineTransform.identity()
     );
+}
+
+function getRawForegroundLayers(glyph: Glyph): Layer[] {
+    const layersData = (glyph as unknown as { data?: { layers?: unknown[] } })
+        .data?.layers;
+    if (!Array.isArray(layersData)) {
+        return [];
+    }
+    const layers: Layer[] = [];
+    for (let index = 0; index < layersData.length; index++) {
+        const layer = new Layer(layersData as never, index, glyph);
+        if (layer.is_background) {
+            continue;
+        }
+        layers.push(layer);
+    }
+    return layers;
+}
+
+function serializeLayerMaster(
+    layer: Layer,
+    masterIndexById?: Map<string, number>
+): PasteLayerMaster | null {
+    const master = layer.master;
+    if (!master || typeof master !== 'object' || !('type' in master)) {
+        return null;
+    }
+    if (master.type === 'FreeFloating') {
+        return { type: 'FreeFloating' };
+    }
+    if (
+        master.type !== 'DefaultForMaster' &&
+        master.type !== 'AssociatedWithMaster'
+    ) {
+        return null;
+    }
+    const masterId = master.master;
+    if (typeof masterId !== 'string' || !masterId) {
+        return null;
+    }
+    const masterIndex = masterIndexById?.get(masterId);
+    if (masterIndex === undefined) {
+        return null;
+    }
+    return { type: master.type, masterIndex };
+}
+
+function readFeatureVariationAxisRules(layer: Layer): unknown[] | null {
+    const attributes = layer.format_specific?.[GLYPHS_ATTR_KEY];
+    if (
+        !attributes ||
+        typeof attributes !== 'object' ||
+        Array.isArray(attributes)
+    ) {
+        return null;
+    }
+    const axisRules = (attributes as { axisRules?: unknown }).axisRules;
+    return Array.isArray(axisRules) ? axisRules : null;
+}
+
+function plainLocation(value: unknown): Record<string, number> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+    const location: Record<string, number> = {};
+    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+        const num = typeof raw === 'number' ? raw : Number(raw);
+        if (!Number.isFinite(num)) {
+            continue;
+        }
+        location[key] = num;
+    }
+    return Object.keys(location).length > 0 ? location : null;
+}
+
+function masterDisplayName(master: {
+    id: string;
+    toJSON?: () => { name?: unknown };
+}): string {
+    const name = master.toJSON?.()?.name;
+    if (typeof name === 'string' && name) {
+        return name;
+    }
+    if (name && typeof name === 'object' && !Array.isArray(name)) {
+        const record = name as Record<string, unknown>;
+        for (const key of ['dflt', 'en']) {
+            if (typeof record[key] === 'string' && record[key]) {
+                return record[key] as string;
+            }
+        }
+        for (const value of Object.values(record)) {
+            if (typeof value === 'string' && value) {
+                return value;
+            }
+        }
+    }
+    return master.id;
 }
 
 // Re-export helpers used by callers that also serialize master guides.

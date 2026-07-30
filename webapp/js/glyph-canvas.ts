@@ -24,7 +24,8 @@ import {
     FeatureVariationGlyph,
     Glyph,
     Layer,
-    Master
+    Master,
+    withSuppressedModelRecording
 } from './babelfont-model';
 import { updateUrlState, encodeLocation } from './url-state';
 import { isSyncEnabled } from './state-sync';
@@ -43,6 +44,7 @@ import {
     collectClipboardPayloads,
     describePasteResult,
     parseClipboardPayloads,
+    serializeFontMastersForClipboard,
     serializeGlyphForClipboard,
     serializePathForClipboard,
     summarizeClipboardDocument,
@@ -688,7 +690,10 @@ class GlyphCanvas {
             }
         }
 
-        const document = buildGlyphsClipboardDocument(glyphs);
+        const document = buildGlyphsClipboardDocument(
+            glyphs,
+            serializeFontMastersForClipboard(fontModel)
+        );
         if (!document) {
             return false;
         }
@@ -707,6 +712,9 @@ class GlyphCanvas {
 
     /**
      * Paste whole-glyph clipboard data as always-new glyphs in the overview.
+     * Build under recording suppression, then record each glyph once (full
+     * snapshot) so the worker / overview see outlines — same idea as
+     * duplicateGlyph's single recordAdd.
      */
     private pasteWholeGlyphsDocument(document: PasteGlyphsDocument): void {
         const fontModel = fontManager.currentFont?.fontModel;
@@ -719,10 +727,20 @@ class GlyphCanvas {
         bridge?.beginTransaction('Paste glyphs');
         let result;
         try {
-            result = applyPasteGlyphsDocument(document, {
-                font: fontModel,
-                glyphExists: (name) => !!fontModel.findGlyph?.(name)
-            });
+            result = withSuppressedModelRecording(() =>
+                applyPasteGlyphsDocument(document, {
+                    font: fontModel,
+                    glyphExists: (name) => !!fontModel.findGlyph?.(name)
+                })
+            );
+            if (!result.error) {
+                for (const name of result.createdGlyphNames) {
+                    const glyph = fontModel.findGlyph?.(name);
+                    if (glyph && typeof bridge?.recordAdd === 'function') {
+                        bridge.recordAdd(['glyphs', name], glyph.toJSON());
+                    }
+                }
+            }
         } finally {
             bridge?.endTransaction();
         }
@@ -731,6 +749,10 @@ class GlyphCanvas {
             console.warn(result.error);
             window.alert?.(result.error);
             return;
+        }
+
+        if (result.warnings?.length) {
+            window.alert?.(result.warnings.join('\n'));
         }
 
         if (result.createdGlyphNames.length > 0) {

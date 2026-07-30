@@ -1,6 +1,9 @@
 /**
  * Counterpunch native JSON clipboard converter
- * (Glyphs "Copy to Counterpunch" script and future CP copy).
+ * (Glyphs "Copy to Counterpunch" script and Counterpunch copy).
+ *
+ * Whole-glyph documents (version >= 2) carry source masters and per-layer
+ * masterIndex association so paste can match across fonts by master order.
  */
 
 import type {
@@ -18,9 +21,20 @@ export const COUNTERPUNCH_CLIPBOARD_FORMAT = 'counterpunch-clipboard';
 export const COUNTERPUNCH_CLIPBOARD_MIME =
     'application/x-counterpunch-clipboard';
 
+/** Minimum whole-glyph schema version (master association + masters list). */
+export const COUNTERPUNCH_GLYPHS_CLIPBOARD_VERSION = 2;
+
+export type PasteLayerMaster =
+    | { type: 'DefaultForMaster'; masterIndex: number }
+    | { type: 'AssociatedWithMaster'; masterIndex: number }
+    | { type: 'FreeFloating' };
+
 export type PasteGlyphLayer = {
     layerId?: string;
     name?: string;
+    master: PasteLayerMaster;
+    /** Designspace location for brace/intermediate layers (axis id or tag keys). */
+    location?: Record<string, number>;
     width?: number;
     leftMetricsKey?: string | null;
     rightMetricsKey?: string | null;
@@ -30,16 +44,30 @@ export type PasteGlyphLayer = {
     guides: PasteGuide[];
 };
 
+export type PasteFeatureVariation = {
+    axisRules: unknown[];
+    layers: PasteGlyphLayer[];
+};
+
+export type PasteClipboardMaster = {
+    id: string;
+    name: string;
+    location?: Record<string, number>;
+};
+
 export type PasteGlyph = {
     name: string;
     leftMetricsKey?: string | null;
     rightMetricsKey?: string | null;
     layers: PasteGlyphLayer[];
+    featureVariations?: PasteFeatureVariation[];
 };
 
 export type PasteGlyphsDocument = {
     format: 'counterpunch-json';
     kind: 'glyphs';
+    version: number;
+    masters: PasteClipboardMaster[];
     glyphs: PasteGlyph[];
     /**
      * `glyphs`: closed paths store the start node last (Glyphs native order).
@@ -84,19 +112,11 @@ export function parseCounterpunchJson(
     const nodeOrder = parseNodeOrder(raw.nodeOrder);
     const kind = raw.kind;
     if (kind === 'glyphs') {
-        const glyphs = parseGlyphs(raw.glyphs, nodeOrder);
-        if (!glyphs || glyphs.length === 0) {
+        const document = parseGlyphsDocument(raw, nodeOrder);
+        if (!document) {
             return null;
         }
-        return {
-            kind: 'glyphs',
-            document: {
-                format: 'counterpunch-json',
-                kind: 'glyphs',
-                glyphs,
-                nodeOrder
-            }
-        };
+        return { kind: 'glyphs', document };
     }
 
     // Default / "selection"
@@ -137,9 +157,61 @@ function parseSelectionFragment(
     };
 }
 
+function parseGlyphsDocument(
+    raw: Record<string, unknown>,
+    nodeOrder: CounterpunchNodeOrder
+): PasteGlyphsDocument | null {
+    const version = optionalNumber(raw.version);
+    if (version === null || version < COUNTERPUNCH_GLYPHS_CLIPBOARD_VERSION) {
+        return null;
+    }
+
+    const masters = parseMasters(raw.masters);
+    if (!masters || masters.length === 0) {
+        return null;
+    }
+
+    const glyphs = parseGlyphs(raw.glyphs, nodeOrder, masters.length);
+    if (!glyphs || glyphs.length === 0) {
+        return null;
+    }
+
+    return {
+        format: 'counterpunch-json',
+        kind: 'glyphs',
+        version,
+        masters,
+        glyphs,
+        nodeOrder
+    };
+}
+
+function parseMasters(value: unknown): PasteClipboardMaster[] | null {
+    if (!Array.isArray(value) || value.length === 0) {
+        return null;
+    }
+    const masters: PasteClipboardMaster[] = [];
+    for (const entry of value) {
+        if (!isRecord(entry) || typeof entry.id !== 'string' || !entry.id) {
+            return null;
+        }
+        const name =
+            typeof entry.name === 'string' && entry.name
+                ? entry.name
+                : entry.id;
+        masters.push({
+            id: entry.id,
+            name,
+            location: parseLocation(entry.location) ?? undefined
+        });
+    }
+    return masters;
+}
+
 function parseGlyphs(
     value: unknown,
-    nodeOrder: CounterpunchNodeOrder
+    nodeOrder: CounterpunchNodeOrder,
+    masterCount: number
 ): PasteGlyph[] | null {
     if (!Array.isArray(value)) {
         return null;
@@ -155,7 +227,7 @@ function parseGlyphs(
         }
         const layers: PasteGlyphLayer[] = [];
         for (const layerEntry of layersRaw) {
-            const layer = parseGlyphLayer(layerEntry, nodeOrder);
+            const layer = parseGlyphLayer(layerEntry, nodeOrder, masterCount);
             if (layer) {
                 layers.push(layer);
             }
@@ -163,26 +235,75 @@ function parseGlyphs(
         if (layers.length === 0) {
             continue;
         }
+
+        const featureVariations = parseFeatureVariations(
+            entry.featureVariations,
+            nodeOrder,
+            masterCount
+        );
+
         glyphs.push({
             name: entry.name,
             leftMetricsKey: optionalString(entry.leftMetricsKey),
             rightMetricsKey: optionalString(entry.rightMetricsKey),
-            layers
+            layers,
+            ...(featureVariations.length > 0 ? { featureVariations } : {})
         });
     }
     return glyphs.length > 0 ? glyphs : null;
 }
 
+function parseFeatureVariations(
+    value: unknown,
+    nodeOrder: CounterpunchNodeOrder,
+    masterCount: number
+): PasteFeatureVariation[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    const result: PasteFeatureVariation[] = [];
+    for (const entry of value) {
+        if (!isRecord(entry) || !Array.isArray(entry.axisRules)) {
+            continue;
+        }
+        if (!Array.isArray(entry.layers) || entry.layers.length === 0) {
+            continue;
+        }
+        const layers: PasteGlyphLayer[] = [];
+        for (const layerEntry of entry.layers) {
+            const layer = parseGlyphLayer(layerEntry, nodeOrder, masterCount);
+            if (layer) {
+                layers.push(layer);
+            }
+        }
+        if (layers.length === 0) {
+            continue;
+        }
+        result.push({
+            axisRules: entry.axisRules,
+            layers
+        });
+    }
+    return result;
+}
+
 function parseGlyphLayer(
     value: unknown,
-    nodeOrder: CounterpunchNodeOrder
+    nodeOrder: CounterpunchNodeOrder,
+    masterCount: number
 ): PasteGlyphLayer | null {
     if (!isRecord(value)) {
+        return null;
+    }
+    const master = parseLayerMaster(value.master, masterCount);
+    if (!master) {
         return null;
     }
     return {
         layerId: optionalString(value.layerId) ?? undefined,
         name: optionalString(value.name) ?? undefined,
+        master,
+        location: parseLocation(value.location) ?? undefined,
         width: optionalNumber(value.width) ?? undefined,
         leftMetricsKey: optionalString(value.leftMetricsKey),
         rightMetricsKey: optionalString(value.rightMetricsKey),
@@ -191,6 +312,49 @@ function parseGlyphLayer(
         anchors: parseAnchors(value.anchors),
         guides: parseGuides(value.guides)
     };
+}
+
+function parseLayerMaster(
+    value: unknown,
+    masterCount: number
+): PasteLayerMaster | null {
+    if (!isRecord(value) || typeof value.type !== 'string') {
+        return null;
+    }
+    if (value.type === 'FreeFloating') {
+        return { type: 'FreeFloating' };
+    }
+    const masterIndex = optionalNumber(value.masterIndex);
+    if (
+        masterIndex === null ||
+        !Number.isInteger(masterIndex) ||
+        masterIndex < 0 ||
+        masterIndex >= masterCount
+    ) {
+        return null;
+    }
+    if (value.type === 'DefaultForMaster') {
+        return { type: 'DefaultForMaster', masterIndex };
+    }
+    if (value.type === 'AssociatedWithMaster') {
+        return { type: 'AssociatedWithMaster', masterIndex };
+    }
+    return null;
+}
+
+function parseLocation(value: unknown): Record<string, number> | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const location: Record<string, number> = {};
+    for (const [key, raw] of Object.entries(value)) {
+        const num = optionalNumber(raw);
+        if (num === null) {
+            continue;
+        }
+        location[key] = num;
+    }
+    return Object.keys(location).length > 0 ? location : null;
 }
 
 function parsePaths(
@@ -248,16 +412,18 @@ function parseNode(value: unknown): PasteNode | null {
     }
     const x = optionalNumber(value.x);
     const y = optionalNumber(value.y);
-    const nodetype = parseNodeType(value.nodetype);
-    if (x === null || y === null || !nodetype) {
+    if (x === null || y === null) {
         return null;
     }
-    return {
-        x,
-        y,
-        nodetype,
-        ...(value.smooth ? { smooth: true } : {})
-    };
+    const nodetype = parseNodeType(value.nodetype ?? value.type);
+    if (!nodetype) {
+        return null;
+    }
+    const node: PasteNode = { x, y, nodetype };
+    if (value.smooth === true) {
+        node.smooth = true;
+    }
+    return node;
 }
 
 function parseNodeType(value: unknown): PasteNodeType | null {
@@ -285,40 +451,37 @@ function parseComponents(value: unknown): PasteComponent[] {
         if (!isRecord(entry) || typeof entry.reference !== 'string') {
             continue;
         }
-        const transform = parseAffineTransform(entry.transform);
-        const x = transform?.[4] ?? optionalNumber(entry.x) ?? 0;
-        const y = transform?.[5] ?? optionalNumber(entry.y) ?? 0;
-        const anchor =
-            typeof entry.anchor === 'string' && entry.anchor.trim()
-                ? entry.anchor.trim()
-                : undefined;
-        components.push({
+        const transform = parseTransform(entry.transform);
+        const component: PasteComponent = {
             reference: entry.reference,
-            x,
-            y,
-            ...(transform ? { transform } : {}),
-            alignment: optionalNumber(entry.alignment) ?? undefined,
-            ...(anchor ? { anchor } : {})
-        });
+            x: optionalNumber(entry.x) ?? transform?.[4] ?? 0,
+            y: optionalNumber(entry.y) ?? transform?.[5] ?? 0
+        };
+        if (transform) {
+            component.transform = transform;
+        }
+        if (typeof entry.alignment === 'number') {
+            component.alignment = entry.alignment;
+        }
+        if (typeof entry.anchor === 'string') {
+            component.anchor = entry.anchor;
+        }
+        components.push(component);
     }
     return components;
 }
 
-function parseAffineTransform(
+function parseTransform(
     value: unknown
 ): [number, number, number, number, number, number] | undefined {
     if (!Array.isArray(value) || value.length < 6) {
         return undefined;
     }
-    const numbers: number[] = [];
-    for (let index = 0; index < 6; index++) {
-        const parsed = optionalNumber(value[index]);
-        if (parsed === null) {
-            return undefined;
-        }
-        numbers.push(parsed);
+    const nums = value.slice(0, 6).map(optionalNumber);
+    if (nums.some((n) => n === null)) {
+        return undefined;
     }
-    return numbers as [number, number, number, number, number, number];
+    return nums as [number, number, number, number, number, number];
 }
 
 function parseAnchors(value: unknown): PasteAnchor[] {
@@ -355,11 +518,13 @@ function parseGuides(value: unknown): PasteGuide[] {
             continue;
         }
         guides.push({
-            name: optionalString(entry.name) ?? undefined,
+            ...(typeof entry.name === 'string' && entry.name
+                ? { name: entry.name }
+                : {}),
             x,
             y,
             angle: optionalNumber(entry.angle) ?? 0,
-            global: Boolean(entry.global)
+            ...(entry.global === true ? { global: true } : {})
         });
     }
     return guides;

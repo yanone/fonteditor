@@ -9,8 +9,8 @@ in <metadata id="counterpunch-clipboard"> (Counterpunch Cmd+C format).
 - Edit view (Glyphs.font.currentTab): clear selection, append objects onto
   Glyphs.font.selectedLayers[0], then select the pasted objects
 - Font view: always create new glyphs (Glyphs-style unique names: keep the
-  name if free, else .001 / .002 / …). Layer content is remapped onto this
-  font's masters; then select the pasted glyphs
+  name if free, else .001 / .002 / …). Layers are matched to masters by
+  masterIndex; layer copies and braces/feature variations are included
 """
 
 from __future__ import division, print_function, unicode_literals
@@ -28,6 +28,7 @@ from GlyphsApp import (
     GSComponent,
     GSGlyph,
     GSGuide,
+    GSLayer,
     GSNode,
     GSPath,
     Glyphs,
@@ -149,6 +150,39 @@ def allocate_unique_glyph_name(font, base_name):
     raise ValueError('Could not allocate a unique name for "%s"' % name)
 
 
+def find_insert_index_after_name(font, base_name):
+    """Index after the last baseName / baseName.NNN sibling; else append."""
+    import re
+
+    name = (base_name or "").strip()
+    if not name:
+        return len(font.glyphs)
+    pattern = re.compile(r"^%s\.\d{3,}$" % re.escape(name))
+    last_index = -1
+    for index, glyph in enumerate(font.glyphs):
+        glyph_name = glyph.name
+        if glyph_name == name or pattern.match(glyph_name):
+            last_index = index
+    return last_index + 1 if last_index >= 0 else len(font.glyphs)
+
+
+def insert_glyph_after_namesake(font, glyph, base_name):
+    """Insert glyph after the namesake family; fall back to append."""
+    insert_index = find_insert_index_after_name(font, base_name)
+    try:
+        font.glyphs.insert(insert_index, glyph)
+        return
+    except Exception:
+        pass
+    font.glyphs.append(glyph)
+    try:
+        from_index = len(font.glyphs) - 1
+        if insert_index < from_index and hasattr(font, "moveGlyphToIndex_fromIndex_"):
+            font.moveGlyphToIndex_fromIndex_(insert_index, from_index)
+    except Exception:
+        pass
+
+
 def paste_selection(font, payload, node_order):
     selected_layers = font.selectedLayers
     if not selected_layers:
@@ -186,30 +220,39 @@ def paste_glyphs(font, payload, node_order):
         Message("Clipboard has no glyphs.", title="Counterpunch Paste")
         return None
 
+    version = payload.get("version") or 0
+    try:
+        version = int(version)
+    except Exception:
+        version = 0
+    if version < 2:
+        Message(
+            "Clipboard uses an old Counterpunch whole-glyph format. "
+            "Re-copy with the current Copy to Counterpunch script.",
+            title="Counterpunch Paste",
+        )
+        return None
+
+    source_masters = payload.get("masters") or []
     master_count = len(font.masters) if font.masters else 0
     if master_count < 1:
         Message("Font has no masters.", title="Counterpunch Paste")
         return None
+    if len(source_masters) != master_count:
+        Message(
+            "Clipboard has %d masters, font has %d. Master counts must match."
+            % (len(source_masters), master_count),
+            title="Counterpunch Paste",
+        )
+        return None
 
-    for glyph_data in glyphs:
-        source_layers = glyph_data.get("layers") or []
-        if len(source_layers) != master_count:
-            Message(
-                "Glyph /%s: clipboard has %d layers, font has %d masters."
-                % (
-                    glyph_data.get("name") or "?",
-                    len(source_layers),
-                    master_count,
-                ),
-                title="Counterpunch Paste",
-            )
-            return None
+    target_axis_keys = collect_target_axis_keys(font)
+    skipped_braces = 0
 
     font.disableUpdateInterface()
     created_names = []
     pasted_glyphs = []
     try:
-        # Clear Font View selection, then select pasted glyphs.
         try:
             font.selection = []
         except Exception:
@@ -222,33 +265,29 @@ def paste_glyphs(font, payload, node_order):
                 continue
             new_name = allocate_unique_glyph_name(font, base_name)
             glyph = GSGlyph(new_name)
-            font.glyphs.append(glyph)
+            insert_glyph_after_namesake(font, glyph, base_name)
 
             if glyph_data.get("leftMetricsKey") is not None:
                 glyph.leftMetricsKey = glyph_data.get("leftMetricsKey") or None
             if glyph_data.get("rightMetricsKey") is not None:
                 glyph.rightMetricsKey = glyph_data.get("rightMetricsKey") or None
 
-            source_layers = glyph_data.get("layers") or []
-            target_layers = [
-                layer
-                for layer in glyph.layers
-                if not getattr(layer, "isBackground", False)
-                and getattr(layer, "layerId", None) != "background"
-            ]
-            if len(target_layers) != len(source_layers):
-                Message(
-                    "Glyph /%s: created %d layers, clipboard has %d."
-                    % (new_name, len(target_layers), len(source_layers)),
-                    title="Counterpunch Paste",
+            skipped_braces += paste_layers_onto_glyph(
+                font,
+                glyph,
+                glyph_data.get("layers") or [],
+                node_order,
+                target_axis_keys,
+            )
+            for feature_variation in glyph_data.get("featureVariations") or []:
+                skipped_braces += paste_feature_variation_onto_glyph(
+                    font,
+                    glyph,
+                    feature_variation,
+                    node_order,
+                    target_axis_keys,
                 )
-                continue
 
-            for index, source_layer in enumerate(source_layers):
-                # New glyph layers are empty; masters already wired by Glyphs.
-                replace_layer_contents(
-                    target_layers[index], source_layer, node_order
-                )
             created_names.append(new_name)
             pasted_glyphs.append(glyph)
 
@@ -261,6 +300,14 @@ def paste_glyphs(font, payload, node_order):
     finally:
         font.enableUpdateInterface()
 
+    if skipped_braces:
+        Message(
+            "Skipped %d intermediate/brace layer%s because one or more axis "
+            "ids are missing in this font."
+            % (skipped_braces, "" if skipped_braces == 1 else "s"),
+            title="Counterpunch Paste",
+        )
+
     if not created_names:
         return "Pasted glyphs (nothing)"
     return "Created %d glyph%s: %s" % (
@@ -268,6 +315,134 @@ def paste_glyphs(font, payload, node_order):
         "" if len(created_names) == 1 else "s",
         ", ".join("/%s" % name for name in created_names),
     )
+
+
+def collect_target_axis_keys(font):
+    keys = set()
+    for axis in font.axes or []:
+        axis_id = getattr(axis, "axisId", None)
+        tag = getattr(axis, "tag", None) or getattr(axis, "axisTag", None)
+        if axis_id:
+            keys.add(str(axis_id))
+        if tag:
+            keys.add(str(tag))
+    return keys
+
+
+def paste_layers_onto_glyph(font, glyph, source_layers, node_order, target_axis_keys):
+    skipped_braces = 0
+    masters = list(font.masters)
+    default_layers = default_layers_by_master_index(glyph, masters)
+
+    for source_layer in source_layers:
+        master = source_layer.get("master") or {}
+        master_type = master.get("type")
+        if master_type == "FreeFloating":
+            continue
+        master_index = master.get("masterIndex")
+        if not isinstance(master_index, int) or master_index < 0 or master_index >= len(masters):
+            continue
+        target_master = masters[master_index]
+        location = source_layer.get("location") or None
+        has_brace = isinstance(location, dict) and len(location) > 0
+
+        if master_type == "DefaultForMaster":
+            target_layer = default_layers[master_index]
+            if target_layer is None:
+                continue
+            replace_layer_contents(target_layer, source_layer, node_order)
+            continue
+
+        if has_brace and not location_axes_exist(location, target_axis_keys):
+            skipped_braces += 1
+            continue
+
+        target_layer = create_associated_layer(
+            glyph, target_master, location if has_brace else None
+        )
+        if target_layer is None:
+            continue
+        replace_layer_contents(target_layer, source_layer, node_order)
+    return skipped_braces
+
+
+def paste_feature_variation_onto_glyph(
+    font, glyph, feature_variation, node_order, target_axis_keys
+):
+    skipped_braces = 0
+    masters = list(font.masters)
+    axis_rules = feature_variation.get("axisRules")
+    if not isinstance(axis_rules, list):
+        return 0
+
+    for source_layer in feature_variation.get("layers") or []:
+        master = source_layer.get("master") or {}
+        master_type = master.get("type")
+        if master_type == "FreeFloating":
+            continue
+        master_index = master.get("masterIndex")
+        if not isinstance(master_index, int) or master_index < 0 or master_index >= len(masters):
+            continue
+        target_master = masters[master_index]
+        location = source_layer.get("location") or None
+        has_brace = isinstance(location, dict) and len(location) > 0
+        if has_brace and not location_axes_exist(location, target_axis_keys):
+            skipped_braces += 1
+            continue
+        target_layer = create_associated_layer(
+            glyph, target_master, location if has_brace else None
+        )
+        if target_layer is None:
+            continue
+        try:
+            if target_layer.attributes is None:
+                target_layer.attributes = {}
+            target_layer.attributes["axisRules"] = axis_rules
+        except Exception:
+            pass
+        replace_layer_contents(target_layer, source_layer, node_order)
+    return skipped_braces
+
+
+def default_layers_by_master_index(glyph, masters):
+    result = []
+    for master in masters:
+        layer = None
+        try:
+            layer = glyph.layers[master.id]
+        except Exception:
+            layer = None
+        result.append(layer)
+    return result
+
+
+def create_associated_layer(glyph, master, location):
+    try:
+        layer = GSLayer()
+    except Exception:
+        return None
+    try:
+        import uuid
+
+        layer.associatedMasterId = master.id
+        layer.layerId = str(uuid.uuid4()).upper()
+        if location:
+            if layer.attributes is None:
+                layer.attributes = {}
+            layer.attributes["coordinates"] = location
+        glyph.layers.append(layer)
+        return layer
+    except Exception:
+        return None
+
+
+def location_axes_exist(location, target_axis_keys):
+    if not isinstance(location, dict) or not location:
+        return False
+    for key in location.keys():
+        if str(key) not in target_axis_keys:
+            return False
+    return True
 
 
 def append_fragment_to_layer(layer, fragment, node_order):

@@ -190,9 +190,13 @@ describe('clipboard Counterpunch JSON converter', () => {
     test('parses whole-glyph JSON', () => {
         const payload = {
             format: 'counterpunch-clipboard',
-            version: 1,
+            version: 2,
             kind: 'glyphs',
             nodeOrder: 'start-first',
+            masters: [
+                { id: 'm0', name: 'Regular' },
+                { id: 'm1', name: 'Bold' }
+            ],
             glyphs: [
                 {
                     name: 'o',
@@ -201,6 +205,10 @@ describe('clipboard Counterpunch JSON converter', () => {
                     layers: [
                         {
                             name: 'Regular',
+                            master: {
+                                type: 'DefaultForMaster',
+                                masterIndex: 0
+                            },
                             width: 500,
                             paths: [
                                 {
@@ -217,6 +225,10 @@ describe('clipboard Counterpunch JSON converter', () => {
                         },
                         {
                             name: 'Bold',
+                            master: {
+                                type: 'DefaultForMaster',
+                                masterIndex: 1
+                            },
                             width: 560,
                             paths: [
                                 {
@@ -237,11 +249,38 @@ describe('clipboard Counterpunch JSON converter', () => {
         };
         const parsed = parseCounterpunchJson(JSON.stringify(payload));
         expect(parsed.kind).toBe('glyphs');
+        expect(parsed.document.masters).toHaveLength(2);
         expect(parsed.document.glyphs[0].layers).toHaveLength(2);
         expect(parsed.document.glyphs[0].layers[1].width).toBe(560);
+        expect(parsed.document.glyphs[0].layers[0].master).toEqual({
+            type: 'DefaultForMaster',
+            masterIndex: 0
+        });
         expect(
             parsed.document.glyphs[0].layers[0].paths[0].nodes[0]
         ).toMatchObject({ x: 0, y: 0 });
+    });
+
+    test('rejects whole-glyph JSON without masters metadata', () => {
+        const payload = {
+            format: 'counterpunch-clipboard',
+            version: 1,
+            kind: 'glyphs',
+            glyphs: [
+                {
+                    name: 'o',
+                    layers: [
+                        {
+                            paths: [],
+                            components: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ]
+        };
+        expect(parseCounterpunchJson(JSON.stringify(payload))).toBeNull();
     });
 });
 
@@ -542,22 +581,31 @@ describe('clipboard Counterpunch JSON serializer', () => {
     });
 
     test('serializes whole-glyph documents', () => {
-        const document = buildGlyphsClipboardDocument([
-            {
-                name: 'a',
-                layers: [
-                    {
-                        width: 500,
-                        paths: [],
-                        components: [],
-                        anchors: [],
-                        guides: []
-                    }
-                ]
-            }
-        ]);
+        const document = buildGlyphsClipboardDocument(
+            [
+                {
+                    name: 'a',
+                    layers: [
+                        {
+                            master: {
+                                type: 'DefaultForMaster',
+                                masterIndex: 0
+                            },
+                            width: 500,
+                            paths: [],
+                            components: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            [{ id: 'm0', name: 'Regular' }]
+        );
         expect(document.kind).toBe('glyphs');
+        expect(document.version).toBe(2);
         expect(document.nodeOrder).toBe('start-first');
+        expect(document.masters).toEqual([{ id: 'm0', name: 'Regular' }]);
         expect(document.glyphs[0].name).toBe('a');
     });
 });
@@ -791,7 +839,7 @@ describe('clipboard SVG serializer', () => {
 });
 
 describe('applyPasteGlyphsDocument', () => {
-    function makeLayer() {
+    function makeLayer(masterId) {
         const anchors = [];
         const guides = [];
         const shapes = [];
@@ -800,10 +848,18 @@ describe('applyPasteGlyphsDocument', () => {
             width: 400,
             leftMetricsKey: null,
             rightMetricsKey: null,
+            master: masterId
+                ? { type: 'DefaultForMaster', master: masterId }
+                : undefined,
+            location: undefined,
+            format_specific: undefined,
             anchors,
             guides,
             shapes,
             paths: [],
+            getMaster() {
+                return null;
+            },
             addPath(closed) {
                 const path = {
                     closed,
@@ -851,7 +907,8 @@ describe('applyPasteGlyphsDocument', () => {
         };
     }
 
-    function makeFont(masterCount, existingNames = []) {
+    function makeFont(masterCount, existingNames = [], axisKeys = []) {
+        const glyphOrder = [...existingNames];
         const glyphStore = new Map();
         for (const name of existingNames) {
             glyphStore.set(name, { name, layers: [] });
@@ -859,8 +916,13 @@ describe('applyPasteGlyphsDocument', () => {
         const masters = Array.from({ length: masterCount }, (_, index) => ({
             id: `master-${index}`
         }));
+        const axes = axisKeys.map((key) =>
+            key.length === 4 ? { id: key, tag: key } : { id: key, tag: 'wght' }
+        );
         return {
             masters,
+            axes,
+            glyphOrder,
             findGlyph(name) {
                 return glyphStore.get(name);
             },
@@ -880,33 +942,73 @@ describe('applyPasteGlyphsDocument', () => {
                     `Could not allocate a unique name for "${baseName}"`
                 );
             },
-            addGlyph(name) {
-                const layers = masters.map(() => makeLayer());
+            findInsertIndexAfterName(baseName) {
+                const escaped = String(baseName).replace(
+                    /[.*+?^${}()|[\]\\]/g,
+                    '\\$&'
+                );
+                const numbered = new RegExp(`^${escaped}\\.\\d{3,}$`);
+                let lastIndex = -1;
+                for (let index = 0; index < glyphOrder.length; index++) {
+                    const glyphName = glyphOrder[index];
+                    if (glyphName === baseName || numbered.test(glyphName)) {
+                        lastIndex = index;
+                    }
+                }
+                return lastIndex >= 0 ? lastIndex + 1 : glyphOrder.length;
+            },
+            addGlyph(name, _category = 'Base', options = {}) {
+                const layers = masters.map((master) => makeLayer(master.id));
                 const glyph = {
                     name,
                     leftMetricsKey: null,
                     rightMetricsKey: null,
-                    layers
+                    layers,
+                    addLayer(width, master) {
+                        const layer = makeLayer();
+                        layer.width = width;
+                        layer.master = master;
+                        layers.push(layer);
+                        return layer;
+                    }
                 };
+                const insertIndex =
+                    typeof options.insertIndex === 'number'
+                        ? options.insertIndex
+                        : glyphOrder.length;
+                glyphOrder.splice(insertIndex, 0, name);
                 glyphStore.set(name, glyph);
                 return glyph;
             }
         };
     }
 
-    test('creates new glyphs and zips layers by master count', () => {
+    function mastersMeta(count) {
+        return Array.from({ length: count }, (_, index) => ({
+            id: `source-master-${index}`,
+            name: `Master ${index}`
+        }));
+    }
+
+    test('creates new glyphs matched by masterIndex', () => {
         const font = makeFont(2);
 
         const result = applyPasteGlyphsDocument(
             {
                 format: 'counterpunch-json',
                 kind: 'glyphs',
+                version: 2,
+                masters: mastersMeta(2),
                 glyphs: [
                     {
                         name: 'o',
                         leftMetricsKey: '=H',
                         layers: [
                             {
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    masterIndex: 0
+                                },
                                 width: 500,
                                 paths: [
                                     {
@@ -922,6 +1024,10 @@ describe('applyPasteGlyphsDocument', () => {
                                 guides: []
                             },
                             {
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    masterIndex: 1
+                                },
                                 width: 560,
                                 paths: [
                                     {
@@ -961,17 +1067,182 @@ describe('applyPasteGlyphsDocument', () => {
         });
     });
 
+    test('inserts after existing namesake / .NNN siblings', () => {
+        const font = makeFont(1, ['a', 'o', 'o.001', 'p']);
+        const result = applyPasteGlyphsDocument(
+            {
+                format: 'counterpunch-json',
+                kind: 'glyphs',
+                version: 2,
+                masters: mastersMeta(1),
+                glyphs: [
+                    {
+                        name: 'o',
+                        layers: [
+                            {
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    masterIndex: 0
+                                },
+                                width: 500,
+                                paths: [
+                                    {
+                                        closed: true,
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Line' },
+                                            { x: 10, y: 0, nodetype: 'Line' }
+                                        ]
+                                    }
+                                ],
+                                components: [],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    }
+                ]
+            },
+            { font, glyphExists: () => true }
+        );
+
+        expect(result.error).toBeUndefined();
+        expect(result.createdGlyphNames).toEqual(['o.002']);
+        expect(font.glyphOrder).toEqual(['a', 'o', 'o.001', 'o.002', 'p']);
+        expect(font.findGlyph('o.002').layers[0].paths).toHaveLength(1);
+    });
+
+    test('pastes layer copies as AssociatedWithMaster without location', () => {
+        const font = makeFont(1);
+        const result = applyPasteGlyphsDocument(
+            {
+                format: 'counterpunch-json',
+                kind: 'glyphs',
+                version: 2,
+                masters: mastersMeta(1),
+                glyphs: [
+                    {
+                        name: 'o',
+                        layers: [
+                            {
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    masterIndex: 0
+                                },
+                                width: 500,
+                                paths: [],
+                                components: [],
+                                anchors: [],
+                                guides: []
+                            },
+                            {
+                                master: {
+                                    type: 'AssociatedWithMaster',
+                                    masterIndex: 0
+                                },
+                                width: 510,
+                                paths: [
+                                    {
+                                        closed: true,
+                                        nodes: [
+                                            { x: 1, y: 1, nodetype: 'Line' },
+                                            { x: 2, y: 2, nodetype: 'Line' }
+                                        ]
+                                    }
+                                ],
+                                components: [],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    }
+                ]
+            },
+            { font, glyphExists: () => true }
+        );
+
+        expect(result.error).toBeUndefined();
+        const glyph = font.findGlyph('o');
+        expect(glyph.layers).toHaveLength(2);
+        expect(glyph.layers[1].master).toEqual({
+            type: 'AssociatedWithMaster',
+            master: 'master-0'
+        });
+        expect(glyph.layers[1].location).toBeUndefined();
+        expect(glyph.layers[1].paths).toHaveLength(1);
+    });
+
+    test('skips braces when axis keys are missing and warns', () => {
+        const font = makeFont(1, [], ['wght']);
+        const result = applyPasteGlyphsDocument(
+            {
+                format: 'counterpunch-json',
+                kind: 'glyphs',
+                version: 2,
+                masters: mastersMeta(1),
+                glyphs: [
+                    {
+                        name: 'o',
+                        layers: [
+                            {
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    masterIndex: 0
+                                },
+                                width: 500,
+                                paths: [],
+                                components: [],
+                                anchors: [],
+                                guides: []
+                            },
+                            {
+                                master: {
+                                    type: 'AssociatedWithMaster',
+                                    masterIndex: 0
+                                },
+                                location: { missingAxis: 500 },
+                                width: 500,
+                                paths: [
+                                    {
+                                        closed: true,
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Line' },
+                                            { x: 1, y: 0, nodetype: 'Line' }
+                                        ]
+                                    }
+                                ],
+                                components: [],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    }
+                ]
+            },
+            { font, glyphExists: () => true }
+        );
+
+        expect(result.error).toBeUndefined();
+        expect(result.warnings[0]).toMatch(/Skipped 1 intermediate/);
+        expect(font.findGlyph('o').layers).toHaveLength(1);
+    });
+
     test('allocates .001 when the glyph name already exists', () => {
         const font = makeFont(1, ['a']);
         const result = applyPasteGlyphsDocument(
             {
                 format: 'counterpunch-json',
                 kind: 'glyphs',
+                version: 2,
+                masters: mastersMeta(1),
                 glyphs: [
                     {
                         name: 'a',
                         layers: [
                             {
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    masterIndex: 0
+                                },
                                 width: 480,
                                 paths: [],
                                 components: [],
@@ -993,23 +1264,23 @@ describe('applyPasteGlyphsDocument', () => {
         expect(font.findGlyph('a.001').layers[0].width).toBe(480);
     });
 
-    test('refuses paste when layer counts differ from master count', () => {
+    test('refuses paste when master counts differ', () => {
         const font = makeFont(1);
         const result = applyPasteGlyphsDocument(
             {
                 format: 'counterpunch-json',
                 kind: 'glyphs',
+                version: 2,
+                masters: mastersMeta(2),
                 glyphs: [
                     {
                         name: 'o',
                         layers: [
                             {
-                                paths: [],
-                                components: [],
-                                anchors: [],
-                                guides: []
-                            },
-                            {
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    masterIndex: 0
+                                },
                                 paths: [],
                                 components: [],
                                 anchors: [],
@@ -1025,9 +1296,7 @@ describe('applyPasteGlyphsDocument', () => {
             }
         );
 
-        expect(result.error).toMatch(
-            /clipboard has 2 layers, font has 1 masters/
-        );
+        expect(result.error).toMatch(/Clipboard has 2 masters, font has 1/);
         expect(font.findGlyph('o')).toBeUndefined();
     });
 });

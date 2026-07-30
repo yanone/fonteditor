@@ -13279,13 +13279,39 @@ export class Font extends ModelBase {
     }
 
     /**
+     * Index at which to insert a new glyph that belongs with `baseName`.
+     * Prefers immediately after the last existing `baseName` / `baseName.NNN`
+     * sibling; otherwise appends.
+     */
+    findInsertIndexAfterName(baseName: string): number {
+        const name = String(baseName || '').trim();
+        if (!name || !Array.isArray(this._data.glyphs)) {
+            return this._data.glyphs?.length ?? 0;
+        }
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const numbered = new RegExp(`^${escaped}\\.\\d{3,}$`);
+        let lastIndex = -1;
+        for (let index = 0; index < this._data.glyphs.length; index++) {
+            const glyphName = this._data.glyphs[index]?.name;
+            if (
+                typeof glyphName === 'string' &&
+                (glyphName === name || numbered.test(glyphName))
+            ) {
+                lastIndex = index;
+            }
+        }
+        return lastIndex >= 0 ? lastIndex + 1 : this._data.glyphs.length;
+    }
+
+    /**
      * Add a new glyph to the font
      * @example
      * glyph = font.addGlyph("myGlyph", "Base")
      */
     addGlyph(
         name: string,
-        category: Babelfont.GlyphCategory | string = 'Base'
+        category: Babelfont.GlyphCategory | string = 'Base',
+        options?: { insertIndex?: number }
     ): Glyph {
         assertModelMutationAllowed();
         const glyphData: Babelfont.Glyph = {
@@ -13302,11 +13328,18 @@ export class Font extends ModelBase {
             exported: true
         };
         assertModelMutationAllowed();
-        this._data.glyphs.push(glyphData);
+        const insertIndex =
+            typeof options?.insertIndex === 'number' &&
+            Number.isInteger(options.insertIndex) &&
+            options.insertIndex >= 0 &&
+            options.insertIndex <= this._data.glyphs.length
+                ? options.insertIndex
+                : this._data.glyphs.length;
+        this._data.glyphs.splice(insertIndex, 0, glyphData);
         this._glyphWrappers = null; // Invalidate cache
         this.invalidateReverseComponentIndex();
         recordAddAndMarkDirty(['glyphs', name], glyphData);
-        return new Glyph(this._data.glyphs, this._data.glyphs.length - 1, this);
+        return new Glyph(this._data.glyphs, insertIndex, this);
     }
 
     /** Add several Unicode-backed glyphs as one undoable document edit. */
