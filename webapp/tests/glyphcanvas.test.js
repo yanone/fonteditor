@@ -3476,7 +3476,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
     let originalAutoCompileManager;
 
     beforeEach(() => {
-        document.body.innerHTML = '<div id="test-container"></div>';
+        document.body.innerHTML =
+            '<div id="view-editor" class="focused"></div><div id="test-container"></div>';
         canvas = new GlyphCanvas('test-container');
         originalLastChangeSource = fontManager.lastChangeSource;
         originalLastEditType = fontManager.lastEditType;
@@ -18424,7 +18425,8 @@ describe('GlyphCanvas keyboard handling', () => {
     let canvas;
 
     beforeEach(() => {
-        document.body.innerHTML = '<div id="test-container"></div>';
+        document.body.innerHTML =
+            '<div id="view-editor" class="focused"></div><div id="test-container"></div>';
         canvas = new GlyphCanvas('test-container');
     });
 

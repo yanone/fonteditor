@@ -1,7 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
 const { parseSvg } = require('../js/clipboard/svg');
 const {
     parseCounterpunchJson,
