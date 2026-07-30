@@ -1208,6 +1208,13 @@ kbd + kbd {
     z-index: 20;
 }
 
+/* Keyboard view activation focuses the view shell (tabindex=-1). Suppress the
+   browser focus ring — .view.focused::after is the only focus indicator. */
+.view:focus,
+.view:focus-visible {
+    outline: none;
+}
+
 /* Primary view (editor) - larger minimum size */
 .view.view-editor {
     min-width: 24px;
