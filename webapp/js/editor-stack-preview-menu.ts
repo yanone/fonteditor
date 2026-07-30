@@ -6,6 +6,10 @@ import {
     getTheme,
     setupMenuKeyboardNav
 } from './tippy-utils';
+import {
+    isOverviewFollowStackScrollEnabled,
+    toggleOverviewFollowStackScrollEnabled
+} from './glyph-overview-follow-stack-pref';
 import { Logger } from './logger';
 
 const console = new Logger('EditorStackPreviewMenu');
@@ -38,6 +42,8 @@ function createStackPreviewMenuHtml(): string {
     const pairedLayerVisible =
         window.glyphCanvas?.outlineEditor?.isPairedLayerVisible() ?? false;
     const pairedLayerCheckmark = pairedLayerVisible ? 'check' : '';
+    const followStackScroll = isOverviewFollowStackScrollEnabled();
+    const followStackCheckmark = followStackScroll ? 'check' : '';
 
     return `
         <div class="plugin-menu" tabindex="0" role="menu" aria-label="Stack preview menu">
@@ -55,6 +61,10 @@ function createStackPreviewMenuHtml(): string {
                 <span class="plugin-menu-check material-symbols-outlined${pairedLayerVisible ? '' : ' empty'}">${pairedLayerCheckmark}</span>
                 <span>Show Foreground/Background</span>
                 <span class="plugin-menu-shortcut">⌘⌥B</span>
+            </div>
+            <div class="plugin-menu-item" data-action="toggle-follow-stack-scroll" role="menuitemcheckbox" aria-checked="${followStackScroll}" tabindex="-1">
+                <span class="plugin-menu-check material-symbols-outlined${followStackScroll ? '' : ' empty'}">${followStackCheckmark}</span>
+                <span>Scroll Overview to Active Glyph</span>
             </div>
         </div>
     `;
@@ -135,6 +145,9 @@ function initEditorStackPreviewMenu(): void {
                 } else if (action === 'toggle-paired-layer') {
                     window.glyphCanvas?.outlineEditor?.togglePairedLayerVisible();
                     refreshStackPreviewMenuContent();
+                } else if (action === 'toggle-follow-stack-scroll') {
+                    toggleOverviewFollowStackScrollEnabled();
+                    refreshStackPreviewMenuContent();
                 }
             });
         },
@@ -182,6 +195,10 @@ function initEditorStackPreviewMenu(): void {
     });
 
     window.addEventListener('outlinePairedLayerVisibilityChanged', () => {
+        refreshStackPreviewMenuContent();
+    });
+
+    window.addEventListener('overviewFollowStackScrollChanged', () => {
         refreshStackPreviewMenuContent();
     });
 

@@ -438,6 +438,7 @@ describe('GlyphOverview initial active tile highlighting', () => {
     beforeEach(() => {
         jest.useFakeTimers();
         jest.resetModules();
+        localStorage.clear();
 
         global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
         global.cancelAnimationFrame = (id) => clearTimeout(id);
@@ -471,7 +472,7 @@ describe('GlyphOverview initial active tile highlighting', () => {
         );
     });
 
-    test('reapplies the active highlight for the same glyph when sync runs again later', () => {
+    test('reapplies the active highlight for the same glyph without scrolling', () => {
         overview.highlightedGlyphName = 'A';
         const tile = overview.createGlyphTile('glyph-1', 'A');
         tile.element.style.boxShadow = '';
@@ -484,7 +485,117 @@ describe('GlyphOverview initial active tile highlighting', () => {
         );
         expect(
             overview.scheduleHighlightedGlyphVisibilitySync
+        ).not.toHaveBeenCalled();
+    });
+
+    test('scrolls only when follow-stack preference is enabled and highlight changes', () => {
+        const {
+            setOverviewFollowStackScrollEnabled
+        } = require('../js/glyph-overview-follow-stack-pref');
+        setOverviewFollowStackScrollEnabled(false);
+
+        const tileA = overview.createGlyphTile('glyph-a', 'A');
+        const tileB = overview.createGlyphTile('glyph-b', 'B');
+        overview.tiles = new Map([
+            ['glyph-a', tileA],
+            ['glyph-b', tileB]
+        ]);
+
+        overview.setEditingHighlight('A');
+        expect(
+            overview.scheduleHighlightedGlyphVisibilitySync
+        ).not.toHaveBeenCalled();
+        expect(tileA.element.style.boxShadow).toBe(
+            'inset 0 0 0 2px var(--accent-blue)'
+        );
+
+        setOverviewFollowStackScrollEnabled(true);
+        overview.setEditingHighlight('B');
+        expect(
+            overview.scheduleHighlightedGlyphVisibilitySync
         ).toHaveBeenCalledTimes(1);
+        expect(tileA.element.style.boxShadow).toBe('');
+        expect(tileB.element.style.boxShadow).toBe(
+            'inset 0 0 0 2px var(--accent-blue)'
+        );
+    });
+
+    test('ensures newly selected glyphs in view without always centering', () => {
+        const tileA = overview.createGlyphTile('glyph-a', 'A');
+        const tileB = overview.createGlyphTile('glyph-b', 'B');
+        overview.tiles = new Map([
+            ['glyph-a', tileA],
+            ['glyph-b', tileB]
+        ]);
+        overview.visibleGlyphIds = ['glyph-a', 'glyph-b'];
+        overview.container = parent;
+        Object.defineProperty(parent, 'clientHeight', {
+            configurable: true,
+            value: 200
+        });
+        Object.defineProperty(parent, 'scrollHeight', {
+            configurable: true,
+            value: 2000
+        });
+        parent.scrollTop = 0;
+        jest.spyOn(overview, 'getTileDimensions').mockReturnValue({
+            width: 80,
+            height: 100
+        });
+        jest.spyOn(overview, 'getGridColumns').mockReturnValue(1);
+        const setCenteredScrollTop = jest.spyOn(
+            overview,
+            'setCenteredScrollTop'
+        );
+        jest.spyOn(overview, 'renderVirtualizedLinesWindow').mockImplementation(
+            () => {}
+        );
+
+        // A at top 0–100 is fully visible in 0–200 → no scroll.
+        overview.selectGlyphsByNames(['A']);
+        expect(tileA.selected).toBe(true);
+        expect(setCenteredScrollTop).not.toHaveBeenCalled();
+        expect(parent.scrollTop).toBe(0);
+
+        // B at top 102 is fully off-screen when scrolled to 800 → center.
+        parent.scrollTop = 800;
+        overview.selectGlyphsByNames(['B']);
+        expect(tileB.selected).toBe(true);
+        expect(setCenteredScrollTop).toHaveBeenCalled();
+    });
+
+    test('minimally scrolls when the selection is only partially visible', () => {
+        const tile = overview.createGlyphTile('glyph-z', 'Z');
+        overview.tiles = new Map([['glyph-z', tile]]);
+        overview.visibleGlyphIds = ['glyph-z'];
+        overview.container = parent;
+        Object.defineProperty(parent, 'clientHeight', {
+            configurable: true,
+            value: 200
+        });
+        Object.defineProperty(parent, 'scrollHeight', {
+            configurable: true,
+            value: 2000
+        });
+        // Tile top 0 height 100; viewport starts at 50 → clipped at top.
+        parent.scrollTop = 50;
+        jest.spyOn(overview, 'getTileDimensions').mockReturnValue({
+            width: 80,
+            height: 100
+        });
+        jest.spyOn(overview, 'getGridColumns').mockReturnValue(1);
+        const setCenteredScrollTop = jest.spyOn(
+            overview,
+            'setCenteredScrollTop'
+        );
+        jest.spyOn(overview, 'renderVirtualizedLinesWindow').mockImplementation(
+            () => {}
+        );
+
+        overview.ensureGlyphIdsInView(['glyph-z']);
+
+        expect(setCenteredScrollTop).not.toHaveBeenCalled();
+        expect(parent.scrollTop).toBe(0);
     });
 
     test('resolves a feature-variation stack glyph to its base overview tile', () => {

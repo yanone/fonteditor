@@ -20,6 +20,7 @@ import {
     getTheme,
     setupMenuKeyboardNav
 } from './tippy-utils';
+import { isOverviewFollowStackScrollEnabled } from './glyph-overview-follow-stack-pref';
 
 const console = new Logger('GlyphOverview');
 
@@ -549,12 +550,10 @@ class GlyphOverview {
 
         if (this.viewMode === 'grid') {
             this.renderGridMode();
-            this.scheduleHighlightedGlyphVisibilitySync();
             return;
         }
 
         this.renderLinesMode();
-        this.scheduleHighlightedGlyphVisibilitySync();
     }
 
     private renderLinesMode(): void {
@@ -1060,11 +1059,75 @@ class GlyphOverview {
             return;
         }
 
+        const bounds = this.getVisibleGlyphIdsContentBounds(glyphIds);
+        if (!bounds) {
+            return;
+        }
+
+        this.setCenteredScrollTop(bounds.centerY);
+    }
+
+    /**
+     * Bring selected glyphs into view with minimal disruption:
+     * - fully on-screen → no scroll
+     * - partially clipped → minimal scroll to reveal
+     * - fully off-screen → center
+     */
+    private ensureGlyphIdsInView(glyphIds: string[]): void {
+        if (!this.container || !glyphIds.length) {
+            return;
+        }
+
+        if (this.container.clientHeight <= 0) {
+            return;
+        }
+
+        const bounds = this.getVisibleGlyphIdsContentBounds(glyphIds);
+        if (!bounds) {
+            return;
+        }
+
+        const viewportTop = this.container.scrollTop;
+        const viewportBottom = viewportTop + this.container.clientHeight;
+
+        if (bounds.top >= viewportTop && bounds.bottom <= viewportBottom) {
+            return;
+        }
+
+        const fullyOffScreen =
+            bounds.bottom <= viewportTop || bounds.top >= viewportBottom;
+        if (fullyOffScreen) {
+            this.setCenteredScrollTop(bounds.centerY);
+            return;
+        }
+
+        // Partially clipped: scroll the least amount that reveals the selection.
+        let nextScrollTop = viewportTop;
+        if (bounds.top < viewportTop) {
+            nextScrollTop = bounds.top;
+        } else if (bounds.bottom > viewportBottom) {
+            nextScrollTop = bounds.bottom - this.container.clientHeight;
+        }
+
+        const maxScroll = Math.max(
+            0,
+            this.container.scrollHeight - this.container.clientHeight
+        );
+        this.container.scrollTop = Math.min(
+            Math.max(0, nextScrollTop),
+            maxScroll
+        );
+        this.renderVirtualizedLinesWindow(true);
+    }
+
+    private getVisibleGlyphIdsContentBounds(
+        glyphIds: string[]
+    ): { top: number; bottom: number; centerY: number } | null {
         const visibleSelectedGlyphIds = glyphIds.filter((glyphId) =>
             this.visibleGlyphIds.includes(glyphId)
         );
         if (!visibleSelectedGlyphIds.length) {
-            return;
+            return null;
         }
 
         const visibleIndexes = visibleSelectedGlyphIds
@@ -1072,19 +1135,23 @@ class GlyphOverview {
             .filter((index) => index !== -1)
             .sort((a, b) => a - b);
         if (!visibleIndexes.length) {
-            return;
+            return null;
         }
 
-        const averageIndex =
-            visibleIndexes.reduce((sum, index) => sum + index, 0) /
-            visibleIndexes.length;
         const dims = this.getTileDimensions();
         const columns = Math.max(1, this.getGridColumns());
         const rowHeight = dims.height + 2;
-        const averageRow = averageIndex / columns;
-        const selectionCenterY = averageRow * rowHeight + dims.height / 2;
-
-        this.setCenteredScrollTop(selectionCenterY);
+        const firstRow = Math.floor(visibleIndexes[0] / columns);
+        const lastRow = Math.floor(
+            visibleIndexes[visibleIndexes.length - 1] / columns
+        );
+        const top = firstRow * rowHeight;
+        const bottom = lastRow * rowHeight + dims.height;
+        return {
+            top,
+            bottom,
+            centerY: (top + bottom) / 2
+        };
     }
 
     private setCenteredScrollTop(contentCenterY: number): void {
@@ -1671,11 +1738,7 @@ class GlyphOverview {
                     glyphCanvas.outlineEditor.getAuthoringGlyphName?.(
                         stackedGlyphName
                     ) ?? stackedGlyphName;
-                if (editingGlyph === this.highlightedGlyphName) {
-                    this.scheduleHighlightedGlyphVisibilitySync();
-                    return;
-                }
-
+                // Scrolls only when the editing glyph name changes.
                 this.setEditingHighlight(editingGlyph);
             } else {
                 this.setEditingHighlight(null);
@@ -1830,7 +1893,9 @@ class GlyphOverview {
     }
 
     /**
-     * Set the editing highlight on a specific glyph tile
+     * Set the editing highlight on a specific glyph tile.
+     * Optionally scrolls into view when the highlighted glyph changes, if
+     * Editing View → View → Scroll Overview to Active Glyph is enabled.
      */
     private setEditingHighlight(glyphName: string | null): void {
         if (glyphName === this.highlightedGlyphName) {
@@ -1845,7 +1910,6 @@ class GlyphOverview {
 
                 tile.element.style.boxShadow =
                     'inset 0 0 0 2px var(--accent-blue)';
-                this.scheduleHighlightedGlyphVisibilitySync();
                 return;
             }
 
@@ -1868,14 +1932,16 @@ class GlyphOverview {
             }
         }
 
-        // Add highlight to new tile and scroll into view
+        // Add highlight to new tile; optionally scroll when the preference is on
         this.highlightedGlyphName = glyphName;
         if (glyphName) {
             for (const tile of this.tiles.values()) {
                 if (tile.glyphName === glyphName) {
                     tile.element.style.boxShadow =
                         'inset 0 0 0 2px var(--accent-blue)';
-                    this.scheduleHighlightedGlyphVisibilitySync();
+                    if (isOverviewFollowStackScrollEnabled()) {
+                        this.scheduleHighlightedGlyphVisibilitySync();
+                    }
                     break;
                 }
             }
@@ -2579,17 +2645,18 @@ class GlyphOverview {
             names.filter((name) => typeof name === 'string' && name.length > 0)
         );
         this.clearSelection();
-        let lastId: string | null = null;
+        const selectedIds: string[] = [];
         this.tiles.forEach((tile) => {
             if (!nameSet.has(tile.glyphName)) {
                 return;
             }
             this.selectTile(tile.glyphId);
-            lastId = tile.glyphId;
+            selectedIds.push(tile.glyphId);
         });
-        if (lastId) {
-            this.lastClickedGlyphId = lastId;
-            this.keyboardAnchorGlyphId = lastId;
+        if (selectedIds.length > 0) {
+            this.lastClickedGlyphId = selectedIds[selectedIds.length - 1];
+            this.keyboardAnchorGlyphId = this.lastClickedGlyphId;
+            this.ensureGlyphIdsInView(selectedIds);
         }
     }
 
