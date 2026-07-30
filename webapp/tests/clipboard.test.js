@@ -1297,3 +1297,320 @@ describe('applyPasteGlyphsDocument', () => {
         expect(font.findGlyph('o')).toBeUndefined();
     });
 });
+
+describe('clipboard internal round-trips', () => {
+    const {
+        Font,
+        withSuppressedModelRecording
+    } = require('../js/babelfont-model');
+    const {
+        buildGlyphsClipboardDocument,
+        buildSelectionClipboardDocument,
+        serializeAnchorForClipboard,
+        serializeComponentForClipboard,
+        serializeFontMastersForClipboard,
+        serializeGlyphForClipboard,
+        serializeGuideForClipboard,
+        serializePathForClipboard,
+        stringifyClipboardDocument
+    } = require('../js/clipboard/serialize');
+
+    function makeBoxNodes(minX, minY, maxX, maxY) {
+        return [
+            { x: minX, y: minY, nodetype: 'Line' },
+            { x: maxX, y: minY, nodetype: 'Line' },
+            { x: maxX, y: maxY, nodetype: 'Line' },
+            { x: minX, y: maxY, nodetype: 'Line' }
+        ];
+    }
+
+    function makeRoundTripFontData() {
+        return {
+            upm: 1000,
+            version: [1, 0],
+            note: '',
+            date: '2024-01-01',
+            names: { familyName: 'ClipboardRoundTrip' },
+            custom_ot_values: [],
+            features: { classes: {}, prefixes: {}, features: [] },
+            axes: [],
+            masters: [
+                {
+                    name: { dflt: 'Regular' },
+                    id: 'master-1',
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: {}
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'dot',
+                    category: 'Mark',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-dot',
+                            width: 100,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    closed: true,
+                                    nodes: makeBoxNodes(10, 10, 40, 40)
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'a',
+                    category: 'Base',
+                    exported: true,
+                    leftMetricsKey: '=H',
+                    rightMetricsKey: '=H',
+                    layers: [
+                        {
+                            id: 'layer-a',
+                            width: 520,
+                            leftMetricsKey: '=H',
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    closed: true,
+                                    nodes: makeBoxNodes(40, 0, 460, 700)
+                                }
+                            ],
+                            anchors: [{ name: 'top', x: 250, y: 720 }],
+                            guides: [
+                                {
+                                    name: 'mid',
+                                    pos: { x: 0, y: 350, angle: 0 }
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    name: 'b',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-b',
+                            width: 480,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    closed: true,
+                                    nodes: makeBoxNodes(30, 0, 420, 700)
+                                },
+                                {
+                                    reference: 'dot',
+                                    transform: [1, 0, 0, 1, 200, 500]
+                                }
+                            ],
+                            anchors: [{ name: 'bottom', x: 240, y: 0 }],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'c',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-c',
+                            width: 450,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    closed: false,
+                                    nodes: [
+                                        { x: 50, y: 50, nodetype: 'Line' },
+                                        { x: 400, y: 50, nodetype: 'Line' },
+                                        {
+                                            x: 400,
+                                            y: 600,
+                                            nodetype: 'Curve',
+                                            smooth: true
+                                        },
+                                        {
+                                            x: 300,
+                                            y: 650,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        { x: 100, y: 650, nodetype: 'OffCurve' }
+                                    ]
+                                }
+                            ],
+                            anchors: [],
+                            guides: [
+                                {
+                                    name: 'slant',
+                                    pos: { x: 100, y: 0, angle: 90 }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        };
+    }
+
+    function glyphContentSnapshot(glyph) {
+        const serialized = serializeGlyphForClipboard(glyph);
+        return {
+            name: serialized.name,
+            leftMetricsKey: serialized.leftMetricsKey ?? null,
+            rightMetricsKey: serialized.rightMetricsKey ?? null,
+            layers: serialized.layers.map((layer) => {
+                const { layerId: _layerId, ...rest } = layer;
+                return rest;
+            }),
+            featureVariations: serialized.featureVariations || []
+        };
+    }
+
+    function selectionContentSnapshot(document) {
+        return {
+            kind: document.kind,
+            keepAbsoluteCoords: document.keepAbsoluteCoords,
+            paths: document.paths,
+            components: document.components,
+            anchors: document.anchors,
+            guides: document.guides
+        };
+    }
+
+    function buildSelectionFromLayer(layer, glyphName) {
+        return buildSelectionClipboardDocument({
+            glyphName,
+            layerId: layer.id ?? null,
+            paths: (layer.paths || []).map((path) =>
+                serializePathForClipboard(path)
+            ),
+            components: (layer.components || []).map((component) =>
+                serializeComponentForClipboard(component)
+            ),
+            anchors: (layer.anchors || [])
+                .filter((anchor) => !!anchor.name)
+                .map((anchor) => serializeAnchorForClipboard(anchor)),
+            guides: (layer.guides || []).map((guide) =>
+                serializeGuideForClipboard(guide, false)
+            )
+        });
+    }
+
+    function clearLayerObjects(layer) {
+        while ((layer.shapes || []).length > 0) {
+            layer.removeShape(0);
+        }
+        while ((layer.anchors || []).length > 0) {
+            layer.removeAnchor(0);
+        }
+        while ((layer.guides || []).length > 0) {
+            layer.removeGuide(0);
+        }
+    }
+
+    test('copy three glyphs, delete them, paste JSON back identically', () => {
+        const font = Font.fromData(makeRoundTripFontData());
+        const names = ['a', 'b', 'c'];
+        const before = names.map((name) =>
+            glyphContentSnapshot(font.findGlyph(name))
+        );
+
+        const document = buildGlyphsClipboardDocument(
+            names.map((name) =>
+                serializeGlyphForClipboard(font.findGlyph(name))
+            ),
+            serializeFontMastersForClipboard(font)
+        );
+        expect(document).not.toBeNull();
+
+        const parsed = parseCounterpunchJson(
+            stringifyClipboardDocument(document)
+        );
+        expect(parsed.kind).toBe('glyphs');
+
+        font.deleteGlyphs(names);
+        for (const name of names) {
+            expect(font.findGlyph(name)).toBeUndefined();
+        }
+        expect(font.findGlyph('dot')).toBeDefined();
+
+        const result = withSuppressedModelRecording(() =>
+            applyPasteGlyphsDocument(parsed.document, {
+                font,
+                glyphExists: (name) => !!font.findGlyph(name)
+            })
+        );
+
+        expect(result.error).toBeUndefined();
+        expect(result.createdGlyphNames).toEqual(names);
+
+        const after = names.map((name) =>
+            glyphContentSnapshot(font.findGlyph(name))
+        );
+        expect(after).toEqual(before);
+    });
+
+    test('copy layer objects, clear the layer, paste JSON back identically', () => {
+        const font = Font.fromData(makeRoundTripFontData());
+        const glyph = font.findGlyph('b');
+        const layer = glyph.layers[0];
+
+        const document = buildSelectionFromLayer(layer, glyph.name);
+        expect(document).not.toBeNull();
+        const before = selectionContentSnapshot(document);
+
+        const parsed = parseCounterpunchJson(
+            stringifyClipboardDocument(document)
+        );
+        expect(parsed.kind).toBe('selection');
+
+        clearLayerObjects(layer);
+        expect(layer.paths).toHaveLength(0);
+        expect(layer.components).toHaveLength(0);
+        expect(layer.anchors).toHaveLength(0);
+        expect(layer.guides).toHaveLength(0);
+
+        const result = withSuppressedModelRecording(() =>
+            applyPasteFragment(parsed.fragment, {
+                activeLayer: layer,
+                linkedLayers: [],
+                master: layer.getMaster?.() ?? null,
+                layerWidth: layer.width,
+                verticalMetrics: null,
+                glyphExists: (name) => !!font.findGlyph(name)
+            })
+        );
+
+        expect(result.skippedComponents).toEqual([]);
+        expect(result.addedPathCount).toBe(before.paths.length);
+        expect(result.addedComponentCount).toBe(before.components.length);
+        expect(result.addedAnchorCount).toBe(before.anchors.length);
+        expect(result.addedGuideCount).toBe(before.guides.length);
+
+        const after = selectionContentSnapshot(
+            buildSelectionFromLayer(layer, glyph.name)
+        );
+        expect(after).toEqual(before);
+    });
+});
