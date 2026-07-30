@@ -1196,6 +1196,18 @@ kbd + kbd {
     border-radius: 6px;
 }
 
+/* Active view indicator — overlay so it sits above content without layout shift.
+   Radius is view radius (6px) minus view border (2px) so corners match the inner edge. */
+.view.focused::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 1px solid var(--border-focus-outline);
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 20;
+}
+
 /* Primary view (editor) - larger minimum size */
 .view.view-editor {
     min-width: 24px;
