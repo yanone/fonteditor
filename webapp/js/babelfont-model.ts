@@ -13280,13 +13280,20 @@ export class Font extends ModelBase {
 
     /**
      * Index at which to insert a new glyph that belongs with `baseName`.
-     * Prefers immediately after the last existing `baseName` / `baseName.NNN`
-     * sibling; otherwise appends.
+     * Strips a trailing `.NNN` so clipboard names like `a.001` still land
+     * with the `a` / `a.NNN` family. Prefers immediately after the last
+     * existing family sibling; otherwise appends.
      */
     findInsertIndexAfterName(baseName: string): number {
-        const name = String(baseName || '').trim();
+        let name = String(baseName || '').trim();
         if (!name || !Array.isArray(this._data.glyphs)) {
             return this._data.glyphs?.length ?? 0;
+        }
+        while (/\.\d{3,}$/.test(name)) {
+            name = name.replace(/\.\d{3,}$/, '');
+        }
+        if (!name) {
+            return this._data.glyphs.length;
         }
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const numbered = new RegExp(`^${escaped}\\.\\d{3,}$`);

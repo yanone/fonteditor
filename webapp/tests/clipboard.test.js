@@ -943,15 +943,16 @@ describe('applyPasteGlyphsDocument', () => {
                 );
             },
             findInsertIndexAfterName(baseName) {
-                const escaped = String(baseName).replace(
-                    /[.*+?^${}()|[\]\\]/g,
-                    '\\$&'
-                );
+                let name = String(baseName || '').trim();
+                while (/\.\d{3,}$/.test(name)) {
+                    name = name.replace(/\.\d{3,}$/, '');
+                }
+                const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const numbered = new RegExp(`^${escaped}\\.\\d{3,}$`);
                 let lastIndex = -1;
                 for (let index = 0; index < glyphOrder.length; index++) {
                     const glyphName = glyphOrder[index];
-                    if (glyphName === baseName || numbered.test(glyphName)) {
+                    if (glyphName === name || numbered.test(glyphName)) {
                         lastIndex = index;
                     }
                 }

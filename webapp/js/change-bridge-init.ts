@@ -2310,14 +2310,20 @@ async function refreshGlyphOverviewFromCommittedEntries(
                     (entry.op === 'add' || entry.op === 'remove')))
         );
     });
-    if (hasGlyphIdentityChange && window.glyphOverviewInstance?.updateGlyphs) {
-        const glyphs = window.currentFontModel?.glyphs || [];
-        await window.glyphOverviewInstance.updateGlyphs(
-            glyphs.map((glyph, index) => ({
-                id: String(index),
-                name: glyph.name
-            }))
+    if (hasGlyphIdentityChange && window.glyphOverviewInstance) {
+        const glyphs = (window.currentFontModel?.glyphs || []).map(
+            (glyph: { name?: string }) => ({
+                id: glyph.name || '',
+                name: glyph.name || ''
+            })
         );
+        if (typeof window.glyphOverviewInstance.syncGlyphs === 'function') {
+            await window.glyphOverviewInstance.syncGlyphs(glyphs);
+        } else if (
+            typeof window.glyphOverviewInstance.updateGlyphs === 'function'
+        ) {
+            await window.glyphOverviewInstance.updateGlyphs(glyphs);
+        }
     }
 
     const changedGlyphNames = new Set<string>();

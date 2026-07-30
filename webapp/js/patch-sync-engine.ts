@@ -995,18 +995,33 @@ export class PatchSyncEngine {
 
     /**
      * Record an add operation (new glyph, layer, shape, etc.).
+     * Glyph-root adds also sync `glyphOrder` from the model array when the
+     * glyph is already spliced there (addGlyph / duplicate / paste), so
+     * `_syncAllGlyphsFromYDoc` does not append the new name at the end.
      */
     recordAdd(path: (string | number)[], value: unknown): void {
         if (this._suppressRecording || this._isSyncing) return;
 
-        this._queueOrCommitOperations([
+        const operations: TransactionBufferedOperation[] = [
             {
                 op: 'add',
                 path,
                 oldValue: undefined,
                 newValue: cloneHistoryValue(value)
             }
-        ]);
+        ];
+
+        if (this._isGlyphRootPath(path)) {
+            const glyphOrderOp = this._createModelGlyphOrderSyncOperation(
+                String(path[1]),
+                'add'
+            );
+            if (glyphOrderOp) {
+                operations.push(glyphOrderOp);
+            }
+        }
+
+        this._queueOrCommitOperations(operations);
     }
 
     /**
@@ -3567,10 +3582,18 @@ export class PatchSyncEngine {
             return true;
         }
 
-        const orderedGlyphNames: string[] = [];
-        yGlyphsMap.forEach((_value: unknown, nextGlyphName: string) => {
-            orderedGlyphNames.push(nextGlyphName);
-        });
+        // Prefer glyphOrder over Y.Map insertion order so newly added glyphs
+        // land next to their namesake instead of at the end of the array.
+        const glyphOrder = this.fontMap.get('glyphOrder');
+        const orderedGlyphNames: string[] =
+            glyphOrder instanceof Y.Array
+                ? glyphOrder.toArray().map(String)
+                : [];
+        if (orderedGlyphNames.length === 0) {
+            yGlyphsMap.forEach((_value: unknown, nextGlyphName: string) => {
+                orderedGlyphNames.push(nextGlyphName);
+            });
+        }
         const glyphOrderIndex = orderedGlyphNames.indexOf(glyphName);
         if (glyphOrderIndex < 0) {
             glyphs.push(glyphSnapshot);
@@ -5521,6 +5544,65 @@ export class PatchSyncEngine {
 
     private _isGlyphRootPath(path: (string | number)[]): boolean {
         return path.length === 2 && path[0] === 'glyphs' && !!path[1];
+    }
+
+    /** Glyph names in current font JSON array order (model / `_fontJson`). */
+    private _glyphNamesFromFontJson(): string[] {
+        if (!this._fontJson) {
+            return [];
+        }
+        const glyphs = (this._fontJson as Record<string, unknown>).glyphs;
+        if (!Array.isArray(glyphs)) {
+            return [];
+        }
+        return glyphs
+            .map((glyph) =>
+                glyph && typeof glyph === 'object'
+                    ? String(
+                          (glyph as Record<string, unknown>).name || ''
+                      ).trim()
+                    : ''
+            )
+            .filter((name) => name.length > 0);
+    }
+
+    private _readYGlyphOrderNames(): string[] {
+        const glyphOrder = this.fontMap.get('glyphOrder');
+        if (glyphOrder instanceof Y.Array) {
+            return glyphOrder.toArray().map(String);
+        }
+        return [];
+    }
+
+    /**
+     * When the model array already reflects an add/remove, emit a `glyphOrder`
+     * set so Yjs order matches insert position (not map-append order).
+     */
+    private _createModelGlyphOrderSyncOperation(
+        glyphName: string,
+        mode: 'add' | 'remove'
+    ): TransactionBufferedOperation | null {
+        const nextOrder = this._glyphNamesFromFontJson();
+        const nameInModel = nextOrder.includes(glyphName);
+        if (mode === 'add' && !nameInModel) {
+            return null;
+        }
+        if (mode === 'remove' && nameInModel) {
+            return null;
+        }
+        const oldOrder = this._readYGlyphOrderNames();
+        if (
+            oldOrder.length === nextOrder.length &&
+            oldOrder.every((name, index) => name === nextOrder[index])
+        ) {
+            return null;
+        }
+        return {
+            op: 'set',
+            path: ['glyphOrder'],
+            oldValue: oldOrder,
+            newValue: [...nextOrder]
+        };
     }
 
     /**

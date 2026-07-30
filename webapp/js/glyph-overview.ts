@@ -486,48 +486,29 @@ class GlyphOverview {
 
     private applySearchFilter(): void {
         if (
-            this.viewMode === 'lines' &&
-            this.searchTerms.length === 0 &&
-            this.activeFilterResults === null &&
-            this.totalGlyphDatasetCount < this.linesVirtualizationThreshold
-        ) {
-            this.visibleGlyphIds = [...this.glyphOrderIds];
-            this.renderLinesModeNoRelayout();
-            return;
-        }
-
-        if (
             this.searchTerms.length === 0 &&
             this.activeFilterResults === null
         ) {
             this.visibleGlyphIds = [...this.glyphOrderIds];
-            this.renderByViewMode();
-            return;
+        } else {
+            this.visibleGlyphIds = this.computeVisibleGlyphIds();
         }
-
-        this.visibleGlyphIds = this.computeVisibleGlyphIds();
+        // Always rebuild DOM from visibleGlyphIds. The old no-relayout path
+        // left Map-insertion order in place after incremental syncGlyphs.
         this.renderByViewMode();
-    }
-
-    private renderLinesModeNoRelayout(): void {
-        if (!this.container) return;
-
-        this.detachLinesVirtualization();
-
-        this.container.classList.remove('glyph-overview-grid-mode');
-        this.container.classList.add('glyph-overview-lines-mode');
-        this.gridRowsForNavigation = [];
-        this.gridColumnCount = 0;
-
-        this.tiles.forEach((tile) => {
-            tile.element.style.display = '';
-        });
     }
 
     private computeVisibleGlyphIds(): string[] {
         const visibleIds: string[] = [];
 
-        this.tiles.forEach((tile, glyphId) => {
+        // Walk font order (glyphOrderIds), not Map insertion order — new
+        // tiles are appended to the Map and would otherwise appear last.
+        for (const glyphId of this.glyphOrderIds) {
+            const tile = this.tiles.get(glyphId);
+            if (!tile) {
+                continue;
+            }
+
             const passesFilter =
                 this.activeFilterResults === null ||
                 this.activeFilterResults.has(tile.glyphName);
@@ -540,7 +521,7 @@ class GlyphOverview {
             if (passesFilter && passesSearch) {
                 visibleIds.push(glyphId);
             }
-        });
+        }
 
         return visibleIds;
     }
@@ -574,8 +555,21 @@ class GlyphOverview {
         this.gridColumnCount = 0;
 
         const fragment = document.createDocumentFragment();
+        // Walk font/filter order — not Map insertion order — so incremental
+        // syncGlyphs inserts land next to their namesake instead of at the end.
+        for (const glyphId of this.visibleGlyphIds) {
+            const tile = this.tiles.get(glyphId);
+            if (!tile) {
+                continue;
+            }
+            tile.element.style.display = '';
+            fragment.appendChild(tile.element);
+        }
         this.tiles.forEach((tile, glyphId) => {
-            tile.element.style.display = visibleSet.has(glyphId) ? '' : 'none';
+            if (visibleSet.has(glyphId)) {
+                return;
+            }
+            tile.element.style.display = 'none';
             fragment.appendChild(tile.element);
         });
 
@@ -1040,7 +1034,7 @@ class GlyphOverview {
         }
 
         if (anchor.type === 'selection') {
-            this.centerGlyphIdsInView(anchor.glyphIds);
+            this.ensureGlyphIdsInView(anchor.glyphIds);
             return;
         }
 
@@ -1051,7 +1045,7 @@ class GlyphOverview {
             return;
         }
 
-        this.scrollToTile(activeTile.element, false);
+        this.ensureGlyphIdsInView([activeTile.glyphId]);
     }
 
     private centerGlyphIdsInView(glyphIds: string[]): void {
@@ -1176,10 +1170,125 @@ class GlyphOverview {
         return overviewView?.classList.contains('focused') ?? false;
     }
 
+    /**
+     * Normalize overview glyph records to stable name-keyed ids.
+     */
+    private normalizeGlyphRecords(
+        glyphs: Array<{ id: string; name: string }>
+    ): Array<{ id: string; name: string }> {
+        return glyphs
+            .map((glyph) => {
+                const name =
+                    typeof glyph.name === 'string' && glyph.name.length > 0
+                        ? glyph.name
+                        : typeof glyph.id === 'string'
+                          ? glyph.id
+                          : '';
+                return { id: name, name };
+            })
+            .filter((glyph) => glyph.name.length > 0);
+    }
+
+    /**
+     * Incrementally sync the overview tile list to the font glyph order.
+     * Reuses existing tiles (and cached outlines) keyed by glyph name; only
+     * creates/removes tiles that changed. Preserves scrollTop.
+     */
+    public syncGlyphs(
+        glyphs: Array<{ id: string; name: string }>
+    ): Promise<void> {
+        if (!this.container) {
+            return Promise.resolve();
+        }
+
+        const nextGlyphs = this.normalizeGlyphRecords(glyphs);
+        if (this.tiles.size === 0) {
+            return this.updateGlyphs(nextGlyphs);
+        }
+
+        // Migrate off legacy index-based tile ids with one full rebuild.
+        for (const tile of this.tiles.values()) {
+            if (tile.glyphId !== tile.glyphName) {
+                return this.updateGlyphs(nextGlyphs);
+            }
+        }
+
+        const savedScrollTop = this.container.scrollTop;
+        const nextIds = nextGlyphs.map((glyph) => glyph.id);
+        const nextIdSet = new Set(nextIds);
+        const previousIds = [...this.glyphOrderIds];
+        const removedIds: string[] = [];
+        const addedIds: string[] = [];
+
+        for (const previousId of previousIds) {
+            if (nextIdSet.has(previousId)) {
+                continue;
+            }
+            const tile = this.tiles.get(previousId);
+            if (tile) {
+                this.intersectionObserver?.unobserve(tile.element);
+                tile.element.remove();
+                this.tiles.delete(previousId);
+            }
+            this.pendingGlyphIds.delete(previousId);
+            removedIds.push(previousId);
+        }
+
+        this.totalGlyphDatasetCount = nextGlyphs.length;
+        this.glyphOrderIds = nextIds;
+        this.glyphDataById = new Map(
+            nextGlyphs.map((glyph) => [glyph.id, glyph])
+        );
+
+        for (const glyph of nextGlyphs) {
+            if (this.tiles.has(glyph.id)) {
+                continue;
+            }
+            const tile = this.createGlyphTile(glyph.id, glyph.name);
+            this.tiles.set(glyph.id, tile);
+            this.pendingGlyphIds.add(glyph.id);
+            addedIds.push(glyph.id);
+        }
+
+        // Reconcile visibility + DOM from font order (not Map insertion order).
+        this.visibleGlyphIds =
+            this.searchTerms.length === 0 && this.activeFilterResults === null
+                ? [...this.glyphOrderIds]
+                : this.computeVisibleGlyphIds();
+        this.renderByViewMode();
+
+        if (this.intersectionObserver) {
+            for (const id of addedIds) {
+                const tile = this.tiles.get(id);
+                if (tile?.element.isConnected) {
+                    this.intersectionObserver.observe(tile.element);
+                }
+            }
+        }
+
+        this.container.scrollTop = savedScrollTop;
+
+        if (addedIds.length > 0) {
+            this.scheduleBatchRender();
+        }
+
+        this.applyPendingGlyphSelection();
+
+        if (removedIds.length > 0 || addedIds.length > 0) {
+            console.log(
+                `Synced overview glyphs (+${addedIds.length} / -${removedIds.length}, reused ${this.tiles.size - addedIds.length})`
+            );
+        }
+
+        return Promise.resolve();
+    }
+
     public updateGlyphs(
         glyphs: Array<{ id: string; name: string }>
     ): Promise<void> {
         if (!this.container) return Promise.resolve();
+
+        glyphs = this.normalizeGlyphRecords(glyphs);
 
         this.totalGlyphDatasetCount = glyphs.length;
         this.glyphOrderIds = glyphs.map((glyph) => glyph.id);

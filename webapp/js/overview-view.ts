@@ -84,8 +84,8 @@ function buildGlyphData() {
         return [];
     }
 
-    return window.currentFontModel.glyphs.map((glyph: any, index: number) => ({
-        id: String(index),
+    return window.currentFontModel.glyphs.map((glyph: any) => ({
+        id: glyph.name,
         name: glyph.name
     }));
 }
@@ -100,7 +100,11 @@ async function updateOverviewTiles() {
     });
     const glyphData = buildGlyphData();
     try {
-        await glyphOverviewInstance.updateGlyphs(glyphData);
+        if (typeof glyphOverviewInstance.syncGlyphs === 'function') {
+            await glyphOverviewInstance.syncGlyphs(glyphData);
+        } else {
+            await glyphOverviewInstance.updateGlyphs(glyphData);
+        }
     } finally {
         timelineSpanEndSafe(updateTilesSpanId);
     }

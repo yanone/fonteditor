@@ -5171,6 +5171,13 @@ describe('Babelfont Object Model', () => {
                 'C'
             ]);
         });
+
+        test('findInsertIndexAfterName strips trailing .NNN for family placement', () => {
+            const font = makeDuplicateFont();
+            font.duplicateGlyph(font.findGlyph('A'), 'A.001');
+            expect(font.findInsertIndexAfterName('A.001')).toBe(2);
+            expect(font.findInsertIndexAfterName('A.002')).toBe(2);
+        });
     });
 
     describe('Font.renameGlyphs()', () => {

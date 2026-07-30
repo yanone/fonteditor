@@ -712,9 +712,10 @@ class GlyphCanvas {
 
     /**
      * Paste whole-glyph clipboard data as always-new glyphs in the overview.
-     * Build under recording suppression, then record each glyph once (full
-     * snapshot) so the worker / overview see outlines — same idea as
-     * duplicateGlyph's single recordAdd.
+     * Build under recording suppression (insert after namesake), then record
+     * each glyph once (full snapshot). `recordAdd` also syncs `glyphOrder`
+     * from the model so Yjs / overview keep that insert position — same path
+     * as duplicateGlyph / addGlyph.
      */
     private pasteWholeGlyphsDocument(document: PasteGlyphsDocument): void {
         const fontModel = fontManager.currentFont?.fontModel;
@@ -756,9 +757,19 @@ class GlyphCanvas {
         }
 
         if (result.createdGlyphNames.length > 0) {
-            window.glyphOverviewInstance?.queueSelectGlyphsByNames?.(
-                result.createdGlyphNames
+            const overview = window.glyphOverviewInstance;
+            // Guarantee overview order matches the model after paste, even if
+            // a later filter refresh would otherwise walk Map insertion order.
+            const glyphData = fontModel.glyphs.map(
+                (glyph: { name?: string }) => ({
+                    id: glyph.name || '',
+                    name: glyph.name || ''
+                })
             );
+            if (typeof overview?.syncGlyphs === 'function') {
+                void overview.syncGlyphs(glyphData);
+            }
+            overview?.queueSelectGlyphsByNames?.(result.createdGlyphNames);
         }
         console.log(describePasteResult(result));
     }

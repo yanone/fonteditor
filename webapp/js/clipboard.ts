@@ -409,9 +409,11 @@ export function applyPasteGlyphsDocument(
 
     for (const sourceGlyph of document.glyphs) {
         const newName = options.font.allocateUniqueGlyphName(sourceGlyph.name);
+        // Prefer the allocated name so trailing .NNN still resolves to the
+        // family root via findInsertIndexAfterName's suffix stripping.
         const insertIndex =
             typeof options.font.findInsertIndexAfterName === 'function'
-                ? options.font.findInsertIndexAfterName(sourceGlyph.name)
+                ? options.font.findInsertIndexAfterName(newName)
                 : undefined;
         const targetGlyph = options.font.addGlyph(
             newName,

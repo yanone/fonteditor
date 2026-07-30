@@ -151,10 +151,17 @@ def allocate_unique_glyph_name(font, base_name):
 
 
 def find_insert_index_after_name(font, base_name):
-    """Index after the last baseName / baseName.NNN sibling; else append."""
+    """Index after the last family sibling; else append.
+
+    Strips trailing .NNN so clipboard names like a.001 still land with a.
+    """
     import re
 
     name = (base_name or "").strip()
+    if not name:
+        return len(font.glyphs)
+    while re.search(r"\.\d{3,}$", name):
+        name = re.sub(r"\.\d{3,}$", "", name)
     if not name:
         return len(font.glyphs)
     pattern = re.compile(r"^%s\.\d{3,}$" % re.escape(name))

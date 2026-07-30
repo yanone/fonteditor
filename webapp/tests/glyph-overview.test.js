@@ -597,6 +597,132 @@ describe('GlyphOverview initial active tile highlighting', () => {
         expect(setCenteredScrollTop).not.toHaveBeenCalled();
         expect(parent.scrollTop).toBe(0);
     });
+});
+
+describe('GlyphOverview syncGlyphs incremental updates', () => {
+    let GlyphOverview;
+    let overview;
+    let parent;
+
+    beforeEach(() => {
+        jest.useFakeTimers();
+        jest.resetModules();
+        localStorage.clear();
+
+        global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+        global.cancelAnimationFrame = (id) => clearTimeout(id);
+
+        require('../js/glyph-overview');
+        GlyphOverview = window.GlyphOverview;
+
+        document.body.innerHTML = '';
+        parent = document.createElement('div');
+        Object.defineProperty(parent, 'clientHeight', {
+            configurable: true,
+            value: 400
+        });
+        Object.defineProperty(parent, 'scrollHeight', {
+            configurable: true,
+            value: 4000
+        });
+        document.body.appendChild(parent);
+
+        overview = new GlyphOverview(parent);
+        jest.spyOn(overview, 'getTileDimensions').mockReturnValue({
+            width: 80,
+            height: 100
+        });
+        jest.spyOn(overview, 'getGridColumns').mockReturnValue(1);
+        jest.spyOn(overview, 'scheduleBatchRender').mockImplementation(
+            () => {}
+        );
+        jest.spyOn(overview, 'renderVirtualizedLinesWindow').mockImplementation(
+            () => {}
+        );
+    });
+
+    afterEach(() => {
+        jest.runOnlyPendingTimers();
+        jest.useRealTimers();
+        jest.restoreAllMocks();
+        delete window.GlyphOverview;
+    });
+
+    test('reuses existing tiles and preserves scrollTop when inserting a glyph', async () => {
+        await overview.updateGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'o', name: 'o' },
+            { id: 'p', name: 'p' }
+        ]);
+        const tileO = overview.tiles.get('o');
+        expect(tileO).toBeTruthy();
+        tileO.cachedData = { name: 'o', paths: [] };
+
+        overview.container.scrollTop = 120;
+
+        await overview.syncGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'o', name: 'o' },
+            { id: 'o.001', name: 'o.001' },
+            { id: 'p', name: 'p' }
+        ]);
+
+        expect(overview.tiles.get('o')).toBe(tileO);
+        expect(tileO.cachedData).toEqual({ name: 'o', paths: [] });
+        expect(overview.tiles.has('o.001')).toBe(true);
+        expect(overview.glyphOrderIds).toEqual(['a', 'o', 'o.001', 'p']);
+        expect(
+            [...overview.container.children].map((el) => el.dataset.glyphId)
+        ).toEqual(['a', 'o', 'o.001', 'p']);
+        expect(overview.container.scrollTop).toBe(120);
+        expect(overview.scheduleBatchRender).toHaveBeenCalled();
+    });
+
+    test('keeps font order after filter refresh (Map insertion must not win)', async () => {
+        await overview.updateGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'o', name: 'o' },
+            { id: 'p', name: 'p' }
+        ]);
+
+        await overview.syncGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'o', name: 'o' },
+            { id: 'o.001', name: 'o.001' },
+            { id: 'p', name: 'p' }
+        ]);
+
+        overview.setActiveFilter([
+            { glyph_name: 'a', colors: [] },
+            { glyph_name: 'o', colors: [] },
+            { glyph_name: 'o.001', colors: [] },
+            { glyph_name: 'p', colors: [] }
+        ]);
+
+        expect(overview.visibleGlyphIds).toEqual(['a', 'o', 'o.001', 'p']);
+        expect(
+            [...overview.container.children]
+                .filter((el) => el.style.display !== 'none')
+                .map((el) => el.dataset.glyphId)
+        ).toEqual(['a', 'o', 'o.001', 'p']);
+    });
+
+    test('applyResizeFocusAnchor uses ensure-visible instead of centering', () => {
+        const ensure = jest
+            .spyOn(overview, 'ensureGlyphIdsInView')
+            .mockImplementation(() => {});
+        const center = jest
+            .spyOn(overview, 'centerGlyphIdsInView')
+            .mockImplementation(() => {});
+
+        overview.applyResizeFocusAnchor({
+            type: 'selection',
+            glyphIds: ['o', 'o.001']
+        });
+
+        expect(ensure).toHaveBeenCalledWith(['o', 'o.001']);
+        expect(center).not.toHaveBeenCalled();
+    });
 
     test('resolves a feature-variation stack glyph to its base overview tile', () => {
         const getAuthoringGlyphName = jest.fn(() => 'dollar');

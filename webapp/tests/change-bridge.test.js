@@ -781,7 +781,8 @@ const COLLECTION_MUTATOR_TESTS = {
         isApplicable: () => true,
         invoke: (font) => font.addGlyph('C', 'Base'),
         expectedOp: 'add',
-        expectedPathFragment: () => 'glyphs.C'
+        expectedPathFragment: () => 'glyphs.C',
+        expectedLogLength: 2
     },
     'Font.removeGlyph': {
         isApplicable: (font) => !!font.findGlyph('B'),
@@ -794,7 +795,8 @@ const COLLECTION_MUTATOR_TESTS = {
             !!font.findGlyph('A') && !font.findGlyph('A.alt'),
         invoke: (font) => font.duplicateGlyph(font.findGlyph('A'), 'A.alt'),
         expectedOp: 'add',
-        expectedPathFragment: () => 'glyphs.A.alt'
+        expectedPathFragment: () => 'glyphs.A.alt',
+        expectedLogLength: 2
     },
     'Glyph.addLayer': {
         isApplicable: (glyph) => glyph.name === 'A',
@@ -2178,6 +2180,32 @@ describe('ChangeBridge', () => {
         const log = bridge.getChangeLog();
         expect(log).toHaveLength(1);
         expect(log[0].op).toBe('add');
+    });
+
+    test('recordAdd syncs glyphOrder when glyph is already in font JSON order', () => {
+        const { bridge, fontJson } = createTestBridge('glyph-order-insert');
+        const inserted = {
+            name: 'A.001',
+            category: 'Base',
+            exported: true,
+            layers: []
+        };
+        fontJson.glyphs.splice(1, 0, inserted);
+
+        bridge.recordAdd(['glyphs', 'A.001'], inserted);
+
+        const glyphOrder = bridge.fontMap.get('glyphOrder');
+        expect(glyphOrder.toArray()).toEqual(['A', 'A.001', 'B']);
+        expect(yDocToJson(bridge.fontMap).glyphs.map((g) => g.name)).toEqual([
+            'A',
+            'A.001',
+            'B'
+        ]);
+        const log = bridge.getChangeLog();
+        expect(log.map((entry) => entry.path)).toEqual([
+            'glyphs.A.001:',
+            'glyphOrder'
+        ]);
     });
 
     test('recordRemove deletes from Y.Doc', () => {
@@ -4220,13 +4248,19 @@ describe('Model collection mutator change recording', () => {
 
             const log = bridge.getChangeLog();
             const afterJson = yDocToJson(bridge.fontMap);
+            const expectedLogLength = mutator.expectedLogLength ?? 1;
 
-            expect(log).toHaveLength(1);
+            expect(log).toHaveLength(expectedLogLength);
             expect(log[0].op).toBe(mutator.expectedOp);
             expect(log[0].path).toContain(
                 mutator.expectedPathFragment(target, log[0])
             );
             expect(afterJson).not.toEqual(beforeJson);
+            if (expectedLogLength > 1) {
+                expect(log.some((entry) => entry.path === 'glyphOrder')).toBe(
+                    true
+                );
+            }
         }
     );
 

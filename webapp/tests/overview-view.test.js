@@ -4,6 +4,7 @@ jest.mock('../js/top-row-sidebar-interpolation', () => ({
 
 describe('OverviewView initial active glyph sync', () => {
     let updateGlyphs;
+    let syncGlyphs;
     let renderGlyphOutlines;
     let syncActiveGlyphFocus;
     let setOutlinePaintAllowed;
@@ -53,6 +54,7 @@ describe('OverviewView initial active glyph sync', () => {
         `;
 
         updateGlyphs = jest.fn().mockResolvedValue(undefined);
+        syncGlyphs = jest.fn().mockResolvedValue(undefined);
         renderGlyphOutlines = jest.fn().mockResolvedValue(undefined);
         syncActiveGlyphFocus = jest.fn();
         setOutlinePaintAllowed = jest.fn();
@@ -67,6 +69,7 @@ describe('OverviewView initial active glyph sync', () => {
         };
         window.GlyphOverview = jest.fn().mockImplementation(() => ({
             updateGlyphs,
+            syncGlyphs,
             renderGlyphOutlines,
             syncActiveGlyphFocus,
             setOutlinePaintAllowed,
@@ -101,13 +104,13 @@ describe('OverviewView initial active glyph sync', () => {
         await jest.runAllTimersAsync();
         await Promise.resolve();
 
-        expect(updateGlyphs).toHaveBeenCalledTimes(1);
+        expect(syncGlyphs).toHaveBeenCalledTimes(1);
         expect(renderGlyphOutlines).not.toHaveBeenCalled();
 
-        updateGlyphs.mockClear();
+        syncGlyphs.mockClear();
         await flushFontReadyOverview();
 
-        expect(updateGlyphs).toHaveBeenCalledTimes(1);
+        expect(syncGlyphs).toHaveBeenCalledTimes(1);
         expect(renderGlyphOutlines).toHaveBeenCalledTimes(1);
         expect(renderGlyphOutlines).toHaveBeenCalledWith(
             expect.any(Object),
@@ -148,6 +151,7 @@ describe('OverviewView initial active glyph sync', () => {
         await Promise.resolve();
 
         updateGlyphs.mockClear();
+        syncGlyphs.mockClear();
         renderGlyphOutlines.mockClear();
         setOutlinePaintAllowed.mockClear();
 
@@ -168,9 +172,9 @@ describe('OverviewView initial active glyph sync', () => {
         await Promise.resolve();
 
         expect(setOutlinePaintAllowed).toHaveBeenCalledWith(false);
-        expect(updateGlyphs).toHaveBeenCalledTimes(1);
-        expect(updateGlyphs).toHaveBeenCalledWith([
-            { id: '0', name: '.notdef' }
+        expect(syncGlyphs).toHaveBeenCalledTimes(1);
+        expect(syncGlyphs).toHaveBeenCalledWith([
+            { id: '.notdef', name: '.notdef' }
         ]);
         expect(renderGlyphOutlines).not.toHaveBeenCalled();
     });
