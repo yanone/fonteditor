@@ -2621,10 +2621,6 @@ class GlyphOverview {
 
         // Click handler for selection
         tileElement.addEventListener('click', (e) => {
-            // Don't handle click if view is not active
-            if (!this.isViewActive()) {
-                return;
-            }
             // Don't handle click if a drag just occurred
             if (this.hasDragged) {
                 return;
@@ -2643,9 +2639,6 @@ class GlyphOverview {
 
         // Double-click inserts explicit glyph token into text buffer
         tileElement.addEventListener('dblclick', (e) => {
-            if (!this.isViewActive()) {
-                return;
-            }
             if (this.hasDragged) {
                 return;
             }
@@ -2730,9 +2723,6 @@ class GlyphOverview {
         addTippyBackdropSupport(this.tileContextMenu, backdrop);
 
         this.container.addEventListener('contextmenu', (event) => {
-            if (!this.isViewActive()) {
-                return;
-            }
             const target = event.target as HTMLElement | null;
             const tileElement = target?.closest(
                 '.glyph-tile'
@@ -3346,11 +3336,6 @@ class GlyphOverview {
 
     // Drag selection handlers
     private onMouseDown(e: MouseEvent): void {
-        // Don't allow drag selection if view is not active
-        if (!this.isViewActive()) {
-            return;
-        }
-
         this.isDragging = true;
         this.hasDragged = false;
         const rect = this.container!.getBoundingClientRect();

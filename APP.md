@@ -272,7 +272,7 @@ Paste always appends selection / SVG content. Selection / SVG pastes fan out to 
 
 **Overview type-to-select:** with the glyph overview focused, a single printable key selects the first visible glyph that encodes that Unicode character. Keys typed within 1 second append to a buffer and select by glyph-name prefix instead (case-insensitive). Escape / arrow keys / Backspace clear the buffer.
 
-**View keyboard activation:** focusing a view via its shortcut (or click) must move real DOM focus into that view and blur the previous view’s controls (glyph canvas, Ace, terminal, assistant prompt). Otherwise keystrokes can still reach the previously focused control while the new view also handles them.
+**View keyboard activation:** focusing a view via its shortcut (or click) must move real DOM focus into that view and blur the previous view’s controls (glyph canvas, Ace, terminal, assistant prompt). Otherwise keystrokes can still reach the previously focused control while the new view also handles them. Glyph overview tile clicks, double-clicks, drag-select, and context menus apply immediately even when the overview was not previously the focused view (the click still focuses the view as usual).
 
 SVG subpaths closed with `Z` / `z` become closed Contours; the start point is not duplicated at the end. Background layers accept paths only.
 
