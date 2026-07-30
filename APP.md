@@ -270,6 +270,8 @@ Paste always appends selection / SVG content. Selection / SVG pastes fan out to 
 
 **Duplicate Glyph(s):** overview context menu, ⌘D, and Font → Duplicate Glyph(s) clone selected glyphs directly in the model (not via the clipboard), using the same `.001` naming scheme. Each clone is inserted immediately after its source, drops Unicode codepoints, regenerates layer IDs, and keeps master references.
 
+**Overview type-to-select:** with the glyph overview focused, a single printable key selects the first visible glyph that encodes that Unicode character. Keys typed within 1 second append to a buffer and select by glyph-name prefix instead (case-insensitive). Escape / arrow keys / Backspace clear the buffer.
+
 SVG subpaths closed with `Z` / `z` become closed Contours; the start point is not duplicated at the end. Background layers accept paths only.
 
 #### Clipboard Copy

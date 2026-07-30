@@ -21,6 +21,11 @@ import {
     setupMenuKeyboardNav
 } from './tippy-utils';
 import { isOverviewFollowStackScrollEnabled } from './glyph-overview-follow-stack-pref';
+import {
+    appendGlyphOverviewTypeaheadBuffer,
+    GLYPH_OVERVIEW_TYPEAHEAD_TIMEOUT_MS,
+    matchGlyphOverviewTypeahead
+} from './glyph-overview-typeahead';
 
 const console = new Logger('GlyphOverview');
 
@@ -163,6 +168,10 @@ class GlyphOverview {
     private preDoubleClickTimestamp = 0;
     /** Names to select after the next overview rebuild (paste / duplicate). */
     private pendingSelectGlyphNames: string[] | null = null;
+    /** Type-to-select buffer (codepoint when length 1; name prefix when longer). */
+    private typeaheadBuffer = '';
+    private typeaheadLastKeyAtMs = 0;
+    private typeaheadClearTimer: number | null = null;
 
     constructor(parentElement: HTMLElement) {
         this.init(parentElement);
@@ -351,6 +360,7 @@ class GlyphOverview {
             } else if (e.key === 'Escape' && this.isViewActive()) {
                 // Clear all glyph and group selections
                 e.preventDefault();
+                this.clearTypeaheadBuffer();
                 this.clearSelection();
                 // Also clear keyboard anchor
                 this.keyboardAnchorGlyphId = null;
@@ -375,6 +385,11 @@ class GlyphOverview {
                         target.tagName === 'TEXTAREA' ||
                         target.isContentEditable)
                 ) {
+                    return;
+                }
+                if (this.typeaheadBuffer.length > 0) {
+                    e.preventDefault();
+                    this.clearTypeaheadBuffer();
                     return;
                 }
                 if (
@@ -415,8 +430,11 @@ class GlyphOverview {
                 // Handle arrow key navigation for glyph selection
                 if (this.isViewActive()) {
                     e.preventDefault();
+                    this.clearTypeaheadBuffer();
                     this.handleArrowKeyNavigation(e.key, e.shiftKey);
                 }
+            } else if (this.isViewActive()) {
+                this.handleTypeaheadKeydown(e);
             }
         });
     }
@@ -447,6 +465,102 @@ class GlyphOverview {
         }
 
         this.setViewMode(this.viewMode, false, true);
+    }
+
+    /**
+     * Type-to-select while the overview is focused.
+     * One key → Unicode codepoint; rapid keys within 1s → glyph-name prefix.
+     */
+    private handleTypeaheadKeydown(event: KeyboardEvent): void {
+        if (event.metaKey || event.ctrlKey || event.altKey) {
+            return;
+        }
+        const target = event.target as HTMLElement | null;
+        if (
+            target &&
+            (target.tagName === 'INPUT' ||
+                target.tagName === 'TEXTAREA' ||
+                target.isContentEditable)
+        ) {
+            return;
+        }
+        if (event.key.length !== 1) {
+            return;
+        }
+
+        const now = performance.now();
+        const elapsed =
+            this.typeaheadLastKeyAtMs > 0
+                ? now - this.typeaheadLastKeyAtMs
+                : Number.POSITIVE_INFINITY;
+        this.typeaheadBuffer = appendGlyphOverviewTypeaheadBuffer(
+            this.typeaheadBuffer,
+            event.key,
+            elapsed,
+            GLYPH_OVERVIEW_TYPEAHEAD_TIMEOUT_MS
+        );
+        this.typeaheadLastKeyAtMs = now;
+        this.scheduleTypeaheadBufferClear();
+
+        const matchName = matchGlyphOverviewTypeahead(
+            this.typeaheadBuffer,
+            this.collectTypeaheadGlyphs()
+        );
+        // Consume the key once a multi-character typeahead session is active,
+        // even if the current prefix has no match yet.
+        if (matchName || this.typeaheadBuffer.length > 1) {
+            event.preventDefault();
+        }
+        if (!matchName) {
+            return;
+        }
+
+        this.selectGlyphsByNames([matchName]);
+    }
+
+    private collectTypeaheadGlyphs(): Array<{
+        name: string;
+        codepoints?: readonly number[] | null;
+    }> {
+        const fontModel =
+            window.fontManager?.currentFont?.fontModel ??
+            window.currentFontModel;
+        const glyphs: Array<{
+            name: string;
+            codepoints?: readonly number[] | null;
+        }> = [];
+        for (const glyphId of this.visibleGlyphIds) {
+            const tile = this.tiles.get(glyphId);
+            if (!tile) {
+                continue;
+            }
+            const modelGlyph = fontModel?.findGlyph?.(tile.glyphName);
+            glyphs.push({
+                name: tile.glyphName,
+                codepoints: modelGlyph?.codepoints ?? null
+            });
+        }
+        return glyphs;
+    }
+
+    private scheduleTypeaheadBufferClear(): void {
+        if (this.typeaheadClearTimer !== null) {
+            window.clearTimeout(this.typeaheadClearTimer);
+        }
+        this.typeaheadClearTimer = window.setTimeout(() => {
+            this.typeaheadClearTimer = null;
+            this.typeaheadBuffer = '';
+            this.typeaheadLastKeyAtMs = 0;
+        }, GLYPH_OVERVIEW_TYPEAHEAD_TIMEOUT_MS);
+    }
+
+    private clearTypeaheadBuffer(): void {
+        if (this.typeaheadClearTimer !== null) {
+            window.clearTimeout(this.typeaheadClearTimer);
+            this.typeaheadClearTimer = null;
+        }
+        this.typeaheadBuffer = '';
+        this.typeaheadLastKeyAtMs = 0;
     }
 
     private setViewMode(
