@@ -60,6 +60,3 @@ release-notes.md
 build/
 target/
 .gitnexus
-.opencode/agents/build.md
-.opencode/agents/chat.md
-.opencode/agents/qa.md
