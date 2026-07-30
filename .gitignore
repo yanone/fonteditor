@@ -3,6 +3,7 @@ fontc-web-build/
 temp/
 
 CLAUDE.md
+.opencode/
 
 # WASM distribution files (optional - uncomment if you don't want to commit these)
 # webapp/wasm-dist/
@@ -59,3 +60,6 @@ release-notes.md
 build/
 target/
 .gitnexus
+.opencode/agents/build.md
+.opencode/agents/chat.md
+.opencode/agents/qa.md
