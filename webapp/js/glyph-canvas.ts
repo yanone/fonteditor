@@ -941,6 +941,13 @@ class GlyphCanvas {
 
         // Keyboard events for cursor and text input
         this.canvas!.addEventListener('keydown', (e) => {
+            const editorView = document.getElementById('view-editor');
+            if (!editorView?.classList.contains('focused')) {
+                // View activation via keyboard can leave the canvas focused
+                // briefly; never type into the editor unless it is the focused view.
+                return;
+            }
+
             if (this.shouldBlockTextEditingDuringLoopAnimation(e)) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -976,6 +983,11 @@ class GlyphCanvas {
             }
         });
         this.canvas!.addEventListener('keyup', (e) => {
+            const editorView = document.getElementById('view-editor');
+            if (!editorView?.classList.contains('focused')) {
+                return;
+            }
+
             if (this.shouldBlockTextEditingDuringLoopAnimation(e)) {
                 e.preventDefault();
                 e.stopPropagation();

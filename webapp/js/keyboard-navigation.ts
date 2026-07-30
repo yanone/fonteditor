@@ -1000,14 +1000,30 @@
     }
 
     /**
-     * Blur all bottom view editors (console, scripts, assistant)
+     * Blur the editing-view glyph canvas so keystrokes stop reaching text mode.
      */
-    function blurBottomViewEditors() {
-        // Blur console terminal
-        blurConsole();
+    function blurEditorCanvas() {
+        const canvas = window.glyphCanvas?.canvas as HTMLElement | null;
+        if (canvas && document.activeElement === canvas) {
+            canvas.blur();
+        }
+        // If focus somehow remained inside the editor view, clear it too.
+        const editorView = document.getElementById('view-editor');
+        const active = document.activeElement as HTMLElement | null;
+        if (
+            editorView &&
+            active &&
+            editorView.contains(active) &&
+            active !== editorView
+        ) {
+            active.blur();
+        }
+    }
 
-        // Blur script editor (Ace Editor)
-        // Try to get the Ace editor instance
+    /**
+     * Blur the scripts Ace editor (and its textarea).
+     */
+    function blurScriptEditor() {
         const scriptEditorElement = document.getElementById('script-editor');
         if (scriptEditorElement && window.ace) {
             try {
@@ -1015,7 +1031,6 @@
                 if (aceEditor && aceEditor.blur) {
                     aceEditor.blur();
                 }
-                // Also blur the textarea used by Ace
                 const aceTextarea =
                     scriptEditorElement.querySelector('textarea');
                 if (aceTextarea) {
@@ -1025,10 +1040,104 @@
                 console.warn('[KeyboardNav]', 'Could not blur Ace editor:', e);
             }
         }
+    }
 
+    function blurAssistantPrompt() {
         const assistantPrompt = document.getElementById('assistant-prompt');
         if (assistantPrompt) {
             assistantPrompt.blur();
+        }
+    }
+
+    /**
+     * Give a view shell DOM focus so keystrokes leave the previous control.
+     * Used for views without a single primary text field (overview, font info).
+     */
+    function focusViewShell(viewId: string) {
+        const view = document.getElementById(viewId);
+        if (!view) {
+            return;
+        }
+        if (!view.hasAttribute('tabindex')) {
+            view.setAttribute('tabindex', '-1');
+        }
+        view.focus({ preventScroll: true });
+    }
+
+    /**
+     * Move real DOM focus with the logical focused view.
+     * Keyboard activation previously only toggled `.focused` and left the
+     * previous control (e.g. glyph canvas) as document.activeElement, so
+     * typing still fell through there while overview typeahead also ran.
+     */
+    function transferViewDomFocus(
+        viewId: string,
+        viaKeyboard: boolean,
+        wasExpanded: boolean
+    ) {
+        if (viewId !== 'view-editor') {
+            blurEditorCanvas();
+        }
+        if (viewId !== 'view-console') {
+            blurConsole();
+        }
+        if (viewId !== 'view-scripts') {
+            blurScriptEditor();
+        }
+        if (viewId !== 'view-assistant') {
+            blurAssistantPrompt();
+        }
+
+        if (viewId === 'view-scripts') {
+            setTimeout(() => {
+                const scriptEditor = document.getElementById('script-editor');
+                if (scriptEditor) {
+                    scriptEditor.focus();
+                    scriptEditor.click();
+                }
+            }, 100);
+            return;
+        }
+
+        if (viewId === 'view-console') {
+            const prompt = document.getElementById('assistant-prompt');
+            if (prompt) {
+                prompt.blur();
+            }
+            // Console focus/scroll behavior stays in focusView (needs scroll capture).
+            return;
+        }
+
+        if (viewId === 'view-assistant') {
+            const settings = getViewSettings();
+            const delay = settings?.animation?.enabled
+                ? settings.animation.duration + 50
+                : 100;
+
+            setTimeout(() => {
+                if (viaKeyboard || wasExpanded) {
+                    const prompt = document.getElementById('assistant-prompt');
+                    if (prompt) {
+                        prompt.focus();
+                    }
+                }
+            }, delay);
+            return;
+        }
+
+        if (viewId === 'view-editor') {
+            setTimeout(() => {
+                if (window.glyphCanvas && window.glyphCanvas.canvas) {
+                    window.glyphCanvas.canvas.focus();
+                }
+            }, 100);
+            return;
+        }
+
+        if (viewId === 'view-overview' || viewId === 'view-fontinfo') {
+            // Always take DOM focus when activating these views so keyboard
+            // shortcuts and typeahead do not keep hitting the previous control.
+            focusViewShell(viewId);
         }
     }
 
@@ -1141,41 +1250,13 @@
             const wasExpanded = expandViewOnActivation(viewId);
             recordViewVisit(viewId);
 
-            // Determine if we're focusing a top view (editor, fontinfo, or overview)
-            const isTopView =
-                viewId === 'view-editor' ||
-                viewId === 'view-fontinfo' ||
-                viewId === 'view-overview';
+            // Move real DOM focus with the logical focused view so keystrokes
+            // do not keep reaching the previous view's control (canvas, Ace,
+            // terminal, assistant prompt, etc.).
+            transferViewDomFocus(viewId, viaKeyboard, wasExpanded);
 
-            // If focusing a top view, blur all bottom view editors
-            if (isTopView) {
-                blurBottomViewEditors();
-            }
-
-            // Blur console for all non-console views first
-            if (viewId !== 'view-console') {
-                blurConsole();
-            }
-
-            // If activating scripts, focus the script editor after blurring console
-            if (viewId === 'view-scripts') {
-                setTimeout(() => {
-                    const scriptEditor =
-                        document.getElementById('script-editor');
-                    if (scriptEditor) {
-                        scriptEditor.focus();
-                        scriptEditor.click();
-                    }
-                }, 100);
-            }
-
-            // If activating console, blur the assistant's text field and focus terminal
+            // Console needs special scroll preservation around terminal focus.
             if (viewId === 'view-console') {
-                const prompt = document.getElementById('assistant-prompt');
-                if (prompt) {
-                    prompt.blur();
-                }
-
                 // Use the scroll position captured at the start of focusView
                 const scrollBefore = consoleScrollBefore;
 
@@ -1252,33 +1333,6 @@
                         }, 500);
                     }, 50);
                 }
-            }
-
-            // If activating assistant, focus prompt
-            if (viewId === 'view-assistant') {
-                const settings = getViewSettings();
-                const delay = settings?.animation?.enabled
-                    ? settings.animation.duration + 50
-                    : 100;
-
-                setTimeout(() => {
-                    if (viaKeyboard || wasExpanded) {
-                        const prompt =
-                            document.getElementById('assistant-prompt');
-                        if (prompt) {
-                            prompt.focus();
-                        }
-                    }
-                }, delay);
-            }
-
-            // If activating editor, focus the canvas
-            if (viewId === 'view-editor') {
-                setTimeout(() => {
-                    if (window.glyphCanvas && window.glyphCanvas.canvas) {
-                        window.glyphCanvas.canvas.focus();
-                    }
-                }, 100);
             }
 
             // Trigger any view-specific focus handlers
