@@ -5050,6 +5050,114 @@ describe('Babelfont Object Model', () => {
         });
     });
 
+    describe('Font.duplicateGlyph / duplicateGlyphs', () => {
+        function makeDuplicateFont() {
+            return Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: {}
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        codepoints: [65],
+                        layers: [
+                            {
+                                id: 'layer-A',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        name: 'B',
+                        category: 'Base',
+                        exported: true,
+                        codepoints: [66],
+                        layers: [
+                            {
+                                id: 'layer-B',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        name: 'C',
+                        category: 'Base',
+                        exported: true,
+                        codepoints: [67],
+                        layers: [
+                            {
+                                id: 'layer-C',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                }
+                            }
+                        ]
+                    }
+                ],
+                note: '',
+                date: '2024-01-01',
+                names: {},
+                custom_ot_values: [],
+                features: { tags: [], features: [], classes: [], prefixes: [] }
+            });
+        }
+
+        test('inserts the duplicate immediately after the source and clears codepoints', () => {
+            const font = makeDuplicateFont();
+            const source = font.findGlyph('A');
+            const duplicate = font.duplicateGlyph(source, 'A.001');
+
+            expect(font.glyphs.map((g) => g.name)).toEqual([
+                'A',
+                'A.001',
+                'B',
+                'C'
+            ]);
+            expect(duplicate.codepoints).toBeUndefined();
+            expect(font.findGlyph('A').codepoints).toEqual([65]);
+        });
+
+        test('duplicateGlyphs inserts each clone after its source in font order', () => {
+            const font = makeDuplicateFont();
+            const created = font.duplicateGlyphs(['C', 'A']);
+
+            expect(created.map((g) => g.name)).toEqual(['A.001', 'C.001']);
+            expect(font.glyphs.map((g) => g.name)).toEqual([
+                'A',
+                'A.001',
+                'B',
+                'C',
+                'C.001'
+            ]);
+            expect(font.findGlyph('A.001').codepoints).toBeUndefined();
+            expect(font.findGlyph('C.001').codepoints).toBeUndefined();
+        });
+    });
+
     describe('Font.renameGlyphs()', () => {
         test('renames font-owned glyph references atomically', () => {
             const renameFont = Font.fromData({

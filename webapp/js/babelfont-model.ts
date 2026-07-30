@@ -12734,7 +12734,8 @@ export class Font extends ModelBase {
     }
 
     /**
-     * Duplicate a glyph with a new name
+     * Duplicate a glyph with a new name, inserted immediately after the source.
+     * The duplicate does not keep Unicode codepoints.
      * @example
      * new_glyph = font.duplicateGlyph(glyph, "A.alt")
      */
@@ -12758,8 +12759,9 @@ export class Font extends ModelBase {
             JSON.stringify(this._data.glyphs[sourceGlyphIndex])
         );
 
-        // Set the new name
+        // Set the new name; duplicates are unencoded.
         clonedData.name = newName;
+        delete clonedData.codepoints;
 
         // Generate new unique IDs for all layers
         if (clonedData.layers) {
@@ -12788,15 +12790,76 @@ export class Font extends ModelBase {
             }
         }
 
-        // Add the cloned glyph to the font
+        // Insert the clone directly after the source glyph
         assertModelMutationAllowed();
-        this._data.glyphs.push(clonedData);
+        const insertIndex = sourceGlyphIndex + 1;
+        this._data.glyphs.splice(insertIndex, 0, clonedData);
         this._glyphWrappers = null; // Invalidate cache
         this.invalidateReverseComponentIndex();
         recordAddAndMarkDirty(['glyphs', newName], clonedData);
 
         // Return the newly created glyph
-        return new Glyph(this._data.glyphs, this._data.glyphs.length - 1, this);
+        return new Glyph(this._data.glyphs, insertIndex, this);
+    }
+
+    /**
+     * Next free glyph name using Glyphs-style .001 / .002 suffixes.
+     * `a` → `a`; if taken → `a.001`, then `a.002`, …
+     */
+    allocateUniqueGlyphName(baseName: string): string {
+        const name = String(baseName || '').trim();
+        if (!name) {
+            throw new Error('Glyph name must be non-empty');
+        }
+        if (!this.findGlyph(name)) {
+            return name;
+        }
+        let index = 1;
+        while (index < 10000) {
+            const candidate = `${name}.${String(index).padStart(3, '0')}`;
+            if (!this.findGlyph(candidate)) {
+                return candidate;
+            }
+            index += 1;
+        }
+        throw new Error(`Could not allocate a unique name for "${name}"`);
+    }
+
+    /**
+     * Duplicate each named glyph under a unique .001-style name.
+     * Each clone is inserted directly after its source, loses codepoints,
+     * regenerates layer IDs, and keeps master references.
+     */
+    duplicateGlyphs(names: Iterable<string>): Glyph[] {
+        const uniqueNames = [
+            ...new Set(
+                [...names].filter(
+                    (name) => typeof name === 'string' && name.length > 0
+                )
+            )
+        ];
+        // Process in font order so multi-select inserts stay next to sources.
+        uniqueNames.sort((a, b) => {
+            const indexA = this._data.glyphs.findIndex(
+                (g: Unsafe) => g.name === a
+            );
+            const indexB = this._data.glyphs.findIndex(
+                (g: Unsafe) => g.name === b
+            );
+            return indexA - indexB;
+        });
+        return withBridgeTransaction('Duplicate glyphs', () => {
+            const created: Glyph[] = [];
+            for (const name of uniqueNames) {
+                const glyph = this.findGlyph(name);
+                if (!glyph) {
+                    continue;
+                }
+                const newName = this.allocateUniqueGlyphName(name);
+                created.push(this.duplicateGlyph(glyph, newName));
+            }
+            return created;
+        });
     }
 
     /**

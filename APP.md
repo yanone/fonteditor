@@ -251,6 +251,38 @@ When a live advance refresh changes one or more glyphs before the active glyph i
 Ensure that undo operations of the same edits result in the same visual anchoring as during edits, by storing in the history item which side got edited and using that for undo-time visual anchoring.
 Ensure that ongoing mouse drags that take a break are not committing data to the history items such that an undo restores an already altered state. Undos must restore each state cleanly.
 
+#### Anchors
+
+Pasting anchors that already exist in the layer will update the anchor position for the active layer.
+
+#### Clipboard Paste
+
+The editor pastes outline clipboard data in this order of preference:
+
+1. **Counterpunch JSON** — from `application/x-counterpunch-clipboard`, plain JSON on `text/plain`, or JSON embedded in SVG `<metadata id="counterpunch-clipboard">`. Produced by Counterpunch copy and by the Glyphs script `tools/glyphs/Copy to Counterpunch.py`. Coordinates are kept absolute. Closed paths from Glyphs use Glyphs’ node order (start node last); paste rotates them so the start node is at index 0. Component pastes preserve the full Glyphs affine transform (`GSComponent.transform`).
+2. **SVG** — from Illustrator, Glyphs’ SVG fallback, and other apps. Path pastes are centered horizontally in the layer width and vertically between the visible descender and highest vertical metric. After centering, horizontal guide origins are placed on the left glyph edge `(0, y)` and vertical guide origins on the highest metrics line `(x, highestMetric)`.
+
+Paste always appends selection / SVG content. Selection / SVG pastes fan out to all linked layers when the active layer is linked, and affect only the active layer when it is unlinked. Before pasting, the current selection is cleared; afterwards the pasted objects on the active layer are selected.
+
+**View gating:** whole-glyph JSON (`kind: "glyphs"`) pastes only when the glyph overview is focused; selection / SVG pastes only when a glyph edit tab (canvas) is active. Otherwise the editor shows an alert and does not paste. The Glyphs paste script uses the same rule (Font view vs Edit tab).
+
+**Whole-glyph paste:** always creates new glyphs. If the clipboard name is free it is used as-is; if it already exists, Counterpunch allocates `name.001`, `name.002`, … (same scheme as Glyphs). New glyphs get one foreground layer per current font master (master IDs / layer IDs from this font). Clipboard layer content is zipped onto those layers by count and order; foreign layer IDs are ignored. Width and sidebearing metrics keys are applied per layer. If a clipboard glyph’s layer count does not match the font’s master count, paste is refused with an error.
+
+**Duplicate Glyph(s):** overview context menu, ⌘D, and Font → Duplicate Glyph(s) clone selected glyphs directly in the model (not via the clipboard), using the same `.001` naming scheme. Each clone is inserted immediately after its source, drops Unicode codepoints, regenerates layer IDs, and keeps master references.
+
+SVG subpaths closed with `Z` / `z` become closed Contours; the start point is not duplicated at the end. Background layers accept paths only.
+
+#### Clipboard Copy
+
+Copy writes Counterpunch JSON (`format: "counterpunch-clipboard"`, `nodeOrder: "start-first"`) to `text/plain`, and publishes SVG via the Async Clipboard API as `image/svg+xml` (macOS: `public.svg-image`) so Glyphs/Illustrator Cmd+V can paste paths. Nested contours are emitted as one compound SVG path (Illustrator hole); non-nested shapes stay separate. Sync `clipboardData.setData('image/svg+xml')` alone is not enough — Chrome keeps that type in private web clipboard data that native apps cannot see.
+
+SVG is a lossy interchange path: browsers cannot publish Illustrator AICB/PDF (the formats Glyphs uses for 1:1 unit paste from Illustrator). Glyphs may rescale SVG paste. For correct size and full fidelity into Glyphs, use `tools/glyphs/Paste from Counterpunch.py` (reads the JSON on `text/plain`).
+
+- **Glyph edit view:** copies the current selection (paths, components, anchors, selected guide). SVG includes selected paths only.
+- **Glyph overview:** copies each selected glyph as a whole-glyph payload (all foreground layers, width, metrics keys). SVG includes paths from each glyph’s first foreground layer.
+
+The Glyphs paste script clears the current selection and selects the pasted objects.
+
 #### Editing Components
 
 Components, like paths, must be of identical structure across the layers of a glyph to be compatible. Their decomposed transformations can be edited via the property panel of the editor view. Translation is locked only while the entire layer is automatically composed. In other words: if any component in a component-only layer is not automatic and the layer therefore falls out of automatic composition, all components in that layer, including components still marked automatic, must remain movable by the user. While a layer is fully automatic, component translation is derived from automatic composition and therefore not directly editable, while rotation, scale, and skew remain editable. All transformation edits stay local to a layer, even if the edited layer is linked with other layers, while changing the automatic alignment status of a component is updated across all linked layers.

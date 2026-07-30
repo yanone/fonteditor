@@ -28,6 +28,21 @@ import {
     getLowestVisibleVerticalMetricValue,
     getVisibleVerticalMetricValues
 } from './vertical-metrics';
+import {
+    applyPasteFragment,
+    buildSelectionClipboardDocument,
+    collectClipboardPayloads,
+    describePasteResult,
+    parseClipboardPayloads,
+    serializeAnchorForClipboard,
+    serializeComponentForClipboard,
+    serializeGuideForClipboard,
+    serializeMasterGuideForClipboard,
+    serializePathForClipboard,
+    summarizeClipboardDocument,
+    writeClipboardDocumentAsync,
+    writeClipboardDocumentToDataTransfer
+} from '../clipboard';
 import APP_SETTINGS from '../settings';
 import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
 import type { DesignspaceLocation, UserspaceLocation } from '../locations';
@@ -3824,6 +3839,311 @@ export class OutlineEditor {
 
         this.glyphCanvas.render();
         return true;
+    }
+
+    /**
+     * Copy the current outline selection as Counterpunch JSON clipboard data.
+     */
+    copyToClipboardEvent(event: ClipboardEvent): boolean {
+        if (!this.active) {
+            return false;
+        }
+
+        const activeLayer = this.getCurrentLayerModel();
+        const glyph = this.getCurrentGlyphModel();
+        if (!activeLayer || !glyph?.name) {
+            return false;
+        }
+
+        const document = this.buildSelectionClipboardDocumentFromEditor(
+            activeLayer,
+            glyph.name
+        );
+        if (!document) {
+            return false;
+        }
+
+        if (!event.clipboardData) {
+            return false;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        // Sync fallback (JSON). Async write publishes system SVG UTI on macOS.
+        writeClipboardDocumentToDataTransfer(
+            event.clipboardData,
+            document,
+            document.paths
+        );
+        void writeClipboardDocumentAsync(document, document.paths);
+        console.log(summarizeClipboardDocument(document));
+        return true;
+    }
+
+    private buildSelectionClipboardDocumentFromEditor(
+        activeLayer: Layer,
+        glyphName: string
+    ) {
+        const shapes = activeLayer.shapes || [];
+        const selectedPathIndexes = new Set<number>();
+        for (const point of this.selectedPoints) {
+            if (
+                point.contourIndex >= 0 &&
+                point.contourIndex < shapes.length &&
+                this.isPathShape(shapes[point.contourIndex])
+            ) {
+                selectedPathIndexes.add(point.contourIndex);
+            }
+        }
+
+        const paths = Array.from(selectedPathIndexes)
+            .sort((a, b) => a - b)
+            .map((shapeIndex) =>
+                serializePathForClipboard(shapes[shapeIndex].asPath())
+            );
+
+        const components = [...this.selectedComponents]
+            .filter(
+                (shapeIndex) =>
+                    shapeIndex >= 0 &&
+                    shapeIndex < shapes.length &&
+                    this.isComponentShape(shapes[shapeIndex])
+            )
+            .sort((a, b) => a - b)
+            .map((shapeIndex) =>
+                serializeComponentForClipboard(shapes[shapeIndex].asComponent())
+            );
+
+        const anchors = this.selectedAnchors
+            .filter(
+                (index) =>
+                    index >= 0 &&
+                    index < (activeLayer.anchors?.length || 0) &&
+                    !!activeLayer.anchors![index]?.name
+            )
+            .sort((a, b) => a - b)
+            .map((index) =>
+                serializeAnchorForClipboard(activeLayer.anchors![index])
+            );
+
+        const guides = [];
+        if (this.selectedGuideHandle) {
+            const { scope, index } = this.selectedGuideHandle;
+            if (scope === 'layer') {
+                const guide = activeLayer.guides?.[index];
+                if (guide) {
+                    guides.push(serializeGuideForClipboard(guide, false));
+                }
+            } else if (scope === 'master') {
+                const master = this.getCurrentMasterModel();
+                const guide = master?.guides?.[index];
+                if (guide) {
+                    guides.push(serializeMasterGuideForClipboard(guide));
+                }
+            }
+        }
+
+        return buildSelectionClipboardDocument({
+            glyphName,
+            layerId: activeLayer.id ?? null,
+            paths,
+            components,
+            anchors,
+            guides
+        });
+    }
+
+    /**
+     * Paste Counterpunch JSON / SVG clipboard data into the active glyph.
+     */
+    pasteFromClipboardEvent(event: ClipboardEvent): boolean {
+        if (!this.active) {
+            return false;
+        }
+
+        const activeLayer = this.getCurrentLayerModel();
+        const glyph = this.getCurrentGlyphModel();
+        if (!activeLayer || !glyph?.name) {
+            return false;
+        }
+
+        const payloads = collectClipboardPayloads(event.clipboardData);
+        const parsed = parseClipboardPayloads(payloads);
+        if (!parsed) {
+            return false;
+        }
+
+        if (parsed.kind === 'glyphs') {
+            event.preventDefault();
+            event.stopPropagation();
+            const message =
+                'Clipboard has whole glyphs. Switch to the glyph overview to paste them.';
+            console.warn(message);
+            window.alert?.(message);
+            return true;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        this.clearAllSelections();
+
+        const fontModel = fontManager.currentFont?.fontModel;
+        const master = this.getCurrentMasterModel();
+        const glyphExists = (name: string) => !!fontModel?.findGlyph?.(name);
+
+        const shapesBefore = activeLayer.shapes?.length ?? 0;
+        const anchorsBefore = activeLayer.anchors?.length ?? 0;
+        const layerGuidesBefore = activeLayer.guides?.length ?? 0;
+        const masterGuidesBefore = master?.guides?.length ?? 0;
+
+        const bridge = window.patchSyncEngine;
+        bridge?.beginTransaction('Paste');
+        let result;
+        let activePasteAnchorNames: string[] = [];
+        try {
+            const linkedLayers = activeLayer._getLinkedLayers?.() || [];
+            const verticalMetrics = this.getVerticalMetricsForLayer(
+                activeLayer,
+                fontModel
+            );
+            const layerWidth = Number(activeLayer.width) || 0;
+            const structuralLayerTargets = [activeLayer, ...linkedLayers]
+                .filter((layerModel: Layer) => !!layerModel.id)
+                .map((layerModel: Layer) => ({
+                    glyphName: glyph.name,
+                    layerId: layerModel.id!
+                }));
+            activePasteAnchorNames = parsed.fragment.anchors.map(
+                (anchor) => anchor.name
+            );
+            result = applyPasteFragment(parsed.fragment, {
+                activeLayer,
+                linkedLayers,
+                master,
+                layerWidth,
+                verticalMetrics,
+                glyphExists
+            });
+            this.prepareCommittedStructuralOutlineChange('keyboard', {
+                layerTargets: structuralLayerTargets
+            });
+        } finally {
+            bridge?.endTransaction();
+        }
+
+        if (result.error) {
+            console.warn(result.error);
+            window.alert?.(result.error);
+            return true;
+        }
+
+        this.selectPastedClipboardObjects(activeLayer, master, {
+            shapesBefore,
+            anchorsBefore,
+            layerGuidesBefore,
+            masterGuidesBefore,
+            activePasteAnchorNames
+        });
+
+        this.syncCurrentExactLayerDataFromModel();
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+        this.queueStructuralOutlineCompileFromModel('paste clipboard');
+
+        if (result.skippedComponents.length > 0) {
+            console.warn(
+                'Paste skipped missing component glyphs:',
+                result.skippedComponents.join(', ')
+            );
+        }
+        console.log(describePasteResult(result));
+        return true;
+    }
+
+    /**
+     * Select objects appended by the latest clipboard paste on the active layer.
+     */
+    private selectPastedClipboardObjects(
+        activeLayer: Layer,
+        master: ReturnType<OutlineEditor['getCurrentMasterModel']>,
+        snapshot: {
+            shapesBefore: number;
+            anchorsBefore: number;
+            layerGuidesBefore: number;
+            masterGuidesBefore: number;
+            activePasteAnchorNames: string[];
+        }
+    ): void {
+        const shapes = activeLayer.shapes || [];
+        const points: Point[] = [];
+        const components: number[] = [];
+
+        for (
+            let shapeIndex = snapshot.shapesBefore;
+            shapeIndex < shapes.length;
+            shapeIndex++
+        ) {
+            const shape = shapes[shapeIndex];
+            if (this.isPathShape(shape)) {
+                const nodeCount = this.getNodeCountForShape(shape);
+                for (let nodeIndex = 0; nodeIndex < nodeCount; nodeIndex++) {
+                    points.push({ contourIndex: shapeIndex, nodeIndex });
+                }
+                continue;
+            }
+            if (this.isComponentShape(shape)) {
+                components.push(shapeIndex);
+            }
+        }
+
+        const anchorSource = this.getAnchorsForSelectionLayer(activeLayer);
+        const pastedAnchorNameSet = new Set(snapshot.activePasteAnchorNames);
+        const anchors: number[] = [];
+        anchorSource.forEach((anchor: { name?: string }, index: number) => {
+            if (
+                index >= snapshot.anchorsBefore ||
+                (anchor?.name && pastedAnchorNameSet.has(anchor.name))
+            ) {
+                anchors.push(index);
+            }
+        });
+
+        let guideHandle: GuideHandle | null = null;
+        const hasOtherSelection =
+            points.length > 0 || anchors.length > 0 || components.length > 0;
+        if (!hasOtherSelection) {
+            const layerGuides = activeLayer.guides || [];
+            if (layerGuides.length > snapshot.layerGuidesBefore) {
+                guideHandle = {
+                    scope: 'layer',
+                    index: snapshot.layerGuidesBefore
+                };
+            } else if (
+                master &&
+                (master.guides?.length || 0) > snapshot.masterGuidesBefore
+            ) {
+                guideHandle = {
+                    scope: 'master',
+                    index: snapshot.masterGuidesBefore
+                };
+            }
+        }
+
+        this.applySelectionStateForLayer(
+            {
+                points,
+                anchors,
+                anchorNames: this.getAnchorNamesForSelectionIndices(
+                    anchors,
+                    anchorSource
+                ),
+                components,
+                guideHandle
+            },
+            activeLayer
+        );
     }
 
     private isAutomaticComposedLayer(): boolean {

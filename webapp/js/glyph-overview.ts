@@ -160,6 +160,8 @@ class GlyphOverview {
     private preDoubleClickSelectionGlyphIds: string[] = [];
     private preDoubleClickGlyphId: string | null = null;
     private preDoubleClickTimestamp = 0;
+    /** Names to select after the next overview rebuild (paste / duplicate). */
+    private pendingSelectGlyphNames: string[] | null = null;
 
     constructor(parentElement: HTMLElement) {
         this.init(parentElement);
@@ -380,6 +382,29 @@ class GlyphOverview {
                 ) {
                     e.preventDefault();
                     window.deleteGlyphsDialog?.open();
+                }
+            } else if (
+                (e.metaKey || e.ctrlKey) &&
+                !e.shiftKey &&
+                !e.altKey &&
+                e.key.toLowerCase() === 'd' &&
+                this.isViewActive()
+            ) {
+                const target = e.target as HTMLElement | null;
+                if (
+                    target &&
+                    (target.tagName === 'INPUT' ||
+                        target.tagName === 'TEXTAREA' ||
+                        target.isContentEditable)
+                ) {
+                    return;
+                }
+                if (
+                    this.getSelectedGlyphNames().length > 0 &&
+                    window.fontManager?.currentFont
+                ) {
+                    e.preventDefault();
+                    this.duplicateSelectedGlyphs();
                 }
             } else if (
                 ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(
@@ -1079,7 +1104,7 @@ class GlyphOverview {
         this.renderVirtualizedLinesWindow(true);
     }
 
-    private isViewActive(): boolean {
+    public isViewActive(): boolean {
         const overviewView = document.querySelector('#view-overview');
         return overviewView?.classList.contains('focused') ?? false;
     }
@@ -1135,6 +1160,8 @@ class GlyphOverview {
                 this.tileBuildResolve();
                 this.tileBuildResolve = null;
             }
+
+            this.applyPendingGlyphSelection();
         };
 
         // Clear existing tiles
@@ -2402,6 +2429,8 @@ class GlyphOverview {
                                 window.renameGlyphsDialog?.open();
                             } else if (action === 'delete-glyphs') {
                                 window.deleteGlyphsDialog?.open();
+                            } else if (action === 'duplicate-glyphs') {
+                                this.duplicateSelectedGlyphs();
                             }
                         });
                     }
@@ -2476,6 +2505,11 @@ class GlyphOverview {
         const disabledAttr = canAct ? '' : ' aria-disabled="true"';
         return `
             <div class="plugin-menu">
+                <div class="plugin-menu-item${disabledClass}" data-action="duplicate-glyphs"${disabledAttr}>
+                    <span class="material-symbols-outlined">content_copy</span>
+                    <span>Duplicate Glyph(s)</span>
+                    <span class="plugin-menu-shortcut">⌘D</span>
+                </div>
                 <div class="plugin-menu-item${disabledClass}" data-action="rename-glyphs"${disabledAttr}>
                     <span class="material-symbols-outlined">edit</span>
                     <span>Rename Glyph(s)…</span>
@@ -2538,6 +2572,75 @@ class GlyphOverview {
         return Array.from(this.tiles.values())
             .filter((tile) => tile.selected)
             .map((tile) => tile.glyphName);
+    }
+
+    public selectGlyphsByNames(names: string[]): void {
+        const nameSet = new Set(
+            names.filter((name) => typeof name === 'string' && name.length > 0)
+        );
+        this.clearSelection();
+        let lastId: string | null = null;
+        this.tiles.forEach((tile) => {
+            if (!nameSet.has(tile.glyphName)) {
+                return;
+            }
+            this.selectTile(tile.glyphId);
+            lastId = tile.glyphId;
+        });
+        if (lastId) {
+            this.lastClickedGlyphId = lastId;
+            this.keyboardAnchorGlyphId = lastId;
+        }
+    }
+
+    /**
+     * Select glyphs after the next overview rebuild (or immediately if tiles exist).
+     */
+    public queueSelectGlyphsByNames(names: string[]): void {
+        this.pendingSelectGlyphNames = names.filter(
+            (name) => typeof name === 'string' && name.length > 0
+        );
+        this.applyPendingGlyphSelection();
+    }
+
+    private applyPendingGlyphSelection(): void {
+        if (!this.pendingSelectGlyphNames?.length) {
+            return;
+        }
+        const nameSet = new Set(this.pendingSelectGlyphNames);
+        const anyPresent = Array.from(this.tiles.values()).some((tile) =>
+            nameSet.has(tile.glyphName)
+        );
+        if (!anyPresent) {
+            return;
+        }
+        this.selectGlyphsByNames(this.pendingSelectGlyphNames);
+        this.pendingSelectGlyphNames = null;
+    }
+
+    /**
+     * Duplicate selected overview glyphs with Glyphs-style .001 names.
+     * Direct model clone — not clipboard copy/paste.
+     */
+    public duplicateSelectedGlyphs(): Array<{ name: string }> {
+        const names = this.getSelectedGlyphNames();
+        if (names.length === 0) {
+            return [];
+        }
+        const fontModel =
+            window.fontManager?.currentFont?.fontModel ??
+            window.currentFontModel;
+        if (!fontModel?.duplicateGlyphs) {
+            return [];
+        }
+        const created = fontModel.duplicateGlyphs(names) || [];
+        const createdNames = created
+            .map((glyph: { name?: string }) => glyph?.name)
+            .filter((name: string | undefined): name is string => !!name);
+        if (createdNames.length > 0) {
+            this.queueSelectGlyphsByNames(createdNames);
+        }
+        return created;
     }
 
     private insertSelectedGlyphTokens(fallbackGlyphName?: string): void {

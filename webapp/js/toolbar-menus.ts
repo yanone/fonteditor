@@ -271,6 +271,9 @@ function getEditMenuItems(): ToolbarMenuItem[] {
 
 function getFontMenuItems(): ToolbarMenuItem[] {
     const hasFontOpen = !!window.fontManager?.currentFont;
+    const hasGlyphSelection =
+        (window.glyphOverviewInstance?.getSelectedGlyphNames?.().length || 0) >
+        0;
     return [
         {
             label: 'Add Glyph(s)…',
@@ -279,6 +282,15 @@ function getFontMenuItems(): ToolbarMenuItem[] {
             disabled: !hasFontOpen,
             action: async () => {
                 await window.addGlyphsDialog?.open();
+            }
+        },
+        {
+            label: 'Duplicate Glyph(s)',
+            icon: 'content_copy',
+            shortcut: '⌘D',
+            disabled: !hasFontOpen || !hasGlyphSelection,
+            action: async () => {
+                window.glyphOverviewInstance?.duplicateSelectedGlyphs?.();
             }
         }
     ];

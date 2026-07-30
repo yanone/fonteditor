@@ -38,6 +38,19 @@ import { ArrowAdjustableTextInput } from './arrow-adjustable-text-input';
 import { LayerDataNormalizer } from './layer-data-normalizer';
 import tippy from 'tippy.js';
 import {
+    applyPasteGlyphsDocument,
+    buildGlyphsClipboardDocument,
+    collectClipboardPayloads,
+    describePasteResult,
+    parseClipboardPayloads,
+    serializeGlyphForClipboard,
+    serializePathForClipboard,
+    summarizeClipboardDocument,
+    writeClipboardDocumentAsync,
+    writeClipboardDocumentToDataTransfer,
+    type PasteGlyphsDocument
+} from './clipboard';
+import {
     addTippyBackdropSupport,
     getOrCreateBackdrop,
     getTheme,
@@ -636,6 +649,98 @@ class GlyphCanvas {
         void this.updatePropertiesUI();
     };
 
+    /**
+     * Copy selected overview glyphs as Counterpunch JSON (whole-glyph payload)
+     * plus SVG of paths from each glyph's first foreground layer.
+     */
+    private copySelectedOverviewGlyphsToClipboard(
+        event: ClipboardEvent
+    ): boolean {
+        const overview = window.glyphOverviewInstance;
+        const selectedNames = overview?.getSelectedGlyphNames?.() || [];
+        if (selectedNames.length === 0 || !event.clipboardData) {
+            return false;
+        }
+
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel?.findGlyph) {
+            return false;
+        }
+
+        const glyphs = [];
+        const svgPaths = [];
+        for (const name of selectedNames) {
+            const glyph = fontModel.findGlyph(name);
+            if (!glyph) {
+                continue;
+            }
+            glyphs.push(serializeGlyphForClipboard(glyph));
+            const layer = (glyph.layers || []).find(
+                (candidate: Layer) => !candidate.is_background
+            );
+            if (!layer) {
+                continue;
+            }
+            for (const shape of layer.shapes || []) {
+                if (shape.isPath?.()) {
+                    svgPaths.push(serializePathForClipboard(shape.asPath()));
+                }
+            }
+        }
+
+        const document = buildGlyphsClipboardDocument(glyphs);
+        if (!document) {
+            return false;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        writeClipboardDocumentToDataTransfer(
+            event.clipboardData,
+            document,
+            svgPaths
+        );
+        void writeClipboardDocumentAsync(document, svgPaths);
+        console.log(summarizeClipboardDocument(document));
+        return true;
+    }
+
+    /**
+     * Paste whole-glyph clipboard data as always-new glyphs in the overview.
+     */
+    private pasteWholeGlyphsDocument(document: PasteGlyphsDocument): void {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel) {
+            window.alert?.('No font open.');
+            return;
+        }
+
+        const bridge = window.patchSyncEngine;
+        bridge?.beginTransaction('Paste glyphs');
+        let result;
+        try {
+            result = applyPasteGlyphsDocument(document, {
+                font: fontModel,
+                glyphExists: (name) => !!fontModel.findGlyph?.(name)
+            });
+        } finally {
+            bridge?.endTransaction();
+        }
+
+        if (result.error) {
+            console.warn(result.error);
+            window.alert?.(result.error);
+            return;
+        }
+
+        if (result.createdGlyphNames.length > 0) {
+            window.glyphOverviewInstance?.queueSelectGlyphsByNames?.(
+                result.createdGlyphNames
+            );
+        }
+        console.log(describePasteResult(result));
+    }
+
     private handleFontModelSync = (): void => {
         this.invalidateTextModeKerningOverlayCache();
 
@@ -946,6 +1051,86 @@ class GlyphCanvas {
                 e.stopPropagation();
                 e.stopImmediatePropagation();
                 void this.outlineEditor.onKeyDown(e);
+            },
+            true
+        );
+
+        // Outline / overview paste: whole glyphs only in overview; selection only on canvas.
+        document.addEventListener(
+            'paste',
+            (e) => {
+                if (window.glyphCanvas !== this) {
+                    return;
+                }
+                const target = e.target as HTMLElement | null;
+                if (
+                    target &&
+                    (target.tagName === 'INPUT' ||
+                        target.tagName === 'TEXTAREA' ||
+                        target.isContentEditable)
+                ) {
+                    return;
+                }
+
+                const payloads = collectClipboardPayloads(e.clipboardData);
+                const parsed = parseClipboardPayloads(payloads);
+                if (!parsed) {
+                    return;
+                }
+
+                const overviewActive =
+                    !!window.glyphOverviewInstance?.isViewActive?.();
+                const canvasActive = this.outlineEditor.active;
+
+                if (parsed.kind === 'glyphs') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!overviewActive) {
+                        const message =
+                            'Clipboard has whole glyphs. Switch to the glyph overview to paste them.';
+                        console.warn(message);
+                        window.alert?.(message);
+                        return;
+                    }
+                    this.pasteWholeGlyphsDocument(parsed.document);
+                    return;
+                }
+
+                if (!canvasActive) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const message =
+                        'Clipboard has a selection fragment. Open a glyph edit tab to paste it.';
+                    console.warn(message);
+                    window.alert?.(message);
+                    return;
+                }
+                this.outlineEditor.pasteFromClipboardEvent(e);
+            },
+            true
+        );
+
+        // Outline / overview copy as Counterpunch JSON.
+        document.addEventListener(
+            'copy',
+            (e) => {
+                if (window.glyphCanvas !== this) {
+                    return;
+                }
+                const target = e.target as HTMLElement | null;
+                if (
+                    target &&
+                    (target.tagName === 'INPUT' ||
+                        target.tagName === 'TEXTAREA' ||
+                        target.isContentEditable)
+                ) {
+                    return;
+                }
+                if (this.outlineEditor.active) {
+                    this.outlineEditor.copyToClipboardEvent(e);
+                    return;
+                }
+                this.copySelectedOverviewGlyphsToClipboard(e);
             },
             true
         );

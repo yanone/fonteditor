@@ -1,0 +1,65 @@
+/**
+ * Normalized clipboard paste payload shared by format converters.
+ */
+
+export type PasteNodeType = 'Line' | 'Curve' | 'OffCurve' | 'QCurve' | 'Move';
+
+export type PasteNode = {
+    x: number;
+    y: number;
+    nodetype: PasteNodeType;
+    smooth?: boolean;
+};
+
+export type PastePath = {
+    closed: boolean;
+    nodes: PasteNode[];
+};
+
+export type PasteComponent = {
+    reference: string;
+    x: number;
+    y: number;
+    /**
+     * Affine matrix [a, b, c, d, e, f] matching Glyphs `GSComponent.transform`
+     * / NSAffineTransformStruct ({m11, m12, m21, m22, tX, tY}).
+     */
+    transform?: [number, number, number, number, number, number];
+    /** Glyphs alignment: 1 = automatic, anything else = manual. */
+    alignment?: number;
+    /** Explicit automatic-alignment target anchor name. */
+    anchor?: string;
+};
+
+export type PasteAnchor = {
+    name: string;
+    x: number;
+    y: number;
+};
+
+export type PasteGuide = {
+    name?: string;
+    x: number;
+    y: number;
+    angle: number;
+    /** True when source marks a master/global guide. */
+    global?: boolean;
+};
+
+export type PasteFragment = {
+    format: 'svg' | 'counterpunch-json';
+    paths: PastePath[];
+    components: PasteComponent[];
+    anchors: PasteAnchor[];
+    guides: PasteGuide[];
+    /**
+     * When true, keep source coordinates.
+     * When false, center the paste bbox in the target layer.
+     */
+    keepAbsoluteCoords: boolean;
+};
+
+export type ClipboardPayload = {
+    type: string;
+    data: string;
+};
