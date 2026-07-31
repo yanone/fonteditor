@@ -92,7 +92,6 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ Basic layer operations
 - ✅ Background layers
 - ✅ Basic glyph operations
-- ◻️ Path operations
 - ✅ Add glyphs dialog, including Unicode and Hyperglot databases
 - ✅ Edit outlines
 - ✅ Edit components
@@ -118,6 +117,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 
 **Extended features — Counterpunch becomes a full-featured font editor**
 
+- ◻️ Boolean path operations
 - ◻️ Glyph categories in overview
 - ◻️ Transform tools
 - ◻️ Multi-line text
