@@ -20,6 +20,7 @@ import type { GlyphDataIndex } from './glyph-data';
 import type { AddGlyphsDialog } from './add-glyphs-dialog';
 import type { RenameGlyphsDialog } from './rename-glyphs-dialog';
 import type { DeleteGlyphsDialog } from './delete-glyphs-dialog';
+import type { KerningEditorDialog } from './kerning-editor-dialog';
 
 declare global {
     var marked: any;
@@ -315,6 +316,7 @@ declare global {
         addGlyphsDialog: AddGlyphsDialog;
         renameGlyphsDialog: RenameGlyphsDialog;
         deleteGlyphsDialog: DeleteGlyphsDialog;
+        kerningEditorDialog: KerningEditorDialog;
 
         // From file-browser.js
         navigateToPath: (

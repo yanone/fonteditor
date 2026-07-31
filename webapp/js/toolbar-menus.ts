@@ -24,6 +24,7 @@ import {
 import './add-glyphs-dialog';
 import './rename-glyphs-dialog';
 import './delete-glyphs-dialog';
+import './kerning-editor-dialog';
 import { canDeleteSelectedGlyphs } from './delete-glyphs-dialog';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 
@@ -295,6 +296,14 @@ function getFontMenuItems(): ToolbarMenuItem[] {
             disabled: !hasFontOpen || !hasGlyphSelection,
             action: async () => {
                 window.glyphOverviewInstance?.duplicateSelectedGlyphs?.();
+            }
+        },
+        {
+            label: 'Kerning Editor…',
+            icon: 'space_bar',
+            disabled: !hasFontOpen,
+            action: async () => {
+                window.kerningEditorDialog?.open();
             }
         }
     ];

@@ -37,6 +37,11 @@ import {
 import { SavedVariationState } from './saved-variation-state';
 import { ArrowAdjustableTextInput } from './arrow-adjustable-text-input';
 import { LayerDataNormalizer } from './layer-data-normalizer';
+import {
+    getKerningPairValue,
+    setKerningPairValueOnMaster,
+    type KerningContainer
+} from './kerning-utils';
 import tippy from 'tippy.js';
 import {
     applyPasteGlyphsDocument,
@@ -249,20 +254,6 @@ type TextModeKerningOverlayCache = {
     candidatePairToAdjacencyKeys: Map<string, Set<string>>;
 };
 
-type KerningRow = Map<string, number> | Record<string, number>;
-type KerningContainer =
-    Map<string, KerningRow | number> | Record<string, KerningRow | number>;
-
-function isKerningRow(
-    value: KerningRow | number | null | undefined
-): value is KerningRow {
-    return value instanceof Map || (!!value && typeof value === 'object');
-}
-
-function getFlatKerningPairKey(firstKey: string, secondKey: string): string {
-    return `${firstKey}:${secondKey}`;
-}
-
 function getTextModeKerningPairKey(
     firstKey: string,
     secondKey: string
@@ -318,41 +309,6 @@ function buildOrderedTextModeKerningPairs(
     return orderedPairs;
 }
 
-function getFlatKerningPairValue(
-    kerning: KerningContainer,
-    firstKey: string,
-    secondKey: string
-): number | null {
-    const flatKey = getFlatKerningPairKey(firstKey, secondKey);
-
-    if (kerning instanceof Map) {
-        const value = kerning.get(flatKey);
-        return typeof value === 'number' ? value : null;
-    }
-
-    const value = kerning[flatKey];
-    return typeof value === 'number' ? value : null;
-}
-
-function usesFlatKerningPairs(kerning: KerningContainer | undefined): boolean {
-    if (!kerning) {
-        return false;
-    }
-
-    if (kerning instanceof Map) {
-        for (const [key, value] of kerning.entries()) {
-            if (typeof value === 'number' || key.includes(':')) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    return Object.entries(kerning).some(
-        ([key, value]) => typeof value === 'number' || key.includes(':')
-    );
-}
-
 function collectKerningGroupMemberships(
     groups: Record<string, string[]> | undefined,
     glyphName: string | null
@@ -378,47 +334,6 @@ function formatKerningOperandLabel(
     name: string
 ): string {
     return kind === 'group' ? `@${name}` : name;
-}
-
-function getKerningPairValue(
-    kerning: KerningContainer | undefined,
-    firstKey: string,
-    secondKey: string
-): number | null {
-    if (!kerning) {
-        return null;
-    }
-
-    const flatValue = getFlatKerningPairValue(kerning, firstKey, secondKey);
-    if (flatValue !== null) {
-        return flatValue;
-    }
-
-    if (kerning instanceof Map) {
-        const row = kerning.get(firstKey);
-        if (!isKerningRow(row)) {
-            return null;
-        }
-        if (row instanceof Map) {
-            const value = row.get(secondKey);
-            return typeof value === 'number' ? value : null;
-        }
-        const value = row[secondKey];
-        return typeof value === 'number' ? value : null;
-    }
-
-    const row = kerning[firstKey];
-    if (!isKerningRow(row)) {
-        return null;
-    }
-
-    if (row instanceof Map) {
-        const value = row.get(secondKey);
-        return typeof value === 'number' ? value : null;
-    }
-
-    const value = row[secondKey];
-    return typeof value === 'number' ? value : null;
 }
 
 function compareLocationMaps(
@@ -7077,141 +6992,6 @@ class GlyphCanvas {
         );
     }
 
-    private setKerningPairValueOnMaster(
-        master: Master,
-        firstKey: string,
-        secondKey: string,
-        nextValue: number | null,
-        isRTL: boolean = false
-    ): void {
-        const kerning = (isRTL ? master.kerning_rtl : master.kerning) as
-            KerningContainer | undefined;
-        const setKerning = (value: KerningContainer) => {
-            if (isRTL) {
-                master.kerning_rtl = value as Record<string, number>;
-            } else {
-                master.kerning = value as unknown as Master['kerning'];
-            }
-        };
-        const flatKey = getFlatKerningPairKey(firstKey, secondKey);
-
-        if (isRTL) {
-            const nextKerning =
-                kerning && !(kerning instanceof Map) ? { ...kerning } : {};
-
-            if (nextValue === null) {
-                delete nextKerning[flatKey];
-            } else {
-                nextKerning[flatKey] = nextValue;
-            }
-
-            setKerning(nextKerning as unknown as Master['kerning']);
-            return;
-        }
-
-        if (!kerning || usesFlatKerningPairs(kerning)) {
-            if (kerning instanceof Map) {
-                if (nextValue === null) {
-                    kerning.delete(flatKey);
-                } else {
-                    kerning.set(flatKey, nextValue);
-                }
-                return;
-            }
-
-            if (!kerning) {
-                if (nextValue === null) {
-                    return;
-                }
-                setKerning({
-                    [flatKey]: nextValue
-                } as unknown as Master['kerning']);
-                return;
-            }
-
-            if (nextValue === null) {
-                delete kerning[flatKey];
-            } else {
-                kerning[flatKey] = nextValue;
-            }
-            return;
-        }
-
-        if (kerning instanceof Map) {
-            if (nextValue === null) {
-                const row = kerning.get(firstKey);
-                if (row instanceof Map) {
-                    row.delete(secondKey);
-                    if (row.size === 0) {
-                        kerning.delete(firstKey);
-                    }
-                } else if (isKerningRow(row) && secondKey in row) {
-                    delete row[secondKey];
-                    if (Object.keys(row).length === 0) {
-                        kerning.delete(firstKey);
-                    }
-                }
-                return;
-            }
-
-            const existingRow = kerning.get(firstKey);
-            if (existingRow instanceof Map) {
-                existingRow.set(secondKey, nextValue);
-                return;
-            }
-            if (isKerningRow(existingRow)) {
-                existingRow[secondKey] = nextValue;
-                return;
-            }
-
-            kerning.set(firstKey, new Map([[secondKey, nextValue]]));
-            return;
-        }
-
-        if (!kerning) {
-            if (nextValue === null) {
-                return;
-            }
-            setKerning({
-                [firstKey]: {
-                    [secondKey]: nextValue
-                }
-            } as unknown as Master['kerning']);
-            return;
-        }
-
-        if (nextValue === null) {
-            const row = kerning[firstKey];
-            if (!isKerningRow(row)) {
-                return;
-            }
-            if (row instanceof Map) {
-                row.delete(secondKey);
-                if (row.size === 0) {
-                    delete kerning[firstKey];
-                }
-                return;
-            }
-
-            delete row[secondKey];
-            if (Object.keys(row).length === 0) {
-                delete kerning[firstKey];
-            }
-            return;
-        }
-
-        if (!kerning[firstKey]) {
-            kerning[firstKey] = {};
-        }
-
-        const row = kerning[firstKey];
-        if (row instanceof Map) {
-            row.set(secondKey, nextValue);
-        } else if (isKerningRow(row)) {
-            row[secondKey] = nextValue;
-        }
-    }
-
     private async commitTextModeKerningValue(
         value: string,
         context: TextModeKerningContext,
@@ -7259,7 +7039,7 @@ class GlyphCanvas {
 
         window.patchSyncEngine?.beginTransaction('Edit kerning pair');
         try {
-            this.setKerningPairValueOnMaster(
+            setKerningPairValueOnMaster(
                 context.master,
                 context.selectedFirstKey,
                 context.selectedSecondKey,

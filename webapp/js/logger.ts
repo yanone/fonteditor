@@ -48,6 +48,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     GlyphOverviewFilters: false,
     GlyphTileRendererFast: false,
     HistoryView: false,
+    KerningEditorDialog: false,
     LayerDataNormalizer: false,
     Locations: false,
     MeasurementTool: false,

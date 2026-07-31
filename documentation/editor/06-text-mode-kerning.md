@@ -17,6 +17,8 @@ Kerning edits happen on the currently selected exact master.
 
 Open the Editor in text mode and place the cursor between two glyphs. The property panel at the bottom switches to a kerning panel.
 
+You can also open **Font → Kerning Editor…** for a table of all defined pairs (LTR or RTL) with values per master. Select a row to delete it from every master, or edit individual cells. Undo restores the previous values and the table UI state.
+
 The panel shows:
 
 - a `First` side for the glyph before the cursor

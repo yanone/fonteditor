@@ -20,6 +20,169 @@
     max-width: 860px;
 }
 
+.info-popup-content.kerning-editor-content {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    overflow: hidden;
+    padding-top: 12px;
+}
+
+.kerning-editor-toolbar {
+    align-items: center;
+    display: flex;
+    flex-shrink: 0;
+    gap: 12px;
+    justify-content: space-between;
+}
+
+.kerning-editor-toolbar-start {
+    align-items: center;
+    display: flex;
+    flex: 1 1 auto;
+    gap: 12px;
+    min-width: 0;
+}
+
+.kerning-editor-toolbar .kerning-editor-search {
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    flex: 1 1 200px;
+    margin: 0;
+    max-width: 360px;
+    width: auto;
+}
+
+.kerning-editor-direction {
+    background: var(--background-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    display: inline-flex;
+    overflow: hidden;
+}
+
+.kerning-editor-direction-btn {
+    background: transparent;
+    border: 0;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+}
+
+.kerning-editor-direction-btn:hover {
+    background: var(--background-hover);
+    color: var(--text-primary);
+}
+
+.kerning-editor-direction-btn.active {
+    background: var(--accent-magenta);
+    color: var(--background-primary);
+}
+
+.kerning-editor-table-wrap {
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}
+
+.kerning-editor-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: auto;
+    width: max-content;
+}
+
+.kerning-editor-table th,
+.kerning-editor-table td {
+    border-bottom: 1px solid var(--border-primary);
+    border-right: 1px solid var(--border-primary);
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 1.3;
+    padding: 6px 8px;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.kerning-editor-table th:last-child,
+.kerning-editor-table td:last-child {
+    border-right: 0;
+}
+
+.kerning-editor-table thead th {
+    background: var(--background-secondary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.kerning-editor-table th.kerning-editor-sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.kerning-editor-table th.kerning-editor-sortable:hover {
+    color: var(--text-primary);
+}
+
+.kerning-editor-table .kerning-editor-pair-col {
+    min-width: 6rem;
+}
+
+.kerning-editor-table .kerning-editor-class-name {
+    font-weight: 700;
+}
+
+.kerning-editor-table .kerning-editor-value-col {
+    min-width: 5.5rem;
+}
+
+.kerning-editor-table tbody tr {
+    cursor: pointer;
+}
+
+.kerning-editor-table tbody tr:hover td {
+    background: var(--background-hover);
+}
+
+.kerning-editor-table tbody tr.selected td {
+    background: color-mix(in srgb, var(--accent-magenta) 18%, transparent);
+}
+
+.kerning-editor-table .kerning-editor-value-input {
+    background: var(--background-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    box-sizing: border-box;
+    color: var(--text-primary);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    min-width: 4.5rem;
+    padding: 3px 6px;
+    text-align: right;
+    width: 100%;
+}
+
+.kerning-editor-table .kerning-editor-value-input:focus {
+    border-color: var(--accent-magenta);
+    outline: none;
+}
+
+.kerning-editor-empty {
+    color: var(--text-secondary);
+    padding: 24px 12px;
+    text-align: center;
+}
+
 .add-glyphs-popup.has-character-set-tree {
     width: min(1720px, calc(100vw - 128px));
     max-width: 1720px;
@@ -5244,6 +5407,14 @@ kbd + kbd {
     display: flex;
     flex-direction: column;
     animation: slideUp 0.3s ease;
+}
+
+/* Must follow .info-popup so width/max-* beat the default 500px / 90% shell. */
+.info-popup.kerning-editor-popup {
+    height: auto;
+    max-height: calc(100vh - 48px);
+    max-width: calc(100vw - 48px);
+    width: max-content;
 }
 
 @keyframes slideUp {
