@@ -41,6 +41,7 @@ import tippy from 'tippy.js';
 import {
     applyPasteGlyphsDocument,
     buildGlyphsClipboardDocument,
+    buildFontraAxisNameByKey,
     collectClipboardPayloads,
     describePasteResult,
     isTaggedStructuredClipboard,
@@ -715,17 +716,20 @@ class GlyphCanvas {
             }
         }
 
+        const fontraOptions = {
+            glyphCodePoints,
+            axisNameByKey: buildFontraAxisNameByKey(fontModel.axes || [])
+        };
+
         event.preventDefault();
         event.stopPropagation();
         writeClipboardDocumentToDataTransfer(
             event.clipboardData,
             document,
             svgPaths,
-            { glyphCodePoints }
+            fontraOptions
         );
-        void writeClipboardDocumentAsync(document, svgPaths, {
-            glyphCodePoints
-        });
+        void writeClipboardDocumentAsync(document, svgPaths, fontraOptions);
         console.log(summarizeClipboardDocument(document));
         return true;
     }

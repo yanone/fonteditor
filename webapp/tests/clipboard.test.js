@@ -2250,11 +2250,22 @@ describe('Fontra clipboard tagged MIME', () => {
                     ]
                 }
             ],
-            [{ id: 'm0', name: 'Light', location: { Weight: 30 } }]
+            [{ id: 'm0', name: 'Light', location: { wght: 30 } }]
         );
         expect(document).not.toBeNull();
         const json = stringifyFontraClipboardDocument(document, {
-            glyphCodePoints: { o: [111] }
+            glyphCodePoints: { o: [111] },
+            axisNameByKey: { wght: 'Weight', Weight: 'Weight' }
+        });
+        const raw = JSON.parse(json);
+        expect(raw.type).toBe('fontra-glyph-array');
+        // Fontra sourceLocations use axis names, not OT tags.
+        expect(raw.data.sourceLocations.m0).toEqual({ Weight: 30 });
+        expect(raw.data.glyphs[0].variableGlyph.sources[0]).toMatchObject({
+            name: '',
+            locationBase: 'm0',
+            location: {},
+            layerName: 'm0'
         });
         const parsed = parseFontraClipboard(json);
         expect(parsed.kind).toBe('glyphs');

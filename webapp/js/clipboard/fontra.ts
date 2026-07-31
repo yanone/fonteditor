@@ -579,6 +579,11 @@ export function stringifyFontraClipboardDocument(
         layerWidth?: number;
         codePoints?: number[];
         glyphCodePoints?: Record<string, number[]>;
+        /**
+         * Map Counterpunch location keys (axis tag / id / name) → Fontra
+         * sourceLocations axis name (e.g. wght → Weight).
+         */
+        axisNameByKey?: Record<string, string>;
     }
 ): string {
     if (document.kind === 'selection') {
@@ -589,6 +594,72 @@ export function stringifyFontraClipboardDocument(
         );
     }
     return JSON.stringify(buildFontraGlyphArray(document, options), null, 0);
+}
+
+/**
+ * Build a tag/id/name → Fontra axis-name map from font axes.
+ * Fontra `sourceLocations` use the axis display name ("Weight"), not the
+ * OpenType tag ("wght") that Counterpunch stores on masters.
+ */
+export function buildFontraAxisNameByKey(
+    axes: Array<{
+        id?: string;
+        tag?: string;
+        name?: string | Record<string, string> | null;
+    }>
+): Record<string, string> {
+    const map: Record<string, string> = {};
+    for (const axis of axes || []) {
+        const fontraName = fontraAxisDisplayName(axis);
+        if (!fontraName) {
+            continue;
+        }
+        map[fontraName] = fontraName;
+        if (axis.tag) {
+            map[axis.tag] = fontraName;
+        }
+        if (axis.id) {
+            map[axis.id] = fontraName;
+        }
+    }
+    return map;
+}
+
+function fontraAxisDisplayName(axis: {
+    tag?: string;
+    name?: string | Record<string, string> | null;
+}): string | null {
+    const name = axis.name;
+    if (typeof name === 'string' && name.length > 0) {
+        return name;
+    }
+    if (name && typeof name === 'object') {
+        const record = name as Record<string, string>;
+        const preferred =
+            record.dflt || record.en || Object.values(record).find(Boolean);
+        if (preferred) {
+            return preferred;
+        }
+    }
+    return axis.tag || null;
+}
+
+function remapLocationToFontraAxisNames(
+    location: Record<string, number> | undefined,
+    axisNameByKey?: Record<string, string>
+): Record<string, number> {
+    const source = location || {};
+    if (!axisNameByKey) {
+        return { ...source };
+    }
+    const remapped: Record<string, number> = {};
+    for (const [key, value] of Object.entries(source)) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            continue;
+        }
+        remapped[axisNameByKey[key] || key] = value;
+    }
+    return remapped;
 }
 
 function buildFontraLayerGlyphs(
@@ -624,12 +695,21 @@ function buildFontraLayerGlyphs(
 
 function buildFontraGlyphArray(
     document: CounterpunchGlyphsClipboard,
-    options?: { glyphCodePoints?: Record<string, number[]> }
+    options?: {
+        glyphCodePoints?: Record<string, number[]>;
+        axisNameByKey?: Record<string, string>;
+    }
 ): Record<string, unknown> {
     const masters = document.masters || [];
     const sourceLocations: Record<string, Record<string, number>> = {};
     for (const master of masters) {
-        sourceLocations[master.id] = { ...(master.location || {}) };
+        // Fontra binds sources via locationBase → sourceLocations, and matches
+        // those locations to the destination font using axis *names* (Weight),
+        // not Counterpunch's master location tags (wght).
+        sourceLocations[master.id] = remapLocationToFontraAxisNames(
+            master.location,
+            options?.axisNameByKey
+        );
     }
 
     const glyphs = document.glyphs.map((glyph) => {
@@ -657,6 +737,7 @@ function buildFontraGlyphArray(
                 }),
                 customData: {}
             };
+            // Match native Fontra copy: locationBase + empty location.
             sources.push({
                 name: '',
                 locationBase: master.id,

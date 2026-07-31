@@ -39,7 +39,8 @@ import {
     fontraClipboardItemRepresentation,
     parseFontraClipboard,
     stringifyFontraClipboardDocument,
-    writeFontraClipboardToDataTransfer
+    writeFontraClipboardToDataTransfer,
+    buildFontraAxisNameByKey
 } from './clipboard/fontra';
 import {
     SVG_MIME_TYPES,
@@ -97,7 +98,8 @@ export {
     FONTRA_CLIPBOARD_MIME_TYPES,
     canParseFontraClipboardPayload,
     parseFontraClipboard,
-    stringifyFontraClipboardDocument
+    stringifyFontraClipboardDocument,
+    buildFontraAxisNameByKey
 } from './clipboard/fontra';
 export type { ParsedFontraClipboard } from './clipboard/fontra';
 
@@ -321,6 +323,7 @@ export function writeClipboardDocumentToDataTransfer(
         layerWidth?: number;
         codePoints?: number[];
         glyphCodePoints?: Record<string, number[]>;
+        axisNameByKey?: Record<string, string>;
     }
 ): void {
     const json = stringifyClipboardDocument(document);
@@ -367,6 +370,7 @@ export async function writeClipboardDocumentAsync(
         layerWidth?: number;
         codePoints?: number[];
         glyphCodePoints?: Record<string, number[]>;
+        axisNameByKey?: Record<string, string>;
     }
 ): Promise<boolean> {
     if (
