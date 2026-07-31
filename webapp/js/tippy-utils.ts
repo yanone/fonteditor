@@ -199,11 +199,16 @@ export function addTippyBackdropSupport(
  * @param itemSelector - CSS selector for menu items (default: '.plugin-menu-item')
  * @param autoFocusFirst - Whether to auto-focus the first item (default: false for context menus)
  */
+const menuKeyboardNavCleanups = new WeakMap<Element, () => void>();
+
 export function setupMenuKeyboardNav(
     menu: Element,
     itemSelector: string = '.plugin-menu-item',
     autoFocusFirst: boolean = false
 ): void {
+    // Replace any prior binding on this node (menus often rebuild on show).
+    menuKeyboardNavCleanups.get(menu)?.();
+
     const items = Array.from(menu.querySelectorAll(itemSelector));
     if (items.length === 0) return;
 
@@ -236,6 +241,10 @@ export function setupMenuKeyboardNav(
     };
 
     menu.addEventListener('keydown', handleKeydown);
+    menuKeyboardNavCleanups.set(menu, () => {
+        menu.removeEventListener('keydown', handleKeydown);
+        menuKeyboardNavCleanups.delete(menu);
+    });
 
     if (autoFocusFirst) {
         focusedIndex = 0;

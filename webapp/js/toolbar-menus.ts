@@ -103,35 +103,11 @@ function getItemByMenuId(
     return current || null;
 }
 
-function setupHandlers(
-    instance: TippyInstance,
-    items: ToolbarMenuItem[]
-): void {
+function bindToolbarMenuKeyboardNav(instance: TippyInstance): void {
     const menu = instance.popper.querySelector('.toolbar-menu');
-    if (!menu) {
-        return;
+    if (menu) {
+        setupMenuKeyboardNav(menu);
     }
-
-    menu.querySelectorAll<HTMLElement>(
-        '.toolbar-menu-item:not(.disabled)'
-    ).forEach((element) => {
-        element.addEventListener('click', async (event) => {
-            const item = getItemByMenuId(items, element.dataset.menuId || '');
-            if (!item) {
-                return;
-            }
-            event.stopPropagation();
-            if (item.children) {
-                const isOpen = element.classList.toggle('submenu-open');
-                element.setAttribute('aria-expanded', String(isOpen));
-                return;
-            }
-            instance.hide();
-            await item.action?.();
-        });
-    });
-
-    setupMenuKeyboardNav(menu);
 }
 
 function getFileMenuItems(): ToolbarMenuItem[] {
@@ -487,8 +463,12 @@ function createToolbarMenu(
     }
 
     const backdrop = getOrCreateBackdrop(backdropClassName);
+    // Latest items for delegated clicks — updated every time the menu opens.
+    let currentItems: ToolbarMenuItem[] = itemFactory();
+    let clickHandlerBound = false;
+
     const instance = tippy(button, {
-        content: createMenuHtml(itemFactory()),
+        content: createMenuHtml(currentItems),
         allowHTML: true,
         trigger: 'manual',
         interactive: true,
@@ -499,17 +479,55 @@ function createToolbarMenu(
         hideOnClick: false,
         zIndex: 10001,
         onShow: (currentInstance) => {
-            const items = itemFactory();
-            currentInstance.setContent(createMenuHtml(items));
+            currentItems = itemFactory();
+            currentInstance.setContent(createMenuHtml(currentItems));
+            // Bind delegated click handling once on the tippy popper. Attaching
+            // per-item listeners on every show stacked handlers on reused nodes
+            // and queued duplicate alerts (e.g. Replace Path(s) In-Place errors).
+            if (!clickHandlerBound) {
+                clickHandlerBound = true;
+                currentInstance.popper.addEventListener('click', (event) => {
+                    const target = event.target as HTMLElement | null;
+                    const element = target?.closest(
+                        '.toolbar-menu-item'
+                    ) as HTMLElement | null;
+                    if (
+                        !element ||
+                        !currentInstance.popper.contains(element) ||
+                        element.classList.contains('disabled')
+                    ) {
+                        return;
+                    }
+                    const item = getItemByMenuId(
+                        currentItems,
+                        element.dataset.menuId || ''
+                    );
+                    if (!item) {
+                        return;
+                    }
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (item.children) {
+                        const isOpen = element.classList.toggle('submenu-open');
+                        element.setAttribute('aria-expanded', String(isOpen));
+                        return;
+                    }
+                    currentInstance.hide();
+                    void item.action?.();
+                });
+            }
             window.requestAnimationFrame(() =>
-                setupHandlers(currentInstance, items)
+                bindToolbarMenuKeyboardNav(currentInstance)
             );
             if (refresh) {
                 void refresh().then(() => {
-                    const refreshedItems = itemFactory();
-                    currentInstance.setContent(createMenuHtml(refreshedItems));
+                    if (!currentInstance.state.isVisible) {
+                        return;
+                    }
+                    currentItems = itemFactory();
+                    currentInstance.setContent(createMenuHtml(currentItems));
                     window.requestAnimationFrame(() =>
-                        setupHandlers(currentInstance, refreshedItems)
+                        bindToolbarMenuKeyboardNav(currentInstance)
                     );
                 });
             }

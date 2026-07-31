@@ -4085,6 +4085,8 @@ export class OutlineEditor {
         return true;
     }
 
+    private replaceSelectedPathsInFlight = false;
+
     /**
      * Replace selected path geometry from the clipboard on the active layer
      * only (never fans out to linked layers). Requires a structurally
@@ -4093,6 +4095,18 @@ export class OutlineEditor {
      * alone and no new anchors are created.
      */
     async replaceSelectedPathsInPlace(): Promise<boolean> {
+        if (this.replaceSelectedPathsInFlight) {
+            return false;
+        }
+        this.replaceSelectedPathsInFlight = true;
+        try {
+            return await this.replaceSelectedPathsInPlaceImpl();
+        } finally {
+            this.replaceSelectedPathsInFlight = false;
+        }
+    }
+
+    private async replaceSelectedPathsInPlaceImpl(): Promise<boolean> {
         if (!this.active) {
             window.alert?.(
                 'Enter glyph editing mode to replace selected paths in place.'
