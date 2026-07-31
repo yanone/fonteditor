@@ -3,6 +3,7 @@
  */
 
 import type { PasteFragment, PasteNode, PastePath } from './types';
+import { COUNTERPUNCH_CLIPBOARD_METADATA_ID } from './json';
 
 export const SVG_MIME_TYPES = [
     'image/svg+xml',
@@ -364,7 +365,7 @@ export function serializePathsToSvg(
 
     const metadata = options?.embeddedJson
         ? [
-              '  <metadata id="counterpunch-clipboard">',
+              `  <metadata id="${COUNTERPUNCH_CLIPBOARD_METADATA_ID}">`,
               `  <![CDATA[${options.embeddedJson}]]>`,
               '  </metadata>'
           ]
@@ -524,12 +525,15 @@ function fontPathsToSvgClipboardSpace(
     }));
 }
 
-export const COUNTERPUNCH_SVG_METADATA_ID = 'counterpunch-clipboard';
+export const COUNTERPUNCH_SVG_METADATA_ID = COUNTERPUNCH_CLIPBOARD_METADATA_ID;
 
 /** Extract embedded Counterpunch JSON from an SVG clipboard payload, if present. */
 export function extractCounterpunchJsonFromSvg(payload: string): string | null {
     const match = payload.match(
-        /<metadata\b[^>]*\bid=["']counterpunch-clipboard["'][^>]*>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/metadata>/i
+        new RegExp(
+            `<metadata\\b[^>]*\\bid=["']${COUNTERPUNCH_CLIPBOARD_METADATA_ID}["'][^>]*>\\s*<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>\\s*</metadata>`,
+            'i'
+        )
     );
     if (!match?.[1]) {
         return null;

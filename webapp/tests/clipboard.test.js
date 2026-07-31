@@ -9,6 +9,17 @@ const {
     applyPasteGlyphsDocument
 } = require('../js/clipboard');
 
+/** Wrap a Counterpunch vendor document in the font-editor clipboard envelope. */
+function wireEnvelope(counterpunchItem) {
+    return {
+        clipboardSchema: 'font-editor-clipboard',
+        clipboardSchemaVersion: 1,
+        clipboardItems: {
+            counterpunch: counterpunchItem
+        }
+    };
+}
+
 describe('clipboard SVG converter', () => {
     test('parses SVG compound path into separate closed contours and flips Y', () => {
         const payload = `<?xml version="1.0" encoding="UTF-8"?>
@@ -62,7 +73,6 @@ describe('clipboard SVG converter', () => {
 
 describe('clipboard Counterpunch JSON converter', () => {
     const selectionPayload = {
-        format: 'counterpunch-clipboard',
         version: 1,
         kind: 'selection',
         nodeOrder: 'start-first',
@@ -93,7 +103,9 @@ describe('clipboard Counterpunch JSON converter', () => {
     };
 
     test('parses selection JSON', () => {
-        const parsed = parseCounterpunchJson(JSON.stringify(selectionPayload));
+        const parsed = parseCounterpunchJson(
+            JSON.stringify(wireEnvelope(selectionPayload))
+        );
         expect(parsed.kind).toBe('selection');
         expect(parsed.fragment.format).toBe('counterpunch-json');
         expect(parsed.fragment.keepAbsoluteCoords).toBe(true);
@@ -131,13 +143,14 @@ describe('clipboard Counterpunch JSON converter', () => {
         });
 
         const parsed = parseCounterpunchJson(
-            JSON.stringify({
-                format: 'counterpunch-clipboard',
-                version: 1,
-                kind: 'selection',
-                keepAbsoluteCoords: true,
-                paths: [{ closed: true, nodes: glyphsOrder }]
-            })
+            JSON.stringify(
+                wireEnvelope({
+                    version: 1,
+                    kind: 'selection',
+                    keepAbsoluteCoords: true,
+                    paths: [{ closed: true, nodes: glyphsOrder }]
+                })
+            )
         );
         expect(parsed.kind).toBe('selection');
         expect(parsed.fragment.paths[0].nodes[0]).toMatchObject({
@@ -156,7 +169,7 @@ describe('clipboard Counterpunch JSON converter', () => {
         const parsed = parseClipboardPayloads([
             {
                 type: 'text/plain',
-                data: JSON.stringify(selectionPayload)
+                data: JSON.stringify(wireEnvelope(selectionPayload))
             },
             {
                 type: 'image/svg+xml',
@@ -170,7 +183,7 @@ describe('clipboard Counterpunch JSON converter', () => {
 
     test('recovers Counterpunch JSON embedded in SVG metadata', () => {
         const { serializePathsToSvg } = require('../js/clipboard/svg');
-        const json = JSON.stringify(selectionPayload);
+        const json = JSON.stringify(wireEnvelope(selectionPayload));
         const svg = serializePathsToSvg(selectionPayload.paths, {
             embeddedJson: json
         });
@@ -185,8 +198,7 @@ describe('clipboard Counterpunch JSON converter', () => {
 
     test('parses whole-glyph JSON', () => {
         const payload = {
-            format: 'counterpunch-clipboard',
-            version: 2,
+            version: 1,
             kind: 'glyphs',
             nodeOrder: 'start-first',
             masters: [
@@ -243,7 +255,9 @@ describe('clipboard Counterpunch JSON converter', () => {
                 }
             ]
         };
-        const parsed = parseCounterpunchJson(JSON.stringify(payload));
+        const parsed = parseCounterpunchJson(
+            JSON.stringify(wireEnvelope(payload))
+        );
         expect(parsed.kind).toBe('glyphs');
         expect(parsed.document.masters).toHaveLength(2);
         expect(parsed.document.glyphs[0].layers).toHaveLength(2);
@@ -259,7 +273,6 @@ describe('clipboard Counterpunch JSON converter', () => {
 
     test('rejects whole-glyph JSON without masters metadata', () => {
         const payload = {
-            format: 'counterpunch-clipboard',
             version: 1,
             kind: 'glyphs',
             glyphs: [
@@ -276,7 +289,27 @@ describe('clipboard Counterpunch JSON converter', () => {
                 }
             ]
         };
-        expect(parseCounterpunchJson(JSON.stringify(payload))).toBeNull();
+        expect(
+            parseCounterpunchJson(JSON.stringify(wireEnvelope(payload)))
+        ).toBeNull();
+    });
+
+    test('rejects legacy bare counterpunch-clipboard root objects', () => {
+        expect(
+            parseCounterpunchJson(
+                JSON.stringify({
+                    format: 'counterpunch-clipboard',
+                    version: 1,
+                    kind: 'selection',
+                    paths: [
+                        {
+                            closed: true,
+                            nodes: [{ x: 0, y: 0, nodetype: 'Line' }]
+                        }
+                    ]
+                })
+            )
+        ).toBeNull();
     });
 });
 
@@ -599,7 +632,7 @@ describe('clipboard Counterpunch JSON serializer', () => {
             [{ id: 'm0', name: 'Regular' }]
         );
         expect(document.kind).toBe('glyphs');
-        expect(document.version).toBe(2);
+        expect(document.version).toBe(1);
         expect(document.nodeOrder).toBe('start-first');
         expect(document.masters).toEqual([{ id: 'm0', name: 'Regular' }]);
         expect(document.glyphs[0].name).toBe('a');
@@ -620,7 +653,6 @@ describe('clipboard write helpers', () => {
             }
         };
         const document = {
-            format: 'counterpunch-clipboard',
             version: 1,
             kind: 'selection',
             nodeOrder: 'start-first',
@@ -645,6 +677,10 @@ describe('clipboard write helpers', () => {
             document.paths
         );
         expect(stored['text/plain']).toContain(
+            '"clipboardSchema": "font-editor-clipboard"'
+        );
+        expect(stored['text/plain']).toContain('"counterpunch"');
+        expect(stored['text/plain']).not.toContain(
             '"format": "counterpunch-clipboard"'
         );
         expect(stored['image/svg+xml']).toContain('<svg');
@@ -671,7 +707,6 @@ describe('clipboard write helpers', () => {
         });
 
         const document = {
-            format: 'counterpunch-clipboard',
             version: 1,
             kind: 'selection',
             nodeOrder: 'start-first',
@@ -825,7 +860,6 @@ describe('clipboard SVG serializer', () => {
             }
         ];
         const json = JSON.stringify({
-            format: 'counterpunch-clipboard',
             kind: 'selection'
         });
         const svg = serializePathsToSvg(paths, { embeddedJson: json });
@@ -994,7 +1028,7 @@ describe('applyPasteGlyphsDocument', () => {
             {
                 format: 'counterpunch-json',
                 kind: 'glyphs',
-                version: 2,
+                version: 1,
                 masters: mastersMeta(2),
                 glyphs: [
                     {
@@ -1070,7 +1104,7 @@ describe('applyPasteGlyphsDocument', () => {
             {
                 format: 'counterpunch-json',
                 kind: 'glyphs',
-                version: 2,
+                version: 1,
                 masters: mastersMeta(1),
                 glyphs: [
                     {
@@ -1114,7 +1148,7 @@ describe('applyPasteGlyphsDocument', () => {
             {
                 format: 'counterpunch-json',
                 kind: 'glyphs',
-                version: 2,
+                version: 1,
                 masters: mastersMeta(1),
                 glyphs: [
                     {
@@ -1174,7 +1208,7 @@ describe('applyPasteGlyphsDocument', () => {
             {
                 format: 'counterpunch-json',
                 kind: 'glyphs',
-                version: 2,
+                version: 1,
                 masters: mastersMeta(1),
                 glyphs: [
                     {
@@ -1229,7 +1263,7 @@ describe('applyPasteGlyphsDocument', () => {
             {
                 format: 'counterpunch-json',
                 kind: 'glyphs',
-                version: 2,
+                version: 1,
                 masters: mastersMeta(1),
                 glyphs: [
                     {
@@ -1267,7 +1301,7 @@ describe('applyPasteGlyphsDocument', () => {
             {
                 format: 'counterpunch-json',
                 kind: 'glyphs',
-                version: 2,
+                version: 1,
                 masters: mastersMeta(2),
                 glyphs: [
                     {

@@ -1,5 +1,5 @@
 /**
- * Serialize Counterpunch model objects to counterpunch-clipboard JSON.
+ * Serialize Counterpunch model objects into the font-editor clipboard envelope.
  */
 
 import {
@@ -9,8 +9,10 @@ import {
     type Glyph
 } from '../babelfont-model';
 import {
-    COUNTERPUNCH_CLIPBOARD_FORMAT,
-    COUNTERPUNCH_GLYPHS_CLIPBOARD_VERSION,
+    COUNTERPUNCH_CLIPBOARD_VENDOR,
+    COUNTERPUNCH_CLIPBOARD_VERSION,
+    FONT_EDITOR_CLIPBOARD_SCHEMA,
+    FONT_EDITOR_CLIPBOARD_SCHEMA_VERSION,
     type PasteClipboardMaster,
     type PasteFeatureVariation,
     type PasteGlyph,
@@ -25,12 +27,11 @@ import type {
     PastePath
 } from './types';
 
-export const COUNTERPUNCH_CLIPBOARD_VERSION = 1;
+export { COUNTERPUNCH_CLIPBOARD_VERSION };
 
 const GLYPHS_ATTR_KEY = 'com.schriftgestalt.Glyphs.attr';
 
 export type CounterpunchSelectionClipboard = {
-    format: typeof COUNTERPUNCH_CLIPBOARD_FORMAT;
     version: number;
     kind: 'selection';
     nodeOrder: 'start-first';
@@ -44,7 +45,6 @@ export type CounterpunchSelectionClipboard = {
 };
 
 export type CounterpunchGlyphsClipboard = {
-    format: typeof COUNTERPUNCH_CLIPBOARD_FORMAT;
     version: number;
     kind: 'glyphs';
     nodeOrder: 'start-first';
@@ -54,6 +54,15 @@ export type CounterpunchGlyphsClipboard = {
 
 export type CounterpunchClipboardDocument =
     CounterpunchSelectionClipboard | CounterpunchGlyphsClipboard;
+
+export type FontEditorClipboardEnvelope = {
+    clipboardSchema: typeof FONT_EDITOR_CLIPBOARD_SCHEMA;
+    clipboardSchemaVersion: number;
+    clipboardItems: {
+        [vendor: string]: unknown;
+        [COUNTERPUNCH_CLIPBOARD_VENDOR]?: CounterpunchClipboardDocument;
+    };
+};
 
 export function buildSelectionClipboardDocument(options: {
     glyphName?: string | null;
@@ -73,7 +82,6 @@ export function buildSelectionClipboardDocument(options: {
         return null;
     }
     return {
-        format: COUNTERPUNCH_CLIPBOARD_FORMAT,
         version: COUNTERPUNCH_CLIPBOARD_VERSION,
         kind: 'selection',
         nodeOrder: 'start-first',
@@ -95,12 +103,25 @@ export function buildGlyphsClipboardDocument(
         return null;
     }
     return {
-        format: COUNTERPUNCH_CLIPBOARD_FORMAT,
-        version: COUNTERPUNCH_GLYPHS_CLIPBOARD_VERSION,
+        version: COUNTERPUNCH_CLIPBOARD_VERSION,
         kind: 'glyphs',
         nodeOrder: 'start-first',
         masters,
         glyphs
+    };
+}
+
+export function wrapClipboardEnvelope(
+    document: CounterpunchClipboardDocument,
+    extraItems?: Record<string, unknown>
+): FontEditorClipboardEnvelope {
+    return {
+        clipboardSchema: FONT_EDITOR_CLIPBOARD_SCHEMA,
+        clipboardSchemaVersion: FONT_EDITOR_CLIPBOARD_SCHEMA_VERSION,
+        clipboardItems: {
+            ...(extraItems || {}),
+            [COUNTERPUNCH_CLIPBOARD_VENDOR]: document
+        }
     };
 }
 
@@ -309,7 +330,7 @@ export function serializeMasterGuideForClipboard(guide: {
 export function stringifyClipboardDocument(
     document: CounterpunchClipboardDocument
 ): string {
-    return JSON.stringify(document, null, 4);
+    return JSON.stringify(wrapClipboardEnvelope(document), null, 4);
 }
 
 export function summarizeClipboardDocument(

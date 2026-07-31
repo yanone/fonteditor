@@ -2,8 +2,10 @@
  * Counterpunch native JSON clipboard converter
  * (Glyphs "Copy to Counterpunch" script and Counterpunch copy).
  *
- * Whole-glyph documents (version >= 2) carry source masters and per-layer
- * masterIndex association so paste can match across fonts by master order.
+ * Wire JSON is a font-editor envelope: clipboardItems.<vendor> holds each
+ * editor's private document. Counterpunch lives under "counterpunch".
+ * Whole-glyph documents carry source masters and per-layer masterIndex
+ * association so paste can match across fonts by master order.
  */
 
 import type {
@@ -16,13 +18,25 @@ import type {
     PastePath
 } from './types';
 
-export const COUNTERPUNCH_CLIPBOARD_FORMAT = 'counterpunch-clipboard';
+/** Shared envelope schema for multi-vendor text/plain JSON. */
+export const FONT_EDITOR_CLIPBOARD_SCHEMA = 'font-editor-clipboard';
+export const FONT_EDITOR_CLIPBOARD_SCHEMA_VERSION = 1;
+
+/** Vendor key under clipboardItems. */
+export const COUNTERPUNCH_CLIPBOARD_VENDOR = 'counterpunch';
+
+/** Counterpunch document version (selection and glyphs). */
+export const COUNTERPUNCH_CLIPBOARD_VERSION = 1;
+
+/**
+ * HTML/SVG metadata id for embedded Counterpunch JSON (not the vendor key).
+ * Kept for stable DOM targeting in SVG interchange.
+ */
+export const COUNTERPUNCH_CLIPBOARD_METADATA_ID = 'counterpunch-clipboard';
+
 /** Custom MIME for Counterpunch JSON. Chrome keeps this for web paste; macOS apps do not see it. */
 export const COUNTERPUNCH_CLIPBOARD_MIME =
     'application/x-counterpunch-clipboard';
-
-/** Minimum whole-glyph schema version (master association + masters list). */
-export const COUNTERPUNCH_GLYPHS_CLIPBOARD_VERSION = 2;
 
 export type PasteLayerMaster =
     | { type: 'DefaultForMaster'; masterIndex: number }
@@ -88,8 +102,9 @@ export function canParseCounterpunchJson(payload: string): boolean {
         return false;
     }
     return (
-        trimmed.includes(`"format"`) &&
-        trimmed.includes(COUNTERPUNCH_CLIPBOARD_FORMAT)
+        trimmed.includes(`"clipboardSchema"`) &&
+        trimmed.includes(FONT_EDITOR_CLIPBOARD_SCHEMA) &&
+        trimmed.includes(`"${COUNTERPUNCH_CLIPBOARD_VENDOR}"`)
     );
 }
 
@@ -102,17 +117,16 @@ export function parseCounterpunchJson(
     } catch {
         return null;
     }
-    if (!isRecord(raw)) {
-        return null;
-    }
-    if (raw.format !== COUNTERPUNCH_CLIPBOARD_FORMAT) {
+
+    const item = extractCounterpunchClipboardItem(raw);
+    if (!item) {
         return null;
     }
 
-    const nodeOrder = parseNodeOrder(raw.nodeOrder);
-    const kind = raw.kind;
+    const nodeOrder = parseNodeOrder(item.nodeOrder);
+    const kind = item.kind;
     if (kind === 'glyphs') {
-        const document = parseGlyphsDocument(raw, nodeOrder);
+        const document = parseGlyphsDocument(item, nodeOrder);
         if (!document) {
             return null;
         }
@@ -120,11 +134,37 @@ export function parseCounterpunchJson(
     }
 
     // Default / "selection"
-    const fragment = parseSelectionFragment(raw, nodeOrder);
+    const fragment = parseSelectionFragment(item, nodeOrder);
     if (!fragment) {
         return null;
     }
     return { kind: 'selection', fragment };
+}
+
+/**
+ * Pull the Counterpunch vendor document out of a font-editor clipboard envelope.
+ */
+export function extractCounterpunchClipboardItem(
+    raw: unknown
+): Record<string, unknown> | null {
+    if (!isRecord(raw)) {
+        return null;
+    }
+    if (raw.clipboardSchema !== FONT_EDITOR_CLIPBOARD_SCHEMA) {
+        return null;
+    }
+    const schemaVersion = optionalNumber(raw.clipboardSchemaVersion);
+    if (
+        schemaVersion === null ||
+        schemaVersion < FONT_EDITOR_CLIPBOARD_SCHEMA_VERSION
+    ) {
+        return null;
+    }
+    if (!isRecord(raw.clipboardItems)) {
+        return null;
+    }
+    const item = raw.clipboardItems[COUNTERPUNCH_CLIPBOARD_VENDOR];
+    return isRecord(item) ? item : null;
 }
 
 function parseNodeOrder(value: unknown): CounterpunchNodeOrder {
@@ -162,7 +202,7 @@ function parseGlyphsDocument(
     nodeOrder: CounterpunchNodeOrder
 ): PasteGlyphsDocument | null {
     const version = optionalNumber(raw.version);
-    if (version === null || version < COUNTERPUNCH_GLYPHS_CLIPBOARD_VERSION) {
+    if (version === null || version < COUNTERPUNCH_CLIPBOARD_VERSION) {
         return null;
     }
 

@@ -29,8 +29,10 @@ from GlyphsApp import (
     Message,
 )
 
-CLIPBOARD_FORMAT = "counterpunch-clipboard"
-CLIPBOARD_VERSION = 2
+CLIPBOARD_SCHEMA = "font-editor-clipboard"
+CLIPBOARD_SCHEMA_VERSION = 1
+COUNTERPUNCH_VENDOR = "counterpunch"
+CLIPBOARD_VERSION = 1
 
 NODE_TYPE_MAP = {
     LINE: "Line",
@@ -54,7 +56,7 @@ def main():
     if payload is None:
         return
 
-    text = json.dumps(payload, indent=4, ensure_ascii=False)
+    text = json.dumps(wrap_envelope(payload), indent=4, ensure_ascii=False)
     pasteboard = NSPasteboard.generalPasteboard()
     pasteboard.clearContents()
     pasteboard.setString_forType_(text, NSPasteboardTypeString)
@@ -62,6 +64,16 @@ def main():
         "Counterpunch Copy",
         summarize_payload(payload),
     )
+
+
+def wrap_envelope(counterpunch_payload):
+    return {
+        "clipboardSchema": CLIPBOARD_SCHEMA,
+        "clipboardSchemaVersion": CLIPBOARD_SCHEMA_VERSION,
+        "clipboardItems": {
+            COUNTERPUNCH_VENDOR: counterpunch_payload,
+        },
+    }
 
 
 def build_selection_payload(font):
@@ -80,7 +92,6 @@ def build_selection_payload(font):
         return None
 
     return {
-        "format": CLIPBOARD_FORMAT,
         "version": CLIPBOARD_VERSION,
         "kind": "selection",
         # Glyphs closed paths store the start node last; leave that order here
@@ -103,7 +114,6 @@ def build_glyphs_payload(font):
         return None
 
     return {
-        "format": CLIPBOARD_FORMAT,
         "version": CLIPBOARD_VERSION,
         "kind": "glyphs",
         "nodeOrder": "glyphs",

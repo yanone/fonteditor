@@ -89,7 +89,7 @@ function makeFontData() {
 function pasteLikeCanvas(font, bridge, clipboardGlyphName = 'a') {
     const document = {
         format: 'counterpunch-json',
-        version: 2,
+        version: 1,
         kind: 'glyphs',
         masters: [{ id: 'm0', name: 'Regular' }],
         glyphs: [

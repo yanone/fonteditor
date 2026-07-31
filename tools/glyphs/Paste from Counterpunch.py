@@ -3,8 +3,9 @@
 """
 Paste Counterpunch JSON from the system clipboard into Glyphs.
 
-Accepts plain Counterpunch JSON, or SVG on the pasteboard with JSON embedded
-in <metadata id="counterpunch-clipboard"> (Counterpunch Cmd+C format).
+Accepts a font-editor-clipboard JSON envelope on the pasteboard (with a
+"counterpunch" item), or SVG with that JSON embedded in
+<metadata id="counterpunch-clipboard"> (Counterpunch Cmd+C format).
 
 - Edit view (Glyphs.font.currentTab): clear selection, append objects onto
   Glyphs.font.selectedLayers[0], then select the pasted objects
@@ -35,7 +36,9 @@ from GlyphsApp import (
     Message,
 )
 
-CLIPBOARD_FORMAT = "counterpunch-clipboard"
+CLIPBOARD_SCHEMA = "font-editor-clipboard"
+CLIPBOARD_SCHEMA_VERSION = 1
+COUNTERPUNCH_VENDOR = "counterpunch"
 
 NODE_TYPE_MAP = {
     "Line": LINE,
@@ -98,13 +101,13 @@ def read_clipboard_payload():
     if json_text is None:
         Message(
             "Clipboard has no Counterpunch JSON "
-            "(plain JSON or SVG with counterpunch-clipboard metadata).",
+            "(font-editor-clipboard envelope or SVG with counterpunch-clipboard metadata).",
             title="Counterpunch Paste",
         )
         return None
 
     try:
-        payload = json.loads(json_text)
+        envelope = json.loads(json_text)
     except Exception:
         Message(
             "Clipboard text is not valid JSON.",
@@ -112,14 +115,30 @@ def read_clipboard_payload():
         )
         return None
 
-    if not isinstance(payload, dict):
-        Message("Clipboard JSON is not an object.", title="Counterpunch Paste")
-        return None
-    if payload.get("format") != CLIPBOARD_FORMAT:
+    payload = unwrap_counterpunch_item(envelope)
+    if payload is None:
         Message(
-            'Clipboard is not Counterpunch JSON (missing format "counterpunch-clipboard").',
+            "Clipboard JSON is not a font-editor-clipboard envelope "
+            'with a "counterpunch" item.',
             title="Counterpunch Paste",
         )
+        return None
+    return payload
+
+
+def unwrap_counterpunch_item(envelope):
+    if not isinstance(envelope, dict):
+        return None
+    if envelope.get("clipboardSchema") != CLIPBOARD_SCHEMA:
+        return None
+    schema_version = envelope.get("clipboardSchemaVersion")
+    if not isinstance(schema_version, int) or schema_version < CLIPBOARD_SCHEMA_VERSION:
+        return None
+    items = envelope.get("clipboardItems")
+    if not isinstance(items, dict):
+        return None
+    payload = items.get(COUNTERPUNCH_VENDOR)
+    if not isinstance(payload, dict):
         return None
     return payload
 

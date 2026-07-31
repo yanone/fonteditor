@@ -1,11 +1,11 @@
 /**
  * Clipboard paste/copy orchestration for outline editing.
  *
- * Paste priority: Counterpunch JSON (custom MIME, text/plain, or SVG
+ * Paste priority: Counterpunch JSON (custom MIME, text/plain envelope, or SVG
  * metadata) → SVG paths.
- * Copy writes JSON on text/plain and, via the Async Clipboard API,
- * image/svg+xml so macOS Chrome publishes public.svg-image for Glyphs
- * Cmd+V. Sync setData alone cannot expose SVG as a system UTI.
+ * Copy writes a font-editor-clipboard envelope on text/plain and, via the
+ * Async Clipboard API, image/svg+xml so macOS Chrome publishes public.svg-image
+ * for Glyphs Cmd+V. Sync setData alone cannot expose SVG as a system UTI.
  * Selection pastes fan out to linked layers when linked.
  * Whole-glyph JSON pastes create new glyphs (Glyphs-style .001 names)
  * with layer content remapped onto this font's masters.
@@ -55,12 +55,14 @@ export {
     serializePathForClipboard,
     stringifyClipboardDocument,
     summarizeClipboardDocument,
+    wrapClipboardEnvelope,
     COUNTERPUNCH_CLIPBOARD_VERSION
 } from './clipboard/serialize';
 export type {
     CounterpunchClipboardDocument,
     CounterpunchGlyphsClipboard,
-    CounterpunchSelectionClipboard
+    CounterpunchSelectionClipboard,
+    FontEditorClipboardEnvelope
 } from './clipboard/serialize';
 export {
     serializePathsToSvg,
@@ -68,7 +70,13 @@ export {
     extractCounterpunchJsonFromSvg
 } from './clipboard/svg';
 export type { SerializePathsToSvgOptions } from './clipboard/svg';
-export { COUNTERPUNCH_CLIPBOARD_MIME } from './clipboard/json';
+export {
+    COUNTERPUNCH_CLIPBOARD_MIME,
+    COUNTERPUNCH_CLIPBOARD_VENDOR,
+    COUNTERPUNCH_CLIPBOARD_METADATA_ID,
+    FONT_EDITOR_CLIPBOARD_SCHEMA,
+    FONT_EDITOR_CLIPBOARD_SCHEMA_VERSION
+} from './clipboard/json';
 
 const console = new Logger('Clipboard');
 
