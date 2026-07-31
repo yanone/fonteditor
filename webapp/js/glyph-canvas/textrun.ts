@@ -10,7 +10,10 @@ import type { FeaturesManager } from './features';
 import type { AxesManager } from './variations';
 import type { UserspaceLocation } from '../locations';
 import APP_SETTINGS from '../settings';
-import { parseClipboardPayloads } from '../clipboard';
+import {
+    parseClipboardPayloads,
+    readClipboardPayloadsAsync
+} from '../clipboard';
 import {
     get_glyph_name,
     get_glyph_order
@@ -1002,7 +1005,8 @@ export class TextRunEditor {
         }
 
         try {
-            const text = await navigator.clipboard.readText();
+            // Async read so Fontra tagged MIME is visible (readText alone is not).
+            const payloads = await readClipboardPayloadsAsync();
             const editorStillFocused = !!document
                 .getElementById('view-editor')
                 ?.classList.contains('focused');
@@ -1012,9 +1016,7 @@ export class TextRunEditor {
 
             // Use the same parser as the outline and overview paste routes so
             // structured layer/glyph documents never enter the text buffer.
-            const parsed = parseClipboardPayloads([
-                { type: 'text/plain', data: text }
-            ]);
+            const parsed = parseClipboardPayloads(payloads);
             if (parsed) {
                 const message =
                     parsed.kind === 'glyphs'
@@ -1024,6 +1026,10 @@ export class TextRunEditor {
                 window.alert?.(message);
                 return;
             }
+
+            const text =
+                payloads.find((payload) => payload.type === 'text/plain')
+                    ?.data ?? (await navigator.clipboard.readText());
             console.log('Pasting from clipboard:', `"${text}"`);
 
             // insertText already handles replacing selection

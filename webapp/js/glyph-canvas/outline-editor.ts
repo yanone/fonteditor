@@ -41,7 +41,8 @@ import {
     serializePathForClipboard,
     summarizeClipboardDocument,
     writeClipboardDocumentAsync,
-    writeClipboardDocumentToDataTransfer
+    writeClipboardDocumentToDataTransfer,
+    type ParsedClipboard
 } from '../clipboard';
 import APP_SETTINGS from '../settings';
 import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
@@ -3870,12 +3871,24 @@ export class OutlineEditor {
         event.preventDefault();
         event.stopPropagation();
         // Sync fallback (JSON). Async write publishes system SVG UTI on macOS.
+        const fontraOptions = {
+            layerId: activeLayer.id || 'clipboard',
+            layerWidth: Number(activeLayer.width) || 0,
+            codePoints: Array.isArray(glyph.codepoints)
+                ? [...glyph.codepoints]
+                : []
+        };
         writeClipboardDocumentToDataTransfer(
             event.clipboardData,
             document,
-            document.paths
+            document.paths,
+            fontraOptions
         );
-        void writeClipboardDocumentAsync(document, document.paths);
+        void writeClipboardDocumentAsync(
+            document,
+            document.paths,
+            fontraOptions
+        );
         console.log(summarizeClipboardDocument(document));
         return true;
     }
@@ -3954,9 +3967,23 @@ export class OutlineEditor {
     }
 
     /**
-     * Paste Counterpunch JSON / SVG clipboard data into the active glyph.
+     * Paste Counterpunch / Fontra / SVG clipboard data into the active glyph.
+     * Prefer {@link pasteFromParsedClipboard} when payloads were already resolved
+     * (including async ClipboardItem reads for Fontra tagged MIME).
      */
     pasteFromClipboardEvent(event: ClipboardEvent): boolean {
+        const payloads = collectClipboardPayloads(event.clipboardData);
+        const parsed = parseClipboardPayloads(payloads);
+        if (!parsed) {
+            return false;
+        }
+        return this.pasteFromParsedClipboard(parsed, event);
+    }
+
+    pasteFromParsedClipboard(
+        parsed: ParsedClipboard,
+        event: ClipboardEvent | null = null
+    ): boolean {
         if (!this.active) {
             return false;
         }
@@ -3967,15 +3994,9 @@ export class OutlineEditor {
             return false;
         }
 
-        const payloads = collectClipboardPayloads(event.clipboardData);
-        const parsed = parseClipboardPayloads(payloads);
-        if (!parsed) {
-            return false;
-        }
-
         if (parsed.kind === 'glyphs') {
-            event.preventDefault();
-            event.stopPropagation();
+            event?.preventDefault();
+            event?.stopPropagation();
             const message =
                 'Clipboard has whole glyphs. Switch to the glyph overview to paste them.';
             console.warn(message);
@@ -3983,8 +4004,8 @@ export class OutlineEditor {
             return true;
         }
 
-        event.preventDefault();
-        event.stopPropagation();
+        event?.preventDefault();
+        event?.stopPropagation();
 
         this.clearAllSelections();
 

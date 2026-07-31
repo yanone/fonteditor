@@ -731,6 +731,69 @@ describe('clipboard write helpers', () => {
         expect(writes).toHaveLength(1);
         expect(writes[0][0].items['image/svg+xml']).toBeInstanceOf(Blob);
         expect(writes[0][0].items['text/plain']).toBeInstanceOf(Blob);
+        expect(writes[0][0].items['web fontra/json-clipboard']).toBeInstanceOf(
+            Blob
+        );
+
+        global.ClipboardItem = OriginalClipboardItem;
+    });
+
+    test('async write still publishes Fontra when full custom set fails', async () => {
+        const writes = [];
+        const OriginalClipboardItem = global.ClipboardItem;
+        global.ClipboardItem = class {
+            constructor(items) {
+                this.items = items;
+            }
+            static supports() {
+                return true;
+            }
+        };
+        Object.defineProperty(global.navigator, 'clipboard', {
+            configurable: true,
+            value: {
+                write: async (items) => {
+                    const map = items[0].items;
+                    if (
+                        map['web application/x-counterpunch-clipboard'] &&
+                        map['web fontra/json-clipboard']
+                    ) {
+                        throw new Error('reject full custom');
+                    }
+                    writes.push(items);
+                }
+            }
+        });
+
+        const document = {
+            version: 1,
+            kind: 'selection',
+            nodeOrder: 'start-first',
+            keepAbsoluteCoords: true,
+            paths: [
+                {
+                    closed: true,
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Line' },
+                        { x: 10, y: 0, nodetype: 'Line' },
+                        { x: 10, y: 10, nodetype: 'Line' }
+                    ]
+                }
+            ],
+            components: [],
+            anchors: [],
+            guides: []
+        };
+
+        const ok = await writeClipboardDocumentAsync(document, document.paths);
+        expect(ok).toBe(true);
+        expect(writes).toHaveLength(1);
+        expect(writes[0][0].items['web fontra/json-clipboard']).toBeInstanceOf(
+            Blob
+        );
+        expect(
+            writes[0][0].items['web application/x-counterpunch-clipboard']
+        ).toBeUndefined();
 
         global.ClipboardItem = OriginalClipboardItem;
     });
@@ -1646,5 +1709,361 @@ describe('clipboard internal round-trips', () => {
             buildSelectionFromLayer(layer, glyph.name)
         );
         expect(after).toEqual(before);
+    });
+});
+
+describe('Fontra clipboard tagged MIME', () => {
+    const {
+        parseFontraClipboard,
+        stringifyFontraClipboardDocument,
+        FONTRA_CLIPBOARD_MIME
+    } = require('../js/clipboard/fontra');
+    const {
+        parseClipboardPayloads,
+        buildSelectionClipboardDocument,
+        buildGlyphsClipboardDocument
+    } = require('../js/clipboard');
+
+    test('parses fontra-layer-glyphs with transformed component', () => {
+        const payload = {
+            type: 'fontra-layer-glyphs',
+            data: {
+                layerGlyphs: [
+                    {
+                        layerName: 'layer-1',
+                        location: {},
+                        glyph: {
+                            xAdvance: 572,
+                            path: {
+                                coordinates: [0, 0, 10, 0, 10, 10],
+                                pointTypes: [8, 2, 8],
+                                contourInfo: [{ endPoint: 2, isClosed: false }]
+                            },
+                            components: [
+                                {
+                                    name: 'dieresis',
+                                    transformation: {
+                                        translateX: 0.5,
+                                        translateY: -11,
+                                        rotation: 0,
+                                        scaleX: 1.75,
+                                        scaleY: 1,
+                                        skewX: 0,
+                                        skewY: 0,
+                                        tCenterX: 0,
+                                        tCenterY: 0
+                                    },
+                                    location: {},
+                                    customData: {}
+                                }
+                            ],
+                            anchors: [{ name: 'top', x: 100, y: 500 }],
+                            guidelines: [
+                                {
+                                    x: -10,
+                                    y: 200,
+                                    angle: 0,
+                                    locked: false,
+                                    name: 'local'
+                                }
+                            ]
+                        }
+                    }
+                ],
+                glyphName: 'o',
+                codePoints: [111]
+            }
+        };
+        const parsed = parseClipboardPayloads([
+            {
+                type: 'web fontra/json-clipboard',
+                data: JSON.stringify(payload)
+            }
+        ]);
+        expect(parsed.kind).toBe('selection');
+        expect(parsed.fragment.format).toBe('fontra-json');
+        expect(parsed.fragment.keepAbsoluteCoords).toBe(true);
+        expect(parsed.fragment.components[0]).toMatchObject({
+            reference: 'dieresis'
+        });
+        expect(parsed.fragment.components[0].transform[0]).toBeCloseTo(1.75, 5);
+        expect(parsed.fragment.components[0].transform[4]).toBeCloseTo(0.5, 5);
+        expect(parsed.fragment.components[0].transform[5]).toBeCloseTo(-11, 5);
+        expect(parsed.fragment.anchors[0]).toEqual({
+            name: 'top',
+            x: 100,
+            y: 500
+        });
+        expect(parsed.fragment.guides[0].name).toBe('local');
+    });
+
+    test('ignores Fontra JSON on text/plain', () => {
+        const payload = {
+            type: 'fontra-layer-glyphs',
+            data: {
+                layerGlyphs: [
+                    {
+                        layerName: 'layer-1',
+                        location: {},
+                        glyph: {
+                            xAdvance: 100,
+                            path: {
+                                coordinates: [0, 0, 10, 0],
+                                pointTypes: [0, 0],
+                                contourInfo: [{ endPoint: 1, isClosed: false }]
+                            },
+                            components: [],
+                            anchors: [],
+                            guidelines: []
+                        }
+                    }
+                ],
+                glyphName: 'a',
+                codePoints: []
+            }
+        };
+        const parsed = parseClipboardPayloads([
+            { type: 'text/plain', data: JSON.stringify(payload) }
+        ]);
+        expect(parsed).toBeNull();
+    });
+
+    test('parses fontra-glyph-array into whole-glyph document', () => {
+        const payload = {
+            type: 'fontra-glyph-array',
+            data: {
+                glyphs: [
+                    {
+                        codePoints: [111],
+                        variableGlyph: {
+                            name: 'o',
+                            axes: [],
+                            sources: [
+                                {
+                                    name: '',
+                                    locationBase: 'm0',
+                                    location: {},
+                                    layerName: 'm0',
+                                    inactive: false,
+                                    customData: {}
+                                },
+                                {
+                                    name: '',
+                                    locationBase: 'm1',
+                                    location: {},
+                                    layerName: 'm1',
+                                    inactive: false,
+                                    customData: {}
+                                }
+                            ],
+                            layers: {
+                                m0: {
+                                    glyph: {
+                                        xAdvance: 570,
+                                        path: {
+                                            coordinates: [0, 0, 10, 0, 10, 10],
+                                            pointTypes: [0, 0, 0],
+                                            contourInfo: [
+                                                {
+                                                    endPoint: 2,
+                                                    isClosed: true
+                                                }
+                                            ]
+                                        },
+                                        components: [],
+                                        anchors: [],
+                                        guidelines: []
+                                    },
+                                    customData: {}
+                                },
+                                m1: {
+                                    glyph: {
+                                        xAdvance: 600,
+                                        path: {
+                                            coordinates: [0, 0, 20, 0, 20, 20],
+                                            pointTypes: [0, 0, 0],
+                                            contourInfo: [
+                                                {
+                                                    endPoint: 2,
+                                                    isClosed: true
+                                                }
+                                            ]
+                                        },
+                                        components: [],
+                                        anchors: [],
+                                        guidelines: []
+                                    },
+                                    customData: {}
+                                }
+                            },
+                            customData: {}
+                        }
+                    }
+                ],
+                sourceLocations: {
+                    m0: { Weight: 30 },
+                    m1: { Weight: 135 }
+                },
+                backgroundImageData: {}
+            }
+        };
+        const parsed = parseClipboardPayloads([
+            {
+                type: FONTRA_CLIPBOARD_MIME,
+                data: JSON.stringify(payload)
+            }
+        ]);
+        expect(parsed.kind).toBe('glyphs');
+        expect(parsed.document.masters).toHaveLength(2);
+        expect(parsed.document.masters[0].location.Weight).toBe(30);
+        expect(parsed.document.glyphs).toHaveLength(1);
+        expect(parsed.document.glyphs[0].name).toBe('o');
+        expect(parsed.document.glyphs[0].layers).toHaveLength(2);
+        expect(parsed.document.glyphs[0].layers[0].master).toEqual({
+            type: 'DefaultForMaster',
+            masterIndex: 0
+        });
+        expect(parsed.document.glyphs[0].layers[0].width).toBe(570);
+    });
+
+    test('round-trips selection through Fontra tagged serialize/parse', () => {
+        const selection = buildSelectionClipboardDocument({
+            glyphName: 'o',
+            paths: [
+                {
+                    closed: true,
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Line', smooth: true },
+                        { x: 10, y: 0, nodetype: 'OffCurve' },
+                        { x: 10, y: 10, nodetype: 'OffCurve' },
+                        { x: 0, y: 10, nodetype: 'Curve', smooth: true }
+                    ]
+                }
+            ],
+            components: [
+                {
+                    reference: 'macroncomb',
+                    x: 12,
+                    y: 0,
+                    transform: [1, 0, 0, 1, 12, 0]
+                }
+            ],
+            anchors: [{ name: 'top', x: 50, y: 500 }],
+            guides: [{ name: 'g', x: 0, y: 100, angle: 0, global: false }]
+        });
+        expect(selection).not.toBeNull();
+        const json = stringifyFontraClipboardDocument(selection, {
+            layerId: 'L1',
+            layerWidth: 500,
+            codePoints: [111]
+        });
+        const parsed = parseFontraClipboard(json);
+        expect(parsed.kind).toBe('selection');
+        expect(parsed.fragment.components[0].reference).toBe('macroncomb');
+        expect(parsed.fragment.anchors[0].name).toBe('top');
+        expect(parsed.fragment.paths[0].closed).toBe(true);
+    });
+
+    test('round-trips glyphs through Fontra tagged serialize/parse', () => {
+        const document = buildGlyphsClipboardDocument(
+            [
+                {
+                    name: 'o',
+                    layers: [
+                        {
+                            master: {
+                                type: 'DefaultForMaster',
+                                masterIndex: 0
+                            },
+                            width: 570,
+                            paths: [
+                                {
+                                    closed: false,
+                                    nodes: [
+                                        { x: 1, y: 2, nodetype: 'Line' },
+                                        { x: 3, y: 4, nodetype: 'Line' }
+                                    ]
+                                }
+                            ],
+                            components: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            [{ id: 'm0', name: 'Light', location: { Weight: 30 } }]
+        );
+        expect(document).not.toBeNull();
+        const json = stringifyFontraClipboardDocument(document, {
+            glyphCodePoints: { o: [111] }
+        });
+        const parsed = parseFontraClipboard(json);
+        expect(parsed.kind).toBe('glyphs');
+        expect(parsed.document.glyphs[0].name).toBe('o');
+        expect(parsed.document.masters[0].id).toBe('m0');
+        expect(parsed.document.glyphs[0].layers[0].width).toBe(570);
+    });
+
+    test('async ClipboardItem read prefers Fontra over sync SVG', async () => {
+        const {
+            mergeClipboardPayloads,
+            isTaggedStructuredClipboard,
+            readClipboardPayloadsAsync
+        } = require('../js/clipboard');
+
+        const fontraPayload = {
+            type: 'fontra-layer-glyphs',
+            data: {
+                layerGlyphs: [
+                    {
+                        layerName: 'layer-1',
+                        location: {},
+                        glyph: {
+                            xAdvance: 100,
+                            path: {
+                                coordinates: [0, 0, 10, 0, 10, 10],
+                                pointTypes: [0, 0, 0],
+                                contourInfo: [{ endPoint: 2, isClosed: true }]
+                            },
+                            components: [],
+                            anchors: [{ name: 'top', x: 5, y: 20 }],
+                            guidelines: []
+                        }
+                    }
+                ],
+                glyphName: 'a',
+                codePoints: []
+            }
+        };
+        const svg =
+            '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0 L10 0"/></svg>';
+
+        Object.defineProperty(global.navigator, 'clipboard', {
+            configurable: true,
+            value: {
+                read: async () => [
+                    {
+                        types: ['web fontra/json-clipboard', 'image/svg+xml'],
+                        getType: async (type) => ({
+                            text: async () =>
+                                type.startsWith('web fontra')
+                                    ? JSON.stringify(fontraPayload)
+                                    : svg
+                        })
+                    }
+                ]
+            }
+        });
+
+        const asyncPayloads = await readClipboardPayloadsAsync();
+        const merged = mergeClipboardPayloads(asyncPayloads, [
+            { type: 'image/svg+xml', data: svg }
+        ]);
+        const parsed = parseClipboardPayloads(merged);
+        expect(isTaggedStructuredClipboard(parsed)).toBe(true);
+        expect(parsed.kind).toBe('selection');
+        expect(parsed.fragment.format).toBe('fontra-json');
+        expect(parsed.fragment.anchors[0].name).toBe('top');
     });
 });

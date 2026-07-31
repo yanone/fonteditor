@@ -47,7 +47,7 @@ export type PasteGuide = {
 };
 
 export type PasteFragment = {
-    format: 'svg' | 'counterpunch-json';
+    format: 'svg' | 'counterpunch-json' | 'fontra-json';
     paths: PastePath[];
     components: PasteComponent[];
     anchors: PasteAnchor[];

@@ -2,10 +2,17 @@
  * Clipboard paste/copy orchestration for outline editing.
  *
  * Paste priority: Counterpunch JSON (custom MIME, text/plain envelope, or SVG
- * metadata) → SVG paths.
- * Copy writes a font-editor-clipboard envelope on text/plain and, via the
- * Async Clipboard API, image/svg+xml so macOS Chrome publishes public.svg-image
- * for Glyphs Cmd+V. Sync setData alone cannot expose SVG as a system UTI.
+ * metadata) → Fontra tagged MIME (`fontra/json-clipboard`) → SVG paths.
+ * Fontra JSON on text/plain is ignored.
+ *
+ * Chromium web custom formats (Fontra / Counterpunch tagged MIME) appear on
+ * `navigator.clipboard.read()`, not reliably on paste `DataTransfer` — paste
+ * therefore merges sync event payloads with an async ClipboardItem read.
+ *
+ * Copy writes a font-editor-clipboard envelope on text/plain, Fontra tagged
+ * MIME for web interchange, and, via the Async Clipboard API, image/svg+xml
+ * so macOS Chrome publishes public.svg-image for Glyphs Cmd+V.
+ * Sync setData alone cannot expose SVG as a system UTI.
  * Selection pastes fan out to linked layers when linked.
  * Whole-glyph JSON pastes create new glyphs (Glyphs-style .001 names)
  * with layer content remapped onto this font's masters.
@@ -26,6 +33,14 @@ import {
     COUNTERPUNCH_CLIPBOARD_MIME,
     parseCounterpunchJson
 } from './clipboard/json';
+import {
+    canParseFontraClipboardPayload,
+    FONTRA_CLIPBOARD_MIME_TYPES,
+    fontraClipboardItemRepresentation,
+    parseFontraClipboard,
+    stringifyFontraClipboardDocument,
+    writeFontraClipboardToDataTransfer
+} from './clipboard/fontra';
 import {
     SVG_MIME_TYPES,
     canParseSvg,
@@ -77,6 +92,14 @@ export {
     FONT_EDITOR_CLIPBOARD_SCHEMA,
     FONT_EDITOR_CLIPBOARD_SCHEMA_VERSION
 } from './clipboard/json';
+export {
+    FONTRA_CLIPBOARD_MIME,
+    FONTRA_CLIPBOARD_MIME_TYPES,
+    canParseFontraClipboardPayload,
+    parseFontraClipboard,
+    stringifyFontraClipboardDocument
+} from './clipboard/fontra';
+export type { ParsedFontraClipboard } from './clipboard/fontra';
 
 const console = new Logger('Clipboard');
 
@@ -123,6 +146,19 @@ export type ApplyPasteGlyphsResult = ApplyPasteResult & {
     warnings: string[];
 };
 
+function pushClipboardPayload(
+    payloads: ClipboardPayload[],
+    seen: Set<string>,
+    type: string,
+    data: string
+): void {
+    if (!data || seen.has(`${type}\0${data}`)) {
+        return;
+    }
+    seen.add(`${type}\0${data}`);
+    payloads.push({ type, data });
+}
+
 export function collectClipboardPayloads(
     clipboardData: DataTransfer | null | undefined
 ): ClipboardPayload[] {
@@ -132,20 +168,12 @@ export function collectClipboardPayloads(
     const payloads: ClipboardPayload[] = [];
     const seen = new Set<string>();
 
-    const push = (type: string, data: string) => {
-        if (!data || seen.has(`${type}\0${data}`)) {
-            return;
-        }
-        seen.add(`${type}\0${data}`);
-        payloads.push({ type, data });
-    };
-
     const types = Array.from(clipboardData.types || []);
     for (const type of types) {
         try {
             const data = clipboardData.getData(type);
             if (data) {
-                push(type, data);
+                pushClipboardPayload(payloads, seen, type, data);
             }
         } catch {
             // Some browsers throw for non-text types.
@@ -154,6 +182,8 @@ export function collectClipboardPayloads(
 
     for (const type of [
         COUNTERPUNCH_CLIPBOARD_MIME,
+        `web ${COUNTERPUNCH_CLIPBOARD_MIME}`,
+        ...FONTRA_CLIPBOARD_MIME_TYPES,
         ...SVG_MIME_TYPES,
         'text/plain',
         'text/html'
@@ -164,7 +194,7 @@ export function collectClipboardPayloads(
         try {
             const data = clipboardData.getData(type);
             if (data) {
-                push(type, data);
+                pushClipboardPayload(payloads, seen, type, data);
             }
         } catch {
             // Ignore unavailable types.
@@ -172,6 +202,89 @@ export function collectClipboardPayloads(
     }
 
     return payloads;
+}
+
+/**
+ * Read clipboard representations via the Async Clipboard API.
+ * Required for Chromium web custom formats such as
+ * `web fontra/json-clipboard` that paste `DataTransfer` omits.
+ */
+export async function readClipboardPayloadsAsync(): Promise<
+    ClipboardPayload[]
+> {
+    if (
+        typeof navigator === 'undefined' ||
+        typeof navigator.clipboard?.read !== 'function'
+    ) {
+        return [];
+    }
+
+    let items: ClipboardItems;
+    try {
+        items = await navigator.clipboard.read();
+    } catch {
+        return [];
+    }
+
+    const payloads: ClipboardPayload[] = [];
+    const seen = new Set<string>();
+
+    for (const item of items) {
+        for (const type of item.types) {
+            try {
+                const blob = await item.getType(type);
+                const data = await blob.text();
+                pushClipboardPayload(payloads, seen, type, data);
+            } catch {
+                // Binary or unavailable types.
+            }
+        }
+    }
+
+    return payloads;
+}
+
+/** Deduping concat; earlier lists win when the same type+data appears twice. */
+export function mergeClipboardPayloads(
+    ...lists: ClipboardPayload[][]
+): ClipboardPayload[] {
+    const payloads: ClipboardPayload[] = [];
+    const seen = new Set<string>();
+    for (const list of lists) {
+        for (const payload of list) {
+            pushClipboardPayload(payloads, seen, payload.type, payload.data);
+        }
+    }
+    return payloads;
+}
+
+/**
+ * Sync paste DataTransfer plus async ClipboardItem read (Fontra / tagged MIME).
+ * Prefer calling this from a user-gesture handler (paste / Cmd+V).
+ */
+export async function resolveClipboardPayloads(
+    clipboardData?: DataTransfer | null
+): Promise<ClipboardPayload[]> {
+    const syncPayloads = collectClipboardPayloads(clipboardData);
+    const asyncPayloads = await readClipboardPayloadsAsync();
+    // Async first so tagged MIME is present before SVG fallbacks when parsing.
+    return mergeClipboardPayloads(asyncPayloads, syncPayloads);
+}
+
+/** True when paste already has Counterpunch/Fontra fidelity (not SVG-only). */
+export function isTaggedStructuredClipboard(
+    parsed: ParsedClipboard | null | undefined
+): boolean {
+    if (!parsed) {
+        return false;
+    }
+    if (parsed.kind === 'glyphs') {
+        return true;
+    }
+    return (
+        parsed.fragment.format === 'counterpunch-json' ||
+        parsed.fragment.format === 'fontra-json'
+    );
 }
 
 /**
@@ -187,7 +300,13 @@ export function collectClipboardPayloads(
 export function writeClipboardDocumentToDataTransfer(
     clipboardData: DataTransfer,
     document: CounterpunchClipboardDocument,
-    paths: PastePath[]
+    paths: PastePath[],
+    fontraOptions?: {
+        layerId?: string;
+        layerWidth?: number;
+        codePoints?: number[];
+        glyphCodePoints?: Record<string, number[]>;
+    }
 ): void {
     const json = stringifyClipboardDocument(document);
     try {
@@ -196,6 +315,16 @@ export function writeClipboardDocumentToDataTransfer(
         // Some browsers reject non-standard MIME types.
     }
     clipboardData.setData('text/plain', json);
+
+    // Fontra tagged MIME only — never put Fontra JSON on text/plain.
+    try {
+        writeFontraClipboardToDataTransfer(
+            clipboardData,
+            stringifyFontraClipboardDocument(document, fontraOptions)
+        );
+    } catch {
+        // Optional interchange path.
+    }
 
     // Best-effort: same-browser paste may still see these; native apps will not.
     const svg = serializePathsToSvg(paths);
@@ -217,7 +346,13 @@ export function writeClipboardDocumentToDataTransfer(
  */
 export async function writeClipboardDocumentAsync(
     document: CounterpunchClipboardDocument,
-    paths: PastePath[]
+    paths: PastePath[],
+    fontraOptions?: {
+        layerId?: string;
+        layerWidth?: number;
+        codePoints?: number[];
+        glyphCodePoints?: Record<string, number[]>;
+    }
 ): Promise<boolean> {
     if (
         typeof navigator === 'undefined' ||
@@ -228,6 +363,10 @@ export async function writeClipboardDocumentAsync(
     }
 
     const json = stringifyClipboardDocument(document);
+    const fontraJson = stringifyFontraClipboardDocument(
+        document,
+        fontraOptions
+    );
     const representations: Record<string, Blob> = {
         'text/plain': new Blob([json], { type: 'text/plain' })
     };
@@ -242,27 +381,31 @@ export async function writeClipboardDocumentAsync(
         });
     }
 
-    const withCustom: Record<string, Blob> = {
+    const withAllCustom: Record<string, Blob> = {
         ...representations,
         [`web ${COUNTERPUNCH_CLIPBOARD_MIME}`]: new Blob([json], {
             type: COUNTERPUNCH_CLIPBOARD_MIME
-        })
+        }),
+        ...fontraClipboardItemRepresentation(fontraJson)
+    };
+    const withFontraOnly: Record<string, Blob> = {
+        ...representations,
+        ...fontraClipboardItemRepresentation(fontraJson)
     };
 
-    try {
-        await navigator.clipboard.write([new ClipboardItem(withCustom)]);
-        return true;
-    } catch {
-        // Custom web formats are optional; retry well-known types only.
+    // Prefer full custom set; if a vendor MIME is rejected, still try Fontra
+    // alone before falling back to text/SVG only.
+    for (const attempt of [withAllCustom, withFontraOnly, representations]) {
+        try {
+            await navigator.clipboard.write([new ClipboardItem(attempt)]);
+            return true;
+        } catch {
+            // Try the next representation set.
+        }
     }
 
-    try {
-        await navigator.clipboard.write([new ClipboardItem(representations)]);
-        return true;
-    } catch (error) {
-        console.warn('Async clipboard write failed', error);
-        return false;
-    }
+    console.warn('Async clipboard write failed');
+    return false;
 }
 
 export function parseClipboardPayloads(
@@ -285,6 +428,17 @@ export function parseClipboardPayloads(
             if (parsed) {
                 return parsed;
             }
+        }
+    }
+
+    // Fontra tagged MIME only — ignore Fontra JSON mirrored on text/plain.
+    for (const payload of payloads) {
+        if (!canParseFontraClipboardPayload(payload.type, payload.data)) {
+            continue;
+        }
+        const parsed = parseFontraClipboard(payload.data);
+        if (parsed) {
+            return parsed;
         }
     }
 

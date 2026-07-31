@@ -43,13 +43,17 @@ import {
     buildGlyphsClipboardDocument,
     collectClipboardPayloads,
     describePasteResult,
+    isTaggedStructuredClipboard,
     parseClipboardPayloads,
+    readClipboardPayloadsAsync,
+    mergeClipboardPayloads,
     serializeFontMastersForClipboard,
     serializeGlyphForClipboard,
     serializePathForClipboard,
     summarizeClipboardDocument,
     writeClipboardDocumentAsync,
     writeClipboardDocumentToDataTransfer,
+    type ParsedClipboard,
     type PasteGlyphsDocument
 } from './clipboard';
 import {
@@ -699,16 +703,78 @@ class GlyphCanvas {
             return false;
         }
 
+        const glyphCodePoints: Record<string, number[]> = {};
+        for (const glyph of glyphs) {
+            const modelGlyph = fontModel.findGlyph(glyph.name);
+            if (
+                modelGlyph &&
+                Array.isArray(modelGlyph.codepoints) &&
+                modelGlyph.codepoints.length > 0
+            ) {
+                glyphCodePoints[glyph.name] = [...modelGlyph.codepoints];
+            }
+        }
+
         event.preventDefault();
         event.stopPropagation();
         writeClipboardDocumentToDataTransfer(
             event.clipboardData,
             document,
-            svgPaths
+            svgPaths,
+            { glyphCodePoints }
         );
-        void writeClipboardDocumentAsync(document, svgPaths);
+        void writeClipboardDocumentAsync(document, svgPaths, {
+            glyphCodePoints
+        });
         console.log(summarizeClipboardDocument(document));
         return true;
+    }
+
+    /**
+     * Route a parsed clipboard document using view `.focused` gating.
+     * `event` is set for the sync path (still need preventDefault); null when
+     * the paste event was already claimed for an async ClipboardItem read.
+     */
+    private applyParsedClipboardPaste(
+        parsed: ParsedClipboard,
+        event: ClipboardEvent | null
+    ): void {
+        const overviewFocused = !!document
+            .getElementById('view-overview')
+            ?.classList.contains('focused');
+        const editorFocused = !!document
+            .getElementById('view-editor')
+            ?.classList.contains('focused');
+
+        if (parsed.kind === 'glyphs') {
+            event?.preventDefault();
+            event?.stopPropagation();
+            event?.stopImmediatePropagation();
+            if (!overviewFocused) {
+                const message =
+                    'Clipboard has whole glyphs. Switch to the glyph overview to paste them.';
+                console.warn(message);
+                window.alert?.(message);
+                return;
+            }
+            this.pasteWholeGlyphsDocument(parsed.document);
+            return;
+        }
+
+        // Selection / SVG paste only when the editor view has `.focused`
+        // and a glyph edit is active. Text mode owns normal text paste.
+        if (!editorFocused || !this.outlineEditor.active) {
+            event?.preventDefault();
+            event?.stopPropagation();
+            event?.stopImmediatePropagation();
+            const message =
+                'Clipboard has layer data. Enter glyph editing mode to paste it.';
+            console.warn(message);
+            window.alert?.(message);
+            return;
+        }
+
+        this.outlineEditor.pasteFromParsedClipboard(parsed, event);
     }
 
     /**
@@ -1136,6 +1202,7 @@ class GlyphCanvas {
         // Outline / overview paste: use `.focused` for view routing. Layer paste
         // additionally requires active glyph editing; outlineEditor.active alone
         // is not a view target because a glyph tab can stay active in overview.
+        // Chromium web custom formats (Fontra) need async clipboard.read().
         document.addEventListener(
             'paste',
             (e) => {
@@ -1152,9 +1219,10 @@ class GlyphCanvas {
                     return;
                 }
 
-                const payloads = collectClipboardPayloads(e.clipboardData);
-                const parsed = parseClipboardPayloads(payloads);
-                if (!parsed) {
+                const syncPayloads = collectClipboardPayloads(e.clipboardData);
+                const syncParsed = parseClipboardPayloads(syncPayloads);
+                if (isTaggedStructuredClipboard(syncParsed)) {
+                    this.applyParsedClipboardPaste(syncParsed!, e);
                     return;
                 }
 
@@ -1164,35 +1232,25 @@ class GlyphCanvas {
                 const editorFocused = !!document
                     .getElementById('view-editor')
                     ?.classList.contains('focused');
+                if (!overviewFocused && !editorFocused) {
+                    return;
+                }
 
-                if (parsed.kind === 'glyphs') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    if (!overviewFocused) {
-                        const message =
-                            'Clipboard has whole glyphs. Switch to the glyph overview to paste them.';
-                        console.warn(message);
-                        window.alert?.(message);
+                // Claim before await so default insertion cannot race Fontra.
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                void (async () => {
+                    const asyncPayloads = await readClipboardPayloadsAsync();
+                    const parsed = parseClipboardPayloads(
+                        mergeClipboardPayloads(asyncPayloads, syncPayloads)
+                    );
+                    if (!parsed) {
                         return;
                     }
-                    this.pasteWholeGlyphsDocument(parsed.document);
-                    return;
-                }
-
-                // Selection / SVG paste only when the editor view has `.focused`
-                // and a glyph edit is active. Text mode owns normal text paste.
-                if (!editorFocused || !this.outlineEditor.active) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    const message =
-                        'Clipboard has layer data. Enter glyph editing mode to paste it.';
-                    console.warn(message);
-                    window.alert?.(message);
-                    return;
-                }
-                this.outlineEditor.pasteFromClipboardEvent(e);
+                    this.applyParsedClipboardPaste(parsed, null);
+                })();
             },
             true
         );

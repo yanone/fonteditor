@@ -103,7 +103,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ Draw new outlines
 - ✅ Python script inference UI
 - ✅ Undo/redo system
-- ◻️ Clipboard operations
+- ✅ Clipboard operations (Fontra wrks natively, Glyphs via scripts)
 - ✅ Selection tools
 - ✅ Edit Font Info
 - ✅ Master/instance management
