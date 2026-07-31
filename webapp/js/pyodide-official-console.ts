@@ -178,10 +178,14 @@ async function initPyodideConsole() {
             }
         }
 
-        // Initialize terminal in the console container
+        // Initialize terminal in the console container.
+        // Start disabled: jQuery Terminal's default enabled:true focuses its
+        // hidden .cmd-clipboard textarea during construction, which steals DOM
+        // focus from whatever view startup already restored via `.focused`.
         term = (window as any).$('#console-container').terminal(interpreter, {
             greetings: BANNER,
             prompt: ps1,
+            enabled: false,
             completionEscape: false,
             completion: function (
                 command: string,
@@ -539,8 +543,42 @@ async function initPyodideConsole() {
             loadingEl.style.display = 'none';
         }
 
-        // Focus on terminal
-        term.focus();
+        // Enable/focus only when the console owns `.focused`. Otherwise keep
+        // the clipboard textarea unfocused and re-apply DOM focus to the view
+        // that startup already marked focused (often the glyph overview).
+        const consoleView = document.getElementById('view-console');
+        if (consoleView?.classList.contains('focused')) {
+            term.focus();
+        } else {
+            const releaseConsoleDomFocus = () => {
+                const consoleContainer =
+                    document.getElementById('console-container');
+                const active = document.activeElement as HTMLElement | null;
+                if (
+                    consoleContainer &&
+                    active &&
+                    consoleContainer.contains(active)
+                ) {
+                    active.blur();
+                }
+                document
+                    .querySelectorAll(
+                        '#console-container .cmd-clipboard, #console-container .cmd textarea, #console-container .cmd input'
+                    )
+                    .forEach((el) => (el as HTMLElement).blur());
+
+                const focusedView = document.querySelector(
+                    '.view.focused'
+                ) as HTMLElement | null;
+                if (focusedView?.id && typeof window.focusView === 'function') {
+                    window.focusView(focusedView.id);
+                }
+            };
+            releaseConsoleDomFocus();
+            // Beat late async focus from terminal construction / startup lock.
+            setTimeout(releaseConsoleDomFocus, 0);
+            setTimeout(releaseConsoleDomFocus, 100);
+        }
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(

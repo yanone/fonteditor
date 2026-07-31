@@ -973,16 +973,15 @@
         );
         const scrollBefore = terminalScroller ? terminalScroller.scrollTop : 0;
 
-        // Find and blur the actual hidden input element that jQuery Terminal uses
-        const terminalInput = document.querySelector(
-            '.cmd textarea, .cmd input, #console-container .terminal'
-        ) as HTMLElement | null;
-        if (terminalInput) {
-            // Use blur on the actual input element
-            terminalInput.blur();
-        }
+        // jQuery Terminal focuses a hidden .cmd-clipboard textarea (not only
+        // .cmd textarea/input). Blur every known console focus target.
+        document
+            .querySelectorAll(
+                '#console-container .cmd-clipboard, #console-container .cmd textarea, #console-container .cmd input, #console-container .terminal, .cmd-clipboard, .cmd textarea, .cmd input'
+            )
+            .forEach((el) => (el as HTMLElement).blur());
 
-        // Also try to blur any focused element within the console container
+        // Also blur whatever is currently focused inside the console container.
         const consoleContainer = document.getElementById('console-container');
         if (
             consoleContainer &&
@@ -999,10 +998,17 @@
         }
     }
 
+    let pendingEditorCanvasFocusTimer: ReturnType<typeof setTimeout> | null =
+        null;
+
     /**
      * Blur the editing-view glyph canvas so keystrokes stop reaching text mode.
      */
     function blurEditorCanvas() {
+        if (pendingEditorCanvasFocusTimer !== null) {
+            clearTimeout(pendingEditorCanvasFocusTimer);
+            pendingEditorCanvasFocusTimer = null;
+        }
         const canvas = window.glyphCanvas?.canvas as HTMLElement | null;
         if (canvas && document.activeElement === canvas) {
             canvas.blur();
@@ -1126,7 +1132,15 @@
         }
 
         if (viewId === 'view-editor') {
-            setTimeout(() => {
+            if (pendingEditorCanvasFocusTimer !== null) {
+                clearTimeout(pendingEditorCanvasFocusTimer);
+            }
+            pendingEditorCanvasFocusTimer = setTimeout(() => {
+                pendingEditorCanvasFocusTimer = null;
+                const editorView = document.getElementById('view-editor');
+                if (!editorView?.classList.contains('focused')) {
+                    return;
+                }
                 if (window.glyphCanvas && window.glyphCanvas.canvas) {
                     window.glyphCanvas.canvas.focus();
                 }

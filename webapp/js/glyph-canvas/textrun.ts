@@ -10,6 +10,7 @@ import type { FeaturesManager } from './features';
 import type { AxesManager } from './variations';
 import type { UserspaceLocation } from '../locations';
 import APP_SETTINGS from '../settings';
+import { parseClipboardPayloads } from '../clipboard';
 import {
     get_glyph_name,
     get_glyph_order
@@ -993,8 +994,36 @@ export class TextRunEditor {
     }
 
     async paste() {
+        const editorFocused = !!document
+            .getElementById('view-editor')
+            ?.classList.contains('focused');
+        if (!editorFocused) {
+            return;
+        }
+
         try {
             const text = await navigator.clipboard.readText();
+            const editorStillFocused = !!document
+                .getElementById('view-editor')
+                ?.classList.contains('focused');
+            if (!editorStillFocused) {
+                return;
+            }
+
+            // Use the same parser as the outline and overview paste routes so
+            // structured layer/glyph documents never enter the text buffer.
+            const parsed = parseClipboardPayloads([
+                { type: 'text/plain', data: text }
+            ]);
+            if (parsed) {
+                const message =
+                    parsed.kind === 'glyphs'
+                        ? 'Clipboard has whole glyphs. Switch to the glyph overview to paste them.'
+                        : 'Clipboard has layer data. Enter glyph editing mode to paste it.';
+                console.warn(message);
+                window.alert?.(message);
+                return;
+            }
             console.log('Pasting from clipboard:', `"${text}"`);
 
             // insertText already handles replacing selection
@@ -1526,8 +1555,16 @@ export class TextRunEditor {
             return;
         }
 
-        // Cmd+V / Ctrl+V - Paste
+        // Cmd+V / Ctrl+V - Paste text only when #view-editor has .focused.
+        // Do not preventDefault when another view is focused — that would
+        // suppress the document `paste` event (overview whole-glyph paste).
         if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+            const editorFocused = !!document
+                .getElementById('view-editor')
+                ?.classList.contains('focused');
+            if (!editorFocused) {
+                return;
+            }
             e.preventDefault();
             this.paste();
             return;

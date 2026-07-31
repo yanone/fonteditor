@@ -3,6 +3,63 @@ const { runBridgeUndoRedo } = require('../js/change-bridge-init');
 const { applyLiveSidebearingVisualSync } = require('../js/sidebearing-utils');
 const { fontCompilation } = require('../js/font-compilation');
 
+function clipboardEnvelope(counterpunchItem) {
+    return JSON.stringify({
+        clipboardSchema: 'font-editor-clipboard',
+        clipboardSchemaVersion: 1,
+        clipboardItems: {
+            counterpunch: counterpunchItem
+        }
+    });
+}
+
+const selectionClipboardText = clipboardEnvelope({
+    version: 1,
+    kind: 'selection',
+    nodeOrder: 'start-first',
+    keepAbsoluteCoords: true,
+    paths: [
+        {
+            closed: true,
+            nodes: [
+                { x: 0, y: 0, nodetype: 'Line' },
+                { x: 100, y: 0, nodetype: 'Line' }
+            ]
+        }
+    ],
+    components: [],
+    anchors: [],
+    guides: []
+});
+
+const glyphsClipboardText = clipboardEnvelope({
+    version: 1,
+    kind: 'glyphs',
+    nodeOrder: 'start-first',
+    masters: [{ id: 'm0', name: 'Regular' }],
+    glyphs: [
+        {
+            name: 'A',
+            leftMetricsKey: null,
+            rightMetricsKey: null,
+            layers: [
+                {
+                    name: 'Regular',
+                    master: {
+                        type: 'DefaultForMaster',
+                        masterIndex: 0
+                    },
+                    width: 500,
+                    paths: [],
+                    components: [],
+                    anchors: [],
+                    guides: []
+                }
+            ]
+        }
+    ]
+});
+
 describe('TextRunEditor live advance refresh', () => {
     let editor;
     let originalGlyphCanvas;
@@ -49,6 +106,140 @@ describe('TextRunEditor live advance refresh', () => {
     afterEach(() => {
         window.glyphCanvas = originalGlyphCanvas;
         window.fontCompilation = originalFontCompilation;
+    });
+
+    test('pastes normal text in focused text mode', async () => {
+        document.body.innerHTML =
+            '<div id="view-editor" class="focused"></div>';
+        const originalClipboard = navigator.clipboard;
+        const readText = jest.fn().mockResolvedValue('normal text');
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: { readText }
+        });
+        const insertText = jest
+            .spyOn(editor, 'insertText')
+            .mockImplementation(() => {});
+
+        try {
+            await editor.paste();
+        } finally {
+            Object.defineProperty(navigator, 'clipboard', {
+                configurable: true,
+                value: originalClipboard
+            });
+        }
+
+        expect(readText).toHaveBeenCalledTimes(1);
+        expect(insertText).toHaveBeenCalledWith('normal text');
+    });
+
+    test.each([
+        [
+            selectionClipboardText,
+            'Clipboard has layer data. Enter glyph editing mode to paste it.'
+        ],
+        [
+            glyphsClipboardText,
+            'Clipboard has whole glyphs. Switch to the glyph overview to paste them.'
+        ]
+    ])(
+        'blocks structured clipboard data in focused text mode',
+        async (text, message) => {
+            document.body.innerHTML =
+                '<div id="view-editor" class="focused"></div>';
+            const originalClipboard = navigator.clipboard;
+            const readText = jest.fn().mockResolvedValue(text);
+            Object.defineProperty(navigator, 'clipboard', {
+                configurable: true,
+                value: { readText }
+            });
+            const insertText = jest
+                .spyOn(editor, 'insertText')
+                .mockImplementation(() => {});
+            const alert = jest
+                .spyOn(window, 'alert')
+                .mockImplementation(() => {});
+
+            try {
+                await editor.paste();
+                expect(readText).toHaveBeenCalledTimes(1);
+                expect(insertText).not.toHaveBeenCalled();
+                expect(alert).toHaveBeenCalledWith(message);
+            } finally {
+                Object.defineProperty(navigator, 'clipboard', {
+                    configurable: true,
+                    value: originalClipboard
+                });
+                alert.mockRestore();
+            }
+        }
+    );
+
+    test('does not mistake ordinary text containing counterpunch for clipboard data', async () => {
+        document.body.innerHTML =
+            '<div id="view-editor" class="focused"></div>';
+        const originalClipboard = navigator.clipboard;
+        const readText = jest
+            .fn()
+            .mockResolvedValue('A "counterpunch" example');
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: { readText }
+        });
+        const insertText = jest
+            .spyOn(editor, 'insertText')
+            .mockImplementation(() => {});
+
+        try {
+            await editor.paste();
+        } finally {
+            Object.defineProperty(navigator, 'clipboard', {
+                configurable: true,
+                value: originalClipboard
+            });
+        }
+
+        expect(insertText).toHaveBeenCalledWith('A "counterpunch" example');
+    });
+
+    test('does not read the clipboard when the editor view is not focused', async () => {
+        document.body.innerHTML =
+            '<div id="view-overview" class="focused"></div>';
+        const originalClipboard = navigator.clipboard;
+        const readText = jest.fn().mockResolvedValue('normal text');
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: { readText }
+        });
+
+        try {
+            await editor.paste();
+        } finally {
+            Object.defineProperty(navigator, 'clipboard', {
+                configurable: true,
+                value: originalClipboard
+            });
+        }
+
+        expect(readText).not.toHaveBeenCalled();
+    });
+
+    test('does not intercept Cmd+V when another view is focused', () => {
+        document.body.innerHTML =
+            '<div id="view-overview" class="focused"></div>';
+        const paste = jest.spyOn(editor, 'paste').mockResolvedValue();
+        const event = new KeyboardEvent('keydown', {
+            bubbles: true,
+            cancelable: true,
+            key: 'v',
+            metaKey: true
+        });
+
+        editor.handleKeyDown(event);
+
+        expect(event.defaultPrevented).toBe(false);
+        expect(paste).not.toHaveBeenCalled();
     });
 
     test('updates matching glyph advances and rerenders the line', () => {

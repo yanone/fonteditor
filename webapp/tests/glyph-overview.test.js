@@ -242,6 +242,7 @@ describe('GlyphOverview virtualized lines rendering', () => {
             height: 140
         }));
         overview.getGridColumns = jest.fn(() => 1);
+        overview.linesVirtualizationActive = true;
 
         Object.defineProperty(overview.container, 'clientHeight', {
             configurable: true,
@@ -619,11 +620,11 @@ describe('GlyphOverview syncGlyphs incremental updates', () => {
         parent = document.createElement('div');
         Object.defineProperty(parent, 'clientHeight', {
             configurable: true,
-            value: 400
+            get: () => 400
         });
         Object.defineProperty(parent, 'scrollHeight', {
             configurable: true,
-            value: 4000
+            get: () => 4000
         });
         document.body.appendChild(parent);
 
@@ -676,6 +677,252 @@ describe('GlyphOverview syncGlyphs incremental updates', () => {
         ).toEqual(['a', 'o', 'o.001', 'p']);
         expect(overview.container.scrollTop).toBe(120);
         expect(overview.scheduleBatchRender).toHaveBeenCalled();
+    });
+
+    test('pending paste selection scrolls new glyphs into view after sync', async () => {
+        await overview.updateGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+
+        Object.defineProperty(overview.container, 'clientHeight', {
+            configurable: true,
+            get: () => 400
+        });
+        Object.defineProperty(overview.container, 'scrollHeight', {
+            configurable: true,
+            get: () => 4000
+        });
+
+        // User is scrolled far below the insert point.
+        overview.container.scrollTop = 1500;
+        overview.selectAndRevealGlyphNames(['a.001']);
+
+        await overview.syncGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'a.001', name: 'a.001' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+
+        expect(overview.tiles.get('a.001')?.selected).toBe(true);
+        expect(overview.container.scrollTop).toBeLessThan(200);
+
+        // Subsequent paste: scroll away again, then reveal the next new glyph.
+        overview.container.scrollTop = 1500;
+        overview.selectAndRevealGlyphNames(['a.002']);
+        await overview.syncGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'a.001', name: 'a.001' },
+            { id: 'a.002', name: 'a.002' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+        expect(overview.tiles.get('a.002')?.selected).toBe(true);
+        expect(overview.tiles.get('a.001')?.selected).toBe(false);
+        expect(overview.container.scrollTop).toBeLessThan(200);
+
+        // A later identity sync that restores an older scroll must re-reveal.
+        overview.container.scrollTop = 1500;
+        await overview.syncGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'a.001', name: 'a.001' },
+            { id: 'a.002', name: 'a.002' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+        expect(overview.tiles.get('a.002')?.selected).toBe(true);
+        expect(overview.container.scrollTop).toBeLessThan(200);
+    });
+
+    test('selection after sync reveals against the settled lines layout', async () => {
+        await overview.updateGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+
+        Object.defineProperty(overview.container, 'clientHeight', {
+            configurable: true,
+            get: () => 400
+        });
+        Object.defineProperty(overview.container, 'scrollHeight', {
+            configurable: true,
+            get: () => 4000
+        });
+
+        await overview.syncGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'a.001', name: 'a.001' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+
+        overview.container.scrollTop = 1500;
+        overview.selectAndRevealGlyphNames(['a.001']);
+
+        expect(overview.tiles.get('a.001')?.selected).toBe(true);
+        expect(overview.container.scrollTop).toBeLessThan(200);
+    });
+
+    test('post-sync reveal uses browser tile geometry when available', async () => {
+        await overview.updateGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'b', name: 'b' }
+        ]);
+
+        const scrollIntoView = jest.fn();
+        overview.tiles.get('a').element.scrollIntoView = scrollIntoView;
+
+        overview.selectAndRevealGlyphNames(['a']);
+
+        expect(scrollIntoView).toHaveBeenCalledWith({
+            block: 'center',
+            inline: 'nearest'
+        });
+    });
+
+    test('grid mode pending paste selection centers via tile geometry, not index math', async () => {
+        await overview.updateGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+
+        overview.setViewMode('grid', false);
+
+        Object.defineProperty(overview.container, 'clientHeight', {
+            configurable: true,
+            get: () => 400
+        });
+        Object.defineProperty(overview.container, 'scrollHeight', {
+            configurable: true,
+            get: () => 4000
+        });
+
+        // The variant grid places the new glyph at content Y ≈ 1000; a flat
+        // index-based row would land at an unrelated position.
+        const boundsSpy = jest
+            .spyOn(overview, 'getConnectedTileContentBounds')
+            .mockReturnValue({ top: 1000, bottom: 1100, centerY: 1050 });
+
+        overview.container.scrollTop = 1500;
+        overview.selectAndRevealGlyphNames(['a.001']);
+
+        await overview.syncGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'a.001', name: 'a.001' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+
+        expect(overview.tiles.get('a.001')?.selected).toBe(true);
+        // Centered on the new glyph (1050 - 400/2), independent of its index.
+        expect(overview.container.scrollTop).toBe(850);
+        expect(boundsSpy).toHaveBeenCalled();
+        // Grid DOM must never be flattened into a virtualized lines window.
+        expect(
+            overview.container.querySelectorAll('.glyph-grid-row').length
+        ).toBeGreaterThan(0);
+    });
+
+    test('full rebuild reveals a pending pasted glyph in lines mode', async () => {
+        await overview.updateGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+
+        Object.defineProperty(overview.container, 'clientHeight', {
+            configurable: true,
+            get: () => 400
+        });
+        Object.defineProperty(overview.container, 'scrollHeight', {
+            configurable: true,
+            get: () => 4000
+        });
+
+        overview.container.scrollTop = 1500;
+        overview.tiles.clear();
+        overview.container.replaceChildren();
+        overview.selectAndRevealGlyphNames(['a.001']);
+
+        await overview.syncGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'a.001', name: 'a.001' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+
+        expect(overview.tiles.get('a.001')?.selected).toBe(true);
+        expect(overview.container.scrollTop).toBeLessThan(200);
+    });
+
+    test('full rebuild reveals a pending pasted glyph in grid mode', async () => {
+        await overview.updateGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+
+        overview.setViewMode('grid', false);
+        jest.spyOn(overview, 'getConnectedTileContentBounds').mockReturnValue({
+            top: 1000,
+            bottom: 1100,
+            centerY: 1050
+        });
+
+        Object.defineProperty(overview.container, 'clientHeight', {
+            configurable: true,
+            get: () => 400
+        });
+        Object.defineProperty(overview.container, 'scrollHeight', {
+            configurable: true,
+            get: () => 4000
+        });
+
+        overview.container.scrollTop = 1500;
+        overview.tiles.clear();
+        overview.container.replaceChildren();
+        overview.selectAndRevealGlyphNames(['a.001']);
+
+        await overview.syncGlyphs([
+            { id: 'a', name: 'a' },
+            { id: 'a.001', name: 'a.001' },
+            { id: 'b', name: 'b' },
+            { id: 'c', name: 'c' }
+        ]);
+
+        expect(overview.tiles.get('a.001')?.selected).toBe(true);
+        expect(overview.container.scrollTop).toBe(850);
+        expect(
+            overview.container.querySelectorAll('.glyph-grid-row').length
+        ).toBeGreaterThan(0);
+    });
+
+    test('chunked rebuild reveals a pending glyph created after the initial window', async () => {
+        Object.defineProperty(overview.container, 'clientHeight', {
+            configurable: true,
+            get: () => 400
+        });
+        Object.defineProperty(overview.container, 'scrollHeight', {
+            configurable: true,
+            get: () => 4000
+        });
+
+        const glyphs = Array.from({ length: 1201 }, (_, index) => ({
+            id: `glyph-${index}`,
+            name: `glyph-${index}`
+        }));
+        overview.selectAndRevealGlyphNames(['glyph-1200']);
+
+        const build = overview.updateGlyphs(glyphs);
+        jest.runAllTimers();
+        await build;
+
+        expect(overview.tiles.get('glyph-1200')?.selected).toBe(true);
+        expect(overview.container.scrollTop).toBe(3600);
     });
 
     test('keeps font order after filter refresh (Map insertion must not win)', async () => {

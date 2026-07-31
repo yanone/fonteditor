@@ -64,6 +64,7 @@ import {
 } from './sidebearing-utils';
 import { getUndoRedoContext } from './undo-redo-context';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
+import { getCommittedChangeRefreshPromise } from './change-bridge-init';
 
 let console: Logger = new Logger('GlyphCanvas');
 let latestOpenSessionId: string | null = null;
@@ -725,6 +726,15 @@ class GlyphCanvas {
         }
 
         const bridge = window.patchSyncEngine;
+        const overview = window.glyphOverviewInstance;
+        const selectAndRevealCreatedGlyphs = (names: string[]) => {
+            if (typeof overview?.selectAndRevealGlyphNames === 'function') {
+                overview.selectAndRevealGlyphNames(names);
+            } else {
+                overview?.queueSelectGlyphsByNames?.(names);
+            }
+        };
+        let selectionQueuedForBridgeRefresh = false;
         bridge?.beginTransaction('Paste glyphs');
         let result;
         try {
@@ -735,11 +745,21 @@ class GlyphCanvas {
                 })
             );
             if (!result.error) {
+                let recordedGlyph = false;
                 for (const name of result.createdGlyphNames) {
                     const glyph = fontModel.findGlyph?.(name);
                     if (glyph && typeof bridge?.recordAdd === 'function') {
                         bridge.recordAdd(['glyphs', name], glyph.toJSON());
+                        recordedGlyph = true;
                     }
+                }
+
+                // The bridge emits the authoritative identity refresh when the
+                // transaction ends. Queue selection before that refresh rather
+                // than racing it with a second local overview sync.
+                if (recordedGlyph && result.createdGlyphNames.length > 0) {
+                    selectAndRevealCreatedGlyphs(result.createdGlyphNames);
+                    selectionQueuedForBridgeRefresh = true;
                 }
             }
         } finally {
@@ -757,9 +777,8 @@ class GlyphCanvas {
         }
 
         if (result.createdGlyphNames.length > 0) {
-            const overview = window.glyphOverviewInstance;
-            // Guarantee overview order matches the model after paste, even if
-            // a later filter refresh would otherwise walk Map insertion order.
+            // Update immediately for local feedback. The queued reveal token
+            // also survives the bridge's later authoritative refresh.
             const glyphData = fontModel.glyphs.map(
                 (glyph: { name?: string }) => ({
                     id: glyph.name || '',
@@ -767,9 +786,23 @@ class GlyphCanvas {
                 })
             );
             if (typeof overview?.syncGlyphs === 'function') {
-                void overview.syncGlyphs(glyphData);
+                void overview.syncGlyphs(glyphData).then(() => {
+                    if (!selectionQueuedForBridgeRefresh) {
+                        selectAndRevealCreatedGlyphs(result.createdGlyphNames);
+                    }
+                });
+            } else if (!selectionQueuedForBridgeRefresh) {
+                selectAndRevealCreatedGlyphs(result.createdGlyphNames);
             }
-            overview?.queueSelectGlyphsByNames?.(result.createdGlyphNames);
+
+            if (selectionQueuedForBridgeRefresh) {
+                // The bridge refresh runs after its transaction settles. Reveal
+                // again only when that authoritative refresh is complete, so
+                // its scroll restoration cannot undo the paste reveal.
+                void getCommittedChangeRefreshPromise().then(() => {
+                    selectAndRevealCreatedGlyphs(result.createdGlyphNames);
+                });
+            }
         }
         console.log(describePasteResult(result));
     }
@@ -1100,7 +1133,9 @@ class GlyphCanvas {
             true
         );
 
-        // Outline / overview paste: whole glyphs only in overview; selection only on canvas.
+        // Outline / overview paste: use `.focused` for view routing. Layer paste
+        // additionally requires active glyph editing; outlineEditor.active alone
+        // is not a view target because a glyph tab can stay active in overview.
         document.addEventListener(
             'paste',
             (e) => {
@@ -1123,14 +1158,18 @@ class GlyphCanvas {
                     return;
                 }
 
-                const overviewActive =
-                    !!window.glyphOverviewInstance?.isViewActive?.();
-                const canvasActive = this.outlineEditor.active;
+                const overviewFocused = !!document
+                    .getElementById('view-overview')
+                    ?.classList.contains('focused');
+                const editorFocused = !!document
+                    .getElementById('view-editor')
+                    ?.classList.contains('focused');
 
                 if (parsed.kind === 'glyphs') {
                     e.preventDefault();
                     e.stopPropagation();
-                    if (!overviewActive) {
+                    e.stopImmediatePropagation();
+                    if (!overviewFocused) {
                         const message =
                             'Clipboard has whole glyphs. Switch to the glyph overview to paste them.';
                         console.warn(message);
@@ -1141,11 +1180,14 @@ class GlyphCanvas {
                     return;
                 }
 
-                if (!canvasActive) {
+                // Selection / SVG paste only when the editor view has `.focused`
+                // and a glyph edit is active. Text mode owns normal text paste.
+                if (!editorFocused || !this.outlineEditor.active) {
                     e.preventDefault();
                     e.stopPropagation();
+                    e.stopImmediatePropagation();
                     const message =
-                        'Clipboard has a selection fragment. Open a glyph edit tab to paste it.';
+                        'Clipboard has layer data. Enter glyph editing mode to paste it.';
                     console.warn(message);
                     window.alert?.(message);
                     return;
@@ -1155,7 +1197,7 @@ class GlyphCanvas {
             true
         );
 
-        // Outline / overview copy as Counterpunch JSON.
+        // Outline / overview copy: route by `.focused`, not outlineEditor.active.
         document.addEventListener(
             'copy',
             (e) => {
@@ -1171,11 +1213,19 @@ class GlyphCanvas {
                 ) {
                     return;
                 }
-                if (this.outlineEditor.active) {
-                    this.outlineEditor.copyToClipboardEvent(e);
+                const overviewFocused = !!document
+                    .getElementById('view-overview')
+                    ?.classList.contains('focused');
+                const editorFocused = !!document
+                    .getElementById('view-editor')
+                    ?.classList.contains('focused');
+                if (overviewFocused) {
+                    this.copySelectedOverviewGlyphsToClipboard(e);
                     return;
                 }
-                this.copySelectedOverviewGlyphsToClipboard(e);
+                if (editorFocused) {
+                    this.outlineEditor.copyToClipboardEvent(e);
+                }
             },
             true
         );

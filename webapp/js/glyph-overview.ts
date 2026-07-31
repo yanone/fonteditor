@@ -168,6 +168,10 @@ class GlyphOverview {
     private preDoubleClickTimestamp = 0;
     /** Names to select after the next overview rebuild (paste / duplicate). */
     private pendingSelectGlyphNames: string[] | null = null;
+    /** Bumps to cancel stale post-layout selection reveals. */
+    private selectionRevealGeneration = 0;
+    /** Bumps only when a new paste/duplicate force-reveal supersedes another. */
+    private forceRevealGeneration = 0;
     /** Type-to-select buffer (codepoint when length 1; name prefix when longer). */
     private typeaheadBuffer = '';
     private typeaheadLastKeyAtMs = 0;
@@ -884,6 +888,10 @@ class GlyphOverview {
 
     private renderVirtualizedLinesWindow(force: boolean = false): void {
         if (!this.container) return;
+        // Lines virtualization only: in grid mode the container holds a
+        // base×variant table, not a flat flex flow. Rebuilding a windowed
+        // spacer layout here would wipe the grid rows and wreck scroll math.
+        if (!this.linesVirtualizationActive) return;
 
         const total = this.visibleGlyphIds.length;
         if (total === 0) {
@@ -1181,17 +1189,30 @@ class GlyphOverview {
      * - partially clipped → minimal scroll to reveal
      * - fully off-screen → center
      */
-    private ensureGlyphIdsInView(glyphIds: string[]): void {
+    private ensureGlyphIdsInView(
+        glyphIds: string[],
+        allowLayoutRetry: boolean = true
+    ): void {
         if (!this.container || !glyphIds.length) {
             return;
         }
 
         if (this.container.clientHeight <= 0) {
+            if (allowLayoutRetry) {
+                requestAnimationFrame(() => {
+                    this.ensureGlyphIdsInView(glyphIds, false);
+                });
+            }
             return;
         }
 
         const bounds = this.getVisibleGlyphIdsContentBounds(glyphIds);
         if (!bounds) {
+            if (allowLayoutRetry) {
+                requestAnimationFrame(() => {
+                    this.ensureGlyphIdsInView(glyphIds, false);
+                });
+            }
             return;
         }
 
@@ -1231,6 +1252,13 @@ class GlyphOverview {
     private getVisibleGlyphIdsContentBounds(
         glyphIds: string[]
     ): { top: number; bottom: number; centerY: number } | null {
+        // Lines mode: index math is authoritative (DOM rects are often stale
+        // right after syncGlyphs reorders tiles and restores scrollTop).
+        // Grid mode: rows aren't a flat flow — use mounted tile geometry.
+        if (this.viewMode === 'grid') {
+            return this.getConnectedTileContentBounds(glyphIds);
+        }
+
         const visibleSelectedGlyphIds = glyphIds.filter((glyphId) =>
             this.visibleGlyphIds.includes(glyphId)
         );
@@ -1255,6 +1283,56 @@ class GlyphOverview {
         );
         const top = firstRow * rowHeight;
         const bottom = lastRow * rowHeight + dims.height;
+        return {
+            top,
+            bottom,
+            centerY: (top + bottom) / 2
+        };
+    }
+
+    /**
+     * Content-space Y bounds from mounted tile elements (works for grid + lines).
+     */
+    private getConnectedTileContentBounds(
+        glyphIds: string[]
+    ): { top: number; bottom: number; centerY: number } | null {
+        if (!this.container) {
+            return null;
+        }
+
+        const containerRect = this.container.getBoundingClientRect();
+        if (containerRect.height <= 0) {
+            return null;
+        }
+
+        let top = Infinity;
+        let bottom = -Infinity;
+        let found = false;
+
+        for (const glyphId of glyphIds) {
+            const tile = this.tiles.get(glyphId);
+            const element = tile?.element;
+            if (!element?.isConnected || element.style.display === 'none') {
+                continue;
+            }
+
+            const rect = element.getBoundingClientRect();
+            if (rect.height <= 0 || rect.width <= 0) {
+                continue;
+            }
+
+            const elementTop =
+                rect.top - containerRect.top + this.container.scrollTop;
+            const elementBottom = elementTop + rect.height;
+            top = Math.min(top, elementTop);
+            bottom = Math.max(bottom, elementBottom);
+            found = true;
+        }
+
+        if (!found) {
+            return null;
+        }
+
         return {
             top,
             bottom,
@@ -1386,7 +1464,7 @@ class GlyphOverview {
             this.scheduleBatchRender();
         }
 
-        this.applyPendingGlyphSelection();
+        this.reconcileSelectionAfterGlyphSync();
 
         if (removedIds.length > 0 || addedIds.length > 0) {
             console.log(
@@ -1395,6 +1473,19 @@ class GlyphOverview {
         }
 
         return Promise.resolve();
+    }
+
+    /** Keep selection visibility consistent after either incremental or full sync. */
+    private reconcileSelectionAfterGlyphSync(): void {
+        if (this.applyPendingGlyphSelection()) {
+            // Paste/duplicate: force-center the new glyph after the overview
+            // has rebuilt its DOM and restored the previous scroll position.
+            this.forceRevealSelectedGlyphs();
+            return;
+        }
+
+        // Concurrent identity sync: keep an existing selection visible.
+        this.scheduleSelectedGlyphsReveal();
     }
 
     public updateGlyphs(
@@ -1451,7 +1542,7 @@ class GlyphOverview {
                 this.tileBuildResolve = null;
             }
 
-            this.applyPendingGlyphSelection();
+            this.reconcileSelectionAfterGlyphSync();
         };
 
         // Clear existing tiles
@@ -1553,6 +1644,12 @@ class GlyphOverview {
             if (!initialChunkReady) {
                 initialChunkReady = true;
                 finishBuild();
+            } else {
+                // Glyphs added after the interaction-ready chunk were not in
+                // the first pending-selection pass. Render the completed list,
+                // then resolve and reveal them once their tiles exist.
+                this.applySearchFilter();
+                this.reconcileSelectionAfterGlyphSync();
             }
         };
 
@@ -2338,6 +2435,14 @@ class GlyphOverview {
         if (!this.container) return;
         if (this.container.clientHeight <= 0) return;
 
+        // Grid mode lays tiles out as a base×variant table, not a flat flow,
+        // so flat index→row math lands at the wrong scroll position. Fall back
+        // to mounted-tile geometry, which is authoritative in grid mode.
+        if (this.viewMode === 'grid') {
+            this.centerGlyphIdsInView([glyphId]);
+            return;
+        }
+
         const index = this.visibleGlyphIds.indexOf(glyphId);
         if (index === -1) return;
 
@@ -2853,7 +2958,10 @@ class GlyphOverview {
             .map((tile) => tile.glyphName);
     }
 
-    public selectGlyphsByNames(names: string[]): void {
+    public selectGlyphsByNames(
+        names: string[],
+        scheduleReveal: boolean = true
+    ): void {
         const nameSet = new Set(
             names.filter((name) => typeof name === 'string' && name.length > 0)
         );
@@ -2869,33 +2977,123 @@ class GlyphOverview {
         if (selectedIds.length > 0) {
             this.lastClickedGlyphId = selectedIds[selectedIds.length - 1];
             this.keyboardAnchorGlyphId = this.lastClickedGlyphId;
-            this.ensureGlyphIdsInView(selectedIds);
+            if (scheduleReveal) {
+                this.scheduleGlyphIdsReveal(selectedIds);
+            }
         }
+    }
+
+    /**
+     * Select by name and keep revealing across post-sync layout frames.
+     * Safe to call before tiles exist — names stay pending until sync.
+     * Clears the prior selection immediately so we never scroll to old tiles.
+     */
+    public selectAndRevealGlyphNames(names: string[]): void {
+        const cleaned = names.filter(
+            (name) => typeof name === 'string' && name.length > 0
+        );
+        if (cleaned.length === 0) {
+            return;
+        }
+        this.clearSelection();
+        this.pendingSelectGlyphNames = cleaned;
+        if (this.applyPendingGlyphSelection()) {
+            this.forceRevealSelectedGlyphs();
+        }
+    }
+
+    /**
+     * Hard reveal for paste/duplicate: center the new glyphs. Lines mode uses
+     * index math (ignores stale DOM); grid mode uses mounted-tile geometry
+     * because the variant grid is not a flat flow.
+     */
+    private forceRevealSelectedGlyphs(): void {
+        const selectedIds = this.getSelectedGlyphs();
+        if (!selectedIds.length) {
+            return;
+        }
+        const generation = ++this.forceRevealGeneration;
+        const reveal = () => {
+            if (generation !== this.forceRevealGeneration) {
+                return;
+            }
+
+            const tile = this.tiles.get(selectedIds[0]);
+            if (
+                tile?.element.isConnected &&
+                typeof tile.element.scrollIntoView === 'function'
+            ) {
+                // Let the browser resolve the real scroll container and tile
+                // geometry after layout. Manual index/row estimates are only
+                // reliable for virtualized, unmounted lines tiles.
+                tile.element.scrollIntoView({
+                    block: 'center',
+                    inline: 'nearest'
+                });
+                return;
+            }
+
+            this.scrollToGlyphId(selectedIds[0], true);
+        };
+        reveal();
+        requestAnimationFrame(() => {
+            reveal();
+            requestAnimationFrame(reveal);
+        });
+    }
+
+    private scheduleSelectedGlyphsReveal(): void {
+        this.scheduleGlyphIdsReveal(this.getSelectedGlyphs());
+    }
+
+    /**
+     * Reveal immediately, then again after one and two animation frames so
+     * post-sync DOM reorder / scrollHeight updates cannot leave selection hidden.
+     */
+    private scheduleGlyphIdsReveal(glyphIds: string[]): void {
+        if (!glyphIds.length) {
+            return;
+        }
+        const generation = ++this.selectionRevealGeneration;
+        const ids = [...glyphIds];
+        const reveal = () => {
+            if (generation !== this.selectionRevealGeneration) {
+                return;
+            }
+            this.ensureGlyphIdsInView(ids, false);
+        };
+        reveal();
+        requestAnimationFrame(() => {
+            reveal();
+            requestAnimationFrame(reveal);
+        });
     }
 
     /**
      * Select glyphs after the next overview rebuild (or immediately if tiles exist).
      */
     public queueSelectGlyphsByNames(names: string[]): void {
-        this.pendingSelectGlyphNames = names.filter(
-            (name) => typeof name === 'string' && name.length > 0
-        );
-        this.applyPendingGlyphSelection();
+        this.selectAndRevealGlyphNames(names);
     }
 
-    private applyPendingGlyphSelection(): void {
+    private applyPendingGlyphSelection(): boolean {
         if (!this.pendingSelectGlyphNames?.length) {
-            return;
+            return false;
         }
         const nameSet = new Set(this.pendingSelectGlyphNames);
-        const anyPresent = Array.from(this.tiles.values()).some((tile) =>
-            nameSet.has(tile.glyphName)
+        // Wait until every requested glyph exists — "any present" cleared pending
+        // too early on multi-glyph pastes and skipped later reveals.
+        const allPresent = [...nameSet].every((name) =>
+            Array.from(this.tiles.values()).some(
+                (tile) => tile.glyphName === name
+            )
         );
-        if (!anyPresent) {
-            return;
+        if (!allPresent) {
+            return false;
         }
-        this.selectGlyphsByNames(this.pendingSelectGlyphNames);
+        this.selectGlyphsByNames(this.pendingSelectGlyphNames, false);
         this.pendingSelectGlyphNames = null;
+        return true;
     }
 
     /**

@@ -98,6 +98,15 @@ function clearStartupInteractionLock(): void {
 
     startupInteractionLockOverlay?.style.setProperty('display', 'none');
     document.body?.classList.remove('startup-interaction-locked');
+
+    // applyStartupInteractionLock blurs the active element. Put DOM focus back
+    // on the view that still has `.focused` so paste/typeahead match that view.
+    const focusedView = document.querySelector(
+        '.view.focused'
+    ) as HTMLElement | null;
+    if (focusedView?.id && typeof window.focusView === 'function') {
+        window.focusView(focusedView.id);
+    }
 }
 
 export function beginStartupInteractionLock(): void {

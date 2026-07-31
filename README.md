@@ -118,6 +118,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 
 **Extended features — Counterpunch becomes a full-featured font editor**
 
+- ◻️ Glyph categories in overview
 - ◻️ Transform tools
 - ◻️ Multi-line text
 - ◻️ avar2 editor
