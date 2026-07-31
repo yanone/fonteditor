@@ -15855,6 +15855,12 @@ export class OutlineEditor {
                     <span>Add anchor</span>
                 </div>
             `);
+            items.push(`
+                <div class="plugin-menu-item" data-action="add-guideline">
+                    <span class="material-symbols-outlined">straighten</span>
+                    <span>Add guideline</span>
+                </div>
+            `);
         }
 
         if (target?.canSetStartNode) {
@@ -15967,6 +15973,13 @@ export class OutlineEditor {
         if (action === 'add-anchor') {
             if (contextPoint) {
                 void this.glyphCanvas.openAddAnchorDialogAt(contextPoint);
+            }
+            return;
+        }
+
+        if (action === 'add-guideline') {
+            if (contextPoint) {
+                void this.glyphCanvas.addGuideAtPosition(contextPoint);
             }
             return;
         }

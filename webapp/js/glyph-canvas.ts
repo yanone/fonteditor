@@ -23,6 +23,7 @@ import {
     DecomposedAffineTransform,
     FeatureVariationGlyph,
     Glyph,
+    Guide,
     Layer,
     Master,
     withSuppressedModelRecording
@@ -133,6 +134,8 @@ type ActivePropertyInputState = {
 };
 
 type AnchorPositionField = 'x' | 'y';
+
+type GuidePositionField = 'x' | 'y' | 'angle';
 
 type ComponentTransformField =
     | 'translateX'
@@ -4805,6 +4808,56 @@ class GlyphCanvas {
         return anchors;
     }
 
+    /** Layer that owns local guides (foreground when editing a background). */
+    private getGuideOwningLayerModel(): Layer | null {
+        const layer = this.getCurrentEditingLayerModel();
+        if (!layer) {
+            return null;
+        }
+
+        if (layer.is_background) {
+            const foreground = layer.backgroundLayer;
+            return foreground && !foreground.is_background ? foreground : null;
+        }
+
+        return layer;
+    }
+
+    private getCurrentEditingMasterModel(): Master | null {
+        const layer =
+            this.getGuideOwningLayerModel() ||
+            this.getCurrentEditingLayerModel();
+        if (!layer) {
+            return null;
+        }
+
+        const masterId =
+            typeof layer.master === 'object' && layer.master
+                ? layer.master.master || null
+                : null;
+        if (!masterId) {
+            return null;
+        }
+
+        const masters = fontManager.currentFont?.fontModel?.masters || [];
+        return masters.find((master) => master.id === masterId) || null;
+    }
+
+    private getSelectedGuideModel(): Guide | null {
+        const handle = this.outlineEditor.selectedGuideHandle;
+        if (!handle) {
+            return null;
+        }
+
+        if (handle.scope === 'layer') {
+            const layer = this.getGuideOwningLayerModel();
+            return layer?.guides?.[handle.index] || null;
+        }
+
+        const master = this.getCurrentEditingMasterModel();
+        return master?.guides?.[handle.index] || null;
+    }
+
     private layerHasAnchorNamed(
         layer: Layer,
         name: string,
@@ -5121,6 +5174,49 @@ class GlyphCanvas {
     }
 
     /**
+     * Insert a local (layer) guideline at the captured canvas position with no
+     * name, select it, and ensure guidelines are visible.
+     */
+    public async addGuideAtPosition(position: {
+        x: number;
+        y: number;
+    }): Promise<void> {
+        const layer = this.getCurrentEditingLayerModel();
+        if (!layer || layer.is_background) {
+            return;
+        }
+
+        window.patchSyncEngine?.beginTransaction('Add guide');
+        try {
+            layer.addGuide({
+                x: Math.round(position.x),
+                y: Math.round(position.y),
+                angle: 0
+            });
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        const guideIndex = (layer.guides?.length ?? 1) - 1;
+        this.outlineEditor.selectedPoints = [];
+        this.outlineEditor.selectedAnchors = [];
+        this.outlineEditor.selectedComponents = [];
+        this.outlineEditor.selectedSidebearingHandle = null;
+        this.outlineEditor.selectedGuideHandle =
+            guideIndex >= 0 ? { scope: 'layer', index: guideIndex } : null;
+
+        if (!this.outlineEditor.guidelinesVisible) {
+            this.outlineEditor.setGuidelinesVisible(true);
+        }
+
+        await this.finalizeGuidePropertyPanelMutation();
+
+        if (this.canvas) {
+            setTimeout(() => this.canvas!.focus(), 0);
+        }
+    }
+
+    /**
      * Build an identity transform whose translation places the referenced
      * glyph's outline bounding-box center on the given canvas point.
      * Falls back to origin placement when no outline geometry is available.
@@ -5148,7 +5244,14 @@ class GlyphCanvas {
         const offsetX = bbox ? (bbox.minX + bbox.maxX) / 2 : 0;
         const offsetY = bbox ? (bbox.minY + bbox.maxY) / 2 : 0;
 
-        return [1, 0, 0, 1, position.x - offsetX, position.y - offsetY];
+        return [
+            1,
+            0,
+            0,
+            1,
+            Math.round(position.x - offsetX),
+            Math.round(position.y - offsetY)
+        ];
     }
 
     /**
@@ -5261,10 +5364,12 @@ class GlyphCanvas {
                 layerId: targetLayer.id!
             }));
         const affectedGlyphNames = new Set<string>([glyphName]);
+        const roundedX = Math.round(position.x);
+        const roundedY = Math.round(position.y);
         window.patchSyncEngine?.beginTransaction('Add anchor');
         try {
             for (const targetLayer of targetLayers) {
-                targetLayer.addAnchor(position.x, position.y, name);
+                targetLayer.addAnchor(roundedX, roundedY, name);
             }
             for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
                 new Set([glyphName])
@@ -5367,6 +5472,202 @@ class GlyphCanvas {
         this.updatePropertyPanel();
         this.outlineEditor.performHitDetection(null);
         this.render();
+    }
+
+    private async finalizeGuidePropertyPanelMutation(): Promise<void> {
+        // Guide edits never trigger font compilation (COMPILATION_EDIT_POLICY §15).
+        try {
+            const owningLayer = this.getGuideOwningLayerModel();
+            if (owningLayer) {
+                this.syncCurrentOutlineLayerDataFromModel(owningLayer);
+            }
+            await this.outlineEditor.fetchLayerData(true);
+        } catch (error) {
+            console.warn(
+                'Failed to refresh layer after guide property-panel update',
+                error
+            );
+        }
+
+        this.updatePropertyPanel();
+        this.outlineEditor.performHitDetection(null);
+        this.render();
+    }
+
+    private async commitGuideNamePropertyPanelValue(
+        value: string
+    ): Promise<void> {
+        if (this.outlineEditor.draggingSomething) {
+            return;
+        }
+
+        const guide = this.getSelectedGuideModel();
+        if (!guide) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const nextName = value.trim() || undefined;
+        if ((guide.name || undefined) === nextName) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        window.patchSyncEngine?.beginTransaction('Rename guide');
+        try {
+            guide.name = nextName;
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        await this.finalizeGuidePropertyPanelMutation();
+    }
+
+    private async commitGuidePositionPropertyPanelValue(
+        field: GuidePositionField,
+        value: string
+    ): Promise<void> {
+        if (this.outlineEditor.draggingSomething) {
+            return;
+        }
+
+        const guide = this.getSelectedGuideModel();
+        if (!guide) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const trimmedValue = value.trim();
+        if (!isPlainNumericInputValue(trimmedValue)) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const numericValue = Number(trimmedValue);
+        const currentValue =
+            field === 'angle' ? (guide.pos.angle ?? 0) : guide.pos[field];
+        if (Math.abs(currentValue - numericValue) <= 0.000001) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const transactionLabel =
+            field === 'angle' ? 'Set guide angle' : 'Set guide position';
+        window.patchSyncEngine?.beginTransaction(transactionLabel);
+        try {
+            if (field === 'angle') {
+                guide.pos.angle = numericValue;
+            } else {
+                guide.pos[field] = numericValue;
+            }
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        await this.finalizeGuidePropertyPanelMutation();
+    }
+
+    private async commitGuideGlobalPropertyPanelValue(
+        isGlobal: boolean
+    ): Promise<void> {
+        if (this.outlineEditor.draggingSomething) {
+            return;
+        }
+
+        const handle = this.outlineEditor.selectedGuideHandle;
+        const guide = this.getSelectedGuideModel();
+        if (!handle || !guide) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const currentlyGlobal = handle.scope === 'master';
+        if (currentlyGlobal === isGlobal) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const layer = this.getGuideOwningLayerModel();
+        const master = this.getCurrentEditingMasterModel();
+        if (!layer || !master) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const pos = {
+            x: guide.pos.x,
+            y: guide.pos.y,
+            ...(guide.pos.angle !== undefined ? { angle: guide.pos.angle } : {})
+        };
+        const name = guide.name;
+        const color = guide.color
+            ? {
+                  r: guide.color.r,
+                  g: guide.color.g,
+                  b: guide.color.b,
+                  a: guide.color.a
+              }
+            : undefined;
+
+        if (isGlobal) {
+            // Local → Global
+            const selectedIndex = handle.index;
+            const selectedName = guide.name;
+            const linkedLayers = layer._getLinkedLayers?.() || [];
+
+            window.patchSyncEngine?.beginTransaction('Make guide global');
+            try {
+                layer.removeGuide(selectedIndex);
+                if (selectedName) {
+                    for (const linkedLayer of linkedLayers) {
+                        const linkedGuideIndex = linkedLayer.guides?.findIndex(
+                            (candidate) => candidate.name === selectedName
+                        );
+                        if (
+                            linkedGuideIndex !== undefined &&
+                            linkedGuideIndex >= 0
+                        ) {
+                            linkedLayer.removeGuide(linkedGuideIndex);
+                        }
+                    }
+                }
+
+                master.addGuide(pos, name, color);
+                const newIndex = (master.guides?.length ?? 1) - 1;
+                this.outlineEditor.selectedPoints = [];
+                this.outlineEditor.selectedAnchors = [];
+                this.outlineEditor.selectedComponents = [];
+                this.outlineEditor.selectedSidebearingHandle = null;
+                this.outlineEditor.selectedGuideHandle = {
+                    scope: 'master',
+                    index: newIndex
+                };
+            } finally {
+                window.patchSyncEngine?.endTransaction();
+            }
+        } else {
+            // Global → Local
+            const selectedIndex = handle.index;
+
+            window.patchSyncEngine?.beginTransaction('Make guide local');
+            try {
+                master.removeGuide(selectedIndex);
+                layer.addGuide(pos, name, color);
+                const newIndex = (layer.guides?.length ?? 1) - 1;
+                this.outlineEditor.selectedPoints = [];
+                this.outlineEditor.selectedAnchors = [];
+                this.outlineEditor.selectedComponents = [];
+                this.outlineEditor.selectedSidebearingHandle = null;
+                this.outlineEditor.selectedGuideHandle = {
+                    scope: 'layer',
+                    index: newIndex
+                };
+            } finally {
+                window.patchSyncEngine?.endTransaction();
+            }
+        }
+
+        await this.finalizeGuidePropertyPanelMutation();
     }
 
     private async commitAnchorNamePropertyPanelValue(
@@ -5753,6 +6054,15 @@ class GlyphCanvas {
             this.outlineEditor.selectedPoints.length === 0 &&
             this.outlineEditor.selectedComponents.length === 0 &&
             this.outlineEditor.selectedGuideHandle === null
+        );
+    }
+
+    private hasGuideOnlySelection(): boolean {
+        return (
+            this.outlineEditor.selectedGuideHandle !== null &&
+            this.outlineEditor.selectedPoints.length === 0 &&
+            this.outlineEditor.selectedAnchors.length === 0 &&
+            this.outlineEditor.selectedComponents.length === 0
         );
     }
 
@@ -7400,6 +7710,271 @@ class GlyphCanvas {
             positionGroup.appendChild(createAnchorPositionControl('x'));
             positionGroup.appendChild(createAnchorPositionControl('y'));
             fieldsRow.appendChild(positionGroup);
+
+            content.appendChild(fieldsRow);
+            this.propertyPanel.appendChild(content);
+            this.restoreActivePropertyInput(activeInputState);
+            return;
+        }
+
+        const isGuideOnlySelection = this.hasGuideOnlySelection();
+        if (isGuideOnlySelection) {
+            const guide = this.getSelectedGuideModel();
+            if (!guide) {
+                return;
+            }
+
+            const guideHandle = this.outlineEditor.selectedGuideHandle!;
+            const isGlobal = guideHandle.scope === 'master';
+
+            this.propertyPanel.classList.add('component-properties');
+
+            const content = document.createElement('div');
+            content.className = 'glyph-component-property-panel-content';
+
+            const fieldsRow = document.createElement('div');
+            fieldsRow.className = 'glyph-component-property-grid';
+
+            const nameControl = document.createElement('label');
+            nameControl.className =
+                'glyph-component-property-control glyph-anchor-property-name';
+
+            const nameLabel = document.createElement('span');
+            nameLabel.className = 'glyph-property-control-label';
+            nameLabel.textContent = 'Name';
+            nameLabel.title = 'Guideline name';
+            nameControl.appendChild(nameLabel);
+
+            const nameInput = document.createElement('input');
+            nameInput.type = 'text';
+            nameInput.className = 'glyph-property-input';
+            nameInput.dataset.propertyField = 'guide-name';
+            nameInput.value = guide.name || '';
+
+            nameInput.addEventListener('change', () => {
+                if (this.outlineEditor.draggingSomething) {
+                    return;
+                }
+
+                if (nameInput.dataset.skipNextPropertyCommit === 'true') {
+                    delete nameInput.dataset.skipNextPropertyCommit;
+                    return;
+                }
+
+                void this.commitGuideNamePropertyPanelValue(nameInput.value);
+            });
+
+            nameInput.addEventListener('keydown', (event) => {
+                if (this.handlePropertyInputUndoRedo(event)) {
+                    return;
+                }
+
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.outlineEditor.restoreFocus();
+                    return;
+                }
+
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    this.restoreCanvasFocusAfterPropertyCommit = true;
+                    nameInput.dataset.skipNextPropertyCommit = 'true';
+                    void this.commitGuideNamePropertyPanelValue(
+                        nameInput.value
+                    );
+                    nameInput.blur();
+                }
+            });
+
+            nameInput.addEventListener('blur', () => {
+                setTimeout(() => {
+                    if (this.restoreCanvasFocusAfterPropertyCommit) {
+                        this.restoreCanvasFocusAfterPropertyCommit = false;
+                        this.outlineEditor.restoreFocus();
+                        return;
+                    }
+
+                    const activeElement =
+                        document.activeElement as HTMLElement | null;
+                    if (
+                        activeElement &&
+                        this.isTextInputElement(activeElement)
+                    ) {
+                        return;
+                    }
+
+                    this.outlineEditor.restoreFocus();
+                }, 0);
+            });
+
+            nameControl.appendChild(nameInput);
+            fieldsRow.appendChild(nameControl);
+
+            const createGuideNumericControl = (field: GuidePositionField) => {
+                const wrapper = document.createElement('label');
+                wrapper.className = 'glyph-component-property-control';
+
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'glyph-property-input';
+                input.dataset.propertyField = `guide-${field}`;
+                input.title =
+                    field === 'x'
+                        ? 'Guideline position on X axis'
+                        : field === 'y'
+                          ? 'Guideline position on Y axis'
+                          : 'Guideline angle in degrees';
+
+                const fieldValue =
+                    field === 'angle'
+                        ? (guide.pos.angle ?? 0)
+                        : guide.pos[field];
+                input.value = String(Number(fieldValue.toFixed(4)));
+
+                const arrowInputController = new ArrowAdjustableTextInput({
+                    input,
+                    getValue: () => {
+                        const trimmedValue = input.value.trim();
+                        if (isPlainNumericInputValue(trimmedValue)) {
+                            return Number(trimmedValue);
+                        }
+
+                        return field === 'angle'
+                            ? (guide.pos.angle ?? 0)
+                            : guide.pos[field];
+                    },
+                    applyValue: async (nextValue) => {
+                        input.dataset.skipNextPropertyCommit = 'true';
+                        await this.commitGuidePositionPropertyPanelValue(
+                            field,
+                            String(nextValue)
+                        );
+                    },
+                    findReplacementInput: () =>
+                        this.propertyPanel?.querySelector(
+                            `.glyph-property-input[data-property-field="guide-${field}"]`
+                        ) as HTMLInputElement | null
+                });
+
+                input.addEventListener('change', () => {
+                    if (this.outlineEditor.draggingSomething) {
+                        return;
+                    }
+
+                    if (input.dataset.skipNextPropertyCommit === 'true') {
+                        delete input.dataset.skipNextPropertyCommit;
+                        return;
+                    }
+
+                    void this.commitGuidePositionPropertyPanelValue(
+                        field,
+                        input.value
+                    );
+                });
+
+                input.addEventListener('keydown', (event) => {
+                    if (this.handlePropertyInputUndoRedo(event)) {
+                        return;
+                    }
+
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.outlineEditor.restoreFocus();
+                        return;
+                    }
+
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        this.restoreCanvasFocusAfterPropertyCommit = true;
+                        input.dataset.skipNextPropertyCommit = 'true';
+                        void this.commitGuidePositionPropertyPanelValue(
+                            field,
+                            input.value
+                        );
+                        input.blur();
+                    }
+                });
+
+                input.addEventListener('blur', () => {
+                    setTimeout(() => {
+                        if (this.restoreCanvasFocusAfterPropertyCommit) {
+                            this.restoreCanvasFocusAfterPropertyCommit = false;
+                            if (!arrowInputController.isApplyingStep) {
+                                this.outlineEditor.restoreFocus();
+                            }
+                            return;
+                        }
+
+                        const activeElement =
+                            document.activeElement as HTMLElement | null;
+                        if (
+                            activeElement &&
+                            this.isTextInputElement(activeElement)
+                        ) {
+                            return;
+                        }
+
+                        if (!arrowInputController.isApplyingStep) {
+                            this.outlineEditor.restoreFocus();
+                        }
+                    }, 0);
+                });
+
+                wrapper.appendChild(input);
+                return wrapper;
+            };
+
+            const positionGroup = document.createElement('div');
+            positionGroup.className =
+                'glyph-component-property-transform-group';
+
+            const positionLabel = document.createElement('span');
+            positionLabel.className = 'glyph-property-control-label';
+            positionLabel.textContent = 'Position X/Y';
+            positionGroup.appendChild(positionLabel);
+            positionGroup.appendChild(createGuideNumericControl('x'));
+            positionGroup.appendChild(createGuideNumericControl('y'));
+            fieldsRow.appendChild(positionGroup);
+
+            const angleControl = createGuideNumericControl('angle');
+            const angleLabel = document.createElement('span');
+            angleLabel.className = 'glyph-property-control-label';
+            angleLabel.textContent = 'Angle';
+            angleLabel.title = 'Guideline angle in degrees';
+            angleControl.insertBefore(angleLabel, angleControl.firstChild);
+            fieldsRow.appendChild(angleControl);
+
+            const globalControl = document.createElement('label');
+            globalControl.className =
+                'glyph-component-property-control glyph-component-property-checkbox';
+
+            const globalInput = document.createElement('input');
+            globalInput.type = 'checkbox';
+            globalInput.className = 'glyph-component-property-checkbox-input';
+            globalInput.dataset.propertyField = 'guide-global';
+            globalInput.checked = isGlobal;
+            globalInput.addEventListener('change', () => {
+                if (this.outlineEditor.draggingSomething) {
+                    this.updatePropertyPanel();
+                    return;
+                }
+
+                void this.commitGuideGlobalPropertyPanelValue(
+                    globalInput.checked
+                );
+            });
+
+            const globalLabel = document.createElement('span');
+            globalLabel.className = 'glyph-property-control-label';
+            globalLabel.textContent = 'Global';
+            globalLabel.title =
+                'Master-level guideline (shared across glyphs for this master)';
+
+            globalControl.appendChild(globalInput);
+            globalControl.appendChild(globalLabel);
+            fieldsRow.appendChild(globalControl);
 
             content.appendChild(fieldsRow);
             this.propertyPanel.appendChild(content);

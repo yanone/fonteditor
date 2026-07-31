@@ -12820,18 +12820,154 @@ describe('GlyphCanvas property panel', () => {
         expect(values[1].textContent).toBe('100');
     });
 
-    test('hides sidebearing controls when a guide is selected', () => {
+    test('shows name, position, angle, and global controls for a selected layer guide', () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        layer.addGuide({ x: 80, y: 120, angle: 15 }, 'baseline');
         canvas.outlineEditor.selectedGuideHandle = {
             scope: 'layer',
-            index: 0,
-            part: 'origin'
+            index: 0
         };
 
         canvas.updatePropertyPanel();
 
-        expect(document.querySelectorAll('.glyph-property-input')).toHaveLength(
-            0
+        const nameInput = document.querySelector(
+            '.glyph-property-input[data-property-field="guide-name"]'
         );
+        const xInput = document.querySelector(
+            '.glyph-property-input[data-property-field="guide-x"]'
+        );
+        const yInput = document.querySelector(
+            '.glyph-property-input[data-property-field="guide-y"]'
+        );
+        const angleInput = document.querySelector(
+            '.glyph-property-input[data-property-field="guide-angle"]'
+        );
+        const globalInput = document.querySelector(
+            '.glyph-component-property-checkbox-input[data-property-field="guide-global"]'
+        );
+
+        expect(nameInput).not.toBeNull();
+        expect(nameInput.value).toBe('baseline');
+        expect(xInput.value).toBe('80');
+        expect(yInput.value).toBe('120');
+        expect(angleInput.value).toBe('15');
+        expect(globalInput.checked).toBe(false);
+        expect(
+            document.querySelectorAll('[data-sidebearing-side]')
+        ).toHaveLength(0);
+    });
+
+    test('shows global checked for a selected master guide', () => {
+        const master = fontManager.currentFont.fontModel.masters[0];
+        master.addGuide({ x: 0, y: 700, angle: 0 }, 'capHeight');
+        canvas.outlineEditor.selectedGuideHandle = {
+            scope: 'master',
+            index: 0
+        };
+
+        canvas.updatePropertyPanel();
+
+        const nameInput = document.querySelector(
+            '.glyph-property-input[data-property-field="guide-name"]'
+        );
+        const globalInput = document.querySelector(
+            '.glyph-component-property-checkbox-input[data-property-field="guide-global"]'
+        );
+
+        expect(nameInput.value).toBe('capHeight');
+        expect(globalInput.checked).toBe(true);
+    });
+
+    test('commits selected guide name, position, and angle from the property panel', async () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        layer.addGuide({ x: 80, y: 120, angle: 15 }, 'baseline');
+        canvas.outlineEditor.selectedGuideHandle = {
+            scope: 'layer',
+            index: 0
+        };
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        const scheduleCompileSpy = jest
+            .spyOn(fontManager, 'scheduleFullCompileDebounce')
+            .mockImplementation(() => {});
+
+        canvas.updatePropertyPanel();
+
+        const nameInput = document.querySelector(
+            '.glyph-property-input[data-property-field="guide-name"]'
+        );
+        nameInput.value = 'xHeight';
+        nameInput.dispatchEvent(new Event('change'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        const xInput = document.querySelector(
+            '.glyph-property-input[data-property-field="guide-x"]'
+        );
+        xInput.value = '100';
+        xInput.dispatchEvent(new Event('change'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        const angleInput = document.querySelector(
+            '.glyph-property-input[data-property-field="guide-angle"]'
+        );
+        angleInput.value = '90';
+        angleInput.dispatchEvent(new Event('change'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(layer.guides[0].name).toBe('xHeight');
+        expect(layer.guides[0].pos.x).toBe(100);
+        expect(layer.guides[0].pos.y).toBe(120);
+        expect(layer.guides[0].pos.angle).toBe(90);
+        expect(scheduleCompileSpy).not.toHaveBeenCalled();
+
+        scheduleCompileSpy.mockRestore();
+    });
+
+    test('toggles guide between layer and master via Global checkbox', async () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        const master = fontManager.currentFont.fontModel.masters[0];
+        layer.addGuide({ x: 80, y: 120, angle: 15 }, 'baseline');
+        canvas.outlineEditor.selectedGuideHandle = {
+            scope: 'layer',
+            index: 0
+        };
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+
+        canvas.updatePropertyPanel();
+        const globalInput = document.querySelector(
+            '.glyph-component-property-checkbox-input[data-property-field="guide-global"]'
+        );
+        globalInput.checked = true;
+        globalInput.dispatchEvent(new Event('change'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(layer.guides).toHaveLength(0);
+        expect(master.guides).toHaveLength(1);
+        expect(master.guides[0].name).toBe('baseline');
+        expect(master.guides[0].pos.x).toBe(80);
+        expect(canvas.outlineEditor.selectedGuideHandle).toEqual({
+            scope: 'master',
+            index: 0
+        });
+
+        const globalInputAfter = document.querySelector(
+            '.glyph-component-property-checkbox-input[data-property-field="guide-global"]'
+        );
+        expect(globalInputAfter.checked).toBe(true);
+
+        globalInputAfter.checked = false;
+        globalInputAfter.dispatchEvent(new Event('change'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(master.guides).toHaveLength(0);
+        expect(layer.guides).toHaveLength(1);
+        expect(layer.guides[0].name).toBe('baseline');
+        expect(canvas.outlineEditor.selectedGuideHandle).toEqual({
+            scope: 'layer',
+            index: 0
+        });
     });
 
     test('shows name and position controls for a selected anchor', () => {
@@ -12974,6 +13110,81 @@ describe('GlyphCanvas property panel', () => {
         expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
 
         promptSpy.mockRestore();
+    });
+
+    test('rounds anchor placement coordinates to integers on create', async () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        const prepareSpy = jest
+            .spyOn(canvas.outlineEditor, 'prepareAnchorStructuralChange')
+            .mockReturnValue(true);
+        const compileContextSpy = jest
+            .spyOn(fontManager, 'setEditingCompileContext')
+            .mockImplementation(() => {});
+        const scheduleCompileSpy = jest
+            .spyOn(fontManager, 'scheduleFullCompileDebounce')
+            .mockImplementation(() => {});
+        const promptSpy = jest.spyOn(window, 'prompt').mockReturnValue('top');
+
+        await canvas.openAddAnchorDialogAt({ x: 250.6, y: 699.4 });
+
+        expect(layer.anchors[0].x).toBe(251);
+        expect(layer.anchors[0].y).toBe(699);
+
+        promptSpy.mockRestore();
+        prepareSpy.mockRestore();
+        compileContextSpy.mockRestore();
+        scheduleCompileSpy.mockRestore();
+    });
+
+    test('adds a local unnamed guideline at the cursor position from the context-menu flow', async () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.guidelinesVisible = false;
+        const setVisibleSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'setGuidelinesVisible'
+        );
+        const scheduleCompileSpy = jest
+            .spyOn(fontManager, 'scheduleFullCompileDebounce')
+            .mockImplementation(() => {});
+
+        await canvas.addGuideAtPosition({ x: 250.6, y: 700.4 });
+
+        expect(layer.guides).toHaveLength(1);
+        expect(layer.guides[0].name).toBeUndefined();
+        expect(layer.guides[0].pos.x).toBe(251);
+        expect(layer.guides[0].pos.y).toBe(700);
+        expect(layer.guides[0].pos.angle).toBe(0);
+        expect(canvas.outlineEditor.selectedGuideHandle).toEqual({
+            scope: 'layer',
+            index: 0
+        });
+        expect(setVisibleSpy).toHaveBeenCalledWith(true);
+        expect(scheduleCompileSpy).not.toHaveBeenCalled();
+        expect(
+            document.querySelector(
+                '.glyph-property-input[data-property-field="guide-x"]'
+            ).value
+        ).toBe('251');
+
+        scheduleCompileSpy.mockRestore();
+    });
+
+    test('context menu offers Add guideline for editable layers', () => {
+        canvas.outlineEditor.getCurrentLayerModel = jest.fn(() => ({
+            is_background: false
+        }));
+        canvas.outlineEditor.getCurrentLayerDataFromStack = jest.fn(() => ({
+            isInterpolated: false
+        }));
+
+        const html = canvas.outlineEditor.buildCanvasContextMenuHtml(null);
+
+        expect(html).toContain('data-action="add-guideline"');
+        expect(html).toContain('Add guideline');
     });
 
     test('rejects adding an anchor when the name already exists', async () => {
@@ -19469,6 +19680,33 @@ describe('Linked component structural edits', () => {
         ]);
         expect(linkedLayer.components[2].toAffineArray().slice(4)).toEqual([
             200, 100
+        ]);
+    });
+
+    test('rounds component placement translation to integers on create', async () => {
+        const font = fontManager.currentFont.fontModel;
+        const [activeLayer] = font.findGlyph('A').layers;
+        const sourceLayer = font.findGlyph('sourceA').layers[0];
+        sourceLayer.data.shapes = [
+            {
+                closed: true,
+                nodes: [
+                    { x: 100, y: 200, nodetype: 'Line' },
+                    { x: 300, y: 200, nodetype: 'Line' },
+                    { x: 300, y: 600, nodetype: 'Line' },
+                    { x: 100, y: 600, nodetype: 'Line' }
+                ]
+            }
+        ];
+
+        await canvas.addComponentAtPosition(activeLayer, 'sourceA', {
+            x: 400.6,
+            y: 500.4
+        });
+
+        // BBox center is (200, 400); rounded translation of click - center.
+        expect(activeLayer.components[2].toAffineArray().slice(4)).toEqual([
+            201, 100
         ]);
     });
 
