@@ -232,6 +232,7 @@ function getEditMenuItems(): ToolbarMenuItem[] {
     const hasGlyphSelection =
         (window.glyphOverviewInstance?.getSelectedGlyphNames?.().length || 0) >
         0;
+    const canReplaceSelectedPaths = canReplaceSelectedPathsInPlace();
 
     return [
         {
@@ -247,6 +248,14 @@ function getEditMenuItems(): ToolbarMenuItem[] {
             shortcut: '⌘⇧Z',
             disabled: !hasFontOpen,
             action: triggerRedo
+        },
+        {
+            label: 'Replace Path(s) In-Place',
+            icon: 'swap_horiz',
+            disabled: !canReplaceSelectedPaths,
+            action: async () => {
+                await window.glyphCanvas?.outlineEditor?.replaceSelectedPathsInPlace?.();
+            }
         },
         {
             label: 'Rename Glyph(s)…',
@@ -267,6 +276,25 @@ function getEditMenuItems(): ToolbarMenuItem[] {
             }
         }
     ];
+}
+
+function canReplaceSelectedPathsInPlace(): boolean {
+    const canvas = window.glyphCanvas;
+    const outlineEditor = canvas?.outlineEditor;
+    if (!outlineEditor?.active) {
+        return false;
+    }
+    const editorFocused = !!document
+        .getElementById('view-editor')
+        ?.classList.contains('focused');
+    if (!editorFocused) {
+        return false;
+    }
+    const selectedPoints = outlineEditor.selectedPoints;
+    if (!Array.isArray(selectedPoints) || selectedPoints.length === 0) {
+        return false;
+    }
+    return true;
 }
 
 function getFontMenuItems(): ToolbarMenuItem[] {

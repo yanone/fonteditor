@@ -558,6 +558,264 @@ describe('applyPasteFragment', () => {
     });
 });
 
+describe('applyReplaceSelectedPaths', () => {
+    const {
+        applyReplaceSelectedPaths,
+        arePastePathsStructurallyCompatible
+    } = require('../js/clipboard');
+
+    function makeMutablePath(closed, nodes) {
+        return {
+            closed,
+            _nodes: nodes.map((node) => ({ ...node })),
+            get nodes() {
+                return this._nodes;
+            },
+            set nodes(value) {
+                this._nodes = value;
+            }
+        };
+    }
+
+    function makeLayerWithAnchors(anchorList) {
+        const anchors = anchorList.map((anchor) => ({ ...anchor }));
+        return {
+            anchors,
+            addAnchor() {
+                throw new Error('should not create anchors during replace');
+            }
+        };
+    }
+
+    test('replaces compatible path geometry on the given paths only', () => {
+        const path = makeMutablePath(true, [
+            { x: 0, y: 0, nodetype: 'Line' },
+            { x: 10, y: 0, nodetype: 'Line' },
+            { x: 10, y: 10, nodetype: 'Line' }
+        ]);
+        const linkedPath = makeMutablePath(true, [
+            { x: 0, y: 0, nodetype: 'Line' },
+            { x: 10, y: 0, nodetype: 'Line' },
+            { x: 10, y: 10, nodetype: 'Line' }
+        ]);
+        const active = makeLayerWithAnchors([{ name: 'top', x: 5, y: 20 }]);
+
+        const result = applyReplaceSelectedPaths({
+            activeLayer: active,
+            selectedPaths: [path],
+            selectedAnchorNames: [],
+            fragment: {
+                format: 'fontra-json',
+                keepAbsoluteCoords: true,
+                paths: [
+                    {
+                        closed: true,
+                        nodes: [
+                            { x: 100, y: 200, nodetype: 'Line' },
+                            { x: 110, y: 200, nodetype: 'Line' },
+                            { x: 110, y: 210, nodetype: 'Line' }
+                        ]
+                    }
+                ],
+                components: [],
+                anchors: [{ name: 'top', x: 50, y: 80 }],
+                guides: []
+            }
+        });
+
+        expect(result.error).toBeUndefined();
+        expect(result.replacedPathCount).toBe(1);
+        expect(result.updatedAnchorCount).toBe(0);
+        expect(path.nodes.map((node) => [node.x, node.y])).toEqual([
+            [100, 200],
+            [110, 200],
+            [110, 210]
+        ]);
+        // Linked sibling path untouched (caller never passes it).
+        expect(linkedPath.nodes[0].x).toBe(0);
+        // Unselected anchor unchanged.
+        expect(active.anchors[0]).toEqual({ name: 'top', x: 5, y: 20 });
+    });
+
+    test('updates selected anchors only', () => {
+        const path = makeMutablePath(false, [
+            { x: 0, y: 0, nodetype: 'Line' },
+            { x: 1, y: 1, nodetype: 'Line' }
+        ]);
+        const active = makeLayerWithAnchors([
+            { name: 'top', x: 5, y: 20 },
+            { name: 'bottom', x: 5, y: 0 }
+        ]);
+
+        const result = applyReplaceSelectedPaths({
+            activeLayer: active,
+            selectedPaths: [path],
+            selectedAnchorNames: ['top'],
+            fragment: {
+                format: 'counterpunch-json',
+                keepAbsoluteCoords: true,
+                paths: [
+                    {
+                        closed: false,
+                        nodes: [
+                            { x: 9, y: 9, nodetype: 'Line' },
+                            { x: 8, y: 8, nodetype: 'Line' }
+                        ]
+                    }
+                ],
+                components: [],
+                anchors: [
+                    { name: 'top', x: 50, y: 80 },
+                    { name: 'bottom', x: 50, y: -10 }
+                ],
+                guides: []
+            }
+        });
+
+        expect(result.error).toBeUndefined();
+        expect(result.updatedAnchorCount).toBe(1);
+        expect(active.anchors[0]).toEqual({ name: 'top', x: 50, y: 80 });
+        expect(active.anchors[1]).toEqual({ name: 'bottom', x: 5, y: 0 });
+    });
+
+    test('rejects incompatible structure or path-count mismatch', () => {
+        const path = makeMutablePath(true, [
+            { x: 0, y: 0, nodetype: 'Line' },
+            { x: 10, y: 0, nodetype: 'Line' }
+        ]);
+        const active = makeLayerWithAnchors([]);
+
+        expect(
+            arePastePathsStructurallyCompatible(path, {
+                closed: true,
+                nodes: [
+                    { nodetype: 'Line' },
+                    { nodetype: 'OffCurve' },
+                    { nodetype: 'OffCurve' },
+                    { nodetype: 'Curve' }
+                ]
+            })
+        ).toBe(false);
+
+        const badStructure = applyReplaceSelectedPaths({
+            activeLayer: active,
+            selectedPaths: [path],
+            selectedAnchorNames: [],
+            fragment: {
+                format: 'svg',
+                keepAbsoluteCoords: false,
+                paths: [
+                    {
+                        closed: true,
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Line' },
+                            { x: 1, y: 0, nodetype: 'OffCurve' },
+                            { x: 2, y: 0, nodetype: 'OffCurve' },
+                            { x: 3, y: 0, nodetype: 'Curve' }
+                        ]
+                    }
+                ],
+                components: [],
+                anchors: [],
+                guides: []
+            }
+        });
+        expect(badStructure.error).toMatch(/not structurally compatible/);
+
+        const badCount = applyReplaceSelectedPaths({
+            activeLayer: active,
+            selectedPaths: [path],
+            selectedAnchorNames: [],
+            fragment: {
+                format: 'svg',
+                keepAbsoluteCoords: false,
+                paths: [
+                    {
+                        closed: true,
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Line' },
+                            { x: 10, y: 0, nodetype: 'Line' }
+                        ]
+                    },
+                    {
+                        closed: true,
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Line' },
+                            { x: 10, y: 0, nodetype: 'Line' }
+                        ]
+                    }
+                ],
+                components: [],
+                anchors: [],
+                guides: []
+            }
+        });
+        expect(badCount.error).toMatch(/Counts must match/);
+    });
+
+    test('accepts closed paths with rotated start and preserves local start', () => {
+        const path = makeMutablePath(true, [
+            { x: 1, y: 1, nodetype: 'OffCurve' },
+            { x: 2, y: 2, nodetype: 'OffCurve' },
+            { x: 3, y: 3, nodetype: 'Curve' },
+            { x: 4, y: 4, nodetype: 'OffCurve' },
+            { x: 5, y: 5, nodetype: 'OffCurve' },
+            { x: 6, y: 6, nodetype: 'Curve' }
+        ]);
+        const active = makeLayerWithAnchors([
+            { name: 'top', x: 0, y: 0 },
+            { name: 'bottom', x: 0, y: 0 }
+        ]);
+
+        // Same contour as clipboard, but starts on a Curve (Fontra-style).
+        const result = applyReplaceSelectedPaths({
+            activeLayer: active,
+            selectedPaths: [path],
+            selectedAnchorNames: [],
+            fragment: {
+                format: 'fontra-json',
+                keepAbsoluteCoords: true,
+                paths: [
+                    {
+                        closed: true,
+                        nodes: [
+                            { x: 30, y: 30, nodetype: 'Curve' },
+                            { x: 40, y: 40, nodetype: 'OffCurve' },
+                            { x: 50, y: 50, nodetype: 'OffCurve' },
+                            { x: 60, y: 60, nodetype: 'Curve' },
+                            { x: 10, y: 10, nodetype: 'OffCurve' },
+                            { x: 20, y: 20, nodetype: 'OffCurve' }
+                        ]
+                    }
+                ],
+                components: [{ reference: 'ignored', x: 0, y: 0 }],
+                anchors: [
+                    { name: 'top', x: 99, y: 99 },
+                    { name: 'bottom', x: 88, y: 88 }
+                ],
+                guides: []
+            }
+        });
+
+        expect(result.error).toBeUndefined();
+        expect(result.replacedPathCount).toBe(1);
+        expect(result.updatedAnchorCount).toBe(0);
+        // Rotated so local start (OffCurve,OffCurve,Curve…) is preserved.
+        expect(
+            path.nodes.map((node) => [node.x, node.y, node.nodetype])
+        ).toEqual([
+            [10, 10, 'OffCurve'],
+            [20, 20, 'OffCurve'],
+            [30, 30, 'Curve'],
+            [40, 40, 'OffCurve'],
+            [50, 50, 'OffCurve'],
+            [60, 60, 'Curve']
+        ]);
+        // Clipboard anchors ignored unless selected.
+        expect(active.anchors[0]).toEqual({ name: 'top', x: 0, y: 0 });
+    });
+});
+
 describe('clipboard Counterpunch JSON serializer', () => {
     const {
         buildSelectionClipboardDocument,

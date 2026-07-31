@@ -30,10 +30,12 @@ import {
 } from './vertical-metrics';
 import {
     applyPasteFragment,
+    applyReplaceSelectedPaths,
     buildSelectionClipboardDocument,
     collectClipboardPayloads,
     describePasteResult,
     parseClipboardPayloads,
+    readClipboardPayloadsAsync,
     serializeAnchorForClipboard,
     serializeComponentForClipboard,
     serializeGuideForClipboard,
@@ -4080,6 +4082,151 @@ export class OutlineEditor {
             );
         }
         console.log(describePasteResult(result));
+        return true;
+    }
+
+    /**
+     * Replace selected path geometry from the clipboard on the active layer
+     * only (never fans out to linked layers). Requires a structurally
+     * compatible selection/clipboard path match. Selected anchors whose names
+     * appear in the clipboard are repositioned; unselected anchors are left
+     * alone and no new anchors are created.
+     */
+    async replaceSelectedPathsInPlace(): Promise<boolean> {
+        if (!this.active) {
+            window.alert?.(
+                'Enter glyph editing mode to replace selected paths in place.'
+            );
+            return false;
+        }
+
+        const editorFocused = !!document
+            .getElementById('view-editor')
+            ?.classList.contains('focused');
+        if (!editorFocused) {
+            window.alert?.(
+                'Focus the editing view to replace selected paths in place.'
+            );
+            return false;
+        }
+
+        const activeLayer = this.getCurrentLayerModel();
+        const glyph = this.getCurrentGlyphModel();
+        if (!activeLayer || !glyph?.name) {
+            return false;
+        }
+
+        const shapes = activeLayer.shapes || [];
+        const selectedPointKeys = new Set(
+            this.selectedPoints.map(
+                (point) => `${point.contourIndex}:${point.nodeIndex}`
+            )
+        );
+        const touchedPathIndexes = new Set<number>();
+        for (const point of this.selectedPoints) {
+            if (
+                point.contourIndex >= 0 &&
+                point.contourIndex < shapes.length &&
+                this.isPathShape(shapes[point.contourIndex])
+            ) {
+                touchedPathIndexes.add(point.contourIndex);
+            }
+        }
+        // Only fully selected paths — ignore stray points, anchors, components.
+        const selectedPaths = Array.from(touchedPathIndexes)
+            .sort((a, b) => a - b)
+            .filter((shapeIndex) => {
+                const nodeCount = this.getNodeCountForShape(shapes[shapeIndex]);
+                if (nodeCount === 0) {
+                    return false;
+                }
+                for (let nodeIndex = 0; nodeIndex < nodeCount; nodeIndex++) {
+                    if (!selectedPointKeys.has(`${shapeIndex}:${nodeIndex}`)) {
+                        return false;
+                    }
+                }
+                return true;
+            })
+            .map((shapeIndex) => shapes[shapeIndex].asPath());
+
+        if (selectedPaths.length === 0) {
+            window.alert?.(
+                'Select one or more complete paths to replace in place.'
+            );
+            return false;
+        }
+
+        const selectedAnchorNames = this.selectedAnchors
+            .filter(
+                (index) =>
+                    index >= 0 &&
+                    index < (activeLayer.anchors?.length || 0) &&
+                    !!activeLayer.anchors![index]?.name
+            )
+            .map((index) => activeLayer.anchors![index].name as string);
+
+        let payloads;
+        try {
+            payloads = await readClipboardPayloadsAsync();
+        } catch (error) {
+            console.warn('Replace in place: clipboard read failed', error);
+            window.alert?.('Unable to read the clipboard.');
+            return false;
+        }
+
+        const parsed = parseClipboardPayloads(payloads);
+        if (!parsed) {
+            window.alert?.(
+                'Clipboard has no outline path data to replace with.'
+            );
+            return false;
+        }
+        if (parsed.kind === 'glyphs') {
+            window.alert?.(
+                'Clipboard has whole glyphs. Replace Path(s) In-Place works with layer path data only.'
+            );
+            return false;
+        }
+
+        const bridge = window.patchSyncEngine;
+        bridge?.beginTransaction('Replace paths in place');
+        let result;
+        try {
+            result = applyReplaceSelectedPaths({
+                activeLayer,
+                selectedPaths,
+                selectedAnchorNames,
+                fragment: parsed.fragment
+            });
+            if (!result.error && activeLayer.id) {
+                this.prepareCommittedStructuralOutlineChange('keyboard', {
+                    layerTargets: [
+                        { glyphName: glyph.name, layerId: activeLayer.id }
+                    ]
+                });
+            }
+        } finally {
+            bridge?.endTransaction();
+        }
+
+        if (result.error) {
+            console.warn(result.error);
+            window.alert?.(result.error);
+            return false;
+        }
+
+        this.syncCurrentExactLayerDataFromModel();
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+        this.queueStructuralOutlineCompileFromModel('replace paths in place');
+        console.log(
+            `Replaced ${result.replacedPathCount} path(s)` +
+                (result.updatedAnchorCount
+                    ? `, updated ${result.updatedAnchorCount} selected anchor(s)`
+                    : '') +
+                ' on the active layer only'
+        );
         return true;
     }
 

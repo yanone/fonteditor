@@ -21,7 +21,7 @@
 
 import { Logger } from './logger';
 import { getHighestVisibleVerticalMetricValue } from './glyph-canvas/vertical-metrics';
-import type { Font, Glyph, Layer, Master } from './babelfont-model';
+import type { Font, Glyph, Layer, Master, Path } from './babelfont-model';
 import type { Babelfont } from './babelfont';
 import type {
     PasteFeatureVariation,
@@ -144,6 +144,21 @@ export type ApplyPasteResult = {
 export type ApplyPasteGlyphsResult = ApplyPasteResult & {
     createdGlyphNames: string[];
     warnings: string[];
+};
+
+export type ApplyReplaceSelectedPathsOptions = {
+    activeLayer: Layer;
+    /** Selected paths in ascending shape-index order. */
+    selectedPaths: Path[];
+    /** Names of anchors currently selected in the editor. */
+    selectedAnchorNames: string[];
+    fragment: PasteFragment;
+};
+
+export type ApplyReplaceSelectedPathsResult = {
+    replacedPathCount: number;
+    updatedAnchorCount: number;
+    error?: string;
 };
 
 function pushClipboardPayload(
@@ -512,6 +527,232 @@ export function applyPasteFragment(
     }
 
     return result;
+}
+
+/**
+ * Normalize node types the same way layer fingerprints do (Move ≡ Line).
+ */
+export function normalizeClipboardPathNodeType(
+    nodeType: string | undefined
+): string {
+    switch (nodeType) {
+        case 'Move':
+            return 'Line';
+        case 'Line':
+        case 'OffCurve':
+        case 'Curve':
+        case 'QCurve':
+            return nodeType;
+        default:
+            return String(nodeType || 'Unknown');
+    }
+}
+
+export function getPastePathStructureSignature(path: {
+    closed?: boolean;
+    nodes: Array<{ nodetype?: string }>;
+}): string {
+    const closedFlag = path.closed === false ? '0' : '1';
+    const nodeTypes = getPastePathNormalizedNodeTypes(path);
+    return `P:${closedFlag}:${nodeTypes.length}:${nodeTypes.join(',')}`;
+}
+
+export function getPastePathNormalizedNodeTypes(path: {
+    nodes: Array<{ nodetype?: string }>;
+}): string[] {
+    return (path.nodes || []).map((node) =>
+        normalizeClipboardPathNodeType(node.nodetype)
+    );
+}
+
+/**
+ * True when closed flag and node-type sequence match (coordinates ignored).
+ * Closed paths may start at a different node; types are compared cyclically.
+ * Callers must pass path geometry only — ignore anchors/components/guides.
+ */
+export function arePastePathsStructurallyCompatible(
+    a: { closed?: boolean; nodes: Array<{ nodetype?: string }> },
+    b: { closed?: boolean; nodes: Array<{ nodetype?: string }> }
+): boolean {
+    const aClosed = a.closed !== false;
+    const bClosed = b.closed !== false;
+    if (aClosed !== bClosed) {
+        return false;
+    }
+    return findPastePathTypeAlignmentOffset(a, b) !== null;
+}
+
+/**
+ * Offset to rotate `source` node types so they match `target`.
+ * Open paths only succeed at offset 0. Closed paths allow any start node.
+ * When several type alignments exist (repeating segments), pick the offset
+ * whose coordinates are closest to the current target nodes.
+ */
+export function findPastePathTypeAlignmentOffset(
+    target: {
+        closed?: boolean;
+        nodes: Array<{ x?: number; y?: number; nodetype?: string }>;
+    },
+    source: {
+        closed?: boolean;
+        nodes: Array<{ x?: number; y?: number; nodetype?: string }>;
+    }
+): number | null {
+    const targetTypes = getPastePathNormalizedNodeTypes(target);
+    const sourceTypes = getPastePathNormalizedNodeTypes(source);
+    if (targetTypes.length !== sourceTypes.length) {
+        return null;
+    }
+    if (targetTypes.length === 0) {
+        return 0;
+    }
+
+    const closed = target.closed !== false && source.closed !== false;
+    const maxOffset = closed ? targetTypes.length : 1;
+    let bestOffset: number | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (let offset = 0; offset < maxOffset; offset++) {
+        let matches = true;
+        for (let i = 0; i < targetTypes.length; i++) {
+            if (
+                targetTypes[i] !==
+                sourceTypes[(i + offset) % sourceTypes.length]
+            ) {
+                matches = false;
+                break;
+            }
+        }
+        if (!matches) {
+            continue;
+        }
+
+        let score = 0;
+        for (let i = 0; i < targetTypes.length; i++) {
+            const targetNode = target.nodes[i];
+            const sourceNode = source.nodes[(i + offset) % source.nodes.length];
+            const dx =
+                (Number(targetNode?.x) || 0) - (Number(sourceNode?.x) || 0);
+            const dy =
+                (Number(targetNode?.y) || 0) - (Number(sourceNode?.y) || 0);
+            score += dx * dx + dy * dy;
+        }
+        if (score < bestScore) {
+            bestScore = score;
+            bestOffset = offset;
+        }
+    }
+    return bestOffset;
+}
+
+/** Rotate clipboard path nodes so their type sequence aligns with the target. */
+export function alignPastePathNodesToTarget(
+    target: { closed?: boolean; nodes: Array<{ nodetype?: string }> },
+    source: PastePath
+): PastePath | null {
+    const offset = findPastePathTypeAlignmentOffset(target, source);
+    if (offset === null) {
+        return null;
+    }
+    if (offset === 0) {
+        return {
+            closed: source.closed,
+            nodes: source.nodes.map((node) => ({ ...node }))
+        };
+    }
+    const nodes = source.nodes;
+    return {
+        closed: source.closed,
+        nodes: nodes
+            .slice(offset)
+            .concat(nodes.slice(0, offset))
+            .map((node) => ({ ...node }))
+    };
+}
+
+/**
+ * Replace selected paths' geometry on the active layer only (never fans out to
+ * linked layers). Clipboard path count and structure must match the selection.
+ * Only paths are compared — clipboard/local anchors, components, and guides are
+ * ignored for compatibility. Closed-path start nodes may differ; incoming nodes
+ * are rotated to preserve the selected path's start. Clipboard anchors update
+ * existing active-layer anchors only when those anchors are currently selected.
+ */
+export function applyReplaceSelectedPaths(
+    options: ApplyReplaceSelectedPathsOptions
+): ApplyReplaceSelectedPathsResult {
+    const { activeLayer, selectedPaths, selectedAnchorNames, fragment } =
+        options;
+
+    if (!selectedPaths.length) {
+        return {
+            replacedPathCount: 0,
+            updatedAnchorCount: 0,
+            error: 'Select one or more paths to replace in place.'
+        };
+    }
+
+    // Paths only — ignore clipboard components/anchors/guides for matching.
+    const clipboardPaths = fragment.paths || [];
+    if (clipboardPaths.length !== selectedPaths.length) {
+        return {
+            replacedPathCount: 0,
+            updatedAnchorCount: 0,
+            error: `Clipboard has ${clipboardPaths.length} path(s) but ${selectedPaths.length} path(s) are selected. Counts must match.`
+        };
+    }
+
+    const alignedSources: PastePath[] = [];
+    for (let i = 0; i < selectedPaths.length; i++) {
+        const aligned = alignPastePathNodesToTarget(
+            selectedPaths[i],
+            clipboardPaths[i]
+        );
+        if (!aligned) {
+            return {
+                replacedPathCount: 0,
+                updatedAnchorCount: 0,
+                error: `Selected path ${i + 1} is not structurally compatible with clipboard path ${i + 1}.`
+            };
+        }
+        alignedSources.push(aligned);
+    }
+
+    for (let i = 0; i < selectedPaths.length; i++) {
+        const target = selectedPaths[i];
+        const source = alignedSources[i];
+        target.nodes = source.nodes.map((node) => ({
+            x: node.x,
+            y: node.y,
+            nodetype: node.nodetype as Babelfont.NodeType,
+            ...(node.smooth ? { smooth: true } : {})
+        }));
+        if (typeof source.closed === 'boolean') {
+            target.closed = source.closed;
+        }
+    }
+
+    let updatedAnchorCount = 0;
+    if (selectedAnchorNames.length > 0 && fragment.anchors.length > 0) {
+        const selectedNames = new Set(selectedAnchorNames);
+        for (const anchor of fragment.anchors) {
+            if (!selectedNames.has(anchor.name)) {
+                continue;
+            }
+            const existing = findAnchorByName(activeLayer, anchor.name);
+            if (!existing) {
+                continue;
+            }
+            existing.x = anchor.x;
+            existing.y = anchor.y;
+            updatedAnchorCount += 1;
+        }
+    }
+
+    return {
+        replacedPathCount: selectedPaths.length,
+        updatedAnchorCount
+    };
 }
 
 /**
