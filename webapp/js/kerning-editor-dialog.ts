@@ -114,6 +114,24 @@ export class KerningEditorDialog {
             return;
         }
 
+        const textModePair =
+            window.glyphCanvas?.getActiveTextModeKerningPairSelection?.() ??
+            null;
+        let scrollSelectedToCenter = false;
+        if (textModePair) {
+            this.applyDirection(textModePair.isRTL ? 'rtl' : 'ltr', {
+                clearSelection: false
+            });
+            this.selectedFirst = textModePair.firstKey;
+            this.selectedSecond = textModePair.secondKey;
+            // Clear search so the property-panel pair is not filtered out.
+            this.searchQuery = '';
+            if (this.searchInput) {
+                this.searchInput.value = '';
+            }
+            scrollSelectedToCenter = true;
+        }
+
         this.modal.style.display = 'flex';
         this.escapeBinding?.release();
         this.escapeBinding = bindModalEscape(() => this.close(), {
@@ -124,9 +142,14 @@ export class KerningEditorDialog {
         if (this.searchInput) {
             this.searchInput.value = this.searchQuery;
         }
-        this.renderTable();
+        this.renderTable({
+            preserveScroll: false,
+            scrollSelectedToCenter
+        });
         this.updateDeleteEnabled();
-        requestAnimationFrame(() => this.searchInput?.focus());
+        if (!scrollSelectedToCenter) {
+            requestAnimationFrame(() => this.searchInput?.focus());
+        }
     }
 
     isOpen(): boolean {
@@ -245,9 +268,20 @@ export class KerningEditorDialog {
         if (this.direction === direction) {
             return;
         }
+        this.applyDirection(direction, { clearSelection: true });
+        this.renderTable();
+        this.updateDeleteEnabled();
+    }
+
+    private applyDirection(
+        direction: KerningDirection,
+        options: { clearSelection: boolean }
+    ): void {
         this.direction = direction;
-        this.selectedFirst = null;
-        this.selectedSecond = null;
+        if (options.clearSelection) {
+            this.selectedFirst = null;
+            this.selectedSecond = null;
+        }
         this.content
             ?.querySelectorAll('.kerning-editor-direction-btn')
             .forEach((button) => {
@@ -257,8 +291,6 @@ export class KerningEditorDialog {
                         button.dataset.direction === direction
                 );
             });
-        this.renderTable();
-        this.updateDeleteEnabled();
     }
 
     private toggleSort(column: SortColumn): void {
@@ -385,7 +417,12 @@ export class KerningEditorDialog {
         return this.sortDirection === 'asc' ? ' ▲' : ' ▼';
     }
 
-    private renderTable(options: { preserveScroll?: boolean } = {}): void {
+    private renderTable(
+        options: {
+            preserveScroll?: boolean;
+            scrollSelectedToCenter?: boolean;
+        } = {}
+    ): void {
         if (!this.tableWrap) {
             return;
         }
@@ -397,7 +434,30 @@ export class KerningEditorDialog {
 
         const masters = this.getMasters();
         const rows = this.collectRows(masters);
-        const hasSelectedRow =
+        let hasSelectedRow =
+            this.selectedFirst !== null &&
+            this.selectedSecond !== null &&
+            rows.some((row) =>
+                isSamePair(
+                    this.selectedFirst,
+                    this.selectedSecond,
+                    row.first,
+                    row.second
+                )
+            );
+
+        if (
+            options.scrollSelectedToCenter &&
+            this.selectedFirst !== null &&
+            this.selectedSecond !== null &&
+            !hasSelectedRow
+        ) {
+            // Property-panel pair is not defined in this direction's table.
+            this.selectedFirst = null;
+            this.selectedSecond = null;
+        }
+
+        hasSelectedRow =
             this.selectedFirst !== null &&
             this.selectedSecond !== null &&
             rows.some((row) =>
@@ -476,7 +536,31 @@ export class KerningEditorDialog {
         if (options.preserveScroll) {
             this.tableWrap.scrollTop = scrollTop;
             this.tableWrap.scrollLeft = scrollLeft;
+        } else if (options.scrollSelectedToCenter && hasSelectedRow) {
+            this.scrollSelectedRowToCenter();
         }
+    }
+
+    private scrollSelectedRowToCenter(): void {
+        const wrap = this.tableWrap;
+        if (!wrap) {
+            return;
+        }
+        const row = wrap.querySelector('tr.selected');
+        if (!(row instanceof HTMLElement)) {
+            return;
+        }
+
+        // Jump (no animation): place the row in the vertical middle of the wrap.
+        requestAnimationFrame(() => {
+            const wrapRect = wrap.getBoundingClientRect();
+            const rowRect = row.getBoundingClientRect();
+            const delta =
+                rowRect.top -
+                wrapRect.top -
+                (wrap.clientHeight - rowRect.height) / 2;
+            wrap.scrollTop += delta;
+        });
     }
 
     private bindValueInputs(): void {

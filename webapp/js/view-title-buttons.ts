@@ -18,7 +18,7 @@ const VIEW_CONFIGS: ViewInfo[] = [
     { id: 'view-editor', shortcut: '⌘⇧E', hasSecondaryBehavior: true },
     { id: 'view-history', shortcut: '⌘⇧H', hasSecondaryBehavior: true },
     { id: 'view-scripts', shortcut: '⌘⇧Y', hasSecondaryBehavior: true },
-    { id: 'view-console', shortcut: '⌘⇧K', hasSecondaryBehavior: true }
+    { id: 'view-console', shortcut: '⌘⇧P', hasSecondaryBehavior: true }
 ];
 
 /**

@@ -7122,6 +7122,29 @@ class GlyphCanvas {
         );
     }
 
+    /**
+     * Active First/Second keys from the text-mode kerning property panel,
+     * including class (`@…`) operands when those chips are selected.
+     */
+    getActiveTextModeKerningPairSelection(): {
+        firstKey: string;
+        secondKey: string;
+        isRTL: boolean;
+    } | null {
+        if (this.outlineEditor?.active) {
+            return null;
+        }
+        const context = this.getCurrentTextModeKerningContext();
+        if (!context.selectedFirstKey || !context.selectedSecondKey) {
+            return null;
+        }
+        return {
+            firstKey: context.selectedFirstKey,
+            secondKey: context.selectedSecondKey,
+            isRTL: context.isRTL
+        };
+    }
+
     updatePropertyPanel(): void {
         if (!this.propertyPanel) {
             return;

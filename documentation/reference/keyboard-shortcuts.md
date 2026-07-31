@@ -14,7 +14,7 @@ These shortcuts allow you to move quickly between different areas of Counterpunc
 - `Cmd/Ctrl + Shift + O` opens the Overview
 - `Cmd/Ctrl + Shift + A` displays the Assistant
 - `Cmd/Ctrl + Shift + Y` opens Scripts
-- `Cmd/Ctrl + Shift + K` shows the Konsole
+- `Cmd/Ctrl + Shift + P` shows the Konsole
 - `Cmd/Ctrl + Shift + I` reveals Font Info
 
 ## File Actions
@@ -27,6 +27,7 @@ These shortcuts allow you to move quickly between different areas of Counterpunc
 
 - `Cmd/Ctrl + Shift + G` opens Add Glyph(s)
 - `Cmd/Ctrl + Shift + F` opens Rename Glyph(s) for the current overview selection
+- `Cmd/Ctrl + Shift + K` opens the Kerning Editor (from text mode, selects the active property-panel pair)
 - `Delete` / `Backspace` deletes the current overview glyph selection (with confirm)
 
 ## Script and Konsole Actions

@@ -364,7 +364,7 @@ test('activation keeps user-sized widths and still persists focus order', async 
         )
     ).toBeLessThanOrEqual(4);
 
-    await activateView(page, 'K', 'view-console');
+    await activateView(page, 'P', 'view-console');
     const bottomBeforeHistory = await getViewWidths(page, [
         'view-history',
         'view-assistant',
