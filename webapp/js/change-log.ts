@@ -46,6 +46,23 @@ export type HistoryAction = 'change' | 'undo' | 'redo';
 /** Undo scope for a logical history item */
 export type UndoScope = 'font' | 'glyph' | 'layer';
 
+/** Focused editing surface that owns a Cmd+Z stack */
+export type HistoryUndoSurface = 'canvas' | 'overview' | 'font' | 'feature';
+
+export function deriveOriginatingLayerFromPaths(paths: string[]): {
+    glyphName: string | null;
+    layerId: string | null;
+} {
+    for (const path of paths) {
+        const glyphName = deriveGlyphNameFromPath(path);
+        const layerId = deriveLayerIdFromPath(path);
+        if (glyphName && layerId) {
+            return { glyphName, layerId };
+        }
+    }
+    return { glyphName: null, layerId: null };
+}
+
 export function normalizeGlyphRenames(
     renames: Iterable<GlyphRename | null | undefined> | null | undefined
 ): GlyphRename[] {
@@ -176,6 +193,9 @@ export interface ChangeLogEntry {
     historyTargetKey: string | null;
     /** Human-readable target label */
     historyTargetLabel: string | null;
+    /** Explicit canvas origin for the forward edit, when path alone is ambiguous */
+    originatingGlyphName: string | null;
+    originatingLayerId: string | null;
     /** Which screen side stayed visually anchored for this edit */
     visualAnchorSide?: 'left' | 'right' | null;
     /** Exact worker cache layer targets needed to replay this edit incrementally */
@@ -200,6 +220,8 @@ export function createLogEntry(
         | 'historyTargetType'
         | 'historyTargetKey'
         | 'historyTargetLabel'
+        | 'originatingGlyphName'
+        | 'originatingLayerId'
         | 'transactionDurationMs'
         | 'editSource'
         | 'workerReplayTargets'
@@ -225,6 +247,8 @@ export function createLogEntry(
         historyTargetType?: HistoryTargetType | null;
         historyTargetKey?: string | null;
         historyTargetLabel?: string | null;
+        originatingGlyphName?: string | null;
+        originatingLayerId?: string | null;
         transactionDurationMs?: number | null;
         editSource?: string | null;
         compileChangeSource?: string | null;
@@ -268,6 +292,8 @@ export function createLogEntry(
         historyTargetType: fields.historyTargetType ?? null,
         historyTargetKey: fields.historyTargetKey ?? null,
         historyTargetLabel: fields.historyTargetLabel ?? null,
+        originatingGlyphName: fields.originatingGlyphName ?? null,
+        originatingLayerId: fields.originatingLayerId ?? null,
         visualAnchorSide: fields.visualAnchorSide ?? null,
         workerReplayTargets: normalizeWorkerReplayTargets(
             fields.workerReplayTargets
@@ -297,6 +323,8 @@ export type ChangeLogEntryLike = Omit<
     historyTargetType?: HistoryTargetType | null;
     historyTargetKey?: string | null;
     historyTargetLabel?: string | null;
+    originatingGlyphName?: string | null;
+    originatingLayerId?: string | null;
     visualAnchorSide?: 'left' | 'right' | null;
     workerReplayTargets?: WorkerReplayTarget[] | null;
     replayOldValue?: unknown;
@@ -318,6 +346,9 @@ export interface HistoryStackItem {
     lastAction: HistoryAction;
     historyTargetKeys: string[];
     workerReplayTargets: WorkerReplayTarget[];
+    /** Layer where the forward edit started (canvas undo key); null for overview/font/feature. */
+    originatingGlyphName: string | null;
+    originatingLayerId: string | null;
 }
 
 const FONT_SCOPE_KEY = '__font__';
@@ -637,7 +668,9 @@ function processHistoryEntry(entry: ChangeLogEntry, state: HistoryState): void {
                 isActive: true,
                 lastAction: 'change',
                 historyTargetKeys: [],
-                workerReplayTargets: []
+                workerReplayTargets: [],
+                originatingGlyphName: null,
+                originatingLayerId: null
             };
             itemsById.set(entry.historyItemId, item);
             orderedItemIds.push(entry.historyItemId);
@@ -665,6 +698,26 @@ function processHistoryEntry(entry: ChangeLogEntry, state: HistoryState): void {
         }
         if (entryLayerId && !item.layerIdSet.has(entryLayerId)) {
             item.layerIdSet.add(entryLayerId);
+        }
+        if (
+            !item.originatingGlyphName &&
+            !item.originatingLayerId &&
+            entry.originatingGlyphName &&
+            entry.originatingLayerId
+        ) {
+            item.originatingGlyphName = entry.originatingGlyphName;
+            item.originatingLayerId = entry.originatingLayerId;
+        }
+        if (
+            !item.originatingGlyphName &&
+            !item.originatingLayerId &&
+            entryGlyphName &&
+            entryLayerId
+        ) {
+            // First layer path in the transaction is the edit origin (cascades
+            // append dependents after the source write).
+            item.originatingGlyphName = entryGlyphName;
+            item.originatingLayerId = entryLayerId;
         }
         if (!item.touchedPathSet.has(entry.path)) {
             item.touchedPathSet.add(entry.path);
@@ -800,6 +853,7 @@ export function resolveHistoryTargetItem(
         layerId?: string | null;
         historyAction: 'undo' | 'redo';
         historyTargetKey?: string | null;
+        surface?: HistoryUndoSurface | null;
     }
 ): HistoryStackItem | null {
     const glyphName = options.glyphName ?? null;
@@ -810,7 +864,8 @@ export function resolveHistoryTargetItem(
         glyphName,
         layerId,
         includeUndone: true,
-        historyTargetKey
+        historyTargetKey,
+        surface: options.surface ?? null
     }).filter((item) =>
         options.historyAction === 'undo' ? item.isActive : !item.isActive
     );
@@ -819,8 +874,9 @@ export function resolveHistoryTargetItem(
 }
 
 /**
- * History item ids Cmd+Z can still undo in the given editing context.
- * Uses the same filter as bridge.undo / buildHistoryStackItems.
+ * History item ids that belong to the current surface’s undo/redo stack.
+ * Includes inactive (undone) items so redo targets stay bright in History.
+ * `nextUndoHistoryItemId` is still the newest *active* Cmd+Z target.
  */
 export function getUndoReachabilityForContext(
     entries: ChangeLogEntry[],
@@ -828,24 +884,108 @@ export function getUndoReachabilityForContext(
         glyphName?: string | null;
         layerId?: string | null;
         historyTargetKey?: string | null;
+        surface?: HistoryUndoSurface | null;
     } = {}
 ): {
     reachableHistoryItemIds: Set<string>;
     nextUndoHistoryItemId: string | null;
 } {
-    const activeItems = buildHistoryStackItems(entries, {
+    const filterOptions = {
         glyphName: options.glyphName ?? null,
         layerId: options.layerId ?? null,
         historyTargetKey: options.historyTargetKey ?? null,
-        includeUndone: false
+        surface: options.surface ?? null
+    };
+
+    const surfaceItems = buildHistoryStackItems(entries, {
+        ...filterOptions,
+        includeUndone: true
     });
+    const activeItems = surfaceItems.filter((item) => item.isActive);
 
     return {
-        reachableHistoryItemIds: new Set(activeItems.map((item) => item.id)),
+        reachableHistoryItemIds: new Set(surfaceItems.map((item) => item.id)),
         nextUndoHistoryItemId: activeItems.length
             ? activeItems[activeItems.length - 1].id
             : null
     };
+}
+
+function inferHistoryUndoSurface(options: {
+    glyphName?: string | null;
+    layerId?: string | null;
+    historyTargetKey?: string | null;
+    surface?: HistoryUndoSurface | null;
+}): HistoryUndoSurface | null {
+    if (options.surface) {
+        return options.surface;
+    }
+    if (options.historyTargetKey) {
+        return 'feature';
+    }
+    if (options.glyphName && options.layerId) {
+        return 'canvas';
+    }
+    if (options.glyphName) {
+        return 'overview';
+    }
+    // No surface / glyph / layer / feature key → unfiltered list (tests, dumps).
+    return null;
+}
+
+function historyItemMatchesSurface(
+    item: MutableHistoryStackItem,
+    surface: HistoryUndoSurface,
+    options: {
+        glyphName?: string | null;
+        layerId?: string | null;
+        historyTargetKey?: string | null;
+    }
+): boolean {
+    const glyphName = options.glyphName ?? null;
+    const layerId = options.layerId ?? null;
+    const historyTargetKey = options.historyTargetKey ?? null;
+
+    switch (surface) {
+        case 'canvas': {
+            if (!glyphName || !layerId) {
+                return false;
+            }
+            return (
+                item.originatingGlyphName === glyphName &&
+                item.originatingLayerId === layerId
+            );
+        }
+        case 'overview': {
+            if (item.originatingLayerId) {
+                return false;
+            }
+            if (item.historyTargetKeySet.size > 0) {
+                return false;
+            }
+            return item.glyphNameSet.size > 0 || item.undoScope === 'glyph';
+        }
+        case 'font': {
+            if (item.originatingLayerId) {
+                return false;
+            }
+            if (item.historyTargetKeySet.size > 0) {
+                return false;
+            }
+            if (item.glyphNameSet.size > 0 || item.undoScope === 'glyph') {
+                return false;
+            }
+            return item.undoScope === 'font';
+        }
+        case 'feature': {
+            if (!historyTargetKey) {
+                return false;
+            }
+            return item.historyTargetKeySet.has(historyTargetKey);
+        }
+        default:
+            return false;
+    }
 }
 
 export function buildHistoryStackItems(
@@ -855,37 +995,29 @@ export function buildHistoryStackItems(
         layerId?: string | null;
         includeUndone?: boolean;
         historyTargetKey?: string | null;
+        surface?: HistoryUndoSurface | null;
     }
 ): HistoryStackItem[] {
-    const glyphName = options?.glyphName ?? null;
-    const layerId = options?.layerId ?? null;
     const includeUndone = options?.includeUndone ?? false;
-    const historyTargetKey = options?.historyTargetKey ?? null;
+    const surface = inferHistoryUndoSurface({
+        glyphName: options?.glyphName,
+        layerId: options?.layerId,
+        historyTargetKey: options?.historyTargetKey,
+        surface: options?.surface
+    });
     const state = computeHistoryState(entries);
 
     return state.orderedItemIds
         .map((itemId) => state.itemsById.get(itemId))
         .filter((item): item is MutableHistoryStackItem => !!item)
         .filter((item) => {
-            if (glyphName && !item.glyphNameSet.has(glyphName)) {
-                return false;
-            }
-            const layerTouchKey = getLayerTouchKey(glyphName, layerId);
-            if (layerTouchKey) {
-                const isGlyphOrFontScopedItemForGlyph =
-                    (item.undoScope === 'glyph' || item.undoScope === 'font') &&
-                    !!glyphName &&
-                    item.glyphNameSet.has(glyphName);
-                if (
-                    !item.touchedLayerKeySet.has(layerTouchKey) &&
-                    !isGlyphOrFontScopedItemForGlyph
-                ) {
-                    return false;
-                }
-            }
             if (
-                historyTargetKey &&
-                !item.historyTargetKeySet.has(historyTargetKey)
+                surface &&
+                !historyItemMatchesSurface(item, surface, {
+                    glyphName: options?.glyphName,
+                    layerId: options?.layerId,
+                    historyTargetKey: options?.historyTargetKey
+                })
             ) {
                 return false;
             }
@@ -1100,6 +1232,8 @@ export function normalizeChangeLogEntry(
         historyTargetType: entry.historyTargetType ?? null,
         historyTargetKey: entry.historyTargetKey ?? null,
         historyTargetLabel: entry.historyTargetLabel ?? null,
+        originatingGlyphName: entry.originatingGlyphName ?? null,
+        originatingLayerId: entry.originatingLayerId ?? null,
         visualAnchorSide: entry.visualAnchorSide ?? null,
         workerReplayTargets: normalizeWorkerReplayTargets(
             entry.workerReplayTargets

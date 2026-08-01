@@ -1,16 +1,37 @@
+import type { HistoryUndoSurface } from './change-log';
+
 export type UndoRedoContext = {
     rootGlyphName: string | undefined;
     undoGlyphName: string | undefined;
     undoLayerId: string | null;
     historyTargetKey: string | null;
+    surface: HistoryUndoSurface;
 };
 
-function isFontInfoViewFocused(): boolean {
+/** Last undo surface from a main editing view (editor / overview / font info). */
+let lastMainUndoContext: UndoRedoContext | null = null;
+
+/** Test helper — clears sticky main-view undo context. */
+export function resetUndoRedoContextStickyState(): void {
+    lastMainUndoContext = null;
+}
+
+function isViewFocused(viewId: string): boolean {
     return (
-        document
-            .querySelector('#view-fontinfo')
-            ?.classList.contains('focused') ?? false
+        document.querySelector(viewId)?.classList.contains('focused') ?? false
     );
+}
+
+function isFontInfoViewFocused(): boolean {
+    return isViewFocused('#view-fontinfo');
+}
+
+function isOverviewViewFocused(): boolean {
+    return isViewFocused('#view-overview');
+}
+
+function isEditorViewFocused(): boolean {
+    return isViewFocused('#view-editor');
 }
 
 function isFontInfoFeaturesTabVisible(): boolean {
@@ -22,6 +43,65 @@ function isFontInfoFeaturesTabVisible(): boolean {
     return featuresTab.style.display !== 'none';
 }
 
+function rememberMainUndoContext(context: UndoRedoContext): UndoRedoContext {
+    lastMainUndoContext = context;
+    return context;
+}
+
+function buildCanvasContext(
+    rootGlyphName: string | undefined,
+    undoGlyphName: string | undefined,
+    undoLayerId: string | null
+): UndoRedoContext {
+    return {
+        rootGlyphName,
+        undoGlyphName,
+        undoLayerId,
+        historyTargetKey: null,
+        surface: 'canvas'
+    };
+}
+
+function buildFontContext(rootGlyphName: string | undefined): UndoRedoContext {
+    return {
+        rootGlyphName,
+        undoGlyphName: undefined,
+        undoLayerId: null,
+        historyTargetKey: null,
+        surface: 'font'
+    };
+}
+
+function buildOverviewContext(
+    rootGlyphName: string | undefined
+): UndoRedoContext {
+    return {
+        rootGlyphName,
+        undoGlyphName: undefined,
+        undoLayerId: null,
+        historyTargetKey: null,
+        surface: 'overview'
+    };
+}
+
+function buildFeatureContext(
+    rootGlyphName: string | undefined,
+    historyTargetKey: string | null
+): UndoRedoContext {
+    return {
+        rootGlyphName,
+        undoGlyphName: undefined,
+        undoLayerId: null,
+        historyTargetKey,
+        surface: 'feature'
+    };
+}
+
+/**
+ * Undo / History reachability follows the focused *main* editing surface
+ * (glyph editor, overview, Font Info). Auxiliary panels such as History do
+ * not switch the surface — they keep the last main-view context.
+ */
 export function getUndoRedoContext(): UndoRedoContext {
     const oe = window.glyphCanvas?.outlineEditor;
     const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
@@ -31,80 +111,63 @@ export function getUndoRedoContext(): UndoRedoContext {
     const fallbackUndoGlyphName =
         parsedStack[parsedStack.length - 1]?.glyphName ?? currentGlyphName;
     const fallbackUndoLayerId = oe?.selectedLayerId ?? null;
-    const historyContext = window.getHistoryUndoContext?.();
+
     const fontInfoFocused = isFontInfoViewFocused();
+    const overviewFocused = isOverviewViewFocused();
+    const editorFocused = isEditorViewFocused();
     const featuresTabVisible = isFontInfoFeaturesTabVisible();
+    const mainViewFocused = fontInfoFocused || overviewFocused || editorFocused;
 
-    if (fontInfoFocused && historyContext?.scope === 'feature') {
-        return {
-            rootGlyphName,
-            undoGlyphName: undefined,
-            undoLayerId: null,
-            historyTargetKey: historyContext.historyTargetKey
-        };
+    if (fontInfoFocused && featuresTabVisible) {
+        const featureTarget =
+            window.fontInfoManager?.getHistoryScopeTarget?.() ?? null;
+        if (featureTarget?.key) {
+            return rememberMainUndoContext(
+                buildFeatureContext(rootGlyphName, featureTarget.key)
+            );
+        }
+        return rememberMainUndoContext(buildFontContext(rootGlyphName));
     }
 
-    if (fontInfoFocused && !featuresTabVisible) {
-        return {
-            rootGlyphName,
-            undoGlyphName: undefined,
-            undoLayerId: null,
-            historyTargetKey: null
-        };
+    if (fontInfoFocused) {
+        return rememberMainUndoContext(buildFontContext(rootGlyphName));
     }
 
-    if (historyContext?.scope === 'font') {
-        return {
-            rootGlyphName,
-            undoGlyphName: undefined,
-            undoLayerId: null,
-            historyTargetKey: null
-        };
+    if (overviewFocused) {
+        return rememberMainUndoContext(buildOverviewContext(rootGlyphName));
     }
 
-    if (historyContext?.scope === 'feature') {
-        return {
-            rootGlyphName,
-            undoGlyphName: undefined,
-            undoLayerId: null,
-            historyTargetKey: historyContext.historyTargetKey
-        };
+    if (
+        editorFocused &&
+        oe?.active &&
+        fallbackUndoGlyphName &&
+        fallbackUndoLayerId
+    ) {
+        return rememberMainUndoContext(
+            buildCanvasContext(
+                rootGlyphName,
+                fallbackUndoGlyphName,
+                fallbackUndoLayerId
+            )
+        );
     }
 
-    if (oe?.active && fallbackUndoGlyphName && fallbackUndoLayerId) {
-        return {
-            rootGlyphName,
-            undoGlyphName: fallbackUndoGlyphName,
-            undoLayerId: fallbackUndoLayerId,
-            historyTargetKey: null
-        };
+    if (editorFocused) {
+        // Editor focused but no layer selection yet — treat as overview-neutral
+        // glyph stack presence without inventing a canvas origin.
+        if (fallbackUndoGlyphName) {
+            return rememberMainUndoContext(buildOverviewContext(rootGlyphName));
+        }
+        return rememberMainUndoContext(buildFontContext(rootGlyphName));
     }
 
-    if (!historyContext) {
-        return {
-            rootGlyphName,
-            undoGlyphName: fallbackUndoGlyphName,
-            undoLayerId: fallbackUndoLayerId,
-            historyTargetKey: null
-        };
+    // History / console / scripts / assistant: keep last main editing surface.
+    if (!mainViewFocused && lastMainUndoContext) {
+        return lastMainUndoContext;
     }
 
-    if (historyContext.scope === 'glyph') {
-        return {
-            rootGlyphName:
-                rootGlyphName ?? historyContext.glyphName ?? undefined,
-            undoGlyphName: historyContext.glyphName ?? fallbackUndoGlyphName,
-            undoLayerId: null,
-            historyTargetKey: null
-        };
-    }
-
-    return {
-        rootGlyphName: rootGlyphName ?? historyContext.glyphName ?? undefined,
-        undoGlyphName: historyContext.glyphName ?? fallbackUndoGlyphName,
-        undoLayerId: historyContext.layerId ?? fallbackUndoLayerId,
-        historyTargetKey: null
-    };
+    // Cold start with no main view focused yet.
+    return buildFontContext(rootGlyphName);
 }
 
 window.getUndoRedoContext = getUndoRedoContext;

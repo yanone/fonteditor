@@ -1727,15 +1727,20 @@ describe('change-log', () => {
             newValue: 'undo'
         });
 
-        expect(resolveHistoryTargetItemId([changeEntry], 'A', 'undo')).toBe(
-            'history-item-1'
-        );
         expect(
-            resolveHistoryTargetItemId([changeEntry, undoEntry], 'A', 'redo')
+            resolveHistoryTargetItemId([changeEntry], 'A', 'undo', 'layer-1')
+        ).toBe('history-item-1');
+        expect(
+            resolveHistoryTargetItemId(
+                [changeEntry, undoEntry],
+                'A',
+                'redo',
+                'layer-1'
+            )
         ).toBe('history-item-1');
     });
 
-    test('buildHistoryStackItems uses touched layers for layer filtering', () => {
+    test('buildHistoryStackItems uses originating layer for canvas filtering', () => {
         resetLogCounter();
         const changeEntry = createLogEntry({
             timestamp: 1,
@@ -1758,13 +1763,12 @@ describe('change-log', () => {
                 layerId: 'layer-1'
             })
         ).toHaveLength(1);
-        // Glyph-scoped items appear for all layers of that glyph
         expect(
             buildHistoryStackItems([changeEntry], {
                 glyphName: 'A',
                 layerId: 'layer-miss'
             })
-        ).toHaveLength(1);
+        ).toHaveLength(0);
     });
 
     test('buildHistoryStackItems shows font-scoped glyph-touching items in layer history', () => {
@@ -1832,13 +1836,18 @@ describe('change-log', () => {
 
         const forFont = getUndoReachabilityForContext([editA, editB], {
             glyphName: null,
-            layerId: null
+            layerId: null,
+            surface: 'font'
         });
-        expect([...forFont.reachableHistoryItemIds].sort()).toEqual([
+        expect([...forFont.reachableHistoryItemIds]).toEqual([]);
+        expect(forFont.nextUndoHistoryItemId).toBe(null);
+
+        const unfiltered = getUndoReachabilityForContext([editA, editB], {});
+        expect([...unfiltered.reachableHistoryItemIds].sort()).toEqual([
             'history-a',
             'history-b'
         ]);
-        expect(forFont.nextUndoHistoryItemId).toBe('history-b');
+        expect(unfiltered.nextUndoHistoryItemId).toBe('history-b');
     });
 
     test('path-derived history metadata resolves dotted glyph and layer names', () => {
@@ -2041,7 +2050,10 @@ describe('change-log', () => {
         );
 
         // Prime the cache.
-        let items = buildHistoryStackItems(log, { glyphName: 'A' });
+        let items = buildHistoryStackItems(log, {
+            glyphName: 'A',
+            layerId: 'layer-1'
+        });
         expect(items).toHaveLength(2);
         expect(items.map((i) => i.isActive)).toEqual([true, true]);
 
@@ -2068,6 +2080,7 @@ describe('change-log', () => {
 
         items = buildHistoryStackItems(log, {
             glyphName: 'A',
+            layerId: 'layer-1',
             includeUndone: true
         });
         const h2AfterUndo = items.find((i) => i.id === 'h2');
@@ -2077,7 +2090,10 @@ describe('change-log', () => {
 
         // Default (active-only) view must hide undone h2.
         expect(
-            buildHistoryStackItems(log, { glyphName: 'A' }).map((i) => i.id)
+            buildHistoryStackItems(log, {
+                glyphName: 'A',
+                layerId: 'layer-1'
+            }).map((i) => i.id)
         ).toEqual(['h1']);
 
         // Append redo for h2; incremental fold must rotate it back.
@@ -2101,7 +2117,10 @@ describe('change-log', () => {
             })
         );
 
-        items = buildHistoryStackItems(log, { glyphName: 'A' });
+        items = buildHistoryStackItems(log, {
+            glyphName: 'A',
+            layerId: 'layer-1'
+        });
         expect(items).toHaveLength(2);
         expect(items.find((i) => i.id === 'h2').isActive).toBe(true);
     });
@@ -2269,7 +2288,7 @@ describe('ChangeBridge', () => {
         });
 
         expect(layer1Items).toHaveLength(1);
-        expect(layer1bItems).toHaveLength(1);
+        expect(layer1bItems).toHaveLength(0);
         expect(layer1Items[0].undoScope).toBe('glyph');
 
         expect(bridge.undo('A', 'layer-1')).not.toBeNull();
@@ -3263,9 +3282,9 @@ describe('Transactions', () => {
         });
 
         expect(layer1Items).toHaveLength(1);
-        expect(layer1bItems).toHaveLength(1);
+        expect(layer1bItems).toHaveLength(0);
         expect(layer1Items[0].undoScope).toBe('glyph');
-        expect(layer1bItems[0].undoScope).toBe('glyph');
+        expect(layer1Items[0].originatingLayerId).toBe('layer-1');
 
         expect(bridge.undo('A', 'layer-1')).not.toBeNull();
         expect(
@@ -3288,7 +3307,7 @@ describe('Transactions', () => {
         ).toBe(620);
     });
 
-    test('layer-scoped undo resolves font-scoped items that touch the active glyph', () => {
+    test('layer-scoped undo resolves multi-glyph items that originated on the active layer', () => {
         const { bridge } = createTestBridge('test-1');
 
         bridge.beginTransaction('Set sidebearing with dependents');
@@ -3312,6 +3331,17 @@ describe('Transactions', () => {
         });
         expect(layerItems).toHaveLength(1);
         expect(layerItems[0].undoScope).toBe('font');
+        expect(layerItems[0].originatingGlyphName).toBe('A');
+        expect(layerItems[0].originatingLayerId).toBe('layer-1');
+
+        const dependentLayerItems = buildHistoryStackItems(
+            bridge.getChangeLog(),
+            {
+                glyphName: 'B',
+                layerId: 'layer-2'
+            }
+        );
+        expect(dependentLayerItems).toHaveLength(0);
 
         expect(bridge.undo('A', 'layer-1')).toEqual(
             expect.objectContaining({
@@ -3632,7 +3662,7 @@ describe('Model setter change recording', () => {
             })
         );
 
-        bridge.undo('A');
+        bridge.undo('A', background.id);
         expect(
             getYPath(bridge.yDoc.getMap('font'), [
                 'glyphs',
@@ -3648,7 +3678,7 @@ describe('Model setter change recording', () => {
                 .layers.find((layer) => layer.id === background.id)
         ).toBeUndefined();
 
-        bridge.redo('A');
+        bridge.redo('A', background.id);
         expect(
             fromYType(
                 getYPath(bridge.yDoc.getMap('font'), [
@@ -4468,8 +4498,8 @@ describe('Undo / Redo', () => {
             700
         );
 
-        // Undo glyph A
-        bridge.undo('A');
+        // Undo glyph A from its originating layer
+        bridge.undo('A', 'layer-1');
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -4688,9 +4718,9 @@ describe('WindowSync', () => {
         );
         flushTimers();
 
-        expect(bridge2.canUndo('A')).toBe(true);
+        expect(bridge2.canUndo('A', 'layer-1')).toBe(true);
 
-        bridge2.undo('A');
+        bridge2.undo('A', 'layer-1');
         flushTimers();
 
         expect(
@@ -7406,7 +7436,8 @@ describe('syncGlyphFromJson', () => {
         bridge.syncGlyphFromJson('A', 'Drag');
 
         const historyItems = buildHistoryStackItems(bridge.getChangeLog(), {
-            glyphName: 'A'
+            glyphName: 'A',
+            layerId: 'layer-1'
         });
 
         expect(historyItems).toHaveLength(1);

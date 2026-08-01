@@ -29,6 +29,7 @@ import {
     type ChangeLogEntry,
     type ChangeOp,
     type HistoryStackItem,
+    type HistoryUndoSurface,
     type UndoScope,
     type WorkerReplayTarget,
     type GlyphRename,
@@ -40,6 +41,7 @@ import {
     deriveLayerIdFromPath,
     deriveLayerIdsFromPaths,
     deriveObjectInfoFromPath,
+    deriveOriginatingLayerFromPaths,
     getPathSegments,
     invalidateHistoryStateCache,
     joinPathWithGlyphSeparator,
@@ -121,6 +123,10 @@ export type CollaborationLogItem = {
     historyAction: 'change' | 'undo' | 'redo';
     targetHistoryItemId: string | null;
     undoScope: UndoScope;
+    historyTargetKey: string | null;
+    historyTargetLabel: string | null;
+    originatingGlyphName: string | null;
+    originatingLayerId: string | null;
     updateByteLength: number;
     updateBase64Preview: string;
     changedGlyphNames: string[];
@@ -151,6 +157,8 @@ export type TransactionBufferedOperation = SyntheticChangeOperation & {
     applyOldValue?: unknown;
     applyNewValue?: unknown;
     applyMode?: BatchApplyMode;
+    originatingGlyphName?: string | null;
+    originatingLayerId?: string | null;
 };
 
 export type TransactionCommitResult = {
@@ -1839,6 +1847,8 @@ export class PatchSyncEngine {
                     compileEditType: metadata.compileEditType,
                     visualAnchorSide: metadata.visualAnchorSide,
                     workerReplayTargets: metadata.workerReplayTargets,
+                    originatingGlyphName: glyphName,
+                    originatingLayerId: layerId,
                     applyPath: ['glyphs', glyphName, 'layers', layerId],
                     applyNewValue: storageLayerJson,
                     applyMode: 'layer-snapshot' as BatchApplyMode
@@ -1885,6 +1895,8 @@ export class PatchSyncEngine {
                 compileEditType: metadata.compileEditType,
                 visualAnchorSide: metadata.visualAnchorSide,
                 workerReplayTargets: metadata.workerReplayTargets,
+                originatingGlyphName: glyphName,
+                originatingLayerId: layerId,
                 applyPath: ['glyphs', glyphName, 'layers', layerId],
                 applyOldValue: sparseLayerDelta.oldValues,
                 applyNewValue: sparseLayerDelta.delta,
@@ -2127,6 +2139,14 @@ export class PatchSyncEngine {
         newValue: unknown,
         metadata: LayerSyncMetadata
     ): TransactionBufferedOperation {
+        const originatingGlyphName =
+            path[0] === 'glyphs' && typeof path[1] === 'string'
+                ? path[1]
+                : null;
+        const originatingLayerId =
+            path[2] === 'layers' && typeof path[3] === 'string'
+                ? path[3]
+                : null;
         return {
             op,
             path,
@@ -2136,7 +2156,9 @@ export class PatchSyncEngine {
             compileChangeSource: metadata.compileChangeSource ?? null,
             compileEditType: metadata.compileEditType ?? null,
             visualAnchorSide: metadata.visualAnchorSide ?? null,
-            workerReplayTargets: metadata.workerReplayTargets
+            workerReplayTargets: metadata.workerReplayTargets,
+            originatingGlyphName,
+            originatingLayerId
         };
     }
 
@@ -2512,6 +2534,17 @@ export class PatchSyncEngine {
                       )
                     : undefined;
                 const isLayerScope = undoScope === 'layer' && layerId;
+                const originatingLayerId =
+                    layerId ??
+                    (Array.isArray(target.glyphJson.layers)
+                        ? String(
+                              (
+                                  target.glyphJson.layers as Array<
+                                      Record<string, unknown>
+                                  >
+                              ).find((layer) => layer?.id)?.id ?? ''
+                          ) || null
+                        : null);
 
                 return {
                     op: 'set' as ChangeOp,
@@ -2531,6 +2564,8 @@ export class PatchSyncEngine {
                     compileEditType,
                     visualAnchorSide,
                     workerReplayTargets,
+                    originatingGlyphName: target.glyphName,
+                    originatingLayerId,
                     applyPath: isLayerScope
                         ? ['glyphs', target.glyphName, 'layers', layerId]
                         : ['glyphs', target.glyphName],
@@ -2642,13 +2677,15 @@ export class PatchSyncEngine {
     undo(
         glyphName?: string,
         layerId?: string | null,
-        historyTargetKey?: string | null
+        historyTargetKey?: string | null,
+        surface?: HistoryUndoSurface | null
     ): UndoRedoResult | null {
         const targetItem = this._resolveUndoHistoryItem(
             glyphName,
             layerId,
             'undo',
-            historyTargetKey
+            historyTargetKey,
+            surface
         );
         const target = this._resolveUndoTarget(
             glyphName,
@@ -2809,13 +2846,15 @@ export class PatchSyncEngine {
     redo(
         glyphName?: string,
         layerId?: string | null,
-        historyTargetKey?: string | null
+        historyTargetKey?: string | null,
+        surface?: HistoryUndoSurface | null
     ): UndoRedoResult | null {
         const targetItem = this._resolveUndoHistoryItem(
             glyphName,
             layerId,
             'redo',
-            historyTargetKey
+            historyTargetKey,
+            surface
         );
         const target = this._resolveUndoTarget(
             glyphName,
@@ -2970,13 +3009,15 @@ export class PatchSyncEngine {
     canUndo(
         glyphName?: string,
         layerId?: string | null,
-        historyTargetKey?: string | null
+        historyTargetKey?: string | null,
+        surface?: HistoryUndoSurface | null
     ): boolean {
         const targetItem = this._resolveUndoHistoryItem(
             glyphName,
             layerId,
             'undo',
-            historyTargetKey
+            historyTargetKey,
+            surface
         );
         const target = this._resolveUndoTarget(
             glyphName,
@@ -3012,13 +3053,15 @@ export class PatchSyncEngine {
     canRedo(
         glyphName?: string,
         layerId?: string | null,
-        historyTargetKey?: string | null
+        historyTargetKey?: string | null,
+        surface?: HistoryUndoSurface | null
     ): boolean {
         const targetItem = this._resolveUndoHistoryItem(
             glyphName,
             layerId,
             'redo',
-            historyTargetKey
+            historyTargetKey,
+            surface
         );
         const target = this._resolveUndoTarget(
             glyphName,
@@ -3849,7 +3892,10 @@ export class PatchSyncEngine {
                     glyphRenames: operation.glyphRenames,
                     historyTargetType: operationHistoryTarget?.type ?? null,
                     historyTargetKey: operationHistoryTarget?.key ?? null,
-                    historyTargetLabel: operationHistoryTarget?.label ?? null
+                    historyTargetLabel: operationHistoryTarget?.label ?? null,
+                    originatingGlyphName:
+                        operation.originatingGlyphName ?? null,
+                    originatingLayerId: operation.originatingLayerId ?? null
                 });
             }
         );
@@ -4449,7 +4495,9 @@ export class PatchSyncEngine {
                 : undefined,
             applyOldValue: operation.applyOldValue,
             applyNewValue: operation.applyNewValue,
-            applyMode: operation.applyMode ?? 'default'
+            applyMode: operation.applyMode ?? 'default',
+            originatingGlyphName: operation.originatingGlyphName ?? null,
+            originatingLayerId: operation.originatingLayerId ?? null
         };
     }
 
@@ -4592,7 +4640,9 @@ export class PatchSyncEngine {
                 glyphRenames: operation.glyphRenames,
                 historyTargetType: operationHistoryTarget?.type ?? null,
                 historyTargetKey: operationHistoryTarget?.key ?? null,
-                historyTargetLabel: operationHistoryTarget?.label ?? null
+                historyTargetLabel: operationHistoryTarget?.label ?? null,
+                originatingGlyphName: operation.originatingGlyphName ?? null,
+                originatingLayerId: operation.originatingLayerId ?? null
             });
             changeLogEntries.push(entry);
         }
@@ -5222,7 +5272,8 @@ export class PatchSyncEngine {
         glyphName: string | undefined,
         layerId: string | null | undefined,
         historyAction: 'undo' | 'redo',
-        historyTargetKey?: string | null
+        historyTargetKey?: string | null,
+        surface?: HistoryUndoSurface | null
     ): HistoryStackItem | null {
         const resolvedGlyphName = glyphName ?? null;
         const resolvedLayerId = layerId ?? null;
@@ -5235,7 +5286,8 @@ export class PatchSyncEngine {
             glyphName: resolvedGlyphName,
             layerId: resolvedLayerId,
             includeUndone: true,
-            historyTargetKey: resolvedHistoryTargetKey
+            historyTargetKey: resolvedHistoryTargetKey,
+            surface: surface ?? null
         }).filter((item) =>
             historyAction === 'undo' ? item.isActive : !item.isActive
         );
@@ -5270,7 +5322,8 @@ export class PatchSyncEngine {
             glyphName: resolvedGlyphName,
             layerId: resolvedLayerId,
             historyAction,
-            historyTargetKey: resolvedHistoryTargetKey
+            historyTargetKey: resolvedHistoryTargetKey,
+            surface: surface ?? null
         });
     }
 
@@ -6736,6 +6789,16 @@ export class PatchSyncEngine {
         direction: 'local' | 'remote',
         derivedForwardChanges: DerivedForwardChange[]
     ): CollaborationLogItem {
+        const originating =
+            message.metadata.originatingGlyphName ||
+            message.metadata.originatingLayerId
+                ? {
+                      glyphName: message.metadata.originatingGlyphName ?? null,
+                      layerId: message.metadata.originatingLayerId ?? null
+                  }
+                : deriveOriginatingLayerFromPaths(
+                      message.changes.map((change) => change.path)
+                  );
         return {
             id: collaborationMessageKey(message),
             direction,
@@ -6755,6 +6818,10 @@ export class PatchSyncEngine {
             historyAction: message.metadata.historyAction,
             targetHistoryItemId: message.metadata.targetHistoryItemId ?? null,
             undoScope: message.metadata.undoScope,
+            historyTargetKey: message.metadata.historyTargetKey ?? null,
+            historyTargetLabel: message.metadata.historyTargetLabel ?? null,
+            originatingGlyphName: originating.glyphName,
+            originatingLayerId: originating.layerId,
             updateByteLength: update.byteLength,
             updateBase64Preview: this._toUpdateBase64Preview(update),
             changedGlyphNames: [...message.metadata.changedGlyphNames],

@@ -1608,14 +1608,16 @@
                 rootGlyphName: effectiveRootGlyphName,
                 undoGlyphName,
                 undoLayerId,
-                historyTargetKey
+                historyTargetKey,
+                surface
             } = window.getUndoRedoContext
                 ? window.getUndoRedoContext()
                 : {
                       rootGlyphName: undefined,
                       undoGlyphName: undefined,
                       undoLayerId: null,
-                      historyTargetKey: null
+                      historyTargetKey: null,
+                      surface: 'font' as const
                   };
 
             if (oe?.active && (!effectiveRootGlyphName || !undoGlyphName)) {
@@ -1625,7 +1627,8 @@
                         undefined,
                         effectiveRootGlyphName,
                         null,
-                        historyTargetKey
+                        historyTargetKey,
+                        surface
                     );
                     return;
                 }
@@ -1641,7 +1644,8 @@
                 undoGlyphName,
                 effectiveRootGlyphName,
                 undoLayerId,
-                historyTargetKey
+                historyTargetKey,
+                surface
             );
             return;
         }

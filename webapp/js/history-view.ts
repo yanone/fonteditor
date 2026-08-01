@@ -1,5 +1,8 @@
 import type { CollaborationLogItem } from './patch-sync-engine';
-import { getUndoReachabilityForContext } from './change-log';
+import {
+    deriveOriginatingLayerFromPaths,
+    getUndoReachabilityForContext
+} from './change-log';
 import { getUndoRedoContext } from './undo-redo-context';
 import { Logger } from './logger';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
@@ -7,7 +10,9 @@ import { getTheme } from './tippy-utils';
 
 const console = new Logger('HistoryView');
 
-type HistoryScope = 'layer' | 'glyph' | 'font' | 'feature';
+const SHOW_UNREACHABLE_PREF_KEY = 'history.showUnreachable';
+
+type HistoryScope = 'layer' | 'glyph' | 'font' | 'feature' | 'overview';
 
 type FeatureHistoryContext = {
     type: 'feature' | 'class' | 'prefix';
@@ -36,10 +41,15 @@ type HistoryDisplayItem = CollaborationLogItem & {
     historyItemIds: string[];
 };
 
+type HistoryListNode =
+    | { kind: 'item'; item: HistoryDisplayItem; reachable: boolean }
+    | { kind: 'hidden-run'; count: number; firstHiddenIndex: number };
+
 class HistoryViewController {
     private initialized = false;
     private rootEl: HTMLElement | null = null;
     private listEl: HTMLElement | null = null;
+    private showUnreachableToggle: HTMLButtonElement | null = null;
     private currentGlyphName: string | null = null;
     private currentLayerId: string | null = null;
     private currentFeatureContext: FeatureHistoryContext | null = null;
@@ -48,6 +58,8 @@ class HistoryViewController {
     private metadataTooltips: TippyInstance[] = [];
     private pendingRenderHandle: number | null = null;
     private collaborationItems: CollaborationLogItem[] = [];
+    private showUnreachable = false;
+    private revealHiddenRunIndex: number | null = null;
 
     constructor() {
         if (document.readyState === 'loading') {
@@ -72,13 +84,80 @@ class HistoryViewController {
 
         this.initialized = true;
         this.rootEl = rootEl;
+        this.showUnreachable = this.readShowUnreachablePref();
         window.getHistoryUndoContext = () => this.getUndoContext();
+        this.bindTitleBarToggle();
         this.renderShell();
         this.bindWindowEvents();
         this.connectToBridge();
         this.attachTextRunListener();
         this.syncEditingContext();
         this.render();
+    }
+
+    private readShowUnreachablePref(): boolean {
+        try {
+            return localStorage.getItem(SHOW_UNREACHABLE_PREF_KEY) === '1';
+        } catch {
+            return false;
+        }
+    }
+
+    private writeShowUnreachablePref(value: boolean): void {
+        try {
+            localStorage.setItem(SHOW_UNREACHABLE_PREF_KEY, value ? '1' : '0');
+        } catch {
+            // Ignore quota / private-mode failures.
+        }
+    }
+
+    private bindTitleBarToggle(): void {
+        const toggle = document.getElementById(
+            'history-show-unreachable-toggle'
+        ) as HTMLButtonElement | null;
+        this.showUnreachableToggle = toggle;
+        if (!toggle) {
+            return;
+        }
+        this.syncToggleButton();
+        toggle.addEventListener('click', () => {
+            this.setShowUnreachable(!this.showUnreachable);
+        });
+    }
+
+    private setShowUnreachable(value: boolean): void {
+        this.showUnreachable = value;
+        this.writeShowUnreachablePref(value);
+        this.syncToggleButton();
+        // Toggle must refresh immediately (tests + UX); cancel any pending rAF.
+        if (this.pendingRenderHandle !== null) {
+            cancelAnimationFrame(this.pendingRenderHandle);
+            this.pendingRenderHandle = null;
+        }
+        this.render();
+    }
+
+    private syncToggleButton(): void {
+        const toggle = this.showUnreachableToggle;
+        if (!toggle) {
+            return;
+        }
+        const icon = toggle.querySelector('.material-symbols-outlined');
+        if (icon) {
+            icon.textContent = this.showUnreachable
+                ? 'visibility'
+                : 'visibility_off';
+        }
+        toggle.classList.toggle('active', this.showUnreachable);
+        const label = this.showUnreachable
+            ? 'Hide edits outside this undo context'
+            : 'Show edits outside this undo context';
+        toggle.title = label;
+        toggle.setAttribute('aria-label', label);
+        toggle.setAttribute(
+            'aria-pressed',
+            this.showUnreachable ? 'true' : 'false'
+        );
     }
 
     private renderShell(): void {
@@ -279,103 +358,404 @@ class HistoryViewController {
             {
                 glyphName: undoContext.undoGlyphName,
                 layerId: undoContext.undoLayerId,
-                historyTargetKey: undoContext.historyTargetKey
+                historyTargetKey: undoContext.historyTargetKey,
+                surface: undoContext.surface
             }
         );
+
+        const newestFirst = [...displayItems].reverse();
+        const listNodes = this.buildListNodes(
+            newestFirst,
+            reachableHistoryItemIds
+        );
         const fragment = document.createDocumentFragment();
+        let revealElement: HTMLElement | null = null;
 
-        for (let index = displayItems.length - 1; index >= 0; index--) {
-            const item = displayItems[index];
-            const isReachable = item.historyItemIds.some((historyItemId) =>
-                reachableHistoryItemIds.has(historyItemId)
-            );
-            const row = document.createElement('div');
-            row.className = [
-                'history-entry',
-                'history-entry-flat',
-                isReachable ? '' : 'history-entry-cmdz-unreachable'
-            ]
-                .filter(Boolean)
-                .join(' ');
-            if (!isReachable) {
-                row.title = 'Not reachable by ⌘Z in current editing context';
-            }
-            row.innerHTML = `
-                <div class="history-entry-main">
-                    <div class="history-entry-summary">${this.escapeHtml(item.summary)}</div>
-                    <div class="history-entry-subtitle">${this.escapeHtml(this.buildSubtitle(item))}</div>
-                </div>
-                <button
-                    type="button"
-                    class="history-info-button material-symbols-outlined"
-                    data-role="history-info-button"
-                    aria-label="Show message details"
-                >info</button>
-            `;
-
-            const infoButton = row.querySelector(
-                '[data-role="history-info-button"]'
-            ) as HTMLButtonElement | null;
-            if (infoButton) {
-                this.attachMetadataTooltip(infoButton, item);
+        for (const node of listNodes) {
+            if (node.kind === 'hidden-run') {
+                const marker = this.createHiddenRunMarker(
+                    node.count,
+                    node.firstHiddenIndex
+                );
+                fragment.appendChild(marker);
+                continue;
             }
 
+            const row = this.createHistoryRow(node.item, node.reachable);
+            if (
+                this.revealHiddenRunIndex !== null &&
+                !node.reachable &&
+                newestFirst.indexOf(node.item) === this.revealHiddenRunIndex
+            ) {
+                revealElement = row;
+            }
             fragment.appendChild(row);
         }
 
         this.listEl.innerHTML = '';
         this.listEl.appendChild(fragment);
+
+        if (revealElement) {
+            revealElement.scrollIntoView?.({ block: 'nearest' });
+            this.revealHiddenRunIndex = null;
+        }
     }
 
-    private buildSubtitle(item: CollaborationLogItem): string {
+    private buildListNodes(
+        newestFirst: HistoryDisplayItem[],
+        reachableHistoryItemIds: Set<string>
+    ): HistoryListNode[] {
+        const nodes: HistoryListNode[] = [];
+        let hiddenRun = 0;
+        let hiddenRunStart = -1;
+
+        const flushHidden = () => {
+            if (hiddenRun <= 0) {
+                return;
+            }
+            nodes.push({
+                kind: 'hidden-run',
+                count: hiddenRun,
+                firstHiddenIndex: hiddenRunStart
+            });
+            hiddenRun = 0;
+            hiddenRunStart = -1;
+        };
+
+        for (let index = 0; index < newestFirst.length; index++) {
+            const item = newestFirst[index];
+            const reachable = this.isHistoryItemInUndoRedoStack(
+                item,
+                reachableHistoryItemIds
+            );
+            if (reachable || this.showUnreachable) {
+                flushHidden();
+                nodes.push({ kind: 'item', item, reachable });
+                continue;
+            }
+            if (hiddenRun === 0) {
+                hiddenRunStart = index;
+            }
+            hiddenRun += 1;
+        }
+        flushHidden();
+        return nodes;
+    }
+
+    /**
+     * Bright = on this surface’s undo/redo stack (active or undone).
+     * Undo/redo collaboration rows key off targetHistoryItemId.
+     */
+    private isHistoryItemInUndoRedoStack(
+        item: HistoryDisplayItem,
+        reachableHistoryItemIds: Set<string>
+    ): boolean {
+        if (
+            item.historyItemIds.some((historyItemId) =>
+                reachableHistoryItemIds.has(historyItemId)
+            )
+        ) {
+            return true;
+        }
+        if (
+            item.targetHistoryItemId &&
+            reachableHistoryItemIds.has(item.targetHistoryItemId)
+        ) {
+            return true;
+        }
+        return false;
+    }
+
+    private createHiddenRunMarker(
+        count: number,
+        firstHiddenIndex: number
+    ): HTMLButtonElement {
+        const marker = document.createElement('button');
+        marker.type = 'button';
+        marker.className = 'history-hidden-run';
+        const label =
+            count === 1
+                ? '1 hidden · other context'
+                : `${count} hidden · other context`;
+        marker.innerHTML = `<span class="history-hidden-run-dots">· · ·</span><span class="history-hidden-run-label">${this.escapeHtml(label)}</span>`;
+        marker.title = 'Show edits outside this undo context';
+        marker.addEventListener('click', () => {
+            this.revealHiddenRunIndex = firstHiddenIndex;
+            this.setShowUnreachable(true);
+        });
+        return marker;
+    }
+
+    private createHistoryRow(
+        item: HistoryDisplayItem,
+        isReachable: boolean
+    ): HTMLElement {
+        const row = document.createElement('div');
+        row.className = [
+            'history-entry',
+            'history-entry-flat',
+            isReachable ? '' : 'history-entry-cmdz-unreachable'
+        ]
+            .filter(Boolean)
+            .join(' ');
+        if (!isReachable) {
+            row.title =
+                'Outside this undo/redo context — switch to its origin surface to undo or redo';
+        }
+
+        const actionChip = this.buildActionChip(item.historyAction);
+        const originLabel = this.buildOriginLabel(item);
+        const cascadeCount = this.countDownstreamRecompositions(item);
+        const isDev = window.isDevelopment?.() ?? false;
+
+        row.innerHTML = `
+            <div class="history-entry-main">
+                <div class="history-entry-title-row">
+                    <div class="history-entry-summary">${this.escapeHtml(item.summary)}</div>
+                    <div class="history-entry-trailing">
+                        ${
+                            cascadeCount > 0
+                                ? `<span class="history-cascade-icon material-symbols-outlined" title="Also updated ${cascadeCount} dependent layer${cascadeCount === 1 ? '' : 's'}" aria-label="Also updated ${cascadeCount} dependent layers">account_tree</span>`
+                                : ''
+                        }
+                        <button
+                            type="button"
+                            class="history-info-button material-symbols-outlined"
+                            data-role="history-info-button"
+                            aria-label="Show message details"
+                        >info</button>
+                    </div>
+                </div>
+                <div class="history-entry-meta-row">
+                    ${actionChip}
+                    <span class="history-origin-label">${this.escapeHtml(originLabel)}</span>
+                </div>
+                ${
+                    isDev
+                        ? `<div class="history-entry-devmeta">${this.escapeHtml(this.buildDevMeta(item))}</div>`
+                        : ''
+                }
+            </div>
+        `;
+
+        const infoButton = row.querySelector(
+            '[data-role="history-info-button"]'
+        ) as HTMLButtonElement | null;
+        if (infoButton) {
+            this.attachMetadataTooltip(infoButton, item);
+        }
+
+        return row;
+    }
+
+    private buildActionChip(
+        action: CollaborationLogItem['historyAction']
+    ): string {
+        if (action === 'undo') {
+            return '<span class="history-action-chip history-action-undo">undo</span>';
+        }
+        if (action === 'redo') {
+            return '<span class="history-action-chip history-action-redo">redo</span>';
+        }
+        return '<span class="history-action-chip history-action-edit">edit</span>';
+    }
+
+    private buildOriginLabel(item: HistoryDisplayItem): string {
+        if (item.historyTargetKey || item.historyTargetLabel) {
+            return `Feature · ${item.historyTargetLabel || item.historyTargetKey}`;
+        }
+
+        const originatingGlyph =
+            item.originatingGlyphName ??
+            deriveOriginatingLayerFromPaths(
+                item.changes.map((change) => change.path)
+            ).glyphName;
+        const originatingLayer =
+            item.originatingLayerId ??
+            deriveOriginatingLayerFromPaths(
+                item.changes.map((change) => change.path)
+            ).layerId;
+
+        if (originatingGlyph && originatingLayer) {
+            const layerLabel = this.resolveLayerMasterDisplayName(
+                originatingGlyph,
+                originatingLayer
+            );
+            return `Layer · ${originatingGlyph} / ${layerLabel}`;
+        }
+
+        if (
+            item.changedGlyphNames.length > 0 ||
+            item.undoScope === 'glyph' ||
+            !originatingLayer
+        ) {
+            if (
+                item.undoScope === 'font' &&
+                item.changedGlyphNames.length === 0
+            ) {
+                return 'Font';
+            }
+            if (!originatingLayer && item.changedGlyphNames.length > 0) {
+                return 'Overview';
+            }
+            if (item.undoScope === 'glyph') {
+                return 'Overview';
+            }
+        }
+
+        return 'Font';
+    }
+
+    /**
+     * Prefer the Master display name for a layer id (or master id).
+     * Falls back to the layer's own name, then the raw id.
+     */
+    private resolveLayerMasterDisplayName(
+        glyphName: string,
+        layerOrMasterId: string
+    ): string {
+        const fontModel =
+            window.currentFontModel ??
+            window.fontManager?.currentFont?.fontModel ??
+            null;
+        if (!fontModel) {
+            return layerOrMasterId;
+        }
+
+        const masters = Array.isArray(fontModel.masters)
+            ? fontModel.masters
+            : [];
+        const masterById = (id: string) =>
+            (typeof fontModel.findMaster === 'function'
+                ? fontModel.findMaster(id)
+                : null) ??
+            masters.find((master: { id?: string }) => master?.id === id) ??
+            null;
+
+        const formatMasterName = (name: unknown): string | null => {
+            if (typeof name === 'string' && name.trim()) {
+                return name.trim();
+            }
+            if (name && typeof name === 'object') {
+                const dict = name as Record<string, string>;
+                const value = dict.dflt ?? dict.en ?? Object.values(dict)[0];
+                if (typeof value === 'string' && value.trim()) {
+                    return value.trim();
+                }
+            }
+            return null;
+        };
+
+        const directMaster = masterById(layerOrMasterId);
+        if (directMaster) {
+            return formatMasterName(directMaster.name) || layerOrMasterId;
+        }
+
+        const glyph =
+            typeof fontModel.getGlyph === 'function'
+                ? fontModel.getGlyph(glyphName)
+                : fontModel.glyphs?.find?.(
+                      (candidate: { name?: string }) =>
+                          candidate?.name === glyphName
+                  );
+        const layer = glyph?.layers?.find?.(
+            (candidate: { id?: string }) => candidate?.id === layerOrMasterId
+        );
+        if (!layer) {
+            return layerOrMasterId;
+        }
+
+        const masterRef =
+            layer.master && typeof layer.master === 'object'
+                ? (layer.master as { master?: string; type?: string })
+                : null;
+        const masterId =
+            typeof masterRef?.master === 'string' ? masterRef.master : null;
+        if (masterId) {
+            const master = masterById(masterId);
+            const masterName = master ? formatMasterName(master.name) : null;
+            if (masterName) {
+                return masterName;
+            }
+        }
+
+        if (typeof layer.name === 'string' && layer.name.trim()) {
+            return layer.name.trim();
+        }
+
+        return layerOrMasterId;
+    }
+
+    private countDownstreamRecompositions(item: HistoryDisplayItem): number {
+        const originGlyph =
+            item.originatingGlyphName ??
+            deriveOriginatingLayerFromPaths(
+                item.changes.map((change) => change.path)
+            ).glyphName;
+        const originLayer =
+            item.originatingLayerId ??
+            deriveOriginatingLayerFromPaths(
+                item.changes.map((change) => change.path)
+            ).layerId;
+
+        const targets = item.workerReplayTargets ?? [];
+        if (!originGlyph || !originLayer) {
+            return targets.length > 1 ? targets.length - 1 : 0;
+        }
+
+        return targets.filter(
+            (target) =>
+                !(
+                    target.glyphName === originGlyph &&
+                    target.layerId === originLayer
+                )
+        ).length;
+    }
+
+    private buildDevMeta(item: CollaborationLogItem): string {
         return [
             this.formatTime(item.timestamp),
-            item.windowRoleLabel,
-            item.historyAction,
-            item.groupedMessageCount && item.groupedMessageCount > 1
-                ? `${item.groupedMessageCount} prompt calls`
-                : null,
             this.formatDuration(item.transactionDurationMs),
             `${item.updateByteLength} B`
         ]
             .filter((part): part is string => !!part)
-            .join(' • ');
+            .join(' · ');
     }
 
     private getUndoContext(): HistoryUndoContext {
-        if (this.currentFeatureContext) {
-            return {
-                scope: 'feature',
-                glyphName: null,
-                layerId: null,
-                historyTargetKey: this.currentFeatureContext.key
-            };
+        // Mirror the main-view undo surface (sticky across History focus).
+        const context = getUndoRedoContext();
+        switch (context.surface) {
+            case 'feature':
+                return {
+                    scope: 'feature',
+                    glyphName: null,
+                    layerId: null,
+                    historyTargetKey: context.historyTargetKey
+                };
+            case 'overview':
+                return {
+                    scope: 'overview',
+                    glyphName: null,
+                    layerId: null,
+                    historyTargetKey: null
+                };
+            case 'font':
+                return {
+                    scope: 'font',
+                    glyphName: null,
+                    layerId: null,
+                    historyTargetKey: null
+                };
+            case 'canvas':
+            default:
+                return {
+                    scope: 'layer',
+                    glyphName: context.undoGlyphName ?? null,
+                    layerId: context.undoLayerId,
+                    historyTargetKey: null
+                };
         }
-
-        if (this.currentGlyphName && this.currentLayerId) {
-            return {
-                scope: 'layer',
-                glyphName: this.currentGlyphName,
-                layerId: this.currentLayerId,
-                historyTargetKey: null
-            };
-        }
-
-        if (this.currentGlyphName) {
-            return {
-                scope: 'glyph',
-                glyphName: this.currentGlyphName,
-                layerId: null,
-                historyTargetKey: null
-            };
-        }
-
-        return {
-            scope: 'font',
-            glyphName: null,
-            layerId: null,
-            historyTargetKey: null
-        };
     }
 
     private formatTime(timestamp: number): string {
@@ -445,6 +825,12 @@ class HistoryViewController {
             this.buildMetadataRow('Window', item.windowRoleLabel),
             this.buildMetadataRow('History action', item.historyAction),
             this.buildMetadataRow('Undo scope', item.undoScope),
+            this.buildMetadataRow(
+                'Originating layer',
+                item.originatingGlyphName && item.originatingLayerId
+                    ? `${item.originatingGlyphName} / ${item.originatingLayerId}`
+                    : null
+            ),
             this.buildMetadataRow('History item', item.historyItemId),
             this.buildMetadataRow(
                 'Prompt calls',

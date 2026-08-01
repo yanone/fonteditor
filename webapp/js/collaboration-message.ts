@@ -3,6 +3,7 @@ import {
     deriveGlyphNameFromPath,
     deriveLayerIdFromPath,
     deriveObjectInfoFromPath,
+    deriveOriginatingLayerFromPaths,
     getPathSegments,
     joinPathWithGlyphSeparator,
     normalizeGlyphRenames,
@@ -80,6 +81,8 @@ export type CollaborationMessageMetadata = {
     historyTargetKey?: string | null;
     historyTargetLabel?: string | null;
     undoScope: UndoScope;
+    originatingGlyphName?: string | null;
+    originatingLayerId?: string | null;
 };
 
 export interface CollaborationMessageEnvelope {
@@ -294,7 +297,16 @@ export function createCollaborationMessageEnvelopeFromChangeLogEntries(
             historyTargetType: entries[0].historyTargetType,
             historyTargetKey: entries[0].historyTargetKey,
             historyTargetLabel: entries[0].historyTargetLabel,
-            undoScope: entries[0].undoScope
+            undoScope: entries[0].undoScope,
+            ...(() => {
+                const origin = deriveOriginatingLayerFromPaths(
+                    entries.map((entry) => entry.path)
+                );
+                return {
+                    originatingGlyphName: origin.glyphName,
+                    originatingLayerId: origin.layerId
+                };
+            })()
         },
         source: options.source,
         label: entries[0].transactionLabel,
@@ -398,7 +410,10 @@ export function createChangeLogEntriesFromCollaborationMessageEnvelope(
             ),
             historyTargetType: envelope.metadata.historyTargetType ?? null,
             historyTargetKey: envelope.metadata.historyTargetKey ?? null,
-            historyTargetLabel: envelope.metadata.historyTargetLabel ?? null
+            historyTargetLabel: envelope.metadata.historyTargetLabel ?? null,
+            originatingGlyphName:
+                envelope.metadata.originatingGlyphName ?? null,
+            originatingLayerId: envelope.metadata.originatingLayerId ?? null
         })
     );
 }

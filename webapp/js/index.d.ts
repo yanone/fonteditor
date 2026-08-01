@@ -52,12 +52,13 @@ declare global {
                   glyphName?: string,
                   refreshRootGlyphName?: string,
                   layerId?: string | null,
-                  historyTargetKey?: string | null
+                  historyTargetKey?: string | null,
+                  surface?: 'canvas' | 'overview' | 'font' | 'feature' | null
               ) => Promise<void>)
             | undefined;
         getHistoryUndoContext:
             | (() => {
-                  scope: 'font' | 'glyph' | 'layer' | 'feature';
+                  scope: 'font' | 'glyph' | 'layer' | 'feature' | 'overview';
                   glyphName: string | null;
                   layerId: string | null;
                   historyTargetKey: string | null;
@@ -69,6 +70,7 @@ declare global {
                   undoGlyphName: string | undefined;
                   undoLayerId: string | null;
                   historyTargetKey: string | null;
+                  surface: 'canvas' | 'overview' | 'font' | 'feature';
               })
             | undefined;
 

@@ -1,30 +1,52 @@
-import { getUndoRedoContext } from '../js/undo-redo-context';
+import {
+    getUndoRedoContext,
+    resetUndoRedoContextStickyState
+} from '../js/undo-redo-context';
 
 describe('getUndoRedoContext', () => {
     const originalGlyphCanvas = window.glyphCanvas;
-    const originalGetHistoryUndoContext = window.getHistoryUndoContext;
+    const originalFontInfoManager = window.fontInfoManager;
     let fontInfoView;
+    let overviewView;
+    let editorView;
     let featuresTab;
 
     beforeEach(() => {
+        resetUndoRedoContextStickyState();
+
         fontInfoView = document.createElement('div');
         fontInfoView.id = 'view-fontinfo';
         document.body.appendChild(fontInfoView);
+
+        overviewView = document.createElement('div');
+        overviewView.id = 'view-overview';
+        document.body.appendChild(overviewView);
+
+        editorView = document.createElement('div');
+        editorView.id = 'view-editor';
+        document.body.appendChild(editorView);
 
         featuresTab = document.createElement('div');
         featuresTab.id = 'fontinfo-features-content';
         featuresTab.style.display = 'none';
         document.body.appendChild(featuresTab);
+
+        window.fontInfoManager = {
+            getHistoryScopeTarget: jest.fn(() => null)
+        };
     });
 
     afterEach(() => {
         window.glyphCanvas = originalGlyphCanvas;
-        window.getHistoryUndoContext = originalGetHistoryUndoContext;
+        window.fontInfoManager = originalFontInfoManager;
+        resetUndoRedoContextStickyState();
         fontInfoView?.remove();
+        overviewView?.remove();
+        editorView?.remove();
         featuresTab?.remove();
     });
 
-    test('prefers active outline editor stack and layer over history-view glyph scope', () => {
+    function setOutlineEditorActive() {
         window.glyphCanvas = {
             outlineEditor: {
                 active: true,
@@ -35,125 +57,97 @@ describe('getUndoRedoContext', () => {
                 ])
             }
         };
-        window.getHistoryUndoContext = jest.fn(() => ({
-            scope: 'glyph',
-            glyphName: 'a',
-            layerId: null,
-            historyTargetKey: null
-        }));
+    }
+
+    test('uses canvas surface when the glyph editor is focused', () => {
+        editorView.classList.add('focused');
+        setOutlineEditorActive();
 
         expect(getUndoRedoContext()).toEqual({
             rootGlyphName: 'a',
             undoGlyphName: 'a.alt',
             undoLayerId: 'layer-1',
-            historyTargetKey: null
+            historyTargetKey: null,
+            surface: 'canvas'
         });
     });
 
-    test('preserves font scope over active outline editor layer context', () => {
-        window.glyphCanvas = {
-            outlineEditor: {
-                active: true,
-                selectedLayerId: 'layer-1',
-                parseGlyphStack: jest.fn(() => [
-                    { glyphName: 'a' },
-                    { glyphName: 'a.alt' }
-                ])
-            }
-        };
-        window.getHistoryUndoContext = jest.fn(() => ({
-            scope: 'font',
-            glyphName: null,
-            layerId: null,
-            historyTargetKey: null
-        }));
-
-        expect(getUndoRedoContext()).toEqual({
-            rootGlyphName: 'a',
-            undoGlyphName: undefined,
-            undoLayerId: null,
-            historyTargetKey: null
-        });
-    });
-
-    test('preserves feature scope over active outline editor layer context', () => {
-        window.glyphCanvas = {
-            outlineEditor: {
-                active: true,
-                selectedLayerId: 'layer-1',
-                parseGlyphStack: jest.fn(() => [
-                    { glyphName: 'a' },
-                    { glyphName: 'a.alt' }
-                ])
-            }
-        };
-        window.getHistoryUndoContext = jest.fn(() => ({
-            scope: 'feature',
-            glyphName: null,
-            layerId: null,
-            historyTargetKey: 'feature:kern'
-        }));
-
-        expect(getUndoRedoContext()).toEqual({
-            rootGlyphName: 'a',
-            undoGlyphName: undefined,
-            undoLayerId: null,
-            historyTargetKey: 'feature:kern'
-        });
-    });
-
-    test('prefers font scope when Font Info view is focused on a non-feature tab', () => {
+    test('uses font scope when Font Info view is focused on a non-feature tab', () => {
         fontInfoView.classList.add('focused');
-        window.glyphCanvas = {
-            outlineEditor: {
-                active: true,
-                selectedLayerId: 'layer-1',
-                parseGlyphStack: jest.fn(() => [
-                    { glyphName: 'a' },
-                    { glyphName: 'a.alt' }
-                ])
-            }
-        };
-        window.getHistoryUndoContext = jest.fn(() => ({
-            scope: 'layer',
-            glyphName: 'a',
-            layerId: 'layer-1',
-            historyTargetKey: null
-        }));
+        setOutlineEditorActive();
 
         expect(getUndoRedoContext()).toEqual({
             rootGlyphName: 'a',
             undoGlyphName: undefined,
             undoLayerId: null,
-            historyTargetKey: null
+            historyTargetKey: null,
+            surface: 'font'
         });
     });
 
-    test('preserves feature scope when Font Info features tab is focused', () => {
+    test('uses feature scope when Font Info features tab is focused with a target', () => {
         fontInfoView.classList.add('focused');
         featuresTab.style.display = 'block';
-        window.glyphCanvas = {
-            outlineEditor: {
-                active: true,
-                selectedLayerId: 'layer-1',
-                parseGlyphStack: jest.fn(() => [
-                    { glyphName: 'a' },
-                    { glyphName: 'a.alt' }
-                ])
-            }
-        };
-        window.getHistoryUndoContext = jest.fn(() => ({
-            scope: 'feature',
-            glyphName: null,
-            layerId: null,
-            historyTargetKey: 'feature:kern'
+        setOutlineEditorActive();
+        window.fontInfoManager.getHistoryScopeTarget = jest.fn(() => ({
+            type: 'feature',
+            key: 'feature:kern',
+            label: 'kern'
         }));
 
         expect(getUndoRedoContext()).toEqual({
             rootGlyphName: 'a',
             undoGlyphName: undefined,
             undoLayerId: null,
-            historyTargetKey: 'feature:kern'
+            historyTargetKey: 'feature:kern',
+            surface: 'feature'
+        });
+    });
+
+    test('uses overview surface when glyph overview is focused', () => {
+        overviewView.classList.add('focused');
+        window.glyphCanvas = {
+            outlineEditor: {
+                active: false,
+                selectedLayerId: null,
+                parseGlyphStack: jest.fn(() => [])
+            }
+        };
+
+        expect(getUndoRedoContext()).toEqual({
+            rootGlyphName: undefined,
+            undoGlyphName: undefined,
+            undoLayerId: null,
+            historyTargetKey: null,
+            surface: 'overview'
+        });
+    });
+
+    test('keeps the last main-view surface when History is focused', () => {
+        overviewView.classList.add('focused');
+        setOutlineEditorActive();
+        expect(getUndoRedoContext().surface).toBe('overview');
+
+        overviewView.classList.remove('focused');
+        // Simulate activating History (no main editing view focused).
+        expect(getUndoRedoContext()).toEqual({
+            rootGlyphName: 'a',
+            undoGlyphName: undefined,
+            undoLayerId: null,
+            historyTargetKey: null,
+            surface: 'overview'
+        });
+    });
+
+    test('does not invent canvas context before any main view is focused', () => {
+        setOutlineEditorActive();
+
+        expect(getUndoRedoContext()).toEqual({
+            rootGlyphName: 'a',
+            undoGlyphName: undefined,
+            undoLayerId: null,
+            historyTargetKey: null,
+            surface: 'font'
         });
     });
 });

@@ -320,8 +320,13 @@ async function triggerUndoRedo(direction: 'undo' | 'redo'): Promise<void> {
     }
 
     const oe = window.glyphCanvas?.outlineEditor;
-    const { rootGlyphName, undoGlyphName, undoLayerId, historyTargetKey } =
-        getUndoRedoContext();
+    const {
+        rootGlyphName,
+        undoGlyphName,
+        undoLayerId,
+        historyTargetKey,
+        surface
+    } = getUndoRedoContext();
     if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
         if (undoGlyphName || undoLayerId) {
             console.warn(
@@ -336,7 +341,8 @@ async function triggerUndoRedo(direction: 'undo' | 'redo'): Promise<void> {
         undoGlyphName,
         rootGlyphName,
         undoLayerId,
-        historyTargetKey
+        historyTargetKey,
+        surface
     );
 }
 

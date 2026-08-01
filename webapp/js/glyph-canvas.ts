@@ -6391,7 +6391,8 @@ class GlyphCanvas {
             rootGlyphName: contextRootGlyphName,
             undoGlyphName: contextUndoGlyphName,
             undoLayerId: contextUndoLayerId,
-            historyTargetKey
+            historyTargetKey,
+            surface
         } = getUndoRedoContext();
         const rootGlyphName = contextRootGlyphName ?? parsedStack[0]?.glyphName;
         const undoGlyphName =
@@ -6418,7 +6419,8 @@ class GlyphCanvas {
             undoGlyphName,
             rootGlyphName,
             undoLayerId,
-            historyTargetKey
+            historyTargetKey,
+            surface
         );
         return true;
     }

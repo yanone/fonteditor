@@ -34,6 +34,7 @@ import {
     normalizeWorkerReplayTargets,
     type ChangeLogEntry,
     type HistoryStackItem,
+    type HistoryUndoSurface,
     type WorkerReplayTarget
 } from './change-log';
 import {
@@ -41,7 +42,6 @@ import {
     inferSidebearingSideFromHistoryItem
 } from './sidebearing-utils';
 import type { TransactionBufferedOperation } from './patch-sync-engine';
-
 const console = new Logger('ChangeBridgeInit');
 let bridgeSyncQueue: Promise<void> = Promise.resolve();
 let committedChangeRefreshQueue: Promise<void> = Promise.resolve();
@@ -2572,7 +2572,8 @@ export function runBridgeUndoRedo(
     glyphName?: string,
     refreshRootGlyphName?: string,
     layerId?: string | null,
-    historyTargetKey?: string | null
+    historyTargetKey?: string | null,
+    surface?: HistoryUndoSurface | null
 ): Promise<void> {
     return enqueueBridgeSync(async () => {
         await window.glyphCanvas?.outlineEditor?.flushPendingKeyboardPreviewCommit?.();
@@ -2671,8 +2672,8 @@ export function runBridgeUndoRedo(
 
         const appliedChange =
             action === 'redo'
-                ? bridge.redo(targetGlyph, layerId, historyTargetKey)
-                : bridge.undo(targetGlyph, layerId, historyTargetKey);
+                ? bridge.redo(targetGlyph, layerId, historyTargetKey, surface)
+                : bridge.undo(targetGlyph, layerId, historyTargetKey, surface);
 
         if (!appliedChange) {
             if (pendingLocalUndoRedoContext === localUndoRedoContext) {
