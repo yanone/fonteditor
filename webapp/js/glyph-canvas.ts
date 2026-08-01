@@ -528,6 +528,12 @@ class GlyphCanvas {
     mouseCanvasY: number = 0;
     cursorVisible: boolean = true;
     private mouseUpFinalization: Promise<void> | null = null;
+    // After Cmd+Tab / app switch, browsers often synthesize a Meta keydown (sometimes
+    // without a matching keyup). Ignore Cmd/Ctrl activation until a fresh press.
+    private commandKeyRequiresFreshPress: boolean = false;
+    private altKeyRequiresFreshPress: boolean = false;
+    private commandKeyActivationSuppressedUntil: number = 0;
+    private altKeyActivationSuppressedUntil: number = 0;
 
     // Measurement tool
     measurementTool!: MeasurementTool; // Initialized in constructor
@@ -994,13 +1000,25 @@ class GlyphCanvas {
                 }
             }
             this.onKeyDown(e);
+            this.noteModifierPointerOrKeyEvent(e);
             if (e.key === 'Alt') {
-                this.outlineEditor.setAltKeyPressed(true);
+                if (this.shouldIgnoreAltKeyActivation()) {
+                    // Consume synthetic post-focus Alt; keep drawing aids off.
+                    this.altKeyRequiresFreshPress = false;
+                } else {
+                    this.outlineEditor.setAltKeyPressed(true);
+                }
             }
             if (e.key === 'Meta' || e.key === 'Control') {
-                this.outlineEditor.setCommandKeyPressed(true);
-                this.updateCursorStyle();
-                this.render();
+                if (this.shouldIgnoreCommandKeyActivation()) {
+                    // Consume synthetic post-focus Meta/Ctrl. Cleared here because
+                    // Cmd+Tab often delivers keydown without a matching keyup.
+                    this.commandKeyRequiresFreshPress = false;
+                } else {
+                    this.outlineEditor.setCommandKeyPressed(true);
+                    this.updateCursorStyle();
+                    this.render();
+                }
             }
         });
         this.canvas!.addEventListener('keyup', (e) => {
@@ -1051,14 +1069,17 @@ class GlyphCanvas {
             }
 
             if (e.key === 'Alt') {
+                this.altKeyRequiresFreshPress = false;
                 this.outlineEditor.setAltKeyPressed(false);
             }
             if (e.key === 'Meta' || e.key === 'Control') {
+                this.commandKeyRequiresFreshPress = false;
                 this.outlineEditor.setCommandKeyPressed(false);
                 this.updateCursorStyle();
                 this.render();
             }
 
+            this.noteModifierPointerOrKeyEvent(e);
             this.outlineEditor.onKeyUp(e);
         });
 
@@ -1068,6 +1089,7 @@ class GlyphCanvas {
             this.isDraggingCanvas = false;
             this.outlineEditor.onBlur();
             this.outlineEditor.setAltKeyPressed(false);
+            this.armModifierKeyFocusSuppression();
             if (this.canvas) {
                 this.canvas.style.cursor = this.outlineEditor.active
                     ? 'default'
@@ -1076,13 +1098,17 @@ class GlyphCanvas {
         });
 
         // Reset modifier key states when window regains focus (e.g., Cmd+Tab back to app).
-        // Without this, the app behaves as if Cmd/Ctrl is still held after switching back
-        // because the keyup for the modifier may fire before focus returns or may be
-        // intercepted by the OS. Resetting on focus ensures a clean slate — the user
-        // must press the modifier key again within the app to activate Cmd/Ctrl features.
+        // Clearing alone is not enough: after focus, browsers often synthesize a Meta
+        // keydown for the Cmd still (or previously) held by the app switcher, sometimes
+        // without a matching keyup. Arm suppression so activation requires a fresh press.
         window.addEventListener('focus', () => {
-            this.outlineEditor.setCommandKeyPressed(false);
-            this.outlineEditor.setAltKeyPressed(false);
+            this.resetModifiersAfterWindowActivation();
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                this.resetModifiersAfterWindowActivation();
+            }
         });
 
         // Also reset when canvas loses focus
@@ -1568,6 +1594,58 @@ class GlyphCanvas {
         return false;
     }
 
+    /**
+     * After window activation (Cmd+Tab, etc.), clear Cmd/Alt drawing state and
+     * require a fresh modifier press. Synthetic Meta keydowns often arrive after
+     * focus without a matching keyup, which previously re-armed command drawing.
+     */
+    private armModifierKeyFocusSuppression(): void {
+        this.commandKeyRequiresFreshPress = true;
+        this.altKeyRequiresFreshPress = true;
+        // Cover delayed synthetic Meta events after focus/visibility returns.
+        const suppressUntil = performance.now() + 500;
+        this.commandKeyActivationSuppressedUntil = suppressUntil;
+        this.altKeyActivationSuppressedUntil = suppressUntil;
+    }
+
+    private resetModifiersAfterWindowActivation(): void {
+        this.outlineEditor.setCommandKeyPressed(false);
+        this.outlineEditor.setAltKeyPressed(false);
+        this.armModifierKeyFocusSuppression();
+        // Beat synthetic Meta keydowns that race after the focus/visibility event.
+        for (const delayMs of [0, 50, 100, 250]) {
+            window.setTimeout(() => {
+                this.outlineEditor.setCommandKeyPressed(false);
+                this.outlineEditor.setAltKeyPressed(false);
+            }, delayMs);
+        }
+    }
+
+    private shouldIgnoreCommandKeyActivation(): boolean {
+        return (
+            this.commandKeyRequiresFreshPress ||
+            performance.now() < this.commandKeyActivationSuppressedUntil
+        );
+    }
+
+    private shouldIgnoreAltKeyActivation(): boolean {
+        return (
+            this.altKeyRequiresFreshPress ||
+            performance.now() < this.altKeyActivationSuppressedUntil
+        );
+    }
+
+    private noteModifierPointerOrKeyEvent(
+        e: Pick<KeyboardEvent | MouseEvent, 'metaKey' | 'ctrlKey' | 'altKey'>
+    ): void {
+        if (!e.metaKey && !e.ctrlKey) {
+            this.commandKeyRequiresFreshPress = false;
+        }
+        if (!e.altKey) {
+            this.altKeyRequiresFreshPress = false;
+        }
+    }
+
     private shouldHandleMeasurementTabGlobally(event: KeyboardEvent): boolean {
         if (event.key !== 'Tab') {
             return false;
@@ -2010,7 +2088,10 @@ class GlyphCanvas {
 
         // Focus the canvas when clicked
         this.canvas!.focus();
-        this.outlineEditor.setCommandKeyPressed(e.metaKey || e.ctrlKey);
+        this.noteModifierPointerOrKeyEvent(e);
+        this.outlineEditor.setCommandKeyPressed(
+            (e.metaKey || e.ctrlKey) && !this.shouldIgnoreCommandKeyActivation()
+        );
 
         // Refresh mouse position + hover targets at click time.
         // Double-click handling relies on hovered* state and can otherwise use stale values
@@ -2232,6 +2313,10 @@ class GlyphCanvas {
 
     onMouseMoveHover(e: MouseEvent): void {
         if (this.outlineEditor.draggingSomething) return; // Don't detect hover while dragging
+
+        // Clear post-focus Cmd/Alt suppression once the modifier is no longer held
+        // (covers synthetic Meta keydowns that never receive a keyup).
+        this.noteModifierPointerOrKeyEvent(e);
 
         const rect = this.canvas!.getBoundingClientRect();
         // Store both canvas and client coordinates
