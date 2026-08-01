@@ -326,13 +326,6 @@ type LayerSyncMetadata = {
     compileEditType?: string | null;
     visualAnchorSide?: 'left' | 'right' | null;
     workerReplayTargets?: WorkerReplayTarget[];
-    /**
-     * Layer snapshots are authoritative outline state. Yjs/Yrs must receive
-     * shapes as one replacement rather than nested `shapes[i].nodes` Y.Text
-     * edits: repeated nested node deltas can diverge in the Rust worker and
-     * append duplicate parent shapes while the browser Y.Doc stays correct.
-     */
-    forceAtomicShapes?: boolean;
 };
 
 const INDEXED_ARRAY_ORDER_KEYS: Record<string, string> = {
@@ -1573,8 +1566,7 @@ export class PatchSyncEngine {
                         compileChangeSource,
                         compileEditType,
                         visualAnchorSide,
-                        workerReplayTargets,
-                        forceAtomicShapes: true
+                        workerReplayTargets
                     }
                 )
             );
@@ -1708,8 +1700,7 @@ export class PatchSyncEngine {
                         compileChangeSource,
                         compileEditType,
                         visualAnchorSide,
-                        workerReplayTargets,
-                        forceAtomicShapes: true
+                        workerReplayTargets
                     }
                 )
             );
@@ -1937,8 +1928,12 @@ export class PatchSyncEngine {
         }
 
         const lastSegment = path[path.length - 1];
+        // Shapes are always replaced atomically. Nested shapes[i].nodes (or
+        // other per-shape field) ops can diverge in Rust/Yrs and append
+        // duplicate parent shapes while the browser Y.Doc stays correct.
+        // Anchors/guides stay on the indexed-map path below; full shape
+        // identity migration is tracked in YDOC_SHAPE_IDENTITY_MIGRATION.md.
         if (
-            metadata.forceAtomicShapes &&
             lastSegment === 'shapes' &&
             Array.isArray(previousValue) &&
             Array.isArray(nextValue)

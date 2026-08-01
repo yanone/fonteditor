@@ -191,7 +191,7 @@ If commit is correct and a pure-model sequential rebuild test is green, **do not
 
 ## Open risks / follow-ups
 
-- **Anchor mouseup** still may preserve overlay (`preserveCompileFacingOverlay` for `anchor` only). Same class of race is possible; consider the same session/clear treatment if anchor drag-2 drifts.
+- **Anchor mouseup** now mirrors sidebearing: keep `isDraggingAnchor` through drain/Yjs, and always `clearLiveDragPreview()` (no overlay preserve). Watch for remaining Yrs duplicate-shape worker drift (`YDOC_SHAPE_IDENTITY_MIGRATION.md`).
 - **Keyboard sidebearing** uses a different funnel (`keyboard-preview-edit-funnel`); confirm it does not clear session mid-burst the same way.
 - No full Playwright covering two real LSB drags with auto `adieresis` in-browser; Jest covers payloads/session, not HB glyph path pixels.
 - Uncommitted working-tree changes (session lifetime, funnel guard, tests, docs) need a deliberate commit when ready — do not assume `main` has Round E until landed.

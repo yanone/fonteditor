@@ -101,10 +101,10 @@ a local font clone only — never into `Y_DOC` / canonical / subset caches.
 compiles stay physically correct via the bake, not via overlay retention.
 Each overlay stage replaces the prior physical overlay atomically, preventing
 drag-one component snapshots from surviving into drag two.
-Sidebearing mouseup must keep `isDraggingSidebearing` true through
-drain → final refresh → Yjs, then explicitly `clearLiveDragPreview()` so
-in-flight live funnel stages still compile under the sidebearing
-no-reshape contract and drag-2 cannot inherit an orphaned physical overlay.
+Sidebearing and anchor mouseup must keep `isDraggingSidebearing` /
+`isDraggingAnchor` true through drain → final refresh → Yjs, then explicitly
+`clearLiveDragPreview()` so in-flight live funnel stages still compile under
+the correct live contract and drag-2 cannot inherit an orphaned physical overlay.
 If a sidebearing/anchor funnel stage completes after the session dies, the
 funnel must clear that orphaned overlay rather than leave it for the next drag.
 Live preview staging must never write compile-facing (`toCompileJSON`) layers

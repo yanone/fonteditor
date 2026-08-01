@@ -3057,6 +3057,17 @@ export class OutlineEditor {
         glyphName: string;
         layerId: string;
     }> = [];
+    /**
+     * Automatic composites (and other model-mutated dependents) touched during
+     * the live anchor drag. Commit-time `scope:'all'` rebuild is often a no-op
+     * for those layers because live already converged them; without this stash
+     * they are omitted from `changedLayerTargets` and the worker keeps pre-drag
+     * composite transforms (stale compiled Adieresis mark).
+     */
+    private _lastLiveAnchorRecomposeTargets: Array<{
+        glyphName: string;
+        layerId: string;
+    }> = [];
     private _liveAnchorPreviewGeneration: number = 0;
     private _anchorAffectedGlyphNames: Set<string> = new Set();
     private _committedOutlineAffectedGlyphNames: Set<string> = new Set();
@@ -5898,6 +5909,8 @@ export class OutlineEditor {
         this._cachedAnchorDragScopeSourceGlyphName = null;
         this._cachedAnchorDragScopeVisibleKey = '';
         this._cachedAnchorDragScopeGlyphNames = null;
+        this._lastLiveAnchorPreviewTargets = [];
+        this._lastLiveAnchorRecomposeTargets = [];
         this.resetLiveOutlineRefreshState();
         this.resetLiveSidebearingRefreshState();
     }
@@ -5964,6 +5977,13 @@ export class OutlineEditor {
         });
         this._anchorAffectedGlyphNames = closure.affectedGlyphNames;
         this._lastLiveAnchorPreviewTargets = closure.allTargets;
+        // Union across ticks: the final live prepare can be a no-op once the
+        // model has already converged, but earlier ticks still mutated
+        // dependents that commit must snapshot.
+        this._lastLiveAnchorRecomposeTargets = normalizeWorkerReplayTargets([
+            ...this._lastLiveAnchorRecomposeTargets,
+            ...closure.recomposeTargets
+        ]);
         this._liveAnchorPreviewGeneration++;
         return closure.allTargets.length > 0;
     }
@@ -13873,11 +13893,13 @@ export class OutlineEditor {
 
         // Capture drag state before clearing drag flags
         const dragType = this._dragType;
-        // Keep the sidebearing session flag alive through drain → final
-        // refresh → Yjs. Clearing it earlier aborts the live funnel after
-        // staging and lets in-flight preview compiles reshape outside the
-        // sidebearing no-reshape contract (drag-2 adieresis RSB drift).
+        // Keep sidebearing/anchor session flags alive through drain → final
+        // refresh → Yjs. Clearing them earlier aborts the live funnel after
+        // staging and can orphan a physical overlay into the next drag
+        // (sidebearing: reshape outside no-reshape; anchor: stale mark /
+        // worker shape drift on automatic composites).
         const endingSidebearingDrag = dragType === 'sidebearing';
+        const endingAnchorDrag = dragType === 'anchor';
         const preDragDesc = this._preDragDesc;
         const draggedGuideScope = this.selectedGuideHandle?.scope ?? null;
         const wasSnappedToClose = this.isSnappedToCloseOpenPath;
@@ -13900,7 +13922,9 @@ export class OutlineEditor {
         this._dragConnectionSourcePoint = null;
         this._dragStartPointPosition = null;
         this._dragSeparatedFromCoincidentEndpointPair = false;
-        this.isDraggingAnchor = false;
+        if (!endingAnchorDrag) {
+            this.isDraggingAnchor = false;
+        }
         this.isDraggingComponent = false;
         if (!endingSidebearingDrag) {
             this.isDraggingSidebearing = false;
@@ -14183,8 +14207,19 @@ export class OutlineEditor {
                                   } ${postDragDesc}`
                                 : postDragDesc;
                         if (dragType === 'anchor') {
-                            this._anchorAffectedGlyphNames =
+                            // Live prepare already mutated visible automatic
+                            // dependents under runWithoutRecording. Commit
+                            // rebuild is often a no-op — union with the live
+                            // affected set instead of replacing it with [].
+                            const liveAnchorAffectedGlyphNames = new Set(
+                                this._anchorAffectedGlyphNames
+                            );
+                            const rebuiltAnchorGlyphNames =
                                 this.rebuildAutomaticCompositesForCurrentEditedGlyph();
+                            this._anchorAffectedGlyphNames = new Set([
+                                ...liveAnchorAffectedGlyphNames,
+                                ...rebuiltAnchorGlyphNames
+                            ]);
                             const anchorCascadeLayerId =
                                 this.getCurrentLayerId() ??
                                 this.selectedLayerId;
@@ -14279,7 +14314,10 @@ export class OutlineEditor {
                             ({ changedLayerTargets, workerReplayTargets } =
                                 resolveLayerSyncTargetsFromClosure(
                                     closure,
-                                    sourceTarget
+                                    sourceTarget,
+                                    dragType === 'anchor'
+                                        ? this._lastLiveAnchorRecomposeTargets
+                                        : []
                                 ));
                         }
                         this._syncCurrentGlyphToYDoc(
@@ -14322,20 +14360,17 @@ export class OutlineEditor {
                 endDragTransaction();
                 throw error;
             } finally {
-                // Sidebearing: always clear the worker overlay after Yjs so
-                // drag-2 cannot inherit a prior physical generation.
-                // Anchor may still rely on Yjs clear alone (preserve).
-                const preserveCompileFacingOverlay = dragType === 'anchor';
-                if (!preserveCompileFacingOverlay) {
-                    fontManager.clearLiveDragPreview();
-                }
+                // Always clear the worker overlay after Yjs so drag-2 cannot
+                // inherit a prior physical generation (sidebearing + anchor).
+                fontManager.clearLiveDragPreview();
                 this._pointDragDeltaX = 0;
                 this._componentDragDeltaX = 0;
                 this._sidebearingAffectedGlyphNames = new Set();
                 this._anchorAffectedGlyphNames = new Set();
                 this._committedOutlineAffectedGlyphNames = new Set();
+                // End sessions only after drain/Yjs/overlay clear.
+                this.isDraggingAnchor = false;
                 this.resetLiveAnchorRefreshState();
-                // End the sidebearing session only after drain/Yjs/overlay clear.
                 this.isDraggingSidebearing = false;
                 this.resetLiveSidebearingRefreshState();
                 this._hasMoved = false;

@@ -7,7 +7,8 @@
  *   - `invalidateTargets` are stamped only as workerReplayTargets
  *   - Manual composites keep stored width/translates when the base LSB changes
  *   - Automatic composites still recompose from base metrics / anchors
- *   - Irrelevant / unused anchors do not expand recompose targets
+ *   - Anchor commits persist automatic dependents even after a no-op rebuild
+ *     (orphan anchors do not mutate marks, but still snapshot autos for Yjs)
  *   - Metrics-key dependents still recompose on sidebearing and outline edits
  *   - Bridge finalizer infers edit kinds and writes only recompose targets
  */
@@ -585,11 +586,13 @@ describe('lean cascading layer recomposition', () => {
         expect(auto.width).toBe(autoWidthAfterLive);
     });
 
-    test('unused orphan anchor does not recompose component dependents', () => {
+    test('unused orphan anchor does not mutate automatic composites but still persists them', () => {
         const font = makeLeanRecompositionFont();
         font.findGlyph('adieresisAuto')
             .findLayerById('ada0')
             .rebuildAutomaticComposition();
+        const auto = font.findGlyph('adieresisAuto').findLayerById('ada0');
+        const markBefore = getComponentTranslation(auto, 1);
 
         const orphan = font
             .findGlyph('a')
@@ -607,13 +610,58 @@ describe('lean cascading layer recomposition', () => {
             sourceGlyphName: 'a'
         });
 
-        expect(closure.recomposeTargets).toEqual([]);
-        expect(closure.recomposeGlyphNames.size).toBe(0);
+        // Orphan anchors do not move marks, but commit must still snapshot
+        // automatic dependents so a prior live converge cannot leave Yjs stale.
+        expect(getComponentTranslation(auto, 1)).toEqual(markBefore);
+        expect(closure.recomposeGlyphNames.has('adieresisAuto')).toBe(true);
+        expect(closure.recomposeGlyphNames.has('adieresisManual')).toBe(false);
         expect([...closure.invalidateGlyphNames].sort()).toEqual(
-            expect.arrayContaining(['adieresisManual', 'adieresisAuto'])
+            expect.arrayContaining(['adieresisManual'])
         );
         // Anchor-only must not run metrics-key inheritance.
         expect(closure.recomposeGlyphNames.has('n')).toBe(false);
+    });
+
+    test('anchor commit still persists automatic composites after a no-op rebuild', () => {
+        const font = makeLeanRecompositionFont();
+        const auto = font.findGlyph('adieresisAuto').findLayerById('ada0');
+        auto.rebuildAutomaticComposition();
+
+        const top = font
+            .findGlyph('a')
+            .findLayerById('a0')
+            .anchors.find((anchor) => anchor.name === 'top');
+        top.y = 760;
+        // Live pass applies the mark move.
+        font.rebuildAutomaticCompositesForGlyphs(new Set(['a']));
+        const markAfterLive = getComponentTranslation(auto, 1);
+
+        // Commit-time closure after live already converged: rebuild reports
+        // no further mutations, but changedLayerTargets must still include
+        // the automatic composite for Yjs persistence.
+        const rebuildSpy = jest
+            .spyOn(font, 'rebuildAutomaticCompositesForGlyphs')
+            .mockReturnValue(new Set());
+        const closure = computeLayerRecompositionClosure({
+            sourceTargets: [{ glyphName: 'a', layerId: 'a0' }],
+            editKinds: new Set(['anchor']),
+            scope: 'all',
+            fontModel: font,
+            activeLayerId: 'a0',
+            sourceGlyphName: 'a'
+        });
+
+        expect(rebuildSpy).toHaveBeenCalled();
+        expect(closure.recomposeGlyphNames.has('adieresisAuto')).toBe(true);
+        expect(closure.recomposeGlyphNames.has('adieresisManual')).toBe(false);
+        expect(
+            resolveLayerSyncTargetsFromClosure(closure, [
+                { glyphName: 'a', layerId: 'a0' }
+            ]).changedLayerTargets.some(
+                (target) => target.glyphName === 'adieresisAuto'
+            )
+        ).toBe(true);
+        expect(getComponentTranslation(auto, 1)).toEqual(markAfterLive);
     });
 
     test('composition-relevant top anchor recomposes automatic dependents only', () => {

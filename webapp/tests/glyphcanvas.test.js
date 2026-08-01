@@ -1820,6 +1820,97 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
+    test('anchor mouseup keeps session through drain and clears preview overlay', async () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const originalClearLiveDragPreview = fontManager.clearLiveDragPreview;
+        let sawDraggingDuringDrain = false;
+        const clearLiveDragPreviewSpy = jest.fn();
+        const drainLiveRefreshSpy = jest
+            .spyOn(
+                canvas.outlineEditor.liveDragEditFunnel,
+                'drainAndClearQueued'
+            )
+            .mockImplementation(async () => {
+                sawDraggingDuringDrain = canvas.outlineEditor.isDraggingAnchor;
+            });
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockImplementation(() => {});
+        const syncSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+        const closureSpy = jest
+            .spyOn(canvas.outlineEditor, 'computeRecompositionClosure')
+            .mockReturnValue({
+                recomposeTargets: [],
+                invalidateTargets: [],
+                allTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            });
+        const updatePropertyPanelSpy = jest
+            .spyOn(canvas, 'updatePropertyPanel')
+            .mockImplementation(() => {});
+        const glyphModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentGlyphModel')
+            .mockReturnValue({ name: 'A' });
+        const buildAnchorDescSpy = jest
+            .spyOn(canvas.outlineEditor, '_buildAnchorDesc')
+            .mockReturnValue('top: 205,805');
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn(),
+                recordChange: jest.fn(),
+                recordAdd: jest.fn(),
+                recordRemove: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+            fontManager.clearLiveDragPreview = clearLiveDragPreviewSpy;
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.selectedAnchors = [0];
+            canvas.outlineEditor.layerData = {
+                width: 617,
+                shapes: [],
+                anchors: [{ name: 'top', x: 205, y: 805 }]
+            };
+            canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+                { glyphName: 'A' }
+            ]);
+            canvas.getCurrentGlyphName = jest.fn(() => 'A');
+            canvas.outlineEditor.isDraggingAnchor = true;
+            canvas.outlineEditor._dragType = 'anchor';
+            canvas.outlineEditor._hasMoved = true;
+            canvas.outlineEditor._preDragDesc = 'top: 200,800';
+
+            await canvas.outlineEditor.onMouseUp({ clientX: 10, clientY: 20 });
+
+            expect(sawDraggingDuringDrain).toBe(true);
+            expect(clearLiveDragPreviewSpy).toHaveBeenCalled();
+            expect(canvas.outlineEditor.isDraggingAnchor).toBe(false);
+            expect(syncSpy).toHaveBeenCalled();
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            fontManager.clearLiveDragPreview = originalClearLiveDragPreview;
+            drainLiveRefreshSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+            syncSpy.mockRestore();
+            closureSpy.mockRestore();
+            updatePropertyPanelSpy.mockRestore();
+            glyphModelSpy.mockRestore();
+            buildAnchorDescSpy.mockRestore();
+        }
+    });
+
     test('sidebearing mouseup discards queued live refresh frames before final YDoc sync', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalCurrentFont = fontManager.currentFont;

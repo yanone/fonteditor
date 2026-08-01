@@ -564,13 +564,18 @@ export function computeLayerRecompositionClosure(options: {
     // Persist automatic composites / metrics-key dependents even when the
     // rebuild/metrics pass is a no-op. Live drag may already have applied the
     // derived state; omitting those layers from changedLayerTargets leaves
-    // stale Yjs data that post-commit model reload can clobber back in.
-    // Anchor-only edits only expand when rebuild already reported a mutation,
-    // so unused/orphan anchors do not re-snapshot every automatic dependent.
+    // stale Yjs data that post-commit overlay clear reveals as a rollback
+    // (e.g. Adieresis mark stuck at the pre-drag transform).
+    //
+    // Anchor edits must expand the same way as sidebearing/outline: after a
+    // live visible-scope converge, commit-time rebuild returns [] even when
+    // composition-relevant anchors moved. Gating on rebuild mutations here
+    // was the stale-compiled-mark bug.
     const shouldPersistAutomaticDependents =
         editKinds.has('sidebearing') ||
         editKinds.has('outline') ||
         editKinds.has('component') ||
+        editKinds.has('anchor') ||
         [...recomposeGlyphNames].some(
             (glyphName) => !sourceGlyphNames.has(glyphName)
         );

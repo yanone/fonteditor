@@ -42,9 +42,10 @@ The duplicated worker shapes carried the same stable IDs as the originals.
 
 ## Current Containment
 
-Committed layer snapshots currently force an atomic replacement of `shapes`.
-This avoids the corrupting repeated nested node update and is the safe active
-transport until this migration is complete.
+Committed layer snapshots always replace `shapes` atomically during granular
+layer sync. Nested `shapes[i].nodes` (and other per-shape field) ops are not
+emitted from the layer-snapshot path: they can diverge in the Rust worker and
+append duplicate parent shapes while the browser Y.Doc stays correct.
 
 ```text
 committed snapshot: set layer.shapes
@@ -52,7 +53,9 @@ not:                set layer.shapes[index].nodes
 ```
 
 This is intentionally a containment mechanism, not the desired long-term
-schema. It sends more data than a granular path update.
+schema. It sends more data than a granular path update. There is no opt-out;
+callers must not reintroduce nested shape addressing until the indexed-shape
+migration below has landed and the browser↔Rust convergence test passes.
 
 ---
 
@@ -157,8 +160,8 @@ external source formats that do not support them.
 2. Extend `_adoptIndexedLayerIds` to adopt shape IDs by stable order only at
    the legacy migration boundary.
 3. Use indexed shape updates for granular path/component changes.
-4. Remove atomic committed `shapes` containment only after worker convergence
-   tests pass.
+4. Remove unconditional atomic `shapes` containment only after worker
+   convergence tests pass.
 5. Audit undo/redo and remote replay so replay values preserve shape IDs in
    Y.Doc but external source serialization strips them.
 
@@ -255,8 +258,8 @@ engine or worker snapshot target selection.
    migration transaction.
 2. Test fresh document, legacy document, remote peer, undo/redo, and worker
    state convergence.
-3. Remove atomic `shapes` containment only after the browser-to-Rust test is
-   reliable.
+3. Remove unconditional atomic `shapes` containment only after the
+   browser-to-Rust test is reliable.
 4. Retain flat-shape read compatibility for old documents until a separate
    compatibility policy retires it.
 
