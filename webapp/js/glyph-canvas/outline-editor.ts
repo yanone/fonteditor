@@ -6579,110 +6579,90 @@ export class OutlineEditor {
         this.applyBoundingBoxCenterScreenAnchor(anchorScreen);
     }
 
-    private syncStructuralGlyphChangeTransaction(
-        changeLabel: string,
-        currentGlyphName: string | null | undefined,
-        affectedGlyphNames: Set<string>,
-        options: {
+    /**
+     * Commit a structural outline edit through the same producer as point-drag
+     * / keyboard outline: storage sync → outline closure → `_syncCurrentGlyphToYDoc`
+     * with full `workerReplayTargets` (source ∪ recompose ∪ invalidate).
+     */
+    private commitStructuralOutlineChange(
+        label: string,
+        options?: {
             reuseTransaction?: boolean;
-            layerId?: string | null;
-            layerTargets?: Array<{ glyphName: string; layerId: string }>;
-            preferLayerSync?: boolean;
-            skipGlyphSnapshot?: boolean;
-            previousGlyphSnapshot?: Record<string, unknown> | null;
-        } = {}
+            compileChangeSource?: string;
+            layerTargets?: Array<{
+                glyphName: string;
+                layerId: string;
+            }>;
+        }
     ): void {
         const bridge = window.patchSyncEngine;
-        if (!bridge || !currentGlyphName) {
+        const glyphName =
+            this.getCurrentGlyphModel()?.name ||
+            this.glyphCanvas.getCurrentGlyphName();
+        const activeLayerId = this.getCurrentLayerId() ?? this.selectedLayerId;
+        if (!bridge || !glyphName || !activeLayerId) {
             return;
         }
 
-        // When skipGlyphSnapshot is true, the model ops have already
-        // recorded granular id-based entries through the normal
-        // recordChange → setYPath path (inside a caller-managed
-        // transaction).  No whole-glyph snapshot via syncGlyphFromJson
-        // is needed.
-        if (options.skipGlyphSnapshot) {
-            return;
-        }
-
-        if (!this.prepareCommittedStructuralOutlineChange()) {
-            return;
-        }
-
-        const glyphNames = Array.from(
-            new Set([
-                currentGlyphName,
-                ...Array.from(affectedGlyphNames || []).filter(Boolean)
-            ])
+        const compileChangeSource =
+            options?.compileChangeSource ?? 'keyboard-outline';
+        const structuralTargets = normalizeWorkerReplayTargets(
+            options?.layerTargets?.length
+                ? options.layerTargets
+                : this.getCurrentGlyphStructuralLayerTargets()
         );
 
-        if (!options.reuseTransaction) {
-            bridge.beginTransaction(changeLabel);
+        if (
+            !this.prepareCommittedStructuralOutlineChange(compileChangeSource, {
+                layerTargets: structuralTargets.length
+                    ? structuralTargets
+                    : undefined
+            })
+        ) {
+            return;
         }
 
-        try {
-            const syncLayerTargets = normalizeWorkerReplayTargets(
-                options.layerTargets
-            );
-            const useGlyphSnapshotForSameGlyphLayers =
-                !options.preferLayerSync &&
-                syncLayerTargets.length > 1 &&
-                glyphNames.length === 1 &&
-                syncLayerTargets.every(
-                    (target) => target.glyphName === currentGlyphName
-                );
+        const closureSourceTargets = [{ glyphName, layerId: activeLayerId }];
+        const closure = this.computeRecompositionClosure({
+            sourceTargets: closureSourceTargets,
+            editKinds: new Set(['outline']),
+            scope: 'all',
+            activeLayerId
+        });
+        const { changedLayerTargets, workerReplayTargets } =
+            resolveLayerSyncTargetsFromClosure(closure, closureSourceTargets);
 
-            if (
-                useGlyphSnapshotForSameGlyphLayers &&
-                typeof bridge.syncGlyphFromJson === 'function'
-            ) {
-                bridge.syncGlyphFromJson(
-                    currentGlyphName,
-                    changeLabel,
-                    undefined,
-                    undefined,
-                    undefined,
-                    undefined,
-                    syncLayerTargets,
-                    undefined,
-                    undefined,
-                    undefined,
-                    options.previousGlyphSnapshot ?? undefined
-                );
-            } else if (
-                syncLayerTargets.length > 0 &&
-                typeof bridge.syncLayersFromJson === 'function'
-            ) {
-                bridge.syncLayersFromJson(syncLayerTargets, changeLabel);
-            } else if (
-                glyphNames.length > 1 &&
-                typeof bridge.syncGlyphsFromJson === 'function'
-            ) {
-                bridge.syncGlyphsFromJson(glyphNames, changeLabel);
-            } else {
-                const syncLayerId = Object.prototype.hasOwnProperty.call(
-                    options,
-                    'layerId'
-                )
-                    ? options.layerId
-                    : this.getCurrentLayerId();
-                bridge.syncGlyphFromJson(
-                    currentGlyphName,
-                    changeLabel,
-                    undefined,
-                    undefined,
-                    syncLayerId,
-                    undefined,
-                    undefined,
-                    undefined,
-                    undefined,
-                    undefined,
-                    options.previousGlyphSnapshot ?? undefined
-                );
-            }
+        // Linked structural layers on the edited glyph must be snapshotted
+        // alongside cascade recomposes; invalidate-only manuals stay replay-only.
+        const finalChangedLayerTargets = normalizeWorkerReplayTargets([
+            ...structuralTargets,
+            ...changedLayerTargets
+        ]);
+        const finalWorkerReplayTargets = normalizeWorkerReplayTargets([
+            ...structuralTargets,
+            ...workerReplayTargets
+        ]);
+
+        const startedTransaction = !options?.reuseTransaction;
+        if (startedTransaction) {
+            bridge.beginTransaction(label);
+        }
+        try {
+            this._syncCurrentGlyphToYDoc(
+                label,
+                undefined,
+                undefined,
+                null,
+                {
+                    changedLayerTargets: finalChangedLayerTargets,
+                    workerReplayTargets: finalWorkerReplayTargets
+                },
+                this.getCommittedCompileMetadata(compileChangeSource)
+            );
         } finally {
-            bridge.endTransaction();
+            if (startedTransaction) {
+                bridge.endTransaction();
+            }
         }
     }
 
@@ -14171,17 +14151,10 @@ export class OutlineEditor {
                         // effective value (e.g. point dragged out and back). Skip
                         // Yjs/history sync to avoid no-op history entries.
                     } else if (dragType === 'slide-point') {
-                        const currentGlyphModel = this.getCurrentGlyphModel();
-                        this.syncStructuralGlyphChangeTransaction(
-                            label,
-                            currentGlyphModel?.name,
-                            new Set(
-                                [currentGlyphModel?.name].filter(
-                                    (name): name is string => !!name
-                                )
-                            ),
-                            { layerId: null }
-                        );
+                        this.commitStructuralOutlineChange(label, {
+                            reuseTransaction: true,
+                            compileChangeSource: 'mouse-drag-outline'
+                        });
                     } else if (!(
                         dragType === 'guide' && draggedGuideScope === 'master'
                     )) {
@@ -15337,18 +15310,14 @@ export class OutlineEditor {
             }
 
             if (insertedNodeIndex !== null) {
-                this.prepareCommittedStructuralOutlineChange();
+                this.commitStructuralOutlineChange('Add point', {
+                    reuseTransaction: true,
+                    layerTargets: structuralLayerTargets
+                });
             }
         } finally {
             if (_addPtBridge) _addPtBridge.endTransaction();
         }
-
-        this.syncStructuralGlyphChangeTransaction(
-            'Add point',
-            currentGlyphModel.name,
-            new Set<string>([currentGlyphModel.name]),
-            { layerId: null, skipGlyphSnapshot: true }
-        );
 
         if (insertedNodeIndex === null) {
             return;
@@ -16074,14 +16043,19 @@ export class OutlineEditor {
                         mutate(linkedPath, layerIndex + 1);
                     }
 
-                    this.prepareCommittedStructuralOutlineChange();
+                    this.commitStructuralOutlineChange(label, {
+                        reuseTransaction: true,
+                        layerTargets: layerTargets.length
+                            ? layerTargets
+                            : undefined
+                    });
                 }
             } finally {
                 bridge.endTransaction();
             }
             if (!changed) return false;
         } else {
-            // Legacy fallback: suppress recording + syncGlyphFromJson.
+            // Legacy fallback: suppress recording then commit via closure.
             // All callers now pass granularSync: true; this branch
             // remains as a safety net for edge cases.
             withSuppressedModelRecording(() => {
@@ -16099,15 +16073,9 @@ export class OutlineEditor {
                 }
             });
             if (!changed) return false;
-            this.syncStructuralGlyphChangeTransaction(
-                label,
-                currentGlyphModel.name,
-                new Set<string>([currentGlyphModel.name]),
-                {
-                    layerId: null,
-                    layerTargets: layerTargets.length ? layerTargets : undefined
-                }
-            );
+            this.commitStructuralOutlineChange(label, {
+                layerTargets: layerTargets.length ? layerTargets : undefined
+            });
         }
 
         this.syncCurrentExactLayerDataFromModel();
@@ -16911,31 +16879,13 @@ export class OutlineEditor {
     }
 
     /**
-     * Commit a structural single-path cut or split to the bridge, refresh
-     * exact layer data, schedule a structural recompile, select the node
-     * produced by the operation, re-render, and queue the deferred cache
-     * rebuild.  Used by both openClosedPathAtNode and splitOpenPathAtNode.
+     * After a structural cut/split has already been committed to Yjs, refresh
+     * exact layer data, select the produced node, and re-render.
      */
     private _finalizePathCutOrSplitEdit(
-        label: string,
         currentGlyphModel: any,
-        selectedPoint: Point,
-        previousGlyphSnapshot?: Record<string, unknown> | null
+        selectedPoint: Point
     ): void {
-        const layerTargets = this.getCurrentGlyphStructuralLayerTargets();
-        this.syncStructuralGlyphChangeTransaction(
-            label,
-            currentGlyphModel.name,
-            new Set<string>([currentGlyphModel.name]),
-            layerTargets.length > 1
-                ? {
-                      layerId: null,
-                      layerTargets,
-                      previousGlyphSnapshot: previousGlyphSnapshot ?? null
-                  }
-                : { layerId: null, skipGlyphSnapshot: true }
-        );
-
         this.syncCurrentExactLayerDataFromModel();
 
         this.suppressSelectedEndpointCommandSeedUntilCommandRelease = true;
@@ -16948,7 +16898,7 @@ export class OutlineEditor {
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
 
-        if (!fontManager.currentFont && currentGlyphModel.name) {
+        if (!fontManager.currentFont && currentGlyphModel?.name) {
             window.dispatchEvent(
                 new CustomEvent('glyphChanged', {
                     detail: {
@@ -16984,9 +16934,6 @@ export class OutlineEditor {
                 glyphName: currentGlyphModel.name,
                 layerId: layer.id!
             }));
-        const previousGlyphSnapshot = this.cloneLayerData(
-            currentGlyphModel.toJSON()
-        ) as Record<string, unknown>;
         let changed = false;
 
         const _openBridge =
@@ -17003,7 +16950,8 @@ export class OutlineEditor {
                 linkedPath?._openClosedPathAtNode(point.nodeIndex);
             }
 
-            this.prepareCommittedStructuralOutlineChange('keyboard-outline', {
+            this.commitStructuralOutlineChange('Open path', {
+                reuseTransaction: true,
                 layerTargets: structuralLayerTargets
             });
         } finally {
@@ -17016,15 +16964,10 @@ export class OutlineEditor {
 
         const newPath = currentLayerModel.paths?.[point.contourIndex];
         const lastNodeIndex = newPath ? newPath.nodes.length - 1 : 0;
-        this._finalizePathCutOrSplitEdit(
-            'Open path',
-            currentGlyphModel,
-            {
-                contourIndex: point.contourIndex,
-                nodeIndex: lastNodeIndex
-            },
-            previousGlyphSnapshot
-        );
+        this._finalizePathCutOrSplitEdit(currentGlyphModel, {
+            contourIndex: point.contourIndex,
+            nodeIndex: lastNodeIndex
+        });
         return true;
     }
 
@@ -17046,9 +16989,12 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
-        const previousGlyphSnapshot = this.cloneLayerData(
-            currentGlyphModel.toJSON()
-        ) as Record<string, unknown>;
+        const structuralLayerTargets = [currentLayerModel, ...linkedLayers]
+            .filter((layer) => !!layer.id)
+            .map((layer) => ({
+                glyphName: currentGlyphModel.name,
+                layerId: layer.id!
+            }));
         let splitResult: {
             shapeIndex: number;
             insertedShapeIndex: number;
@@ -17070,7 +17016,10 @@ export class OutlineEditor {
                 linkedLayer.splitOpenPathAtNode(pathIndex, point.nodeIndex);
             }
 
-            this.prepareCommittedStructuralOutlineChange();
+            this.commitStructuralOutlineChange('Split path', {
+                reuseTransaction: true,
+                layerTargets: structuralLayerTargets
+            });
         } finally {
             if (_splitBridge) _splitBridge.endTransaction();
         }
@@ -17083,15 +17032,10 @@ export class OutlineEditor {
             shapeIndex: number;
             insertedShapeIndex: number;
         };
-        this._finalizePathCutOrSplitEdit(
-            'Split path',
-            currentGlyphModel,
-            {
-                contourIndex: finalizedSplitResult.insertedShapeIndex,
-                nodeIndex: 0
-            },
-            previousGlyphSnapshot
-        );
+        this._finalizePathCutOrSplitEdit(currentGlyphModel, {
+            contourIndex: finalizedSplitResult.insertedShapeIndex,
+            nodeIndex: 0
+        });
         return true;
     }
 
@@ -17202,31 +17146,20 @@ export class OutlineEditor {
                 }
 
                 if (result) {
-                    this.prepareCommittedStructuralOutlineChange();
+                    this.commitStructuralOutlineChange(
+                        options.changeLabel ||
+                            (result?.closed ? 'Close path' : 'Connect path'),
+                        {
+                            reuseTransaction: true,
+                            layerTargets:
+                                this.getCurrentGlyphStructuralLayerTargets()
+                        }
+                    );
                 }
             } finally {
                 if (_closeBridge && !options.reuseTransaction)
                     _closeBridge.endTransaction();
             }
-
-            this.syncStructuralGlyphChangeTransaction(
-                options.changeLabel ||
-                    (result?.closed ? 'Close path' : 'Connect path'),
-                currentGlyphModel.name,
-                new Set<string>([currentGlyphModel.name]),
-                this.getCurrentGlyphStructuralLayerTargets().length > 1
-                    ? {
-                          reuseTransaction: options.reuseTransaction,
-                          layerId: null,
-                          layerTargets:
-                              this.getCurrentGlyphStructuralLayerTargets()
-                      }
-                    : {
-                          reuseTransaction: options.reuseTransaction,
-                          layerId: null,
-                          skipGlyphSnapshot: true
-                      }
-            );
         }
 
         if (!result) {
@@ -17332,7 +17265,22 @@ export class OutlineEditor {
                 linkedPath?._closeOpenPathByMerge();
             }
 
-            this.prepareCommittedStructuralOutlineChange();
+            this.syncCurrentExactLayerDataFromModel();
+            const bboxCenterAnchorScreen =
+                this.getBoundingBoxCenterScreenPosition();
+            const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
+                currentGlyphModel.name
+            );
+
+            this.commitStructuralOutlineChange('Close path', {
+                reuseTransaction: true,
+                layerTargets: this.getCurrentGlyphStructuralLayerTargets()
+            });
+
+            this.refreshKeyedMetricsAfterStructuralEdit(
+                affectedGlyphNames,
+                bboxCenterAnchorScreen
+            );
         } finally {
             if (_mergeBridge && !reuseTransaction)
                 _mergeBridge.endTransaction();
@@ -17342,31 +17290,7 @@ export class OutlineEditor {
             return false;
         }
 
-        const bboxCenterAnchorScreen =
-            this.getBoundingBoxCenterScreenPosition();
-        const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
-            currentGlyphModel.name
-        );
-
-        this.syncStructuralGlyphChangeTransaction(
-            'Close path',
-            currentGlyphModel.name,
-            affectedGlyphNames,
-            this.getCurrentGlyphStructuralLayerTargets().length > 1
-                ? {
-                      reuseTransaction,
-                      layerId: null,
-                      layerTargets: this.getCurrentGlyphStructuralLayerTargets()
-                  }
-                : { reuseTransaction, layerId: null, skipGlyphSnapshot: true }
-        );
-
         this.syncCurrentExactLayerDataFromModel();
-
-        this.refreshKeyedMetricsAfterStructuralEdit(
-            affectedGlyphNames,
-            bboxCenterAnchorScreen
-        );
 
         this.selectedPoints = [{ contourIndex, nodeIndex: 0 }];
         this.selectedAnchors = [];
@@ -17477,17 +17401,9 @@ export class OutlineEditor {
 
         const layerTargets = this.getCurrentGlyphStructuralLayerTargets();
 
-        this.syncStructuralGlyphChangeTransaction(
-            label,
-            currentGlyphModel?.name,
-            affectedGlyphNames,
-            {
-                layerId: null,
-                layerTargets: layerTargets.length ? layerTargets : undefined,
-                preferLayerSync:
-                    pendingEdit.didConvertLine && !pendingEdit.didDraw
-            }
-        );
+        this.commitStructuralOutlineChange(label, {
+            layerTargets: layerTargets.length ? layerTargets : undefined
+        });
 
         if (!fontManager.currentFont && currentGlyphModel?.name) {
             window.dispatchEvent(
@@ -18783,45 +18699,40 @@ export class OutlineEditor {
                 removeSelectedGuideFromLayer(linkedLayer);
             }
 
-            this.prepareCommittedStructuralOutlineChange('keyboard-outline', {
+            const deletedPathGeometry = pointsByPath.size > 0;
+            const deletedComponentStructure =
+                selectedComponentIndicesDescending.length > 0;
+            const deletedStructuralGeometry =
+                deletedPathGeometry || deletedComponentStructure;
+            let affectedGlyphNames = new Set<string>(
+                [currentGlyphModel.name].filter(Boolean) as string[]
+            );
+            let bboxCenterAnchorScreen: { x: number; y: number } | null = null;
+            if (deletedStructuralGeometry) {
+                this.syncCurrentExactLayerDataFromModel();
+                bboxCenterAnchorScreen =
+                    this.getBoundingBoxCenterScreenPosition();
+                affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
+                    currentGlyphModel.name
+                );
+            }
+
+            this.commitStructuralOutlineChange(deletionLabel, {
+                reuseTransaction: true,
                 layerTargets: structuralLayerTargets
             });
+
+            if (deletedStructuralGeometry) {
+                this.refreshKeyedMetricsAfterStructuralEdit(
+                    affectedGlyphNames,
+                    bboxCenterAnchorScreen
+                );
+            }
         } finally {
             bridge?.endTransaction();
         }
 
-        const deletedPathGeometry = pointsByPath.size > 0;
-        const deletedComponentStructure =
-            selectedComponentIndicesDescending.length > 0;
-        const deletedStructuralGeometry =
-            deletedPathGeometry || deletedComponentStructure;
-        let affectedGlyphNames = new Set<string>(
-            [currentGlyphModel.name].filter(Boolean) as string[]
-        );
-        let bboxCenterAnchorScreen: { x: number; y: number } | null = null;
-        if (deletedStructuralGeometry) {
-            this.syncCurrentExactLayerDataFromModel();
-            bboxCenterAnchorScreen = this.getBoundingBoxCenterScreenPosition();
-            affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
-                currentGlyphModel.name
-            );
-        }
-
-        this.syncStructuralGlyphChangeTransaction(
-            deletionLabel,
-            currentGlyphModel.name,
-            affectedGlyphNames,
-            { layerId: null, skipGlyphSnapshot: true }
-        );
-
         this.syncCurrentExactLayerDataFromModel();
-
-        if (deletedStructuralGeometry) {
-            this.refreshKeyedMetricsAfterStructuralEdit(
-                affectedGlyphNames,
-                bboxCenterAnchorScreen
-            );
-        }
 
         // Clear selection
         this.selectedPoints = [];

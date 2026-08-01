@@ -124,19 +124,13 @@ After a live drag has already applied derived automatic-composite / metrics-key 
 
 Bridge finalizer fallback must infer edit kinds from the buffered operations (width → sidebearing, anchors → anchor, etc.) and must never expand cascade writes with a universal outline+anchor+sidebearing+component hammer. Multi-target `workerReplayTargets` without any layer-snapshot write are incomplete and must not bypass the finalizer.
 
-Structural edits (connect, split, open, close path) go to `syncStructuralGlyphChangeTransaction()` and Yjs bridge directly. Skip both closure and `_syncCurrentGlyphToYDoc`.
-TODO: Structural edits should ideally go through `_syncCurrentGlyphToYDoc` like all other edits to stamp them with replay targets, but for now it seems okay since it doesn't actually cause any harm if they don't have replayTargets.
+Structural edits (connect, split, open, close path, add point, slide-point) go through `commitStructuralOutlineChange()` → the same outline `computeLayerRecompositionClosure({ scope: 'all' })` + `_syncCurrentGlyphToYDoc` producer as point-drag / keyboard outline, so packets stamp full `workerReplayTargets` (source ∪ recompose ∪ invalidate).
 
 All committed interactive edits enter the pipeline in `_syncCurrentGlyphToYDoc()`, which sends results to the Yjs bridge. Exceptions are undo, redo, and remote edits, as these are already finalzed Yjs packets.
 
 `_syncCurrentGlyphToYDoc()` forwards to the Yjs bridge, which applies the operation to its Y.Doc, from which the binary Yjs diffs are created.
-TODO: This operation needs scrutiny to see if the Y.Doc sync is good.
 
 Here, undo, redo, and remote Yjs packets converge with forward GUI edits to be processed at `_emitLocalUpdate`.
-
-TODO: Continue with the Yjs packet handling, namely the compilation pipeline in Rust.
-
-TODO: Undo doesn't work
 
 ## Glyphs
 

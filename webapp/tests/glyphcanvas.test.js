@@ -11767,6 +11767,171 @@ describe('GlyphCanvas anchor movement', () => {
         }
     });
 
+    test('structural outline commit stamps invalidate dependents on workerReplayTargets', () => {
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const prepareSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'prepareCommittedStructuralOutlineChange'
+            )
+            .mockReturnValue(true);
+        const computeClosureSpy = jest
+            .spyOn(canvas.outlineEditor, 'computeRecompositionClosure')
+            .mockReturnValue({
+                allTargets: [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'Adieresis', layerId: 'layer-1' },
+                    { glyphName: 'Aacute', layerId: 'layer-1' }
+                ],
+                recomposeTargets: [
+                    { glyphName: 'Adieresis', layerId: 'layer-1' }
+                ],
+                invalidateTargets: [
+                    { glyphName: 'Aacute', layerId: 'layer-1' }
+                ],
+                dependentTargets: [
+                    { glyphName: 'Adieresis', layerId: 'layer-1' },
+                    { glyphName: 'Aacute', layerId: 'layer-1' }
+                ],
+                affectedGlyphNames: new Set(['A', 'Adieresis', 'Aacute']),
+                recomposeGlyphNames: new Set(['Adieresis']),
+                invalidateGlyphNames: new Set(['Aacute'])
+            });
+        const syncSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+        const structuralTargetsSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'getCurrentGlyphStructuralLayerTargets'
+            )
+            .mockReturnValue([{ glyphName: 'A', layerId: 'layer-1' }]);
+
+        window.patchSyncEngine = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            syncLayerSnapshotsFromJson: jest.fn()
+        };
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'A' }
+        ]);
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        jest.spyOn(
+            canvas.outlineEditor,
+            'getCurrentGlyphModel'
+        ).mockReturnValue({ name: 'A' });
+        jest.spyOn(canvas.outlineEditor, 'getCurrentLayerId').mockReturnValue(
+            'layer-1'
+        );
+
+        try {
+            canvas.outlineEditor.commitStructuralOutlineChange('Add point');
+
+            expect(prepareSpy).toHaveBeenCalled();
+            expect(computeClosureSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    scope: 'all',
+                    editKinds: new Set(['outline']),
+                    sourceTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+                })
+            );
+            expect(syncSpy).toHaveBeenCalledWith(
+                'Add point',
+                undefined,
+                undefined,
+                null,
+                {
+                    changedLayerTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' },
+                        { glyphName: 'Adieresis', layerId: 'layer-1' }
+                    ],
+                    workerReplayTargets: [
+                        { glyphName: 'A', layerId: 'layer-1' },
+                        { glyphName: 'Adieresis', layerId: 'layer-1' },
+                        { glyphName: 'Aacute', layerId: 'layer-1' }
+                    ]
+                },
+                {
+                    editSource: 'keyboard-outline',
+                    changeSource: 'keyboard-outline',
+                    editType: 'outline'
+                }
+            );
+            expect(
+                window.patchSyncEngine.beginTransaction
+            ).toHaveBeenCalledWith('Add point');
+            expect(window.patchSyncEngine.endTransaction).toHaveBeenCalled();
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            prepareSpy.mockRestore();
+            computeClosureSpy.mockRestore();
+            syncSpy.mockRestore();
+            structuralTargetsSpy.mockRestore();
+        }
+    });
+
+    test('slide-point mouseup commits through structural outline producer', async () => {
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        const commitSpy = jest
+            .spyOn(canvas.outlineEditor, 'commitStructuralOutlineChange')
+            .mockImplementation(() => {});
+        const saveLayerSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockReturnValue(true);
+        const clearPreviewSpy = jest
+            .spyOn(fontManager, 'clearLiveDragPreview')
+            .mockImplementation(() => {});
+
+        window.patchSyncEngine = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn()
+        };
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'A' }
+        ]);
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        jest.spyOn(
+            canvas.outlineEditor,
+            'getCurrentGlyphModel'
+        ).mockReturnValue({ name: 'A' });
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.isSlidingSmoothPointAlongCurve = true;
+        canvas.outlineEditor._dragType = 'slide-point';
+        canvas.outlineEditor._hasMoved = true;
+        canvas.outlineEditor._preDragDesc = 'Move point along curve: (0, 0)';
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            shapes: [],
+            anchors: []
+        };
+        jest.spyOn(canvas.outlineEditor, '_buildNodeDesc').mockReturnValue(
+            'Move point along curve: (10, 10)'
+        );
+        jest.spyOn(
+            canvas.outlineEditor,
+            'drainLiveDragRefreshBeforeCommit'
+        ).mockResolvedValue();
+
+        try {
+            await canvas.outlineEditor.onMouseUp({ clientX: 1, clientY: 2 });
+
+            expect(commitSpy).toHaveBeenCalledWith('Move point along curve', {
+                reuseTransaction: true,
+                compileChangeSource: 'mouse-drag-outline'
+            });
+            expect(clearPreviewSpy).toHaveBeenCalled();
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            commitSpy.mockRestore();
+            saveLayerSpy.mockRestore();
+            clearPreviewSpy.mockRestore();
+        }
+    });
+
     test('component drag snapshots preserve omitted optional layer fields', () => {
         const originalPatchSyncEngine = window.patchSyncEngine;
         const importedFormatSpecific = {
