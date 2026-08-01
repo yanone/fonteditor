@@ -3,6 +3,7 @@ const {
     normalizeCloudRoomWebSocketUrl,
     normalizeCloudRoomHttpUrl
 } = require('../js/cloud-adapter.ts');
+const { MetadataFreeRemoteUpdateError } = require('../js/patch-sync-engine.ts');
 const { createLogEntry } = require('../js/change-log');
 const {
     createCollaborationMessageEnvelopesFromChangeLogEntries,
@@ -1659,12 +1660,8 @@ describe('CloudAdapter outbound updates', () => {
 });
 
 describe('CloudAdapter durability failures', () => {
-    it('does not request a resync for noop remote updates', () => {
+    it('does not repair true noop remote updates', () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
-        const requestServerResyncAfterNoopUpdate = jest.spyOn(
-            adapter,
-            '_requestServerResyncAfterNoopUpdate'
-        );
 
         adapter._bridge = {
             applyRemoteUpdate: jest.fn(() => false)
@@ -1672,31 +1669,56 @@ describe('CloudAdapter durability failures', () => {
 
         adapter._applyRemoteUpdate(new Uint8Array([9, 9, 9]));
 
-        expect(requestServerResyncAfterNoopUpdate).not.toHaveBeenCalled();
-        expect(adapter._bridge.encodeBridgeState).toBeUndefined();
+        expect(adapter._bridge.applyRemoteUpdate).toHaveBeenCalledTimes(1);
     });
 
-    it('resyncs noop remote updates with the current bridge state vector', () => {
+    it('quarantines metadata-free remote updates without requesting a resync', () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
         const sentFrames = [];
-        const bridgeState = new Uint8Array([0]);
+        const close = jest.fn();
+        const statuses = [];
+        adapter._onConnectionStatus = (status, detail) => {
+            statuses.push({ status, detail });
+        };
 
         adapter._bridge = {
-            encodeBridgeStateVector: jest.fn(() => bridgeState)
+            applyRemoteUpdate: jest.fn(() => {
+                throw new MetadataFreeRemoteUpdateError();
+            })
         };
         adapter._ws = {
             readyState: 1,
-            send: (payload) => sentFrames.push(JSON.parse(payload))
+            send: (payload) => sentFrames.push(JSON.parse(payload)),
+            close
         };
 
-        adapter._requestServerResyncAfterNoopUpdate();
+        adapter._applyRemoteUpdate(new Uint8Array([9, 9, 9]));
 
-        expect(sentFrames).toEqual([
-            {
-                type: 'sync-request',
-                stateVector: Buffer.from(bridgeState).toString('base64')
-            }
-        ]);
+        expect(sentFrames).toEqual([]);
+        expect(close).toHaveBeenCalledWith(4000, 'remote-update-rejected');
+        expect(statuses).toContainEqual({
+            status: 'error',
+            detail: 'Cloud collaboration protocol error: remote update is missing semantic metadata'
+        });
+    });
+
+    it('stops a queued inbound batch after a terminal remote update rejection', () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const close = jest.fn();
+        const applyRemoteUpdate = jest.fn().mockImplementationOnce(() => {
+            throw new MetadataFreeRemoteUpdateError();
+        });
+
+        adapter._bridge = { applyRemoteUpdate };
+        adapter._ws = { readyState: 1, close };
+        adapter._queueInboundUpdate({ update: new Uint8Array([1]) });
+        adapter._queueInboundUpdate({ update: new Uint8Array([2]) });
+
+        adapter._flushPendingInboundUpdates();
+
+        expect(applyRemoteUpdate).toHaveBeenCalledTimes(1);
+        expect(adapter._pendingInboundUpdates).toEqual([]);
+        expect(close).toHaveBeenCalledWith(4000, 'remote-update-rejected');
     });
 
     it('marks the connection errored and closes on undurable ack', () => {

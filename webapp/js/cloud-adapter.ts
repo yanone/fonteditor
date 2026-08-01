@@ -42,7 +42,10 @@
  */
 
 import * as Y from 'yjs';
-import type { PatchSyncEngine } from './patch-sync-engine';
+import {
+    MetadataFreeRemoteUpdateError,
+    type PatchSyncEngine
+} from './patch-sync-engine';
 import type { FileSystemAdapter, FileInfo } from './file-system-adapter';
 import { Logger } from './logger';
 import {
@@ -1952,32 +1955,19 @@ export class CloudAdapter implements FileSystemAdapter {
                 );
             }
         } catch (err) {
-            console.error('CloudAdapter: failed to apply remote update:', err);
-            this._requestServerResyncAfterNoopUpdate();
+            const detail =
+                err instanceof MetadataFreeRemoteUpdateError
+                    ? 'Cloud collaboration protocol error: remote update is missing semantic metadata'
+                    : `Cloud collaboration update rejected: ${err instanceof Error ? err.message : String(err)}`;
+            console.error('CloudAdapter:', detail, err);
+            this._pendingInboundUpdates = [];
+            this._terminalCloseDetail = detail;
+            this._setStatus('error', detail);
+            this._ws?.close(
+                CLIENT_RECONNECT_CLOSE_CODE,
+                'remote-update-rejected'
+            );
         }
-    }
-
-    private _requestServerResyncAfterNoopUpdate(): void {
-        if (
-            this._resyncRequestedAfterNoopUpdate ||
-            !this._ws ||
-            this._ws.readyState !== WebSocket.OPEN
-        ) {
-            return;
-        }
-
-        const stateVector = this._bridge?.encodeBridgeStateVector();
-        if (!stateVector) {
-            return;
-        }
-
-        this._resyncRequestedAfterNoopUpdate = true;
-        this._ws.send(
-            JSON.stringify({
-                type: 'sync-request',
-                stateVector: u8ToBase64(stateVector)
-            })
-        );
     }
 
     /**
@@ -2337,7 +2327,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._inboundFlushScheduled = false;
         const messages = this._pendingInboundUpdates;
         this._pendingInboundUpdates = [];
-        if (!messages.length) {
+        if (!messages.length || this._terminalCloseDetail) {
             return;
         }
 
@@ -2365,6 +2355,9 @@ export class CloudAdapter implements FileSystemAdapter {
                     ? message.collaborationMessages
                     : undefined
             );
+            if (this._terminalCloseDetail) {
+                return;
+            }
         }
     }
 

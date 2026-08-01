@@ -2983,7 +2983,7 @@ describe('FontManager boundary-crossing budget', () => {
         }
     });
 
-    test('refreshWorkerCacheForReplayTargets bootstraps its worker mirror from babelfontData when babelfontJson is stale', async () => {
+    test('refreshWorkerCacheForReplayTargets refuses to repair a missing worker mirror', async () => {
         const currentFont = fontManager.currentFont;
         const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
         const originalBabelfontJson = currentFont.babelfontJson;
@@ -2997,21 +2997,16 @@ describe('FontManager boundary-crossing budget', () => {
                 fontManager.refreshWorkerCacheForReplayTargets([
                     { glyphName: 'a', layerId }
                 ])
-            ).resolves.toBe(true);
+            ).resolves.toBe(false);
 
-            expect(sendMessageSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    type: 'applyYjsUpdate',
-                    layerTargets: [{ glyphName: 'a', layerId }]
-                })
-            );
+            expect(sendMessageSpy).not.toHaveBeenCalled();
         } finally {
             currentFont.babelfontJson = originalBabelfontJson;
             fontManager.workerCacheYDoc = originalWorkerCacheYDoc;
         }
     });
 
-    test('refreshWorkerCacheForReplayTargets retries the same sparse packet when the worker rejects the batch', async () => {
+    test('refreshWorkerCacheForReplayTargets fails closed when the worker rejects the batch', async () => {
         const currentFont = fontManager.currentFont;
         const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
 
@@ -3021,24 +3016,15 @@ describe('FontManager boundary-crossing budget', () => {
             ])
         ).resolves.toBe(true);
 
-        sendMessageSpy
-            .mockRejectedValueOnce(new Error('RuntimeError: unreachable'))
-            .mockResolvedValueOnce({
-                success: true,
-                workerCacheStatus: makeWorkerCacheStatus()
-            });
+        sendMessageSpy.mockRejectedValueOnce(
+            new Error('RuntimeError: unreachable')
+        );
 
         await expect(
             fontManager.refreshWorkerCacheForReplayTargets([
                 { glyphName: 'a', layerId }
             ])
         ).resolves.toBe(false);
-
-        await expect(
-            fontManager.refreshWorkerCacheForReplayTargets([
-                { glyphName: 'a', layerId }
-            ])
-        ).resolves.toBe(true);
 
         expect(sendMessageSpy).toHaveBeenNthCalledWith(
             2,
@@ -3048,17 +3034,36 @@ describe('FontManager boundary-crossing budget', () => {
                 invalidateLayoutClosure: false
             })
         );
-        expect(sendMessageSpy.mock.calls[2][0].update).toBe(
-            sendMessageSpy.mock.calls[1][0].update
-        );
-        expect(sendMessageSpy).toHaveBeenNthCalledWith(
-            3,
-            expect.objectContaining({
-                type: 'applyYjsUpdate',
-                layerTargets: [{ glyphName: 'a', layerId }],
-                invalidateLayoutClosure: false
-            })
-        );
+        await expect(
+            fontManager.refreshWorkerCacheForReplayTargets([
+                { glyphName: 'a', layerId }
+            ])
+        ).resolves.toBe(false);
+        expect(sendMessageSpy).toHaveBeenCalledTimes(2);
+    });
+
+    test('saveLayerData rejects when its incremental worker update fails', async () => {
+        const currentFont = fontManager.currentFont;
+        const glyph = currentFont.fontModel.findGlyph('a');
+        const layer = glyph.layers[0];
+        const submitSpy = jest
+            .spyOn(fontManager, 'submitLayerUpdatesToWorkerCache')
+            .mockResolvedValue(false);
+
+        try {
+            await expect(
+                fontManager.saveLayerData(
+                    glyph.name,
+                    layer.id,
+                    layer.toJSON(),
+                    'property-panel'
+                )
+            ).rejects.toThrow(
+                'Incremental worker Yjs sync failed while saving layer data'
+            );
+        } finally {
+            submitSpy.mockRestore();
+        }
     });
 
     test('submitLayerToWorkerCache routes the singular receiver-fallback path through the batched API', async () => {
@@ -4391,6 +4396,41 @@ describe('FontManager boundary-crossing budget', () => {
         );
         expect(fontManager.getBoundaryCrossingStats().fullFontCrossings).toBe(
             0
+        );
+    });
+
+    test('does not replay a failed incremental worker update during a later edit', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+        const modelLayer = currentFont.fontModel
+            .findGlyph('a')
+            .findLayerById(layerId);
+
+        modelLayer.width += 19;
+        sendMessageSpy.mockResolvedValueOnce({
+            success: true,
+            skipped: 'ydoc_not_initialized'
+        });
+
+        await expect(
+            fontManager.refreshGlyphsAfterModelBatch(['a'], layerId)
+        ).rejects.toThrow(
+            'Incremental worker Yjs sync failed during editing batch refresh'
+        );
+
+        const failedUpdate = fontManager.pendingWorkerLayerUpdate.update;
+        expect(fontCompilation.hasWorkerCacheDocument()).toBe(false);
+
+        modelLayer.width += 23;
+        await expect(
+            fontManager.refreshGlyphsAfterModelBatch(['a'], layerId)
+        ).rejects.toThrow(
+            'Incremental worker Yjs sync failed during editing batch refresh'
+        );
+
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(fontManager.pendingWorkerLayerUpdate.update).toEqual(
+            failedUpdate
         );
     });
 

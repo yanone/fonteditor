@@ -3468,10 +3468,15 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
             // name before identity remove/add. Those stale targets are covered
             // by the renamed glyph snapshot and must not hard-fail the rename.
             .filter(|target| !renamed_glyph_names.contains(&target.glyph_name))
-            .filter_map(|target| {
-                let layer_json =
-                    ydoc_get_layer_json_with_txn(&target.glyph_name, &target.layer_id, &txn)?;
-                Some((target.clone(), Some(layer_json)))
+            .map(|target| {
+                (
+                    target.clone(),
+                    ydoc_get_layer_json_with_txn(
+                        &target.glyph_name,
+                        &target.layer_id,
+                        &txn,
+                    ),
+                )
             })
             .collect();
         let renamed_glyph_snapshots: HashMap<String, serde_json::Value> = glyph_renames
@@ -3732,6 +3737,9 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                         replace_masters_in_font_cache(font_cache, masters_json.as_ref())?;
                     }
                     for (glyph_name, glyph_json) in &changed_glyph_snapshots {
+                        if layer_target_glyphs.contains(glyph_name) {
+                            continue;
+                        }
                         replace_glyph_in_font_cache(font_cache, glyph_name, glyph_json.as_ref())?;
                     }
                     for (target, layer_json) in &changed_layer_snapshots {
@@ -3774,6 +3782,9 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                                 )?;
                             }
                             for glyph_name in &subset_glyphs {
+                                if layer_target_glyphs.contains(glyph_name) {
+                                    continue;
+                                }
                                 let Some((_, glyph_json)) = changed_glyph_snapshots
                                     .iter()
                                     .find(|(name, _)| name == glyph_name)
@@ -4195,6 +4206,11 @@ pub fn dump_layer_state_json(layer_targets_json: &str) -> Result<String, JsValue
         let subset_json = subset_lock.as_ref().map(|(_, _, subset_json)| subset_json);
         let subset_index = subset_index_lock.as_ref().map(|(_, index)| index);
         let font_cache = font_cache_lock.as_ref();
+        let last_layout_closure_key = LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().clone();
+        let last_layout_closure_glyph_count = last_layout_closure_key
+            .as_ref()
+            .and_then(|key| LAYOUT_CLOSURE_CACHE.lock().unwrap().get(key).map(Vec::len));
+        let preview = PREVIEW_OVERLAY.lock().unwrap();
 
         let dumps: Vec<serde_json::Value> = targets
             .iter()
@@ -4231,6 +4247,10 @@ pub fn dump_layer_state_json(layer_targets_json: &str) -> Result<String, JsValue
                             .find(|layer| layer.id.as_deref() == Some(&target.layer_id))
                     })
                     .and_then(|layer| serde_json::to_value(layer).ok());
+                let canonical_index_entry = canonical_index
+                    .and_then(|index| index.get(&target.glyph_name).copied());
+                let subset_index_entry = subset_index
+                    .and_then(|index| index.get(&target.glyph_name).copied());
 
                 serde_json::json!({
                     "glyphName": target.glyph_name,
@@ -4242,14 +4262,32 @@ pub fn dump_layer_state_json(layer_targets_json: &str) -> Result<String, JsValue
                     "subsetLayer": subset_layer,
                     "fontCacheLayer": font_cache_layer,
                     "ydocLayer": ydoc_layer,
+                    "canonicalGlyphIndex": canonical_index_entry,
+                    "subsetGlyphIndex": subset_index_entry,
                 })
             })
             .collect();
 
         serde_json::json!({
         "targets": dumps,
+        "documentEpoch": Y_DOC_EPOCH.load(Ordering::Relaxed),
         "fontCacheEpoch": FONT_CACHE_EPOCH.load(Ordering::Relaxed),
+        "fontCacheBuiltAtEpoch": FONT_CACHE_BUILT_AT_EPOCH.load(Ordering::Relaxed),
+        "subsetFontCacheBuiltAtEpoch": SUBSET_FONT_CACHE_BUILT_AT_EPOCH.load(Ordering::Relaxed),
+        "filterEpoch": FILTER_EPOCH.load(Ordering::Relaxed),
         "subset": subset_metadata,
+        "layoutClosure": {
+            "lastKey": last_layout_closure_key,
+            "glyphCount": last_layout_closure_glyph_count,
+            "lastDebugKey": LAST_DEBUG_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().clone(),
+            "lastPreviewKey": LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().clone(),
+        },
+        "previewOverlay": preview.as_ref().map(|overlay| serde_json::json!({
+            "generation": overlay.generation,
+            "targetCount": overlay.layer_overrides.len(),
+            "baseFontCacheEpoch": overlay.base_font_cache_epoch,
+        })),
+        "committedFontFingerprint": COMMITTED_FONT_FINGERPRINT.lock().unwrap().clone(),
         "hasYDoc": has_ydoc,
         "hasCanonicalCache": has_canonical_cache,
         "hasSubsetCache": has_subset_cache,
@@ -7485,6 +7523,12 @@ mod tests {
         assert_eq!(dump_value["targets"][0]["canonicalPresent"], json!(true));
         assert_eq!(dump_value["targets"][0]["subsetPresent"], json!(true));
         assert_eq!(dump_value["targets"][0]["ydocPresent"], json!(true));
+        assert_eq!(dump_value["targets"][0]["canonicalGlyphIndex"], json!(0));
+        assert_eq!(dump_value["targets"][0]["subsetGlyphIndex"], json!(0));
+        assert!(dump_value["documentEpoch"].is_u64());
+        assert!(dump_value["filterEpoch"].is_u64());
+        assert!(dump_value["layoutClosure"]["lastKey"].is_null());
+        assert!(dump_value["previewOverlay"].is_null());
         assert_eq!(
             dump_value["targets"][0]["canonicalLayer"]["width"],
             json!(400)

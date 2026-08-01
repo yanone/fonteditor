@@ -5136,10 +5136,7 @@ class FontManager {
 
     private async submitLayerUpdatesToWorkerCache(
         updates: LayerCacheUpdate[],
-        options?: {
-            invalidateLayoutClosure?: boolean;
-            recoverOnFailure?: boolean;
-        }
+        options?: { invalidateLayoutClosure?: boolean }
     ): Promise<boolean> {
         if (!this.currentFont || !fontCompilation?.isInitialized) {
             return false;
@@ -5160,45 +5157,6 @@ class FontManager {
                     normalized
                 };
             });
-
-            const sameLayerTargets = (targets: WorkerReplayTarget[]): boolean =>
-                targets.length === normalizedUpdates.length &&
-                targets.every(({ glyphName, layerId }) =>
-                    normalizedUpdates.some(
-                        (update) =>
-                            update.glyphName === glyphName &&
-                            update.layerId === layerId
-                    )
-                );
-            const pendingWorkerLayerUpdate = this.pendingWorkerLayerUpdate;
-            if (pendingWorkerLayerUpdate) {
-                const resent = await this.sendWorkerYjsUpdate(
-                    pendingWorkerLayerUpdate.update,
-                    pendingWorkerLayerUpdate.changedGlyphs,
-                    pendingWorkerLayerUpdate.invalidateLayoutClosure,
-                    [],
-                    pendingWorkerLayerUpdate.layerTargets
-                );
-                if (!resent) {
-                    return false;
-                }
-                this.applyWorkerYjsUpdateToMirror(
-                    pendingWorkerLayerUpdate.update
-                );
-                this.pendingWorkerLayerUpdate = null;
-                if (sameLayerTargets(pendingWorkerLayerUpdate.layerTargets)) {
-                    for (const update of normalizedUpdates) {
-                        this.workerLayerFingerprintCache.set(
-                            this.getWorkerLayerFingerprintKey(
-                                update.glyphName,
-                                update.layerId
-                            ),
-                            JSON.stringify(update.normalized)
-                        );
-                    }
-                    return true;
-                }
-            }
 
             const updatesRequiringMirrorWrite = normalizedUpdates.filter(
                 ({ glyphName, layerId, normalized }) => {
@@ -5266,12 +5224,9 @@ class FontManager {
                         ({ glyphName, layerId }) => ({ glyphName, layerId })
                     )
                 };
-                if (options?.recoverOnFailure === false) {
-                    return false;
-                }
-                return await this.recoverWorkerCacheFromAuthoritativeState(
-                    'incremental layer batch update failed'
-                );
+                this.workerCacheYDoc = null;
+                fontCompilation.setWorkerCacheDocumentReady(false);
+                return false;
             }
 
             this.applyWorkerYjsUpdateToMirror(workerUpdate.update);
@@ -5300,12 +5255,7 @@ class FontManager {
             );
             this.workerCacheYDoc = null;
             fontCompilation.setWorkerCacheDocumentReady(false);
-            if (options?.recoverOnFailure === false) {
-                return false;
-            }
-            return await this.recoverWorkerCacheFromAuthoritativeState(
-                'incremental layer batch threw before worker sync completed'
-            );
+            return false;
         }
     }
 
@@ -5416,11 +5366,8 @@ class FontManager {
                 return false;
             }
 
-            if (
-                !this.workerCacheYDoc &&
-                !this.pendingBabelfontJsonSyncAfterDrag
-            ) {
-                this.bootstrapWorkerYjsMirrorFromCurrentFont();
+            if (!this.workerCacheYDoc) {
+                return false;
             }
 
             const targetLayerUpdates =
@@ -5451,9 +5398,7 @@ class FontManager {
             }
 
             const updatedIncrementally =
-                await this.submitLayerUpdatesToWorkerCache(updates, {
-                    recoverOnFailure: false
-                });
+                await this.submitLayerUpdatesToWorkerCache(updates);
             return updatedIncrementally;
         })();
 
@@ -5682,23 +5627,30 @@ class FontManager {
         // correctly without any full-document resend.
         if (!isInteractiveEdit) {
             try {
-                await this.submitLayerUpdatesToWorkerCache(
-                    [
+                const updatedIncrementally =
+                    await this.submitLayerUpdatesToWorkerCache(
+                        [
+                            {
+                                glyphName,
+                                layerId,
+                                layerData: layerDataCopy
+                            }
+                        ],
                         {
-                            glyphName,
-                            layerId,
-                            layerData: layerDataCopy
+                            invalidateLayoutClosure: true
                         }
-                    ],
-                    {
-                        invalidateLayoutClosure: true
-                    }
-                );
+                    );
+                if (!updatedIncrementally) {
+                    throw new Error(
+                        'Incremental worker Yjs sync failed while saving layer data'
+                    );
+                }
             } catch (error) {
                 console.error(
                     '[FontManager] Error updating worker font cache:',
                     error
                 );
+                throw error;
             }
         }
     }
@@ -5922,8 +5874,7 @@ class FontManager {
             if (pendingLayerUpdates && pendingLayerUpdates.length > 0) {
                 updatedIncrementally =
                     await this.submitLayerUpdatesToWorkerCache(
-                        pendingLayerUpdates,
-                        { recoverOnFailure: false }
+                        pendingLayerUpdates
                     );
             } else if (pendingLayerUpdates) {
                 updatedIncrementally = true;
