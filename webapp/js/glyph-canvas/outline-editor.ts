@@ -15283,6 +15283,11 @@ export class OutlineEditor {
             this.suppressSelectedEndpointCommandSeedUntilCommandRelease = false;
             this.hoveredAddPointPreview = null;
             this.finalizePendingCommandPathEdit();
+            if (!this.altKeyPressed) {
+                this.glyphCanvas.stopModifierFocusWatch();
+            }
+        } else {
+            this.glyphCanvas.startModifierFocusWatch();
         }
 
         if (
@@ -15303,6 +15308,11 @@ export class OutlineEditor {
         }
 
         this.altKeyPressed = pressed;
+        if (pressed) {
+            this.glyphCanvas.startModifierFocusWatch();
+        } else if (!this.cmdKeyPressed) {
+            this.glyphCanvas.stopModifierFocusWatch();
+        }
         if (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve) {
             this._rebuildSnapCandidateCache();
             if (pressed) {
