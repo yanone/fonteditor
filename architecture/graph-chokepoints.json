@@ -65,15 +65,13 @@
     "sourceRules": [
         {
             "id": "full-worker-document-request-sites",
-            "description": "Full-document worker requests are limited to reviewed bootstrap and source-reload owners; steady-state edits must use incremental Yjs updates.",
+            "description": "Full-document worker requests are limited to reviewed bootstrap, rebaseline, and no-bridge source-reload owners; steady-state edits must use incremental Yjs updates.",
             "path": "webapp/js",
             "excludedPaths": ["webapp/js/fontc-worker.ts"],
-            "messageTypes": ["seedYdoc", "initYdoc", "storeFontJson"],
+            "messageTypes": ["seedYdoc", "storeFontJson"],
             "allowedSites": [
                 "webapp/js/cloud-adapter.ts::CloudAdapter._scheduleWorkerBridgeSyncAfterServerState::seedYdoc",
                 "webapp/js/font-compilation.ts::FontCompilation.seedWorkerYDocFromState::seedYdoc",
-                "webapp/js/font-compilation.ts::FontCompilation.sendMessage::seedYdoc",
-                "webapp/js/font-compilation.ts::FontCompilation.sendMessage::storeFontJson",
                 "webapp/js/font-manager.ts::FontManager.reloadCurrentFontFromSource::storeFontJson",
                 "webapp/js/window-sync.ts::WindowSync._handleMessage::seedYdoc"
             ]

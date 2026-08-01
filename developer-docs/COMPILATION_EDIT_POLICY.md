@@ -32,9 +32,9 @@ the webapp build. The checked-in caller baselines in
 `architecture/graph-chokepoints.json` protect the committed edit funnel, remote
 Yjs ingress, authoritative worker Yjs forwarding, cached editing compilation,
 full binary compilation, whole-worker Y.Doc seeding, and raw worker Yjs sends.
-The same check parses direct `sendMessage({ type: ... })` requests and limits
-the full-document `seedYdoc`, `initYdoc`, and `storeFontJson` messages to the
-central compiler messenger plus reviewed bootstrap and source-reload owners. A
+The same check parses full-document request objects, including literal-backed
+`type` variables, and limits the live `seedYdoc` and `storeFontJson` messages
+to reviewed bootstrap, rebaseline, and no-bridge source-reload owners. A
 production caller or full-document request added to one of those sinks fails CI unless the
 implementation is routed through the existing boundary or the exception is
 deliberately reviewed and recorded in that baseline. This structural gate

@@ -124,7 +124,44 @@ function getEnclosingSymbol(node) {
     return "<module>";
 }
 
-/** Find full-document worker message type literals, including helper inputs. */
+function isTypeProperty(node) {
+    return (
+        (ts.isPropertyAssignment(node) ||
+            ts.isShorthandPropertyAssignment(node)) &&
+        getNodeName(node.name) === "type"
+    );
+}
+
+function getLiteralMessageTypes(node, messageTypes, bindings) {
+    if (ts.isStringLiteral(node)) {
+        return messageTypes.includes(node.text) ? [node.text] : [];
+    }
+    if (ts.isIdentifier(node)) {
+        return bindings.get(node.text) ?? [];
+    }
+    return [];
+}
+
+function getObjectMessageTypes(node, messageTypes, bindings) {
+    if (!ts.isObjectLiteralExpression(node)) {
+        return [];
+    }
+
+    return node.properties.flatMap((property) => {
+        if (!isTypeProperty(property)) {
+            return [];
+        }
+        return getLiteralMessageTypes(
+            ts.isShorthandPropertyAssignment(property)
+                ? property.name
+                : property.initializer,
+            messageTypes,
+            bindings,
+        );
+    });
+}
+
+/** Find full-document worker request objects, including literal-backed type variables. */
 export function findWorkerMessageSites(sourceText, filePath, messageTypes) {
     const sourceFile = ts.createSourceFile(
         filePath,
@@ -133,14 +170,52 @@ export function findWorkerMessageSites(sourceText, filePath, messageTypes) {
         true,
         filePath.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS,
     );
+    const typeBindings = new Map();
+    const requestBindings = new Map();
     const sites = [];
 
     const visit = (node) => {
-        if (ts.isStringLiteral(node) && messageTypes.includes(node.text)) {
-            sites.push(
-                `${filePath}::${getEnclosingSymbol(node)}::${node.text}`,
+        if (
+            ts.isVariableDeclaration(node) &&
+            ts.isIdentifier(node.name) &&
+            node.initializer
+        ) {
+            const types = getLiteralMessageTypes(
+                node.initializer,
+                messageTypes,
+                typeBindings,
             );
+            if (types.length) {
+                typeBindings.set(node.name.text, types);
+            }
+
+            const requestTypes = getObjectMessageTypes(
+                node.initializer,
+                messageTypes,
+                typeBindings,
+            );
+            if (requestTypes.length) {
+                requestBindings.set(node.name.text, requestTypes);
+            }
         }
+
+        if (ts.isCallExpression(node)) {
+            for (const argument of node.arguments) {
+                const messageTypesAtSite = ts.isIdentifier(argument)
+                    ? (requestBindings.get(argument.text) ?? [])
+                    : getObjectMessageTypes(
+                          argument,
+                          messageTypes,
+                          typeBindings,
+                      );
+                for (const messageType of messageTypesAtSite) {
+                    sites.push(
+                        `${filePath}::${getEnclosingSymbol(node)}::${messageType}`,
+                    );
+                }
+            }
+        }
+
         ts.forEachChild(node, visit);
     };
 

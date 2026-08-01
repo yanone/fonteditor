@@ -75,6 +75,34 @@ describe("graph chokepoint guard", () => {
         );
     });
 
+    test("does not treat dispatcher message checks as requests", () => {
+        assert.deepEqual(
+            findWorkerMessageSites(
+                `function sendMessage(message) {
+    if (message.type === 'seedYdoc') return seed(message);
+    if (message.type === 'storeFontJson') return store(message);
+}`,
+                "webapp/js/compiler.ts",
+                ["seedYdoc", "storeFontJson"],
+            ),
+            [],
+        );
+    });
+
+    test("does not treat a full-document response as a request", () => {
+        assert.deepEqual(
+            findWorkerMessageSites(
+                `function sendMessage(message) {
+    postMessage(message);
+    return { type: 'storeFontJson', success: true };
+}`,
+                "webapp/js/compiler.ts",
+                ["storeFontJson"],
+            ),
+            [],
+        );
+    });
+
     test("finds full-document requests in JavaScript sources", () => {
         assert.deepEqual(
             findWorkerMessageSites(
