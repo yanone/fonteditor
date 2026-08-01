@@ -30,6 +30,9 @@ jobs:
             - name: Install graph tooling
               run: npm ci --ignore-scripts
 
+            - name: Install LadybugDB native binding
+              run: npm rebuild @ladybugdb/core --foreground-scripts
+
             - name: Install dependencies in webapp
               run: npm install --prefix webapp
 
