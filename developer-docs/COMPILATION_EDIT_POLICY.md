@@ -470,7 +470,7 @@ There are only two approved exceptions:
 
 ## Rendering Policy
 
-1. `outline-only` compiles must skip HarfBuzz reshape and only swap the font blob plus repaint.
+1. `outline-only` compiles must skip HarfBuzz reshape and only swap the font blob plus repaint. This includes live drag preview compiles: the preview font is built with `skip_features` / `skip_kerning`, so reshaping would drop kerning before the active glyphs and jump the canvas. Width changes from keyed-sidebearing recomposition during outline drag are applied in JS via `refreshGlyphAdvancesLive` (and preceding-delta pan), not by reshaping.
 2. `anchor-only` compiles must reshape text because anchor edits affect GPOS positioning.
 3. `full` compiles continue through the existing complete render/update path.
 4. `text-input` stays on its dedicated path because the font data is unchanged and only the shaped subset changed.
@@ -480,7 +480,7 @@ There are only two approved exceptions:
 
 ### Outline edits
 
-Outline edits only change glyph geometry. They can use the most aggressive fast path: incremental layer patching, the subsetted editing target, no feature compilation, no kerning compilation, no VARC generation, and no text reshape on the canvas.
+Outline edits only change glyph geometry. They can use the most aggressive fast path: incremental layer patching, the subsetted editing target, no feature compilation, no kerning compilation, no VARC generation, and no text reshape on the canvas. Live outline previews follow the same no-reshape rule; when dragging a node on a layer with keyed sidebearings changes visible-layer widths, advances are patched in JS before the preview compile returns.
 
 ### Sidebearing edits with cascading metrics keys
 

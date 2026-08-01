@@ -9976,22 +9976,22 @@ function setupFontLoadingListener() {
                         isLivePreview &&
                         gc.outlineEditor.isLiveSidebearingInteractionActive();
 
-                    // During live drag the shaped run must track changed
-                    // dependent outlines, not merely its font bytes. Reshape
-                    // after the outline-only swap just as anchor-only does.
+                    // Outline-only never reshapes: the preview font skips
+                    // features/kerning for speed, so a reshape would jump the
+                    // canvas wherever kerning precedes the active glyphs.
+                    // New outlines come from the swapped blob at paint time;
+                    // width changes from keyed sidebearing recomposition are
+                    // applied in JS via refreshGlyphAdvancesLive beforehand.
                     if (compilationMode === 'outline-only') {
                         const fontBytesArray = new Uint8Array(arrayBuffer);
                         gc.fontBytes = fontBytesArray;
                         gc.axesManager!.fontBytes = fontBytesArray;
                         gc.textRunEditor!.swapFontBlob(fontBytesArray);
-                        if (isLivePreview && !isSidebearingSession) {
-                            gc.textRunEditor!.shapeText(true);
-                        }
                         timelineMark(
                             isLivePreview
                                 ? isSidebearingSession
                                     ? 'canvas.editingFontCompiled.outlineOnlySwappedSidebearing'
-                                    : 'canvas.editingFontCompiled.outlineOnlyShaped'
+                                    : 'canvas.editingFontCompiled.outlineOnlySwappedLive'
                                 : 'canvas.editingFontCompiled.outlineOnlySwapped'
                         );
 

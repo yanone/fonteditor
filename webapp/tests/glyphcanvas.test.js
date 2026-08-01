@@ -4905,6 +4905,37 @@ describe('GlyphCanvas property panel metrics edits', () => {
         global.requestAnimationFrame = originalRequestAnimationFrame;
     });
 
+    test('live outline preview swaps without reshape to preserve kerning', async () => {
+        const { setupFontLoadingListener } = require('../js/glyph-canvas');
+        setupFontLoadingListener();
+
+        canvas.axesManager = { fontBytes: null };
+        canvas.textRunEditor.swapFontBlob = jest.fn();
+        canvas.textRunEditor.shapeText = jest.fn();
+        canvas.requestRepaintAfterCompile = jest.fn();
+        canvas.outlineEditor.isDraggingSidebearing = false;
+        canvas.outlineEditor.isDraggingPoint = true;
+
+        window.dispatchEvent(
+            new CustomEvent('editingFontCompiled', {
+                detail: {
+                    fontBytes: new Uint8Array([4, 5, 6]),
+                    fontRevisionKey: '11',
+                    compilationMode: 'outline-only',
+                    dataFreshnessMode: 'live-drag-worker-preview',
+                    dragActive: true
+                }
+            })
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(canvas.textRunEditor.swapFontBlob).toHaveBeenCalled();
+        expect(canvas.textRunEditor.shapeText).not.toHaveBeenCalled();
+        expect(canvas.requestRepaintAfterCompile).toHaveBeenCalled();
+    });
+
     test('requestRepaintAfterCompile refreshes hit detection in outline mode', () => {
         const originalRequestAnimationFrame = global.requestAnimationFrame;
         const renderSpy = jest
