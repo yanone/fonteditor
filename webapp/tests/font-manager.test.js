@@ -66,7 +66,7 @@ function stripLayerStableIds(layer) {
                   ) {
                       nextShape.nodes = parseNodeString(nextShape.nodes).map(
                           ({ id, smooth, ...node }) =>
-                              smooth === false ? node : { ...node, smooth }
+                              smooth === true ? { ...node, smooth } : node
                       );
                   }
                   return nextShape;
@@ -912,55 +912,6 @@ describe('FontManager saveLayerData', () => {
         expect(
             window.autoCompileManager.checkAndSchedule
         ).not.toHaveBeenCalled();
-    });
-
-    test('postpones debounced full compile until drag ends', () => {
-        jest.useFakeTimers();
-
-        fontManager.scheduleFullCompileDebounce =
-            originalScheduleFullCompileDebounce;
-        fontManager.lastCompilationMode = 'outline-only';
-        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
-
-        const requestRecompileSpy = jest.fn();
-        fontManager.currentFont.requestRecompileWithoutDataChange =
-            requestRecompileSpy;
-        const syncSpy = jest
-            .spyOn(fontManager, 'syncBabelfontJsonFromCurrentModel')
-            .mockReturnValue(true);
-
-        window.glyphCanvas = {
-            outlineEditor: {
-                draggingSomething: true
-            }
-        };
-
-        try {
-            fontManager.scheduleFullCompileDebounce();
-            jest.advanceTimersByTime(500);
-
-            expect(syncSpy).not.toHaveBeenCalled();
-            expect(requestRecompileSpy).not.toHaveBeenCalled();
-            expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
-
-            window.glyphCanvas.outlineEditor.draggingSomething = false;
-            jest.advanceTimersByTime(500);
-
-            expect(syncSpy).toHaveBeenCalledTimes(1);
-            expect(requestRecompileSpy).toHaveBeenCalledTimes(1);
-            expect(
-                window.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(1);
-            expect(fontManager.lastChangeSource).toBe(
-                'debounced-post-interaction-full-compile'
-            );
-            expect(fontManager.lastEditType).toBeNull();
-            expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
-        } finally {
-            syncSpy.mockRestore();
-            jest.useRealTimers();
-            delete window.glyphCanvas;
-        }
     });
 
     test('refreshGlyphsAfterModelBatch updates a single edited layer without storing the whole font', async () => {
@@ -2977,7 +2928,7 @@ describe('FontManager boundary-crossing budget', () => {
         }
     });
 
-    test('refreshWorkerCacheForReplayTargets falls back to babelfontData when the model layer is not materialized', async () => {
+    test('refreshWorkerCacheForReplayTargets uses the authoritative bridge state when direct model lookup does not materialize a layer', async () => {
         const currentFont = fontManager.currentFont;
         const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
         const jsonGlyph = currentFont.babelfontData.glyphs.find(
@@ -3023,7 +2974,9 @@ describe('FontManager boundary-crossing budget', () => {
             );
             expect(storedGlyph).toBeDefined();
             expect(stripLayerStableIds(storedLayer)).toEqual(
-                stripLayerStableIds(jsonLayer)
+                stripLayerStableIds(
+                    originalFindGlyph('a').findLayerById(layerId).toJSON()
+                )
             );
         } finally {
             currentFont.fontModel.findGlyph = originalFindGlyph;

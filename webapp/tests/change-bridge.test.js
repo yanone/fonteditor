@@ -2531,7 +2531,7 @@ describe('Transactions', () => {
         ).toBe(125);
     });
 
-    test('multi-layer snapshots replace shapes atomically per same-glyph layer', () => {
+    test('multi-layer snapshots update canonical nodes without duplicating parent shapes', () => {
         const fontJson = makeThreeMasterThreeLayerFont();
         const receiverFontJson = cloneValue(fontJson);
         const bridge = new ChangeBridge('granular-linked-layer-sync');
@@ -2561,8 +2561,8 @@ describe('Transactions', () => {
 
         const paths = bridge.getChangeLog().map((entry) => entry.path);
         expect(paths).toEqual([
-            'glyphs.A:layers.master-extrathin:shapes',
-            'glyphs.A:layers.master-regular:shapes'
+            'glyphs.A:layers.master-extrathin:shapes.0.nodes',
+            'glyphs.A:layers.master-regular:shapes.0.nodes'
         ]);
         expect(
             paths.some((path) => path.endsWith(':layers.master-extrathin'))
@@ -2582,8 +2582,7 @@ describe('Transactions', () => {
             175
         );
 
-        // A second path edit must replace the array again, never append a
-        // duplicate parent shape through nested shapes[i].nodes Y.Text ops.
+        // A second canonical-node update must reuse the existing parent shape.
         extraThinLayer.shapes[0].nodes[0].x = 225;
         bridge.syncLayersFromJson(
             [{ glyphName: 'A', layerId: extraThinLayer.id }],
@@ -2604,7 +2603,7 @@ describe('Transactions', () => {
         receiverBridge.destroy();
     });
 
-    test('single-layer snapshots replace shapes atomically without nested node ops', () => {
+    test('single-layer snapshots preserve parent shape identity across nested node ops', () => {
         const fontJson = makeThreeMasterThreeLayerFont();
         const receiverFontJson = cloneValue(fontJson);
         const bridge = new ChangeBridge('granular-single-layer-atomic-shapes');
@@ -2648,10 +2647,12 @@ describe('Transactions', () => {
             .slice(logStart)
             .map((entry) => entry.path);
         expect(paths).toEqual([
-            'glyphs.A:layers.master-extrathin:shapes',
-            'glyphs.A:layers.master-extrathin:shapes'
+            'glyphs.A:layers.master-extrathin:shapes.0.nodes',
+            'glyphs.A:layers.master-extrathin:shapes.0.nodes'
         ]);
-        expect(paths.some((path) => path.includes(':shapes.'))).toBe(false);
+        expect(paths.every((path) => path.endsWith(':shapes.0.nodes'))).toBe(
+            true
+        );
         expect(receiverFontJson.glyphs[0].layers[0].shapes).toHaveLength(
             shapeCount
         );
@@ -2741,10 +2742,13 @@ describe('Transactions', () => {
 
         const log = bridge.getChangeLog().slice(logStart);
         expect(log.map((entry) => entry.path)).toContain(
-            'glyphs.A:layers.layer-1:shapes'
+            'glyphs.A:layers.layer-1:shapes.0.nodes'
         );
         expect(log.map((entry) => entry.path)).toEqual(
-            expect.arrayContaining(['glyphs.B:layers.layer-2:shapes'])
+            expect.arrayContaining([
+                'glyphs.B:layers.layer-2:shapes.1.transform.translation.0',
+                'glyphs.B:layers.layer-2:shapes.1.transform.translation.1'
+            ])
         );
         expect(
             cloneValue(
@@ -2948,7 +2952,8 @@ describe('Transactions', () => {
 
         const log = bridge.getChangeLog().slice(logStart);
         expect(log.map((entry) => entry.path)).toEqual([
-            'glyphs.A:layers.layer-1:shapes'
+            'glyphs.A:layers.layer-1:shapes.1.transform.translation.0',
+            'glyphs.A:layers.layer-1:shapes.1.transform.translation.1'
         ]);
         expect(
             cloneValue(
@@ -9313,11 +9318,12 @@ describe('syncGlyphFromJson', () => {
             (entry) => entry.historyAction === 'change'
         );
 
-        expect(changeEntries).toHaveLength(3);
+        expect(changeEntries).toHaveLength(4);
         expect(changeEntries.map((entry) => entry.path)).toEqual([
             'glyphs.B:layers.layer-2:width',
             'glyphs.A:layers.layer-1:width',
-            'glyphs.A:layers.layer-1:shapes'
+            'glyphs.A:layers.layer-1:shapes.1.transform.translation.0',
+            'glyphs.A:layers.layer-1:shapes.1.transform.translation.1'
         ]);
         changeEntries.forEach((entry) => {
             expect(entry.workerReplayTargets).toEqual(changedTargets);

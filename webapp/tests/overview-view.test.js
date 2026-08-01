@@ -78,6 +78,12 @@ describe('OverviewView initial active glyph sync', () => {
         window.glyphOverviewFilterManager = null;
         window.timelineSpanStart = jest.fn(() => 'overview-span');
         window.timelineSpanEnd = jest.fn();
+
+        const { fontCompilation } = require('../js/font-compilation');
+        jest.spyOn(
+            fontCompilation,
+            'seedWorkerYDocFromState'
+        ).mockResolvedValue(undefined);
     });
 
     afterEach(() => {
@@ -146,36 +152,45 @@ describe('OverviewView initial active glyph sync', () => {
 
     test('refreshes overview tiles on fontModelReady before fontReady', async () => {
         require('../js/overview-view');
-
-        await jest.runAllTimersAsync();
-        await Promise.resolve();
-
-        updateGlyphs.mockClear();
-        syncGlyphs.mockClear();
-        renderGlyphOutlines.mockClear();
-        setOutlinePaintAllowed.mockClear();
-
-        window.currentFontModel = {
-            glyphs: [{ name: '.notdef' }]
+        const originalWindowRole = window.windowRole;
+        window.windowRole = {
+            ...originalWindowRole,
+            isLinkedWindow: () => true
         };
 
-        window.dispatchEvent(
-            new CustomEvent('fontModelReady', {
-                detail: {
-                    path: 'untitled.babelfont',
-                    babelfontData: {}
-                }
-            })
-        );
+        try {
+            await jest.runAllTimersAsync();
+            await Promise.resolve();
 
-        await jest.runAllTimersAsync();
-        await Promise.resolve();
+            updateGlyphs.mockClear();
+            syncGlyphs.mockClear();
+            renderGlyphOutlines.mockClear();
+            setOutlinePaintAllowed.mockClear();
 
-        expect(setOutlinePaintAllowed).toHaveBeenCalledWith(false);
-        expect(syncGlyphs).toHaveBeenCalledTimes(1);
-        expect(syncGlyphs).toHaveBeenCalledWith([
-            { id: '.notdef', name: '.notdef' }
-        ]);
+            window.currentFontModel = {
+                glyphs: [{ name: '.notdef' }]
+            };
+
+            window.dispatchEvent(
+                new CustomEvent('fontModelReady', {
+                    detail: {
+                        path: 'untitled.babelfont',
+                        babelfontData: {}
+                    }
+                })
+            );
+
+            await jest.runAllTimersAsync();
+            await Promise.resolve();
+
+            expect(setOutlinePaintAllowed).toHaveBeenCalledWith(false);
+            expect(syncGlyphs).toHaveBeenCalledTimes(1);
+            expect(syncGlyphs).toHaveBeenCalledWith([
+                { id: '.notdef', name: '.notdef' }
+            ]);
+        } finally {
+            window.windowRole = originalWindowRole;
+        }
         expect(renderGlyphOutlines).not.toHaveBeenCalled();
     });
 

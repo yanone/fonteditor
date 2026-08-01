@@ -6874,6 +6874,20 @@ mod tests {
             shape_map.insert(&mut txn, "nodes", "25 20 l 30 20 l");
         }
         let incremental_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+        let second_base_state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            let glyphs_map = font_map.get(&txn, "glyphs").unwrap().cast::<yrs::MapRef>().unwrap();
+            let glyph_map = glyphs_map.get(&txn, "A").unwrap().cast::<yrs::MapRef>().unwrap();
+            let layers_map = glyph_map.get(&txn, "layers").unwrap().cast::<yrs::MapRef>().unwrap();
+            let layer_map = layers_map.get(&txn, "layer-1").unwrap().cast::<yrs::MapRef>().unwrap();
+            let shapes = layer_map.get(&txn, "shapes").unwrap().cast::<yrs::ArrayRef>().unwrap();
+            let shape_map = shapes.get(&txn, 0).unwrap().cast::<yrs::MapRef>().unwrap();
+            shape_map.insert(&mut txn, "nodes", "40 20 l 30 20 l");
+        }
+        let second_incremental_update = author_doc
+            .transact()
+            .encode_diff_v1(&second_base_state_vector);
 
         let worker_doc = Doc::new();
         {
@@ -6894,17 +6908,43 @@ mod tests {
         )
         .unwrap();
 
+        apply_yjs_update(
+            second_incremental_update.as_slice(),
+            r#"{
+                "changedGlyphs": ["A"],
+                "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }]
+            }"#,
+        )
+        .unwrap();
+
         assert!(FILTER_EPOCH.load(Ordering::Relaxed) > filter_epoch_before);
         assert!(FILTERED_FONT_CACHE.lock().unwrap().is_none());
+        let ydoc_layer = {
+            let ydoc = Y_DOC.lock().unwrap();
+            let txn = ydoc.as_ref().unwrap().transact();
+            ydoc_get_layer_json_with_txn("A", "layer-1", &txn).unwrap()
+        };
+        assert_eq!(ydoc_layer["shapes"].as_array().unwrap().len(), 1);
+        assert_eq!(ydoc_layer["shapes"][0]["nodes"], json!("40 20 l 30 20 l"));
         assert_eq!(
             CANONICAL_JSON_CACHE.lock().unwrap().as_ref().unwrap()["glyphs"][0]["layers"][0]
                 ["shapes"][0]["nodes"],
-            json!("25 20 l 30 20 l")
+            json!("40 20 l 30 20 l")
+        );
+        assert_eq!(
+            CANONICAL_JSON_CACHE.lock().unwrap().as_ref().unwrap()["glyphs"][0]["layers"][0]
+                ["shapes"].as_array().unwrap().len(),
+            1
         );
         assert_eq!(
             SUBSET_JSON_CACHE.lock().unwrap().as_ref().unwrap().2["glyphs"][0]["layers"][0]
                 ["shapes"][0]["nodes"],
-            json!("25 20 l 30 20 l")
+            json!("40 20 l 30 20 l")
+        );
+        assert_eq!(
+            SUBSET_JSON_CACHE.lock().unwrap().as_ref().unwrap().2["glyphs"][0]["layers"][0]
+                ["shapes"].as_array().unwrap().len(),
+            1
         );
         let subset_cache_json = serde_json::to_value(
             &SUBSET_FONT_CACHE.lock().unwrap().as_ref().unwrap().2,
@@ -6912,7 +6952,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             subset_cache_json["glyphs"][0]["layers"][0]["shapes"][0]["nodes"][0]["x"],
-            json!(25.0)
+            json!(40.0)
         );
 
         clear_font_cache();

@@ -7,7 +7,7 @@
  *   2. Marks the compile request as worker-authoritative once the committed
  *      Yjs update is already in Rust.
  *   3. Requests the editing compile with that explicit context.
- *   4. Arms the deferred full-compile timer (replaces scheduleFullCompileDebounce).
+ *   4. Arms the deferred full-compile timer.
  *
  * The compile context is stored against the exact compile request revision.
  * After each processed edit, any transient compile or edit-source state is cleaned
@@ -224,7 +224,7 @@ export async function processCommittedEdit(
 
 /**
  * Arm (or re-arm) the deferred full-compile timer.
- * Replaces `FontManager.scheduleFullCompileDebounce()`.
+ * This is the only deferred editing-compile timer.
  */
 function armDeferredFullCompile(): void {
     if (deferredTimer !== null) {

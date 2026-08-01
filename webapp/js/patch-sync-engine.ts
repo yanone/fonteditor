@@ -1928,26 +1928,6 @@ export class PatchSyncEngine {
         }
 
         const lastSegment = path[path.length - 1];
-        // Shapes are always replaced atomically. Nested shapes[i].nodes (or
-        // other per-shape field) ops can diverge in Rust/Yrs and append
-        // duplicate parent shapes while the browser Y.Doc stays correct.
-        // Anchors/guides stay on the indexed-map path below; full shape
-        // identity migration is tracked in YDOC_SHAPE_IDENTITY_MIGRATION.md.
-        if (
-            lastSegment === 'shapes' &&
-            Array.isArray(previousValue) &&
-            Array.isArray(nextValue)
-        ) {
-            return [
-                this._createGranularLayerOperation(
-                    'set',
-                    path,
-                    previousValue,
-                    nextValue,
-                    metadata
-                )
-            ];
-        }
         if (
             typeof lastSegment === 'string' &&
             GRANULAR_LAYER_ARRAY_KEYS.has(lastSegment) &&

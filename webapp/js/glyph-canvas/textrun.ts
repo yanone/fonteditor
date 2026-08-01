@@ -1030,6 +1030,18 @@ export class TextRunEditor {
             const text =
                 payloads.find((payload) => payload.type === 'text/plain')
                     ?.data ?? (await navigator.clipboard.readText());
+            const fallbackParsed = parseClipboardPayloads([
+                { type: 'text/plain', data: text }
+            ]);
+            if (fallbackParsed) {
+                const message =
+                    fallbackParsed.kind === 'glyphs'
+                        ? 'Clipboard has whole glyphs. Switch to the glyph overview to paste them.'
+                        : 'Clipboard has layer data. Enter glyph editing mode to paste it.';
+                console.warn(message);
+                window.alert?.(message);
+                return;
+            }
             console.log('Pasting from clipboard:', `"${text}"`);
 
             // insertText already handles replacing selection

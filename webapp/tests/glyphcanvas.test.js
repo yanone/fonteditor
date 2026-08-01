@@ -2682,8 +2682,11 @@ describe('GlyphCanvas onMouseUp', () => {
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
         const originalFlushPendingDebugEditingFontSaveAfterDrag =
             fontManager.flushPendingDebugEditingFontSaveAfterDrag;
-        const originalSyncRustCacheAndRefreshCanvas =
-            window.syncRustCacheAndRefreshCanvas;
+        const changeBridgeInit = require('../js/change-bridge-init');
+        const queueCanvasRefreshSpy = jest.spyOn(
+            changeBridgeInit,
+            'queueCanvasRefreshFromCommittedModel'
+        );
         const syncSpy = jest
             .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
             .mockImplementation(() => {});
@@ -2717,7 +2720,6 @@ describe('GlyphCanvas onMouseUp', () => {
                 'A'
             ]);
             canvas.outlineEditor.pendingRemoteRefreshAfterDrag = true;
-            window.syncRustCacheAndRefreshCanvas = jest.fn();
 
             await expect(
                 canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 })
@@ -2736,16 +2738,15 @@ describe('GlyphCanvas onMouseUp', () => {
             expect(canvas.outlineEditor.pendingRemoteRefreshAfterDrag).toBe(
                 false
             );
-            expect(window.syncRustCacheAndRefreshCanvas).toHaveBeenCalled();
+            expect(queueCanvasRefreshSpy).toHaveBeenCalledTimes(1);
         } finally {
-            window.syncRustCacheAndRefreshCanvas =
-                originalSyncRustCacheAndRefreshCanvas;
             window.changeBridge = originalWindowChangeBridge;
             fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
             fontManager.flushPendingDebugEditingFontSaveAfterDrag =
                 originalFlushPendingDebugEditingFontSaveAfterDrag;
             syncSpy.mockRestore();
             saveLayerDataSpy.mockRestore();
+            queueCanvasRefreshSpy.mockRestore();
         }
     });
 
@@ -3705,7 +3706,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
         fontManager.scheduleFullCompileDebounce = jest.fn();
         window.patchSyncEngine = {
             beginTransaction: jest.fn(),
-            endTransaction: jest.fn()
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
         };
 
         canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
@@ -3767,7 +3769,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
         fontManager.scheduleFullCompileDebounce = jest.fn();
         window.patchSyncEngine = {
             beginTransaction: jest.fn(),
-            endTransaction: jest.fn()
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
         };
 
         canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
@@ -3818,7 +3821,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
         };
         window.patchSyncEngine = {
             beginTransaction: jest.fn(),
-            endTransaction: jest.fn()
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
         };
 
         try {
@@ -3839,7 +3843,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             expect(markDirty).toHaveBeenCalledWith('kerning-property-panel');
             expect(
                 fontManager.scheduleFullCompileDebounce
-            ).toHaveBeenCalledTimes(1);
+            ).not.toHaveBeenCalled();
             expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
@@ -4220,9 +4224,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
         expect(fontManager.lastEditType).toBe('outline');
         expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
-        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
-            1
-        );
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(
             window.autoCompileManager.checkAndSchedule
         ).not.toHaveBeenCalled();
@@ -6426,9 +6428,9 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             expect(
                 window.changeBridge.syncGlyphsFromJson
             ).not.toHaveBeenCalled();
-            expect(
-                window.changeBridge.syncGlyphFromJson
-            ).not.toHaveBeenCalled();
+            expect(window.changeBridge.syncGlyphFromJson).toHaveBeenCalledTimes(
+                1
+            );
             expect(window.changeBridge.endTransaction).toHaveBeenCalledTimes(1);
         } finally {
             window.changeBridge = previousChangeBridge;
@@ -8113,9 +8115,9 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(window.changeBridge.beginTransaction).toHaveBeenCalledTimes(
                 1
             );
-            expect(
-                window.changeBridge.syncGlyphFromJson
-            ).not.toHaveBeenCalled();
+            expect(window.changeBridge.syncGlyphFromJson).toHaveBeenCalledTimes(
+                1
+            );
             expect(window.changeBridge.endTransaction).toHaveBeenCalledTimes(1);
         } finally {
             window.changeBridge = previousChangeBridge;
@@ -8440,9 +8442,9 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(window.changeBridge.beginTransaction).toHaveBeenCalledTimes(
                 1
             );
-            expect(
-                window.changeBridge.syncGlyphFromJson
-            ).not.toHaveBeenCalled();
+            expect(window.changeBridge.syncGlyphFromJson).toHaveBeenCalledTimes(
+                1
+            );
             expect(window.changeBridge.endTransaction).toHaveBeenCalledTimes(1);
         } finally {
             window.changeBridge = previousChangeBridge;
@@ -9535,9 +9537,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const structuralLayerSyncSpy = jest
             .spyOn(fontManager, 'syncLayerFromModelToStorage')
             .mockReturnValue(true);
-        const scheduleFullCompileDebounceSpy = jest
-            .spyOn(fontManager, 'scheduleFullCompileDebounce')
-            .mockImplementation(() => {});
         const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
         const segmentHitSpy = jest
             .spyOn(canvas.outlineEditor, 'findClosestPathSegmentHit')
@@ -9575,7 +9574,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             .mockReturnValue({ glyphX: 10.6, glyphY: 39.4 });
 
         try {
-            scheduleFullCompileDebounceSpy.mockClear();
             window.autoCompileManager.checkAndSchedule.mockClear();
 
             canvas.outlineEditor.onSingleClick({
@@ -9733,9 +9731,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const workerCacheSpy = jest
             .spyOn(fontManager, 'updateWorkerFontCache')
             .mockResolvedValue();
-        const scheduleFullCompileDebounceSpy = jest
-            .spyOn(fontManager, 'scheduleFullCompileDebounce')
-            .mockImplementation(() => {});
         const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
         const segmentHitSpy = jest
             .spyOn(canvas.outlineEditor, 'findClosestPathSegmentHit')
@@ -9795,7 +9790,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(fontManager.lastChangeSource).toBeNull();
             expect(fontManager.lastEditType).toBeNull();
-            expect(scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).not.toHaveBeenCalled();
@@ -9816,7 +9810,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             fontManager.lastEditType = originalLastEditType;
             linkedLayersSpy.mockRestore();
             workerCacheSpy.mockRestore();
-            scheduleFullCompileDebounceSpy.mockRestore();
             dirtyIndicatorSpy.mockRestore();
             currentFontSpy.mockRestore();
         }
@@ -10151,14 +10144,8 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(bridge.beginTransaction).toHaveBeenCalledWith(
                 'Convert line to curve'
             );
-            expect(bridge.syncGlyphFromJson).not.toHaveBeenCalled();
-            expect(bridge.syncLayersFromJson).toHaveBeenCalledWith(
-                [
-                    { glyphName: 'A', layerId: 'layer-1' },
-                    { glyphName: 'A', layerId: 'layer-2' }
-                ],
-                'Convert line to curve'
-            );
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.syncLayersFromJson).not.toHaveBeenCalled();
             expect(
                 currentLayer.paths[0].nodes.map((node) => node.nodetype)
             ).toEqual(['Move', 'OffCurve', 'OffCurve', 'Curve']);
@@ -10639,9 +10626,6 @@ describe('OutlineEditor structural outline compile scheduling', () => {
         const structuralLayerSyncSpy = jest
             .spyOn(fontManager, 'syncLayerFromModelToStorage')
             .mockReturnValue(true);
-        const scheduleFullCompileDebounceSpy = jest
-            .spyOn(fontManager, 'scheduleFullCompileDebounce')
-            .mockImplementation(() => {});
         const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
         const originalBridge = window.changeBridge;
         const originalFontModel = window.currentFontModel;
@@ -10668,7 +10652,6 @@ describe('OutlineEditor structural outline compile scheduling', () => {
             dirtyIndicatorSpy,
             workerCacheSpy,
             structuralLayerSyncSpy,
-            scheduleFullCompileDebounceSpy,
             linkedLayersSpy,
             bridge: window.changeBridge,
             restore() {
@@ -10678,7 +10661,6 @@ describe('OutlineEditor structural outline compile scheduling', () => {
                 fontManager.lastChangeSource = originalLastChangeSource;
                 fontManager.lastEditType = originalLastEditType;
                 linkedLayersSpy.mockRestore();
-                scheduleFullCompileDebounceSpy.mockRestore();
                 structuralLayerSyncSpy.mockRestore();
                 workerCacheSpy.mockRestore();
                 dirtyIndicatorSpy.mockRestore();
@@ -10803,7 +10785,6 @@ describe('OutlineEditor structural outline compile scheduling', () => {
             expect(currentLayer.paths[0].closed).toBe(true);
             expect(fontManager.lastChangeSource).toBeNull();
             expect(fontManager.lastEditType).toBeNull();
-            expect(env.scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).not.toHaveBeenCalled();
@@ -10901,7 +10882,6 @@ describe('OutlineEditor structural outline compile scheduling', () => {
             expect(currentLayer.paths[0].closed).toBe(false);
             expect(fontManager.lastChangeSource).toBeNull();
             expect(fontManager.lastEditType).toBeNull();
-            expect(env.scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).not.toHaveBeenCalled();
@@ -11005,7 +10985,6 @@ describe('OutlineEditor structural outline compile scheduling', () => {
             expect(env.bridge.beginTransaction).not.toHaveBeenCalled();
             expect(fontManager.lastChangeSource).toBeNull();
             expect(fontManager.lastEditType).toBeNull();
-            expect(env.scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).not.toHaveBeenCalled();
@@ -11112,7 +11091,6 @@ describe('OutlineEditor structural outline compile scheduling', () => {
 
             expect(fontManager.lastChangeSource).toBeNull();
             expect(fontManager.lastEditType).toBeNull();
-            expect(env.scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).not.toHaveBeenCalled();
@@ -11197,7 +11175,6 @@ describe('OutlineEditor structural outline compile scheduling', () => {
 
             expect(fontManager.lastChangeSource).toBeNull();
             expect(fontManager.lastEditType).toBeNull();
-            expect(env.scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).not.toHaveBeenCalled();
@@ -11885,7 +11862,8 @@ describe('GlyphCanvas anchor movement', () => {
 
         window.patchSyncEngine = {
             beginTransaction: jest.fn(),
-            endTransaction: jest.fn()
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
         };
         canvas.outlineEditor.active = true;
         canvas.outlineEditor.selectedLayerId = 'layer-1';
@@ -13175,10 +13153,6 @@ describe('GlyphCanvas property panel', () => {
             index: 0
         };
         canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
-        const scheduleCompileSpy = jest
-            .spyOn(fontManager, 'scheduleFullCompileDebounce')
-            .mockImplementation(() => {});
-
         canvas.updatePropertyPanel();
 
         const nameInput = document.querySelector(
@@ -13206,9 +13180,6 @@ describe('GlyphCanvas property panel', () => {
         expect(layer.guides[0].pos.x).toBe(100);
         expect(layer.guides[0].pos.y).toBe(120);
         expect(layer.guides[0].pos.angle).toBe(90);
-        expect(scheduleCompileSpy).not.toHaveBeenCalled();
-
-        scheduleCompileSpy.mockRestore();
     });
 
     test('toggles guide between layer and master via Global checkbox', async () => {
@@ -13353,11 +13324,6 @@ describe('GlyphCanvas property panel', () => {
         jest.spyOn(fontManager, 'setEditingCompileContext').mockImplementation(
             () => {}
         );
-        jest.spyOn(
-            fontManager,
-            'scheduleFullCompileDebounce'
-        ).mockImplementation(() => {});
-
         canvas.updatePropertyPanel();
         const xInput = document.querySelector(
             '.glyph-property-input[data-property-field="anchor-x"]'
@@ -13381,10 +13347,6 @@ describe('GlyphCanvas property panel', () => {
         jest.spyOn(fontManager, 'setEditingCompileContext').mockImplementation(
             () => {}
         );
-        jest.spyOn(
-            fontManager,
-            'scheduleFullCompileDebounce'
-        ).mockImplementation(() => {});
         const promptSpy = jest.spyOn(window, 'prompt').mockReturnValue('top');
 
         await canvas.openAddAnchorDialogAt({ x: 250, y: 700 });
@@ -13409,9 +13371,6 @@ describe('GlyphCanvas property panel', () => {
         const compileContextSpy = jest
             .spyOn(fontManager, 'setEditingCompileContext')
             .mockImplementation(() => {});
-        const scheduleCompileSpy = jest
-            .spyOn(fontManager, 'scheduleFullCompileDebounce')
-            .mockImplementation(() => {});
         const promptSpy = jest.spyOn(window, 'prompt').mockReturnValue('top');
 
         await canvas.openAddAnchorDialogAt({ x: 250.6, y: 699.4 });
@@ -13422,7 +13381,6 @@ describe('GlyphCanvas property panel', () => {
         promptSpy.mockRestore();
         prepareSpy.mockRestore();
         compileContextSpy.mockRestore();
-        scheduleCompileSpy.mockRestore();
     });
 
     test('adds a local unnamed guideline at the cursor position from the context-menu flow', async () => {
@@ -13434,10 +13392,6 @@ describe('GlyphCanvas property panel', () => {
             canvas.outlineEditor,
             'setGuidelinesVisible'
         );
-        const scheduleCompileSpy = jest
-            .spyOn(fontManager, 'scheduleFullCompileDebounce')
-            .mockImplementation(() => {});
-
         await canvas.addGuideAtPosition({ x: 250.6, y: 700.4 });
 
         expect(layer.guides).toHaveLength(1);
@@ -13450,14 +13404,11 @@ describe('GlyphCanvas property panel', () => {
             index: 0
         });
         expect(setVisibleSpy).toHaveBeenCalledWith(true);
-        expect(scheduleCompileSpy).not.toHaveBeenCalled();
         expect(
             document.querySelector(
                 '.glyph-property-input[data-property-field="guide-x"]'
             ).value
         ).toBe('251');
-
-        scheduleCompileSpy.mockRestore();
     });
 
     test('context menu offers Add guideline for editable layers', () => {
@@ -13661,7 +13612,8 @@ describe('GlyphCanvas property panel', () => {
             'panelGlyph',
             'panelGlyph',
             'layer-1',
-            null
+            null,
+            'font'
         );
 
         window.runBridgeUndoRedo = previousRunBridgeUndoRedo;
@@ -16741,9 +16693,6 @@ describe('OutlineEditor exact selected layers', () => {
         const dirtySpy = jest
             .spyOn(fontManager, 'updateDirtyIndicator')
             .mockResolvedValue();
-        const scheduleFullCompileDebounceSpy = jest
-            .spyOn(fontManager, 'scheduleFullCompileDebounce')
-            .mockImplementation(() => {});
         const selectLayerSpy = jest
             .spyOn(canvas.outlineEditor, 'selectLayer')
             .mockResolvedValue();
@@ -16767,8 +16716,6 @@ describe('OutlineEditor exact selected layers', () => {
 
         currentFontSpy.mockReturnValue(currentFont);
         canvas.outlineEditor.selectedLayerId = 'brace-layer';
-        scheduleFullCompileDebounceSpy.mockClear();
-
         try {
             const recreatedLayer =
                 await canvas.outlineEditor.reinterpolateLayerById(
@@ -16787,7 +16734,6 @@ describe('OutlineEditor exact selected layers', () => {
             expect(currentFont.markDirty).toHaveBeenCalledTimes(3);
             expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
-            expect(scheduleFullCompileDebounceSpy).not.toHaveBeenCalled();
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).not.toHaveBeenCalled();
@@ -16808,7 +16754,6 @@ describe('OutlineEditor exact selected layers', () => {
             window.autoCompileManager = originalAutoCompileManager;
             window.patchSyncEngine = originalPatchSyncEngine;
             selectLayerSpy.mockRestore();
-            scheduleFullCompileDebounceSpy.mockRestore();
             dirtySpy.mockRestore();
             forceFullWorkerCacheUpdateSpy.mockRestore();
         }
@@ -16828,9 +16773,6 @@ describe('OutlineEditor exact selected layers', () => {
         const dirtySpy = jest
             .spyOn(fontManager, 'updateDirtyIndicator')
             .mockResolvedValue();
-        const scheduleFullCompileDebounceSpy = jest
-            .spyOn(fontManager, 'scheduleFullCompileDebounce')
-            .mockImplementation(() => {});
         const originalAutoCompileManager = window.autoCompileManager;
         const originalChangeBridge = window.changeBridge;
 
@@ -16869,7 +16811,6 @@ describe('OutlineEditor exact selected layers', () => {
         } finally {
             window.autoCompileManager = originalAutoCompileManager;
             window.changeBridge = originalChangeBridge;
-            scheduleFullCompileDebounceSpy.mockRestore();
             dirtySpy.mockRestore();
             forceFullWorkerCacheUpdateSpy.mockRestore();
         }
@@ -16888,9 +16829,6 @@ describe('OutlineEditor exact selected layers', () => {
         const dirtySpy = jest
             .spyOn(fontManager, 'updateDirtyIndicator')
             .mockResolvedValue();
-        const scheduleFullCompileDebounceSpy = jest
-            .spyOn(fontManager, 'scheduleFullCompileDebounce')
-            .mockImplementation(() => {});
         const updatePropertyPanelSpy = jest
             .spyOn(canvas, 'updatePropertyPanel')
             .mockImplementation(() => {});
@@ -16957,7 +16895,6 @@ describe('OutlineEditor exact selected layers', () => {
             window.changeBridge = originalChangeBridge;
             renderSpy.mockRestore();
             updatePropertyPanelSpy.mockRestore();
-            scheduleFullCompileDebounceSpy.mockRestore();
             dirtySpy.mockRestore();
             forceFullWorkerCacheUpdateSpy.mockRestore();
         }
@@ -19897,7 +19834,8 @@ describe('Linked component structural edits', () => {
             .mockResolvedValue();
         window.patchSyncEngine = {
             beginTransaction: jest.fn(),
-            endTransaction: jest.fn()
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
         };
     });
 

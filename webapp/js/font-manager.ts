@@ -560,7 +560,6 @@ class FontManager {
      * result until input becomes idle starves the visible drag path.
      */
     private lastAppliedLivePreviewRevision: number = -1;
-    fullCompileDebounceTimer: ReturnType<typeof setTimeout> | null = null; // Timer for debounced full compile after interactive editing
     closureCache: {
         subsetGlyphs: string[];
         activeFeatures: string;
@@ -641,7 +640,6 @@ class FontManager {
         this.lastCompilationMode = 'full';
         this.lastFullCompiledDataVersion = -1;
         this.lastAppliedLivePreviewRevision = -1;
-        this.fullCompileDebounceTimer = null;
         this.closureCache = null;
         this.editingSubsetSnapshotGlyphs = [];
         this.editingSubsetSnapshotKey = '';
@@ -1443,11 +1441,6 @@ class FontManager {
 
         if (window.glyphCanvas) {
             window.glyphCanvas.resetForOpenedFontReplacement();
-        }
-
-        if (this.fullCompileDebounceTimer) {
-            clearTimeout(this.fullCompileDebounceTimer);
-            this.fullCompileDebounceTimer = null;
         }
     }
 
@@ -3238,56 +3231,6 @@ class FontManager {
     }
 
     /**
-     * Schedule a debounced full compile after interactive editing stops.
-     * Resets on each call, so rapid edits (keyboard/drag) only trigger one
-     * full compile after the last edit + delay.
-     */
-    scheduleFullCompileDebounce(): void {
-        if (this.fullCompileDebounceTimer) {
-            clearTimeout(this.fullCompileDebounceTimer);
-        }
-        this.fullCompileDebounceTimer = setTimeout(() => {
-            this.fullCompileDebounceTimer = null;
-            if (window.glyphCanvas?.outlineEditor?.draggingSomething) {
-                console.log(
-                    '[FontManager] Debounced full compile postponed until drag ends'
-                );
-                this.scheduleFullCompileDebounce();
-                return;
-            }
-            if (this.lastCompilationMode !== 'full' && this.currentFont) {
-                console.log(
-                    '[FontManager] Debounced full compile triggered after interactive editing'
-                );
-
-                if (this.pendingBabelfontJsonSyncAfterDrag) {
-                    if (!this.syncBabelfontJsonFromCurrentModel()) {
-                        return;
-                    }
-                    this.pendingBabelfontJsonSyncAfterDrag = false;
-                }
-
-                // Reset lastEditType so the upcoming compile uses compilationMode = 'full'
-                // (with kern/features). Do this regardless of needsRecompile — if a compile
-                // is still in progress, the auto-compile loop's data-changed retry will pick
-                // up lastEditType = null and produce a full compile instead of outline-only.
-                this.setEditingCompileContext(
-                    'debounced-post-interaction-full-compile',
-                    null
-                );
-                this.currentFont.requestRecompileWithoutDataChange({
-                    compileContext: {
-                        changeSource: 'debounced-post-interaction-full-compile',
-                        editType: null,
-                        dataFreshnessMode: null
-                    }
-                });
-                window.autoCompileManager.checkAndSchedule();
-            }
-        }, 500);
-    }
-
-    /**
      * Ensure a full editing font (with features/kerning) has been compiled.
      * Call this before axis slider changes or layer switches that depend
      * on correct HarfBuzz positioning.
@@ -3296,11 +3239,6 @@ class FontManager {
     async ensureFullEditingCompile(): Promise<void> {
         if (this.lastCompilationMode === 'full') {
             return; // Already have a full compile
-        }
-        // Cancel pending debounce — we need it now
-        if (this.fullCompileDebounceTimer) {
-            clearTimeout(this.fullCompileDebounceTimer);
-            this.fullCompileDebounceTimer = null;
         }
         console.log(
             '[FontManager] Forcing full compile before axis/layer change'
@@ -5984,7 +5922,8 @@ class FontManager {
             if (pendingLayerUpdates && pendingLayerUpdates.length > 0) {
                 updatedIncrementally =
                     await this.submitLayerUpdatesToWorkerCache(
-                        pendingLayerUpdates
+                        pendingLayerUpdates,
+                        { recoverOnFailure: false }
                     );
             } else if (pendingLayerUpdates) {
                 updatedIncrementally = true;

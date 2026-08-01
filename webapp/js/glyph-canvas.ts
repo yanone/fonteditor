@@ -5638,9 +5638,6 @@ class GlyphCanvas {
         affectedGlyphNames: string[],
         layerId: string | null
     ): Promise<void> {
-        fontManager.setEditingCompileContext('keyboard', 'outline');
-        fontManager.scheduleFullCompileDebounce();
-
         try {
             // When PatchSyncEngine is active, the authoritative bridge Yjs
             // packet + shared committed-change funnel own worker sync and
@@ -5672,9 +5669,6 @@ class GlyphCanvas {
         affectedGlyphNames: string[],
         layerId: string | null
     ): Promise<void> {
-        fontManager.setEditingCompileContext('keyboard-anchor', 'anchor');
-        fontManager.scheduleFullCompileDebounce();
-
         try {
             const bridgeOwnsCommittedRefresh = !!window.patchSyncEngine;
             if (!bridgeOwnsCommittedRefresh && affectedGlyphNames.length > 0) {
@@ -6399,7 +6393,6 @@ class GlyphCanvas {
 
     private armSidebearingKeyCompileContext(): void {
         this.setSidebearingKeyCompileContext();
-        fontManager.scheduleFullCompileDebounce?.();
     }
 
     private async commitPropertyPanelValue(
@@ -7391,7 +7384,6 @@ class GlyphCanvas {
             isGroupEdit ? 'kerning-groups' : 'kerning-value'
         );
         fontManager.currentFont?.markDirty(reason);
-        fontManager.scheduleFullCompileDebounce?.();
         // Kerning edits already flow through PatchSyncEngine and the shared
         // committed-change funnel, which requests the authoritative immediate
         // editing compile after the worker Yjs update settles. Waking the

@@ -3813,7 +3813,7 @@ describe('buildCascadingRecompositionOperations', () => {
         ).not.toHaveBeenCalled();
     });
 
-    test('skips recomposition when GUI layer-snapshot operation carries complete replay targets', () => {
+    test('skips recomposition when GUI operations write a claimed downstream layer', () => {
         const fontJson = makeBridgeFont();
         const bridge = new ChangeBridge('cascade-test');
         bridge.initFromJson(fontJson);
@@ -3827,27 +3827,34 @@ describe('buildCascadingRecompositionOperations', () => {
             }
         };
 
-        // A layer-snapshot operation with explicit workerReplayTargets
-        // that includes the source glyph/layer should bypass recomposition.
+        // Granular source and downstream writes with explicit replay targets
+        // are complete producer output and should bypass recomposition.
         const operations = buildCascadingRecompositionOperations(bridge, [
             {
                 op: 'set',
-                path: ['glyphs', 'A', 'layers', 'layer-1'],
-                oldValue: {
-                    id: 'layer-1',
-                    width: 600,
-                    anchors: [],
-                    shapes: []
-                },
-                newValue: {
-                    id: 'layer-1',
-                    width: 700,
-                    anchors: [],
-                    shapes: []
-                },
-                applyPath: ['glyphs', 'A', 'layers', 'layer-1'],
-                applyMode: 'layer-snapshot',
-                applyNewValue: { id: 'layer-1', width: 700 },
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'anchors', 0, 'x'],
+                oldValue: 100,
+                newValue: 125,
+                workerReplayTargets: [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'B', layerId: 'layer-2' }
+                ]
+            },
+            {
+                op: 'set',
+                path: [
+                    'glyphs',
+                    'B',
+                    'layers',
+                    'layer-2',
+                    'shapes',
+                    0,
+                    'transform',
+                    'translation',
+                    0
+                ],
+                oldValue: 0,
+                newValue: 25,
                 workerReplayTargets: [
                     { glyphName: 'A', layerId: 'layer-1' },
                     { glyphName: 'B', layerId: 'layer-2' }
@@ -3863,6 +3870,45 @@ describe('buildCascadingRecompositionOperations', () => {
         expect(
             window.fontManager.currentFont.fontModel.recomputeMetricsKeys
         ).not.toHaveBeenCalled();
+    });
+
+    test('falls back to recomposition when replay targets have only a source-layer write', () => {
+        const fontJson = makeBridgeFont();
+        const bridge = new ChangeBridge('cascade-test');
+        bridge.initFromJson(fontJson);
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    findGlyph: jest.fn(() => null),
+                    rebuildAutomaticCompositesForGlyphs: jest.fn(
+                        () => new Set()
+                    ),
+                    recomputeMetricsKeys: jest.fn(() => new Set())
+                }
+            }
+        };
+
+        buildCascadingRecompositionOperations(bridge, [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1'],
+                oldValue: { id: 'layer-1', width: 600 },
+                newValue: { id: 'layer-1', width: 700 },
+                applyPath: ['glyphs', 'A', 'layers', 'layer-1'],
+                applyMode: 'layer-snapshot',
+                applyNewValue: { id: 'layer-1', width: 700 },
+                workerReplayTargets: [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'B', layerId: 'layer-2' }
+                ]
+            }
+        ]);
+
+        expect(
+            window.fontManager.currentFont.fontModel
+                .rebuildAutomaticCompositesForGlyphs
+        ).toHaveBeenCalled();
     });
 
     test('falls back to recomposition when width path lacks explicit replay targets', () => {

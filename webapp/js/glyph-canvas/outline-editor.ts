@@ -67,7 +67,10 @@ import {
     resolveLayerSyncTargetsFromClosure
 } from '../recomposition-closure';
 import { translateLayerContentsX } from '../x-translation-utils';
-import { refreshGlyphOverviewFromGlyphNames } from '../change-bridge-init';
+import {
+    queueCanvasRefreshFromCommittedModel,
+    refreshGlyphOverviewFromGlyphNames
+} from '../change-bridge-init';
 import { Bezier } from 'bezier-js';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 import {
@@ -14387,7 +14390,7 @@ export class OutlineEditor {
                 // layerData mid-drag. Now that the drag is complete, run the refresh.
                 if (this.pendingRemoteRefreshAfterDrag) {
                     this.pendingRemoteRefreshAfterDrag = false;
-                    void window.syncRustCacheAndRefreshCanvas?.();
+                    void queueCanvasRefreshFromCommittedModel();
                 }
             }
         }

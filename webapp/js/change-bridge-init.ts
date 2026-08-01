@@ -603,9 +603,9 @@ function operationCarriesCompleteGuiReplayTargets(
 
 /**
  * Cascade producers that stamp multi-target workerReplayTargets must also
- * write at least one layer-snapshot into the same transaction. Source-only
- * replay stamps without any layer snapshot are incomplete when dependents
- * were claimed in replay metadata.
+ * write at least one claimed downstream layer in the same transaction.
+ * Source-only replay stamps are incomplete when dependents were claimed in
+ * replay metadata. The downstream write may be granular or a layer snapshot.
  */
 function operationsIncludeSnapshotsForClaimedCascade(
     operations: TransactionBufferedOperation[]
@@ -617,13 +617,28 @@ function operationsIncludeSnapshotsForClaimedCascade(
         return true;
     }
 
+    const sourceTargetKeys = new Set(
+        collectCascadeTriggerSourceTargets(operations).map(
+            ({ glyphName, layerId }) => `${glyphName}@@${layerId}`
+        )
+    );
+    const replayTargetKeys = new Set(
+        replayTargets.map(
+            ({ glyphName, layerId }) => `${glyphName}@@${layerId}`
+        )
+    );
+
     return operations.some((op) => {
         const applyPath = op.applyPath ?? op.path ?? [];
+        const glyphName = deriveGlyphName(applyPath);
+        const layerId = deriveLayerId(applyPath);
+        if (!glyphName || !layerId) {
+            return false;
+        }
+
+        const targetKey = `${glyphName}@@${layerId}`;
         return (
-            op.applyMode === 'layer-snapshot' &&
-            applyPath.length === 4 &&
-            applyPath[0] === 'glyphs' &&
-            applyPath[2] === 'layers'
+            replayTargetKeys.has(targetKey) && !sourceTargetKeys.has(targetKey)
         );
     });
 }
@@ -1877,7 +1892,7 @@ export function waitForEditingFontCompileRevision(
  * Delegates to CompiledEditFunnel.processCommittedEdit() which owns:
  *   - compile context management
  *   - editing compile wakeup
- *   - deferred full-compile timer (replaces scheduleFullCompileDebounce)
+ *   - funnel-owned deferred full-compile timer
  *
  * The guard that previously blocked incremental compiles when
  * lastFullDataVersion >= changeVersion is removed.  The funnel always
@@ -2564,6 +2579,17 @@ export function queueRustCacheAndRefreshCanvas(
             editedGlyphName,
             options
         );
+    });
+}
+
+/**
+ * Flush a canvas refresh deferred while a local drag protected its baseline.
+ * The authoritative Yjs packet has already updated Rust; this must remain a
+ * visual-only operation.
+ */
+export function queueCanvasRefreshFromCommittedModel(): Promise<void> {
+    return enqueueBridgeSync(async () => {
+        await refreshCanvasFromCommittedModelSync();
     });
 }
 

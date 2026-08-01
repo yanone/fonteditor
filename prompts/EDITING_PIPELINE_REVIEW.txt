@@ -1,0 +1,27 @@
+Production-Ready Layer Editing Pipeline Review
+
+Perform a production-ready review of all layer-editing data processing in Counterpunch. Trace every supported layer edit end to end: local UI, keyboard, property-panel, Python, plugin, remote/collaboration, linked-window, import, undo, and redo paths. Include outlines, points, paths, anchors, components and automatic alignment, transforms, metrics/sidebearings, guides, layer metadata, master/intermediate/brace/bracket layers, interpolation, recomposition, and layer add/delete/reorder operations.
+
+For each path, follow the authoritative data through:
+- browser font model and stored JSON;
+- PatchSyncEngine transaction/change log and incremental Yjs update;
+- change bridge serialization, metadata, replay targets, and finalizers;
+- all receiving-window and collaboration consumers;
+- Rust/WASM Yrs document, canonical JSON, subset/full font caches, glyph indexes, layout-closure cache, filter cache, preview overlay, cache epochs, and compile inputs;
+- cascade recomposition, interpolation, rendering/shaping, and compile scheduling;
+- undo/redo history capture, replay, and resulting state.
+
+Treat the browser model, browser Y.Doc, Rust Yrs document, Rust canonical JSON, Rust cached font/subset state, receiving-window state, and rendered/compiled output as independently verifiable replicas. Do not accept matching browser JSON alone as convergence evidence. Verify repeated edits, overlapping nested Yjs structures, dependent automatic composites, multi-layer/multi-master edits, remote replay, undo/redo, reload/rebootstrap, cache invalidation, and recovery after worker/compile failures.
+
+Enforce APP.md and developer-docs/COMPILATION_EDIT_POLICY.md as normative. In particular, steady-state edits must use one authoritative incremental Yjs packet; worker replay targets are metadata, never a second mutation channel; no edit-time whole-font sync, full-state resend, seed/init repair, or ad hoc layer repair may mask drift; the committed funnel owns compile reactions; interactive and committed scheduling must obey policy; and GUI-complete cascades must not trigger duplicate fallback recomposition. Check that change-bridge packets preserve ordered collections, layer identity, shape identity, IDs, null/empty semantics, numeric types, transforms, layer/master linkage, and selection-independent data.
+
+Identify all data-integrity, concurrency, efficiency, policy, and observability failures. Specifically look for duplicate writes, missing writes, stale aliases, snapshot-vs-granular conflicts, atomic replacement of sparse collections, source-only metadata falsely claiming dependent writes, echo loops, non-idempotent recomposition, lost or duplicated history, stale cache epochs, cache invalidation gaps, compile races, worker acknowledgement gaps, remote/local ordering races, renderer/model divergence, and test fixtures that do not reproduce real Yjs histories.
+
+Deliver a concise but exhaustive production review with:
+1. Findings first, ordered by severity, each with affected paths, root cause, concrete failure mode, policy violation, and evidence.
+2. Explicit convergence and cache-integrity checks for browser and Rust state.
+3. Prioritized recommendations with smallest safe implementation plan, ownership boundary, regression tests, and required documentation/policy updates.
+4. A validation matrix covering focused unit tests, Rust tests, TypeScript/build checks, and deterministic live-browser acceptance tests that compare all replicas after repeated edits and undo/redo.
+5. Residual risks, assumptions, and any gaps that prevent a production-ready conclusion.
+
+Do not propose broad snapshots or full-document synchronization as a correctness shortcut. Prefer root-cause fixes that preserve incremental, transactional, convergent Yjs/Yrs synchronization and existing compilation policy. Do not change code unless explicitly requested after the review.

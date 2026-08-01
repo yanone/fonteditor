@@ -2215,7 +2215,7 @@ describe('Outline Editing canonical behavior', () => {
         }
     });
 
-    test('cmd-cut keeps the new endpoint selected but suppresses command-path preview until cmd is pressed again', () => {
+    test('cmd-cut keeps the new endpoint selected and resumes command-path preview', () => {
         const font = makeSinglePathFont(
             [
                 { x: 0, y: 0, nodetype: 'Line', smooth: false },
@@ -2264,17 +2264,20 @@ describe('Outline Editing canonical behavior', () => {
 
             expect(canvas.outlineEditor.selectedPoints).toEqual([
                 {
-                    contourIndex: 0,
-                    nodeIndex: layer.paths[0].nodes.length - 1
+                    contourIndex: 1,
+                    nodeIndex: 0
                 }
             ]);
-            expect(canvas.outlineEditor.getCommandPathPreviewLine()).toBeNull();
-            expect(canvas.outlineEditor.beginCommandPathDrawing()).toBe(false);
+            expect(canvas.outlineEditor.getCommandPathPreviewLine()).toEqual({
+                start: { x: 90, y: 20 },
+                end: { x: 90, y: 20 }
+            });
+            expect(canvas.outlineEditor.beginCommandPathDrawing()).toBe(true);
 
             canvas.outlineEditor.setCommandKeyPressed(false);
             canvas.outlineEditor.setCommandKeyPressed(true);
 
-            const selectedNode = layer.paths[0].nodes.at(-1);
+            const selectedNode = layer.paths[1].nodes[0];
             expect(canvas.outlineEditor.getCommandPathPreviewLine()).toEqual({
                 start: { x: selectedNode.x, y: selectedNode.y },
                 end: { x: 90, y: 20 }
@@ -2765,9 +2768,9 @@ describe('Outline Editing canonical behavior', () => {
             expect(layer.paths[1].nodes.map((node) => node.x)).toEqual([
                 240, 200, 160
             ]);
-            expect(
-                window.changeBridge.syncGlyphFromJson
-            ).not.toHaveBeenCalled();
+            expect(window.changeBridge.syncGlyphFromJson).toHaveBeenCalledTimes(
+                1
+            );
         } finally {
             modelBinding.restore();
         }

@@ -32,6 +32,15 @@ async function getViewWidths(page: Page, viewIds: string[]) {
     }, viewIds);
 }
 
+async function getActivationMinimumWidths(page: Page) {
+    return await page.evaluate(() => {
+        return window.VIEW_SETTINGS.activation.minimumWidths as {
+            topRow: number;
+            bottomRow: number;
+        };
+    });
+}
+
 async function getTopRowState(page: Page) {
     return await page.evaluate(() => {
         const visibleTopRow = Array.from(
@@ -299,13 +308,15 @@ async function getResponsiveSidebarMetrics(page: Page) {
     });
 }
 
-test('activation keeps user-sized widths and still persists focus order', async ({
+test('activation width uses previous row focus order and persists it', async ({
     page
 }) => {
     await clearStoredViewLayout(page);
 
     await page.goto('/?test=true');
     await waitForCanvasReady(page);
+
+    const minimumWidths = await getActivationMinimumWidths(page);
 
     await activateView(page, 'E', 'view-editor');
     const topBeforeFontInfo = await getViewWidths(page, [
@@ -321,23 +332,24 @@ test('activation keeps user-sized widths and still persists focus order', async 
         'view-editor'
     ]);
 
-    expect(
-        Math.abs(
-            topAfterFontInfo['view-fontinfo'] -
-                topBeforeFontInfo['view-fontinfo']
-        )
-    ).toBeLessThanOrEqual(4);
+    if (topBeforeFontInfo['view-fontinfo'] < minimumWidths.topRow) {
+        expect(topAfterFontInfo['view-fontinfo']).toBeGreaterThan(
+            topBeforeFontInfo['view-fontinfo']
+        );
+    } else {
+        expect(topAfterFontInfo['view-fontinfo']).toBe(
+            topBeforeFontInfo['view-fontinfo']
+        );
+    }
     expect(
         Math.abs(
             topAfterFontInfo['view-overview'] -
                 topBeforeFontInfo['view-overview']
         )
     ).toBeLessThanOrEqual(4);
-    expect(
-        Math.abs(
-            topAfterFontInfo['view-editor'] - topBeforeFontInfo['view-editor']
-        )
-    ).toBeLessThanOrEqual(4);
+    expect(topAfterFontInfo['view-editor']).toBeLessThan(
+        topBeforeFontInfo['view-editor']
+    );
 
     await activateView(page, 'O', 'view-overview');
     const topAfterOverview = await getViewWidths(page, [
@@ -346,23 +358,29 @@ test('activation keeps user-sized widths and still persists focus order', async 
         'view-editor'
     ]);
 
-    expect(
-        Math.abs(
-            topAfterOverview['view-fontinfo'] -
-                topAfterFontInfo['view-fontinfo']
-        )
-    ).toBeLessThanOrEqual(4);
-    expect(
-        Math.abs(
-            topAfterOverview['view-overview'] -
-                topAfterFontInfo['view-overview']
-        )
-    ).toBeLessThanOrEqual(4);
+    if (topAfterFontInfo['view-overview'] < minimumWidths.topRow) {
+        expect(topAfterOverview['view-overview']).toBeGreaterThan(
+            topAfterFontInfo['view-overview']
+        );
+    } else {
+        expect(topAfterOverview['view-overview']).toBe(
+            topAfterFontInfo['view-overview']
+        );
+    }
     expect(
         Math.abs(
             topAfterOverview['view-editor'] - topAfterFontInfo['view-editor']
         )
     ).toBeLessThanOrEqual(4);
+    if (topAfterFontInfo['view-overview'] < minimumWidths.topRow) {
+        expect(topAfterOverview['view-fontinfo']).toBeLessThan(
+            topAfterFontInfo['view-fontinfo']
+        );
+    } else {
+        expect(topAfterOverview['view-fontinfo']).toBe(
+            topAfterFontInfo['view-fontinfo']
+        );
+    }
 
     await activateView(page, 'P', 'view-console');
     const bottomBeforeHistory = await getViewWidths(page, [
@@ -380,12 +398,15 @@ test('activation keeps user-sized widths and still persists focus order', async 
         'view-console'
     ]);
 
-    expect(
-        Math.abs(
-            bottomAfterHistory['view-history'] -
-                bottomBeforeHistory['view-history']
-        )
-    ).toBeLessThanOrEqual(4);
+    if (bottomBeforeHistory['view-history'] < minimumWidths.bottomRow) {
+        expect(bottomAfterHistory['view-history']).toBeGreaterThan(
+            bottomBeforeHistory['view-history']
+        );
+    } else {
+        expect(bottomAfterHistory['view-history']).toBe(
+            bottomBeforeHistory['view-history']
+        );
+    }
     expect(
         Math.abs(
             bottomAfterHistory['view-assistant'] -
@@ -398,12 +419,15 @@ test('activation keeps user-sized widths and still persists focus order', async 
                 bottomBeforeHistory['view-scripts']
         )
     ).toBeLessThanOrEqual(4);
-    expect(
-        Math.abs(
-            bottomAfterHistory['view-console'] -
-                bottomBeforeHistory['view-console']
-        )
-    );
+    if (bottomBeforeHistory['view-history'] < minimumWidths.bottomRow) {
+        expect(bottomAfterHistory['view-console']).toBeLessThan(
+            bottomBeforeHistory['view-console']
+        );
+    } else {
+        expect(bottomAfterHistory['view-console']).toBe(
+            bottomBeforeHistory['view-console']
+        );
+    }
 
     const persistedState = await page.evaluate(() => {
         const savedLayout = localStorage.getItem('viewLayout');
@@ -644,6 +668,71 @@ test('collapsed editor reopens to peer width by shortcut and title click', async
                 topRowState.widths['view-overview']
         )
     ).toBeLessThanOrEqual(4);
+});
+
+test('collapsed fontinfo and overview reopen to activation minimum by shortcut and title click', async ({
+    page
+}) => {
+    await clearStoredViewLayout(page);
+
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+
+    const minimumWidths = await getActivationMinimumWidths(page);
+
+    await page.evaluate(() => {
+        window.collapseActiveView?.('view-fontinfo');
+    });
+    await page.waitForTimeout(500);
+
+    await activateView(page, 'I', 'view-fontinfo');
+
+    let topRowState = await getTopRowState(page);
+    expect(topRowState.collapsed['view-fontinfo']).toBe(false);
+    expect(topRowState.widths['view-fontinfo']).toBeGreaterThanOrEqual(
+        minimumWidths.topRow - 4
+    );
+
+    await page.evaluate(() => {
+        window.collapseActiveView?.('view-fontinfo');
+    });
+    await page.waitForTimeout(500);
+
+    await page.click('#view-fontinfo .view-title-name');
+    await page.waitForTimeout(500);
+
+    topRowState = await getTopRowState(page);
+    expect(topRowState.collapsed['view-fontinfo']).toBe(false);
+    expect(topRowState.widths['view-fontinfo']).toBeGreaterThanOrEqual(
+        minimumWidths.topRow - 4
+    );
+
+    await page.evaluate(() => {
+        window.collapseActiveView?.('view-overview');
+    });
+    await page.waitForTimeout(500);
+
+    await activateView(page, 'O', 'view-overview');
+
+    topRowState = await getTopRowState(page);
+    expect(topRowState.collapsed['view-overview']).toBe(false);
+    expect(topRowState.widths['view-overview']).toBeGreaterThanOrEqual(
+        minimumWidths.topRow - 4
+    );
+
+    await page.evaluate(() => {
+        window.collapseActiveView?.('view-overview');
+    });
+    await page.waitForTimeout(500);
+
+    await page.click('#view-overview .view-title-name');
+    await page.waitForTimeout(500);
+
+    topRowState = await getTopRowState(page);
+    expect(topRowState.collapsed['view-overview']).toBe(false);
+    expect(topRowState.widths['view-overview']).toBeGreaterThanOrEqual(
+        minimumWidths.topRow - 4
+    );
 });
 
 test('top-row sidebars interpolate width and padding per view width', async ({
