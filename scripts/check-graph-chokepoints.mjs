@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import * as ts from "typescript";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const configurationPath = fileURLToPath(
@@ -98,6 +100,115 @@ export function checkRule(rule, getCallers = queryCallers) {
     throw new Error(details.join("\n"));
 }
 
+function getNodeName(node) {
+    return ts.isIdentifier(node) || ts.isStringLiteral(node)
+        ? node.text
+        : "<anonymous>";
+}
+
+function getEnclosingSymbol(node) {
+    for (let current = node.parent; current; current = current.parent) {
+        if (ts.isMethodDeclaration(current)) {
+            const classDeclaration = current.parent;
+            if (
+                ts.isClassDeclaration(classDeclaration) &&
+                classDeclaration.name
+            ) {
+                return `${classDeclaration.name.text}.${getNodeName(current.name)}`;
+            }
+        }
+        if (ts.isFunctionDeclaration(current) && current.name) {
+            return current.name.text;
+        }
+    }
+    return "<module>";
+}
+
+/** Find full-document worker message type literals, including helper inputs. */
+export function findWorkerMessageSites(sourceText, filePath, messageTypes) {
+    const sourceFile = ts.createSourceFile(
+        filePath,
+        sourceText,
+        ts.ScriptTarget.Latest,
+        true,
+        filePath.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS,
+    );
+    const sites = [];
+
+    const visit = (node) => {
+        if (ts.isStringLiteral(node) && messageTypes.includes(node.text)) {
+            sites.push(
+                `${filePath}::${getEnclosingSymbol(node)}::${node.text}`,
+            );
+        }
+        ts.forEachChild(node, visit);
+    };
+
+    visit(sourceFile);
+    return [...new Set(sites)].sort();
+}
+
+function collectSourceFiles(directory) {
+    return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+        const entryPath = join(directory, entry.name);
+        if (entry.isDirectory()) {
+            return collectSourceFiles(entryPath);
+        }
+        return entry.isFile() && /\.[cm]?[jt]s$/.test(entry.name)
+            ? [entryPath]
+            : [];
+    });
+}
+
+/** Find full-document worker requests in the checked-in production sources. */
+export function queryWorkerMessageSites(rule) {
+    return collectSourceFiles(join(repositoryRoot, rule.path))
+        .filter(
+            (filePath) =>
+                !rule.excludedPaths?.includes(
+                    relative(repositoryRoot, filePath),
+                ),
+        )
+        .flatMap((filePath) =>
+            findWorkerMessageSites(
+                readFileSync(filePath, "utf8"),
+                relative(repositoryRoot, filePath),
+                rule.messageTypes,
+            ),
+        )
+        .sort();
+}
+
+/** Compare full-document worker requests to their reviewed source locations. */
+export function checkSourceRule(rule, getSites = queryWorkerMessageSites) {
+    const actual = getSites(rule);
+    const expected = [...rule.allowedSites].sort();
+    const unexpected = actual.filter((site) => !expected.includes(site));
+    const missing = expected.filter((site) => !actual.includes(site));
+
+    if (unexpected.length === 0 && missing.length === 0) {
+        console.log(`PASS ${rule.id}`);
+        return;
+    }
+
+    const details = [
+        `Source chokepoint guard failed: ${rule.id}`,
+        rule.description,
+        ...(unexpected.length
+            ? [
+                  `Unexpected full-document requests:\n${unexpected.map((value) => `  + ${value}`).join("\n")}`,
+              ]
+            : []),
+        ...(missing.length
+            ? [
+                  `Missing reviewed requests:\n${missing.map((value) => `  - ${value}`).join("\n")}`,
+              ]
+            : []),
+        "Route steady-state edits through incremental Yjs updates, or deliberately review and update architecture/graph-chokepoints.json.",
+    ];
+    throw new Error(details.join("\n"));
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const configuration = JSON.parse(readFileSync(configurationPath, "utf8"));
     if (
@@ -111,5 +222,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
     for (const rule of configuration.rules) {
         checkRule(rule);
+    }
+    for (const rule of configuration.sourceRules ?? []) {
+        checkSourceRule(rule);
     }
 }

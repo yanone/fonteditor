@@ -27,6 +27,56 @@
             "allowedCallers": [
                 "webapp/js/change-bridge-init.ts::initializeBridge"
             ]
+        },
+        {
+            "id": "cached-editing-compile-callers",
+            "description": "Cached editing compilation is requested only through FontManager's policy-aware editing compile owner.",
+            "query": "MATCH (caller)-[:CodeRelation {type:'CALLS'}]->(sink:Method {name:'compileEditingFromJsonCached'}) WHERE sink.filePath = 'webapp/js/font-compilation.ts' AND NOT caller.filePath STARTS WITH 'webapp/tests/' RETURN caller.name AS caller_name, caller.filePath AS caller_path",
+            "allowedCallers": ["webapp/js/font-manager.ts::compileEditingFont"]
+        },
+        {
+            "id": "full-binary-compile-callers",
+            "description": "Full binary compilation remains isolated to the explicit assistant analysis owner.",
+            "query": "MATCH (caller)-[:CodeRelation {type:'CALLS'}]->(sink:Method {name:'compileBinaryFont'}) WHERE sink.filePath = 'webapp/js/font-compilation.ts' AND NOT caller.filePath STARTS WITH 'webapp/tests/' RETURN caller.name AS caller_name, caller.filePath AS caller_path",
+            "allowedCallers": ["webapp/js/ai-assistant.ts::executeToolCall"]
+        },
+        {
+            "id": "worker-ydoc-seed-callers",
+            "description": "Whole-worker Y.Doc seeds are restricted to startup, linked-window bootstrap, cloud rebaseline, and explicit recovery.",
+            "query": "MATCH (caller)-[:CodeRelation {type:'CALLS'}]->(sink:Method {name:'seedWorkerYDocFromState'}) WHERE sink.filePath = 'webapp/js/font-compilation.ts' AND NOT caller.filePath STARTS WITH 'webapp/tests/' RETURN caller.name AS caller_name, caller.filePath AS caller_path",
+            "allowedCallers": [
+                "webapp/js/change-bridge-init.ts::initializeBridge",
+                "webapp/js/cloud-adapter.ts::_scheduleWorkerBridgeSyncAfterServerState",
+                "webapp/js/font-compilation.ts::bootstrapWorkerCacheFromFontState",
+                "webapp/js/font-manager.ts::recoverWorkerCacheFromAuthoritativeState"
+            ]
+        },
+        {
+            "id": "raw-worker-yjs-send-callers",
+            "description": "Only reviewed forwarding and recovery owners may send raw incremental Yjs updates to the worker.",
+            "query": "MATCH (caller)-[:CodeRelation {type:'CALLS'}]->(sink:Method {name:'sendWorkerYjsUpdate'}) WHERE sink.filePath = 'webapp/js/font-manager.ts' AND NOT caller.filePath STARTS WITH 'webapp/tests/' RETURN caller.name AS caller_name, caller.filePath AS caller_path",
+            "allowedCallers": [
+                "webapp/js/font-manager.ts::forceFullWorkerCacheUpdate",
+                "webapp/js/font-manager.ts::forwardWorkerYjsUpdateInternal",
+                "webapp/js/font-manager.ts::submitLayerUpdatesToWorkerCache"
+            ]
+        }
+    ],
+    "sourceRules": [
+        {
+            "id": "full-worker-document-request-sites",
+            "description": "Full-document worker requests are limited to reviewed bootstrap and source-reload owners; steady-state edits must use incremental Yjs updates.",
+            "path": "webapp/js",
+            "excludedPaths": ["webapp/js/fontc-worker.ts"],
+            "messageTypes": ["seedYdoc", "initYdoc", "storeFontJson"],
+            "allowedSites": [
+                "webapp/js/cloud-adapter.ts::CloudAdapter._scheduleWorkerBridgeSyncAfterServerState::seedYdoc",
+                "webapp/js/font-compilation.ts::FontCompilation.seedWorkerYDocFromState::seedYdoc",
+                "webapp/js/font-compilation.ts::FontCompilation.sendMessage::seedYdoc",
+                "webapp/js/font-compilation.ts::FontCompilation.sendMessage::storeFontJson",
+                "webapp/js/font-manager.ts::FontManager.reloadCurrentFontFromSource::storeFontJson",
+                "webapp/js/window-sync.ts::WindowSync._handleMessage::seedYdoc"
+            ]
         }
     ]
 }

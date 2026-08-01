@@ -2,6 +2,8 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     checkRule,
+    checkSourceRule,
+    findWorkerMessageSites,
     parseCallerRows,
 } from "../scripts/check-graph-chokepoints.mjs";
 
@@ -40,6 +42,66 @@ describe("graph chokepoint guard", () => {
                     "webapp/js/sidecar.ts::bypass",
                 ]),
             /Unexpected callers:\n  \+ webapp\/js\/sidecar.ts::bypass/,
+        );
+    });
+
+    test("finds direct and helper-routed full-document worker requests", () => {
+        assert.deepEqual(
+            findWorkerMessageSites(
+                `class Compiler {
+    seed() {
+        const request = { type: 'seedYdoc', state: [] };
+        return this.sendMessage(request);
+    }
+}`,
+                "webapp/js/compiler.ts",
+                ["seedYdoc", "storeFontJson"],
+            ),
+            ["webapp/js/compiler.ts::Compiler.seed::seedYdoc"],
+        );
+    });
+
+    test("finds full-document message types stored in variables", () => {
+        assert.deepEqual(
+            findWorkerMessageSites(
+                `function seed() {
+    const type = 'seedYdoc';
+    return sendWorkerMessage({ type });
+}`,
+                "webapp/js/bootstrap.ts",
+                ["seedYdoc"],
+            ),
+            ["webapp/js/bootstrap.ts::seed::seedYdoc"],
+        );
+    });
+
+    test("finds full-document requests in JavaScript sources", () => {
+        assert.deepEqual(
+            findWorkerMessageSites(
+                `function reload() {
+    return worker.sendMessage({ type: 'storeFontJson', json: '{}' });
+}`,
+                "webapp/js/reload.js",
+                ["storeFontJson"],
+            ),
+            ["webapp/js/reload.js::reload::storeFontJson"],
+        );
+    });
+
+    test("rejects an unreviewed full-document worker request", () => {
+        const rule = {
+            id: "full-worker-document-requests",
+            description: "Only bootstrap may replace the worker document.",
+            allowedSites: ["webapp/js/bootstrap.ts::seed::seedYdoc"],
+        };
+
+        assert.throws(
+            () =>
+                checkSourceRule(rule, () => [
+                    "webapp/js/bootstrap.ts::seed::seedYdoc",
+                    "webapp/js/sidecar.ts::bypass::storeFontJson",
+                ]),
+            /Unexpected full-document requests:\n  \+ webapp\/js\/sidecar.ts::bypass::storeFontJson/,
         );
     });
 });
