@@ -1312,9 +1312,9 @@ export class GlyphCanvasRenderer {
         const nodeSizeMax = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM;
         const nodeSizeMin = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM;
         const nodeInterpolationMin =
-            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MIN;
+            APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
         const nodeInterpolationMax =
-            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MAX;
+            APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX;
 
         let baseHandleRadius;
         if (this.viewportManager.scale >= nodeInterpolationMax) {
@@ -1930,9 +1930,9 @@ export class GlyphCanvasRenderer {
             const anchorSizeMin =
                 APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MIN_ZOOM;
             const anchorInterpolationMin =
-                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MIN;
+                APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
             const anchorInterpolationMax =
-                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MAX;
+                APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX;
 
             let anchorSize;
             if (this.viewportManager.scale >= anchorInterpolationMax) {
@@ -2010,9 +2010,9 @@ export class GlyphCanvasRenderer {
             const anchorSizeMin =
                 APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MIN_ZOOM;
             const anchorInterpolationMin =
-                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MIN;
+                APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
             const anchorInterpolationMax =
-                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MAX;
+                APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX;
 
             let handleRadius;
             if (this.viewportManager.scale >= anchorInterpolationMax) {
@@ -2483,9 +2483,10 @@ export class GlyphCanvasRenderer {
                     const nodeSizeMin =
                         APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM;
                     const nodeInterpolationMin =
-                        APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MIN;
+                        APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
                     const nodeInterpolationMax =
-                        APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MAX;
+                        APP_SETTINGS.OUTLINE_EDITOR
+                            .HANDLE_SIZE_INTERPOLATION_MAX;
 
                     let baseSize;
                     if (this.viewportManager.scale >= nodeInterpolationMax) {
@@ -2661,9 +2662,9 @@ export class GlyphCanvasRenderer {
         const nodeSizeMax = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM;
         const nodeSizeMin = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM;
         const nodeInterpolationMin =
-            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MIN;
+            APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
         const nodeInterpolationMax =
-            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MAX;
+            APP_SETTINGS.OUTLINE_EDITOR.HANDLE_SIZE_INTERPOLATION_MAX;
 
         let pointSize;
         if (this.viewportManager.scale >= nodeInterpolationMax) {

@@ -199,16 +199,13 @@ if (typeof APP_SETTINGS === 'undefined') {
                 COMPONENT_FILL_SELECTED: 'rgba(204, 0, 204, 0.25)'
             },
             MIN_ZOOM_FOR_GRID: 1,
-            MIN_ZOOM_FOR_HANDLES: 0.1,
+            MIN_ZOOM_FOR_HANDLES: 0.04,
             MIN_ZOOM_FOR_ANCHOR_LABELS: 0.2,
+            HANDLE_SIZE_INTERPOLATION_MAX: 1,
             NODE_SIZE_AT_MAX_ZOOM: 5,
-            NODE_SIZE_AT_MIN_ZOOM: 2,
-            NODE_SIZE_INTERPOLATION_MIN: 0.1,
-            NODE_SIZE_INTERPOLATION_MAX: 1,
+            NODE_SIZE_AT_MIN_ZOOM: 1.5,
             ANCHOR_SIZE_AT_MAX_ZOOM: 5,
             ANCHOR_SIZE_AT_MIN_ZOOM: 2,
-            ANCHOR_SIZE_INTERPOLATION_MIN: 0.1,
-            ANCHOR_SIZE_INTERPOLATION_MAX: 1,
             COMPONENT_MARKER_SIZE: 5,
             OUTLINE_STROKE_WIDTH: 1
         }

@@ -29,22 +29,19 @@ const APP_SETTINGS = {
     // Outline editor display settings
     OUTLINE_EDITOR: {
         // Zoom thresholds
-        MIN_ZOOM_FOR_HANDLES: 0.2, // 20% - below this, don't draw nodes/anchors/component markers
-        MIN_ZOOM_FOR_ANCHOR_LABELS: 0.7, // 50% - below this, don't draw anchor names
+        MIN_ZOOM_FOR_HANDLES: 0.03, // 3% - below this, don't draw nodes/anchors/component markers; also size-interpolation min
+        MIN_ZOOM_FOR_ANCHOR_LABELS: 0.7, // 70% - below this, don't draw anchor names
         MIN_ZOOM_FOR_GRID_FADE_START: 5.0, // grid starts fading in at this zoom
         MIN_ZOOM_FOR_GRID: 9.0, // grid is fully visible at this zoom
+        HANDLE_SIZE_INTERPOLATION_MAX: 3.0, // zoom level where node/anchor max size is reached
 
-        // Node (point) sizes
-        NODE_SIZE_AT_MIN_ZOOM: 2, // px - node size at min zoom
-        NODE_SIZE_AT_MAX_ZOOM: 7, // px - node size at max zoom
-        NODE_SIZE_INTERPOLATION_MIN: 0.2, // zoom level where min size starts
-        NODE_SIZE_INTERPOLATION_MAX: 3.0, // zoom level where max size is reached
+        // Node (point) sizes (screen px; interpolated between MIN_ZOOM_FOR_HANDLES and HANDLE_SIZE_INTERPOLATION_MAX)
+        NODE_SIZE_AT_MIN_ZOOM: 1.5,
+        NODE_SIZE_AT_MAX_ZOOM: 7,
 
-        // Anchor sizes
-        ANCHOR_SIZE_AT_MIN_ZOOM: 3, // px - anchor size at min zoom
-        ANCHOR_SIZE_AT_MAX_ZOOM: 8, // px - anchor size at max zoom
-        ANCHOR_SIZE_INTERPOLATION_MIN: 0.2, // zoom level where min size starts
-        ANCHOR_SIZE_INTERPOLATION_MAX: 3.0, // zoom level where max size is reached
+        // Anchor sizes (screen px; same zoom interpolation range as nodes)
+        ANCHOR_SIZE_AT_MIN_ZOOM: 2,
+        ANCHOR_SIZE_AT_MAX_ZOOM: 8,
 
         // Component marker size
         COMPONENT_MARKER_SIZE: 10, // px - size of component origin marker
