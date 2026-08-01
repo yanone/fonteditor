@@ -57,6 +57,12 @@ const APP_SETTINGS = {
 
         // Hit detection
         HIT_TOLERANCE: 15, // px - hit detection tolerance for glyphs and components (screen pixels)
+        // Node/anchor pick radii track visual size + padding, with a floor for low zoom.
+        NODE_HIT_PADDING: 2, // px added to visual node radius for hover/click picking
+        ANCHOR_HIT_PADDING: 2, // px added to visual anchor radius for hover/click picking
+        POINT_HIT_RADIUS_MIN: 5, // px - minimum node/anchor pick radius (screen pixels)
+        // Prefer on-curve nodes when an off-curve handle is within this many screen px.
+        ON_CURVE_HIT_PREFERENCE: 1.5,
 
         // Canvas margins
         CANVAS_MARGIN: 50, // px - margin around glyphs when framing or panning

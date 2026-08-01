@@ -9976,27 +9976,57 @@ export class OutlineEditor {
         return left?.side === right?.side && left?.editable === right?.editable;
     }
 
-    private getSidebearingHandleRadiusScreen(): number {
+    private getZoomInterpolatedScreenSize(
+        sizeMin: number,
+        sizeMax: number,
+        interpolationMin: number,
+        interpolationMax: number
+    ): number {
         const scale = this.glyphCanvas.viewportManager!.scale;
-        const anchorSizeMax =
-            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MAX_ZOOM;
-        const anchorSizeMin =
-            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MIN_ZOOM;
-        const anchorInterpolationMin =
-            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MIN;
-        const anchorInterpolationMax =
-            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MAX;
-
-        if (scale >= anchorInterpolationMax) {
-            return anchorSizeMax;
+        if (scale >= interpolationMax) {
+            return sizeMax;
         }
 
         const zoomFactor =
-            (scale - anchorInterpolationMin) /
-            (anchorInterpolationMax - anchorInterpolationMin);
+            (scale - interpolationMin) / (interpolationMax - interpolationMin);
         const clampedZoomFactor = Math.max(0, Math.min(1, zoomFactor));
-        return (
-            anchorSizeMin + (anchorSizeMax - anchorSizeMin) * clampedZoomFactor
+        return sizeMin + (sizeMax - sizeMin) * clampedZoomFactor;
+    }
+
+    private getSidebearingHandleRadiusScreen(): number {
+        return this.getZoomInterpolatedScreenSize(
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MIN_ZOOM,
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MAX_ZOOM,
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MIN,
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MAX
+        );
+    }
+
+    /** Screen-pixel pick radius for outline nodes (visual size + padding, floored). */
+    private getNodeHitRadiusScreen(): number {
+        const visual = this.getZoomInterpolatedScreenSize(
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM,
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM,
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MIN,
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MAX
+        );
+        return Math.max(
+            APP_SETTINGS.OUTLINE_EDITOR.POINT_HIT_RADIUS_MIN,
+            visual + APP_SETTINGS.OUTLINE_EDITOR.NODE_HIT_PADDING
+        );
+    }
+
+    /** Screen-pixel pick radius for glyph anchors (visual size + padding, floored). */
+    private getAnchorHitRadiusScreen(): number {
+        const visual = this.getZoomInterpolatedScreenSize(
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MIN_ZOOM,
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MAX_ZOOM,
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MIN,
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MAX
+        );
+        return Math.max(
+            APP_SETTINGS.OUTLINE_EDITOR.POINT_HIT_RADIUS_MIN,
+            visual + APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_HIT_PADDING
         );
     }
 
@@ -14416,8 +14446,7 @@ export class OutlineEditor {
         }
         this.updateHoveredSidebearingHandle();
         this.updateHoveredComponent();
-        this.updateHoveredAnchor();
-        this.updateHoveredPoint();
+        this.updateHoveredPointAndAnchor();
         this.updateHoveredAddPointPreview();
         this.updateHoveredCommandCurvePreview();
     }
@@ -14884,70 +14913,105 @@ export class OutlineEditor {
         return isInPath;
     }
 
-    updateHoveredAnchor(): void {
+    updateHoveredPointAndAnchor(): void {
         const currentLayerData = this.getCurrentLayerDataFromStack();
-        if (!currentLayerData || !currentLayerData.anchors) {
-            return;
+        const scale = Math.max(this.glyphCanvas.viewportManager!.scale, 0.001);
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const nodeHitRadius = this.getNodeHitRadiusScreen() / scale;
+        const anchorHitRadius = this.getAnchorHitRadiusScreen() / scale;
+        const onCurveBias =
+            APP_SETTINGS.OUTLINE_EDITOR.ON_CURVE_HIT_PREFERENCE / scale;
+
+        let bestPoint: Point | null = null;
+        let bestPointDist = Infinity;
+        let bestPointScore = Infinity;
+
+        if (currentLayerData?.shapes) {
+            currentLayerData.shapes.forEach(
+                (shape: Babelfont.Shape, contourIndex: number) => {
+                    const contour = getEditableContour(shape);
+                    if (!contour?.nodes?.length) {
+                        return;
+                    }
+
+                    contour.nodes.forEach(
+                        (node: Babelfont.Node, nodeIndex: number) => {
+                            // Closed contours do not expose a Move start node in the editor.
+                            if (node.nodetype === 'Move' && contour.closed) {
+                                return;
+                            }
+
+                            const dist = Math.hypot(
+                                node.x - glyphX,
+                                node.y - glyphY
+                            );
+                            if (dist > nodeHitRadius) {
+                                return;
+                            }
+
+                            const score = isOnCurveNode(node)
+                                ? dist
+                                : dist + onCurveBias;
+                            if (
+                                score < bestPointScore ||
+                                (score === bestPointScore &&
+                                    dist < bestPointDist)
+                            ) {
+                                bestPointScore = score;
+                                bestPointDist = dist;
+                                bestPoint = { contourIndex, nodeIndex };
+                            }
+                        }
+                    );
+                }
+            );
         }
 
-        const foundAnchorIndex = this._findHoveredItem(
-            currentLayerData.anchors.map(
-                (anchor: Babelfont.Anchor, index: number) => ({
-                    ...anchor,
-                    index
-                })
-            ),
-            (item) => ({ x: item.x, y: item.y }),
-            (item) => item.index
-        );
+        let bestAnchorIndex: number | null = null;
+        let bestAnchorDist = Infinity;
 
-        if (foundAnchorIndex !== this.hoveredAnchorIndex) {
-            this.hoveredAnchorIndex = foundAnchorIndex;
+        if (currentLayerData?.anchors?.length) {
+            currentLayerData.anchors.forEach(
+                (anchor: Babelfont.Anchor, index: number) => {
+                    const dist = Math.hypot(
+                        anchor.x - glyphX,
+                        anchor.y - glyphY
+                    );
+                    if (dist <= anchorHitRadius && dist < bestAnchorDist) {
+                        bestAnchorDist = dist;
+                        bestAnchorIndex = index;
+                    }
+                }
+            );
+        }
+
+        // Closest-wins mutual exclusion between nodes and anchors.
+        if (bestPoint !== null && bestAnchorIndex !== null) {
+            if (bestAnchorDist < bestPointDist) {
+                bestPoint = null;
+            } else {
+                bestAnchorIndex = null;
+            }
+        }
+
+        const pointChanged =
+            JSON.stringify(bestPoint) !==
+            JSON.stringify(this.hoveredPointIndex);
+        const anchorChanged = bestAnchorIndex !== this.hoveredAnchorIndex;
+
+        if (pointChanged || anchorChanged) {
+            this.hoveredPointIndex = bestPoint;
+            this.hoveredAnchorIndex = bestAnchorIndex;
             this.glyphCanvas.render();
         }
     }
 
+    updateHoveredAnchor(): void {
+        this.updateHoveredPointAndAnchor();
+    }
+
     updateHoveredPoint(): void {
-        const currentLayerData = this.getCurrentLayerDataFromStack();
-        if (!currentLayerData || !currentLayerData.shapes) {
-            return;
-        }
-
-        const points = currentLayerData.shapes.flatMap(
-            (shape: Babelfont.Shape, contourIndex: number) => {
-                // Handle both nested { Path: { nodes: [...] } } and flat { nodes: [...] }
-                let nodes: Babelfont.Node[] | null = null;
-                if ('Path' in shape && (shape as any).Path?.nodes) {
-                    nodes = (shape as any).Path.nodes;
-                } else if ('nodes' in shape && (shape as any).nodes) {
-                    nodes = (shape as any).nodes;
-                }
-
-                if (!nodes || !Array.isArray(nodes)) return [];
-                return nodes.map((node: Babelfont.Node, nodeIndex: number) => ({
-                    node,
-                    contourIndex,
-                    nodeIndex
-                }));
-            }
-        );
-
-        const foundPoint = this._findHoveredItem(
-            points,
-            (item) => ({ x: item.node.x, y: item.node.y }),
-            (item) => ({
-                contourIndex: item.contourIndex,
-                nodeIndex: item.nodeIndex
-            })
-        );
-
-        if (
-            JSON.stringify(foundPoint) !==
-            JSON.stringify(this.hoveredPointIndex)
-        ) {
-            this.hoveredPointIndex = foundPoint;
-            this.glyphCanvas.render();
-        }
+        this.updateHoveredPointAndAnchor();
     }
 
     private clearHoveredAddPointPreview(): void {
@@ -15565,16 +15629,21 @@ export class OutlineEditor {
 
     private findClosestPointNodeAt(
         glyphPoint: CanvasPoint,
-        hitRadius: number = 10
+        hitRadius?: number
     ): Point | null {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData?.shapes) {
             return null;
         }
 
+        const resolvedHitRadius = hitRadius ?? this.getNodeHitRadiusScreen();
         const scaledHitRadius =
-            hitRadius /
+            resolvedHitRadius /
             Math.max(this.glyphCanvas.viewportManager!.scale, 0.001);
+        const onCurveBias =
+            APP_SETTINGS.OUTLINE_EDITOR.ON_CURVE_HIT_PREFERENCE /
+            Math.max(this.glyphCanvas.viewportManager!.scale, 0.001);
+        let bestScore = Infinity;
         let bestDist = Infinity;
         let bestPoint: Point | null = null;
 
@@ -15587,11 +15656,26 @@ export class OutlineEditor {
 
                 contour.nodes.forEach(
                     (node: Babelfont.Node, nodeIndex: number) => {
+                        if (node.nodetype === 'Move' && contour.closed) {
+                            return;
+                        }
+
                         const dist = Math.hypot(
                             node.x - glyphPoint.x,
                             node.y - glyphPoint.y
                         );
-                        if (dist <= scaledHitRadius && dist <= bestDist) {
+                        if (dist > scaledHitRadius) {
+                            return;
+                        }
+
+                        const score = isOnCurveNode(node)
+                            ? dist
+                            : dist + onCurveBias;
+                        if (
+                            score < bestScore ||
+                            (score === bestScore && dist < bestDist)
+                        ) {
+                            bestScore = score;
                             bestDist = dist;
                             bestPoint = { contourIndex, nodeIndex };
                         }
@@ -17430,8 +17514,7 @@ export class OutlineEditor {
         if (this.active && this.selectedLayerId && this.layerData) {
             this.updateHoveredGuideHandle();
             this.updateHoveredComponent();
-            this.updateHoveredAnchor();
-            this.updateHoveredPoint();
+            this.updateHoveredPointAndAnchor();
             this.updateHoveredAddPointPreview();
         }
     }
