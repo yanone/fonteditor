@@ -25,6 +25,18 @@ The policy is implemented primarily in these files:
 
 When these files disagree with this document, treat that as a bug and reconcile them immediately.
 
+## Graph Chokepoint Enforcement
+
+CI refreshes the GitNexus graph and runs `npm run check:graph-chokepoints` before
+the webapp build. The checked-in caller baselines in
+`architecture/graph-chokepoints.json` protect the committed edit funnel, remote
+Yjs ingress, and authoritative worker Yjs forwarding boundaries. A production
+caller added to one of those sinks fails CI unless the implementation is routed
+through the existing boundary or the exception is deliberately reviewed and
+recorded in that baseline. This structural gate complements behavioral tests:
+it prevents a newly introduced sidecar from bypassing the policy before a
+scenario test has a chance to miss it.
+
 ## Core Rules
 
 1. Active mouse drags must continue triggering live editing compiles.

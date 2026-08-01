@@ -1,0 +1,32 @@
+{
+    "version": 1,
+    "rules": [
+        {
+            "id": "committed-edit-funnel-callers",
+            "description": "Only the bridge entrypoint and the funnel-owned deferred timer may start committed post-edit work.",
+            "query": "MATCH (caller)-[:CodeRelation {type:'CALLS'}]->(sink:Function {name:'processCommittedEdit'}) WHERE sink.filePath = 'webapp/js/compiled-edit-funnel.ts' AND NOT caller.filePath STARTS WITH 'webapp/tests/' RETURN caller.name AS caller_name, caller.filePath AS caller_path",
+            "allowedCallers": [
+                "webapp/js/change-bridge-init.ts::requestCommittedEditingFontCompile",
+                "webapp/js/compiled-edit-funnel.ts::armDeferredFullCompile"
+            ]
+        },
+        {
+            "id": "remote-yjs-ingress-callers",
+            "description": "Only cloud, linked-window, and durable-outbox adapters may apply remote Yjs updates to the bridge.",
+            "query": "MATCH (caller)-[:CodeRelation {type:'CALLS'}]->(sink:Method {name:'applyRemoteUpdate'}) WHERE sink.filePath = 'webapp/js/patch-sync-engine.ts' AND NOT caller.filePath STARTS WITH 'webapp/tests/' RETURN caller.name AS caller_name, caller.filePath AS caller_path",
+            "allowedCallers": [
+                "webapp/js/cloud-adapter.ts::_applyRemoteUpdate",
+                "webapp/js/cloud-adapter.ts::_restorePersistentOutboxIntoBridge",
+                "webapp/js/window-sync.ts::_flushPendingYjsUpdates"
+            ]
+        },
+        {
+            "id": "worker-yjs-forwarding-callers",
+            "description": "Steady-state Rust worker document updates enter through the bridge-owned forwarding boundary.",
+            "query": "MATCH (caller)-[:CodeRelation {type:'CALLS'}]->(sink:Method {name:'forwardWorkerYjsUpdate'}) WHERE sink.filePath = 'webapp/js/font-manager.ts' AND NOT caller.filePath STARTS WITH 'webapp/tests/' RETURN caller.name AS caller_name, caller.filePath AS caller_path",
+            "allowedCallers": [
+                "webapp/js/change-bridge-init.ts::initializeBridge"
+            ]
+        }
+    ]
+}

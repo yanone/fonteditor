@@ -27,8 +27,17 @@ jobs:
               with:
                   node-version: "20"
 
+            - name: Install graph tooling
+              run: npm ci --ignore-scripts
+
             - name: Install dependencies in webapp
               run: npm install --prefix webapp
+
+            - name: Enforce graph chokepoints
+              run: |
+                  npx --no-install gitnexus analyze
+                  npm run test:graph-chokepoints
+                  npm run check:graph-chokepoints
 
             - name: Inject dynamic version for PWA cache busting
               id: version
