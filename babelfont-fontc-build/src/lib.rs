@@ -5052,6 +5052,8 @@ mod tests {
     use super::*;
     use serde_json::json;
     use yrs::{Any, ArrayPrelim, Doc, Map, MapPrelim, StateVector, Transact, WriteTxn};
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     const TEST_FONT_JSON: &str = r#"{
         "upm": 1000,
@@ -6433,6 +6435,12 @@ mod tests {
         );
 
         clear_font_cache();
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test]
+    fn wasm_apply_yjs_update_visual_layer_patch_advances_filter_epoch() {
+        apply_yjs_update_visual_layer_patch_advances_filter_epoch();
     }
 
     #[test]

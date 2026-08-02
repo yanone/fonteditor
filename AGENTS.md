@@ -125,6 +125,7 @@ npm run test:update-snapshots
 - For automated development workflows, run Playwright non-interactively by default (headless CLI execution), so reports don't get stuck and require user to press Ctrl+C. The user might not be present to do that.
 - The project must enforce this by default: keep Playwright configured with `use.headless = true` and HTML reporter `open: 'never'` so `npm run test` stays machine-processable after failures without opening interactive UI.
 - Do not use Playwright UI/debug/record modes unless explicitly requested for manual investigation.
+- For narrow local work, run the affected headless Playwright spec or test title. Ordinary CI runs `npm run test:ci` without Playwright; the full Playwright suite runs through `npm test` in the release workflow. Run the full suite locally for releases, cross-window/collaboration, or compile-pipeline changes.
 
 ### Release Process
 
@@ -480,7 +481,7 @@ The `editor` repo lives inside `/Users/yanone/Code/Counterpunch/` alongside seve
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **editor** (22468 symbols, 43431 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **editor** (24810 symbols, 48062 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

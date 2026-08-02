@@ -63,8 +63,19 @@ jobs:
                   BUILD_HASH_FULL: ${{ steps.version.outputs.commit_full }}
                   BUILD_HASH_SHORT: ${{ steps.version.outputs.commit_short }}
 
-            - name: Run non-Playwright tests in webapp
+            - name: Run fast webapp test suite
               run: npm run test:ci --prefix webapp
+
+            - name: Set up Rust nightly with the WASM target
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  targets: wasm32-unknown-unknown
+
+            - name: Set up wasm-pack
+              uses: jetli/wasm-pack-action@v0.4.0
+
+            - name: Run Rust WASM cache tests
+              run: cd babelfont-fontc-build && rustup run nightly wasm-pack test --node
 
             - name: Check code formatting with Prettier
               run: cd webapp && npx prettier -c .

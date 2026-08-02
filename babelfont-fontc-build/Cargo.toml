@@ -48,3 +48,4 @@ skrifa = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70
 
 [dev-dependencies]
 serde_json = "1.0"
+wasm-bindgen-test = "=0.3.62"

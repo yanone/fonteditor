@@ -29,14 +29,6 @@ jobs:
                   echo "COMMIT_SHORT=$COMMIT_SHORT" >> $GITHUB_OUTPUT
                   echo "Commit SHA for tag: $COMMIT_SHA"
 
-            - name: Wait for CI to complete
-              uses: lewagon/wait-on-check-action@v1.3.4
-              with:
-                  ref: ${{ steps.commit.outputs.COMMIT_SHA }}
-                  check-name: "build"
-                  repo-token: ${{ secrets.GITHUB_TOKEN }}
-                  wait-interval: 10
-
             - name: Extract version tag
               id: version
               run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
@@ -56,21 +48,18 @@ jobs:
                   cat release-notes.md >> $GITHUB_OUTPUT
                   echo "EOF" >> $GITHUB_OUTPUT
 
-            - name: Create GitHub Release
-              uses: softprops/action-gh-release@v1
-              with:
-                  body: ${{ steps.changelog.outputs.RELEASE_NOTES }}
-                  draft: false
-                  prerelease: false
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
             - name: Setup Node.js
               uses: actions/setup-node@v4
               with:
                   node-version: "20"
 
-            - name: Install dependencies
+            - name: Install graph tooling
+              run: npm ci --ignore-scripts
+
+            - name: Install LadybugDB native binding
+              run: npm rebuild @ladybugdb/core --foreground-scripts
+
+            - name: Install webapp dependencies
               run: npm install --prefix webapp
 
             - name: Build webapp with webpack
@@ -79,6 +68,29 @@ jobs:
                   EDITOR_VERSION: ${{ steps.version.outputs.VERSION }}
                   BUILD_HASH_FULL: ${{ steps.commit.outputs.COMMIT_SHA }}
                   BUILD_HASH_SHORT: ${{ steps.commit.outputs.COMMIT_SHORT }}
+
+            - name: Run full release test suite
+              run: npm test --prefix webapp
+
+            - name: Set up Rust nightly with the WASM target
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  targets: wasm32-unknown-unknown
+
+            - name: Set up wasm-pack
+              uses: jetli/wasm-pack-action@v0.4.0
+
+            - name: Run Rust WASM cache tests
+              run: cd babelfont-fontc-build && rustup run nightly wasm-pack test --node
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v1
+              with:
+                  body: ${{ steps.changelog.outputs.RELEASE_NOTES }}
+                  draft: false
+                  prerelease: false
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Deploy to Cloudflare Pages
               uses: cloudflare/pages-action@v1
