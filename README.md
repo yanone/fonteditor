@@ -160,4 +160,4 @@ Polish, incorporate user feedback
 
 ### v2.0
 
-- ✅ Live online collaboration
+- ◻️ Live online collaboration
