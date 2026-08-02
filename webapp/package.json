@@ -4,9 +4,7 @@
     "type": "commonjs",
     "main": "coi-serviceworker.js",
     "scripts": {
-        "mcp:server": "node scripts/counterpunch-mcp-server.mjs",
         "test": "npm run test:ci && playwright test",
-        "test:mcp": "playwright test tests/counterpunch-mcp.spec.ts",
         "test:ci": "npm --prefix .. exec -- gitnexus analyze && npm --prefix .. run test:graph-chokepoints && npm --prefix .. run check:graph-chokepoints && npm run test:type-drift && npm run test:tsc && npm run test:jest",
         "test:dead-code": "knip --include files,dependencies,unlisted",
         "test:type-drift": "cd .. && ./check-type-drift.sh",
@@ -40,7 +38,6 @@
         "@babel/preset-env": "^7.28.5",
         "@babel/preset-typescript": "^7.28.5",
         "@google/genai": "^1.48.0",
-        "@modelcontextprotocol/sdk": "^1.18.0",
         "@playwright/test": "^1.57.0",
         "@types/bezier-js": "^4.1.3",
         "@types/node": "^24.10.0",

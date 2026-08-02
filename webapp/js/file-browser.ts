@@ -2019,8 +2019,16 @@ async function saveCurrentFontAsToPath(): Promise<void> {
                             rawFileName
                         );
                     if (handled) {
-                        syncEditorFileStateFromCurrentFont();
                         closeFontFileDialog();
+                        try {
+                            syncEditorFileStateFromCurrentFont();
+                        } catch (error) {
+                            console.error(
+                                '[FileBrowser]',
+                                'Cloud Save As succeeded but editor state sync failed:',
+                                error
+                            );
+                        }
                         void refreshFileSystem().catch((error) => {
                             console.error(
                                 '[FileBrowser]',

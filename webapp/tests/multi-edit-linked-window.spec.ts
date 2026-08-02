@@ -372,8 +372,7 @@ test.describe('Multi-edit linked window sync', () => {
             // Verify Y.Doc layer keys are preserved
             expect(linkedAfter.ydKeys).toContain('width');
             expect(linkedAfter.ydKeys).toContain('master');
-            expect(linkedAfter.ydKeys).toContain('shapeOrder');
-            expect(linkedAfter.ydKeys).toContain('shapesById');
+            expect(linkedAfter.ydKeys).toContain('shapes');
             expect(linkedAfter.ydKeys).toContain('anchorOrder');
             expect(linkedAfter.ydKeys).toContain('anchorsById');
         }

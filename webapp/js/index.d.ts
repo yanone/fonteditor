@@ -13,7 +13,6 @@ import type { StateManager, EditorState } from './state-manager';
 import type { PatchSyncEngine } from './patch-sync-engine';
 import type { WindowSync } from './window-sync';
 import type { WindowRoleManager } from './window-role';
-import type { AutomationWindowMetadata } from './automation-runtime';
 import type { CloudPlugin, CloudEligibility, CloudAsset } from './cloud-plugin';
 import type { FindGlyphDialog } from './find-glyph-dialog';
 import type { GlyphDataIndex } from './glyph-data';
@@ -359,42 +358,6 @@ declare global {
         parseFileUri: (
             uri: string
         ) => { pluginId: string; path: string } | null;
-        counterpunchAutomation: {
-            version: number;
-            getWindowMetadata: () => Promise<AutomationWindowMetadata>;
-            listLinkedWindows: (options?: {
-                timeoutMs?: number;
-            }) => Promise<AutomationWindowMetadata[]>;
-            openFont: (options: {
-                path: string;
-                timeoutMs?: number;
-            }) => Promise<{
-                path: string;
-                openSessionId: string | null;
-                window: AutomationWindowMetadata;
-            }>;
-            prepareLinkedWindowOpen: () => Promise<{
-                url: string;
-                linkedOrdinal: number;
-                sessionId: string;
-                fontPath: string;
-            }>;
-            waitForLinkedWindowReady: (options: {
-                index: number;
-                timeoutMs?: number;
-            }) => Promise<AutomationWindowMetadata>;
-            openLinkedWindow: (options?: { timeoutMs?: number }) => Promise<{
-                window: AutomationWindowMetadata;
-            }>;
-            activateLinkedWindow: (options: {
-                index: number;
-                timeoutMs?: number;
-            }) => Promise<AutomationWindowMetadata>;
-            callTool: (
-                name: string,
-                arguments_: Record<string, unknown>
-            ) => Promise<unknown>;
-        };
 
         // From font-compilation.js
         fontCompilation: FontCompilation;

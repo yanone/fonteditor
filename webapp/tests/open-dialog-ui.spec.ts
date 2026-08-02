@@ -148,16 +148,19 @@ test.describe('Open Dialog UI', () => {
         await waitForOpenSessionReady(page, 'Fustat.glyphs');
 
         await page.evaluate(async () => {
-            await (window as any).switchContext?.('cloud');
-
             const cloudPlugin = (window as any).cloudPlugin;
             const currentFont = (window as any).fontManager?.currentFont;
+            const originalIsVisibleInUI =
+                cloudPlugin.isVisibleInUI.bind(cloudPlugin);
             const originalHandleSaveAs =
                 cloudPlugin.handleSaveAs.bind(cloudPlugin);
             const adapter = cloudPlugin.getAdapter();
             const originalScanDirectory = adapter.scanDirectory.bind(adapter);
 
+            cloudPlugin.isVisibleInUI = () => true;
             cloudPlugin.handleSaveAs = async () => {
+                (window as any).__cloudSaveAsHandlerCalls =
+                    ((window as any).__cloudSaveAsHandlerCalls || 0) + 1;
                 if (currentFont) {
                     currentFont.path = 'cloud://mock-saved-asset';
                     currentFont.sourcePlugin = cloudPlugin;
@@ -170,9 +173,13 @@ test.describe('Open Dialog UI', () => {
                 throw new Error('synthetic refresh failure');
             };
 
-            await (window as any).showFontFileDialog?.({ mode: 'save-as' });
+            await (window as any).showFontFileDialog?.({
+                mode: 'save-as',
+                pluginId: 'cloud'
+            });
 
             (window as any).__restoreCloudSaveAsDialogTest = () => {
+                cloudPlugin.isVisibleInUI = originalIsVisibleInUI;
                 cloudPlugin.handleSaveAs = originalHandleSaveAs;
                 adapter.scanDirectory = originalScanDirectory;
             };
@@ -180,11 +187,17 @@ test.describe('Open Dialog UI', () => {
         await dialog.waitFor({ state: 'visible' });
         await dialog.locator('#file-dialog-save-name').fill('Cloud Save Close');
         await dialog.locator('#file-dialog-confirm-btn').click();
+        await expect
+            .poll(() =>
+                page.evaluate(() => (window as any).__cloudSaveAsHandlerCalls)
+            )
+            .toBe(1);
         await expect(dialog).toBeHidden();
 
         await page.evaluate(() => {
             (window as any).__restoreCloudSaveAsDialogTest?.();
             delete (window as any).__restoreCloudSaveAsDialogTest;
+            delete (window as any).__cloudSaveAsHandlerCalls;
         });
     });
 

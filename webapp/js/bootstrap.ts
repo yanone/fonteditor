@@ -526,7 +526,6 @@ import './run-python-script-dialog';
 import './share-button';
 import './theme-switcher';
 import './toolbar-menus';
-import './automation-runtime';
 import './window-buttons';
 import { initViewTitleButtons } from './view-title-buttons';
 import { CloudPlugin } from './cloud-plugin';
