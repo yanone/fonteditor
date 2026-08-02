@@ -2899,8 +2899,8 @@ class FontManager {
                 `✅ Editing font compiled in ${duration}ms (${this.editingFont.length} bytes)${sourceInfo}`
             );
 
-            // Hide any error messages in sidebar
-            sidebarErrorDisplay.hideError();
+            // A successful compile resolves both ordinary and sticky edit errors.
+            sidebarErrorDisplay.hideError(true);
 
             // Live drag previews are not commit-safe debug artifacts. Persist
             // only the authoritative Yjs compile that follows the drag.

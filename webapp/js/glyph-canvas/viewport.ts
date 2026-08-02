@@ -8,7 +8,6 @@ export class ViewportManager {
     scale: number;
     panX: number;
     panY: number;
-    accumulatedVerticalBounds: { minY: number; maxY: number } | null;
     lastWheelTime: number;
     wheelTimeout: NodeJS.Timeout | null;
     detectedDevice: string | null;
@@ -18,7 +17,6 @@ export class ViewportManager {
         this.scale = initialScale;
         this.panX = panX;
         this.panY = panY;
-        this.accumulatedVerticalBounds = null; // {minY, maxY} in font space - used by panToGlyph
 
         // Device detection state
         this.lastWheelTime = 0;
@@ -253,9 +251,6 @@ export class ViewportManager {
             margin = APP_SETTINGS.OUTLINE_EDITOR.CANVAS_MARGIN;
         }
 
-        // Reset accumulated vertical bounds on frame operation
-        this.accumulatedVerticalBounds = null;
-
         // Calculate the full bounding box in font space (same approach as panToGlyph)
         const fontSpaceMinX =
             glyphPosition.xPosition + glyphPosition.xOffset + bounds.minX;
@@ -300,7 +295,6 @@ export class ViewportManager {
 
     /**
      * Pan to show a specific glyph (used when switching glyphs with keyboard shortcuts).
-     * Uses accumulated vertical bounds to maintain consistent vertical view.
      * @param {Object} bounds - The glyph bounding box {minX, maxX, minY, maxY, width, height}
      * @param {Object} glyphPosition - Glyph position in text run {xPosition, xOffset, yOffset}
      * @param {DOMRect} canvasRect - The canvas bounding rectangle
@@ -333,41 +327,8 @@ export class ViewportManager {
         const fontSpaceMinY = glyphPosition.yOffset + bounds.minY;
         const fontSpaceMaxY = glyphPosition.yOffset + bounds.maxY;
 
-        // Update accumulated vertical bounds
-        if (!this.accumulatedVerticalBounds) {
-            this.accumulatedVerticalBounds = {
-                minY: fontSpaceMinY,
-                maxY: fontSpaceMaxY
-            };
-        } else {
-            this.accumulatedVerticalBounds.minY = Math.min(
-                this.accumulatedVerticalBounds.minY,
-                fontSpaceMinY
-            );
-            this.accumulatedVerticalBounds.maxY = Math.max(
-                this.accumulatedVerticalBounds.maxY,
-                fontSpaceMaxY
-            );
-        }
-
-        const accumulatedHeight =
-            this.accumulatedVerticalBounds.maxY -
-            this.accumulatedVerticalBounds.minY;
-        const accumulatedCenterY =
-            (this.accumulatedVerticalBounds.minY +
-                this.accumulatedVerticalBounds.maxY) /
-            2;
-
-        console.log(
-            '[Viewport]',
-            'ViewportManager.panToGlyph: accumulated vertical bounds',
-            {
-                minY: this.accumulatedVerticalBounds.minY,
-                maxY: this.accumulatedVerticalBounds.maxY,
-                height: accumulatedHeight,
-                centerY: accumulatedCenterY
-            }
-        );
+        const glyphHeight = fontSpaceMaxY - fontSpaceMinY;
+        const glyphCenterY = (fontSpaceMinY + fontSpaceMaxY) / 2;
 
         const currentScale = this.scale;
         const availableWidth = canvasRect.width - margin * 2;
@@ -392,8 +353,8 @@ export class ViewportManager {
 
         // Only adjust viewport if glyph doesn't fit comfortably
         if (!fitsHorizontally || !fitsVertically) {
-            // Calculate scale to fit accumulated vertical height (zoom out only if needed)
-            const scaleY = availableHeight / accumulatedHeight;
+            // Calculate scale to fit the active glyph (zoom out only if needed).
+            const scaleY = availableHeight / glyphHeight;
             const scaleX = availableWidth / bounds.width;
             targetScale = Math.min(scaleY, scaleX, currentScale); // Don't zoom in, only out
             // Clamp to reasonable limits
@@ -408,16 +369,14 @@ export class ViewportManager {
                 targetPanX = centerX - (centerX - this.panX) * scaleFactor;
             }
 
-            // Center vertically on the accumulated bounds
-            // Note: Y is flipped in canvas, so we negate accumulatedCenterY
-            targetPanY =
-                canvasRect.height / 2 - -accumulatedCenterY * targetScale;
+            // Note: Y is flipped in canvas, so we negate glyphCenterY.
+            targetPanY = canvasRect.height / 2 - -glyphCenterY * targetScale;
 
             console.log(
                 '[Viewport]',
-                'ViewportManager.panToGlyph: centering vertically on accumulated bounds',
+                'ViewportManager.panToGlyph: centering vertically on active glyph',
                 {
-                    accumulatedCenterY,
+                    glyphCenterY,
                     targetPanY,
                     targetScale,
                     scaleFactor: targetScale / currentScale
@@ -486,9 +445,6 @@ export class ViewportManager {
      * @returns {boolean} - True if viewport changed, false otherwise
      */
     handleWheel(e: WheelEvent, canvasRect: DOMRect, renderCallback: Function) {
-        // Reset accumulated vertical bounds on manual interaction
-        this.accumulatedVerticalBounds = null;
-
         const now = Date.now();
 
         // Always perform device detection based on current event characteristics

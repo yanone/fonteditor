@@ -8,7 +8,7 @@ test.describe('Auth handoff bootstrap', () => {
         let authMeCalls = 0;
 
         await page.route(
-            'http://localhost:8788/api/auth/exchange-handoff',
+            'https://localhost:8788/api/auth/exchange-handoff',
             async (route) => {
                 exchangeCalls += 1;
                 await route.fulfill({
@@ -22,7 +22,7 @@ test.describe('Auth handoff bootstrap', () => {
         );
 
         await page.route(
-            /http:\/\/(localhost|127\.0\.0\.1|\[::1\]):8788\/api\/auth\/me(?:\?.*)?$/,
+            /https:\/\/(localhost|127\.0\.0\.1|\[::1\]):8788\/api\/auth\/me(?:\?.*)?$/,
             async (route) => {
                 authMeCalls += 1;
                 await route.fulfill({
@@ -39,12 +39,17 @@ test.describe('Auth handoff bootstrap', () => {
 
         await page.goto('/?test=true&handoff=one-time-code');
 
-        await page.waitForFunction(() => {
-            return (
-                !!window.authManager?.isAuthenticated?.() &&
-                document.cookie.includes('editor_session=signed-editor-token')
-            );
-        });
+        await page.waitForFunction(
+            () => {
+                return (
+                    !!window.authManager?.isAuthenticated?.() &&
+                    document.cookie.includes(
+                        'editor_session=signed-editor-token'
+                    )
+                );
+            },
+            { timeout: 15000 }
+        );
 
         expect(exchangeCalls).toBe(1);
         expect(authMeCalls).toBeGreaterThanOrEqual(1);

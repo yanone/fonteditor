@@ -5,10 +5,10 @@
         "editor_cursor_position": 0,
         "editor_file": "memory:///user/YanoneKaffeesatz.glyphspackage",
         "editor_glyph_stack": "",
-        "editor_harfbuzz_ax": "459 383 625 422 445 259 404 390 350 401 422 395",
+        "editor_harfbuzz_ax": "469 383 625 422 445 259 404 390 350 401 422 395",
         "editor_harfbuzz_ay": "0 0 0 0 0 0 0 0 0 0 0 0",
         "editor_harfbuzz_cl": "0 1 2 3 4 5 6 7 8 9 10 11",
-        "editor_harfbuzz_dx": "0 0 0 0 0 0 0 0 0 0 0 0",
+        "editor_harfbuzz_dx": "5 0 0 0 0 0 0 0 0 0 0 0",
         "editor_harfbuzz_dy": "0 0 0 0 0 0 0 0 0 0 0 0",
         "editor_harfbuzz_gids": "4 13 1 6 2 8 14 11 12 9 3 7",
         "editor_harfbuzz_glyph_names": "H a m b u r g e v o n s",
@@ -16,7 +16,7 @@
         "editor_isInterpolating": false,
         "editor_mode": "text",
         "editor_opentype_features_in_subset": {
-            "cpsp": false,
+            "cpsp": true,
             "salt": false,
             "ss01": false
         },

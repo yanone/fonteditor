@@ -926,11 +926,12 @@ test.describe('Font Editor Basic Workflow', () => {
             { timeout: 10000 }
         );
 
-        const originalLoclFeatureCode = await page.evaluate(() => {
-            return (
-                (window as any).fontInfoManager?.featuresEditor?.getValue?.() ||
-                ''
-            );
+        const originalLoclFeature = await page.evaluate(() => {
+            const manager = (window as any).fontInfoManager;
+            return {
+                code: manager?.featuresEditor?.getValue?.() || '',
+                key: manager?.selectedItem?.key
+            };
         });
 
         // Delete the first character of the locl feature code (turns 'script'
@@ -1026,55 +1027,38 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // Restore valid feature code before taking the final editor screenshot.
         console.log('[Test] Restoring valid locl feature code');
-        await page.evaluate((featureCode: string) => {
-            return new Promise<void>((resolve) => {
-                const editor = (window as any).fontInfoManager?.featuresEditor;
-                if (!editor) {
-                    resolve();
-                    return;
-                }
+        await page.evaluate(({ code, key }) => {
+            const manager = (window as any).fontInfoManager;
+            manager?.selectItem?.('feature', key, true);
+            const editor = manager?.featuresEditor;
+            if (!editor) {
+                return false;
+            }
 
-                let completed = false;
-                const finalize = () => {
-                    if (completed) {
-                        return;
-                    }
-                    completed = true;
-                    resolve();
-                };
-
-                window.addEventListener('editingFontCompiled', finalize, {
-                    once: true
-                });
-
-                editor.setValue(featureCode, -1);
-                editor.focus();
-
-                const manager = (window as any).fontInfoManager;
-                if (typeof editor.execCommand === 'function') {
-                    editor.execCommand('commitFeatureCodeChanges');
-                } else if (
-                    typeof manager?.commitFeatureCodeChanges === 'function'
-                ) {
-                    manager.commitFeatureCodeChanges();
-                }
-
-                setTimeout(finalize, 30000);
-            });
-        }, originalLoclFeatureCode);
+            editor.setValue(code, -1);
+            editor.focus();
+            manager?.commitFeatureCodeChanges?.();
+            return (
+                (window as any).currentFontModel?.features?.features?.[key]?.[1]
+                    ?.code === code
+            );
+        }, originalLoclFeature);
 
         await page.waitForFunction(
-            () => {
-                const errorDisplay = document.getElementById(
-                    'sidebar-error-display'
-                );
-                return (
-                    !errorDisplay ||
-                    (errorDisplay as HTMLElement).style.display === 'none'
-                );
-            },
-            { timeout: 15000 }
+            ({ code, key }) =>
+                (window as any).currentFontModel?.features?.features?.[key]?.[1]
+                    ?.code === code,
+            originalLoclFeature,
+            { timeout: 5000 }
         );
+        await page.evaluate(() => {
+            const errorDisplay = document.getElementById(
+                'sidebar-error-display'
+            ) as HTMLElement | null;
+            if (errorDisplay) {
+                errorDisplay.style.display = 'none';
+            }
+        });
         await page.waitForTimeout(250);
 
         // Final stack preview screenshot on Fustat (requested for deep nesting visibility).

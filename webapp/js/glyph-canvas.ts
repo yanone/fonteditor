@@ -2083,69 +2083,6 @@ class GlyphCanvas {
                 this.glyphSelectionSequence++;
                 const currentSequence = this.glyphSelectionSequence;
 
-                // Save the previous glyph's vertical bounds BEFORE clearing layer data
-                if (
-                    wasInEditMode &&
-                    previousIndex >= 0 &&
-                    previousIndex !== ix &&
-                    this.outlineEditor.layerData
-                ) {
-                    try {
-                        const prevBounds =
-                            this.outlineEditor.calculateGlyphBoundingBox();
-                        if (
-                            prevBounds &&
-                            previousIndex <
-                                this.textRunEditor!.shapedGlyphs.length
-                        ) {
-                            const prevPos =
-                                this.textRunEditor!._getGlyphPosition(
-                                    previousIndex
-                                );
-                            const fontSpaceMinY =
-                                prevPos.yOffset + prevBounds.minY;
-                            const fontSpaceMaxY =
-                                prevPos.yOffset + prevBounds.maxY;
-
-                            // Update accumulated vertical bounds with previous glyph
-                            if (
-                                !this.viewportManager!.accumulatedVerticalBounds
-                            ) {
-                                this.viewportManager!.accumulatedVerticalBounds =
-                                    {
-                                        minY: fontSpaceMinY,
-                                        maxY: fontSpaceMaxY
-                                    };
-                            } else {
-                                this.viewportManager!.accumulatedVerticalBounds.minY =
-                                    Math.min(
-                                        this.viewportManager!
-                                            .accumulatedVerticalBounds.minY,
-                                        fontSpaceMinY
-                                    );
-                                this.viewportManager!.accumulatedVerticalBounds.maxY =
-                                    Math.max(
-                                        this.viewportManager!
-                                            .accumulatedVerticalBounds.maxY,
-                                        fontSpaceMaxY
-                                    );
-                            }
-                            console.log(
-                                'Saved previous glyph vertical bounds:',
-                                {
-                                    fontSpaceMinY,
-                                    fontSpaceMaxY
-                                }
-                            );
-                        }
-                    } catch (error) {
-                        console.warn(
-                            'Could not save previous glyph bounds:',
-                            error
-                        );
-                    }
-                }
-
                 if (
                     wasInEditMode &&
                     previousIndex >= 0 &&
@@ -2206,6 +2143,25 @@ class GlyphCanvas {
                 }
 
                 this.outlineEditor.onGlyphSelected();
+                if (
+                    fromKeyboard &&
+                    wasInEditMode &&
+                    ix >= 0 &&
+                    previousIndex !== ix &&
+                    this.viewportManager &&
+                    this.canvas
+                ) {
+                    const bounds =
+                        this.outlineEditor.calculateGlyphBoundingBox();
+                    if (bounds) {
+                        this.viewportManager.panToGlyph(
+                            bounds,
+                            this.textRunEditor!._getGlyphPosition(ix),
+                            this.canvas.getBoundingClientRect(),
+                            () => this.render()
+                        );
+                    }
+                }
                 this.dispatchModeActivationEvent('edit', 'glyphselected');
             }
         );
