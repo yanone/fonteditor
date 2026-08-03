@@ -136,6 +136,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "babelfont"
 version = "0.2.0-pre"
+source = "git+https://github.com/yanone/babelfont-rs?rev=dfebecd58614cf0f34f64ea91c4d581b444e1320#dfebecd58614cf0f34f64ea91c4d581b444e1320"
 dependencies = [
  "chrono",
  "csv",
@@ -1246,6 +1247,7 @@ checksum = "e94e1e6445d314f972ff7395df2de295fe51b71821694f0b0e1e79c4f12c8577"
 [[package]]
 name = "norad"
 version = "0.18.4"
+source = "git+https://github.com/yanone/norad?rev=cdd7469a1f4d5459cf5c264079c04ac6149f23aa#cdd7469a1f4d5459cf5c264079c04ac6149f23aa"
 dependencies = [
  "base64",
  "close_already",
@@ -1863,6 +1865,7 @@ dependencies = [
 [[package]]
 name = "sr-aef"
 version = "0.1.0"
+source = "git+https://github.com/yanone/babelfont-rs?rev=dfebecd58614cf0f34f64ea91c4d581b444e1320#dfebecd58614cf0f34f64ea91c4d581b444e1320"
 dependencies = [
  "fea-rs-ast",
  "fontdrasil 0.4.0 (git+https://github.com/googlefonts/fontc?rev=3518040e)",
@@ -2663,19 +2666,3 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
-
-[[patch.unused]]
-name = "font-types"
-version = "0.11.0"
-
-[[patch.unused]]
-name = "read-fonts"
-version = "0.37.0"
-
-[[patch.unused]]
-name = "skrifa"
-version = "0.40.0"
-
-[[patch.unused]]
-name = "write-fonts"
-version = "0.45.0"

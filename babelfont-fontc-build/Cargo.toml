@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-babelfont = { path = "../../babelfont-rs/babelfont", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
+babelfont = { git = "https://github.com/yanone/babelfont-rs", rev = "dfebecd58614cf0f34f64ea91c4d581b444e1320", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
 fontc = { git = "https://github.com/googlefonts/fontc", rev = "3518040e", default-features = false }
 fontbe = { git = "https://github.com/googlefonts/fontc", rev = "3518040e", default-features = false }
 fontir = { git = "https://github.com/googlefonts/fontc", rev = "3518040e" }
@@ -38,13 +38,7 @@ opt-level = "z"
 lto = true
 
 [patch.crates-io]
-norad = { path = "../../norad" }
-
-[patch."https://github.com/googlefonts/fontations"]
-font-types = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/4d690b5/font-types" }
-read-fonts = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/4d690b5/read-fonts" }
-write-fonts = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/4d690b5/write-fonts" }
-skrifa = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/4d690b5/skrifa" }
+norad = { git = "https://github.com/yanone/norad", rev = "cdd7469a1f4d5459cf5c264079c04ac6149f23aa" }
 
 [dev-dependencies]
 serde_json = "1.0"
