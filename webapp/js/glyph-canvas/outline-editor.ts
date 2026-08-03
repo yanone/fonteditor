@@ -6584,7 +6584,7 @@ export class OutlineEditor {
 
     /**
      * Commit a structural outline edit through the same producer as point-drag
-     * / keyboard outline: storage sync → outline closure → `_syncCurrentGlyphToYDoc`
+     * / keyboard outline: outline closure → `_syncCurrentGlyphToYDoc`
      * with full `workerReplayTargets` (source ∪ recompose ∪ invalidate).
      */
     private commitStructuralOutlineChange(
@@ -6704,9 +6704,8 @@ export class OutlineEditor {
     }
 
     /**
-     * Prepare a persisted structural outline edit before the Yjs transaction
-     * closes so the bridge can derive the authoritative Yjs delta from the
-     * current canonical layer records.
+     * Mark a structural outline edit dirty before the committed Yjs snapshot
+     * producer serializes the recomposed runtime model.
      */
     private prepareCommittedStructuralOutlineChange(
         changeSource: string = 'keyboard-outline',
@@ -6718,32 +6717,6 @@ export class OutlineEditor {
         const currentFont = fontManager.currentFont;
         if (!currentFont) {
             return true;
-        }
-
-        try {
-            if (Array.isArray(currentFont.babelfontData?.glyphs)) {
-                const layerTargets =
-                    options?.layerTargets ||
-                    this.getCurrentGlyphStructuralLayerTargets();
-                for (const target of layerTargets) {
-                    if (
-                        !fontManager.syncLayerFromModelToStorage(
-                            target.glyphName,
-                            target.layerId
-                        )
-                    ) {
-                        throw new Error(
-                            `Unable to sync structural layer ${target.glyphName}/${target.layerId} into canonical storage.`
-                        );
-                    }
-                }
-            }
-        } catch (error) {
-            console.error(
-                '[OutlineEditor] Error syncing structural layers before commit:',
-                error
-            );
-            return false;
         }
 
         currentFont.markDirty?.(changeSource);
@@ -15357,6 +15330,24 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const allLinkedPathsSupportInsertion = linkedLayers.every(
+            (linkedLayer: Layer) => {
+                const linkedPath = linkedLayer.paths?.[preview.pathIndex];
+                return Boolean(
+                    linkedPath &&
+                    Layer.getPathSegmentDescriptors(linkedPath.toJSON()).some(
+                        (descriptor) =>
+                            descriptor.segmentId === preview.segmentId
+                    )
+                );
+            }
+        );
+        if (!allLinkedPathsSupportInsertion) {
+            console.warn(
+                'Cannot add a point because a linked layer has no matching segment.'
+            );
+            return;
+        }
         const structuralLayerTargets = [currentLayerModel, ...linkedLayers]
             .filter((layerModel) => !!layerModel.id)
             .map((layerModel) => ({
@@ -15387,6 +15378,16 @@ export class OutlineEditor {
             }
 
             if (insertedNodeIndex !== null) {
+                const activePathData = activePath.toJSON();
+                const activeShape =
+                    currentLayerData.shapes?.[preview.shapeIndex];
+                const activeContour = getPathShapeData(activeShape);
+                if (activeContour && typeof activeContour === 'object') {
+                    activeContour.nodes = activePathData.nodes.map(
+                        (node: Babelfont.Node) => ({ ...node })
+                    );
+                    activeContour.closed = Boolean(activePathData.closed);
+                }
                 this.commitStructuralOutlineChange('Add point', {
                     reuseTransaction: true,
                     layerTargets: structuralLayerTargets
@@ -15398,17 +15399,6 @@ export class OutlineEditor {
 
         if (insertedNodeIndex === null) {
             return;
-        }
-
-        const activePathData = activePath.toJSON();
-        const activeShape = currentLayerData.shapes?.[preview.shapeIndex];
-        const activeContour = getPathShapeData(activeShape);
-        if (activeContour && typeof activeContour === 'object') {
-            const normalizedNodes = activePathData.nodes;
-            activeContour.nodes = normalizedNodes.map(
-                (node: Babelfont.Node) => ({ ...node })
-            );
-            activeContour.closed = Boolean(activePathData.closed);
         }
 
         this.selectedPoints = [
@@ -17025,6 +17015,25 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const allLinkedPathsSupportOpening = linkedLayers.every(
+            (linkedLayer: Layer) => {
+                const linkedPath = linkedLayer.paths?.[pathIndex];
+                const linkedNode = linkedPath?.nodes?.[point.nodeIndex];
+                return Boolean(
+                    linkedPath?.closed &&
+                    linkedPath.nodes.length >= 3 &&
+                    linkedNode &&
+                    isOnCurveNode(linkedNode) &&
+                    linkedNode.nodetype !== 'Move'
+                );
+            }
+        );
+        if (!allLinkedPathsSupportOpening) {
+            console.warn(
+                'Cannot open a path because a linked layer has no matching node.'
+            );
+            return false;
+        }
         const structuralLayerTargets = [currentLayerModel, ...linkedLayers]
             .filter((layer) => !!layer.id)
             .map((layer) => ({

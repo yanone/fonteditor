@@ -179,6 +179,36 @@ describe('FontManager saveLayerData', () => {
         delete window.autoCompileManager;
     });
 
+    test('serializes structurally edited layers only at the storage boundary', () => {
+        const font = fontManager.currentFont.fontModel;
+        const glyph = font.glyphs.find((candidate) =>
+            candidate.layers?.some((layer) => layer.paths?.length)
+        );
+        const layer = glyph?.layers?.find(
+            (candidate) => candidate.paths?.length
+        );
+        const path = layer?.paths?.[0];
+
+        expect(glyph?.name).toBeTruthy();
+        expect(layer?.id).toBeTruthy();
+        expect(path).toBeTruthy();
+
+        const nodeCountBefore = path.nodes.length;
+        withSuppressedModelRecording(() => {
+            expect(path._addPoint(0, 0.5)).not.toBeNull();
+        });
+
+        const serializedLayer = fontManager.serializeLayerForStorage(
+            glyph.name,
+            layer.id,
+            layer.toJSON()
+        );
+
+        expect(typeof serializedLayer.shapes[0].nodes).toBe('string');
+        expect(path.nodes.length).toBeGreaterThan(nodeCountBefore);
+        expect(layer.getBoundingBox()).not.toBeNull();
+    });
+
     test('preserves brace layer location metadata when saving edited outlines', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'

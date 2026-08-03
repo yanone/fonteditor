@@ -607,6 +607,56 @@ test.describe('Open/Close Path across linked masters', () => {
         await page.waitForTimeout(500);
     });
 
+    test('add point commits identical topology to every linked master', async ({
+        page
+    }) => {
+        await loadTestFont(page);
+        await waitForFontLoaded(page);
+        await waitForBridgeReady(page);
+        await waitForEditingFontCompiled(page);
+        await navigateToGlyphA(page);
+        await selectFirstMasterLayer(page);
+
+        const topology = await page.evaluate(async () => {
+            const outlineEditor = (window as any).glyphCanvas.outlineEditor;
+            const activeLayer = outlineEditor.getCurrentLayerModel();
+            const activePath = activeLayer.paths[0];
+            const beforeNodeCount = activePath.nodes.length;
+
+            outlineEditor.hoveredAddPointPreview = {
+                pathIndex: 0,
+                shapeIndex: 0,
+                segmentId: 0,
+                t: 0.5
+            };
+            await outlineEditor.commitHoveredAddPointPreview();
+
+            const glyph = (window as any).currentFontModel.findGlyph('A');
+            return {
+                beforeNodeCount,
+                layers: glyph.layers.map((layer: any) => ({
+                    id: layer.id,
+                    nodeTypes: layer.paths[0].nodes.map(
+                        (node: any) => node.nodetype
+                    )
+                }))
+            };
+        });
+
+        expect(topology.layers).toHaveLength(3);
+        expect(topology.layers[0].nodeTypes.length).toBeGreaterThan(
+            topology.beforeNodeCount
+        );
+        expect(
+            topology.layers.every(
+                (layer: { nodeTypes: string[] }) =>
+                    layer.nodeTypes.join(',') ===
+                    topology.layers[0].nodeTypes.join(',')
+            )
+        ).toBe(true);
+        expect((await getCompatibility(page)).compatible).toBe(true);
+    });
+
     test('full open-close-undo lifecycle', async ({ page }) => {
         // ---------------------------------------------------------------
         // 1. Load the 3-master test font
