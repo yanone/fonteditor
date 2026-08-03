@@ -10585,17 +10585,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(linkedLayersSpy).toHaveBeenCalled();
-            expect(bridge.recordChange).toHaveBeenCalledTimes(2);
-            for (const [, property, , nodes] of bridge.recordChange.mock
-                .calls) {
-                expect(property).toBe('nodes');
-                expect(
-                    parseNodeString(nodes).every(
-                        (node) =>
-                            Number.isInteger(node.x) && Number.isInteger(node.y)
-                    )
-                ).toBe(true);
-            }
+            expect(bridge.recordChange).not.toHaveBeenCalled();
             expect(
                 currentLayer.paths[0].nodes.every(
                     (node) =>

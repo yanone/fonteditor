@@ -15361,21 +15361,28 @@ export class OutlineEditor {
             (window as any).patchSyncEngine ?? (window as any).changeBridge;
         if (_addPtBridge) _addPtBridge.beginTransaction('Add point');
         try {
-            insertedNodeIndex = activePath._addPoint(
-                preview.segmentId,
-                preview.t,
-                true
-            );
+            withSuppressedModelRecording(() => {
+                insertedNodeIndex = activePath._addPoint(
+                    preview.segmentId,
+                    preview.t,
+                    true
+                );
 
-            if (insertedNodeIndex !== null) {
-                for (const linkedLayer of linkedLayers) {
-                    const linkedPath = linkedLayer.paths?.[preview.pathIndex];
-                    if (!linkedPath) {
-                        continue;
+                if (insertedNodeIndex !== null) {
+                    for (const linkedLayer of linkedLayers) {
+                        const linkedPath =
+                            linkedLayer.paths?.[preview.pathIndex];
+                        if (!linkedPath) {
+                            continue;
+                        }
+                        linkedPath._addPoint(
+                            preview.segmentId,
+                            preview.t,
+                            true
+                        );
                     }
-                    linkedPath._addPoint(preview.segmentId, preview.t, true);
                 }
-            }
+            });
 
             if (insertedNodeIndex !== null) {
                 const activePathData = activePath.toJSON();
