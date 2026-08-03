@@ -392,9 +392,17 @@ test.describe('Open Dialog UI', () => {
         });
 
         await page.evaluate(async () => {
+            const cloudPlugin = (window as any).cloudPlugin;
+            const originalIsVisibleInUI =
+                cloudPlugin.isVisibleInUI.bind(cloudPlugin);
+            const originalOnActivate = cloudPlugin.onActivate.bind(cloudPlugin);
+            const originalUpdateUI = cloudPlugin.updateUI.bind(cloudPlugin);
+            cloudPlugin.isVisibleInUI = () => true;
+            cloudPlugin.onActivate = async () => true;
+            cloudPlugin.updateUI = async () => {};
+
             await (window as any).switchContext?.('cloud');
 
-            const cloudPlugin = (window as any).cloudPlugin;
             const adapter = cloudPlugin.getAdapter();
             const originalHandleOpenPath =
                 cloudPlugin.handleOpenPath.bind(cloudPlugin);
@@ -419,6 +427,9 @@ test.describe('Open Dialog UI', () => {
             await (window as any).showFontFileDialog?.({ mode: 'open' });
 
             (window as any).__restoreCloudOpenFailureTest = () => {
+                cloudPlugin.isVisibleInUI = originalIsVisibleInUI;
+                cloudPlugin.onActivate = originalOnActivate;
+                cloudPlugin.updateUI = originalUpdateUI;
                 cloudPlugin.handleOpenPath = originalHandleOpenPath;
                 adapter.scanDirectory = originalScanDirectory;
             };
