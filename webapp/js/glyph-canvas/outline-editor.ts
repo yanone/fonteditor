@@ -18253,14 +18253,15 @@ export class OutlineEditor {
                 activeLayerId && glyphName
                     ? [{ glyphName, layerId: activeLayerId }]
                     : [];
-            const closure = this.computeRecompositionClosure({
-                sourceTargets,
-                editKinds: new Set(['sidebearing']),
-                scope: 'all',
-                activeLayerId
-            });
-            const { changedLayerTargets, workerReplayTargets } =
-                resolveLayerSyncTargetsFromClosure(closure, sourceTargets);
+            const changedLayerTargets = normalizeWorkerReplayTargets([
+                ...sourceTargets,
+                ...this._lastLiveSidebearingRecomposeTargets
+            ]);
+            const workerReplayTargets = normalizeWorkerReplayTargets(
+                this._lastLiveSidebearingPreviewTargets.length > 0
+                    ? this._lastLiveSidebearingPreviewTargets
+                    : sourceTargets
+            );
 
             this._syncCurrentGlyphToYDoc(
                 'Set sidebearing',

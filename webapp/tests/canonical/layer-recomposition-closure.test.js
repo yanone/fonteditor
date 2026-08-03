@@ -233,6 +233,70 @@ function getComponentTranslation(layer, index) {
     };
 }
 
+function makeMirroredSidebearingCascadeFont() {
+    return new Font({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        masters: [makeMaster()],
+        instances: [],
+        glyphs: [
+            {
+                name: 'source',
+                layers: [
+                    {
+                        id: 'source0',
+                        width: 500,
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [makeRectPath(100, 0, 400, 700)],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'mirrored',
+                layers: [
+                    {
+                        id: 'mirrored0',
+                        width: 500,
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [makeRectPath(80, 0, 400, 700)],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: { metric_right: '=|source' }
+            },
+            {
+                name: 'downstream',
+                layers: [
+                    {
+                        id: 'downstream0',
+                        width: 500,
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [makeRectPath(70, 0, 400, 700)],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: { metric_right: '=mirrored' }
+            }
+        ],
+        names: {},
+        features: { classes: {}, prefixes: {}, features: [] },
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    });
+}
+
 describe('lean cascading layer recomposition', () => {
     const originalFontManager = window.fontManager;
     const originalCurrentFontModel = window.currentFontModel;
@@ -240,6 +304,65 @@ describe('lean cascading layer recomposition', () => {
     afterEach(() => {
         window.fontManager = originalFontManager;
         window.currentFontModel = originalCurrentFontModel;
+    });
+
+    test('keeps =| sidebearings and downstream metrics keys identical during visible and settled recomposition', () => {
+        const runClosure = (scope) => {
+            const font = makeMirroredSidebearingCascadeFont();
+            const sourceLayer = font
+                .findGlyph('source')
+                .findLayerById('source0');
+            const mirroredLayer = font
+                .findGlyph('mirrored')
+                .findLayerById('mirrored0');
+            const downstreamLayer = font
+                .findGlyph('downstream')
+                .findLayerById('downstream0');
+
+            sourceLayer.setDirectSidebearing('left', 140);
+            const closure = computeLayerRecompositionClosure({
+                sourceTargets: [{ glyphName: 'source', layerId: 'source0' }],
+                editKinds: new Set(['sidebearing']),
+                scope,
+                fontModel: font,
+                activeLayerId: 'source0',
+                sourceGlyphName: 'source',
+                visibleGlyphNames: new Set(['source', 'mirrored', 'downstream'])
+            });
+
+            return {
+                sourceLeft: sourceLayer.lsb,
+                mirroredRight: mirroredLayer.rsb,
+                downstreamRight: downstreamLayer.rsb,
+                replayTargets: closure.allTargets.map(
+                    ({ glyphName, layerId }) => `${glyphName}@${layerId}`
+                ),
+                recomposedTargets: closure.recomposeTargets.map(
+                    ({ glyphName, layerId }) => `${glyphName}@${layerId}`
+                )
+            };
+        };
+
+        const live = runClosure('visible');
+        const committed = runClosure('all');
+
+        expect(live.sourceLeft).toBe(140);
+        expect(live.mirroredRight).toBe(140);
+        expect(live.downstreamRight).toBe(140);
+        expect(live).toEqual(committed);
+        expect(live.replayTargets).toEqual(
+            expect.arrayContaining([
+                'source@source0',
+                'mirrored@mirrored0',
+                'downstream@downstream0'
+            ])
+        );
+        expect(live.recomposedTargets).toEqual(
+            expect.arrayContaining([
+                'mirrored@mirrored0',
+                'downstream@downstream0'
+            ])
+        );
     });
 
     test('sidebearing edit invalidates manual composites but does not recompose them', () => {

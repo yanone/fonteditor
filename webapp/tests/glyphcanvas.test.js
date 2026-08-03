@@ -4564,6 +4564,15 @@ describe('GlyphCanvas property panel metrics edits', () => {
                     'l',
                     'n'
                 ]);
+                canvas.outlineEditor._lastLiveSidebearingPreviewTargets = [
+                    ...targets,
+                    targets[1]
+                ];
+                canvas.outlineEditor._lastLiveSidebearingRecomposeTargets = [
+                    { glyphName: 'l', layerId: 'master-layer' },
+                    { glyphName: 'n', layerId: 'master-layer' },
+                    { glyphName: 'n', layerId: 'master-layer' }
+                ];
                 return true;
             });
         const syncDependentsSpy = jest
@@ -4575,6 +4584,12 @@ describe('GlyphCanvas property panel metrics edits', () => {
         const glyphModelSpy = jest
             .spyOn(canvas.outlineEditor, 'getCurrentGlyphModel')
             .mockReturnValue({ name: 'l' });
+        const currentLayerIdSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentLayerId')
+            .mockReturnValue('master-layer');
+        const parseGlyphStackSpy = jest
+            .spyOn(canvas.outlineEditor, 'parseGlyphStack')
+            .mockReturnValue([{ glyphName: 'l' }]);
         const collectTargetsSpy = jest
             .spyOn(
                 canvas.outlineEditor,
@@ -4615,8 +4630,11 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 expect.any(String),
                 'left',
                 {
-                    changedLayerTargets: [],
-                    workerReplayTargets: []
+                    changedLayerTargets: [
+                        { glyphName: 'l', layerId: 'master-layer' },
+                        { glyphName: 'n', layerId: 'master-layer' }
+                    ],
+                    workerReplayTargets: targets
                 },
                 {
                     editSource: 'keyboard-sidebearing',
@@ -4646,6 +4664,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
             window.patchSyncEngine = originalPatchSyncEngine;
             syncCurrentGlyphToYDocSpy.mockRestore();
             collectTargetsSpy.mockRestore();
+            parseGlyphStackSpy.mockRestore();
+            currentLayerIdSpy.mockRestore();
             glyphModelSpy.mockRestore();
             syncDependentsSpy.mockRestore();
             applySidebearingDeltaSpy.mockRestore();
