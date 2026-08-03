@@ -16124,19 +16124,23 @@ export class OutlineEditor {
         if (options.granularSync && bridge) {
             bridge.beginTransaction(label);
             try {
-                changed = mutate(activePath, 0);
-                if (changed) {
-                    for (
-                        let layerIndex = 0;
-                        layerIndex < linkedLayers.length;
-                        layerIndex++
-                    ) {
-                        const linkedLayer = linkedLayers[layerIndex];
-                        const linkedPath = linkedLayer.paths?.[pathIndex];
-                        if (!linkedPath) continue;
-                        mutate(linkedPath, layerIndex + 1);
+                withSuppressedModelRecording(() => {
+                    changed = mutate(activePath, 0);
+                    if (changed) {
+                        for (
+                            let layerIndex = 0;
+                            layerIndex < linkedLayers.length;
+                            layerIndex++
+                        ) {
+                            const linkedLayer = linkedLayers[layerIndex];
+                            const linkedPath = linkedLayer.paths?.[pathIndex];
+                            if (!linkedPath) continue;
+                            mutate(linkedPath, layerIndex + 1);
+                        }
                     }
+                });
 
+                if (changed) {
                     this.commitStructuralOutlineChange(label, {
                         reuseTransaction: true,
                         layerTargets: layerTargets.length
@@ -17053,14 +17057,20 @@ export class OutlineEditor {
             (window as any).patchSyncEngine ?? (window as any).changeBridge;
         if (_openBridge) _openBridge.beginTransaction('Open path');
         try {
-            changed = activePath._openClosedPathAtNode(point.nodeIndex);
+            withSuppressedModelRecording(() => {
+                changed = activePath._openClosedPathAtNode(point.nodeIndex);
+                if (!changed) {
+                    return;
+                }
+
+                for (const linkedLayer of linkedLayers) {
+                    const linkedPath = linkedLayer.paths?.[pathIndex];
+                    linkedPath?._openClosedPathAtNode(point.nodeIndex);
+                }
+            });
+
             if (!changed) {
                 return false;
-            }
-
-            for (const linkedLayer of linkedLayers) {
-                const linkedPath = linkedLayer.paths?.[pathIndex];
-                linkedPath?._openClosedPathAtNode(point.nodeIndex);
             }
 
             this.commitStructuralOutlineChange('Open path', {
@@ -17117,16 +17127,22 @@ export class OutlineEditor {
             (window as any).patchSyncEngine ?? (window as any).changeBridge;
         if (_splitBridge) _splitBridge.beginTransaction('Split path');
         try {
-            splitResult = currentLayerModel.splitOpenPathAtNode(
-                pathIndex,
-                point.nodeIndex
-            );
+            withSuppressedModelRecording(() => {
+                splitResult = currentLayerModel.splitOpenPathAtNode(
+                    pathIndex,
+                    point.nodeIndex
+                );
+                if (!splitResult) {
+                    return;
+                }
+
+                for (const linkedLayer of linkedLayers) {
+                    linkedLayer.splitOpenPathAtNode(pathIndex, point.nodeIndex);
+                }
+            });
+
             if (!splitResult) {
                 return false;
-            }
-
-            for (const linkedLayer of linkedLayers) {
-                linkedLayer.splitOpenPathAtNode(pathIndex, point.nodeIndex);
             }
 
             this.commitStructuralOutlineChange('Split path', {
@@ -17231,44 +17247,55 @@ export class OutlineEditor {
                     targetEndpoint
                 };
 
-                while (pendingPair) {
-                    result = currentLayerModel.connectOpenPathEndpoints(
-                        pendingPair.sourceEndpoint.pathIndex,
-                        pendingPair.sourceEndpoint.edge,
-                        pendingPair.targetEndpoint.pathIndex,
-                        pendingPair.targetEndpoint.edge
-                    );
-                    if (!result) {
-                        return false;
-                    }
-
-                    for (const linkedLayer of linkedLayers) {
-                        linkedLayer.connectOpenPathEndpoints(
+                withSuppressedModelRecording(() => {
+                    while (pendingPair) {
+                        result = currentLayerModel.connectOpenPathEndpoints(
                             pendingPair.sourceEndpoint.pathIndex,
                             pendingPair.sourceEndpoint.edge,
                             pendingPair.targetEndpoint.pathIndex,
                             pendingPair.targetEndpoint.edge
                         );
-                    }
-
-                    pendingPair = options.cascadeCoincidentConnections
-                        ? this.findCoincidentOpenPathEndpointPairInLayerModel(
-                              currentLayerModel
-                          )
-                        : null;
-                }
-
-                if (result) {
-                    this.commitStructuralOutlineChange(
-                        options.changeLabel ||
-                            (result?.closed ? 'Close path' : 'Connect path'),
-                        {
-                            reuseTransaction: true,
-                            layerTargets:
-                                this.getCurrentGlyphStructuralLayerTargets()
+                        if (!result) {
+                            return;
                         }
-                    );
+
+                        for (const linkedLayer of linkedLayers) {
+                            linkedLayer.connectOpenPathEndpoints(
+                                pendingPair.sourceEndpoint.pathIndex,
+                                pendingPair.sourceEndpoint.edge,
+                                pendingPair.targetEndpoint.pathIndex,
+                                pendingPair.targetEndpoint.edge
+                            );
+                        }
+
+                        pendingPair = options.cascadeCoincidentConnections
+                            ? this.findCoincidentOpenPathEndpointPairInLayerModel(
+                                  currentLayerModel
+                              )
+                            : null;
+                    }
+                });
+
+                if (!result) {
+                    return false;
                 }
+                const completedConnection = result as {
+                    shapeIndex: number;
+                    boundaryNodeIndex: number;
+                    closed: boolean;
+                };
+
+                this.commitStructuralOutlineChange(
+                    options.changeLabel ||
+                        (completedConnection.closed
+                            ? 'Close path'
+                            : 'Connect path'),
+                    {
+                        reuseTransaction: true,
+                        layerTargets:
+                            this.getCurrentGlyphStructuralLayerTargets()
+                    }
+                );
             } finally {
                 if (_closeBridge && !options.reuseTransaction)
                     _closeBridge.endTransaction();
@@ -17368,14 +17395,20 @@ export class OutlineEditor {
         if (_mergeBridge && !reuseTransaction)
             _mergeBridge.beginTransaction('Close path');
         try {
-            changed = activePath._closeOpenPathByMerge();
+            withSuppressedModelRecording(() => {
+                changed = activePath._closeOpenPathByMerge();
+                if (!changed) {
+                    return;
+                }
+
+                for (const linkedLayer of linkedLayers) {
+                    const linkedPath = linkedLayer.paths?.[contourIndex];
+                    linkedPath?._closeOpenPathByMerge();
+                }
+            });
+
             if (!changed) {
                 return false;
-            }
-
-            for (const linkedLayer of linkedLayers) {
-                const linkedPath = linkedLayer.paths?.[contourIndex];
-                linkedPath?._closeOpenPathByMerge();
             }
 
             this.syncCurrentExactLayerDataFromModel();
@@ -18791,24 +18824,26 @@ export class OutlineEditor {
                 }
             };
 
-            deleteContourFromLayer(currentLayerModel);
-            deleteComponentsFromLayer(currentLayerModel);
-            selectedAnchorIndicesDescending.forEach((anchorIndex) =>
-                currentLayerModel.removeAnchor(anchorIndex)
-            );
-            removeSelectedGuideFromLayer(currentLayerModel);
+            withSuppressedModelRecording(() => {
+                deleteContourFromLayer(currentLayerModel);
+                deleteComponentsFromLayer(currentLayerModel);
+                selectedAnchorIndicesDescending.forEach((anchorIndex) =>
+                    currentLayerModel.removeAnchor(anchorIndex)
+                );
+                removeSelectedGuideFromLayer(currentLayerModel);
+
+                for (const linkedLayer of linkedLayers) {
+                    deleteContourFromLayer(linkedLayer);
+                    deleteComponentsFromLayer(linkedLayer);
+                    removeAnchorsByName(linkedLayer);
+                    removeSelectedGuideFromLayer(linkedLayer);
+                }
+            });
 
             if (selectedGuideHandle?.scope === 'master') {
                 this.getRootMasterModel()?.removeGuide(
                     selectedGuideHandle.index
                 );
-            }
-
-            for (const linkedLayer of linkedLayers) {
-                deleteContourFromLayer(linkedLayer);
-                deleteComponentsFromLayer(linkedLayer);
-                removeAnchorsByName(linkedLayer);
-                removeSelectedGuideFromLayer(linkedLayer);
             }
 
             const deletedPathGeometry = pointsByPath.size > 0;
