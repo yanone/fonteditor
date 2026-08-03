@@ -650,7 +650,10 @@ function expectAnchoredOppositeEdge(
             ? Math.abs(after.right - before.right)
             : Math.abs(after.left - before.left);
 
-    expect(anchoredDelta).toBeLessThan(1.5);
+    expect(
+        anchoredDelta,
+        JSON.stringify({ editedSide, before, after, anchoredDelta })
+    ).toBeLessThan(1.5);
 }
 
 function expectSnapshotRestored(

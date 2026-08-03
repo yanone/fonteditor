@@ -14014,42 +14014,46 @@ export class OutlineEditor {
             (wasSnappedToClose && wasDragging && snappedEndpointTarget) ||
             endedOnCoincidentOpenEndpoint
         ) {
-            if (!sourceEndpoint) {
-                return;
-            }
-
-            // Don't end the drag transaction — reuse it so
-            // drag + close appear as a single undo entry.
-            this._hasMoved = false;
-            this._preDragDesc = null;
-            this._dragType = null;
-            if (
-                endedOnCoincidentOpenEndpoint ||
-                (snappedEndpointTarget &&
-                    sourceEndpoint.pathIndex ===
-                        snappedEndpointTarget.pathIndex &&
-                    sourceEndpoint.edge !== snappedEndpointTarget.edge)
-            ) {
-                this.closeOpenPathByMerge(sourceEndpoint.shapeIndex, true);
-                return;
-            }
-            if (!snappedEndpointTarget) {
-                return;
-            }
-            this.completeOpenPathEndpointConnection(
-                sourceEndpoint,
-                snappedEndpointTarget,
-                {
-                    reuseTransaction: true,
-                    cascadeCoincidentConnections: true,
-                    compileReason:
-                        sourceEndpoint.pathIndex ===
-                        snappedEndpointTarget.pathIndex
-                            ? 'closing dragged open path'
-                            : 'connecting dragged open paths'
+            try {
+                if (!sourceEndpoint) {
+                    return;
                 }
-            );
-            return;
+
+                // Don't end the drag transaction — reuse it so
+                // drag + close appear as a single undo entry.
+                this._hasMoved = false;
+                this._preDragDesc = null;
+                this._dragType = null;
+                if (
+                    endedOnCoincidentOpenEndpoint ||
+                    (snappedEndpointTarget &&
+                        sourceEndpoint.pathIndex ===
+                            snappedEndpointTarget.pathIndex &&
+                        sourceEndpoint.edge !== snappedEndpointTarget.edge)
+                ) {
+                    this.closeOpenPathByMerge(sourceEndpoint.shapeIndex, true);
+                    return;
+                }
+                if (!snappedEndpointTarget) {
+                    return;
+                }
+                this.completeOpenPathEndpointConnection(
+                    sourceEndpoint,
+                    snappedEndpointTarget,
+                    {
+                        reuseTransaction: true,
+                        cascadeCoincidentConnections: true,
+                        compileReason:
+                            sourceEndpoint.pathIndex ===
+                            snappedEndpointTarget.pathIndex
+                                ? 'closing dragged open path'
+                                : 'connecting dragged open paths'
+                    }
+                );
+                return;
+            } finally {
+                endDragTransaction();
+            }
         }
 
         // Update worker font cache after dragging ends
@@ -16158,6 +16162,12 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const structuralLayerTargets = [currentLayerModel, ...linkedLayers]
+            .filter((layer) => !!layer.id)
+            .map((layer) => ({
+                glyphName: currentGlyphModel.name,
+                layerId: layer.id!
+            }));
         let changed = false;
         const layerTargets = normalizeWorkerReplayTargets(
             [currentLayerModel, ...linkedLayers].map((layer) => ({
@@ -17438,6 +17448,12 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const structuralLayerTargets = [currentLayerModel, ...linkedLayers]
+            .filter((layer) => !!layer.id)
+            .map((layer) => ({
+                glyphName: currentGlyphModel.name,
+                layerId: layer.id!
+            }));
         let changed = false;
 
         const _mergeBridge =
@@ -17461,7 +17477,7 @@ export class OutlineEditor {
                 return false;
             }
 
-            this.syncCurrentExactLayerDataFromModel();
+            this.syncCurrentContourDataFromModel(contourIndex);
             const bboxCenterAnchorScreen =
                 this.getBoundingBoxCenterScreenPosition();
             const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
@@ -17470,7 +17486,7 @@ export class OutlineEditor {
 
             this.commitStructuralOutlineChange('Close path', {
                 reuseTransaction: true,
-                layerTargets: this.getCurrentGlyphStructuralLayerTargets()
+                layerTargets: structuralLayerTargets
             });
 
             this.refreshKeyedMetricsAfterStructuralEdit(
