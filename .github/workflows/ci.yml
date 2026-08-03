@@ -63,8 +63,8 @@ jobs:
                   BUILD_HASH_FULL: ${{ steps.version.outputs.commit_full }}
                   BUILD_HASH_SHORT: ${{ steps.version.outputs.commit_short }}
 
-            - name: Run fast webapp test suite
-              run: npm run test:ci --prefix webapp
+            - name: Run full webapp test suite
+              run: npm test --prefix webapp
 
             - name: Set up Rust nightly with the WASM target
               uses: dtolnay/rust-toolchain@nightly

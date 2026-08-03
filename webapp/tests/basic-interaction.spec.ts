@@ -392,68 +392,6 @@ test.describe('Font Editor Basic Workflow', () => {
         expect(refreshedUiState.fontName).toContain('Yanone');
     });
 
-    test('open YanoneKaffeesatz.glyphspackage and snapshot full window', async ({
-        page
-    }) => {
-        console.log('[Test] Opening YanoneKaffeesatz.glyphspackage');
-
-        await openFileFromFilesView(page, 'YanoneKaffeesatz.glyphspackage');
-        await page.waitForTimeout(200);
-
-        await waitForFontLoaded(page);
-        await waitForSubsetEditingFontState(
-            page,
-            'YanoneKaffeesatz.glyphspackage'
-        );
-        await waitForOpenSessionReady(page, 'YanoneKaffeesatz.glyphspackage');
-        await waitForOverviewTilesRendered(page);
-        await page.waitForTimeout(300);
-
-        await takeWindowSnapshot(
-            page,
-            'yanone-01',
-            'yanone-glyphspackage-opened'
-        );
-    });
-
-    test('open YanoneKaffeesatz.designspace', async ({ page }) => {
-        console.log('[Test] Opening YanoneKaffeesatz.designspace');
-
-        await openFileFromFilesView(page, 'YanoneKaffeesatz.designspace');
-        await page.waitForTimeout(200);
-
-        await waitForFontLoaded(page);
-        await waitForSubsetEditingFontState(
-            page,
-            'YanoneKaffeesatz.designspace'
-        );
-        await waitForOpenSessionReady(page, 'YanoneKaffeesatz.designspace');
-        await waitForOverviewTilesRendered(page);
-        await page.waitForTimeout(300);
-
-        const state = await page.evaluate(() => {
-            return {
-                editorMode:
-                    (window as any).stateManager?.getStateSnapshot?.()?.state
-                        ?.editor_mode || '',
-                selectedGlyphIndex:
-                    (window as any).glyphCanvas?.textRunEditor
-                        ?.selectedGlyphIndex ?? -1,
-                fileName: new URL(window.location.href).searchParams.get(
-                    'file'
-                ),
-                fontName:
-                    document
-                        .querySelector('#current-font-display .font-name')
-                        ?.textContent?.trim() || ''
-            };
-        });
-
-        expect(state.editorMode).toBe('text');
-        expect(state.fileName).toContain('YanoneKaffeesatz.designspace');
-        expect(state.fontName).toContain('Yanone');
-    });
-
     test('load font and navigate with keyboard', async ({ page }) => {
         test.setTimeout(300000);
         console.log('[Test] Starting main test');

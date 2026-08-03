@@ -232,8 +232,8 @@ initBabelfontWasm.version = jest.fn(() => '0.1.0');
 initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {
     const ext = filename.split('.').pop().toLowerCase();
 
-    // For entry-map-based formats (.ufo, .designspace), use the entries helper
-    if (ext === 'ufo' || ext === 'designspace') {
+    // For entry-map-based formats, use the entries helper.
+    if (ext === 'ufo' || ext === 'designspace' || ext === 'glyphspackage') {
         const tempDir = fs.mkdtempSync(
             path.join(os.tmpdir(), 'babelfont-jest-entries-')
         );

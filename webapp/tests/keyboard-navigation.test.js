@@ -94,4 +94,136 @@ describe('keyboard navigation focusView DOM transfer', () => {
             document.getElementById('view-fontinfo')
         );
     });
+
+    it('expands a collapsed top-row view from the previously visited donor', () => {
+        window.VIEW_SETTINGS = {
+            shortcuts: {},
+            animation: { enabled: false, duration: 0 },
+            resize: {},
+            activation: {
+                minimumWidths: { topRow: 240, bottomRow: 160 },
+                editor: { heightThreshold: 0, heightTarget: 1 },
+                secondary: { heightThreshold: 0, heightTarget: 1 }
+            }
+        };
+        document.body.innerHTML = `
+            <div class="container">
+                <div class="top-row">
+                    <div id="view-fontinfo" class="view"></div>
+                    <div id="view-overview" class="view"></div>
+                    <div id="view-editor" class="view"></div>
+                </div>
+                <div class="bottom-row"></div>
+            </div>
+            <canvas id="test-glyph-canvas" tabindex="0"></canvas>
+        `;
+
+        const widths = {
+            'view-fontinfo': 24,
+            'view-overview': 400,
+            'view-editor': 600
+        };
+        for (const [viewId, width] of Object.entries(widths)) {
+            const view = document.getElementById(viewId);
+            Object.defineProperty(view, 'offsetWidth', {
+                configurable: true,
+                get: () => Number.parseFloat(view.style.flex) || width
+            });
+        }
+        Object.defineProperty(
+            document.querySelector('.container'),
+            'offsetHeight',
+            {
+                configurable: true,
+                value: 800
+            }
+        );
+        Object.defineProperty(
+            document.querySelector('.top-row'),
+            'offsetHeight',
+            {
+                configurable: true,
+                value: 600
+            }
+        );
+        window.resizableViews = {
+            updateCollapsedStates: jest.fn(),
+            saveLayout: jest.fn()
+        };
+
+        window.focusView('view-editor', true);
+        jest.advanceTimersByTime(250);
+        window.focusView('view-overview', true);
+        jest.advanceTimersByTime(250);
+        window.focusView('view-fontinfo', true);
+
+        expect(
+            Number.parseFloat(
+                document.getElementById('view-fontinfo').style.flex
+            )
+        ).toBe(240);
+        expect(
+            Number.parseFloat(
+                document.getElementById('view-overview').style.flex
+            )
+        ).toBe(184);
+        expect(window.getViewVisitOrder().top.at(-1)).toBe('view-fontinfo');
+    });
+
+    it('expands a collapsed bottom-row view from the previously visited donor', () => {
+        window.VIEW_SETTINGS = {
+            shortcuts: {},
+            animation: { enabled: false, duration: 0 },
+            resize: {},
+            activation: {
+                minimumWidths: { topRow: 240, bottomRow: 160 },
+                editor: { heightThreshold: 0, heightTarget: 1 },
+                secondary: { heightThreshold: 0, heightTarget: 1 }
+            }
+        };
+        document.body.innerHTML = `
+            <div class="container">
+                <div class="top-row"></div>
+                <div class="bottom-row">
+                    <div id="view-history" class="view"></div>
+                    <div id="view-assistant" class="view"></div>
+                </div>
+            </div>
+        `;
+
+        const history = document.getElementById('view-history');
+        const assistantView = document.getElementById('view-assistant');
+        Object.defineProperty(history, 'offsetWidth', {
+            configurable: true,
+            get: () => Number.parseFloat(history.style.flex) || 100
+        });
+        Object.defineProperty(assistantView, 'offsetWidth', {
+            configurable: true,
+            get: () => Number.parseFloat(assistantView.style.flex) || 400
+        });
+        Object.defineProperty(
+            document.querySelector('.container'),
+            'offsetHeight',
+            {
+                configurable: true,
+                value: 800
+            }
+        );
+        window.resizableViews = {
+            updateCollapsedStates: jest.fn(),
+            saveLayout: jest.fn()
+        };
+        window.setViewVisitOrder({
+            top: [],
+            bottom: ['view-history', 'view-assistant']
+        });
+
+        window.focusView('view-assistant', true);
+        jest.advanceTimersByTime(250);
+        window.focusView('view-history', true);
+
+        expect(Number.parseFloat(history.style.flex)).toBe(160);
+        expect(Number.parseFloat(assistantView.style.flex)).toBe(340);
+        expect(window.getViewVisitOrder().bottom.at(-1)).toBe('view-history');
+    });
 });

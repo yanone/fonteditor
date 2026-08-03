@@ -111,6 +111,29 @@ describe('Designspace round-trip test', () => {
         expect(font.axes[0].tag).toBe('wght');
     });
 
+    test('loads a Glyphs package into a complete babelfont model', () => {
+        const packagePath = path.join(
+            EXAMPLES_DIR,
+            'YanoneKaffeesatz.glyphspackage'
+        );
+        const packageEntries = buildEntryMapFromDirectory(packagePath);
+
+        const babelfontJson = open_font_file(
+            'YanoneKaffeesatz.glyphspackage',
+            JSON.stringify(packageEntries)
+        );
+        const font = JSON.parse(babelfontJson);
+
+        expect(font.glyphs.length).toBeGreaterThan(0);
+        expect(font.masters.length).toBeGreaterThan(0);
+        expect(JSON.stringify(font.names)).toContain('Yanone');
+        expect(
+            font.glyphs.some((glyph) =>
+                glyph.layers?.some((layer) => layer.shapes?.length > 0)
+            )
+        ).toBe(true);
+    });
+
     test('should round-trip a designspace-loaded font through UFO save and reload', () => {
         // Step 1: Load the designspace file
         const entries = buildDesignspaceEntryMap(designspacePath);

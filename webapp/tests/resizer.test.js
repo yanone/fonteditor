@@ -92,6 +92,11 @@ describe('ResizableViews startup layout restore', () => {
         `;
 
         installTopRowMetrics();
+        window.getViewVisitOrder = jest.fn(() => ({
+            top: ['view-fontinfo', 'view-overview', 'view-editor'],
+            bottom: ['view-history']
+        }));
+        window.setViewVisitOrder = jest.fn();
 
         localStorage.setItem(
             'viewLayout',
@@ -103,6 +108,10 @@ describe('ResizableViews startup layout restore', () => {
                 vertical: {
                     top: ['0.01', '0.01', '0.98'],
                     bottom: ['1']
+                },
+                visitOrder: {
+                    top: ['view-editor', 'view-overview', 'view-fontinfo'],
+                    bottom: ['view-history']
                 }
             })
         );
@@ -118,6 +127,8 @@ describe('ResizableViews startup layout restore', () => {
         delete globalThis.cancelAnimationFrame;
         delete window.requestAnimationFrame;
         delete window.cancelAnimationFrame;
+        delete window.getViewVisitOrder;
+        delete window.setViewVisitOrder;
     });
 
     test('marks restored top-row collapsed panes as collapsed-width before interaction', () => {
@@ -141,5 +152,22 @@ describe('ResizableViews startup layout restore', () => {
                 .getElementById('view-editor')
                 .classList.contains('collapsed-width')
         ).toBe(false);
+        expect(window.setViewVisitOrder).toHaveBeenCalledWith({
+            top: ['view-editor', 'view-overview', 'view-fontinfo'],
+            bottom: ['view-history']
+        });
+    });
+
+    test('persists the current visit order with the view layout', () => {
+        require('../js/resizer');
+
+        window.resizableViews.saveLayout();
+
+        expect(JSON.parse(localStorage.getItem('viewLayout'))).toMatchObject({
+            visitOrder: {
+                top: ['view-fontinfo', 'view-overview', 'view-editor'],
+                bottom: ['view-history']
+            }
+        });
     });
 });
