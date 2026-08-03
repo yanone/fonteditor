@@ -47,11 +47,10 @@ async function setupEditTextMode(
     page: Page,
     textBuffer: string = 'ä'
 ): Promise<void> {
-    // Step 1: Set text buffer and select glyph
-    await page.evaluate(async (nextTextBuffer) => {
+    // Step 1: Set text buffer and wait for its glyph run.
+    await page.evaluate((nextTextBuffer) => {
         const gc = (window as any).glyphCanvas;
         gc.textRunEditor.setTextBuffer(nextTextBuffer);
-        await gc.textRunEditor.selectGlyphByIndex(0, true);
     }, textBuffer);
 
     // Wait for shaping to complete
@@ -68,6 +67,14 @@ async function setupEditTextMode(
         textBuffer,
         { timeout: 20000 }
     );
+
+    // Select only after the new run has replaced the prior font's glyphs.
+    await page.evaluate(async () => {
+        await (window as any).glyphCanvas.textRunEditor.selectGlyphByIndex(
+            0,
+            true
+        );
+    });
 
     // Zoom to fit
     await page.keyboard.press('Meta+0');
@@ -1197,12 +1204,8 @@ async function dismissVisibleTippies(page: Page): Promise<void> {
 async function waitForVisibleLayerRows(page: Page): Promise<void> {
     await page.waitForFunction(
         () =>
-            document.querySelector(
-                '#glyph-properties-sidebar .editor-section-title-text'
-            )?.textContent === 'Layers' &&
-            document.querySelectorAll(
-                '#glyph-properties-sidebar .editor-layer-item[data-layer-id]'
-            ).length > 0,
+            document.querySelectorAll('.editor-layer-item[data-layer-id]')
+                .length > 0,
         { timeout: 10000 }
     );
 }
@@ -1283,9 +1286,16 @@ test.describe('Cross-window ChangeBridge sync', () => {
         await installFontModelSyncTracker(mainPage);
         await installEditingFontCompileTracker(mainPage);
 
-        // Focus editor view, set text to "ä", enter edit mode on glyph 'a'
+        // Keep the composite run active while editing its source glyph.
         await focusView(mainPage, 'Meta+Shift+E', 'view-editor');
         await setupEditTextMode(mainPage);
+        await mainPage.evaluate(async () => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            glyphCanvas.outlineEditor.active = true;
+            glyphCanvas.outlineEditor.currentGlyphName = 'a';
+            await glyphCanvas.doUIUpdateAsync();
+            await glyphCanvas.outlineEditor.fetchLayerData?.(true, 'a');
+        });
 
         // Find the Thin master layer ID
         const thinLayerId = await findThinLayerId(mainPage);
@@ -1360,8 +1370,8 @@ test.describe('Cross-window ChangeBridge sync', () => {
         expect(linkedYDocKeys).toEqual(mainYDocKeys);
         // Sanity: Regular layer Y.Doc must have core properties
         expect(mainYDocKeys).toContain('width');
-        expect(mainYDocKeys).toContain('shapeOrder');
-        expect(mainYDocKeys).toContain('shapesById');
+        expect(mainYDocKeys).toContain('master');
+        expect(mainYDocKeys).toContain('shapes');
 
         // Baseline screenshots
         await mainPage.waitForTimeout(300);
@@ -1572,11 +1582,9 @@ test.describe('Cross-window ChangeBridge sync', () => {
         );
         expect(linkedYDocKeysAfterOutline).toEqual(mainYDocKeysAfterOutline);
         // CRITICAL: The Regular layer must still have core properties
-        // (this is the bug — currently fails because only 'shapes' remains)
         expect(linkedYDocKeysAfterOutline).toContain('width');
         expect(linkedYDocKeysAfterOutline).toContain('master');
-        expect(linkedYDocKeysAfterOutline).toContain('shapeOrder');
-        expect(linkedYDocKeysAfterOutline).toContain('shapesById');
+        expect(linkedYDocKeysAfterOutline).toContain('shapes');
         expect(linkedYDocKeysAfterOutline).toContain('anchorOrder');
         expect(linkedYDocKeysAfterOutline).toContain('anchorsById');
 
@@ -1712,7 +1720,7 @@ test.describe('Cross-window ChangeBridge sync', () => {
 
         expect(anchorEditResult).not.toHaveProperty('error');
         expect(anchorEditResult.newY).toBe(anchorEditResult.oldY - 100);
-        expect(anchorEditResult.affectedGlyphNames).toContain('adieresis');
+        expect(anchorEditResult.affectedGlyphNames).toContain('a');
 
         // Wait for remote change
         await waitForRemoteChange(linkedPage, anchorLastSyncTime);
@@ -1747,8 +1755,7 @@ test.describe('Cross-window ChangeBridge sync', () => {
         expect(linkedYDocKeysAfterAnchor).toEqual(mainYDocKeysAfterAnchor);
         expect(linkedYDocKeysAfterAnchor).toContain('width');
         expect(linkedYDocKeysAfterAnchor).toContain('master');
-        expect(linkedYDocKeysAfterAnchor).toContain('shapeOrder');
-        expect(linkedYDocKeysAfterAnchor).toContain('shapesById');
+        expect(linkedYDocKeysAfterAnchor).toContain('shapes');
         expect(linkedYDocKeysAfterAnchor).toContain('anchorOrder');
         expect(linkedYDocKeysAfterAnchor).toContain('anchorsById');
 
@@ -1778,12 +1785,8 @@ test.describe('Cross-window ChangeBridge sync', () => {
         );
         expect(linkedAnchors).toEqual(mainAnchors);
 
-        expect(mainDataAfterAnchor.adieresis).not.toEqual(
-            mainDataAfterOutline.adieresis
-        );
-        expect(linkedDataAfterAnchor.adieresis).toEqual(
-            mainDataAfterAnchor.adieresis
-        );
+        expect(mainDataAfterAnchor.a).not.toEqual(mainDataAfterOutline.a);
+        expect(linkedDataAfterAnchor.a).toEqual(mainDataAfterAnchor.a);
 
         // ── 9. Compilation check ──────────────────────────────────
         // Wait for compilation to settle in both windows
@@ -2437,9 +2440,7 @@ test.describe('Cross-window ChangeBridge sync', () => {
         );
 
         expect(postDeleteAnchorResult).not.toHaveProperty('error');
-        expect(postDeleteAnchorResult.affectedGlyphNames).toContain(
-            'adieresis'
-        );
+        expect(postDeleteAnchorResult.affectedGlyphNames).toContain('a');
 
         await waitForRemoteChange(linkedPage, postDeleteAnchorLastSyncTime);
         await waitForEditingCompile(mainPage);

@@ -9546,8 +9546,17 @@ export class OutlineEditor {
         });
 
         const currentFont = fontManager.currentFont;
+        const canonicalLayerWasRemoved = !currentFont?.babelfontData?.glyphs
+            ?.find(
+                (storedGlyph: Babelfont.Glyph) =>
+                    storedGlyph.name === sourceGlyphName
+            )
+            ?.layers?.some(
+                (storedLayer: Babelfont.Layer) => storedLayer.id === layerId
+            );
         if (
             Array.isArray(currentFont?.babelfontData?.glyphs) &&
+            !canonicalLayerWasRemoved &&
             !fontManager.removeStoredLayerData(sourceGlyphName, layerId)
         ) {
             console.error(
@@ -10306,6 +10315,13 @@ export class OutlineEditor {
         const currentLayerId = this.getCurrentLayerId();
 
         if (!this.active || !rootGlyphName || !currentLayerId) {
+            return false;
+        }
+
+        if (
+            this.selectedLayerId === null &&
+            (this.isInterpolating || this.layerData?.isInterpolated === true)
+        ) {
             return false;
         }
 
@@ -16173,6 +16189,7 @@ export class OutlineEditor {
                 });
 
                 if (changed) {
+                    this.syncCurrentExactLayerDataFromModel();
                     this.commitStructuralOutlineChange(label, {
                         reuseTransaction: true,
                         layerTargets: layerTargets.length
@@ -16203,12 +16220,12 @@ export class OutlineEditor {
                 }
             });
             if (!changed) return false;
+            this.syncCurrentExactLayerDataFromModel();
             this.commitStructuralOutlineChange(label, {
                 layerTargets: layerTargets.length ? layerTargets : undefined
             });
         }
 
-        this.syncCurrentExactLayerDataFromModel();
         this.performHitDetection(null);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();

@@ -29,9 +29,51 @@ function makeTestFont(): string {
         version: [1, 0],
         axes: [
             {
-                name: { dflt: 'Regular' },
+                name: { dflt: 'Weight' },
+                tag: 'wght',
+                id: 'weight',
+                min: 100,
+                default: 400,
+                max: 900,
+                hidden: false,
+                format_specific: {}
+            }
+        ],
+        masters: [
+            {
+                name: { dflt: 'Light' },
                 id: 'M0',
+                location: { wght: 100 },
+                guides: [],
+                metrics: {},
+                kerning: {},
+                custom_ot_values: {},
+                format_specific: {}
+            },
+            {
+                name: { dflt: 'Regular' },
+                id: 'M1',
                 location: { wght: 400 },
+                guides: [],
+                metrics: {},
+                kerning: {},
+                custom_ot_values: {},
+                format_specific: {}
+            },
+            {
+                name: { dflt: 'Bold' },
+                id: 'M2',
+                location: { wght: 900 },
+                guides: [],
+                metrics: {},
+                kerning: {},
+                custom_ot_values: {},
+                format_specific: {}
+            }
+        ],
+        glyphs: [
+            {
+                name: '.notdef',
                 category: 'Base',
                 layers: [
                     {
@@ -268,7 +310,18 @@ function makeTestFont(): string {
 /** Load the test font into the running editor via the standard fontLoaded event */
 async function loadTestFont(page: Page) {
     const fontJson = makeTestFont();
-    await page.evaluate((json) => {
+    await page.evaluate(async (json) => {
+        const fontCompilation = (window as any).fontCompilation;
+        if (!fontCompilation) {
+            throw new Error('Font compilation is unavailable');
+        }
+        if (!fontCompilation.isInitialized) {
+            const initialized = await fontCompilation.initialize();
+            if (!initialized) {
+                throw new Error('Font compilation failed to initialize');
+            }
+        }
+
         // Keep two shaped copies visible so we can detect HarfBuzz rendering
         // disappearing on the non-edited instance during close-by-drag.
         localStorage.setItem('glyphCanvasTextBuffer', 'AA');
@@ -305,12 +358,31 @@ async function waitForBridgeReady(page: Page) {
 /** Wait for the editing font to compile so HarfBuzz can shape glyphs */
 async function waitForEditingFontCompiled(page: Page) {
     // Wait for the initial editing font to compile
-    await page.waitForFunction(
-        () => {
-            return !!(window as any).fontManager?.editingFont;
-        },
-        { timeout: 30000 }
-    );
+    try {
+        await page.waitForFunction(
+            () => {
+                return !!(window as any).fontManager?.editingFont;
+            },
+            { timeout: 30000 }
+        );
+    } catch (error) {
+        const diagnostics = await page.evaluate(() => {
+            const fontManager = (window as any).fontManager;
+            const fontCompilation = (window as any).fontCompilation;
+            return {
+                currentFontPath: fontManager?.currentFont?.path ?? null,
+                hasCurrentFont: !!fontManager?.currentFont,
+                hasFontModel: !!(window as any).currentFontModel,
+                compilerInitialized: !!fontCompilation?.isInitialized,
+                compilationError: fontManager?.compilationError ?? null
+            };
+        });
+        throw new Error(
+            `${(error as Error).message}\nFixture diagnostics: ${JSON.stringify(
+                diagnostics
+            )}`
+        );
+    }
     await page.waitForTimeout(300);
 }
 
@@ -1008,7 +1080,10 @@ test.describe('Open/Close Path across linked masters', () => {
         expect(afterUndo1!.closed).toBe(false);
         expect(afterUndo1!.nodeCount).toBe(5);
         const afterUndo1Compat = await getCompatibility(page);
-        expect(afterUndo1Compat.compatible).toBe(true);
+        expect(
+            afterUndo1Compat.compatible,
+            JSON.stringify(afterUndo1Compat)
+        ).toBe(true);
 
         // Branch test: after undoing close, drag the open endpoint again,
         // then verify undo still works and we can continue back in history.
