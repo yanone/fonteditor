@@ -80,6 +80,9 @@ jobs:
             - name: Set up wasm-pack
               uses: jetli/wasm-pack-action@v0.4.0
 
+            - name: Generate Rust WASM test fixture
+              run: node webapp/compilation-test/compile-test.mjs webapp/examples/Fustat.glyphs
+
             - name: Run Rust WASM cache tests
               run: cd babelfont-fontc-build && rustup run nightly wasm-pack test --node
 
