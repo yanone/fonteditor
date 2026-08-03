@@ -207,7 +207,19 @@ function makeTestFont(): string {
                             }
                         ],
                         anchors: [],
-                        guides: [],
+                        guides: [
+                            {
+                                id: 'guide-L1',
+                                pos: { x: 300, y: 0, angle: 90 },
+                                format_specific: {
+                                    filter: '',
+                                    grid: 0,
+                                    locked: false,
+                                    orientation: 'left',
+                                    type: 'Line'
+                                }
+                            }
+                        ],
                         format_specific: {}
                     },
                     {
@@ -230,7 +242,19 @@ function makeTestFont(): string {
                             }
                         ],
                         anchors: [],
-                        guides: [],
+                        guides: [
+                            {
+                                id: 'guide-L0',
+                                pos: { x: 300, y: 0, angle: 90 },
+                                format_specific: {
+                                    filter: '',
+                                    grid: 0,
+                                    locked: false,
+                                    orientation: 'left',
+                                    type: 'Line'
+                                }
+                            }
+                        ],
                         format_specific: {}
                     },
                     {
@@ -253,7 +277,19 @@ function makeTestFont(): string {
                             }
                         ],
                         anchors: [],
-                        guides: [],
+                        guides: [
+                            {
+                                id: 'guide-L2',
+                                pos: { x: 300, y: 0, angle: 90 },
+                                format_specific: {
+                                    filter: '',
+                                    grid: 0,
+                                    locked: false,
+                                    orientation: 'left',
+                                    type: 'Line'
+                                }
+                            }
+                        ],
                         format_specific: {}
                     }
                 ],
@@ -622,6 +658,8 @@ test.describe('Open/Close Path across linked masters', () => {
             const activeLayer = outlineEditor.getCurrentLayerModel();
             const activePath = activeLayer.paths[0];
             const beforeNodeCount = activePath.nodes.length;
+            const bridge = (window as any).patchSyncEngine;
+            const changeLogStart = bridge.getChangeLog().length;
 
             outlineEditor.hoveredAddPointPreview = {
                 pathIndex: 0,
@@ -634,6 +672,14 @@ test.describe('Open/Close Path across linked masters', () => {
             const glyph = (window as any).currentFontModel.findGlyph('A');
             return {
                 beforeNodeCount,
+                guideFormatSpecificRemovals: bridge
+                    .getChangeLog()
+                    .slice(changeLogStart)
+                    .filter(
+                        (entry: any) =>
+                            entry.op === 'remove' &&
+                            entry.path.includes('guides.0.format_specific')
+                    ),
                 layers: glyph.layers.map((layer: any) => ({
                     id: layer.id,
                     nodeTypes: layer.paths[0].nodes.map(
@@ -644,6 +690,7 @@ test.describe('Open/Close Path across linked masters', () => {
         });
 
         expect(topology.layers).toHaveLength(3);
+        expect(topology.guideFormatSpecificRemovals).toEqual([]);
         expect(topology.layers[0].nodeTypes.length).toBeGreaterThan(
             topology.beforeNodeCount
         );

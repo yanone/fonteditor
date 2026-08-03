@@ -226,6 +226,7 @@ export function serializeLayerForClipboard(
 
 export function serializePathForClipboard(path: {
     closed?: boolean;
+    format_specific?: PastePath['format_specific'];
     nodes?: Array<{
         x: number;
         y: number;
@@ -244,7 +245,10 @@ export function serializePathForClipboard(path: {
     const closed = !!path.closed;
     return {
         closed,
-        nodes: ensureStartFirstNodes(nodes, closed)
+        nodes: ensureStartFirstNodes(nodes, closed),
+        ...(path.format_specific !== undefined
+            ? { format_specific: path.format_specific }
+            : {})
     };
 }
 
@@ -271,6 +275,7 @@ export function serializeComponentForClipboard(component: {
     transform?: unknown;
     automaticAlignment?: boolean;
     anchor?: string;
+    format_specific?: PasteComponent['format_specific'];
 }): PasteComponent {
     const transform = toAffineTuple(component.transform);
     return {
@@ -279,7 +284,10 @@ export function serializeComponentForClipboard(component: {
         y: transform[5],
         transform,
         alignment: component.automaticAlignment ? 1 : 0,
-        ...(component.anchor ? { anchor: component.anchor } : {})
+        ...(component.anchor ? { anchor: component.anchor } : {}),
+        ...(component.format_specific !== undefined
+            ? { format_specific: component.format_specific }
+            : {})
     };
 }
 
@@ -287,11 +295,15 @@ export function serializeAnchorForClipboard(anchor: {
     name?: string;
     x: number;
     y: number;
+    format_specific?: PasteAnchor['format_specific'];
 }): PasteAnchor {
     return {
         name: anchor.name || '',
         x: Number(anchor.x),
-        y: Number(anchor.y)
+        y: Number(anchor.y),
+        ...(anchor.format_specific !== undefined
+            ? { format_specific: anchor.format_specific }
+            : {})
     };
 }
 
@@ -302,6 +314,7 @@ export function serializeGuideForClipboard(
         x?: number;
         y?: number;
         angle?: number;
+        format_specific?: PasteGuide['format_specific'];
     },
     globalGuide: boolean
 ): PasteGuide {
@@ -313,7 +326,10 @@ export function serializeGuideForClipboard(
         x,
         y,
         angle,
-        global: globalGuide
+        global: globalGuide,
+        ...(guide.format_specific !== undefined
+            ? { format_specific: guide.format_specific }
+            : {})
     };
 }
 

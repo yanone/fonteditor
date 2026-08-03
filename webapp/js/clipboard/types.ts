@@ -4,6 +4,16 @@
 
 export type PasteNodeType = 'Line' | 'Curve' | 'OffCurve' | 'QCurve' | 'Move';
 
+export type ClipboardJsonValue =
+    | string
+    | number
+    | boolean
+    | null
+    | ClipboardJsonValue[]
+    | { [key: string]: ClipboardJsonValue };
+
+export type ClipboardFormatSpecific = Record<string, ClipboardJsonValue>;
+
 export type PasteNode = {
     x: number;
     y: number;
@@ -14,6 +24,7 @@ export type PasteNode = {
 export type PastePath = {
     closed: boolean;
     nodes: PasteNode[];
+    format_specific?: ClipboardFormatSpecific;
 };
 
 export type PasteComponent = {
@@ -29,12 +40,14 @@ export type PasteComponent = {
     alignment?: number;
     /** Explicit automatic-alignment target anchor name. */
     anchor?: string;
+    format_specific?: ClipboardFormatSpecific;
 };
 
 export type PasteAnchor = {
     name: string;
     x: number;
     y: number;
+    format_specific?: ClipboardFormatSpecific;
 };
 
 export type PasteGuide = {
@@ -44,6 +57,7 @@ export type PasteGuide = {
     angle: number;
     /** True when source marks a master/global guide. */
     global?: boolean;
+    format_specific?: ClipboardFormatSpecific;
 };
 
 export type PasteFragment = {

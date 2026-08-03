@@ -9,6 +9,8 @@
  */
 
 import type {
+    ClipboardFormatSpecific,
+    ClipboardJsonValue,
     PasteAnchor,
     PasteComponent,
     PasteFragment,
@@ -425,7 +427,14 @@ function parsePaths(
             nodes:
                 closed && nodeOrder === 'glyphs'
                     ? glyphsClosedPathToStartFirst(nodes)
-                    : nodes
+                    : nodes,
+            ...(parseFormatSpecific(entry.format_specific) !== undefined
+                ? {
+                      format_specific: parseFormatSpecific(
+                          entry.format_specific
+                      )
+                  }
+                : {})
         });
     }
     return paths;
@@ -506,6 +515,10 @@ function parseComponents(value: unknown): PasteComponent[] {
         if (typeof entry.anchor === 'string') {
             component.anchor = entry.anchor;
         }
+        const formatSpecific = parseFormatSpecific(entry.format_specific);
+        if (formatSpecific !== undefined) {
+            component.format_specific = formatSpecific;
+        }
         components.push(component);
     }
     return components;
@@ -538,7 +551,18 @@ function parseAnchors(value: unknown): PasteAnchor[] {
         if (x === null || y === null) {
             continue;
         }
-        anchors.push({ name: entry.name, x, y });
+        anchors.push({
+            name: entry.name,
+            x,
+            y,
+            ...(parseFormatSpecific(entry.format_specific) !== undefined
+                ? {
+                      format_specific: parseFormatSpecific(
+                          entry.format_specific
+                      )
+                  }
+                : {})
+        });
     }
     return anchors;
 }
@@ -564,7 +588,14 @@ function parseGuides(value: unknown): PasteGuide[] {
             x,
             y,
             angle: optionalNumber(entry.angle) ?? 0,
-            ...(entry.global === true ? { global: true } : {})
+            ...(entry.global === true ? { global: true } : {}),
+            ...(parseFormatSpecific(entry.format_specific) !== undefined
+                ? {
+                      format_specific: parseFormatSpecific(
+                          entry.format_specific
+                      )
+                  }
+                : {})
         });
     }
     return guides;
@@ -572,6 +603,40 @@ function parseGuides(value: unknown): PasteGuide[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseFormatSpecific(
+    value: unknown
+): ClipboardFormatSpecific | undefined {
+    if (!isRecord(value)) {
+        return undefined;
+    }
+    for (const nestedValue of Object.values(value)) {
+        if (!isClipboardJsonValue(nestedValue)) {
+            return undefined;
+        }
+    }
+    return value as ClipboardFormatSpecific;
+}
+
+function isClipboardJsonValue(value: unknown): value is ClipboardJsonValue {
+    if (
+        value === null ||
+        typeof value === 'string' ||
+        typeof value === 'boolean'
+    ) {
+        return true;
+    }
+    if (typeof value === 'number') {
+        return Number.isFinite(value);
+    }
+    if (Array.isArray(value)) {
+        return value.every(isClipboardJsonValue);
+    }
+    if (isRecord(value)) {
+        return Object.values(value).every(isClipboardJsonValue);
+    }
+    return false;
 }
 
 function optionalNumber(value: unknown): number | null {

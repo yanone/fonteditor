@@ -1122,9 +1122,14 @@ function applyNonPathObjectsToLayers(
             const added = layer.addComponent(component.reference, [
                 ...transform
             ]);
-            added.automaticAlignment = component.alignment === 1;
+            if (component.alignment === 1) {
+                added.automaticAlignment = true;
+            }
             if (component.anchor) {
                 added.anchor = component.anchor;
+            }
+            if (component.format_specific !== undefined) {
+                added.format_specific = component.format_specific;
             }
         }
         result.addedComponentCount += targetLayers.length;
@@ -1154,7 +1159,10 @@ function applyNonPathObjectsToLayers(
                 continue;
             }
             for (const layer of targetLayers) {
-                layer.addAnchor(anchor.x, anchor.y, anchor.name);
+                const added = layer.addAnchor(anchor.x, anchor.y, anchor.name);
+                if (anchor.format_specific !== undefined) {
+                    added.format_specific = anchor.format_specific;
+                }
             }
             result.addedAnchorCount += 1;
             continue;
@@ -1163,26 +1171,35 @@ function applyNonPathObjectsToLayers(
         if (findAnchorByName(activeLayer, anchor.name)) {
             continue;
         }
-        activeLayer.addAnchor(anchor.x, anchor.y, anchor.name);
+        const added = activeLayer.addAnchor(anchor.x, anchor.y, anchor.name);
+        if (anchor.format_specific !== undefined) {
+            added.format_specific = anchor.format_specific;
+        }
         result.addedAnchorCount += 1;
     }
 
     for (const guide of working.guides) {
         if (guide.global) {
             if (master) {
-                master.addGuide(
+                const added = master.addGuide(
                     { x: guide.x, y: guide.y, angle: guide.angle },
                     guide.name
                 );
+                if (guide.format_specific !== undefined) {
+                    added.format_specific = guide.format_specific;
+                }
                 result.addedGuideCount += 1;
             }
             continue;
         }
         for (const layer of targetLayers) {
-            layer.addGuide(
+            const added = layer.addGuide(
                 { x: guide.x, y: guide.y, angle: guide.angle },
                 guide.name
             );
+            if (guide.format_specific !== undefined) {
+                added.format_specific = guide.format_specific;
+            }
         }
         result.addedGuideCount += 1;
     }
@@ -1232,6 +1249,9 @@ function appendPathToLayer(layer: Layer, path: PastePath): void {
     }));
     if (path.closed && !added.closed) {
         added.closed = true;
+    }
+    if (path.format_specific !== undefined) {
+        added.format_specific = path.format_specific;
     }
 }
 

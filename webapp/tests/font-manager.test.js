@@ -209,6 +209,49 @@ describe('FontManager saveLayerData', () => {
         expect(layer.getBoundingBox()).not.toBeNull();
     });
 
+    test('preserves guide format_specific when serializing layer snapshots', () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        const guideFormatSpecific = {
+            filter: '',
+            grid: 0,
+            length: 0,
+            locked: false,
+            lockAngle: false,
+            orientation: 'left',
+            showMeasurement: false,
+            size: [1, 1],
+            type: 'Line',
+            userData: null
+        };
+        const layerData = {
+            ...cloneJson(layer),
+            guides: [
+                {
+                    id: 'guide-with-format-specific',
+                    pos: { x: 100, y: 200 },
+                    format_specific: guideFormatSpecific
+                }
+            ]
+        };
+
+        const serializedLayer = fontManager.serializeLayerForStorage(
+            glyph.name,
+            layer.id,
+            layerData
+        );
+
+        expect(serializedLayer.guides).toEqual([
+            expect.objectContaining({
+                format_specific: guideFormatSpecific
+            })
+        ]);
+    });
+
     test('preserves brace layer location metadata when saving edited outlines', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
@@ -457,6 +500,48 @@ describe('FontManager saveLayerData', () => {
         expect(normalized.location).toEqual({ wdth: 75 });
         expect(normalized.shapes[0].location).toEqual({ wdth: 75 });
         expect(normalized.guides[0].pos).toEqual({ x: 1, y: 2 });
+    });
+
+    test('normalizeLayerForRust preserves anchor and guide metadata', () => {
+        const normalized = fontManager.normalizeLayerForRust({
+            id: 'layer-a',
+            width: 500,
+            anchors: [
+                {
+                    id: 'anchor-top',
+                    name: 'top',
+                    x: 250,
+                    y: 700,
+                    format_specific: { 'com.example.anchor': 'preserve-me' }
+                }
+            ],
+            guides: [
+                {
+                    id: 'guide-baseline',
+                    name: 'baseline',
+                    pos: { x: 0, y: 0, angle: 0 },
+                    format_specific: { 'com.example.guide': 'preserve-me' }
+                }
+            ]
+        });
+
+        expect(normalized.anchors).toEqual([
+            {
+                id: 'anchor-top',
+                name: 'top',
+                x: 250,
+                y: 700,
+                format_specific: { 'com.example.anchor': 'preserve-me' }
+            }
+        ]);
+        expect(normalized.guides).toEqual([
+            {
+                id: 'guide-baseline',
+                name: 'baseline',
+                pos: { x: 0, y: 0, angle: 0 },
+                format_specific: { 'com.example.guide': 'preserve-me' }
+            }
+        ]);
     });
 
     test('updates the live object model layer during interactive saves', async () => {

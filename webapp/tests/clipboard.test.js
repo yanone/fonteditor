@@ -1968,6 +1968,66 @@ describe('clipboard internal round-trips', () => {
         );
         expect(after).toEqual(before);
     });
+
+    test('round-trips format_specific for every copied layer object', () => {
+        const font = Font.fromData(makeRoundTripFontData());
+        const glyph = font.findGlyph('b');
+        const layer = glyph.layers[0];
+        layer.paths[0].format_specific = { 'com.example.path': 'path-data' };
+        layer.components[0].format_specific = {
+            'com.example.component': 'component-data'
+        };
+        layer.anchors[0].format_specific = {
+            'com.example.anchor': 'anchor-data'
+        };
+        layer.addGuide({ x: 0, y: 300, angle: 0 }, 'guide').format_specific = {
+            'com.example.guide': 'guide-data'
+        };
+
+        const document = buildSelectionFromLayer(layer, glyph.name);
+        const parsed = parseCounterpunchJson(
+            stringifyClipboardDocument(document)
+        );
+        expect(parsed.kind).toBe('selection');
+        const fragment = parsed.fragment;
+        expect(fragment.paths[0].format_specific).toEqual({
+            'com.example.path': 'path-data'
+        });
+        expect(fragment.components[0].format_specific).toEqual({
+            'com.example.component': 'component-data'
+        });
+        expect(fragment.anchors[0].format_specific).toEqual({
+            'com.example.anchor': 'anchor-data'
+        });
+        expect(fragment.guides[0].format_specific).toEqual({
+            'com.example.guide': 'guide-data'
+        });
+
+        clearLayerObjects(layer);
+        withSuppressedModelRecording(() =>
+            applyPasteFragment(fragment, {
+                activeLayer: layer,
+                linkedLayers: [],
+                master: layer.getMaster?.() ?? null,
+                layerWidth: layer.width,
+                verticalMetrics: null,
+                glyphExists: (name) => !!font.findGlyph(name)
+            })
+        );
+
+        expect(layer.paths[0].format_specific).toEqual({
+            'com.example.path': 'path-data'
+        });
+        expect(layer.components[0].format_specific).toEqual({
+            'com.example.component': 'component-data'
+        });
+        expect(layer.anchors[0].format_specific).toEqual({
+            'com.example.anchor': 'anchor-data'
+        });
+        expect(layer.guides[0].format_specific).toEqual({
+            'com.example.guide': 'guide-data'
+        });
+    });
 });
 
 describe('Fontra clipboard tagged MIME', () => {

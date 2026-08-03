@@ -2418,15 +2418,24 @@ class FontManager {
             ...(Array.isArray(layerData.anchors)
                 ? {
                       anchors: layerData.anchors.map((anchor: any) => ({
+                          ...(typeof anchor?.id === 'string'
+                              ? { id: anchor.id }
+                              : {}),
                           name: anchor?.name,
                           x: anchor?.x,
-                          y: anchor?.y
+                          y: anchor?.y,
+                          ...(anchor?.format_specific !== undefined
+                              ? { format_specific: anchor.format_specific }
+                              : {})
                       }))
                   }
                 : {}),
             ...(Array.isArray(layerData.guides)
                 ? {
                       guides: layerData.guides.map((guide: any) => ({
+                          ...(typeof guide?.id === 'string'
+                              ? { id: guide.id }
+                              : {}),
                           pos: {
                               x: guide?.pos?.x,
                               y: guide?.pos?.y,
@@ -2437,7 +2446,10 @@ class FontManager {
                                   : {})
                           },
                           name: guide?.name,
-                          ...(guide?.color && { color: guide.color })
+                          ...(guide?.color && { color: guide.color }),
+                          ...(guide?.format_specific !== undefined
+                              ? { format_specific: guide.format_specific }
+                              : {})
                       }))
                   }
                 : {})
@@ -3952,7 +3964,10 @@ class FontManager {
                           angle: guide.pos.angle
                       },
                       name: guide.name,
-                      ...(guide.color && { color: guide.color })
+                      ...(guide.color && { color: guide.color }),
+                      ...(hasOwnKeys(guide.format_specific) && {
+                          format_specific: guide.format_specific
+                      })
                   }))
                 : originalLayer?.guides;
 
