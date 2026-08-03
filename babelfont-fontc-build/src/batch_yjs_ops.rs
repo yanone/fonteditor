@@ -1,5 +1,8 @@
 use crate::interpolation::interpolate_glyph_layer;
-use crate::{get_or_rebuild_font_cache, ydoc_get_top_level_json_with_txn, Y_DOC};
+use crate::{
+    get_or_rebuild_font_cache, ydoc_get_layer_json_with_txn,
+    ydoc_get_top_level_json_with_txn, Y_DOC,
+};
 use babelfont::{Layer, LayerType, Master};
 use js_sys::{Object, Reflect, Uint8Array};
 use serde::Deserialize;
@@ -367,6 +370,26 @@ fn build_reinterpolated_layer(
         .map_err(|error| JsValue::from_str(&format!("Layer serialization failed: {}", error)))
 }
 
+fn merge_reinterpolated_layer(
+    existing: &JsonValue,
+    regenerated: JsonValue,
+) -> JsonValue {
+    let JsonValue::Object(regenerated) = regenerated else {
+        return regenerated;
+    };
+    let JsonValue::Object(existing) = existing else {
+        return JsonValue::Object(regenerated);
+    };
+
+    let mut merged = existing.clone();
+    for (key, value) in regenerated {
+        if key != "guides" {
+            merged.insert(key, value);
+        }
+    }
+    JsonValue::Object(merged)
+}
+
 fn parse_add_master_batch_payload(
     payload_json: &str,
 ) -> Result<(Master, HashMap<String, fontdrasil::coords::DesignLocation>), String> {
@@ -454,14 +477,7 @@ pub fn reinterpolate_master_layers_yjs(master_id: &str) -> Result<JsValue, JsVal
             .ok_or_else(|| JsValue::from_str("Missing font map in cloned Y.Doc"))?;
 
         for target in targets {
-            let old_value = serde_json::to_value(&target.layer).map_err(|error| {
-                JsValue::from_str(&format!(
-                    "Failed to serialize previous layer {}::{}: {}",
-                    target.glyph_name, target.layer_id, error
-                ))
-            })?;
-
-            let new_value = match build_reinterpolated_layer(
+            let regenerated_value = match build_reinterpolated_layer(
                 &font,
                 &target.glyph_name,
                 &target.layer,
@@ -483,6 +499,19 @@ pub fn reinterpolate_master_layers_yjs(master_id: &str) -> Result<JsValue, JsVal
                     continue;
                 }
             };
+
+            let old_value = ydoc_get_layer_json_with_txn(
+                &target.glyph_name,
+                &target.layer_id,
+                &txn,
+            )
+            .ok_or_else(|| {
+                JsValue::from_str(&format!(
+                    "Missing raw Y.Doc layer {}::{} during reinterpolation",
+                    target.glyph_name, target.layer_id
+                ))
+            })?;
+            let new_value = merge_reinterpolated_layer(&old_value, regenerated_value);
 
             upsert_layer_json(
                 &mut txn,
@@ -518,28 +547,24 @@ pub fn reinterpolate_master_layers_yjs(master_id: &str) -> Result<JsValue, JsVal
     )
 }
 
-#[wasm_bindgen]
-pub fn reinterpolate_layer_yjs(glyph_name: &str, layer_id: &str) -> Result<JsValue, JsValue> {
+fn build_reinterpolate_layer_batch(
+    glyph_name: &str,
+    layer_id: &str,
+) -> Result<(Vec<u8>, BatchMetadata), JsValue> {
     let font = get_or_rebuild_font_cache()?;
     let Some(target) = find_reinterpolation_target(&font, glyph_name, layer_id) else {
-        return encode_result(
+        return Ok((
             Vec::new(),
-            &BatchMetadata {
+            BatchMetadata {
                 changed_glyphs: Vec::new(),
                 layer_targets: Vec::new(),
                 layer_operations: Vec::new(),
                 masters_operation: None,
             },
-        );
+        ));
     };
 
-    let old_value = serde_json::to_value(&target.layer).map_err(|error| {
-        JsValue::from_str(&format!(
-            "Failed to serialize previous layer {}::{}: {}",
-            target.glyph_name, target.layer_id, error
-        ))
-    })?;
-    let new_value = build_reinterpolated_layer(
+    let regenerated_value = build_reinterpolated_layer(
         &font,
         &target.glyph_name,
         &target.layer,
@@ -550,6 +575,22 @@ pub fn reinterpolate_layer_yjs(glyph_name: &str, layer_id: &str) -> Result<JsVal
     )?;
 
     let (clone_doc, base_state_vector) = clone_current_ydoc()?;
+    let (old_value, new_value) = {
+        let txn = clone_doc.transact();
+        let old_value = ydoc_get_layer_json_with_txn(
+            &target.glyph_name,
+            &target.layer_id,
+            &txn,
+        )
+        .ok_or_else(|| {
+            JsValue::from_str(&format!(
+                "Missing raw Y.Doc layer {}::{} during reinterpolation",
+                target.glyph_name, target.layer_id
+            ))
+        })?;
+        let new_value = merge_reinterpolated_layer(&old_value, regenerated_value);
+        (old_value, new_value)
+    };
     {
         let mut txn = clone_doc.transact_mut();
         let font_map = txn
@@ -565,9 +606,9 @@ pub fn reinterpolate_layer_yjs(glyph_name: &str, layer_id: &str) -> Result<JsVal
     }
 
     let update = clone_doc.transact().encode_diff_v1(&base_state_vector);
-    encode_result(
+    Ok((
         update,
-        &BatchMetadata {
+        BatchMetadata {
             changed_glyphs: vec![target.glyph_name.clone()],
             layer_targets: vec![BatchLayerTarget {
                 glyph_name: target.glyph_name.clone(),
@@ -581,7 +622,13 @@ pub fn reinterpolate_layer_yjs(glyph_name: &str, layer_id: &str) -> Result<JsVal
             }],
             masters_operation: None,
         },
-    )
+    ))
+}
+
+#[wasm_bindgen]
+pub fn reinterpolate_layer_yjs(glyph_name: &str, layer_id: &str) -> Result<JsValue, JsValue> {
+    let (update, metadata) = build_reinterpolate_layer_batch(glyph_name, layer_id)?;
+    encode_result(update, &metadata)
 }
 
 #[wasm_bindgen]
@@ -684,6 +731,8 @@ mod tests {
     use super::*;
     use babelfont::Font;
     use serde_json::json;
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     fn make_design_location(value: f64) -> fontdrasil::coords::DesignLocation {
         serde_json::from_value(json!([["wght", value]])).unwrap()
@@ -943,4 +992,120 @@ mod tests {
             json!([["wght", 650.0]])
         );
     }
+
+    #[test]
+    fn reinterpolation_preserves_existing_metadata_while_replacing_geometry() {
+        let existing = json!({
+            "id": "brace-1",
+            "width": 500,
+            "guides": [{ "name": "baseline", "pos": { "x": 0, "y": 0 } }],
+            "color": 3,
+            "customLayerData": { "retained": true },
+            "format_specific": { "com.example.layer": "retained" },
+            "shapes": [{ "nodes": ["old"], "format_specific": { "custom": true } }]
+        });
+        let regenerated = json!({
+            "id": "brace-1",
+            "width": 600,
+            "shapes": [{ "nodes": ["new"] }],
+            "anchors": [],
+            "guides": []
+        });
+
+        assert_eq!(
+            merge_reinterpolated_layer(&existing, regenerated),
+            json!({
+                "id": "brace-1",
+                "width": 600,
+                "guides": [{ "name": "baseline", "pos": { "x": 0, "y": 0 } }],
+                "color": 3,
+                "customLayerData": { "retained": true },
+                "format_specific": { "com.example.layer": "retained" },
+                "shapes": [{ "nodes": ["new"] }],
+                "anchors": []
+            })
+        );
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test]
+    fn wasm_reinterpolation_packet_preserves_raw_metadata_on_receiver() {
+        let mut font_json = serde_json::to_value(make_test_font()).unwrap();
+        font_json["glyphs"] = json!([{
+            "name": "A", "category": "Base", "codepoints": [],
+            "layers": [
+                { "id": "M0", "width": 400, "master": { "type": "DefaultForMaster", "master": "M0" }, "shapes": [], "anchors": [], "guides": [] },
+                { "id": "M1", "width": 800, "master": { "type": "DefaultForMaster", "master": "M1" }, "shapes": [], "anchors": [], "guides": [] },
+                {
+                    "id": "brace-1", "width": 999,
+                    "master": { "type": "AssociatedWithMaster", "master": "M1" },
+                    "location": { "wght": 650 }, "shapes": [], "anchors": [],
+                    "guides": [{ "name": "baseline", "pos": { "x": 0, "y": 0 } }],
+                    "customLayerData": { "retained": true },
+                    "format_specific": { "com.example.layer": "retained" }
+                }
+            ]
+        }]);
+        crate::store_font_from_value(font_json.clone()).unwrap();
+
+        let author = Doc::new();
+        let font_map = author.get_or_insert_map("font");
+        {
+            let mut txn = author.transact_mut();
+            let glyphs_map: yrs::MapRef =
+                font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
+            let glyph_map: yrs::MapRef =
+                glyphs_map.insert(&mut txn, "A", MapPrelim::<Any>::new());
+            let layers_map: yrs::MapRef =
+                glyph_map.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            let layer_map: yrs::MapRef =
+                layers_map.insert(&mut txn, "brace-1", MapPrelim::<Any>::new());
+            fill_json_map(
+                &mut txn,
+                &layer_map,
+                font_json["glyphs"][0]["layers"][2].as_object().unwrap(),
+            )
+            .unwrap();
+        }
+        let initial = author
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        crate::seed_ydoc(initial.as_slice()).unwrap();
+
+        let receiver = Doc::new();
+        {
+            let mut txn = receiver.transact_mut();
+            txn.apply_update(yrs::Update::decode_v1(initial.as_slice()).unwrap());
+        }
+        let result = reinterpolate_layer_yjs("A", "brace-1").unwrap();
+        let update = js_sys::Uint8Array::new(
+            &js_sys::Reflect::get(&result, &JsValue::from_str("update")).unwrap(),
+        )
+        .to_vec();
+        assert!(!update.is_empty());
+        let metadata: JsonValue = serde_json::from_str(
+            &js_sys::Reflect::get(&result, &JsValue::from_str("metadataJson"))
+                .unwrap()
+                .as_string()
+                .unwrap(),
+        )
+        .unwrap();
+        {
+            let mut txn = receiver.transact_mut();
+            txn.apply_update(yrs::Update::decode_v1(update.as_slice()).unwrap());
+        }
+        let receiver_layer = {
+            let txn = receiver.transact();
+            ydoc_get_layer_json_with_txn("A", "brace-1", &txn).unwrap()
+        };
+        assert_eq!(receiver_layer["width"], json!(600));
+        assert_eq!(receiver_layer["guides"][0]["name"], json!("baseline"));
+        assert_eq!(receiver_layer["customLayerData"], json!({ "retained": true }));
+        assert_eq!(receiver_layer["format_specific"], json!({ "com.example.layer": "retained" }));
+        assert_eq!(
+            metadata["layerOperations"][0]["oldValue"],
+            font_json["glyphs"][0]["layers"][2]
+        );
+    }
+
 }

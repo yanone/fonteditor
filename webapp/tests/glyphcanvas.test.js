@@ -8,6 +8,7 @@ const {
 const { parseNodeString } = require('../js/node-encoding');
 const { PatchSyncEngine } = require('../js/patch-sync-engine');
 const { yDocToJson } = require('../js/change-bridge-ydoc');
+const { LayerDataNormalizer } = require('../js/layer-data-normalizer');
 const fontManager = require('../js/font-manager').default;
 const { fontInterpolation } = require('../js/font-interpolation');
 const {
@@ -103,6 +104,63 @@ function createBoxLayer({ minX, minY, maxX, maxY, width }) {
         guides: []
     };
 }
+
+describe('LayerDataNormalizer', () => {
+    test('preserves complete editable object records', () => {
+        const normalized = LayerDataNormalizer.normalize(
+            {
+                id: 'layer-1',
+                width: 500,
+                master: { type: 'AssociatedWithMaster', master: 'master-1' },
+                location: { wght: 0 },
+                color: 3,
+                customLayerData: { retained: true },
+                shapes: [
+                    {
+                        id: 'component-1',
+                        reference: 'acute',
+                        transform: [1, 0, 0, 1, 0, 0],
+                        location: { wght: 0 },
+                        customComponentData: { retained: true },
+                        format_specific: { 'com.example.component': 'value' }
+                    }
+                ],
+                anchors: [
+                    {
+                        id: 'anchor-1',
+                        name: 'top',
+                        x: 0,
+                        y: 0,
+                        customAnchorData: { retained: true },
+                        format_specific: { 'com.example.anchor': 'value' }
+                    }
+                ],
+                guides: []
+            },
+            false
+        );
+
+        expect(normalized).toMatchObject({
+            master: { type: 'AssociatedWithMaster', master: 'master-1' },
+            location: { wght: 0 },
+            color: 3,
+            customLayerData: { retained: true }
+        });
+        expect(normalized.shapes[0]).toMatchObject({
+            id: 'component-1',
+            location: { wght: 0 },
+            customComponentData: { retained: true },
+            format_specific: { 'com.example.component': 'value' }
+        });
+        expect(normalized.anchors[0]).toMatchObject({
+            id: 'anchor-1',
+            x: 0,
+            y: 0,
+            customAnchorData: { retained: true },
+            format_specific: { 'com.example.anchor': 'value' }
+        });
+    });
+});
 
 const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
 

@@ -45,7 +45,7 @@ export class LayerDataNormalizer {
 
         // Both Python and Rust now return identical structure with nested component layerData
         const normalized = {
-            width: layerData.width,
+            ...layerData,
             shapes: this.normalizeShapes(
                 layerData.shapes || [],
                 isInterpolated
@@ -55,9 +55,7 @@ export class LayerDataNormalizer {
             format_specific: layerData.format_specific || {},
             _verticalMetrics: layerData._verticalMetrics || null,
             // Add metadata flag for rendering
-            isInterpolated: isInterpolated,
-            name: layerData.name || null,
-            id: layerData.id || null
+            isInterpolated
         };
 
         return normalized;
@@ -85,9 +83,9 @@ export class LayerDataNormalizer {
                 };
             } else if ('reference' in shape) {
                 return {
+                    ...shape,
                     reference: shape.reference,
                     transform: shape.transform || [1, 0, 0, 1, 0, 0],
-                    format_specific: shape.format_specific || {},
                     // Recursively normalize nested component layer data
                     // Component layerData comes with the same isInterpolated flag as parent
                     layerData: shape.layerData
@@ -108,10 +106,10 @@ export class LayerDataNormalizer {
      */
     static normalizeAnchors(anchors: any[]): any[] {
         return anchors.map((anchor) => ({
-            name: anchor.name || '',
-            x: anchor.x || 0,
-            y: anchor.y || 0,
-            format_specific: anchor.format_specific || {}
+            ...anchor,
+            name: anchor.name ?? '',
+            x: anchor.x ?? 0,
+            y: anchor.y ?? 0
         }));
     }
 

@@ -98,6 +98,79 @@ function encodeYjsStateFromFontData(fontData) {
     return Y.encodeStateAsUpdate(doc);
 }
 
+describe('FontManager committed layer serialization', () => {
+    test('preserves opaque layer and object fields', () => {
+        const serialized = fontManager.serializeLayerForCommittedSync(
+            'A',
+            'layer-1',
+            {
+                id: 'layer-1',
+                width: 500,
+                customLayerData: { retained: true },
+                isInterpolated: true,
+                _verticalMetrics: { ascender: 700 },
+                _interpolationLocation: { wght: 0 },
+                shapes: [
+                    {
+                        id: 'path-1',
+                        nodes: [{ x: 0, y: 0, nodetype: 'Line' }],
+                        closed: false,
+                        customPathData: { retained: true }
+                    },
+                    {
+                        id: 'component-1',
+                        reference: 'acute',
+                        transform: [1, 0, 0, 1, 0, 0],
+                        location: { wght: 0 },
+                        customComponentData: { retained: true },
+                        isInterpolated: true,
+                        layerData: { width: 500, shapes: [] }
+                    }
+                ],
+                anchors: [
+                    {
+                        id: 'anchor-1',
+                        name: 'top',
+                        x: 0,
+                        y: 0,
+                        customAnchorData: { retained: true }
+                    }
+                ],
+                guides: [
+                    {
+                        id: 'guide-1',
+                        pos: { x: 0, y: 0, angle: 0, customPosData: true },
+                        customGuideData: { retained: true }
+                    }
+                ]
+            }
+        );
+
+        expect(serialized).toMatchObject({
+            customLayerData: { retained: true },
+            shapes: [
+                { customPathData: { retained: true } },
+                {
+                    location: { wght: 0 },
+                    customComponentData: { retained: true }
+                }
+            ],
+            anchors: [{ customAnchorData: { retained: true } }],
+            guides: [
+                {
+                    customGuideData: { retained: true },
+                    pos: { customPosData: true }
+                }
+            ]
+        });
+        expect(serialized).not.toHaveProperty('isInterpolated');
+        expect(serialized).not.toHaveProperty('_verticalMetrics');
+        expect(serialized).not.toHaveProperty('_interpolationLocation');
+        expect(serialized.shapes[1]).not.toHaveProperty('isInterpolated');
+        expect(serialized.shapes[1]).not.toHaveProperty('layerData');
+    });
+});
+
 describe('FontManager saveLayerData', () => {
     let originalOpenedFonts;
     let originalCurrentFontId;

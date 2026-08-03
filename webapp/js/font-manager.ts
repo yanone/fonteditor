@@ -3829,6 +3829,25 @@ class FontManager {
             !Array.isArray(value) &&
             Object.keys(value).length > 0;
 
+        const copyPersistedLayerFields = (value: Record<string, unknown>) => {
+            const {
+                isInterpolated: _isInterpolated,
+                _verticalMetrics: _verticalMetrics,
+                _interpolationLocation: _interpolationLocation,
+                ...persistedFields
+            } = value;
+            return persistedFields;
+        };
+
+        const copyPersistedShapeFields = (value: Record<string, unknown>) => {
+            const {
+                isInterpolated: _isInterpolated,
+                layerData: _layerData,
+                ...persistedFields
+            } = value;
+            return persistedFields;
+        };
+
         const extractPathShape = (shape: any): any => {
             if (shape && typeof shape === 'object' && 'Path' in shape) {
                 return (shape as any).Path;
@@ -3860,15 +3879,12 @@ class FontManager {
                 }
 
                 return {
-                    ...(pathCandidate.id && { id: pathCandidate.id }),
+                    ...copyPersistedShapeFields(pathCandidate),
                     nodes: serializeNodeArray(pathCandidate.nodes),
                     closed:
                         pathCandidate.closed === undefined
                             ? false
-                            : pathCandidate.closed,
-                    ...(hasOwnKeys(pathCandidate.format_specific) && {
-                        format_specific: pathCandidate.format_specific
-                    })
+                            : pathCandidate.closed
                 };
             }
 
@@ -3885,17 +3901,11 @@ class FontManager {
                 }
 
                 return {
-                    ...(componentCandidate.id && { id: componentCandidate.id }),
+                    ...copyPersistedShapeFields(componentCandidate),
                     reference: componentCandidate.reference,
                     transform: this.normalizeComponentTransformForRust(
                         componentCandidate.transform
-                    ),
-                    ...(componentCandidate.location && {
-                        location: componentCandidate.location
-                    }),
-                    ...(hasOwnKeys(componentCandidate.format_specific) && {
-                        format_specific: componentCandidate.format_specific
-                    })
+                    )
                 };
             }
 
@@ -3941,13 +3951,10 @@ class FontManager {
                 Array.isArray(originalLayer?.anchors) ||
                 authoritativeOptionalLayerFields.has('anchors'))
                 ? layerData.anchors.map((anchor) => ({
-                      ...(anchor.id && { id: anchor.id }),
+                      ...anchor,
                       name: anchor.name,
                       x: anchor.x,
-                      y: anchor.y,
-                      ...(hasOwnKeys(anchor.format_specific) && {
-                          format_specific: anchor.format_specific
-                      })
+                      y: anchor.y
                   }))
                 : originalLayer?.anchors;
 
@@ -3957,17 +3964,14 @@ class FontManager {
                 Array.isArray(originalLayer?.guides) ||
                 authoritativeOptionalLayerFields.has('guides'))
                 ? layerData.guides.map((guide) => ({
-                      ...(guide.id && { id: guide.id }),
+                      ...guide,
                       pos: {
+                          ...guide.pos,
                           x: guide.pos.x,
                           y: guide.pos.y,
                           angle: guide.pos.angle
                       },
-                      name: guide.name,
-                      ...(guide.color && { color: guide.color }),
-                      ...(hasOwnKeys(guide.format_specific) && {
-                          format_specific: guide.format_specific
-                      })
+                      name: guide.name
                   }))
                 : originalLayer?.guides;
 
@@ -3982,6 +3986,10 @@ class FontManager {
         const layerName = layerData.name ?? originalLayer?.name;
 
         return {
+            ...(originalLayer
+                ? copyPersistedLayerFields(originalLayer as any)
+                : {}),
+            ...copyPersistedLayerFields(layerData as any),
             width: layerData.width,
             ...(layerData.height !== undefined && {
                 height: layerData.height
