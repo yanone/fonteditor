@@ -268,8 +268,8 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
         process.env.NODE_OPTIONS
     );
 
-    await reclaimStalePort(8788, 'http://localhost:8788/');
-    if (!(await isHttpReady('http://localhost:8788/'))) {
+    await reclaimStalePort(8788, 'https://localhost:8788/');
+    if (!(await isHttpReady('https://localhost:8788/'))) {
         websiteProcess = spawnManagedProcess({
             name: 'website',
             command: 'npm',
@@ -287,7 +287,18 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
         roomWorkerProcess = spawnManagedProcess({
             name: 'room-worker',
             command: 'npx',
-            args: ['wrangler', 'dev', '--port', '8787'],
+            args: [
+                'wrangler',
+                'dev',
+                '--port',
+                '8787',
+                '--inspector-port',
+                '9231',
+                '--var',
+                'EDITOR_ALLOWED_ORIGINS:https://localhost:8000',
+                '--var',
+                'AUTH_TOKEN_ALLOW_INSECURE_LOCAL_FALLBACK:true'
+            ],
             cwd: roomWorkerRoot,
             env: {
                 NODE_OPTIONS: childNodeOptions
@@ -298,7 +309,7 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
 
     try {
         await Promise.all([
-            waitForHttpReady('http://localhost:8788/', {
+            waitForHttpReady('https://localhost:8788/', {
                 process: websiteProcess
             }),
             waitForHttpReady('http://localhost:8787/health', {

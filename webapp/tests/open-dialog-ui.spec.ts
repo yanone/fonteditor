@@ -184,19 +184,24 @@ test.describe('Open Dialog UI', () => {
         await waitForOpenSessionReady(page, 'Fustat.glyphs');
 
         await page.evaluate(async () => {
-            await (window as any).switchContext?.('cloud');
-
             const cloudPlugin = (window as any).cloudPlugin;
+            const originalIsVisibleInUI =
+                cloudPlugin.isVisibleInUI.bind(cloudPlugin);
             const originalHandleSaveAs =
                 cloudPlugin.handleSaveAs.bind(cloudPlugin);
 
+            cloudPlugin.isVisibleInUI = () => true;
             cloudPlugin.handleSaveAs = async () => {
                 throw new Error('synthetic cloud save failure');
             };
 
-            await (window as any).showFontFileDialog?.({ mode: 'save-as' });
+            await (window as any).showFontFileDialog?.({
+                mode: 'save-as',
+                pluginId: 'cloud'
+            });
 
             (window as any).__restoreCloudSaveAsDialogFailureTest = () => {
+                cloudPlugin.isVisibleInUI = originalIsVisibleInUI;
                 cloudPlugin.handleSaveAs = originalHandleSaveAs;
             };
         });

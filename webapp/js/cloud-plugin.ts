@@ -253,9 +253,19 @@ function validateCloudExportForFontOpen(
                         normalizeCloudComponentTransform(
                             componentShape.transform
                         );
+                    const transform = componentShape.transform;
                     if (
-                        JSON.stringify(componentShape.transform) !==
-                        JSON.stringify(normalizedTransform)
+                        !transform ||
+                        typeof transform !== 'object' ||
+                        Array.isArray(transform) ||
+                        Object.keys(transform).length !==
+                            Object.keys(normalizedTransform).length ||
+                        !Object.keys(normalizedTransform).every(
+                            (key) =>
+                                JSON.stringify(
+                                    (transform as Record<string, unknown>)[key]
+                                ) === JSON.stringify(normalizedTransform[key])
+                        )
                     ) {
                         throw new TypeError(
                             'Cloud-exported component shapes must carry canonical transform objects.'

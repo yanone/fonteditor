@@ -14955,7 +14955,15 @@ export class OutlineEditor {
                             if (
                                 score < bestPointScore ||
                                 (score === bestPointScore &&
-                                    dist < bestPointDist)
+                                    (dist < bestPointDist ||
+                                        (dist === bestPointDist &&
+                                            (!bestPoint ||
+                                                contourIndex >
+                                                    bestPoint.contourIndex ||
+                                                (contourIndex ===
+                                                    bestPoint.contourIndex &&
+                                                    nodeIndex >
+                                                        bestPoint.nodeIndex)))))
                             ) {
                                 bestPointScore = score;
                                 bestPointDist = dist;
@@ -17097,6 +17105,7 @@ export class OutlineEditor {
                 return false;
             }
 
+            this.syncCurrentContourDataFromModel(pathIndex, point.contourIndex);
             this.commitStructuralOutlineChange('Open path', {
                 reuseTransaction: true,
                 layerTargets: structuralLayerTargets

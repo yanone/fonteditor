@@ -2137,6 +2137,24 @@ describe('ChangeBridge', () => {
         expect(getYPath(bridge.fontMap, ['glyphs', 'A', 'name'])).toBe('A');
     });
 
+    test('initFromJson normalizes component transforms in the JSON shadow', () => {
+        const fontJson = makeMinimalFont();
+        fontJson.glyphs[0].layers[0].shapes[1].transform.tCenter = [0, 0];
+
+        const bridge = new ChangeBridge('test-1');
+        bridge.initFromJson(fontJson);
+
+        expect(
+            bridge.getFontJsonSnapshot().glyphs[0].layers[0].shapes[1].transform
+        ).toEqual({
+            translation: [10, 20],
+            rotation: 0,
+            scale: [1, 1],
+            skew: [0, 0],
+            order: 'RestOfTheWorld'
+        });
+    });
+
     test('recordChange updates Y.Doc and adds log entry', () => {
         const { bridge } = createTestBridge('test-1');
         bridge.recordChange(

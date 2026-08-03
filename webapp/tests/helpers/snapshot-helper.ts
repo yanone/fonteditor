@@ -650,9 +650,6 @@ export async function waitForFontLoaded(page: any) {
             { cause: error as Error }
         );
     }
-
-    // Extra stabilization time for async initialization
-    await page.waitForTimeout(200);
 }
 
 /**
@@ -690,8 +687,6 @@ export async function waitForOpenSessionReady(
         },
         { timeout: 20000 }
     );
-
-    await page.waitForTimeout(100);
 }
 
 /**

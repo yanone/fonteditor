@@ -29,50 +29,9 @@ function makeTestFont(): string {
         version: [1, 0],
         axes: [
             {
-                name: { dflt: 'Weight' },
-                tag: 'wght',
-                id: 'weight',
-                min: 100,
-                default: 400,
-                max: 900
-            }
-        ],
-        masters: [
-            {
-                name: { dflt: 'Light' },
-                id: 'M1',
-                location: { wght: 100 },
-                guides: [],
-                metrics: {},
-                kerning: {},
-                custom_ot_values: {},
-                format_specific: {}
-            },
-            {
                 name: { dflt: 'Regular' },
                 id: 'M0',
                 location: { wght: 400 },
-                guides: [],
-                metrics: {},
-                kerning: {},
-                custom_ot_values: {},
-                format_specific: {}
-            },
-            {
-                name: { dflt: 'Bold' },
-                id: 'M2',
-                location: { wght: 900 },
-                guides: [],
-                metrics: {},
-                kerning: {},
-                custom_ot_values: {},
-                format_specific: {}
-            }
-        ],
-        instances: [],
-        glyphs: [
-            {
-                name: '.notdef',
                 category: 'Base',
                 layers: [
                     {
@@ -357,10 +316,38 @@ async function waitForEditingFontCompiled(page: Page) {
 
 /** Navigate the text buffer to glyph "A" and enter edit mode */
 async function navigateToGlyphA(page: Page) {
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
         const gc = (window as any).glyphCanvas;
         gc.textRunEditor.setTextBuffer('AA');
+    });
+    await page.waitForFunction(() => {
+        const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
+        return (
+            textRunEditor?.textBuffer === 'AA' &&
+            textRunEditor.shapedGlyphs?.length === 2
+        );
+    });
+    await page.evaluate(async () => {
+        const gc = (window as any).glyphCanvas;
         await gc.textRunEditor.selectGlyphByIndex(0, true);
+        await gc.enterGlyphEditModeAtCursor?.();
+
+        const outlineEditor = gc.outlineEditor;
+        outlineEditor.active = true;
+        outlineEditor.currentGlyphName = 'A';
+        await gc.doUIUpdateAsync?.();
+        await outlineEditor.fetchLayerData?.(true, 'A');
+
+        const glyphStack = `A@${outlineEditor.selectedLayerId || 'L1'}`;
+        outlineEditor.glyphStack = glyphStack;
+        if ((window as any).stateManager) {
+            (window as any).stateManager.editor_glyph_stack = glyphStack;
+        }
+        window.dispatchEvent(
+            new CustomEvent('glyphStackChanged', {
+                detail: { glyphStack }
+            })
+        );
         gc.resetZoomAndPosition();
         gc.render();
     });
@@ -758,10 +745,72 @@ test.describe('Open/Close Path across linked masters', () => {
             node2Coords!.x,
             node2Coords!.y
         );
+        await page.mouse.move(screenNode2.x, screenNode2.y);
+        await page.evaluate(
+            () =>
+                new Promise<void>((resolve) =>
+                    requestAnimationFrame(() => resolve())
+                )
+        );
+        await expect
+            .poll(() =>
+                page.evaluate(() =>
+                    JSON.parse(
+                        JSON.stringify(
+                            (window as any).glyphCanvas.outlineEditor
+                                .hoveredPointIndex
+                        )
+                    )
+                )
+            )
+            .toEqual({ contourIndex: 0, nodeIndex: 2 });
+        await page.evaluate(() => {
+            const canvas = (window as any).glyphCanvas.canvas;
+            const outlineEditor = (window as any).glyphCanvas.outlineEditor;
+            const originalCutPathAtNode =
+                outlineEditor.cutPathAtNode.bind(outlineEditor);
+            outlineEditor.cutPathAtNode = (...args: any[]) => {
+                (window as any).__openPathCutCalls =
+                    ((window as any).__openPathCutCalls ?? 0) + 1;
+                const result = originalCutPathAtNode(...args);
+                (window as any).__openPathCutResult = result;
+                return result;
+            };
+            canvas.addEventListener(
+                'click',
+                (event: MouseEvent) => {
+                    (window as any).__openPathClickWasMeta = event.metaKey;
+                },
+                { once: true, capture: true }
+            );
+        });
         await page.keyboard.down('Meta');
         await page.mouse.click(screenNode2.x, screenNode2.y);
         await page.keyboard.up('Meta');
         await page.waitForTimeout(500);
+        await expect
+            .poll(() =>
+                page.evaluate(() => (window as any).__openPathClickWasMeta)
+            )
+            .toBe(true);
+        await expect
+            .poll(() => page.evaluate(() => (window as any).__openPathCutCalls))
+            .toBe(1);
+        await expect
+            .poll(() =>
+                page.evaluate(() => (window as any).__openPathCutResult)
+            )
+            .toBe(true);
+        await expect
+            .poll(() =>
+                page.evaluate(() => {
+                    const outlineEditor = (window as any).glyphCanvas
+                        .outlineEditor;
+                    const layer = outlineEditor.getCurrentLayerModel();
+                    return layer.paths[0].closed;
+                })
+            )
+            .toBe(false);
 
         // After opening at node 2, path should now be open with 5 nodes
         const afterOpenOutline = await getActiveLayerOutlineState(page);

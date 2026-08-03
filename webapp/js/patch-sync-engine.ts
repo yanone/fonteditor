@@ -866,6 +866,7 @@ export class PatchSyncEngine {
             jsonToYDoc(fontJson, this.fontMap);
         }, USER_EDIT_ORIGIN);
         this._isSyncing = false;
+        this._rehydrateEntireFontJsonFromYDoc();
         this._setupFontUndoManager();
         this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
     }

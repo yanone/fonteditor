@@ -178,7 +178,6 @@ function makeCloudTestFont(): string {
                                     scale: [1, 1],
                                     rotation: 0,
                                     skew: [0, 0],
-                                    tCenter: [0, 0],
                                     order: 'RestOfTheWorld'
                                 },
                                 format_specific: {
@@ -192,7 +191,6 @@ function makeCloudTestFont(): string {
                                     scale: [1, 1],
                                     rotation: 0,
                                     skew: [0, 0],
-                                    tCenter: [0, 0],
                                     order: 'RestOfTheWorld'
                                 },
                                 format_specific: {
