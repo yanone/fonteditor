@@ -51,7 +51,6 @@ async function openFustatNodeEditLayer(page: Page): Promise<void> {
         outlineEditor.active = true;
         outlineEditor.currentGlyphName = 'o';
         axesManager.variationSettings = { wght: 200 };
-        outlineEditor.isInterpolating = true;
         await glyphCanvas.doUIUpdateAsync?.();
         await outlineEditor.autoSelectMatchingLayer?.();
         await glyphCanvas.enterGlyphEditModeAtCursor?.();
@@ -65,12 +64,17 @@ async function openFustatNodeEditLayer(page: Page): Promise<void> {
             const layer = outlineEditor?.getCurrentLayerDataFromStack?.();
             return (
                 typeof win.pyodide?.runPythonAsync === 'function' &&
+                win.pyodide?.__counterpunchPythonExecutionWrapperInstalled ===
+                    true &&
                 outlineEditor?.active === true &&
                 outlineEditor?.currentGlyphName === 'o' &&
                 typeof outlineEditor?.selectedLayerId === 'string' &&
-                Array.isArray(layer?.paths) &&
-                Array.isArray(layer.paths[0]?.nodes) &&
-                typeof layer.paths[0].nodes[0]?.y === 'number'
+                Array.isArray(layer?.shapes) &&
+                layer.shapes.some(
+                    (shape: any) =>
+                        Array.isArray(shape?.nodes) &&
+                        typeof shape.nodes[0]?.y === 'number'
+                )
             );
         },
         { timeout: 60000 }
@@ -81,15 +85,18 @@ test.describe('Python Fustat node history', () => {
     test('records only the active layer shape change for one Python node move', async ({
         page
     }) => {
-        test.slow();
         await openFustatNodeEditLayer(page);
 
         const result = await page.evaluate(async () => {
             const win = window as any;
             const bridge = win.patchSyncEngine;
             const outlineEditor = win.glyphCanvas?.outlineEditor;
-            const layer = outlineEditor?.getCurrentLayerDataFromStack?.();
-            if (!bridge || !outlineEditor || !layer) {
+            const glyph = win.currentFontModel?.findGlyph?.('o');
+            const layerId = outlineEditor?.selectedLayerId;
+            const layer = glyph?.layers?.find(
+                (candidate: any) => candidate.id === layerId
+            );
+            if (!bridge || !outlineEditor || !layer || !layerId) {
                 throw new Error('Missing bridge or active Fustat layer');
             }
 
@@ -126,14 +133,22 @@ test.describe('Python Fustat node history', () => {
             bridge.onLocalUpdate(listener);
 
             try {
-                const beforeY = layer.paths[0].nodes[0].y;
-                const layerId = outlineEditor.selectedLayerId;
+                const pathShape = layer.paths?.[0];
+                if (!pathShape) {
+                    throw new Error('Missing active Fustat path shape');
+                }
+                const beforeY = pathShape.nodes[0].y;
                 await win.pyodide.runPythonAsync(
                     'Layer().paths[0].nodes[0].y += 100'
                 );
-                const afterY =
-                    outlineEditor.getCurrentLayerDataFromStack().paths[0]
-                        .nodes[0].y;
+                const updatedLayer = glyph.layers.find(
+                    (candidate: any) => candidate.id === layerId
+                );
+                const updatedPathShape = updatedLayer?.paths?.[0];
+                if (!updatedPathShape) {
+                    throw new Error('Missing updated Fustat path shape');
+                }
+                const afterY = updatedPathShape.nodes[0].y;
 
                 return { beforeY, afterY, layerId, packets };
             } finally {
