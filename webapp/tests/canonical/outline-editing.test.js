@@ -166,7 +166,7 @@ function makeSinglePathFont(nodes, closed = false) {
     });
 }
 
-function makeFontWithShapes(shapes) {
+function makeFontWithShapes(shapes, anchors = []) {
     return Font.fromData({
         upm: 1000,
         version: [1, 0],
@@ -196,7 +196,7 @@ function makeFontWithShapes(shapes) {
                             master: 'master-1'
                         },
                         shapes,
-                        anchors: [],
+                        anchors,
                         guides: []
                     }
                 ]
@@ -2900,6 +2900,49 @@ describe('Outline Editing canonical behavior', () => {
             renderSpy.mockRestore();
             propertySpy.mockRestore();
             saveSpy.mockRestore();
+        }
+    });
+
+    test('restores node and anchor selections through the active layer model', () => {
+        const font = makeFontWithShapes(
+            [
+                {
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                        { x: 120, y: 0, nodetype: 'Line', smooth: false }
+                    ],
+                    closed: false
+                }
+            ],
+            [{ name: 'top', x: 60, y: 100 }]
+        );
+        window.currentFontModel = font;
+        window.glyphCanvas = canvas;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+
+        try {
+            activateEditableLayer(
+                canvas,
+                JSON.parse(JSON.stringify(modelBinding.layer.toJSON()))
+            );
+            canvas.outlineEditor.selectedPoints = [
+                { contourIndex: 0, nodeIndex: 1 }
+            ];
+            canvas.outlineEditor.selectedAnchors = [0];
+
+            const savedSelection = [...modelBinding.layer.selection];
+            expect(savedSelection).toHaveLength(2);
+
+            canvas.outlineEditor.selectedPoints = [];
+            canvas.outlineEditor.selectedAnchors = [];
+            modelBinding.layer.selection = savedSelection;
+
+            expect(canvas.outlineEditor.selectedPoints).toEqual([
+                { contourIndex: 0, nodeIndex: 1 }
+            ]);
+            expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+        } finally {
+            modelBinding.restore();
         }
     });
 });

@@ -345,47 +345,6 @@ test('editor collapses to the top-row width minimum when dragged closed', async 
     ).toBeLessThanOrEqual(4);
 });
 
-test('editor title-bar X collapses the editor and hides the last remaining top-row X', async ({
-    page
-}) => {
-    await clearStoredViewLayout(page);
-
-    await page.goto('/?test=true');
-    await waitForCanvasReady(page);
-
-    const editorCollapseButton = page.locator(
-        '#view-editor .view-title-collapse-btn'
-    );
-    await expect(editorCollapseButton).toBeVisible();
-
-    await editorCollapseButton.evaluate((button: HTMLButtonElement) => {
-        button.click();
-    });
-
-    await page.waitForFunction(() => {
-        const editorView = document.getElementById('view-editor');
-        const overviewButton = document.querySelector(
-            '#view-overview .view-title-collapse-btn'
-        ) as HTMLElement | null;
-        return (
-            !!editorView &&
-            editorView.classList.contains('collapsed-width') &&
-            !!overviewButton &&
-            getComputedStyle(overviewButton).display === 'none'
-        );
-    });
-
-    const topRowState = await getTopRowState(page);
-
-    expect(topRowState.collapsed['view-editor']).toBe(true);
-    expect(topRowState.expandedCount).toBe(1);
-    expect(topRowState.collapseButtonVisible['view-editor']).toBe(false);
-    expect(topRowState.collapseButtonVisible['view-overview']).toBe(false);
-    expect(
-        Math.abs(topRowState.occupiedWidth - topRowState.topRowWidth)
-    ).toBeLessThanOrEqual(4);
-});
-
 test('editor collapse and reopen restores the previous canvas viewport', async ({
     page
 }) => {

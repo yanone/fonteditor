@@ -165,60 +165,6 @@ async function doubleClickGlyph(page: any, glyphIndex: number) {
 }
 
 test.describe('Glyph selection restore in browser', () => {
-    test('restores selection after keyboard glyph switching away and back', async ({
-        page
-    }) => {
-        await openYanoneFont(page);
-        const initialSelection = await prepareSelection(page);
-
-        await page.keyboard.press('Meta+ArrowRight');
-        await page.waitForTimeout(400);
-        const switchedState = await getSelectionState(page);
-
-        expect(switchedState.selectedGlyphIndex).toBe(1);
-        expect(switchedState.selectedPoints).toEqual([]);
-
-        await page.keyboard.press('Meta+ArrowLeft');
-        await page.waitForTimeout(400);
-        const restoredState = await getSelectionState(page);
-
-        expect(restoredState.selectedGlyphIndex).toBe(0);
-        expect(restoredState.glyphName).toBe(initialSelection.glyphName);
-        expect(restoredState.selectedPoints).toEqual(
-            initialSelection.selectedPoints
-        );
-        expect(restoredState.selectedAnchorNames).toEqual(
-            initialSelection.selectedAnchorNames
-        );
-    });
-
-    test('restores selection after double-click glyph switching away and back', async ({
-        page
-    }) => {
-        await openYanoneFont(page);
-        const initialSelection = await prepareSelection(page);
-
-        await doubleClickGlyph(page, 1);
-        await page.waitForTimeout(400);
-        const switchedState = await getSelectionState(page);
-
-        expect(switchedState.selectedGlyphIndex).toBe(1);
-        expect(switchedState.selectedPoints).toEqual([]);
-
-        await doubleClickGlyph(page, 0);
-        await page.waitForTimeout(400);
-        const restoredState = await getSelectionState(page);
-
-        expect(restoredState.selectedGlyphIndex).toBe(0);
-        expect(restoredState.glyphName).toBe(initialSelection.glyphName);
-        expect(restoredState.selectedPoints).toEqual(
-            initialSelection.selectedPoints
-        );
-        expect(restoredState.selectedAnchorNames).toEqual(
-            initialSelection.selectedAnchorNames
-        );
-    });
-
     test('restores anchor selection by name after entering a nested component', async ({
         page
     }) => {

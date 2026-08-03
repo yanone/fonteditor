@@ -43,6 +43,15 @@ import {
     consumeManagedFileInternalWritePaths,
     markManagedFileInternalWrite
 } from './managed-file-events';
+import {
+    getDefaultDialogSelectionPath as getDefaultDialogSelectionPathForFont,
+    getFileDialogHeaderActions,
+    getFileDialogPrimaryAction,
+    getFileDialogRefreshStatus,
+    getFileDialogSaveWarningPresentation,
+    isOpenDialogConfirmEnabled,
+    shouldOpenFileOnDialogDoubleClick
+} from './file-dialog-state';
 
 const console = new Logger('FileBrowser');
 
@@ -136,25 +145,16 @@ let fileDialogSaveBlocked = false;
 let fileDialogSaveWarningRefreshToken = 0;
 let fileDialogEscapeBinding: ModalEscapeBinding | null = null;
 
-type FileDialogSaveWarningState = {
-    visible: boolean;
-    title: string;
-    label: string;
-    icon: string;
-    tone: 'warning' | 'error';
-    canSave: boolean;
-};
+type FileDialogSaveWarningState =
+    import('./file-dialog-state').FileDialogSaveWarningState;
 let lastFileTreeRefreshAt: number | null = null;
 let pathDisplayFrame: number | null = null;
 
 function getDefaultDialogSelectionPath(pluginId: string): string | null {
-    const currentFont = window.fontManager?.currentFont;
-    if (!currentFont?.path) {
-        return null;
-    }
-
-    const currentPluginId = currentFont.sourcePlugin?.getId?.();
-    return currentPluginId === pluginId ? currentFont.path : null;
+    return getDefaultDialogSelectionPathForFont(
+        pluginId,
+        window.fontManager?.currentFont
+    );
 }
 
 function getFooterSelectionPath(): string | null {
@@ -182,32 +182,18 @@ function formatDialogSelectionPath(path: string): string {
     return createFileUri(fileSystemCache.currentPlugin.getId(), path);
 }
 
-function formatLastRefreshedTimestamp(timestamp: number | null): string {
-    if (!timestamp) {
-        return 'Not refreshed yet';
-    }
-
-    return new Date(timestamp).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-    });
-}
-
 function updateLastRefreshedStatus(): void {
     const statusElement = document.getElementById('file-last-refreshed');
     if (!statusElement) {
         return;
     }
 
-    if (!fileSystemCache.currentPlugin.showsManualRefreshButton()) {
-        statusElement.textContent = '';
-        statusElement.style.display = 'none';
-        return;
-    }
-
-    statusElement.style.display = '';
-    statusElement.textContent = `Last refreshed ${formatLastRefreshedTimestamp(lastFileTreeRefreshAt)}`;
+    const status = getFileDialogRefreshStatus(
+        fileSystemCache.currentPlugin.showsManualRefreshButton(),
+        lastFileTreeRefreshAt
+    );
+    statusElement.style.display = status.visible ? '' : 'none';
+    statusElement.textContent = status.text;
 }
 
 function normalizeOpenComparisonPath(pluginId: string, path: string): string {
@@ -351,7 +337,7 @@ function isSelectedPathOpenableFont(): boolean {
     }
 
     const selectedItem = getVisibleFileItem(selectedPath);
-    return selectedItem?.dataset.isFont === 'true';
+    return isOpenDialogConfirmEnabled(selectedItem?.dataset.isFont === 'true');
 }
 
 function getSelectedDialogTarget(): FileContextTarget | null {
@@ -464,14 +450,18 @@ function setFileDialogSaveWarning(
         'file-dialog-save-warning-text'
     );
 
-    fileDialogSaveBlocked = Boolean(warningState && !warningState.canSave);
+    const presentation = getFileDialogSaveWarningPresentation(
+        warningState,
+        activeFileDialogMode === 'save-as'
+    );
+    fileDialogSaveBlocked = presentation.blocksSave;
 
     if (!warningElement || !iconElement || !textElement) {
         updateFileDialogFooter();
         return;
     }
 
-    if (!warningState?.visible || activeFileDialogMode !== 'save-as') {
+    if (!presentation.visible) {
         warningElement.style.display = 'none';
         warningElement.removeAttribute('title');
         warningElement.dataset.tone = '';
@@ -482,10 +472,10 @@ function setFileDialogSaveWarning(
     }
 
     warningElement.style.display = '';
-    warningElement.title = warningState.title;
-    warningElement.dataset.tone = warningState.tone;
-    textElement.textContent = warningState.label;
-    iconElement.textContent = warningState.icon;
+    warningElement.title = presentation.title;
+    warningElement.dataset.tone = presentation.tone;
+    textElement.textContent = presentation.label;
+    iconElement.textContent = presentation.icon;
     updateFileDialogFooter();
 }
 
@@ -2121,12 +2111,30 @@ async function saveCurrentFontAsToPath(): Promise<void> {
 }
 
 async function confirmFileDialogPrimaryAction(): Promise<void> {
-    if (activeFileDialogMode === 'save-as') {
+    const action = getFileDialogPrimaryAction(
+        activeFileDialogMode,
+        selectedDialogPath,
+        isSelectedPathOpenableFont(),
+        fileSystemCache.currentPlugin.getId(),
+        window.fontManager?.currentFont
+    );
+
+    if (action === 'save') {
         await saveCurrentFontAsToPath();
         return;
     }
 
-    if (!selectedDialogPath || !isSelectedPathOpenableFont()) {
+    if (action === 'none') {
+        updateFileDialogFooter();
+        return;
+    }
+
+    if (action === 'close') {
+        closeFontFileDialog();
+        return;
+    }
+
+    if (!selectedDialogPath) {
         updateFileDialogFooter();
         return;
     }
@@ -3120,8 +3128,12 @@ function renderFilePathHeader(path: string): HTMLElement | null {
             : '';
 
     const currentPlugin = fileSystemCache.currentPlugin;
-    const showsMemoryUploadButtons = currentPlugin.getId() === 'memory';
-    const uploadButtons = showsMemoryUploadButtons
+    const headerActions = getFileDialogHeaderActions(
+        currentPlugin.getId(),
+        currentPlugin.supportsNewFolder(),
+        currentPlugin.showsManualRefreshButton()
+    );
+    const uploadButtons = headerActions.showsUploadButtons
         ? `
             <button onclick="document.getElementById('file-upload-input').click()" class="file-header-btn" title="Upload files">
                 <span class="material-symbols-outlined">upload_file</span>
@@ -3134,14 +3146,14 @@ function renderFilePathHeader(path: string): HTMLElement | null {
         `
         : '';
 
-    const newFolderBtn = currentPlugin.supportsNewFolder()
+    const newFolderBtn = headerActions.showsNewFolderButton
         ? `<button onclick="createFolder()" class="file-header-btn" title="Create new folder">
                 <span class="material-symbols-outlined">create_new_folder</span>
                 <span class="file-header-btn-label">New Folder</span>
             </button>`
         : '';
 
-    const refreshBtn = currentPlugin.showsManualRefreshButton()
+    const refreshBtn = headerActions.showsRefreshButton
         ? `<button onclick="refreshFileSystem()" class="file-header-btn" title="Refresh">
                 <span class="material-symbols-outlined">refresh</span>
                 <span class="file-header-btn-label">Refresh</span>
@@ -3417,7 +3429,9 @@ function setupFileItemClickHandlers() {
             e.preventDefault();
             e.stopPropagation();
 
-            if (activeFileDialogMode !== 'open') {
+            if (
+                !shouldOpenFileOnDialogDoubleClick(activeFileDialogMode, isFont)
+            ) {
                 return;
             }
 
