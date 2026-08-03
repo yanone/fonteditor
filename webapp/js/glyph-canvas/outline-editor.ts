@@ -6728,6 +6728,30 @@ export class OutlineEditor {
     prepareComponentStructuralChange(
         layerTargets: Array<{ glyphName: string; layerId: string }>
     ): boolean {
+        const currentFont = fontManager.currentFont;
+        if (currentFont?.babelfontData?.glyphs) {
+            try {
+                for (const target of layerTargets) {
+                    if (
+                        !fontManager.syncLayerFromModelToStorage(
+                            target.glyphName,
+                            target.layerId
+                        )
+                    ) {
+                        throw new Error(
+                            `Unable to sync structural component layer ${target.glyphName}/${target.layerId} into canonical storage.`
+                        );
+                    }
+                }
+            } catch (error) {
+                console.error(
+                    '[OutlineEditor] Error syncing structural component layer:',
+                    error
+                );
+                return false;
+            }
+        }
+
         return this.prepareCommittedStructuralOutlineChange(
             'keyboard-outline',
             {

@@ -12,7 +12,7 @@ describe('LayerDataNormalizer', () => {
     test('preserves missing layer width instead of synthesizing zero', () => {
         const normalized = LayerDataNormalizer.normalize({ shapes: [] });
 
-        expect(normalized).toHaveProperty('width', undefined);
+        expect(normalized).not.toHaveProperty('width');
     });
 
     test('preserves explicit zero layer width', () => {

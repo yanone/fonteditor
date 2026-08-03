@@ -868,7 +868,7 @@ describe('FontManager saveLayerData', () => {
             layer.id,
             {
                 ...cloneJson(layer),
-                format_specific: undefined,
+                format_specific: {},
                 guides: [],
                 anchors: [
                     {

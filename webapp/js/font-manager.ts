@@ -3834,6 +3834,9 @@ class FontManager {
                 isInterpolated: _isInterpolated,
                 _verticalMetrics: _verticalMetrics,
                 _interpolationLocation: _interpolationLocation,
+                anchors: _anchors,
+                guides: _guides,
+                format_specific: _formatSpecific,
                 ...persistedFields
             } = value;
             return persistedFields;
@@ -3950,12 +3953,18 @@ class FontManager {
             (layerData.anchors.length > 0 ||
                 Array.isArray(originalLayer?.anchors) ||
                 authoritativeOptionalLayerFields.has('anchors'))
-                ? layerData.anchors.map((anchor) => ({
-                      ...anchor,
-                      name: anchor.name,
-                      x: anchor.x,
-                      y: anchor.y
-                  }))
+                ? layerData.anchors.map((anchor) => {
+                      const { format_specific, ...persistedAnchor } = anchor;
+                      return {
+                          ...persistedAnchor,
+                          name: anchor.name,
+                          x: anchor.x,
+                          y: anchor.y,
+                          ...(hasOwnKeys(format_specific) && {
+                              format_specific
+                          })
+                      };
+                  })
                 : originalLayer?.anchors;
 
         const cleanGuides =
@@ -3963,16 +3972,22 @@ class FontManager {
             (layerData.guides.length > 0 ||
                 Array.isArray(originalLayer?.guides) ||
                 authoritativeOptionalLayerFields.has('guides'))
-                ? layerData.guides.map((guide) => ({
-                      ...guide,
-                      pos: {
-                          ...guide.pos,
-                          x: guide.pos.x,
-                          y: guide.pos.y,
-                          angle: guide.pos.angle
-                      },
-                      name: guide.name
-                  }))
+                ? layerData.guides.map((guide) => {
+                      const { format_specific, ...persistedGuide } = guide;
+                      return {
+                          ...persistedGuide,
+                          pos: {
+                              ...guide.pos,
+                              x: guide.pos.x,
+                              y: guide.pos.y,
+                              angle: guide.pos.angle
+                          },
+                          name: guide.name,
+                          ...(hasOwnKeys(format_specific) && {
+                              format_specific
+                          })
+                      };
+                  })
                 : originalLayer?.guides;
 
         const formatSpecific =

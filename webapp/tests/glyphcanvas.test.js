@@ -8067,7 +8067,16 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                                     closed: false
                                 }
                             ],
-                            anchors: [{ name: 'top', x: 25, y: 90 }],
+                            anchors: [
+                                {
+                                    name: 'top',
+                                    x: 25,
+                                    y: 90,
+                                    format_specific: {
+                                        'com.example.anchor': 'preserve-me'
+                                    }
+                                }
+                            ],
                             guides: []
                         },
                         {
@@ -8145,7 +8154,14 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         canvas.outlineEditor.selectedLayerId = 'layer-1';
         canvas.outlineEditor.layerData = {
             ...JSON.parse(JSON.stringify(currentLayer.toJSON())),
-            anchors: [{ name: 'top', x: 25, y: 90 }]
+            anchors: [
+                {
+                    name: 'top',
+                    x: 25,
+                    y: 90,
+                    format_specific: { 'com.example.anchor': 'preserve-me' }
+                }
+            ]
         };
         canvas.outlineEditor.selectedPoints = [
             { contourIndex: 1, nodeIndex: 0 },
@@ -8159,7 +8175,12 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(currentLayer.shapes).toHaveLength(1);
             expect(currentLayer.shapes[0].isComponent()).toBe(true);
             expect(currentLayer.toJSON().anchors).toEqual([
-                { name: 'top', x: 25, y: 90 }
+                {
+                    name: 'top',
+                    x: 25,
+                    y: 90,
+                    format_specific: { 'com.example.anchor': 'preserve-me' }
+                }
             ]);
             expect(linkedLayer.shapes).toHaveLength(1);
             expect(linkedLayer.shapes[0].isComponent()).toBe(true);
@@ -8168,7 +8189,12 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 'acute'
             );
             expect(canvas.outlineEditor.layerData.anchors).toEqual([
-                { name: 'top', x: 25, y: 90, format_specific: {} }
+                {
+                    name: 'top',
+                    x: 25,
+                    y: 90,
+                    format_specific: { 'com.example.anchor': 'preserve-me' }
+                }
             ]);
             expect(window.changeBridge.beginTransaction).toHaveBeenCalledTimes(
                 1
@@ -8250,7 +8276,16 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                                     }
                                 }
                             ],
-                            anchors: [{ name: 'top', x: 25, y: 90 }],
+                            anchors: [
+                                {
+                                    name: 'top',
+                                    x: 25,
+                                    y: 90,
+                                    format_specific: {
+                                        'com.example.anchor': 'preserve-me'
+                                    }
+                                }
+                            ],
                             guides: []
                         }
                     ]
@@ -8322,7 +8357,12 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                     ?.nodes?.[0]?.x
             ).toBe(1);
             expect(canvas.outlineEditor.layerData.anchors).toEqual([
-                { name: 'top', x: 25, y: 90, format_specific: {} }
+                {
+                    name: 'top',
+                    x: 25,
+                    y: 90,
+                    format_specific: { 'com.example.anchor': 'preserve-me' }
+                }
             ]);
         } finally {
             window.changeBridge = previousChangeBridge;
@@ -8679,7 +8719,16 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                                     closed: false
                                 }
                             ],
-                            anchors: [{ name: 'top', x: 70, y: 80 }],
+                            anchors: [
+                                {
+                                    name: 'top',
+                                    x: 70,
+                                    y: 80,
+                                    format_specific: {
+                                        'com.example.anchor': 'preserve-me'
+                                    }
+                                }
+                            ],
                             guides: []
                         }
                     }
@@ -8721,7 +8770,14 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         ]);
         expect(
             canvas.outlineEditor.layerData.shapes[0].layerData.anchors
-        ).toEqual([{ name: 'top', x: 70, y: 80, format_specific: {} }]);
+        ).toEqual([
+            {
+                name: 'top',
+                x: 70,
+                y: 80,
+                format_specific: { 'com.example.anchor': 'preserve-me' }
+            }
+        ]);
         expect(
             canvas.outlineEditor.layerData.shapes[0].layerData.shapes[0].nodes
         ).toEqual([
@@ -20003,6 +20059,14 @@ describe('Linked component structural edits', () => {
         expect(linkedLayer.components[1].toAffineArray().slice(4)).toEqual([
             -50, 50
         ]);
+        expect(syncLayerToStorageSpy).toHaveBeenCalledWith('A', 'layer-1');
+        expect(syncLayerToStorageSpy).toHaveBeenCalledWith('A', 'layer-2');
+        const finalStorageSyncCall = Math.max(
+            ...syncLayerToStorageSpy.mock.invocationCallOrder
+        );
+        expect(
+            window.patchSyncEngine.endTransaction.mock.invocationCallOrder[0]
+        ).toBeGreaterThan(finalStorageSyncCall);
     });
 
     test.each(['Delete', 'Backspace'])(
