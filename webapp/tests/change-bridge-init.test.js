@@ -2597,6 +2597,10 @@ describe('handleRemoteChangeRefresh', () => {
                     active: true,
                     selectedLayerId: activeLayerId,
                     parseGlyphStack: () => [{ glyphName: activeGlyphName }],
+                    capturePendingSidebearingBboxCenterAnchor: jest.fn(
+                        () => true
+                    ),
+                    reapplyPendingSidebearingBboxCenterAnchor: jest.fn(),
                     performHitDetection: jest.fn()
                 },
                 getCurrentGlyphName: () => activeGlyphName,
@@ -2612,42 +2616,41 @@ describe('handleRemoteChangeRefresh', () => {
             return { glyphCanvas, fontModel };
         }
 
-        test.each(['left', 'right'])(
-            'remote sidebearing edit (%s) preserves the linked window pan',
-            async (side) => {
-                const previousWidth = 500;
-                const nextWidth = 560;
-                const initialPanX = 200;
-                const scale = 2;
-                const { glyphCanvas } = installReceiverHarness({
-                    activeGlyphName: 'a',
-                    activeLayerId: 'master-regular',
-                    currentLayerWidth: nextWidth,
-                    initialPanX,
-                    initialScale: scale
-                });
+        test('remote sidebearing edit anchors the active bbox without side metadata', async () => {
+            const previousWidth = 500;
+            const nextWidth = 560;
+            const { glyphCanvas } = installReceiverHarness({
+                activeGlyphName: 'a',
+                activeLayerId: 'master-regular',
+                currentLayerWidth: nextWidth,
+                initialPanX: 200,
+                initialScale: 2
+            });
 
-                const beforePanX = glyphCanvas.viewportManager.panX;
-                await handleRemoteChangeRefresh(
-                    [
-                        {
-                            transactionLabel: 'Set sidebearing',
-                            path: 'glyphs.a.layers.master-regular',
-                            visualAnchorSide: side,
-                            oldValue: { width: previousWidth },
-                            newValue: { width: nextWidth }
-                        }
-                    ],
+            await handleRemoteChangeRefresh(
+                [
                     {
-                        requestCompile: jest.fn(async () => {}),
-                        queueCacheRefresh: jest.fn(async () => {})
+                        transactionLabel: 'Set sidebearing',
+                        path: 'glyphs.a.layers.master-regular',
+                        oldValue: { width: previousWidth },
+                        newValue: { width: nextWidth }
                     }
-                );
+                ],
+                {
+                    requestCompile: jest.fn(async () => {}),
+                    queueCacheRefresh: jest.fn(async () => {})
+                }
+            );
 
-                const afterPanX = glyphCanvas.viewportManager.panX;
-                expect(afterPanX).toBeCloseTo(beforePanX, 5);
-            }
-        );
+            expect(
+                glyphCanvas.outlineEditor
+                    .capturePendingSidebearingBboxCenterAnchor
+            ).toHaveBeenCalledTimes(1);
+            expect(
+                glyphCanvas.outlineEditor
+                    .reapplyPendingSidebearingBboxCenterAnchor
+            ).toHaveBeenCalledTimes(1);
+        });
 
         test('remote sidebearing edit on a non-active glyph leaves the linked window pan untouched', async () => {
             const { glyphCanvas } = installReceiverHarness({

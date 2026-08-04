@@ -340,6 +340,189 @@ describe('Sidebearing undo viewport stability', () => {
         );
     });
 
+    test.each(['undo', 'redo'])(
+        '%s keeps the active bbox center anchored without side metadata',
+        async (action) => {
+            const previousLayerData = {
+                width: 500,
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 100, y: 0, nodetype: 'Line' },
+                            { x: 400, y: 0, nodetype: 'Line' },
+                            { x: 400, y: 700, nodetype: 'Line' },
+                            { x: 100, y: 700, nodetype: 'Line' }
+                        ],
+                        closed: true
+                    }
+                ]
+            };
+            const nextLayerData = {
+                ...previousLayerData,
+                width: 520,
+                shapes: [
+                    {
+                        ...previousLayerData.shapes[0],
+                        nodes: previousLayerData.shapes[0].nodes.map(
+                            (node) => ({
+                                ...node,
+                                x: node.x + 20
+                            })
+                        )
+                    }
+                ]
+            };
+            let modelLayer = previousLayerData;
+            let capturedAnchor = null;
+            const glyphCanvas = {
+                viewportManager: {
+                    panX: 100,
+                    panY: 50,
+                    scale: 2,
+                    fontToScreenCoordinates(x, y) {
+                        return {
+                            x: x * this.scale + this.panX,
+                            y: y * this.scale + this.panY
+                        };
+                    }
+                },
+                textRunEditor: {
+                    selectedGlyphIndex: 0,
+                    _getGlyphPosition: jest.fn(() => ({
+                        xPosition: 0,
+                        xOffset: 0,
+                        yOffset: 0
+                    })),
+                    refreshGlyphAdvancesLive: jest.fn(() => true)
+                },
+                outlineEditor: {
+                    active: true,
+                    selectedLayerId: 'layer-1',
+                    layerData: previousLayerData,
+                    parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                    fetchLayerData: jest.fn().mockResolvedValue(),
+                    runDeterministicRefresh: jest.fn(
+                        async (task) => await task()
+                    ),
+                    performHitDetection: jest.fn(),
+                    capturePendingSidebearingBboxCenterAnchor: jest.fn(() => {
+                        capturedAnchor = snapshotLayerCenterScreen(glyphCanvas);
+                        return true;
+                    }),
+                    reapplyPendingSidebearingBboxCenterAnchor: jest.fn(() => {
+                        const currentCenter =
+                            snapshotLayerCenterScreen(glyphCanvas);
+                        glyphCanvas.viewportManager.panX +=
+                            capturedAnchor.x - currentCenter.x;
+                        glyphCanvas.viewportManager.panY +=
+                            capturedAnchor.y - currentCenter.y;
+                        return true;
+                    })
+                },
+                getCurrentGlyphName: jest.fn(() => 'a'),
+                syncCurrentOutlineLayerDataFromModel: jest.fn((layer) => {
+                    glyphCanvas.outlineEditor.layerData = layer;
+                }),
+                updatePropertyPanel: jest.fn(),
+                render: jest.fn(),
+                requestRepaintAfterCompile: jest.fn()
+            };
+            const historyItem = {
+                transactionLabel: 'Set sidebearing',
+                entries: [
+                    {
+                        oldValue: previousLayerData,
+                        newValue: nextLayerData,
+                        path: 'glyphs.a.layers.layer-1'
+                    }
+                ]
+            };
+            const beforeCenter = snapshotLayerCenterScreen(glyphCanvas);
+
+            originalWindow.glyphCanvas = glyphCanvas;
+            originalWindow.fontManager = {
+                currentFont: {
+                    fontModel: {
+                        findGlyph: jest.fn(() => ({
+                            findLayerById: jest.fn(() => modelLayer)
+                        }))
+                    },
+                    requestRecompileWithoutDataChange: jest.fn()
+                },
+                awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+                lastChangeSource: null,
+                lastEditType: null,
+                setEditingCompileContext(changeSource, editType) {
+                    this.lastChangeSource = changeSource;
+                    this.lastEditType = editType;
+                },
+                clearEditingCompileContext() {
+                    this.lastChangeSource = null;
+                    this.lastEditType = null;
+                }
+            };
+            originalWindow.patchSyncEngine = originalWindow.changeBridge = {
+                undo: jest.fn(() => {
+                    modelLayer = nextLayerData;
+                    return {
+                        scope: 'layer',
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        historyItem
+                    };
+                }),
+                redo: jest.fn(() => {
+                    modelLayer = nextLayerData;
+                    return {
+                        scope: 'layer',
+                        glyphName: 'a',
+                        layerId: 'layer-1',
+                        historyItem
+                    };
+                })
+            };
+            originalWindow.autoCompileManager = {
+                checkAndSchedule: jest.fn()
+            };
+
+            await runBridgeUndoRedo(action, 'a', 'a', 'layer-1', null);
+
+            expectLayerCenterAnchored(glyphCanvas, beforeCenter);
+            expect(
+                glyphCanvas.outlineEditor
+                    .capturePendingSidebearingBboxCenterAnchor
+            ).toHaveBeenCalledTimes(1);
+            expect(
+                glyphCanvas.outlineEditor
+                    .reapplyPendingSidebearingBboxCenterAnchor
+            ).toHaveBeenCalledTimes(1);
+        }
+    );
+
+    test('clears a captured bbox anchor for a non-sidebearing undo', async () => {
+        const { glyphCanvas } = installUndoHarness(
+            {
+                transactionLabel: 'Drag point',
+                entries: [{ oldValue: '(10, 20)', newValue: '(20, 20)' }]
+            },
+            500,
+            520
+        );
+        glyphCanvas.outlineEditor.capturePendingSidebearingBboxCenterAnchor =
+            jest.fn(() => true);
+        glyphCanvas.outlineEditor.clearPendingSidebearingBboxCenterAnchor =
+            jest.fn();
+
+        await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
+
+        expect(
+            glyphCanvas.outlineEditor.capturePendingSidebearingBboxCenterAnchor
+        ).toHaveBeenCalledTimes(1);
+        expect(
+            glyphCanvas.outlineEditor.clearPendingSidebearingBboxCenterAnchor
+        ).toHaveBeenCalledTimes(1);
+    });
+
     test.each([
         {
             label: 'undo drag metadata with visualAnchorSide left leaves the viewport unchanged',

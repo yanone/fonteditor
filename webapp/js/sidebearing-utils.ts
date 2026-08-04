@@ -108,7 +108,7 @@ export function applyLiveSidebearingVisualSync(
     options: {
         glyphName?: string | null;
         glyphAdvances?: Record<string, number> | null;
-        side: SidebearingSide;
+        side?: SidebearingSide;
         previousWidth: number;
         nextWidth: number;
         render?: boolean;
@@ -151,7 +151,7 @@ export function syncModelSidebearingEditToCanvas(
     options: {
         layer: SidebearingLayerSnapshot;
         glyphName?: string | null;
-        side: SidebearingSide;
+        side?: SidebearingSide;
         previousWidth: number;
         render?: boolean;
     }

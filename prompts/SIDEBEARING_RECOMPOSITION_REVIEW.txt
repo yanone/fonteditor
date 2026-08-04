@@ -130,6 +130,12 @@ For each supported path, follow authoritative data through:
    compilation, canvas refresh, overview invalidation, and echo suppression.
 6. Undo/redo replay, including restored source/dependent layers, active-glyph
   bbox-center anchoring, worker convergence, and one logical history step.
+   Prove that every replay retains the full all-scope closure in its one
+   authoritative incremental Yjs packet: explicit metrics-key inheritors and
+   implicit automatic-component dependents must be persisted, rebuilt in the
+   browser and receiver models, and included in worker replay targets before
+   advance refresh, anchoring, and repaint. Reject source-only restore,
+   advance-only refresh, or replay metadata that omits a persisted dependent.
 
 Look specifically for data-integrity and concurrency failures:
 - stale editor working copies overwriting finalized recomposed geometry;

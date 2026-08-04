@@ -2713,7 +2713,7 @@ export class PatchSyncEngine {
                 return null;
             }
             const workerReplayTargets = normalizeWorkerReplayTargets([
-                ...(targetItem?.workerReplayTargets ?? []),
+                ...(semanticHistoryItem?.workerReplayTargets ?? []),
                 ...(target.glyphName && target.layerId
                     ? [{ glyphName: target.glyphName, layerId: target.layerId }]
                     : [])
@@ -2882,7 +2882,7 @@ export class PatchSyncEngine {
                 return null;
             }
             const workerReplayTargets = normalizeWorkerReplayTargets([
-                ...(targetItem?.workerReplayTargets ?? []),
+                ...(semanticHistoryItem?.workerReplayTargets ?? []),
                 ...(target.glyphName && target.layerId
                     ? [{ glyphName: target.glyphName, layerId: target.layerId }]
                     : [])

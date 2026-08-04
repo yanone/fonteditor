@@ -6488,7 +6488,7 @@ describe('syncGlyphFromJson', () => {
         }
     );
 
-    test('undo falls back to scoped manager history metadata when history item resolution misses the last step', () => {
+    test('undo and redo retain downstream replay targets when history lookup falls back to the scoped stack', () => {
         const { bridge } = createTestBridge('test-undo-history-fallback');
         const workerUpdates = [];
 
@@ -6522,7 +6522,10 @@ describe('syncGlyphFromJson', () => {
                     anchors: [],
                     guides: []
                 },
-                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+                workerReplayTargets: [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'B', layerId: 'layer-2' }
+                ]
             }
         ]);
 
@@ -6547,6 +6550,20 @@ describe('syncGlyphFromJson', () => {
         expect(workerUpdates[0].changeLogEntries).toEqual([
             expect.objectContaining({
                 historyAction: 'undo',
+                targetHistoryItemId: forwardEntry.historyItemId,
+                transactionLabel: forwardEntry.transactionLabel,
+                path: forwardEntry.path,
+                workerReplayTargets: forwardEntry.workerReplayTargets
+            })
+        ]);
+
+        workerUpdates.length = 0;
+        bridge._resolveUndoHistoryItem = jest.fn(() => null);
+
+        expect(bridge.redo('A', 'layer-1')).not.toBeNull();
+        expect(workerUpdates[0].changeLogEntries).toEqual([
+            expect.objectContaining({
+                historyAction: 'redo',
                 targetHistoryItemId: forwardEntry.historyItemId,
                 transactionLabel: forwardEntry.transactionLabel,
                 path: forwardEntry.path,

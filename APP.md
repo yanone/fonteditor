@@ -242,7 +242,7 @@ When a live advance refresh changes one or more glyphs before the active glyph i
 
 **Instructions for all sidebearing tests**
 
-Ensure that undo and redo of the same explicit sidebearing edits preserve the active glyph layer's visual bounding-box center on screen just as the forward edit does. Capture the active bbox anchor before the history operation, then restore it after model and advance refresh and before repaint.
+Ensure that undo and redo of the same explicit sidebearing edits restore the complete downstream closure before refreshing advances or repainting: explicit metrics-key inheritors and implicit automatic-alignment component dependents must be present in the authoritative incremental Yjs replay and in every model, worker-cache, and receiver update. Preserve the active glyph layer's visual bounding-box center on screen just as the forward edit does. Capture the active bbox anchor before the history operation, then restore it after downstream model and advance refresh and before repaint.
 Ensure that ongoing mouse drags that take a break are not committing data to the history items such that an undo restores an already altered state. Undos must restore each state cleanly.
 
 #### Anchors

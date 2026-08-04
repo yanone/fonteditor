@@ -6258,6 +6258,20 @@ export class OutlineEditor {
         );
     }
 
+    capturePendingSidebearingBboxCenterAnchor(): boolean {
+        const anchor = this.getBoundingBoxCenterScreenPosition();
+        if (!anchor) {
+            return false;
+        }
+
+        this._pendingSidebearingBboxCenterAnchorScreen = anchor;
+        return true;
+    }
+
+    clearPendingSidebearingBboxCenterAnchor(): void {
+        this._pendingSidebearingBboxCenterAnchorScreen = null;
+    }
+
     reapplyPendingSidebearingBboxCenterAnchor(): boolean {
         const anchor = this._pendingSidebearingBboxCenterAnchorScreen;
         if (!anchor) {

@@ -37,10 +37,7 @@ import {
     type HistoryUndoSurface,
     type WorkerReplayTarget
 } from './change-log';
-import {
-    syncModelSidebearingEditToCanvas,
-    inferSidebearingSideFromHistoryItem
-} from './sidebearing-utils';
+import { syncModelSidebearingEditToCanvas } from './sidebearing-utils';
 import type { TransactionBufferedOperation } from './patch-sync-engine';
 const console = new Logger('ChangeBridgeInit');
 let bridgeSyncQueue: Promise<void> = Promise.resolve();
@@ -1750,19 +1747,23 @@ function applyImmediateUndoSidebearingSync(
 ): boolean {
     const gc = window.glyphCanvas;
     const fontModel = window.fontManager?.currentFont?.fontModel;
-    const side = inferSidebearingSideFromHistoryItem(historyItem);
     // Visual anchoring follows the user-visible active glyph/layer, not the
-    // appliedChange target. Font-scoped undos (sidebearing edits that cascade
-    // across many downstream glyphs) report appliedChange.glyphName/layerId as
-    // null, but the canvas is still showing a specific glyph whose right/left
-    // edge must remain stationary on screen.
+    // appliedChange target. Font-scoped sidebearing cascades report no target,
+    // but the canvas is still showing a specific glyph whose bbox center must
+    // remain stationary on screen.
     const editedGlyphName =
         getActiveEditedGlyphName() ??
         appliedGlyphName ??
         fallbackEditedGlyphName ??
         null;
     const editedLayerId = appliedLayerId ?? fallbackLayerId ?? null;
-    if (!gc || !fontModel || !side || !editedGlyphName || !editedLayerId) {
+    if (
+        !gc ||
+        !fontModel ||
+        !isDirectSidebearingUndoRedo(historyItem) ||
+        !editedGlyphName ||
+        !editedLayerId
+    ) {
         return false;
     }
 
@@ -1776,10 +1777,10 @@ function applyImmediateUndoSidebearingSync(
     syncModelSidebearingEditToCanvas(gc, {
         layer,
         glyphName: editedGlyphName,
-        side,
         previousWidth,
         render: false
     });
+    gc.outlineEditor?.reapplyPendingSidebearingBboxCenterAnchor?.();
 
     return true;
 }
@@ -1787,10 +1788,16 @@ function applyImmediateUndoSidebearingSync(
 function isDirectSidebearingUndoRedo(
     historyItem: HistoryStackItem | null
 ): boolean {
+    return isDirectSidebearingTransactionLabel(historyItem?.transactionLabel);
+}
+
+function isDirectSidebearingTransactionLabel(
+    transactionLabel: string | null | undefined
+): boolean {
     return (
-        historyItem?.transactionLabel === 'Set LSB' ||
-        historyItem?.transactionLabel === 'Set RSB' ||
-        historyItem?.transactionLabel === 'Set sidebearing'
+        transactionLabel === 'Set LSB' ||
+        transactionLabel === 'Set RSB' ||
+        transactionLabel === 'Set sidebearing'
     );
 }
 
@@ -2064,7 +2071,6 @@ function applyLocalUndoRedoVisualSync(
         )?.historyAction === 'redo'
             ? 'redo'
             : 'undo';
-    const side = inferSidebearingSideFromHistoryItem(historyItem);
     const entryPaths = entries
         .map((entry) => entry.path)
         .filter((path): path is string => !!path);
@@ -2087,7 +2093,7 @@ function applyLocalUndoRedoVisualSync(
         inferPreviousWidthFromUndoRedoEntries(entries, action);
 
     const appliedSidebearingSync =
-        !!side &&
+        isDirectSidebearingUndoRedo(historyItem) &&
         previousWidth !== null &&
         applyImmediateUndoSidebearingSync(
             editedGlyphName,
@@ -2175,10 +2181,8 @@ async function awaitCommittedEditingCompileReady(
 }
 
 /**
- * Apply the receiver-side viewport pan compensation when a remote sidebearing
- * edit lands on a linked window. Mirrors the sender's live pan so the active
- * glyph's opposite edge stays visually anchored on screen during undo/redo
- * and live edits forwarded from a peer window.
+ * Apply the receiver-side bbox-center anchor when a remote explicit
+ * sidebearing edit lands on a linked window.
  *
  * Returns true when a pan was applied so the caller can avoid duplicate work.
  */
@@ -2200,10 +2204,7 @@ function applyRemoteSidebearingVisualSync(entries: ChangeLogEntry[]): boolean {
     }
 
     const matchingEntry = entries.find((entry) => {
-        if (
-            entry.visualAnchorSide !== 'left' &&
-            entry.visualAnchorSide !== 'right'
-        ) {
+        if (!isDirectSidebearingTransactionLabel(entry.transactionLabel)) {
             return false;
         }
         const path = entry.path ?? '';
@@ -2224,20 +2225,28 @@ function applyRemoteSidebearingVisualSync(entries: ChangeLogEntry[]): boolean {
         return false;
     }
 
+    const capturedAnchor =
+        gc.outlineEditor?.capturePendingSidebearingBboxCenterAnchor?.() ===
+        true;
     const layer = fontModel
         .findGlyph(editedGlyphName)
         ?.findLayerById(activeLayerId);
     if (!layer) {
+        if (capturedAnchor) {
+            gc.outlineEditor?.clearPendingSidebearingBboxCenterAnchor?.();
+        }
         return false;
     }
 
     syncModelSidebearingEditToCanvas(gc, {
         layer,
         glyphName: editedGlyphName,
-        side: matchingEntry.visualAnchorSide as 'left' | 'right',
         previousWidth,
         render: false
     });
+    if (capturedAnchor) {
+        gc.outlineEditor?.reapplyPendingSidebearingBboxCenterAnchor?.();
+    }
     gc.updatePropertyPanel?.();
     gc.outlineEditor?.performHitDetection?.(null);
     gc.render?.();
@@ -2686,6 +2695,7 @@ export function runBridgeUndoRedo(
         const targetGlyph = glyphName;
         const editedGlyphName = getActiveEditedGlyphName() ?? targetGlyph;
         const previousWidth = getLayerWidth(editedGlyphName, layerId ?? null);
+        window.glyphCanvas?.outlineEditor?.capturePendingSidebearingBboxCenterAnchor?.();
         const localUndoRedoContext: LocalUndoRedoVisualContext = {
             rootGlyphName: refreshRootGlyphName,
             requestedGlyphName: glyphName,
@@ -2705,8 +2715,13 @@ export function runBridgeUndoRedo(
             if (pendingLocalUndoRedoContext === localUndoRedoContext) {
                 pendingLocalUndoRedoContext = null;
             }
+            window.glyphCanvas?.outlineEditor?.clearPendingSidebearingBboxCenterAnchor?.();
             restoreFontInfoScroll();
             return;
+        }
+
+        if (!isDirectSidebearingUndoRedo(appliedChange.historyItem)) {
+            window.glyphCanvas?.outlineEditor?.clearPendingSidebearingBboxCenterAnchor?.();
         }
 
         restoreFontInfoScroll();
