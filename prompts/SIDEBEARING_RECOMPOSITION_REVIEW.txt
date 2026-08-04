@@ -1,0 +1,178 @@
+Production-Ready Sidebearing and Recomposition Engine Review
+
+Perform a production-ready review of Counterpunch's sidebearing, metrics-key,
+and downstream recomposition engine. Do not change code unless explicitly
+requested after the review.
+
+Trace every sidebearing-affecting edit from input through committed rendering:
+- dedicated left and right sidebearing handles dragged with the mouse;
+- selected sidebearing handle moved by keyboard, including held-key bursts,
+  key release, blur, delayed commit, and explicit numeric set behavior;
+- property-panel sidebearing fields, including plain numeric values, keys,
+  invalid input, key clearing, and automatic-layer restrictions;
+- outline, point, component, transform, and structural edits that trigger
+  keyed sidebearing realignment;
+- Python, plugins, import/reload, undo, redo, remote/collaboration, and
+  linked-window replay when they modify sidebearings, keyed geometry, or
+  dependent layers.
+
+Treat the browser font model, browser Y.Doc, Rust Yrs document, Rust canonical
+JSON, Rust cached subset/font state, receiving-window model, HarfBuzz advances,
+and rendered/compiled output as independently verifiable replicas. Matching
+browser JSON alone is not convergence evidence.
+
+Enforce APP.md and developer-docs/COMPILATION_EDIT_POLICY.md as normative. In
+particular, steady-state edits must use one authoritative incremental Yjs
+packet; preview overlays must never become authoritative state; replay targets
+are metadata rather than a second mutation path; the committed-change funnel
+owns committed compile reactions; and full-document repair, full-state resend,
+or whole-font synchronization is not an acceptable correctness shortcut.
+
+Review every documented sidebearing-key form on both the left and right side,
+for every source and dependent glyph layer, including master, intermediate,
+brace, bracket, and automatic component-only layers:
+
+1. No key: direct numeric left/right sidebearing edits.
+2. Glyph-wide same-side reference: `=n`.
+3. Glyph-wide reference with arithmetic: `=n+10`, `=n-10`, and multiplicative
+   expressions such as `=n*1.5*` where the parser supports them.
+4. Glyph-wide fixed value: `=50`.
+5. Layer-local reference and arithmetic: `==n`, `==n+10`, `==n-10`, and local
+   multiplicative expressions.
+6. Layer-local fixed value: `==50`.
+7. Automatic-aligned component-only layers: permitted `=+/-` and `==+/-`
+   offsets, rejection of unsupported direct values, logical resting geometry,
+   compile-only bake behavior, and key removal back to implicit metrics.
+8. Key clearing, malformed keys, unresolved references, dependency cycles,
+   missing source glyphs/layers, and mixed glyph-wide/local overrides.
+
+For each form, verify all of the following:
+- Parsing, storage location, public display value, local-vs-glyph-wide scope,
+  resolution, rounding, error reporting, and clearing semantics.
+- Direct source-layer metric behavior on both LSB and RSB.
+- Propagation to every explicit metrics-key dependent, including transitive,
+  branching, and mixed left/right dependency chains.
+- Propagation to every implicit automatic-alignment/component dependent,
+  including nested composites and multiple source components.
+- Correct per-glyph layer matching: never reuse a source layer UUID for a
+  dependent glyph; resolve the matching master/location layer correctly.
+- All layers of every affected glyph update where the key is glyph-wide; only
+  the targeted layer updates where a `==` local override applies.
+- All relevant shape, component transform, anchor, width, background-layer,
+  and vendor/format-specific data survives recomposition. A metrics update must
+  never remove, truncate, reorder, or replace an unrelated shape; verify that
+  every master layer remains interpolation-compatible after repeated edits.
+- No-op inputs and no-op cascades do not generate unnecessary dependent writes,
+  history items, Yjs packets, worker updates, compiles, or visual jitter.
+
+Audit the three explicit sidebearing interaction routes as equivalent semantic
+operations with route-specific timing guarantees:
+
+Mouse handle drag:
+- During drag, use visible-scope recomposition and sparse worker preview
+  overlays only; do not mutate authoritative Yjs/Rust state before mouseup.
+- Update source and visible dependent HarfBuzz advances before the same-frame
+  repaint. Account for changed preceding advances with pan compensation.
+- Keep the sidebearing drag session active through final-frame drain,
+  full-scope recomposition, authoritative Yjs commit, and preview-overlay
+  clear. Verify stale preview generations cannot leak into the next drag.
+- At mouseup, recompute the complete downstream closure exactly once, serialize
+  source plus recomposed layers only, preserve all shapes, and stamp the wider
+  source/recompose/invalidate set only as replay metadata.
+
+Keyboard handle movement:
+- Apply every queued increment exactly once in FIFO order, paint after each
+  started increment, discard unstarted tail work on key release/blur, and
+  commit one authoritative transaction after debounce.
+- Ensure the final full-scope recomposition occurs before persistence and that
+  a stale editor working layer cannot overwrite recomposed model geometry.
+- Verify the committed packet has `keyboard-sidebearing` metadata even when
+  the history label is generic (for example, `Arrow key`).
+
+Property panel:
+- Verify plain numeric values, keys, local keys, clearing, and automatic-layer
+  offsets take the same recomposition and downstream propagation path as the
+  equivalent handle action.
+- With PatchSyncEngine active, ensure the property panel does not initiate a
+  second committed refresh, worker mutation, or compile reaction beside the
+  authoritative Yjs packet and shared funnel.
+
+Visual and shaping requirements:
+- Explicit LSB and RSB edits through mouse handle, keyboard handle, and
+  property panel keep the active glyph layer bounding-box center stationary on
+  screen during the forward edit and its matching undo and redo, for both
+  sides and for all matching advance changes. Capture the active bbox screen
+  position before each mutation or history operation, then restore it after
+  model and live-advance refresh and before the single repaint. Do not require
+  side-specific packet or history metadata to provide this anchor.
+- Keyed realignment caused by outline/component movement anchors the opposite
+  edge: LSB changes anchor the right edge; RSB changes anchor the left edge.
+- Structural edits that apply keyed realignment after the structure change use
+  bounding-box-center anchoring.
+- If changed dependent advances precede the active glyph in the text run,
+  pan compensation preserves the required active-glyph anchor; if none precede
+  it, no unnecessary compensation is applied.
+- Dependent glyphs visible in the text run receive advance updates before
+  repaint. Hidden dependents may defer during live drag but must be correct in
+  the final committed model, Y.Doc, worker, receiving windows, and next render.
+
+For each supported path, follow authoritative data through:
+1. Canvas working layer and browser Font/Layer model, including aliases between
+   stored JSON, runtime-decoded shapes, and serialized node strings.
+2. Recomposition closure target calculation: source, recompose, invalidate,
+   and all/replay target sets.
+3. PatchSyncEngine transaction, change log, layer snapshot/granular operations,
+   Yjs update, semantic metadata, history item, and undo scope.
+4. Local worker forwarding, Rust Yrs update, canonical JSON/cache refresh,
+   preview overlay clearing, layout-closure/filter/cache-epoch behavior, and
+   editing compile input.
+5. Linked-window/cloud receiver state, remote model reconstruction, receiver
+   compilation, canvas refresh, overview invalidation, and echo suppression.
+6. Undo/redo replay, including restored source/dependent layers, active-glyph
+  bbox-center anchoring, worker convergence, and one logical history step.
+
+Look specifically for data-integrity and concurrency failures:
+- stale editor working copies overwriting finalized recomposed geometry;
+- source-only packets falsely claiming dependent writes;
+- snapshot/granular conflict, sparse collection replacement, aliasing, or
+  shape-index loss that makes a master layer non-interpolatable;
+- duplicate or omitted recomposition, non-idempotent automatic composition,
+  wrong scope during drag vs commit, or incorrect layer identity;
+- stale preview overlay, worker acknowledgement race, cache-epoch or
+  layout-closure invalidation error, compile-before-worker-sync, and stale
+  interpolation/cache reads;
+- lost/doubled history entries, missing or stale bbox-anchor capture,
+  undo/redo drift, remote echo loops, and mismatched local/receiver/Rust state;
+- vendor-specific, unknown, opaque, null, empty, numeric, transform, anchor,
+  guide, format-specific, and background-layer fields dropped during any
+  reconstruction or serialization boundary.
+
+Require evidence from real producer-to-Y.Doc-to-worker/receiver paths, not
+helper-only JSON comparisons. Include repeated alternating LSB/RSB edits,
+property-panel edit followed by handle drag, handle drag followed by keyboard
+move, keyboard burst followed by property-panel edit, multiple masters,
+intermediate layers, nested automatic composites, dependent glyphs before and
+after the active text-run glyph, undo/redo, a linked window, and a remote peer.
+
+Deliver a concise but exhaustive production review with:
+1. Findings first, ordered by severity. For each finding include affected
+   interaction routes, keys/layers/glyphs, root cause, concrete failure mode,
+   replica divergence, policy violation, and code/test evidence.
+2. An explicit coverage matrix crossing every key form above with left/right
+   side, source/dependent layer type, and mouse/keyboard/property-panel route.
+   Mark unverified cells as gaps.
+3. Browser/Y.Doc/Rust/receiver/compiled-output convergence and cache-integrity
+   checks, including interpolation compatibility after each committed edit.
+4. Prioritized root-cause recommendations with the smallest safe implementation
+   plan, ownership boundary, targeted regression tests, and necessary
+   documentation or policy changes.
+5. A validation matrix: focused Jest tests, bridge/collaboration tests,
+   Rust/WASM tests, TypeScript/webpack checks, and deterministic live-browser
+   acceptance tests that compare all replicas and the active bbox screen
+   position after repeated edits, undo, and redo.
+6. Residual risks, assumptions, and blockers to declaring the engine
+   production-ready.
+
+Do not propose broad snapshots, full-document synchronization, or a second
+worker mutation channel as a correctness fix. Prefer minimal, transactional,
+incremental Yjs/Yrs root-cause fixes that preserve the compilation policy.
