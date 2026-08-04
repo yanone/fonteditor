@@ -283,6 +283,7 @@ type ParsedMetricsKey =
 
 type MetricsKeyDependencyEntry = {
     layer: Layer;
+    layerId: string;
     glyph: Glyph;
     glyphName: string;
     side: SidebearingSide;
@@ -11657,24 +11658,109 @@ export class Font extends ModelBase {
         return rebuiltGlyphNames;
     }
 
+    private rawFontDeclaresMetricsKeys(): boolean {
+        for (const glyphData of this._data.glyphs || []) {
+            const glyphFormatSpecific = glyphData?.format_specific as
+                Record<string, unknown> | undefined;
+            if (
+                normalizeMetricsKeyValue(
+                    glyphFormatSpecific?.[GLYPHS_GLYPH_METRIC_LEFT_KEY] as
+                        string | undefined
+                ) ||
+                normalizeMetricsKeyValue(
+                    glyphFormatSpecific?.[GLYPHS_GLYPH_METRIC_RIGHT_KEY] as
+                        string | undefined
+                )
+            ) {
+                return true;
+            }
+
+            for (const layerData of glyphData?.layers || []) {
+                const layerFormatSpecific = layerData?.format_specific as
+                    Record<string, unknown> | undefined;
+                if (
+                    normalizeMetricsKeyValue(
+                        layerFormatSpecific?.[GLYPHS_LAYER_METRIC_LEFT_KEY] as
+                            string | undefined
+                    ) ||
+                    normalizeMetricsKeyValue(
+                        layerFormatSpecific?.[GLYPHS_LAYER_METRIC_RIGHT_KEY] as
+                            string | undefined
+                    )
+                ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Yjs / JSON merges can replace `glyph.data.layers` with new objects while
+     * this font model (and its metrics-key dependency cache) stays alive.
+     * Cached Layer wrappers then point at orphaned records, so =| and other
+     * keys mutate the wrong objects until a key write rebuilds the cache
+     * (e.g. property-panel LSB set). Always rebind to the live layer by id.
+     */
+    private rebindMetricsKeyDependencyEntry(
+        entry: MetricsKeyDependencyEntry
+    ): Layer | null {
+        const glyph = this.findGlyph(entry.glyphName);
+        if (!glyph) {
+            return null;
+        }
+        const layerId = entry.layerId || entry.layer?.id;
+        if (!layerId) {
+            return null;
+        }
+        const liveLayer = glyph.findLayerById(layerId);
+        if (!liveLayer) {
+            return null;
+        }
+        entry.glyph = glyph;
+        entry.layer = liveLayer;
+        entry.layerId = layerId;
+        return liveLayer;
+    }
+
     private collectMetricsKeyDependencyEntries(options?: {
         allowedGlyphNames?: Set<string>;
     }): MetricsKeyDependencyEntry[] {
         // The unfiltered graph is cached; per-call scoping is a cheap filter.
         // Without this the whole font is re-walked and every key re-parsed on
         // each recomputeMetricsKeys() — once per pointer tick during a drag.
-        const allEntries =
-            this._metricsKeyDependencyEntries ??
-            (this._metricsKeyDependencyEntries =
-                this._buildMetricsKeyDependencyEntries());
+        const cached = this._metricsKeyDependencyEntries;
+        const cacheIsStaleEmpty =
+            Array.isArray(cached) &&
+            cached.length === 0 &&
+            this.rawFontDeclaresMetricsKeys();
+        if (cached === null || cacheIsStaleEmpty) {
+            const built = this._buildMetricsKeyDependencyEntries();
+            // Never permanently cache an empty graph while the font still
+            // declares metrics keys. That happens when the filtered layer view
+            // is not ready yet; caching [] disables =| / keyed cascades until
+            // a later key write invalidates the cache (e.g. property-panel
+            // LSB set), which matches "handle drag only works after panel".
+            if (built.length > 0 || !this.rawFontDeclaresMetricsKeys()) {
+                this._metricsKeyDependencyEntries = built;
+            } else {
+                this._metricsKeyDependencyEntries = null;
+            }
+            const allowedGlyphNames = options?.allowedGlyphNames;
+            if (!allowedGlyphNames) {
+                return built;
+            }
+            return built.filter((entry) =>
+                allowedGlyphNames.has(entry.glyphName)
+            );
+        }
 
         const allowedGlyphNames = options?.allowedGlyphNames;
         if (!allowedGlyphNames) {
-            return allEntries;
+            return cached;
         }
-        return allEntries.filter((entry) =>
-            allowedGlyphNames.has(entry.glyph.name)
-        );
+        return cached.filter((entry) => allowedGlyphNames.has(entry.glyphName));
     }
 
     private _buildMetricsKeyDependencyEntries(): MetricsKeyDependencyEntry[] {
@@ -11696,8 +11782,14 @@ export class Font extends ModelBase {
                         continue;
                     }
 
+                    const layerId = layer.id;
+                    if (!layerId) {
+                        continue;
+                    }
+
                     entries.push({
                         layer,
+                        layerId,
                         glyph,
                         glyphName: glyph.name,
                         side,
@@ -11790,7 +11882,8 @@ export class Font extends ModelBase {
         const dependencyEntries = this.collectMetricsKeyDependencyEntries();
         for (const entry of dependencyEntries) {
             if (entry.parsed.kind === 'automatic-offset') {
-                if (!entry.layer.isAutomaticAlignedLayer()) {
+                const liveLayer = this.rebindMetricsKeyDependencyEntry(entry);
+                if (!liveLayer?.isAutomaticAlignedLayer()) {
                     continue;
                 }
                 let dependsOnSource = sources.has(entry.glyphName);
@@ -12041,6 +12134,12 @@ export class Font extends ModelBase {
                 >();
 
                 for (const entry of candidateEntries) {
+                    const liveLayer =
+                        this.rebindMetricsKeyDependencyEntry(entry);
+                    if (!liveLayer) {
+                        continue;
+                    }
+
                     const shouldRecompute =
                         entry.parsed.kind === 'automatic-offset'
                             ? entry.glyphName === changedGlyphName ||
@@ -12053,18 +12152,14 @@ export class Font extends ModelBase {
                         continue;
                     }
 
-                    const resolution = entry.layer.resolveMetricsKey(
-                        entry.side
-                    );
+                    const resolution = liveLayer.resolveMetricsKey(entry.side);
                     const applied = getAppliedMetricsKeySidebearing(
-                        entry.layer,
+                        liveLayer,
                         entry.side,
                         resolution
                     );
                     const currentValue =
-                        entry.side === 'left'
-                            ? entry.layer.lsb
-                            : entry.layer.rsb;
+                        entry.side === 'left' ? liveLayer.lsb : liveLayer.rsb;
                     if (
                         applied.error ||
                         applied.value === null ||
@@ -12074,8 +12169,8 @@ export class Font extends ModelBase {
                         continue;
                     }
 
-                    if (!entry.layer.isAutomaticAlignedLayer()) {
-                        entry.layer.setDirectSidebearing(
+                    if (!liveLayer.isAutomaticAlignedLayer()) {
+                        liveLayer.setDirectSidebearing(
                             entry.side,
                             applied.value
                         );

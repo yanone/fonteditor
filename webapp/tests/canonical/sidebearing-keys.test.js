@@ -531,6 +531,158 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
         expect(advancesCall).toHaveProperty('a');
     });
 
+    test('Fustat A LSB drag mirrors RSB via glyph-level =|', () => {
+        const font = Font.fromData(loadFontFixture('Fustat.glyphs'));
+        const { glyph, layer } = setupCanvasForGlyph(font, 'A');
+        expect(glyph.rightMetricsKey).toBe('=|');
+
+        const lsbBefore = layer.lsb;
+        canvas.outlineEditor.isDraggingSidebearing = true;
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'left',
+            editable: true
+        };
+
+        canvas.outlineEditor._updateDraggedSidebearing(-20);
+
+        expect(layer.lsb).toBe(lsbBefore + 20);
+        expect(layer.rsb).toBe(layer.lsb);
+    });
+
+    test('LSB handle drag mirrors =| after glyph.layers objects are replaced under a warm metrics-key cache', () => {
+        // Live open/sync can replace glyph.data.layers with new objects while
+        // the Font model (and its cached metrics-key Layer wrappers) stay
+        // alive. Recompute must still mutate the live layers — otherwise the
+        // first handle drag leaves RSB stale until a property-panel key write
+        // invalidates the cache.
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            masters: [
+                {
+                    name: { dflt: 'Regular' },
+                    id: 'M0',
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: {},
+                    custom_ot_values: {},
+                    format_specific: {}
+                }
+            ],
+            instances: [],
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        {
+                            id: 'A0',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { type: 'l', x: 50, y: 0 },
+                                        { type: 'l', x: 450, y: 0 },
+                                        { type: 'l', x: 450, y: 700 },
+                                        { type: 'l', x: 50, y: 700 }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: { metric_right: '=|' }
+                }
+            ],
+            names: {},
+            features: { classes: {}, prefixes: {}, features: [] },
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        font.recomputeMetricsKeys(new Set(['A']));
+        expect(font._metricsKeyDependencyEntries?.length).toBeGreaterThan(0);
+
+        const glyphData = font.findGlyph('A').data;
+        glyphData.layers = glyphData.layers.map((layerRecord) =>
+            JSON.parse(JSON.stringify(layerRecord))
+        );
+
+        const { layer } = setupCanvasForGlyph(font, 'A');
+        const lsbBefore = layer.lsb;
+        expect(layer.rsb).toBe(lsbBefore);
+
+        canvas.outlineEditor.isDraggingSidebearing = true;
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'left',
+            editable: true
+        };
+        canvas.outlineEditor._updateDraggedSidebearing(-20);
+
+        const liveLayer = font.findGlyph('A').findLayerById('A0');
+        expect(liveLayer.lsb).toBe(lsbBefore + 20);
+        expect(liveLayer.rsb).toBe(liveLayer.lsb);
+        expect(canvas.outlineEditor.getCurrentDirectSidebearing('right')).toBe(
+            liveLayer.rsb
+        );
+    });
+
+    test('empty metrics-key dependency cache does not stick while keys exist', () => {
+        const font = Font.fromData(loadFontFixture('Fustat.glyphs'));
+        const { layer } = setupCanvasForGlyph(font, 'A');
+
+        // Simulate a premature empty graph build (layers not ready yet).
+        font._metricsKeyDependencyEntries = [];
+
+        canvas.outlineEditor.isDraggingSidebearing = true;
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'left',
+            editable: true
+        };
+
+        const lsbBefore = layer.lsb;
+        canvas.outlineEditor._updateDraggedSidebearing(-20);
+        expect(layer.lsb).toBe(lsbBefore + 20);
+        expect(layer.rsb).toBe(layer.lsb);
+        expect(font._metricsKeyDependencyEntries?.length).toBeGreaterThan(0);
+    });
+
+    test('non-drag sidebearing edits refresh recomposed geometry before persistence', () => {
+        const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
+        const { layer, masterId } = setupCanvasForGlyph(font, 'l');
+        const nLayer = font.findGlyph('n').findLayerByMasterId(masterId);
+        const nWidthBefore = nLayer.width;
+        const syncSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'syncCurrentExactLayerDataFromModel'
+        );
+        jest.spyOn(canvas.outlineEditor, 'saveLayerData').mockResolvedValue();
+
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'right',
+            editable: true
+        };
+
+        expect(
+            canvas.outlineEditor.setSidebearingValue('right', layer.rsb + 17)
+        ).toBe(true);
+        expect(canvas.outlineEditor.moveSelectedSidebearing(5)).toBe(true);
+
+        expect(syncSpy).toHaveBeenCalledTimes(2);
+        expect(nLayer.width).not.toBe(nWidthBefore);
+    });
+
     test('sidebearing drag defers hidden downstream glyphs until final recompute', () => {
         const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
         const { layer, masterId } = setupCanvasForGlyph(font, 'l');

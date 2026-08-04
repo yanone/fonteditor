@@ -5337,6 +5337,12 @@ export class OutlineEditor {
             }
 
             try {
+                const isKeyboardSidebearing =
+                    committedChangeSource === 'keyboard-sidebearing';
+                if (isKeyboardSidebearing) {
+                    await this.refreshFinalSidebearingWorkerStateBeforeCommit();
+                }
+
                 await this.saveLayerData(committedChangeSource);
 
                 const activeLayerId = this.getCurrentLayerId();
@@ -5351,15 +5357,20 @@ export class OutlineEditor {
                 if (editKinds.size === 0) {
                     editKinds.add('outline');
                 }
-                const closure = this.computeRecompositionClosure({
-                    sourceTargets,
-                    editKinds,
-                    scope: 'all',
-                    activeLayerId
-                });
-
+                const pendingSidebearingSync = isKeyboardSidebearing
+                    ? this._pendingSidebearingCommitSync
+                    : null;
                 const { changedLayerTargets, workerReplayTargets } =
-                    resolveLayerSyncTargetsFromClosure(closure, sourceTargets);
+                    pendingSidebearingSync ??
+                    resolveLayerSyncTargetsFromClosure(
+                        this.computeRecompositionClosure({
+                            sourceTargets,
+                            editKinds,
+                            scope: 'all',
+                            activeLayerId
+                        }),
+                        sourceTargets
+                    );
 
                 this._syncCurrentGlyphToYDoc(
                     'Arrow key',
@@ -5371,7 +5382,8 @@ export class OutlineEditor {
                         null,
                     {
                         changedLayerTargets,
-                        workerReplayTargets
+                        workerReplayTargets,
+                        sourceLayerIsRecomposed: !!pendingSidebearingSync
                     },
                     this.getCommittedCompileMetadata(committedChangeSource)
                 );
@@ -14350,7 +14362,9 @@ export class OutlineEditor {
                             metricsKeySide,
                             {
                                 changedLayerTargets,
-                                workerReplayTargets
+                                workerReplayTargets,
+                                sourceLayerIsRecomposed:
+                                    !!pendingSidebearingSync
                             },
                             this.getCommittedCompileMetadata(dragChangeSource)
                         );
@@ -18124,6 +18138,13 @@ export class OutlineEditor {
             });
             affectedGlyphNames = closure.affectedGlyphNames;
 
+            // Keyboard and property-panel edits persist immediately after this
+            // method. Replace their working copy with the authoritative
+            // recomposed layer before it can overwrite rebuilt geometry.
+            if (!this.isDraggingSidebearing) {
+                this.syncCurrentExactLayerDataFromModel();
+            }
+
             // Pull editor working-copy width back only after the closure so
             // metrics/rebuild adjustments win, and never clobber the live
             // edit with a stale pre-sync model width.
@@ -18270,7 +18291,8 @@ export class OutlineEditor {
                 side,
                 {
                     changedLayerTargets,
-                    workerReplayTargets
+                    workerReplayTargets,
+                    sourceLayerIsRecomposed: true
                 },
                 this.getCommittedCompileMetadata('keyboard-sidebearing')
             );
@@ -20322,6 +20344,7 @@ export class OutlineEditor {
                 glyphName: string;
                 layerId: string;
             }>;
+            sourceLayerIsRecomposed?: boolean;
             authoritativeOptionalLayerFields?: Array<
                 'anchors' | 'guides' | 'format_specific'
             >;
@@ -20401,6 +20424,7 @@ export class OutlineEditor {
                 );
                 if (
                     hasDirectEditedLayerTarget &&
+                    !layerSyncTargets?.sourceLayerIsRecomposed &&
                     currentLayerData &&
                     directModelLayer &&
                     typeof directModelLayer.syncFromEditorLayerData ===
