@@ -39,8 +39,8 @@ Use these as stress cases when sizing catalog/deps budgets and hydrate UX:
 | Live transfer | WebSocket to a small set of shard DOs |
 | DO memory | Zero-hydration: auth, ordered durable tail, fan-out, metadata only |
 | Compaction | External service; DOs do not build full-state checkpoints |
-| Discovery | Lean identity catalog in core + separate compact deps index |
-| Closure | Walk deps index from client-chosen seeds; then hydrate bodies |
+| Discovery | Lean identity catalog in core (incl. cmap) + separate deps index |
+| Closure | Layout closure (`close_layout`) ∪ deps-index expansion; then hydrate bodies |
 | Small vs large | Same machinery; default hydrate policy is `all` vs working-set |
 
 ## Why one architecture
@@ -74,8 +74,10 @@ Renames update the catalog; they do not move the shard.
 Always loaded for an editing session. Contains:
 
 - True font-wide fields: UPM, names, axes, masters (without assuming huge
-  kerning stays forever), instances, notes, etc.
+  kerning stays forever), instances, notes, features, etc.
 - A **lean glyph catalog** for browse/search/order — not outline data.
+- Enough encoding data to resolve characters → glyphs **without hydrating
+  glyph shards** (see cmap below).
 
 Catalog entry (illustrative):
 
@@ -83,13 +85,35 @@ Catalog entry (illustrative):
 type GlyphCatalogEntry = {
     glyphId: string;
     name: string;
-    codepoints: number[];
+    codepoints: number[]; // required projection; see cmap
     productionName?: string;
     latestGlyphRevision: string;
     exported?: boolean;
     deleted?: boolean;
 };
 ```
+
+#### Cmap / character → glyph mapping
+
+Today, Unicode encodings live only on each glyph (`glyph.codepoints`) inside
+the hydrated glyph list. After sharding, that is not available until the glyph
+body is loaded — too late for text-run seeding.
+
+`font-core` must therefore carry a cmap-like index derived from those
+encodings, updated whenever a glyph’s codepoints change:
+
+- At minimum: every catalog entry’s `codepoints` (and a reverse lookup
+  `codepoint → glyphId[]` or equivalent, built from the catalog or stored
+  beside it).
+- Optional later: a denser dedicated cmap structure if per-entry lists plus
+  scan are too slow for CJK text.
+
+This is how “expand encoded characters into a seed set” works before any
+outline hydrate: text → codepoints → catalog/cmap → glyph ids → full closure.
+
+Authoritative per-glyph `codepoints` may still also exist on the glyph shard
+for editing; core’s map is the denormalized discovery copy, same pattern as
+deps.
 
 **Do not** put full component/metrics dependency lists in always-resident core
 by default. That would make core larger than “today’s JSON minus `.glyphs`”
@@ -119,10 +143,12 @@ glyphId → dependency glyphIds   // components, metrics-key edges, …
 Authoritative component objects still live in the glyph shard. The deps index
 is a **denormalized projection written at seed/commit time** by a party that
 already has the glyph body (editing client, or seed/materializer). Core does
-not discover references by hydrating unloaded glyphs.
+not discover component/metrics references by hydrating unloaded glyphs.
 
-Closure expansion walks this index (client-side, or Worker with the deps
-artifact only). It does not open glyph Y.Docs and does not parse outlines.
+Component and metrics-key closure walks this index (client-side, or Worker with
+the deps artifact only). It does not open glyph Y.Docs and does not parse
+outlines. OpenType layout closure is a separate step and does not use this
+index (see below).
 
 ### Glyph shards
 
@@ -210,20 +236,66 @@ Worker implementation rules:
 
 ## Who chooses glyphs; who computes closure
 
-1. **Client chooses seeds** from product intent:
-   - active glyph
-   - text-run / paragraph cmap hits
-   - catalog range (Unicode block, filter)
-   - policy `all` for small fonts
-2. **Closure** expands seeds through the **deps index** (dependency direction
-   for edit/preview/compile). Prefer client-side expansion once deps are
-   loaded; Worker may expand using deps only.
-3. **Hydrate** requests the missing set as a pack (or parallel per-shard GETs).
-4. **Fallback:** if a loaded glyph references an id absent from deps, repair
+### Seeds
+
+The **client** chooses seeds from product intent:
+
+- active glyph
+- text-run / paragraph characters, resolved through core’s **cmap/catalog**
+  (`codepoint → glyphId`), not by inspecting unloaded glyph shards
+- catalog range (Unicode block, filter) via the same encoding index
+- policy `all` for small fonts
+
+Without a core-resident character map, encoded text cannot become a seed set
+until every possibly matching glyph is already hydrated — which defeats lazy
+hydration.
+
+### Full downloadable closure (no outline hydrate)
+
+A hydrate pack’s glyph set is the union of two expansions. Neither step needs
+glyph outline bodies loaded.
+
+```text
+seeds
+  → (A) OpenType layout closure     // features + catalog names
+  → (B) deps-index expansion        // components, metrics-key edges, …
+  → hydrate missing ids from R2/DOs
+```
+
+**(A) Layout closure** uses babelfont’s existing `close_layout` preprocessor
+(already used by the browser editing subset / WASM
+`prime_layout_closure_cache` path). Inputs:
+
+- feature source from `font-core` (`font.features` → FEA)
+- glyph **name** universe from the lean catalog (not outlines)
+- seed glyph names
+
+`close_layout` parses the FEA AST and walks GSUB reachability (single /
+multiple / alternate / ligature / reverse-chain subst, class defs, multi-round
+lookups). Today’s API takes `&Font` for convenience; semantically it only
+needs `{ features, glyphNames[], seeds }`. Empty name-only glyph stubs suffice
+in babelfont tests — outlines are irrelevant.
+
+**(B) Dependency-index expansion** then (or interleaved to fixpoint) adds
+transitive component and metrics-key prerequisites via `font-deps`, matching
+what the WASM path today does with `expand_closure_with_component_deps` after
+`close_layout` — except the sharded world reads the deps index instead of
+walking hydrated layers.
+
+Prefer computing this on the client once core + deps are loaded. A Worker may
+run the same algorithm if given seeds, core features/catalog names, and the
+deps artifact — still without opening glyph Y.Docs.
+
+### Hydrate and repair
+
+1. **Hydrate** the missing set as a pack (or parallel per-shard GETs).
+2. **Fallback:** if a loaded glyph references an id absent from deps, repair
    (request that id, patch deps). Not the steady-state path.
 
-Feature-layout closure can explode for CJK. Bound browser hydrate; beyond
-budget use subset compile or server preview rather than loading the world.
+Layout closure for arbitrary CJK feature sets can still explode past browser
+budget. Bound hydrate size; beyond budget use subset compile or server preview
+rather than loading the world. That budget limit is a product policy on the
+*result* of closure, not a reason to skip layout closure.
 
 ## Live subscription vs freshness
 
@@ -265,12 +337,13 @@ Local editing compile:
 
 1. Load core (+ deps index as needed)
 2. Resolve seeds from UI/text
-3. Expand dependency closure
+3. Compute full closure: `close_layout` ∪ deps-index expansion
 4. Hydrate missing shards
 5. Assemble ephemeral font from loaded shards
-6. Existing subset / layout-closure compiler on that assembly
+6. Existing subset / compile pipeline on that assembly (`RetainGlyphs` et al.)
 
-Never treat unhydrated as absent.
+Never treat unhydrated as absent. The hydrate closure and the editing-subset
+closure should use the same two-phase algorithm so packs and compiles agree.
 
 Full binary builds for fonts over browser policy are a **server compiler**
 job from a revision manifest of core + all glyph shards — never a DO or a
@@ -293,9 +366,12 @@ republish. Prefer immutable glyph ids and tombstones.
 
 ## Migration sketch
 
-1. Introduce immutable glyph ids + lean catalog + deps index writers on commit.
+1. Introduce immutable glyph ids + lean catalog (with codepoints/cmap) + deps
+   index writers on commit.
 2. Generalize the committed-update funnel to document-scoped updates.
-3. Implement residency + hydrate packs + closure from deps.
+3. Implement residency + hydrate packs + full closure
+   (`close_layout` ∪ deps index), reusing the existing babelfont/WASM layout
+   closure path with catalog names instead of a full glyph list.
 4. Shard DO identity and R2 layouts; zero-hydration join (HTTP baseline + tail).
 5. External compaction per shard.
 6. One-shot migrate legacy whole-font rooms into core + deps + per-glyph
@@ -312,7 +388,11 @@ republish. Prefer immutable glyph ids and tombstones.
 ## Open follow-ups
 
 - Exact deps index encoding and whether reverse edges are stored or derived
-- Browser budgets: glyph count, bytes, feature-closure size
+- Cmap encoding in core: per-entry `codepoints` only vs dedicated
+  `codepoint → glyphId[]` structure for CJK text performance
+- Thinner `close_layout` API: `{ features, glyphNames, seeds }` without a full
+  `Font` (optional cleanup in babelfont-rs)
+- Browser budgets: glyph count, bytes, layout-closure result size
 - Whether kerning / feature sources leave core in v1 or later
 - Structured feature-class membership vs AFDKO string leaves
 - UX for range hydrate and “server preview required”
