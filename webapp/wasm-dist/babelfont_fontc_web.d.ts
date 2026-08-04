@@ -136,6 +136,15 @@ export function compile_preview_cached_font_from_last_layout_closure(
 export function dump_layer_state_json(layer_targets_json: string): string;
 
 /**
+ * Return read-only summaries of every worker font cache for live diagnostics.
+ *
+ * The dump intentionally includes the full feature payload and glyph-name
+ * universes, which lets callers compare the Y.Doc, JSON, and native caches
+ * after an incremental update without mutating any cache state.
+ */
+export function dump_worker_cache_state_json(): string;
+
+/**
  * Retrieve compiled font bytes from the dedicated debug bytes cache.
  */
 export function get_debug_cached_font_bytes(font_hash: string): Uint8Array;
@@ -497,6 +506,12 @@ export interface InitOutput {
         a: number,
         b: number
     ) => [number, number, number, number];
+    readonly dump_worker_cache_state_json: () => [
+        number,
+        number,
+        number,
+        number
+    ];
     readonly get_debug_cached_font_bytes: (
         a: number,
         b: number

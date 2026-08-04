@@ -334,6 +334,34 @@ export function dump_layer_state_json(layer_targets_json) {
 }
 
 /**
+ * Return read-only summaries of every worker font cache for live diagnostics.
+ *
+ * The dump intentionally includes the full feature payload and glyph-name
+ * universes, which lets callers compare the Y.Doc, JSON, and native caches
+ * after an incremental update without mutating any cache state.
+ * @returns {string}
+ */
+export function dump_worker_cache_state_json() {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ret = wasm.dump_worker_cache_state_json();
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0;
+            len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * Retrieve compiled font bytes from the dedicated debug bytes cache.
  * @param {string} font_hash
  * @returns {Uint8Array}

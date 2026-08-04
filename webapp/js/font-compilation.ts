@@ -1443,6 +1443,35 @@ export class FontCompilation {
         }
     }
 
+    /**
+     * Return a read-only diagnostic dump of the compilation worker's caches.
+     */
+    async dumpWorkerCacheState(): Promise<string> {
+        const result = await this.sendMessage({
+            type: 'dumpWorkerCacheState'
+        });
+        if (typeof result?.dumpJson !== 'string') {
+            throw new Error('Worker returned no cache diagnostic payload.');
+        }
+        return result.dumpJson;
+    }
+
+    /**
+     * Return read-only cross-replica snapshots for the requested glyph layers.
+     */
+    async dumpLayerState(
+        layerTargets: Array<{ glyphName: string; layerId: string }>
+    ): Promise<string> {
+        const result = await this.sendMessage({
+            type: 'dumpLayerState',
+            layerTargets
+        });
+        if (typeof result?.dumpJson !== 'string') {
+            throw new Error('Worker returned no layer diagnostic payload.');
+        }
+        return result.dumpJson;
+    }
+
     async compileEditingFromJsonCached(
         _babelfontJson: string,
         fontRevisionKey: string,

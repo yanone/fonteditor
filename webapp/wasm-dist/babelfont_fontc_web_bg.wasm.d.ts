@@ -41,6 +41,12 @@ export const dump_layer_state_json: (
     a: number,
     b: number
 ) => [number, number, number, number];
+export const dump_worker_cache_state_json: () => [
+    number,
+    number,
+    number,
+    number
+];
 export const get_debug_cached_font_bytes: (
     a: number,
     b: number

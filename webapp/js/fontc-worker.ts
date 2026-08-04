@@ -15,6 +15,7 @@ import init, {
     apply_preview_layer_overlay,
     clear_preview_layer_overlay,
     dump_layer_state_json,
+    dump_worker_cache_state_json,
     add_master_with_interpolated_layers_yjs,
     get_debug_cached_font_bytes,
     inspect_debug_cached_font,
@@ -2230,6 +2231,35 @@ self.onmessage = async (event) => {
                 self.postMessage({
                     id,
                     type: 'dumpLayerState',
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(dumpSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'dumpWorkerCacheState') {
+            const dumpSpanId = timelineSpanStart(
+                'font.worker.dumpWorkerCacheState'
+            );
+            const { id } = data;
+
+            try {
+                if (!initialized) {
+                    await initializeWasm();
+                }
+
+                self.postMessage({
+                    id,
+                    type: 'dumpWorkerCacheState',
+                    dumpJson: dump_worker_cache_state_json()
+                });
+            } catch (e: any) {
+                console.error('[Fontc Worker] dumpWorkerCacheState error:', e);
+                self.postMessage({
+                    id,
+                    type: 'dumpWorkerCacheState',
                     error: e.toString()
                 });
             } finally {

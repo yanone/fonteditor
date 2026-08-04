@@ -4483,6 +4483,147 @@ pub fn dump_layer_state_json(layer_targets_json: &str) -> Result<String, JsValue
         .map_err(|e| JsValue::from_str(&format!("Layer dump serialization failed: {}", e)))
 }
 
+/// Return read-only summaries of every worker font cache for live diagnostics.
+///
+/// The dump intentionally includes the full feature payload and glyph-name
+/// universes, which lets callers compare the Y.Doc, JSON, and native caches
+/// after an incremental update without mutating any cache state.
+#[wasm_bindgen]
+pub fn dump_worker_cache_state_json() -> Result<String, JsValue> {
+    let response = {
+        let ydoc_lock = Y_DOC.lock().map_err(|_| dump_lock_error("Y_DOC"))?;
+        let canonical_lock = CANONICAL_JSON_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("CANONICAL_JSON_CACHE"))?;
+        let subset_lock = SUBSET_JSON_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("SUBSET_JSON_CACHE"))?;
+        let font_cache_lock = FONT_CACHE.lock().map_err(|_| dump_lock_error("FONT_CACHE"))?;
+        let subset_font_cache_lock = SUBSET_FONT_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("SUBSET_FONT_CACHE"))?;
+        let filtered_lock = FILTERED_FONT_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("FILTERED_FONT_CACHE"))?;
+        let feature_fea_lock = FEATURE_FEA_STRING_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("FEATURE_FEA_STRING_CACHE"))?;
+        let layout_closures_lock = LAYOUT_CLOSURE_CACHE
+            .lock()
+            .map_err(|_| dump_lock_error("LAYOUT_CLOSURE_CACHE"))?;
+
+        let ydoc_txn = ydoc_lock.as_ref().map(|doc| doc.transact());
+        let ydoc_glyphs = ydoc_txn
+            .as_ref()
+            .and_then(|txn| ydoc_get_top_level_json_with_txn("glyphs", txn));
+        let ydoc_features = ydoc_txn
+            .as_ref()
+            .and_then(|txn| ydoc_get_top_level_json_with_txn("features", txn));
+        let canonical_json = canonical_lock.as_ref();
+        let subset_entry = subset_lock.as_ref();
+        let subset_json = subset_entry.map(|(_, _, json)| json);
+        let last_layout_closure_key = LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().clone();
+        let last_layout_closure_glyphs = last_layout_closure_key.as_ref().and_then(|key| {
+            layout_closures_lock.get(key).cloned()
+        });
+
+        serde_json::json!({
+            "epochs": {
+                "document": Y_DOC_EPOCH.load(Ordering::Relaxed),
+                "fontCache": FONT_CACHE_EPOCH.load(Ordering::Relaxed),
+                "fontCacheBuiltAt": FONT_CACHE_BUILT_AT_EPOCH.load(Ordering::Relaxed),
+                "subsetFontCacheBuiltAt": SUBSET_FONT_CACHE_BUILT_AT_EPOCH.load(Ordering::Relaxed),
+                "filter": FILTER_EPOCH.load(Ordering::Relaxed),
+            },
+            "ydoc": {
+                "present": ydoc_lock.is_some(),
+                "glyphNames": cache_glyph_names(ydoc_glyphs.as_ref()),
+                "features": ydoc_features,
+            },
+            "canonical": {
+                "present": canonical_json.is_some(),
+                "glyphNames": cache_glyph_names(canonical_json),
+                "features": canonical_json.and_then(|json| json.get("features")).cloned(),
+            },
+            "subset": {
+                "present": subset_entry.is_some(),
+                "key": subset_entry.map(|(key, _, _)| key),
+                "epoch": subset_entry.map(|(_, epoch, _)| epoch),
+                "glyphNames": cache_glyph_names(subset_json),
+                "features": subset_json.and_then(|json| json.get("features")).cloned(),
+            },
+            "fontCache": font_cache_lock.as_ref().map(|font| serde_json::json!({
+                "glyphNames": native_font_glyph_names(font),
+            })),
+            "subsetFontCache": subset_font_cache_lock.as_ref().map(|(key, epoch, font)| serde_json::json!({
+                "key": key,
+                "epoch": epoch,
+                "glyphNames": native_font_glyph_names(font),
+            })),
+            "filteredFontCache": filtered_lock.as_ref().map(|entry| serde_json::json!({
+                "subsetKey": entry.subset_key,
+                "filterEpoch": entry.filter_epoch,
+                "fontCacheEpoch": entry.cache_epoch,
+                "optionsFingerprint": entry.options_fingerprint,
+                "glyphNames": native_font_glyph_names(&entry.font),
+            })),
+            "featureFeaCache": feature_fea_lock.as_ref().map(|(fea, glyph_names)| serde_json::json!({
+                "source": fea,
+                "glyphNames": glyph_names,
+            })),
+            "layoutClosure": {
+                "cacheEntryCount": layout_closures_lock.len(),
+                "lastKey": last_layout_closure_key,
+                "lastGlyphNames": last_layout_closure_glyphs,
+                "lastDebugKey": LAST_DEBUG_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().clone(),
+                "lastPreviewKey": LAST_PREVIEW_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap().clone(),
+            },
+        })
+    };
+
+    serde_json::to_string(&response)
+        .map_err(|e| JsValue::from_str(&format!("Worker cache dump serialization failed: {}", e)))
+}
+
+/// Extract a stable glyph-name list from an array- or map-backed cache payload.
+fn cache_glyph_names(font_json: Option<&serde_json::Value>) -> Vec<String> {
+    let Some(glyphs) = font_json.and_then(|json| json.get("glyphs")) else {
+        return Vec::new();
+    };
+
+    let mut names: Vec<String> = match glyphs {
+        serde_json::Value::Array(glyphs) => glyphs
+            .iter()
+            .filter_map(|glyph| glyph.get("name").and_then(serde_json::Value::as_str))
+            .map(str::to_owned)
+            .collect(),
+        serde_json::Value::Object(glyphs) => glyphs
+            .iter()
+            .filter_map(|(key, glyph)| {
+                glyph
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+                    .or_else(|| Some(key.clone()))
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    names.sort();
+    names
+}
+
+/// Extract a stable glyph-name list from a native babelfont cache.
+fn native_font_glyph_names(font: &babelfont::Font) -> Vec<String> {
+    let mut names: Vec<String> = font
+        .glyphs
+        .iter()
+        .map(|glyph| glyph.name.to_string())
+        .collect();
+    names.sort();
+    names
+}
+
 /// Compute layout closure for a set of glyphs
 ///
 /// Given a set of glyph names, returns all glyphs that are referenced
@@ -7819,6 +7960,53 @@ mod tests {
         );
         assert_eq!(dump_value["targets"][0]["subsetLayer"]["width"], json!(405));
         assert_eq!(dump_value["targets"][0]["ydocLayer"]["width"], json!(410));
+
+        clear_font_cache();
+    }
+
+    #[test]
+    fn dump_worker_cache_state_json_reports_cache_universes_without_mutation() {
+        clear_font_cache();
+
+        let canonical_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        let native_font: babelfont::Font = serde_json::from_value(canonical_json.clone()).unwrap();
+        set_canonical_json_cache(canonical_json.clone());
+        *FONT_CACHE.lock().unwrap() = Some(native_font);
+
+        let subset_json = canonical_json.clone();
+        *SUBSET_JSON_CACHE.lock().unwrap() = Some(("A".to_string(), 7, subset_json));
+        *FEATURE_FEA_STRING_CACHE.lock().unwrap() =
+            Some(("feature kern { } kern;".to_string(), vec!["A".to_string()]));
+
+        let document_epoch_before = Y_DOC_EPOCH.load(Ordering::Relaxed);
+        let font_cache_epoch_before = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
+        let filter_epoch_before = FILTER_EPOCH.load(Ordering::Relaxed);
+
+        let dump_json = dump_worker_cache_state_json().unwrap();
+        let dump_value: serde_json::Value = serde_json::from_str(&dump_json).unwrap();
+
+        assert_eq!(dump_value["canonical"]["glyphNames"], json!(["A"]));
+        assert_eq!(dump_value["subset"]["key"], json!("A"));
+        assert_eq!(dump_value["subset"]["epoch"], json!(7));
+        assert_eq!(dump_value["subset"]["glyphNames"], json!(["A"]));
+        assert_eq!(dump_value["fontCache"]["glyphNames"], json!(["A"]));
+        assert_eq!(
+            dump_value["featureFeaCache"]["source"],
+            json!("feature kern { } kern;")
+        );
+        assert_eq!(
+            dump_value["featureFeaCache"]["glyphNames"],
+            json!(["A"])
+        );
+        assert_eq!(
+            Y_DOC_EPOCH.load(Ordering::Relaxed),
+            document_epoch_before
+        );
+        assert_eq!(
+            FONT_CACHE_EPOCH.load(Ordering::Relaxed),
+            font_cache_epoch_before
+        );
+        assert_eq!(FILTER_EPOCH.load(Ordering::Relaxed), filter_epoch_before);
 
         clear_font_cache();
     }
