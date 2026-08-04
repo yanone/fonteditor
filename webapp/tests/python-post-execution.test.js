@@ -154,6 +154,7 @@ describe('Python post-execution synthetic commit alignment', () => {
                     layers: [
                         {
                             id: 'default',
+                            width: 500,
                             shapes: [
                                 {
                                     type: 'path',
