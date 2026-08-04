@@ -1617,6 +1617,7 @@ describe('GlyphCanvas onMouseUp', () => {
                         { glyphName: 'n', layerId: 'layer-1' },
                         { glyphName: 'a', layerId: 'layer-1' }
                     ],
+                    sourceLayerIsRecomposed: false,
                     workerReplayTargets: [
                         { glyphName: 'l', layerId: 'layer-1' },
                         { glyphName: 'n', layerId: 'layer-1' },
@@ -1752,6 +1753,7 @@ describe('GlyphCanvas onMouseUp', () => {
                     changedLayerTargets: [
                         { glyphName: 'l', layerId: 'layer-1' }
                     ],
+                    sourceLayerIsRecomposed: false,
                     workerReplayTargets: [
                         { glyphName: 'l', layerId: 'layer-1' }
                     ]
@@ -2633,6 +2635,7 @@ describe('GlyphCanvas onMouseUp', () => {
                     changedLayerTargets: [
                         { glyphName: 'A', layerId: 'layer-1' }
                     ],
+                    sourceLayerIsRecomposed: false,
                     workerReplayTargets: [
                         { glyphName: 'A', layerId: 'layer-1' }
                     ]
@@ -2713,6 +2716,7 @@ describe('GlyphCanvas onMouseUp', () => {
                     changedLayerTargets: [
                         { glyphName: 'A', layerId: 'layer-1' }
                     ],
+                    sourceLayerIsRecomposed: false,
                     workerReplayTargets: [
                         { glyphName: 'A', layerId: 'layer-1' }
                     ]
@@ -2868,6 +2872,7 @@ describe('GlyphCanvas onMouseUp', () => {
                     changedLayerTargets: [
                         { glyphName: 'A', layerId: 'layer-1' }
                     ],
+                    sourceLayerIsRecomposed: false,
                     workerReplayTargets: [
                         { glyphName: 'A', layerId: 'layer-1' }
                     ]
@@ -3172,6 +3177,7 @@ describe('GlyphCanvas onMouseUp', () => {
                     changedLayerTargets: [
                         { glyphName: 'A', layerId: 'layer-1' }
                     ],
+                    sourceLayerIsRecomposed: false,
                     workerReplayTargets: [
                         { glyphName: 'A', layerId: 'layer-1' }
                     ]
@@ -3454,6 +3460,7 @@ describe('GlyphCanvas onMouseUp', () => {
                     changedLayerTargets: [
                         { glyphName: 'A', layerId: 'layer-1' }
                     ],
+                    sourceLayerIsRecomposed: false,
                     workerReplayTargets: [
                         { glyphName: 'A', layerId: 'layer-1' }
                     ]
@@ -4073,7 +4080,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
 
         expect(layer.applySidebearingInput).toHaveBeenCalledWith('left', '');
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
-        expect(fontManager.lastEditType).toBe('outline');
+        expect(fontManager.lastEditType).toBe(null);
         expect(
             window.fontManager.refreshGlyphsAfterModelBatch
         ).toHaveBeenCalledWith(['a'], undefined);
@@ -4250,7 +4257,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
 
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
-        expect(fontManager.lastEditType).toBe('outline');
+        expect(fontManager.lastEditType).toBe(null);
         expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(
             requestRecompileWithoutDataChange.mock.invocationCallOrder[0]
@@ -4634,6 +4641,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
                         { glyphName: 'l', layerId: 'master-layer' },
                         { glyphName: 'n', layerId: 'master-layer' }
                     ],
+                    sourceLayerIsRecomposed: true,
                     workerReplayTargets: targets
                 },
                 {
@@ -4782,6 +4790,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
                         { glyphName: 'l', layerId: 'master-layer' },
                         { glyphName: 'n', layerId: 'master-layer' }
                     ],
+                    sourceLayerIsRecomposed: false,
                     workerReplayTargets: [
                         { glyphName: 'l', layerId: 'master-layer' },
                         { glyphName: 'n', layerId: 'master-layer' }
