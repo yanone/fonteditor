@@ -927,6 +927,50 @@ fn normalize_inserted_layer_for_native_cache(
     Ok(native_layer_json)
 }
 
+fn validate_layer_json_for_native_cache(
+    glyph_name: &str,
+    layer_id: &str,
+    layer_json: &serde_json::Value,
+) -> Result<(), String> {
+    let native_layer_json =
+        normalize_inserted_layer_for_native_cache(layer_json, glyph_name, layer_id)
+            ?;
+    serde_json::from_value::<babelfont::Layer>(native_layer_json).map_err(|error| {
+        format!(
+            "Layer deserialization error for {}::{}: {}",
+            glyph_name, layer_id, error
+        )
+    })?;
+    Ok(())
+}
+
+fn validate_glyph_json_for_native_cache(
+    glyph_name: &str,
+    glyph_json: &serde_json::Value,
+) -> Result<(), String> {
+    let mut native_glyph_json = glyph_json.clone();
+    if let Some(layers) = native_glyph_json
+        .get_mut("layers")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for layer in layers.iter_mut() {
+            let layer_id = layer
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            *layer = normalize_inserted_layer_for_native_cache(layer, glyph_name, layer_id)
+                ?;
+        }
+    }
+    serde_json::from_value::<babelfont::Glyph>(native_glyph_json).map_err(|error| {
+        format!(
+            "Glyph deserialization error for {}: {}",
+            glyph_name, error
+        )
+    })?;
+    Ok(())
+}
+
 fn replace_glyph_in_font_cache(
     font: &mut babelfont::Font,
     glyph_name: &str,
@@ -3416,6 +3460,7 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
     // inside apply_update can bypass our normal Result flow; if the doc has been
     // taken out of the global slot, the worker is stranded in
     // ydoc_not_initialized afterward.
+    let result = {
     let ydoc_lock = Y_DOC.lock().unwrap();
     let doc = match ydoc_lock.as_ref() {
         Some(doc) => doc,
@@ -3510,6 +3555,27 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                 )
             })
             .collect();
+
+            for (target, layer_json) in &changed_layer_snapshots {
+                if let Some(layer_json) = layer_json {
+                    validate_layer_json_for_native_cache(
+                        &target.glyph_name,
+                        &target.layer_id,
+                        layer_json,
+                    )
+                    .map_err(|error| JsValue::from_str(&error))?;
+                }
+            }
+            for (glyph_name, glyph_json) in &changed_glyph_snapshots {
+                if let Some(glyph_json) = glyph_json {
+                    validate_glyph_json_for_native_cache(glyph_name, glyph_json)
+                        .map_err(|error| JsValue::from_str(&error))?;
+                }
+            }
+            for (glyph_name, glyph_json) in &renamed_glyph_snapshots {
+                validate_glyph_json_for_native_cache(glyph_name, glyph_json)
+                    .map_err(|error| JsValue::from_str(&error))?;
+            }
 
         // -- 3. Update CANONICAL_JSON_CACHE -----------------------------------
         if changed_glyphs.is_empty()
@@ -3864,6 +3930,17 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
             ))
         })
     })();
+
+    result
+    };
+
+    if result.is_err() {
+        // Yrs applies a binary update atomically but cannot roll it back. A
+        // rejected packet must therefore discard this worker mirror instead of
+        // allowing later edits to run against a Y.Doc ahead of its caches.
+        *Y_DOC.lock().unwrap() = None;
+        clear_font_cache();
+    }
 
     result
 }
@@ -5122,6 +5199,27 @@ mod tests {
             layout_closure_cache_key("17", "alef\u{1f}beh"),
             "17::alef\u{1f}beh"
         );
+    }
+
+    #[test]
+    fn incremental_snapshot_validation_rejects_malformed_shapes() {
+        let mut layer_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        let layer_json = layer_json["glyphs"][0]["layers"][0].as_object_mut().unwrap();
+        layer_json.insert(
+            "shapes".to_string(),
+            json!([{ "id": "broken-shape", "transform": { "translation": [0, 0] } }]),
+        );
+        let layer_json = serde_json::Value::Object(layer_json.clone());
+
+        let layer_error = validate_layer_json_for_native_cache("A", "layer-1", &layer_json)
+            .expect_err("malformed layer shape must fail before cache refresh");
+        assert!(layer_error.contains("Layer deserialization error for A::layer-1"));
+
+        let mut glyph_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        glyph_json["glyphs"][0]["layers"][0] = layer_json;
+        let glyph_error = validate_glyph_json_for_native_cache("A", &glyph_json["glyphs"][0])
+            .expect_err("malformed glyph shape must fail before cache refresh");
+        assert!(glyph_error.contains("Glyph deserialization error for A"));
     }
 
     #[test]
@@ -6441,6 +6539,69 @@ mod tests {
     #[wasm_bindgen_test]
     fn wasm_apply_yjs_update_visual_layer_patch_advances_filter_epoch() {
         apply_yjs_update_visual_layer_patch_advances_filter_epoch();
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test]
+    fn wasm_apply_yjs_update_rejects_malformed_shape_before_cache_mutation() {
+        clear_font_cache();
+
+        let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        store_font_from_value(font_json).unwrap();
+
+        let author_doc = Doc::new();
+        let font_map = author_doc.get_or_insert_map("font");
+        let shapes: yrs::ArrayRef;
+        {
+            let mut txn = author_doc.transact_mut();
+            let glyphs: yrs::MapRef = font_map.insert(&mut txn, "glyphs", MapPrelim::<Any>::new());
+            let glyph: yrs::MapRef = glyphs.insert(&mut txn, "A", MapPrelim::<Any>::new());
+            let layers: yrs::MapRef = glyph.insert(&mut txn, "layers", MapPrelim::<Any>::new());
+            let layer: yrs::MapRef = layers.insert(&mut txn, "layer-1", MapPrelim::<Any>::new());
+            layer.insert(&mut txn, "id", "layer-1");
+            layer.insert(&mut txn, "width", Any::Number(600.0));
+            let master: yrs::MapRef = layer.insert(&mut txn, "master", MapPrelim::<Any>::new());
+            master.insert(&mut txn, "type", "DefaultForMaster");
+            master.insert(&mut txn, "master", "master-regular");
+            shapes = layer.insert(&mut txn, "shapes", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "anchors", ArrayPrelim::from(Vec::<Any>::new()));
+            layer.insert(&mut txn, "guides", ArrayPrelim::from(Vec::<Any>::new()));
+        }
+
+        let initial_update = author_doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let base_state_vector = author_doc.transact().state_vector();
+        {
+            let mut txn = author_doc.transact_mut();
+            let malformed_shape: yrs::MapRef = shapes.push_back(&mut txn, MapPrelim::<Any>::new());
+            malformed_shape.insert(&mut txn, "id", "malformed-shape");
+        }
+        let malformed_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+
+        let worker_doc = Doc::new();
+        {
+            let update = yrs::Update::decode_v1(initial_update.as_slice()).unwrap();
+            worker_doc.transact_mut().apply_update(update);
+        }
+        *Y_DOC.lock().unwrap() = Some(worker_doc);
+
+        let error = apply_yjs_update(
+            malformed_update.as_slice(),
+            r#"{
+                "changedGlyphs": ["A"],
+                "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }]
+            }"#,
+        )
+        .expect_err("malformed shape must reject the originating Yjs update")
+        .as_string()
+        .unwrap_or_default();
+        assert!(error.contains("Layer deserialization error for A::layer-1"));
+        assert!(Y_DOC.lock().unwrap().is_none());
+        assert!(CANONICAL_JSON_CACHE.lock().unwrap().is_none());
+        assert!(SUBSET_JSON_CACHE.lock().unwrap().is_none());
+
+        clear_font_cache();
     }
 
     #[test]

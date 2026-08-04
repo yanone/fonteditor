@@ -168,8 +168,10 @@ function layerToYMap(layerData: Record<string, unknown>): Y.Map<unknown> {
 
 /**
  * Deep-merge a flat layer JSON into an existing layer Y.Map in a Y.Doc.
- * Handles indexed-map structure for shapes/anchors/guides (deep-merges
- * each element by stable id, only changed leaves produce Yjs operations).
+ * Keeps shapes as an atomic ordered array, while anchors and guides use
+ * indexed maps. A shape is an untagged Rust enum, so retaining fields from a
+ * previous shape can create an invalid hybrid representation in the worker
+ * subset cache.
  * Used by the worker cache path so undo/redo and receiver refresh produce
  * granular deltas, not whole-layer replaces.
  *
@@ -208,33 +210,7 @@ export function applyLayerDelta(
         if (value === null || value === undefined) {
             layerMap.delete(key);
         } else if (key === 'shapes' && Array.isArray(value)) {
-            const shapes = layerMap.get('shapes');
-            if (isYArray(shapes)) {
-                const sharedLength = Math.min(shapes.length, value.length);
-                for (let index = 0; index < sharedLength; index++) {
-                    const existingShape = shapes.get(index);
-                    const nextShape = value[index];
-                    if (isYMap(existingShape) && isPlainObject(nextShape)) {
-                        mergeYMapContents(
-                            existingShape,
-                            nextShape as Record<string, unknown>
-                        );
-                    } else {
-                        shapes.delete(index, 1);
-                        shapes.insert(index, [toYType(nextShape)]);
-                    }
-                }
-                if (shapes.length > value.length) {
-                    shapes.delete(value.length, shapes.length - value.length);
-                } else if (value.length > sharedLength) {
-                    shapes.insert(
-                        sharedLength,
-                        value.slice(sharedLength).map(toYType)
-                    );
-                }
-            } else {
-                layerMap.set(key, toYType(value));
-            }
+            layerMap.set(key, toYType(value));
         } else if (
             (key === 'anchors' || key === 'guides') &&
             Array.isArray(value)

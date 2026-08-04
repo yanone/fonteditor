@@ -281,6 +281,38 @@ describe('upstream-truthful Y.Doc node storage', () => {
         expect(shapeMap.get('nodesById')).toBeUndefined();
     });
 
+    test('applyLayerDelta replaces shapes without retaining incompatible fields', () => {
+        const font = makeTestFont();
+        font.glyphs[0].layers[0].shapes = [
+            {
+                reference: 'A.alt',
+                transform: {
+                    translation: [0, 0],
+                    rotation: 0,
+                    scale: [1, 1],
+                    skew: [0, 0],
+                    order: 'RestOfTheWorld'
+                }
+            }
+        ];
+        const { fontMap } = setupYDoc(font);
+
+        applyLayerDelta(fontMap, 'A', 'layer-1', {
+            shapes: [
+                {
+                    nodes: '10 20 l 30 40 l',
+                    closed: false
+                }
+            ]
+        });
+
+        const shape = yDocToJson(fontMap).glyphs[0].layers[0].shapes[0];
+        expect(shape).toEqual({
+            nodes: '10 20 l 30 40 l',
+            closed: false
+        });
+    });
+
     test('node edits produce a compact Y.Text delta and preserve string JSON', () => {
         const nodes = Array.from(
             { length: 500 },

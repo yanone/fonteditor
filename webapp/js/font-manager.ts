@@ -577,6 +577,7 @@ class FontManager {
     lastWorkerDocumentEpoch: number;
     lastWorkerFilterEpoch: number;
     lastWorkerFontCacheEpoch: number;
+    private workerMirrorQuarantined: boolean;
     private editingCompileContextsByRevision: Map<
         string,
         EditingCompileContext
@@ -653,6 +654,7 @@ class FontManager {
         this.lastWorkerDocumentEpoch = 0;
         this.lastWorkerFilterEpoch = 0;
         this.lastWorkerFontCacheEpoch = 0;
+        this.workerMirrorQuarantined = false;
         this.editingCompileContextsByRevision = new Map();
         this.workerCacheYDoc = null;
         this.pendingWorkerLayerUpdate = null;
@@ -4221,6 +4223,7 @@ class FontManager {
         );
         this.workerCacheYDoc = yDoc;
         this.pendingWorkerLayerUpdate = null;
+        this.workerMirrorQuarantined = false;
     }
 
     applyWorkerYjsUpdateToMirror(
@@ -4247,6 +4250,18 @@ class FontManager {
             this.workerCacheYDoc,
             update instanceof Uint8Array ? update : new Uint8Array(update)
         );
+    }
+
+    /** Discard JS state that must remain identical to the worker's Y.Doc. */
+    private invalidateWorkerCacheMirror(): void {
+        this.workerCacheYDoc = null;
+        this.pendingWorkerLayerUpdate = null;
+        this.workerLayerFingerprintCache.clear();
+        this.lastWorkerDocumentEpoch = 0;
+        this.lastWorkerFilterEpoch = 0;
+        this.lastWorkerFontCacheEpoch = 0;
+        this.workerMirrorQuarantined = true;
+        fontCompilation?.setWorkerCacheDocumentReady(false);
     }
 
     private buildWorkerYjsLayerUpdate(
@@ -4420,7 +4435,10 @@ class FontManager {
             // already settled for the steady-state hot path.
             await fontCompilation.awaitWorkerDocumentSync();
 
-            if (!fontCompilation?.isInitialized) {
+            if (
+                !fontCompilation?.isInitialized ||
+                this.workerMirrorQuarantined
+            ) {
                 return false;
             }
 
@@ -4459,8 +4477,7 @@ class FontManager {
                 // Overlapping applyYjsUpdate calls can otherwise race the
                 // worker-side Y.Doc/cache state during rapid GUI edits.
                 if (response?.skipped === 'ydoc_not_initialized') {
-                    this.workerCacheYDoc = null;
-                    fontCompilation.setWorkerCacheDocumentReady(false);
+                    this.invalidateWorkerCacheMirror();
                     console.warn(
                         '[FontManager] Worker Y.Doc was not initialized for incremental Yjs update',
                         {
@@ -4477,7 +4494,7 @@ class FontManager {
                     workerCacheStatus.coherent !== true ||
                     !Number.isFinite(workerCacheStatus.documentEpoch)
                 ) {
-                    fontCompilation.setWorkerCacheDocumentReady(false);
+                    this.invalidateWorkerCacheMirror();
                     console.warn(
                         '[FontManager] Worker Yjs update completed without a coherent cache acknowledgement',
                         {
@@ -4503,7 +4520,7 @@ class FontManager {
 
                 return true;
             } catch (error) {
-                fontCompilation.setWorkerCacheDocumentReady(false);
+                this.invalidateWorkerCacheMirror();
                 console.warn(
                     '[FontManager] Failed to send worker Yjs update:',
                     {

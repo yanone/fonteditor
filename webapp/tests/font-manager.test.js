@@ -3705,7 +3705,7 @@ describe('FontManager boundary-crossing budget', () => {
         ).resolves.toBe(false);
 
         expect(fontCompilation.hasWorkerCacheDocument()).toBe(false);
-        expect(fontManager.lastWorkerDocumentEpoch).toBe(previousDocumentEpoch);
+        expect(fontManager.lastWorkerDocumentEpoch).toBe(0);
     });
 
     test('forwardWorkerYjsUpdate stores acknowledged worker cache epochs', async () => {
@@ -3757,7 +3757,11 @@ describe('FontManager boundary-crossing budget', () => {
             })
         ).resolves.toBe(false);
 
-        expect(fontManager.workerCacheYDoc).toBeTruthy();
+        expect(fontManager.workerCacheYDoc).toBeNull();
+        expect(fontManager.workerLayerFingerprintCache.size).toBe(0);
+        expect(fontManager.lastWorkerDocumentEpoch).toBe(0);
+        expect(fontManager.lastWorkerFilterEpoch).toBe(0);
+        expect(fontManager.lastWorkerFontCacheEpoch).toBe(0);
 
         expect(sendMessageSpy).toHaveBeenCalledTimes(1);
         expect(sendMessageSpy).toHaveBeenCalledWith(
@@ -3769,7 +3773,7 @@ describe('FontManager boundary-crossing budget', () => {
         );
     });
 
-    test('refreshWorkerCacheForReplayTargets can recover after a raw applyYjsUpdate failure without reseeding the mirror', async () => {
+    test('refreshWorkerCacheForReplayTargets stays blocked after a raw applyYjsUpdate failure until rebaseline', async () => {
         const rawUpdate = fontManager.buildWorkerSeedYjsState();
         const layerId =
             fontManager.currentFont.fontModel.findGlyph('a').layers[0].id;
@@ -3787,22 +3791,15 @@ describe('FontManager boundary-crossing budget', () => {
             })
         ).resolves.toBe(false);
 
-        expect(fontManager.workerCacheYDoc).toBeTruthy();
+        expect(fontManager.workerCacheYDoc).toBeNull();
 
         await expect(
             fontManager.refreshWorkerCacheForReplayTargets([
                 { glyphName: 'a', layerId }
             ])
-        ).resolves.toBe(true);
+        ).resolves.toBe(false);
 
-        expect(sendMessageSpy).toHaveBeenNthCalledWith(
-            2,
-            expect.objectContaining({
-                type: 'applyYjsUpdate',
-                layerTargets: [{ glyphName: 'a', layerId }],
-                invalidateLayoutClosure: false
-            })
-        );
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
     });
 
     test('consecutive raw Yjs layer updates forward each change as an incremental worker packet', async () => {
