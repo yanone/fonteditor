@@ -43,6 +43,7 @@ Use these as stress cases when sizing catalog/deps budgets and hydrate UX:
 | Closure | Layout closure (`close_layout`) ∪ deps-index expansion; then hydrate bodies |
 | Linked windows | Main window is sole cloud hub; BC is multi-doc; per-window residency |
 | Small vs large | Same machinery; default hydrate policy is `all` vs working-set |
+| Full-font compile | Multi-core VM (not DO/browser); same shards; stream binary to proofing |
 
 ## Why one architecture
 
@@ -398,7 +399,7 @@ has full glyph bodies locally.
 
 ## Local vs full compilation
 
-Local editing compile:
+### Local editing compile (browser)
 
 1. Load core (+ deps index as needed)
 2. Resolve seeds from UI/text
@@ -410,9 +411,90 @@ Local editing compile:
 Never treat unhydrated as absent. The hydrate closure and the editing-subset
 closure should use the same two-phase algorithm so packs and compiles agree.
 
-Full binary builds for fonts over browser policy are a **server compiler**
-job from a revision manifest of core + all glyph shards — never a DO or a
-single browser loading the entire CJK font.
+### Server full-font compiler (proofing / export)
+
+Full binary builds for fonts over browser policy are a **multi-core VM (or
+container) job** — never a Durable Object and never a browser holding the
+entire CJK outline set. The builder uses the **same shard model and update
+semantics** as the editor; it does **not** open 65k glyph DO WebSockets.
+
+```text
+R2 baselines + DO tails
+        │
+        ▼  hydrate policy `all` (HTTP packs)
+Full-font builder VM  ── font-core WS (dirty / revision)
+  (multi-core fontc)  ── HTTP catch-up for dirty glyph shards only
+        │
+        ▼  OTF/TTF artifact
+Proofing browser tab  ← stream / poll binary (+ stale/building status)
+```
+
+**Rough pipeline**
+
+1. **Cold start:** HTTP hydrate `font-core` + `font-deps` + every
+   `glyph:<id>` from R2 packs (Worker-streamed), apply outstanding DO tails
+   the same way a client recovers recoverable state (baseline + tail).
+2. **Materialize** one in-process babelfont (or fontc IR) for the full font.
+3. **Compile** with native fontc using **real multiprocessing** (unavailable
+   in browser WASM).
+4. **Publish** the binary (R2 object and/or direct stream) with a revision id
+   tied to the core/deps/glyph shard manifest used for the build.
+5. **Proofing client** loads that binary into HarfBuzz (or downloads for
+   export). UI shows building / ready / stale relative to the live room.
+
+**Live updates (same language, different residency)**
+
+| Concern | Editing browser | Full-font builder |
+| --- | --- | --- |
+| Hydrate policy | Working set (`all` only for small fonts) | Always `all` |
+| Live DO sockets | `font-core` + active glyph(s) | `font-core` only (optional build-control channel) |
+| Glyph freshness | Dirty signal + HTTP catch-up | Same: patch only touched glyphs, enqueue rebuild |
+| Optional trigger | N/A | Commit / compaction hooks enqueue builds without a long-lived subscriber |
+
+Do **not** subscribe the builder to every glyph DO. 65k live sockets would
+dwarf the compile cost. Core dirty fan-out + selective glyph catch-up (or a
+build queue) is enough and stays aligned with how passive hydrated glyphs
+already refresh in the editor.
+
+**Debounce and status.** Full CJK compiles are tens of seconds to minutes.
+Debounce rebuilds on edit bursts; proofing tabs must tolerate lag and show
+stale-vs-current clearly. Expect mostly **full recompiles** after rematerializing
+updated source — the win is cores + RAM outside the browser, not fine-grained
+fontc IR reuse (unless measured later).
+
+**Where it runs.** Same class of host as the external compactor: fat process
+outside the ~128 MB DO isolate. One builder may serve many assets via a queue;
+long-lived per-room processes are optional for interactive proofing.
+
+### Rough RAM estimates (order of magnitude)
+
+Measured compact JSON from the sibling CJK sizing experiment
+(`cjk-collab-sizing/results/sizing.md`), ~65k-glyph class:
+
+| Source (compact JSON) | Glyphs | Glyphs JSON | Core JSON | Notes |
+| --- | ---: | ---: | ---: | --- |
+| Plangothic P1 | 64,579 | ~100 MB | ~6 MB | Single master; sane core |
+| Plangothic P2 | 41,994 | ~59 MB | ~4 MB | |
+| Source Han Sans SC VF (TTF round-trip) | 65,535 | ~218 MB | ~133 MB | Core almost all enumerated FEA artifact; **not** target shape |
+| SHS-like with class kerning (est.) | ~65k | ~218 MB | ~6–10 MB | Source-shaped features; glyphs still heavy |
+
+In-process budgets are larger than compact JSON:
+
+| Stage | Plangothic-like (~65k, 1 master) | Heavy CJK VF (~65k, multi-master, sane FEA) |
+| --- | --- | --- |
+| Shard payloads on disk / R2 | ~100–160 MB | ~200–450 MB |
+| Hydrated source IR in builder | ~0.3–0.8 GB | ~0.8–2 GB |
+| Peak during fontc (IR + tables + temps) | ~1–3 GB | ~3–8 GB |
+| Output OTF/TTF (order of mag.) | tens of MB | tens–low hundreds of MB |
+| **Suggested VM RAM** | **4–8 GB** | **8–16 GB** |
+
+Factors that move the peak: master count, contour density, feature/kerning
+complexity, concurrent builds, and whether two revisions overlap in memory.
+**Do not** size from TTF-uncompiled feature dumps (~129 MB FEA prefixes alone);
+keep source-shaped features in core.
+
+Browser / DO remain unbound by these peaks: they never hold the full outline
+set for CJK-scale proofing builds.
 
 ## Cross-document operations
 
@@ -428,6 +510,7 @@ republish. Prefer immutable glyph ids and tombstones.
 | Core DO | peers, tail, lean catalog churn | glyph outlines |
 | Worker hydrate | concurrent stream buffers / page size | sum of all pack bytes held at once |
 | Browser session | core + deps + working-set glyphs | entire CJK outline set by default |
+| Full-font builder VM | full glyph set + fontc peak | DO isolate limits |
 
 ## Migration sketch
 
@@ -467,3 +550,5 @@ republish. Prefer immutable glyph ids and tombstones.
 - Structured feature-class membership vs AFDKO string leaves
 - UX for range hydrate and “server preview required”
 - Load measurements against Plangothic and Source Han Sans
+- Server builder: queue vs long-lived room process; measured fontc peak RAM
+  on real Plangothic / SHS-source builds; proofing stream protocol
