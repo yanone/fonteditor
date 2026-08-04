@@ -1041,9 +1041,10 @@ fn deserialize_subset_font_for_native_cache(
     subset_key: &str,
     subset_json: &serde_json::Value,
 ) -> Result<babelfont::Font, String> {
-    serde_json::from_value(subset_json.clone()).map_err(|error| {
+    let native_subset_json = decode_font_node_strings_for_native_cache(subset_json);
+    serde_json::from_value(native_subset_json.clone()).map_err(|error| {
         let layer_diagnostic = describe_subset_layer_deserialization_failure(subset_json);
-        let path_diagnostic = serde_json::to_string(subset_json)
+        let path_diagnostic = serde_json::to_string(&native_subset_json)
             .ok()
             .and_then(|subset_json_text| {
                 let mut deserializer = serde_json::Deserializer::from_str(&subset_json_text);
@@ -6647,7 +6648,7 @@ mod tests {
         apply_yjs_update_visual_layer_patch_advances_filter_epoch();
     }
 
-    fn apply_yjs_update_rejects_nonrehydratable_subset_before_cache_mutation() {
+    fn apply_yjs_update_rehydrates_compact_subset_nodes_before_cache_mutation() {
         clear_font_cache();
 
         let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
@@ -6693,29 +6694,29 @@ mod tests {
         }
         *Y_DOC.lock().unwrap() = Some(worker_doc);
 
-        let error = apply_yjs_update(
+        apply_yjs_update(
             malformed_update.as_slice(),
             r#"{
                 "changedGlyphs": ["A"],
                 "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }]
             }"#,
         )
-        .expect_err("non-rehydratable subset JSON must reject the originating Yjs update")
-        .as_string()
-        .unwrap_or_default();
-        assert!(error.contains("Subset font deserialization error for A"));
-        assert!(error.contains("path glyphs[0].layers[0].shapes[0]"));
-        assert!(Y_DOC.lock().unwrap().is_none());
-        assert!(CANONICAL_JSON_CACHE.lock().unwrap().is_none());
-        assert!(SUBSET_JSON_CACHE.lock().unwrap().is_none());
+        .expect("compact node strings must be rehydratable during the originating update");
+
+        *SUBSET_FONT_CACHE.lock().unwrap() = None;
+        SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
+        let subset_font = get_or_rebuild_subset_font_cache("A")
+            .unwrap()
+            .expect("subset cache should contain A");
+        assert_eq!(subset_font.glyphs[0].layers[0].shapes.len(), 1);
 
         clear_font_cache();
     }
 
     #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
-    fn wasm_apply_yjs_update_rejects_nonrehydratable_subset_before_cache_mutation() {
-        apply_yjs_update_rejects_nonrehydratable_subset_before_cache_mutation();
+    fn wasm_apply_yjs_update_rehydrates_compact_subset_nodes_before_cache_mutation() {
+        apply_yjs_update_rehydrates_compact_subset_nodes_before_cache_mutation();
     }
 
     #[test]
