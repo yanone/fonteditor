@@ -3285,18 +3285,11 @@ fn refresh_feature_related_caches_from_ydoc<T: ReadTxn>(txn: &T) -> Result<(), J
         return refresh_top_level_caches_from_ydoc(txn, &["features"]);
     }
 
-    {
-        let mut subset_lock = SUBSET_JSON_CACHE.lock().unwrap();
-        if let Some((_, subset_epoch, subset_json)) = subset_lock.as_mut() {
-            if replace_top_level_json_entry(subset_json, "features", features_json) {
-                *subset_epoch = subset_epoch.saturating_add(1);
-            }
-        }
-    }
-
     *FONT_CACHE.lock().unwrap() = None;
-    *SUBSET_FONT_CACHE.lock().unwrap() = None;
-    *FILTERED_FONT_CACHE.lock().unwrap() = None;
+    // A subset holds feature source already pruned by RetainGlyphs. Replacing
+    // its feature payload with the full source reintroduces references to
+    // glyphs outside that subset, so rebuild it from canonical state instead.
+    clear_active_subset_caches_for_closure_invalidation();
     *FEATURE_FILE_CACHE.lock().unwrap() = None;
     *FEATURE_FEA_STRING_CACHE.lock().unwrap() = None;
     LAYOUT_CLOSURE_CACHE.lock().unwrap().clear();
@@ -3304,8 +3297,6 @@ fn refresh_feature_related_caches_from_ydoc<T: ReadTxn>(txn: &T) -> Result<(), J
 
     FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
     FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
-    SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
-    FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
 
     Ok(())
 }
@@ -6964,11 +6955,7 @@ mod tests {
                 ["example"],
             json!("sub A by A;")
         );
-        assert_eq!(
-            SUBSET_JSON_CACHE.lock().unwrap().as_ref().unwrap().2["features"]["classes"]
-                ["example"],
-            json!("sub A by A;")
-        );
+        assert!(SUBSET_JSON_CACHE.lock().unwrap().is_none());
         assert!(FONT_CACHE.lock().unwrap().is_none());
         assert!(SUBSET_FONT_CACHE.lock().unwrap().is_none());
         assert!(FEATURE_FILE_CACHE.lock().unwrap().is_none());
