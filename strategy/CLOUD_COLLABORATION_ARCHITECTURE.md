@@ -41,6 +41,7 @@ Use these as stress cases when sizing catalog/deps budgets and hydrate UX:
 | Compaction | External service; DOs do not build full-state checkpoints |
 | Discovery | Lean identity catalog in core (incl. cmap) + separate deps index |
 | Closure | Layout closure (`close_layout`) ∪ deps-index expansion; then hydrate bodies |
+| Linked windows | Main window is sole cloud hub; BC is multi-doc; per-window residency |
 | Small vs large | Same machinery; default hydrate policy is `all` vs working-set |
 
 ## Why one architecture
@@ -321,6 +322,70 @@ When a remote edit commits:
 Switching the active glyph: unsubscribe previous (or tiny LRU), subscribe next,
 catch up first if needed.
 
+## Linked windows (same browser)
+
+Today, linked windows share **one** whole-font Y.Doc over `BroadcastChannel`
+(`WindowSync`): bootstrap via `full-state-request/response`, steady-state via
+`yjs-update`. Only the **main** window connects to the cloud DO; it relays
+peer updates up and cloud updates down (`APP.md`).
+
+That hub model stays. What changes is document scope and bootstrap volume —
+not “every window opens one WebSocket per glyph.”
+
+### What stays
+
+- Main window = only cloud WebSocket client for the asset.
+- Linked windows talk to main (and peers) over BroadcastChannel.
+- Authoritative transport = binary Yjs updates + collaboration metadata.
+- Same committed-change funnel after apply.
+
+### What changes
+
+**Many local Y.Docs.** Each window keeps `font-core` (+ `font-deps`) always,
+and only the glyph docs in **its** residency set. Two linked windows may
+hydrate different glyphs (different text runs / active glyphs). That is
+normal.
+
+**Packets are document-scoped.** Every BC message carries a `documentId`
+(`font-core` | `font-deps` | `glyph:<id>`). Receivers apply a glyph update
+only if that shard is loaded (core/deps always apply).
+
+**Bootstrap must not dump the whole font.** A single full-font
+`full-state-response` is already painful and is impossible for CJK. Linked
+open should:
+
+1. Obtain **core** (+ deps) state from main over BC (or from R2 baseline for
+   cloud assets).
+2. Compute **this window’s** seeds → layout closure ∪ deps → missing glyph
+   set.
+3. Fetch those shard states from main **when main already has them**, else
+   via the same HTTP hydrate path (R2 + tails) — never by shipping every
+   glyph the main window has ever touched.
+
+**Cloud live set is multiplexed on main.** Because only main holds DO
+connections, main subscribes to:
+
+- `font-core` (always), and
+- the **union of active glyphs** across local windows (plus an optional small
+  LRU),
+
+while passive freshness for other hydrated glyphs uses core dirty signals +
+HTTP catch-up — the same pattern as remote collaborators. Linked windows
+announce interest (active glyph / residency) so main can adjust the live set.
+They never open glyph DO sockets themselves.
+
+**Cascade across windows.** If window A edits `a` and writes recomposed glyph
+docs that window B has loaded, those document-scoped updates go out on BC
+(and to the cloud via main). B applies them if resident; if not, B only sees
+catalog/deps/dirty until it hydrates.
+
+| Path | Linked windows |
+| --- | --- |
+| Local sync | BC, multi-doc packets; interest = local residency |
+| Cloud live | Main multiplexes DO subs for the local window group |
+| Bulk / catch-up | HTTP packs / baseline+tail, not BC full-font snapshots |
+| Residency | Per-window; not required to match peers |
+
 ## Seeding
 
 1. Client (or materializer) uploads shard baselines to R2 (core, deps, glyph
@@ -371,7 +436,10 @@ republish. Prefer immutable glyph ids and tombstones.
 2. Generalize the committed-update funnel to document-scoped updates.
 3. Implement residency + hydrate packs + full closure
    (`close_layout` ∪ deps index), reusing the existing babelfont/WASM layout
-   closure path with catalog names instead of a full glyph list.
+   closure path with catalog names instead of a full glyph list. Extend
+   `WindowSync` to document-scoped BC packets and shard-scoped linked
+   bootstrap (core/deps + requested glyphs), keeping main as the sole cloud
+   hub.
 4. Shard DO identity and R2 layouts; zero-hydration join (HTTP baseline + tail).
 5. External compaction per shard.
 6. One-shot migrate legacy whole-font rooms into core + deps + per-glyph
@@ -390,6 +458,8 @@ republish. Prefer immutable glyph ids and tombstones.
 - Exact deps index encoding and whether reverse edges are stored or derived
 - Cmap encoding in core: per-entry `codepoints` only vs dedicated
   `codepoint → glyphId[]` structure for CJK text performance
+- Linked-window interest protocol: how precisely main aggregates active-glyph
+  DO subscriptions across local windows
 - Thinner `close_layout` API: `{ features, glyphNames, seeds }` without a full
   `Font` (optional cleanup in babelfont-rs)
 - Browser budgets: glyph count, bytes, layout-closure result size
