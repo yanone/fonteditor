@@ -1747,6 +1747,24 @@ fn apply_filter_pipeline(
     font: &babelfont::Font,
     options: &CompilationOptions,
 ) -> Result<babelfont::Font, JsValue> {
+    apply_filter_pipeline_with_glyph_retention(font, options, true)
+}
+
+/// Apply generation filters to a font already reduced by `RetainGlyphs`.
+/// Repeating retention would re-parse the reduced feature source against the
+/// subset glyph universe, where global references may no longer resolve.
+fn apply_filter_pipeline_to_subset(
+    font: &babelfont::Font,
+    options: &CompilationOptions,
+) -> Result<babelfont::Font, JsValue> {
+    apply_filter_pipeline_with_glyph_retention(font, options, false)
+}
+
+fn apply_filter_pipeline_with_glyph_retention(
+    font: &babelfont::Font,
+    options: &CompilationOptions,
+    retain_exported_glyphs: bool,
+) -> Result<babelfont::Font, JsValue> {
     let mut filtered = font.clone();
     remove_background_layers_for_generation(&mut filtered);
 
@@ -1762,15 +1780,17 @@ fn apply_filter_pipeline(
             .map_err(|e| JsValue::from_str(&format!("RewriteSmartAxes failed: {:?}", e)))?;
     }
 
-    let exported_names: Vec<String> = filtered
-        .glyphs
-        .iter()
-        .filter(|g| g.exported)
-        .map(|g| g.name.to_string())
-        .collect();
-    RetainGlyphs::new(exported_names)
-        .apply(&mut filtered)
-        .map_err(|e| JsValue::from_str(&format!("RetainGlyphs failed: {:?}", e)))?;
+    if retain_exported_glyphs {
+        let exported_names: Vec<String> = filtered
+            .glyphs
+            .iter()
+            .filter(|g| g.exported)
+            .map(|g| g.name.to_string())
+            .collect();
+        RetainGlyphs::new(exported_names)
+            .apply(&mut filtered)
+            .map_err(|e| JsValue::from_str(&format!("RetainGlyphs failed: {:?}", e)))?;
+    }
 
     GlyphsData
         .apply(&mut filtered)
@@ -4875,7 +4895,8 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
                 // Overlay layers are already physical; bake remaining logical autos.
                 let mut compile_font = subset_font;
                 bake_automatic_sidebearing_offsets_in_font(&mut compile_font, &skip_layers);
-                let filtered = apply_filter_pipeline(&compile_font, &compilation_options)?;
+                let filtered =
+                    apply_filter_pipeline_to_subset(&compile_font, &compilation_options)?;
                 let filtered_arc = Arc::new(filtered);
                 overlay.filtered_font_cache = Some(PreviewFilteredFontCacheEntry {
                     subset_key: prepared_subset_key.clone(),
@@ -4898,7 +4919,10 @@ pub fn compile_preview_cached_font_from_last_layout_closure(
                 None => build_subset_font_from_closure_subset(&closure_subset)?,
             };
             let compile_font = prepare_compile_facing_font(subset_font, &[])?;
-            Arc::new(apply_filter_pipeline(&compile_font, &compilation_options)?)
+            Arc::new(apply_filter_pipeline_to_subset(
+                &compile_font,
+                &compilation_options,
+            )?)
         }
     };
 
@@ -5012,7 +5036,10 @@ pub fn compile_cached_font_from_last_layout_closure(options: &JsValue) -> Result
         PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache");
     let filtered_font = if !overlay_layers.is_empty() {
         let compile_font = prepare_compile_facing_font(subset_font, &overlay_layers)?;
-        Arc::new(apply_filter_pipeline(&compile_font, &compilation_options)?)
+        Arc::new(apply_filter_pipeline_to_subset(
+            &compile_font,
+            &compilation_options,
+        )?)
     } else {
         // Use filtered font cache: bake + apply_filters() once, then reuse.
         let mut filter_cache = FILTERED_FONT_CACHE.lock().unwrap();
@@ -5035,7 +5062,8 @@ pub fn compile_cached_font_from_last_layout_closure(options: &JsValue) -> Result
                 "compile_cached_font_from_last_layout_closure.filter_cache.apply_filters",
             );
             let compile_font = prepare_compile_facing_font(subset_font, &[])?;
-            let filtered = apply_filter_pipeline(&compile_font, &compilation_options)?;
+            let filtered =
+                apply_filter_pipeline_to_subset(&compile_font, &compilation_options)?;
             drop(_apply_span);
 
             let filtered_arc = Arc::new(filtered);
@@ -5145,7 +5173,7 @@ pub fn compile_debug_cached_font_from_last_layout_closure(
         None => build_subset_font_from_closure_subset(&closure_subset)?,
     };
 
-    let filtered_font = apply_filter_pipeline(&subset_font, &compilation_options)?;
+    let filtered_font = apply_filter_pipeline_to_subset(&subset_font, &compilation_options)?;
     let compiled_font = compile_with_feature_debug_context(
         &filtered_font,
         &compilation_options,
@@ -5447,6 +5475,32 @@ mod tests {
             layout_closure_cache_key("17", "alef\u{1f}beh"),
             "17::alef\u{1f}beh"
         );
+    }
+
+    #[test]
+    fn subset_filter_does_not_reparse_global_feature_references() {
+        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
+        let mut referenced_glyph = font_json["glyphs"][0].clone();
+        referenced_glyph["name"] = json!("B");
+        referenced_glyph["codepoints"] = json!([66]);
+        font_json["glyphs"].as_array_mut().unwrap().push(referenced_glyph);
+        font_json["features"] = json!({
+            "classes": {},
+            "prefixes": {},
+            "features": [["ss03", { "code": "sub A by B;" }]]
+        });
+
+        let mut subset_font: babelfont::Font = serde_json::from_value(font_json.clone()).unwrap();
+        subset_font_using_cached_fea(&mut subset_font, &["A".to_string()]).unwrap();
+
+        let filtered = apply_filter_pipeline_to_subset(
+            &subset_font,
+            &CompilationOptions::default(),
+        )
+        .expect("filtering an already-reduced feature subset should not reparse dropped glyphs");
+
+        assert_eq!(filtered.glyphs.len(), 1);
+        assert_eq!(filtered.glyphs[0].name.as_str(), "A");
     }
 
     #[test]
@@ -7211,7 +7265,8 @@ mod tests {
             produce_varc_table: false,
             debug_feature_file: None,
         };
-        let filtered_font = apply_filter_pipeline(&subset_font, &compilation_options).unwrap();
+        let filtered_font =
+            apply_filter_pipeline_to_subset(&subset_font, &compilation_options).unwrap();
         BabelfontIrSource::compile(filtered_font, compilation_options.clone())
             .expect("component deletion should compile after the closure is re-primed");
 
@@ -7268,7 +7323,7 @@ mod tests {
             }
         };
         let filtered_restored =
-            apply_filter_pipeline(&restored_subset, &compilation_options).unwrap();
+            apply_filter_pipeline_to_subset(&restored_subset, &compilation_options).unwrap();
         BabelfontIrSource::compile(filtered_restored, compilation_options)
             .expect("component restore should compile after subset cache invalidation");
 
