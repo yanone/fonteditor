@@ -3597,7 +3597,11 @@ describe('Model setter change recording', () => {
             ])
         );
         expect(rawLayer.shapes).toEqual([
-            { nodes: '100 200 l', closed: false }
+            {
+                nodes: '100 200 l',
+                closed: false,
+                format_specific: { seed: true }
+            }
         ]);
 
         receiverBridge.applyRemoteUpdate(update, changeLogEntries);
@@ -3608,7 +3612,8 @@ describe('Model setter change recording', () => {
         ).toEqual([
             {
                 nodes: [{ x: 100, y: 200, nodetype: 'Line', smooth: false }],
-                closed: false
+                closed: false,
+                format_specific: { seed: true }
             }
         ]);
 

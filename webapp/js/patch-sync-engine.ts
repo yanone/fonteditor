@@ -1853,6 +1853,12 @@ export class PatchSyncEngine {
 
         const previousLayer = yLayerJson as Record<string, unknown>;
         if (
+            !Object.prototype.hasOwnProperty.call(storageLayerJson, 'name') &&
+            Object.prototype.hasOwnProperty.call(previousLayer, 'name')
+        ) {
+            storageLayerJson.name = cloneHistoryValue(previousLayer.name);
+        }
+        if (
             this._shouldUseGranularSingleLayerSync(
                 glyphName,
                 layerId,
