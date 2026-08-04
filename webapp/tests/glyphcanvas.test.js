@@ -3707,7 +3707,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         await canvas.commitPropertyPanelValue('left', '==50');
 
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
-        expect(fontManager.lastEditType).toBe('outline');
+        expect(fontManager.lastEditType).toBeNull();
         expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(
             window.autoCompileManager.checkAndSchedule
@@ -3784,7 +3784,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         }
 
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
-        expect(fontManager.lastEditType).toBe('outline');
+        expect(fontManager.lastEditType).toBeNull();
         expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(
             window.fontManager.refreshGlyphsAfterModelBatch
@@ -3956,7 +3956,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         await canvas.commitPropertyPanelValue('left', '=50');
 
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
-        expect(fontManager.lastEditType).toBe('outline');
+        expect(fontManager.lastEditType).toBeNull();
         expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         expect(
@@ -4263,7 +4263,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         ).toHaveBeenCalledTimes(1);
     });
 
-    test('armSidebearingKeyCompileContext routes keyed commits through keyboard-sidebearing outline mode', () => {
+    test('armSidebearingKeyCompileContext routes keyed commits through full sidebearing mode', () => {
         const requestRecompileWithoutDataChange = jest.fn();
 
         fontManager.openedFonts = new Map([
@@ -4280,7 +4280,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         canvas.armSidebearingKeyCompileContext();
 
         expect(fontManager.lastChangeSource).toBe('keyboard-sidebearing');
-        expect(fontManager.lastEditType).toBe('outline');
+        expect(fontManager.lastEditType).toBeNull();
         expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
         expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(

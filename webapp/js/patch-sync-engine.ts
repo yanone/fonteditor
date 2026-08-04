@@ -326,6 +326,7 @@ type LayerSyncMetadata = {
     compileEditType?: string | null;
     visualAnchorSide?: 'left' | 'right' | null;
     workerReplayTargets?: WorkerReplayTarget[];
+    preserveOmittedFields?: boolean;
 };
 
 const INDEXED_ARRAY_ORDER_KEYS: Record<string, string> = {
@@ -1503,7 +1504,8 @@ export class PatchSyncEngine {
                 workerReplayTargets,
                 editSource,
                 compileChangeSource,
-                compileEditType
+                compileEditType,
+                true
             );
             return;
         }
@@ -1567,7 +1569,8 @@ export class PatchSyncEngine {
                         compileChangeSource,
                         compileEditType,
                         visualAnchorSide,
-                        workerReplayTargets
+                        workerReplayTargets,
+                        preserveOmittedFields: true
                     }
                 )
             );
@@ -1961,6 +1964,12 @@ export class PatchSyncEngine {
             const operations: TransactionBufferedOperation[] = [];
             for (const key of keys) {
                 if (key === 'id') {
+                    continue;
+                }
+                if (
+                    metadata.preserveOmittedFields &&
+                    !Object.prototype.hasOwnProperty.call(nextRecord, key)
+                ) {
                     continue;
                 }
                 operations.push(
@@ -2582,7 +2591,8 @@ export class PatchSyncEngine {
         workerReplayTargets?: WorkerReplayTarget[],
         editSource?: string | null,
         compileChangeSource?: string | null,
-        compileEditType?: string | null
+        compileEditType?: string | null,
+        preserveOmittedFields = false
     ): boolean {
         const glyphs = (this._fontJson as Unsafe).glyphs;
         if (!Array.isArray(glyphs)) return false;
@@ -2626,7 +2636,8 @@ export class PatchSyncEngine {
                 compileChangeSource,
                 compileEditType,
                 visualAnchorSide,
-                workerReplayTargets
+                workerReplayTargets,
+                preserveOmittedFields
             }
         );
         if (!operations.length) {

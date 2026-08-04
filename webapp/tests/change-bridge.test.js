@@ -2866,11 +2866,12 @@ describe('Transactions', () => {
         );
     });
 
-    test('layer sync point edit stays granular when pruned optional layer keys disappear', () => {
+    test('layer sync point edit preserves omitted optional layer fields', () => {
         const { bridge, fontJson } = createTestBridge(
             'granular-layer-sync-pruned'
         );
         const layer = fontJson.glyphs[0].layers[0];
+        const originalGuides = cloneValue(layer.guides);
         layer.shapes[0].nodes[0].x = 125;
         layer.shapes[0].nodes[0].y = 15;
         delete layer.guides;
@@ -2889,36 +2890,34 @@ describe('Transactions', () => {
 
         const log = bridge.getChangeLog();
         expect(log.map((entry) => entry.path)).toEqual([
-            'glyphs.A:layers.layer-1:format_specific',
-            'glyphs.A:layers.layer-1:shapes.0.nodes',
-            'glyphs.A:layers.layer-1:guides'
+            'glyphs.A:layers.layer-1:shapes.0.nodes'
         ]);
-        expect(log.map((entry) => entry.op)).toEqual([
-            'remove',
-            'set',
-            'remove'
-        ]);
+        expect(log.map((entry) => entry.op)).toEqual(['set']);
         expect(
             log.some((entry) => entry.path === 'glyphs.A:layers.layer-1')
         ).toBe(false);
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'format_specific'
-            ])
-        ).toBeUndefined();
+            normalizeYDocValue(
+                getYPath(bridge.fontMap, [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'format_specific'
+                ])
+            )
+        ).toEqual({ seed: true });
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'guides'
-            ])
-        ).toBeUndefined();
+            normalizeYDocValue(
+                getYPath(bridge.fontMap, [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'guides'
+                ])
+            )
+        ).toEqual(originalGuides);
         expect(
             getYDocLayerNodeValue(bridge.fontMap, 'A', 'layer-1', 0, 0, 'x')
         ).toBe(125);
@@ -9314,6 +9313,18 @@ describe('syncGlyphFromJson', () => {
 
     test('syncLayersFromJson carries recomposed dependent sidebearing layers across remote apply', () => {
         const senderFontJson = makeMinimalFont();
+        senderFontJson.glyphs[0].layers[0].format_specific = {
+            opaque: { nested: [null, 'source'] }
+        };
+        senderFontJson.glyphs[0].layers[0].vendor_extension = {
+            payload: ['source']
+        };
+        senderFontJson.glyphs[1].layers[0].format_specific = {
+            opaque: { nested: [null, 'dependent'] }
+        };
+        senderFontJson.glyphs[1].layers[0].vendor_extension = {
+            payload: ['dependent']
+        };
         const receiverFontJson = cloneValue(senderFontJson);
         const senderBridge = new ChangeBridge('sender-sidebearing-batch');
         const receiverBridge = new ChangeBridge('receiver-sidebearing-batch');
@@ -9326,6 +9337,10 @@ describe('syncGlyphFromJson', () => {
             lastUpdate = update;
         });
 
+        delete senderFontJson.glyphs[0].layers[0].format_specific;
+        delete senderFontJson.glyphs[0].layers[0].vendor_extension;
+        delete senderFontJson.glyphs[1].layers[0].format_specific;
+        delete senderFontJson.glyphs[1].layers[0].vendor_extension;
         senderFontJson.glyphs[1].layers[0].width = 777;
         senderFontJson.glyphs[0].layers[0].width = 690;
         senderFontJson.glyphs[0].layers[0].shapes[1].transform.translation = [
@@ -9374,6 +9389,37 @@ describe('syncGlyphFromJson', () => {
         expect(
             receiverFontJson.glyphs[0].layers[0].shapes[1].transform.translation
         ).toEqual([123, 45]);
+        const receiverSourceLayer = normalizeYDocValue(
+            getYPath(receiverBridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1'
+            ])
+        );
+        const receiverDependentLayer = normalizeYDocValue(
+            getYPath(receiverBridge.fontMap, [
+                'glyphs',
+                'B',
+                'layers',
+                'layer-2'
+            ])
+        );
+
+        expect(receiverSourceLayer.name).toBe('Regular');
+        expect(receiverSourceLayer.format_specific).toEqual({
+            opaque: { nested: [null, 'source'] }
+        });
+        expect(receiverSourceLayer.vendor_extension).toEqual({
+            payload: ['source']
+        });
+        expect(receiverDependentLayer.name).toBe('Regular');
+        expect(receiverDependentLayer.format_specific).toEqual({
+            opaque: { nested: [null, 'dependent'] }
+        });
+        expect(receiverDependentLayer.vendor_extension).toEqual({
+            payload: ['dependent']
+        });
 
         senderBridge.destroy();
         receiverBridge.destroy();

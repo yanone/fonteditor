@@ -6344,7 +6344,7 @@ class GlyphCanvas {
     }
 
     private setSidebearingKeyCompileContext(): void {
-        fontManager.setEditingCompileContext('keyboard-sidebearing', 'outline');
+        fontManager.setEditingCompileContext('keyboard-sidebearing', null);
     }
 
     private armSidebearingKeyCompileContext(): void {
@@ -6411,7 +6411,7 @@ class GlyphCanvas {
         }
         this.outlineEditor.performHitDetection(null);
 
-        fontManager.setEditingCompileContext('keyboard-sidebearing', 'outline');
+        fontManager.setEditingCompileContext('keyboard-sidebearing', null);
         const affectedGlyphNames = Array.from(
             new Set(
                 resolution.affectedGlyphNames?.length
