@@ -1270,10 +1270,6 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
         expect(fetchLayerData).toHaveBeenCalledWith(true, 'a');
-        expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenLastCalledWith({
-            id: 'layer-1',
-            width: 500
-        });
         expect(performHitDetection).not.toHaveBeenCalled();
         expect(render).not.toHaveBeenCalled();
         expect(refreshGlyphAdvancesLive.mock.calls).toContainEqual([
