@@ -971,6 +971,94 @@ fn validate_glyph_json_for_native_cache(
     Ok(())
 }
 
+fn validate_active_subset_ydoc_layers_for_native_cache<T: ReadTxn>(
+    txn: &T,
+) -> Result<(), String> {
+    let active_subset_glyphs: Vec<String> = SUBSET_JSON_CACHE
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|(_, _, subset_json)| subset_json.get("glyphs")?.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|glyph| glyph.get("name")?.as_str().map(str::to_string))
+        .collect();
+
+    for glyph_name in active_subset_glyphs {
+        if let Some(glyph_json) = ydoc_get_glyph_json_with_txn(&glyph_name, txn) {
+            for layer_json in glyph_json
+                .get("layers")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let layer_id = layer_json
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                validate_layer_json_for_native_cache(&glyph_name, layer_id, layer_json)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn describe_subset_layer_deserialization_failure(subset_json: &serde_json::Value) -> String {
+    let Some(glyphs) = subset_json.get("glyphs").and_then(serde_json::Value::as_array) else {
+        return "subset JSON has no glyph array".to_string();
+    };
+
+    for glyph_json in glyphs {
+        let glyph_name = glyph_json
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("<unnamed-glyph>");
+        for layer_json in glyph_json
+            .get("layers")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let layer_id = layer_json
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<unnamed-layer>");
+            if let Err(error) = validate_layer_json_for_native_cache(
+                glyph_name,
+                layer_id,
+                layer_json,
+            ) {
+                return error;
+            }
+        }
+    }
+
+    "no individual layer deserialization error found".to_string()
+}
+
+fn deserialize_subset_font_for_native_cache(
+    subset_key: &str,
+    subset_json: &serde_json::Value,
+) -> Result<babelfont::Font, String> {
+    serde_json::from_value(subset_json.clone()).map_err(|error| {
+        let layer_diagnostic = describe_subset_layer_deserialization_failure(subset_json);
+        let path_diagnostic = serde_json::to_string(subset_json)
+            .ok()
+            .and_then(|subset_json_text| {
+                let mut deserializer = serde_json::Deserializer::from_str(&subset_json_text);
+                serde_path_to_error::deserialize::<_, babelfont::Font>(&mut deserializer)
+                    .err()
+                    .map(|path_error| format!("path {}: {}", path_error.path(), path_error.inner()))
+            })
+            .unwrap_or_else(|| "path unavailable".to_string());
+        format!(
+            "Subset font deserialization error for {}: {}; {}; {}",
+            subset_key, error, path_diagnostic, layer_diagnostic
+        )
+    })
+}
+
 fn replace_glyph_in_font_cache(
     font: &mut babelfont::Font,
     glyph_name: &str,
@@ -1555,8 +1643,8 @@ fn get_or_rebuild_subset_font_cache(
         }
     }
 
-    let font: babelfont::Font = serde_json::from_value(subset_json.clone())
-        .map_err(|e| JsValue::from_str(&format!("Subset font deserialization error: {}", e)))?;
+    let font = deserialize_subset_font_for_native_cache(expected_subset_key, subset_json)
+        .map_err(|error| JsValue::from_str(&error))?;
 
     let mut font_cache = SUBSET_FONT_CACHE.lock().unwrap();
     *font_cache = Some((expected_subset_key.to_string(), *subset_epoch, font.clone()));
@@ -3576,6 +3664,8 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                 validate_glyph_json_for_native_cache(glyph_name, glyph_json)
                     .map_err(|error| JsValue::from_str(&error))?;
             }
+            validate_active_subset_ydoc_layers_for_native_cache(&txn)
+                .map_err(|error| JsValue::from_str(&error))?;
 
         // -- 3. Update CANONICAL_JSON_CACHE -----------------------------------
         if changed_glyphs.is_empty()
@@ -3785,6 +3875,22 @@ pub fn apply_yjs_update(update: &[u8], update_metadata_json: &str) -> Result<Str
                                 Some((subset_key.clone(), *subset_epoch, touched_subset_glyphs));
                         }
                     }
+                }
+
+                if let Some((subset_key, _, _)) = subset_cache_refresh.as_ref() {
+                    let subset_json = SUBSET_JSON_CACHE
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .filter(|(cached_key, _, _)| cached_key == subset_key)
+                        .map(|(_, _, subset_json)| subset_json.clone())
+                        .ok_or_else(|| {
+                            JsValue::from_str(
+                                "apply_yjs_update: active subset cache disappeared before validation",
+                            )
+                        })?;
+                    deserialize_subset_font_for_native_cache(subset_key, &subset_json)
+                        .map_err(|error| JsValue::from_str(&error))?;
                 }
 
                 if let Some(ref mut font_cache) = *FONT_CACHE.lock().unwrap() {
@@ -6541,13 +6647,13 @@ mod tests {
         apply_yjs_update_visual_layer_patch_advances_filter_epoch();
     }
 
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
-    fn wasm_apply_yjs_update_rejects_malformed_shape_before_cache_mutation() {
+    fn apply_yjs_update_rejects_nonrehydratable_subset_before_cache_mutation() {
         clear_font_cache();
 
         let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
-        store_font_from_value(font_json).unwrap();
+        store_font_from_value(font_json.clone()).unwrap();
+        let subset_font: babelfont::Font = serde_json::from_value(font_json).unwrap();
+        store_subset_font_cache("A", &subset_font).unwrap();
 
         let author_doc = Doc::new();
         let font_map = author_doc.get_or_insert_map("font");
@@ -6574,8 +6680,9 @@ mod tests {
         let base_state_vector = author_doc.transact().state_vector();
         {
             let mut txn = author_doc.transact_mut();
-            let malformed_shape: yrs::MapRef = shapes.push_back(&mut txn, MapPrelim::<Any>::new());
-            malformed_shape.insert(&mut txn, "id", "malformed-shape");
+            let shape: yrs::MapRef = shapes.push_back(&mut txn, MapPrelim::<Any>::new());
+            shape.insert(&mut txn, "nodes", "0 0 l 100 0 l 100 100 l 0 100 l");
+            shape.insert(&mut txn, "closed", true);
         }
         let malformed_update = author_doc.transact().encode_diff_v1(&base_state_vector);
 
@@ -6593,15 +6700,22 @@ mod tests {
                 "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }]
             }"#,
         )
-        .expect_err("malformed shape must reject the originating Yjs update")
+        .expect_err("non-rehydratable subset JSON must reject the originating Yjs update")
         .as_string()
         .unwrap_or_default();
-        assert!(error.contains("Layer deserialization error for A::layer-1"));
+        assert!(error.contains("Subset font deserialization error for A"));
+        assert!(error.contains("path glyphs[0].layers[0].shapes[0]"));
         assert!(Y_DOC.lock().unwrap().is_none());
         assert!(CANONICAL_JSON_CACHE.lock().unwrap().is_none());
         assert!(SUBSET_JSON_CACHE.lock().unwrap().is_none());
 
         clear_font_cache();
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test]
+    fn wasm_apply_yjs_update_rejects_nonrehydratable_subset_before_cache_mutation() {
+        apply_yjs_update_rejects_nonrehydratable_subset_before_cache_mutation();
     }
 
     #[test]

@@ -186,6 +186,7 @@ dependencies = [
  "read-fonts 0.39.2",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "skrifa",
  "smol_str",
  "tempfile",
