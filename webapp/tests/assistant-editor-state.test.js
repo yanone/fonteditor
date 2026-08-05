@@ -79,6 +79,87 @@ describe('get_editor_state text-buffer interpretation', () => {
         expect(result.textBufferSyntax).toContain('Never infer //');
     });
 
+    test('explains which OpenType features are reachable in the current subset', async () => {
+        window.stateManager.getStateSnapshot.mockReturnValue({
+            state: {
+                editor_text_buffer: 'fi',
+                editor_opentype_features_in_subset: {
+                    kern: true,
+                    dlig: false
+                },
+                editor_opentype_features_not_in_subset: {
+                    liga: true,
+                    ss01: false
+                }
+            }
+        });
+        window.glyphCanvas.textRunEditor = {
+            textBuffer: 'fi',
+            displayTextBuffer: 'fi',
+            explicitGlyphTokens: [],
+            glyphNameBuffer: ['f', 'i'],
+            shapedGlyphs: [
+                { g: 1, ax: 500, cl: 0 },
+                { g: 2, ax: 400, cl: 1 }
+            ]
+        };
+
+        const assistant = new AIAssistant();
+        const result = JSON.parse(
+            await assistant.executeToolCall({
+                function: { name: 'get_editor_state', arguments: '{}' }
+            })
+        );
+
+        expect(result.opentypeFeaturesExplanation).toContain(
+            'availableToActivate false'
+        );
+        expect(result.featureStateByTag).toEqual({
+            dlig: false,
+            kern: true,
+            liga: false,
+            ss01: false
+        });
+        expect(result.features).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    tag: 'kern',
+                    active: true,
+                    enabled: true,
+                    availableToActivate: true,
+                    inSubset: true,
+                    status: 'Active now in the current editing subset.'
+                }),
+                expect.objectContaining({
+                    tag: 'dlig',
+                    active: false,
+                    enabled: false,
+                    availableToActivate: true,
+                    inSubset: true,
+                    status: 'Available to activate now in the current editing subset.'
+                }),
+                expect.objectContaining({
+                    tag: 'liga',
+                    active: false,
+                    enabled: true,
+                    availableToActivate: false,
+                    inSubset: false,
+                    status: expect.stringContaining('greyed out')
+                }),
+                expect.objectContaining({
+                    tag: 'ss01',
+                    active: false,
+                    enabled: false,
+                    availableToActivate: false,
+                    inSubset: false,
+                    note: expect.stringContaining(
+                        'recommend enabling it with set_editor_opentype_features'
+                    )
+                })
+            ])
+        );
+    });
+
     test('distinguishes raw escaped slashes from displayed text', async () => {
         window.stateManager.getStateSnapshot.mockReturnValue({
             state: {

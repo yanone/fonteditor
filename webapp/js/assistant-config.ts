@@ -184,7 +184,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         function: {
             name: 'get_editor_state',
             description:
-                'Get the current editor state for both inspection and parameter-copying. Returns raw text-buffer syntax as textBuffer and textBufferRaw, user-visible text as textBufferDisplay, parsed explicit glyph tokens, HarfBuzz shaped buffers (glyph names, gids, advances, clusters), the complete current OpenType feature inventory with descriptions, subset availability, and activation flags, a per-feature tag-to-boolean activation dictionary, the current userspace location, the current designspace location, and the current file. In raw text syntax, // represents one literal slash and /glyphname is an explicit glyph reference only when it resolves; never claim an escaped slash pair unless textBufferRaw explicitly contains //. Use this to understand the active text layout and feature configuration, and also to copy explicit inputs for compile_binary_font or shape_binary_font. This state can change after text, feature, or font-data edits, so refresh it when needed.',
+                'Get the current editor state for both inspection and parameter-copying. Returns raw text-buffer syntax as textBuffer and textBufferRaw, user-visible text as textBufferDisplay, parsed explicit glyph tokens, HarfBuzz shaped buffers (glyph names, gids, advances, clusters), OpenType feature inventory, userspace/designspace location, and the current file. OpenType features: every listed feature exists in the font. Features with availableToActivate true are reachable in the current editing subset (determined by the text buffer and active feature set) and can be turned on/off now. Features with availableToActivate false still exist, but are greyed out in the sidebar because the current subset cannot reach them yet; explain that to the user and recommend enabling them with set_editor_opentype_features when their effect is wanted. Read opentypeFeaturesExplanation and each feature status/note in the tool output for the plain-language breakdown. In raw text syntax, // represents one literal slash and /glyphname is an explicit glyph reference only when it resolves; never claim an escaped slash pair unless textBufferRaw explicitly contains //. Refresh this state after text, feature, or font-data edits.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -248,7 +248,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         function: {
             name: 'set_editor_opentype_features',
             description:
-                'Set which OpenType features are activated. Provide a list of feature tags to enable. All other features are set to false. Use tool `get_editor_state` first to see available features and their tags.',
+                'Set which OpenType features are activated. Provide a list of feature tags to enable; all other features are set to false. Use get_editor_state first. Prefer tags with availableToActivate true when you need an immediate visible effect. If a needed feature has availableToActivate false, it still exists in the font but is not reachable in the current subset yet — explain that, then include it in the enable list so it can become active.',
             parameters: {
                 type: 'object',
                 properties: {

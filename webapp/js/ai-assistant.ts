@@ -3272,17 +3272,36 @@ if '_assistant_original_stdout' in dir():
                 for (const tag of Object.keys(featuresOut))
                     allFeatureTags.add(tag);
 
-                const features = [...allFeatureTags].sort().map((tag) => ({
-                    tag,
-                    active: featuresIn[tag] === true,
-                    inSubset: tag in featuresIn,
-                    description: getFeatureDescription(tag) || tag
-                }));
+                const features = [...allFeatureTags].sort().map((tag) => {
+                    const availableToActivate = tag in featuresIn;
+                    const enabledPreference = availableToActivate
+                        ? featuresIn[tag] === true
+                        : featuresOut[tag] === true;
+                    const active =
+                        availableToActivate && enabledPreference === true;
+                    return {
+                        tag,
+                        description: getFeatureDescription(tag) || tag,
+                        active,
+                        enabled: enabledPreference,
+                        availableToActivate,
+                        // Kept for compatibility with earlier tool consumers.
+                        inSubset: availableToActivate,
+                        status: availableToActivate
+                            ? active
+                                ? 'Active now in the current editing subset.'
+                                : 'Available to activate now in the current editing subset.'
+                            : 'Exists in the font, but greyed out in the sidebar because the current editing subset cannot reach it yet.',
+                        note: availableToActivate
+                            ? active
+                                ? 'This feature is on and affecting the current text.'
+                                : 'Turn this on with set_editor_opentype_features when you want its effect.'
+                            : 'The feature is real; it is just not reachable under the current text buffer and active feature set. Explain that to the user, then recommend enabling it with set_editor_opentype_features when its effect is wanted.'
+                    };
+                });
 
                 const featureStateByTag = Object.fromEntries(
-                    [...allFeatureTags]
-                        .sort()
-                        .map((tag) => [tag, featuresIn[tag] === true])
+                    features.map((feature) => [feature.tag, feature.active])
                 );
 
                 const userspaceLocationRaw =
@@ -3377,6 +3396,8 @@ if '_assistant_original_stdout' in dir():
                             : 'state-manager',
                         userspaceLocation,
                         designspaceLocation,
+                        opentypeFeaturesExplanation:
+                            'Every feature listed below exists in the font. availableToActivate true means it is reachable in the current editing subset (from the current text buffer and active feature set) and can be turned on/off immediately. availableToActivate false means the sidebar shows it greyed out: the feature still exists, but the current subset cannot reach it yet. When that happens, explain the situation clearly and recommend enabling the feature with set_editor_opentype_features if its effect is wanted. active is true only when the feature is both reachable and currently on. enabled is the on/off preference even when the feature is not currently reachable.',
                         featureStateByTag,
                         features,
                         file: s.editor_file || ''
