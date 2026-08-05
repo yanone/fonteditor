@@ -197,7 +197,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         function: {
             name: 'get_font_opentype_info',
             description:
-                'Explain how OpenType shaping depends on script-specific shaper execution order for the current font. Reports the explicit feature source order as defined in the font, clarifies that source order is not shaping order, and then reproduces the shaper-specific feature sections shown in the features sidebar for every shaper currently in use.',
+                'Explain how OpenType shaping depends on script-specific shaper execution order for the current font. Reports the explicit feature source order as defined in the font, clarifies that source order is not shaping order, and then reproduces the shaper-specific feature sections shown in the features sidebar for every shaper currently in use. Reordering user-sortable (discretionary) features can change the shaping outcome, so their order is critical.',
             parameters: {
                 type: 'object',
                 properties: {},
