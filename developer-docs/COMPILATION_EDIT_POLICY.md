@@ -49,7 +49,7 @@ bypassing the policy before a scenario test has a chance to miss it.
 4. Interactive keyboard edits must still compile live.
 5. Interactive enriched edits must still schedule a trailing debounced full compile after the interaction settles.
 6. Interactive edit-time flows must keep the Rust worker congruent via incremental Yjs updates only. Edit-time Rust promotion is incremental-Yjs-only; worker-cache JSON patch batches, full babelfont JSON resends, and full Yjs-state resends are not part of the steady-state editing path.
-7. Editing compiles must continue using the subsetted `editing` target before fontc.
+7. Editing compiles must continue using the subsetted `editing` target before fontc. `FontManager.recompileEditingFont()` MUST NOT trust a stale narrow `editingSubsetSnapshot` alone: it MUST widen that snapshot by merging glyphs derived from the current text buffer and `getLiveVisibleGlyphNames()` before compiling, so visible dependents (for example `adieresis` while editing `a` in an `aä` run) stay inside `SUBSET_JSON_CACHE` and remain patchable via `workerReplayTargets`.
 8. Text input uses its own subset-only fast path and still schedules a deferred full compile after typing settles.
 9. Full compiles remain the correctness fallback after interactive editing or when an edit type does not have a specialized fast path.
 10. Linked windows must not schedule background full binary compilation. Explicit export and assistant analysis seed their isolated worker from settled committed state.

@@ -2069,7 +2069,6 @@ class FontManager {
             throw new Error('Editing font not compiled yet');
         }
 
-        // Use the shapeTextWithFont function from font-compilation.js
         return await window.shapeTextWithFont(this.editingFont, text);
     }
 
@@ -3167,19 +3166,33 @@ class FontManager {
 
         let subsetGlyphs = this.getEditingSubsetSnapshot();
 
-        if (subsetGlyphs.length === 0) {
-            const fallbackText =
-                this.currentText ||
-                window.glyphCanvas?.textRunEditor?.textBuffer ||
-                localStorage.getItem('glyphCanvasTextBuffer') ||
-                'Hamburgevons';
-            subsetGlyphs = this.deriveSubsetGlyphsFromText(fallbackText);
-            if (subsetGlyphs.length > 0) {
-                this.updateEditingSubsetSnapshot(subsetGlyphs);
-            }
+        // A stale narrow snapshot (e.g. a one-glyph forced compile while the
+        // text run still shows more glyphs) must not win over the current
+        // editing text / visible run. Merge text-derived and live-visible
+        // glyphs so dependents like adieresis stay in the editing subset.
+        const textBuffer =
+            this.currentText ||
+            window.glyphCanvas?.textRunEditor?.textBuffer ||
+            localStorage.getItem('glyphCanvasTextBuffer') ||
+            '';
+        subsetGlyphs = this.normalizeSubsetGlyphs([
+            ...subsetGlyphs,
+            ...this.getLiveVisibleGlyphNames()
+        ]);
+        if (textBuffer.length > 0) {
+            subsetGlyphs = this.normalizeSubsetGlyphs([
+                ...subsetGlyphs,
+                ...this.deriveSubsetGlyphsFromText(textBuffer)
+            ]);
+        } else if (subsetGlyphs.length === 0) {
+            subsetGlyphs = this.normalizeSubsetGlyphs(
+                this.deriveSubsetGlyphsFromText('Hamburgevons')
+            );
         }
 
-        if (subsetGlyphs.length === 0 && !isOutlineIncrementalChange) {
+        if (subsetGlyphs.length > 0) {
+            this.updateEditingSubsetSnapshot(subsetGlyphs);
+        } else if (!isOutlineIncrementalChange) {
             subsetGlyphs =
                 window.glyphCanvas?.textRunEditor?.glyphNameBuffer || [];
         }

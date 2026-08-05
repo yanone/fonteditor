@@ -1884,6 +1884,7 @@ if (typeof document !== 'undefined') {
 (window as any).initFontCompilation = initFontCompilation;
 (window as any).fontCompilation = fontCompilation;
 (window as any).fullFontCompilation = fullFontCompilation;
+(window as any).shapeTextWithFont = shapeTextWithFont;
 (window as any).shapeTextWithFontDetailed = shapeTextWithFontDetailed;
 
 export type { CompilationOptions };

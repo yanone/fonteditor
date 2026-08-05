@@ -825,10 +825,56 @@ async function canRunAAdieresisUndoRedo(
     }, action);
 }
 
+async function expectEditingFontContainsGlyphs(
+    page: Page,
+    text: string,
+    expectedGlyphNames: string[],
+    label: string
+): Promise<void> {
+    const shapedGlyphNames = await page.evaluate(
+        async ({ sampleText }) => {
+            const fontManager = (window as any).fontManager;
+            if (!fontManager?.editingFont) {
+                throw new Error('No editing font available for glyph check');
+            }
+            return fontManager.getGlyphNamesForText(sampleText);
+        },
+        { sampleText: text }
+    );
+    for (const glyphName of expectedGlyphNames) {
+        expect(
+            shapedGlyphNames,
+            `${label}: editing font must shape '${text}' to include ${glyphName}; got ${JSON.stringify(shapedGlyphNames)}`
+        ).toContain(glyphName);
+    }
+}
+
+async function expectAAdieresisSubsetPresent(
+    page: Page,
+    label: string
+): Promise<void> {
+    const workerLayers = await getWorkerLayerShapeCounts(page);
+    expect(
+        workerLayers.aSubsetShapes,
+        `${label}: worker subset must include a ${JSON.stringify(workerLayers)}`
+    ).toBeGreaterThan(0);
+    expect(
+        workerLayers.adieresisSubsetShapes,
+        `${label}: worker subset must include adieresis ${JSON.stringify(workerLayers)}`
+    ).toBeGreaterThan(0);
+}
+
 async function assertCompiledAAdieresisState(
     page: Page,
     label: string
 ): Promise<void> {
+    await expectAAdieresisSubsetPresent(page, label);
+    await expectEditingFontContainsGlyphs(
+        page,
+        'aä',
+        ['a', 'adieresis'],
+        label
+    );
     const aSample = await getEditingFontVisualSample(page, 'a');
     const adieresisSample = await getEditingFontVisualSample(page, 'ä');
     expectAdieresisSampleContainsBase(aSample, adieresisSample, label);
@@ -1429,10 +1475,40 @@ async function forceEditingCompile(
     // Wait for any pending edits to land before forcing
     await page.waitForTimeout(100);
     await page.evaluate(async (activeGlyphName) => {
-        await (window as any).fontManager.compileEditingFont(
-            activeGlyphName,
+        const fontManager = (window as any).fontManager;
+        const glyphCanvas = (window as any).glyphCanvas;
+        // Cancel the text-change debounce so it cannot race and leave a
+        // stale narrow snapshot after this forced compile (or overwrite a
+        // correct wide snapshot with a later narrow one).
+        if (glyphCanvas?.textChangeDebounceTimer) {
+            clearTimeout(glyphCanvas.textChangeDebounceTimer);
+            glyphCanvas.textChangeDebounceTimer = null;
+        }
+        const textBuffer =
+            glyphCanvas?.textRunEditor?.textBuffer ||
+            fontManager?.currentText ||
+            '';
+        const textDerived =
+            textBuffer && fontManager?.deriveSubsetGlyphsFromText
+                ? fontManager.deriveSubsetGlyphsFromText(textBuffer)
+                : [];
+        const liveVisible = fontManager?.getLiveVisibleGlyphNames?.() || [];
+        const subsetGlyphs = Array.from(
+            new Set(
+                [activeGlyphName, ...textDerived, ...liveVisible].filter(
+                    (name: unknown): name is string =>
+                        typeof name === 'string' && name.length > 0
+                )
+            )
+        );
+        const subsetKey = [...subsetGlyphs].sort().join('\u0000');
+        if (glyphCanvas) {
+            glyphCanvas.textChangeLastSubsetKey = subsetKey;
+        }
+        await fontManager.compileEditingFont(
+            textBuffer || activeGlyphName,
             [],
-            [activeGlyphName]
+            subsetGlyphs
         );
     }, glyphName);
 }

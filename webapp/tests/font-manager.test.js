@@ -2254,6 +2254,33 @@ describe('FontManager editing subset inclusion', () => {
         ]);
     });
 
+    test('recompileEditingFont widens a stale narrow subset from the current text buffer', async () => {
+        fontManager.updateEditingSubsetSnapshot(['a']);
+        fontManager.currentText = 'aä';
+        window.glyphCanvas.textRunEditor.textBuffer = 'aä';
+        window.glyphCanvas.textRunEditor.glyphNameBuffer = ['a'];
+        window.glyphCanvas.outlineEditor.currentGlyphName = 'a';
+        window.glyphCanvas.getCurrentGlyphName = jest.fn(() => 'a');
+        const deriveSpy = jest
+            .spyOn(fontManager, 'deriveSubsetGlyphsFromText')
+            .mockReturnValue(['a', 'adieresis']);
+
+        try {
+            await fontManager.recompileEditingFont();
+
+            expect(deriveSpy).toHaveBeenCalledWith('aä');
+            expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+            expect(compileEditingSpy.mock.calls[0][2]).toEqual(
+                expect.arrayContaining(['a', 'adieresis'])
+            );
+            expect(fontManager.getEditingSubsetSnapshot()).toEqual(
+                expect.arrayContaining(['a', 'adieresis'])
+            );
+        } finally {
+            deriveSpy.mockRestore();
+        }
+    });
+
     test('getAutomaticCompositionDragScopeGlyphNames keeps only visible dependents and required bridges', () => {
         fontManager.updateEditingSubsetSnapshot(['visibleLeaf']);
         window.glyphCanvas.textRunEditor.glyphNameBuffer = [];
