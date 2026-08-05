@@ -17,7 +17,7 @@ Useful development-only helpers:
 
 ## Local Testing vs. CI
 
-There is an unfortunate disparity between local testing and CI: In CI, the Plawright tests stopped passing, while locally they do pass. Therefore, Plawright tests need to be run locally before each push. They are included in `npm run test` but are excluded from `npm run test:ci` which is run during CI.
+Both CI and release workflows run `npm test` in `webapp` (`test:checks` then Playwright). There is no separate `test:ci` that skips Playwright. Keep Playwright green locally before pushing; the suite is on the critical path for preview and production deploys.
 
 ## Python Runtime Model
 

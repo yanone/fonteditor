@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
     focusView,
     waitForCanvasReady,
@@ -6,69 +6,72 @@ import {
     waitForOpenSessionReady
 } from './helpers/snapshot-helper';
 
+async function openFustatOnce(page: Page) {
+    await page.evaluate(async () => {
+        await (window as any).showFontFileDialog?.({ mode: 'open' });
+    });
+
+    const dialog = page.locator('#font-file-dialog');
+    await dialog.waitFor({ state: 'visible' });
+    await dialog.locator('.file-item[data-name="Fustat.glyphs"]').dblclick();
+
+    await waitForFontLoaded(page);
+    await waitForOpenSessionReady(page, 'Fustat.glyphs');
+}
+
+async function closeFontDialogIfOpen(page: Page) {
+    const dialog = page.locator('#font-file-dialog');
+    if (await dialog.isVisible()) {
+        const closeBtn = dialog.locator('#font-file-dialog-close-btn');
+        if (await closeBtn.isEnabled()) {
+            await closeBtn.click();
+        } else {
+            await page.keyboard.press('Escape');
+        }
+        await expect(dialog).toBeHidden();
+    }
+}
+
 test.describe('Open Dialog UI', () => {
-    test.beforeEach(async ({ page }) => {
+    test.describe.configure({ mode: 'serial' });
+
+    test('open, save-as, and cloud dialog behaviors share one Fustat session', async ({
+        page
+    }) => {
         await page.goto('/?test=true');
         await waitForCanvasReady(page);
         await page.mouse.move(-100, -100);
-        await page.waitForTimeout(200);
         await focusView(page, 'Meta+Shift+E', 'view-editor');
-        await page.waitForTimeout(300);
-    });
 
-    test('reopen shows the current file URI in the footer', async ({
-        page
-    }) => {
-        await page.evaluate(async () => {
-            await (window as any).showFontFileDialog?.({ mode: 'open' });
-        });
+        await openFustatOnce(page);
 
         const dialog = page.locator('#font-file-dialog');
-        await dialog.waitFor({ state: 'visible' });
-        await dialog
-            .locator('.file-item[data-name="Fustat.glyphs"]')
-            .dblclick();
 
-        await waitForFontLoaded(page);
-        await waitForOpenSessionReady(page, 'Fustat.glyphs');
-
+        // Reopen shows the current file URI in the footer.
         await page.evaluate(async () => {
             await (window as any).showFontFileDialog?.({ mode: 'open' });
         });
-
         await expect(dialog).toBeVisible();
         await expect(dialog.locator('#file-dialog-selection')).toContainText(
             'memory:///user/Fustat.glyphs'
         );
-    });
+        await closeFontDialogIfOpen(page);
 
-    test('save as writes Glyphs source for a .glyphs filename', async ({
-        page
-    }) => {
+        // Save as writes Glyphs source for a .glyphs filename.
         let saveError: string | null = null;
-        page.on('dialog', async (dialog) => {
-            saveError = dialog.message();
-            await dialog.dismiss();
-        });
-
-        await page.evaluate(async () => {
-            await (window as any).showFontFileDialog?.({ mode: 'open' });
-        });
-
-        const dialog = page.locator('#font-file-dialog');
-        await dialog.waitFor({ state: 'visible' });
-        await dialog
-            .locator('.file-item[data-name="Fustat.glyphs"]')
-            .dblclick();
-
-        await waitForFontLoaded(page);
-        await waitForOpenSessionReady(page, 'Fustat.glyphs');
+        const dismissAlert = async (browserDialog: {
+            message: () => string;
+            dismiss: () => Promise<void>;
+        }) => {
+            saveError = browserDialog.message();
+            await browserDialog.dismiss();
+        };
+        page.on('dialog', dismissAlert);
 
         const savedFileName = `save-as-glyphs-${Date.now()}.glyphs`;
         await page.evaluate(async () => {
             await (window as any).showFontFileDialog?.({ mode: 'save-as' });
         });
-
         await dialog.locator('#file-dialog-save-name').fill(savedFileName);
         await dialog.locator('#file-dialog-confirm-btn').click();
         await expect
@@ -91,24 +94,8 @@ test.describe('Open Dialog UI', () => {
 
         expect(savedContent).toContain('.formatVersion = 3;');
         expect(savedContent).not.toContain('"glyphs":');
-    });
 
-    test('cloud save as closes the dialog even if the refresh fails', async ({
-        page
-    }) => {
-        await page.evaluate(async () => {
-            await (window as any).showFontFileDialog?.({ mode: 'open' });
-        });
-
-        const dialog = page.locator('#font-file-dialog');
-        await dialog.waitFor({ state: 'visible' });
-        await dialog
-            .locator('.file-item[data-name="Fustat.glyphs"]')
-            .dblclick();
-
-        await waitForFontLoaded(page);
-        await waitForOpenSessionReady(page, 'Fustat.glyphs');
-
+        // Cloud save as closes the dialog even if the refresh fails.
         await page.evaluate(async () => {
             const cloudPlugin = (window as any).cloudPlugin;
             const currentFont = (window as any).fontManager?.currentFont;
@@ -161,28 +148,8 @@ test.describe('Open Dialog UI', () => {
             delete (window as any).__restoreCloudSaveAsDialogTest;
             delete (window as any).__cloudSaveAsHandlerCalls;
         });
-    });
 
-    test('cloud save as failure keeps the dialog open and shows an inline error', async ({
-        page
-    }) => {
-        page.on('dialog', async (dialog) => {
-            await dialog.dismiss();
-        });
-
-        await page.evaluate(async () => {
-            await (window as any).showFontFileDialog?.({ mode: 'open' });
-        });
-
-        const dialog = page.locator('#font-file-dialog');
-        await dialog.waitFor({ state: 'visible' });
-        await dialog
-            .locator('.file-item[data-name="Fustat.glyphs"]')
-            .dblclick();
-
-        await waitForFontLoaded(page);
-        await waitForOpenSessionReady(page, 'Fustat.glyphs');
-
+        // Cloud save as failure keeps the dialog open and shows an inline error.
         await page.evaluate(async () => {
             const cloudPlugin = (window as any).cloudPlugin;
             const originalIsVisibleInUI =
@@ -222,29 +189,28 @@ test.describe('Open Dialog UI', () => {
             (window as any).__restoreCloudSaveAsDialogFailureTest?.();
             delete (window as any).__restoreCloudSaveAsDialogFailureTest;
         });
-    });
+        await closeFontDialogIfOpen(page);
 
-    test('cloud open failure keeps the dialog open, shows an inline error, and preserves the current font', async ({
-        page
-    }) => {
-        let sawDialog = false;
-        page.on('dialog', async (dialog) => {
-            sawDialog = true;
-            await dialog.dismiss();
-        });
-
+        // Cloud open failure keeps the dialog open and preserves the current font.
+        // Note: prior cloud save-as success mutated path to cloud://mock-saved-asset;
+        // restore a memory path for the preservation assertion by reopening Fustat.
         await page.evaluate(async () => {
-            await (window as any).showFontFileDialog?.({ mode: 'open' });
+            const fontManager = (window as any).fontManager;
+            const memoryPlugin = (window as any).pluginRegistry?.get?.(
+                'memory'
+            );
+            if (fontManager?.currentFont && memoryPlugin) {
+                fontManager.currentFont.path = 'memory:///user/Fustat.glyphs';
+                fontManager.currentFont.sourcePlugin = memoryPlugin;
+            }
         });
 
-        const dialog = page.locator('#font-file-dialog');
-        await dialog.waitFor({ state: 'visible' });
-        await dialog
-            .locator('.file-item[data-name="Fustat.glyphs"]')
-            .dblclick();
-
-        await waitForFontLoaded(page);
-        await waitForOpenSessionReady(page, 'Fustat.glyphs');
+        let sawDialog = false;
+        page.off('dialog', dismissAlert);
+        page.on('dialog', async (browserDialog) => {
+            sawDialog = true;
+            await browserDialog.dismiss();
+        });
 
         const currentFontPathBefore = await page.evaluate(() => {
             return (window as any).fontManager?.currentFont?.path || null;
