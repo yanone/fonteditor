@@ -62,6 +62,9 @@ jobs:
             - name: Install webapp dependencies
               run: npm install --prefix webapp
 
+            - name: Install Playwright Chromium
+              run: npx --prefix webapp playwright install chromium
+
             - name: Build webapp with webpack
               run: npm run build --prefix webapp
               env:
