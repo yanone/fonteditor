@@ -22,8 +22,8 @@ export default defineConfig({
     workers: 1,
 
     // Maximum time one test can run
-    // These browser integration specs load large fonts and cloud/local workers,
-    // and can exceed 120s on slower machines.
+    // These browser integration specs load large fonts and multi-window
+    // flows, and can exceed 120s on slower machines.
     timeout: 300000,
 
     // Keep tests in-order for deterministic snapshot timing
