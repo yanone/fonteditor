@@ -322,7 +322,8 @@ async function getPersistedCloudOutboxCount(
 async function resendPersistedCloudOutboxRecordOverFreshSocket(
     page: Page,
     assetId: string,
-    websiteBaseUrl?: string | null
+    websiteBaseUrl: string | null | undefined,
+    ydocSchemaVersion: number
 ): Promise<{ durable: boolean; seq: number | null }> {
     return page.evaluate(
         async ({ nextAssetId, nextWebsiteBaseUrl }) => {
@@ -458,7 +459,7 @@ async function resendPersistedCloudOutboxRecordOverFreshSocket(
                             JSON.stringify({
                                 type: 'auth',
                                 token,
-                                ydocSchemaVersion: 2
+                                ydocSchemaVersion: nextYdocSchemaVersion
                             })
                         );
                     };
@@ -487,6 +488,16 @@ async function resendPersistedCloudOutboxRecordOverFreshSocket(
                             return;
                         }
 
+                        if (message?.type === 'auth-error') {
+                            window.clearTimeout(timeoutId);
+                            reject(
+                                new Error(
+                                    `Duplicate resend room auth failed: ${String(message.message ?? 'unknown error')}`
+                                )
+                            );
+                            return;
+                        }
+
                         if (message?.type === 'ack') {
                             window.clearTimeout(timeoutId);
                             try {
@@ -506,7 +517,11 @@ async function resendPersistedCloudOutboxRecordOverFreshSocket(
                 }
             );
         },
-        { nextAssetId: assetId, nextWebsiteBaseUrl: websiteBaseUrl ?? null }
+        {
+            nextAssetId: assetId,
+            nextWebsiteBaseUrl: websiteBaseUrl ?? null,
+            nextYdocSchemaVersion: ydocSchemaVersion
+        }
     );
 }
 
@@ -2592,11 +2607,18 @@ test.describe('Local cloud collaboration', () => {
         await waitForCanvasReady(duplicateSenderPage);
         await bootstrapCloudSession(duplicateSenderPage, ownerEmail);
 
+        const roomStatus = await fetchRoomStatus(duplicateSenderPage, assetId);
+        const ydocSchemaVersion = Number(
+            roomStatus?.storageState?.ydocSchemaVersion ?? 0
+        );
+        expect(ydocSchemaVersion).toBeGreaterThan(0);
+
         const duplicateAck =
             await resendPersistedCloudOutboxRecordOverFreshSocket(
                 duplicateSenderPage,
                 assetId,
-                websiteBaseUrl
+                websiteBaseUrl,
+                ydocSchemaVersion
             );
 
         expect(duplicateAck).toEqual({ durable: true, seq: 1 });

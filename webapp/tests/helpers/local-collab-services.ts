@@ -261,9 +261,11 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
     const repoRoot = path.resolve(process.cwd(), '..');
     const websiteRoot = path.resolve(repoRoot, '../website');
     const roomWorkerRoot = path.resolve(repoRoot, '../collab/collab');
+    const compactorRoot = path.resolve(repoRoot, '../cf-compactor');
     const children: ManagedProcess[] = [];
     let websiteProcess: ManagedProcess | undefined;
     let roomWorkerProcess: ManagedProcess | undefined;
+    let compactorProcess: ManagedProcess | undefined;
     const childNodeOptions = sanitizeNodeOptionsForChild(
         process.env.NODE_OPTIONS
     );
@@ -282,6 +284,27 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
         children.push(websiteProcess);
     }
 
+    await reclaimStalePort(8789, 'http://localhost:8789/health');
+    if (!(await isHttpReady('http://localhost:8789/health'))) {
+        compactorProcess = spawnManagedProcess({
+            name: 'compactor',
+            command: 'npx',
+            args: [
+                'wrangler',
+                'dev',
+                '--port',
+                '8789',
+                '--var',
+                'COMPACTOR_SHARED_TOKEN:local-test-compactor-token'
+            ],
+            cwd: compactorRoot,
+            env: {
+                NODE_OPTIONS: childNodeOptions
+            }
+        });
+        children.push(compactorProcess);
+    }
+
     await reclaimStalePort(8787, 'http://localhost:8787/health');
     if (!(await isHttpReady('http://localhost:8787/health'))) {
         roomWorkerProcess = spawnManagedProcess({
@@ -297,7 +320,9 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
                 '--var',
                 'EDITOR_ALLOWED_ORIGINS:https://localhost:8000',
                 '--var',
-                'AUTH_TOKEN_ALLOW_INSECURE_LOCAL_FALLBACK:true'
+                'AUTH_TOKEN_ALLOW_INSECURE_LOCAL_FALLBACK:true',
+                '--var',
+                'COMPACTOR_SHARED_TOKEN:local-test-compactor-token'
             ],
             cwd: roomWorkerRoot,
             env: {
@@ -311,6 +336,9 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
         await Promise.all([
             waitForHttpReady('https://localhost:8788/', {
                 process: websiteProcess
+            }),
+            waitForHttpReady('http://localhost:8789/health', {
+                process: compactorProcess
             }),
             waitForHttpReady('http://localhost:8787/health', {
                 process: roomWorkerProcess
