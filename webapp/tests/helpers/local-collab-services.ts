@@ -1,4 +1,5 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { mkdir, rm } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
@@ -262,6 +263,17 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
     const websiteRoot = path.resolve(repoRoot, '../website');
     const roomWorkerRoot = path.resolve(repoRoot, '../collab/collab');
     const compactorRoot = path.resolve(repoRoot, '../cf-compactor');
+    const wranglerStatePath = path.join(
+        repoRoot,
+        'temp',
+        'local-collab-wrangler-state'
+    );
+    const wranglerCommand = path.join(
+        compactorRoot,
+        'node_modules',
+        '.bin',
+        'wrangler'
+    );
     const children: ManagedProcess[] = [];
     let websiteProcess: ManagedProcess | undefined;
     let roomWorkerProcess: ManagedProcess | undefined;
@@ -269,6 +281,9 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
     const childNodeOptions = sanitizeNodeOptionsForChild(
         process.env.NODE_OPTIONS
     );
+
+    await rm(wranglerStatePath, { recursive: true, force: true });
+    await mkdir(wranglerStatePath, { recursive: true });
 
     await reclaimStalePort(8788, 'https://localhost:8788/');
     if (!(await isHttpReady('https://localhost:8788/'))) {
@@ -288,12 +303,13 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
     if (!(await isHttpReady('http://localhost:8789/health'))) {
         compactorProcess = spawnManagedProcess({
             name: 'compactor',
-            command: 'npx',
+            command: wranglerCommand,
             args: [
-                'wrangler',
                 'dev',
                 '--port',
                 '8789',
+                '--persist-to',
+                wranglerStatePath,
                 '--var',
                 'COMPACTOR_SHARED_TOKEN:local-test-compactor-token'
             ],
@@ -309,14 +325,15 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
     if (!(await isHttpReady('http://localhost:8787/health'))) {
         roomWorkerProcess = spawnManagedProcess({
             name: 'room-worker',
-            command: 'npx',
+            command: wranglerCommand,
             args: [
-                'wrangler',
                 'dev',
                 '--port',
                 '8787',
                 '--inspector-port',
                 '9231',
+                '--persist-to',
+                wranglerStatePath,
                 '--var',
                 'EDITOR_ALLOWED_ORIGINS:https://localhost:8000',
                 '--var',
@@ -347,10 +364,12 @@ export async function ensureLocalCollabServices(): Promise<LocalCollabServicesCo
         return {
             dispose: async () => {
                 await terminateProcesses(children);
+                await rm(wranglerStatePath, { recursive: true, force: true });
             }
         };
     } catch (error) {
         await terminateProcesses(children);
+        await rm(wranglerStatePath, { recursive: true, force: true });
         throw error;
     }
 }

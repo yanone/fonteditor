@@ -326,7 +326,7 @@ async function resendPersistedCloudOutboxRecordOverFreshSocket(
     ydocSchemaVersion: number
 ): Promise<{ durable: boolean; seq: number | null }> {
     return page.evaluate(
-        async ({ nextAssetId, nextWebsiteBaseUrl }) => {
+        async ({ nextAssetId, nextWebsiteBaseUrl, nextYdocSchemaVersion }) => {
             const getFirstOutboxRecord = () =>
                 new Promise<{
                     clientTransactionId: string;
@@ -441,6 +441,7 @@ async function resendPersistedCloudOutboxRecordOverFreshSocket(
             return await new Promise<{ durable: boolean; seq: number | null }>(
                 (resolve, reject) => {
                     const ws = new WebSocket(wsUrl);
+                    let hasSentUpdate = false;
                     const timeoutId = window.setTimeout(() => {
                         try {
                             ws.close();
@@ -472,6 +473,20 @@ async function resendPersistedCloudOutboxRecordOverFreshSocket(
                     ws.onmessage = (event) => {
                         const message = JSON.parse(String(event.data ?? '{}'));
                         if (message?.type === 'auth-ok') {
+                            ws.send(
+                                JSON.stringify({
+                                    type: 'sync-request',
+                                    stateVector: 'AA=='
+                                })
+                            );
+                            return;
+                        }
+
+                        if (
+                            message?.type === 'sync-response' &&
+                            !hasSentUpdate
+                        ) {
+                            hasSentUpdate = true;
                             ws.send(
                                 JSON.stringify({
                                     type: 'update',
@@ -1487,7 +1502,7 @@ async function fetchRoomStatus(page: Page, assetId: string) {
         const sessionToken = (window as any).authManager?.getSessionToken?.();
         const websiteBaseUrl = String(
             (window as any).cloudPlugin?._cloudAdapter?._websiteBaseUrl ||
-                'http://localhost:8788'
+                'https://localhost:8788'
         ).replace(/\/$/, '');
         const response = await fetch(
             `${websiteBaseUrl}/api/dev/cloud/room-status/${encodeURIComponent(nextAssetId)}`,
