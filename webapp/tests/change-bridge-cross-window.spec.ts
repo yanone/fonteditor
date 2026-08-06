@@ -156,25 +156,12 @@ async function installJsonCanonicalizer(page: Page): Promise<void> {
             }
 
             const canonicalLayer = { ...layer };
-            const serializeNodeForTest = (node: any): string => {
+            const canonicalizeNodeForTest = (node: any) => {
                 if (!node || typeof node !== 'object') {
-                    return String(node ?? '');
+                    return node;
                 }
-                const x = String(node.x ?? '');
-                const y = String(node.y ?? '');
-                const type =
-                    node.nodetype === 'OffCurve'
-                        ? 'o'
-                        : node.nodetype === 'Curve'
-                          ? node.smooth
-                              ? 'cs'
-                              : 'c'
-                          : node.nodetype === 'Line'
-                            ? node.smooth
-                                ? 'ls'
-                                : 'l'
-                            : String(node.nodetype ?? '');
-                return `${x} ${y} ${type}`.trim();
+                const { id: _id, ...nodeWithoutId } = node;
+                return nodeWithoutId;
             };
             if (canonicalLayer.height === undefined) {
                 delete canonicalLayer.height;
@@ -227,10 +214,9 @@ async function installJsonCanonicalizer(page: Page): Promise<void> {
                         const canonicalShape = { ...shape };
                         delete canonicalShape.id;
                         if (Array.isArray(canonicalShape.nodes)) {
-                            canonicalShape.nodes = canonicalShape.nodes
-                                .map((node: any) => serializeNodeForTest(node))
-                                .join(' ')
-                                .trim();
+                            canonicalShape.nodes = canonicalShape.nodes.map(
+                                (node: any) => canonicalizeNodeForTest(node)
+                            );
                         }
                         return canonicalShape;
                     }
@@ -1416,7 +1402,7 @@ test.describe('Cross-window ChangeBridge sync', () => {
                 firstNode.y = oldY + 5;
             });
 
-            // Sync babelfontJson from model (converts array nodes to strings)
+            // Sync the array-native model state into babelfontJson.
             currentFont.syncJsonFromModel();
 
             // Now sync to Y.Doc via change bridge (fast path)

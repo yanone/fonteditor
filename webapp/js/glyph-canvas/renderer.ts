@@ -2,7 +2,6 @@ import { desaturateColor, toRgba } from '../design';
 import APP_SETTINGS from '../settings';
 import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 import { Logger } from '../logger';
-import { parseNodeString } from '../node-encoding';
 import { get_glyph_name } from '../../wasm-dist/babelfont_fontc_web';
 import {
     normalizeAffineTransform,
@@ -2312,28 +2311,29 @@ export class GlyphCanvasRenderer {
             if (!rawNodes) {
                 return;
             }
-            const nodes: Babelfont.Node[] = parseNodeString(rawNodes).map(
-                (node, index) => {
-                    const x = Number(node.x);
-                    const y = Number(node.y);
-                    const nodetype = node.nodetype;
-                    if (
-                        !Number.isFinite(x) ||
-                        !Number.isFinite(y) ||
-                        typeof nodetype !== 'string'
-                    ) {
-                        throw new TypeError(
-                            `Invalid paired-layer node at index ${index}.`
-                        );
-                    }
-                    return {
-                        x,
-                        y,
-                        nodetype: nodetype as Babelfont.Node['nodetype'],
-                        smooth: node.smooth === true
-                    };
+            if (!Array.isArray(rawNodes)) {
+                throw new TypeError('Paired-layer path nodes must be arrays.');
+            }
+            const nodes: Babelfont.Node[] = rawNodes.map((node, index) => {
+                const x = Number(node.x);
+                const y = Number(node.y);
+                const nodetype = node.nodetype;
+                if (
+                    !Number.isFinite(x) ||
+                    !Number.isFinite(y) ||
+                    typeof nodetype !== 'string'
+                ) {
+                    throw new TypeError(
+                        `Invalid paired-layer node at index ${index}.`
+                    );
                 }
-            );
+                return {
+                    x,
+                    y,
+                    nodetype: nodetype as Babelfont.Node['nodetype'],
+                    smooth: node.smooth === true
+                };
+            });
             if (nodes.length === 0) {
                 return;
             }

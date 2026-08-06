@@ -305,47 +305,18 @@ class CurvatureCombPlugin(BaseCanvasPlugin):
 
     def _get_shape_nodes(self, shape):
         """
-        Return normalized node array for a flat path shape.
+        Return node array for a flat path shape.
 
-        New object model only: shape must contain a top-level 'nodes' entry.
+        New object model only: shape must contain a top-level 'nodes' array.
         """
         if not isinstance(shape, dict) or "nodes" not in shape:
             return []
 
         nodes = shape.get("nodes", [])
-        if isinstance(nodes, str):
-            parsed_nodes = self._parse_nodes_string(nodes)
-            shape["nodes"] = parsed_nodes
-            return parsed_nodes
-
         if isinstance(nodes, list):
             return nodes
 
         return []
-
-    def _parse_nodes_string(self, nodes_str):
-        """
-        Parse compact babelfont node string format: "x y type x y type ...".
-        """
-        if not isinstance(nodes_str, str) or not nodes_str.strip():
-            return []
-
-        tokens = nodes_str.strip().split()
-        nodes = []
-
-        for i in range(0, len(tokens) - 2, 3):
-            try:
-                nodes.append(
-                    {
-                        "x": float(tokens[i]),
-                        "y": float(tokens[i + 1]),
-                        "nodetype": self._normalize_nodetype(tokens[i + 2]),
-                    }
-                )
-            except (TypeError, ValueError):
-                continue
-
-        return nodes
 
     def _draw_path_curvature(self, shape, ctx):
         """

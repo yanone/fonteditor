@@ -4,7 +4,6 @@ import {
     Font,
     withSuppressedModelRecording
 } from './babelfont-model';
-import { decodeNodeStringsForRuntime } from './node-encoding';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -157,8 +156,6 @@ export function canonicalizeImportedFontJson(
     sourceBabelfontJson: string
 ): CanonicalImportedFont {
     return canonicalizeImportedFontData(
-        decodeNodeStringsForRuntime(
-            JSON.parse(sourceBabelfontJson)
-        ) as Babelfont.Font
+        JSON.parse(sourceBabelfontJson) as Babelfont.Font
     );
 }

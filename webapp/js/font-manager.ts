@@ -55,10 +55,6 @@ import {
     beginStartupInteractionLock,
     endStartupInteractionLock
 } from './startup-interaction-lock';
-import {
-    decodeNodeStringsForRuntime,
-    serializeNodeArray
-} from './node-encoding';
 import { ensureWasmInitialized } from './wasm-init';
 import {
     cancelManagedFileInternalWrite,
@@ -87,7 +83,7 @@ export async function serializeFontForSourceSave(
     if (extension === 'glyphs') {
         await ensureWasmInitialized();
         const glyphsSerializationInput = JSON.stringify(
-            decodeNodeStringsForRuntime(JSON.parse(babelfontJson))
+            JSON.parse(babelfontJson)
         );
         return save_font_as_glyphs(glyphsSerializationInput);
     }
@@ -423,7 +419,7 @@ class OpenedFont {
     /**
      * Sync the JSON string from the object model data
      * Call this after making changes through the object model.
-     * Runtime nodes are arrays; serialized storage JSON uses upstream node strings.
+     * Path nodes are arrays in both runtime and serialized storage JSON.
      */
     syncJsonFromModel(): void {
         assertBabelfontLayerWidths(this.babelfontData, 'syncJsonFromModel');
@@ -2323,20 +2319,15 @@ class FontManager {
         const pathCandidate = hasPathWrapper ? shape.Path : shape;
 
         if ('nodes' in pathCandidate) {
-            if (
-                !Array.isArray(pathCandidate.nodes) &&
-                typeof pathCandidate.nodes !== 'string'
-            ) {
+            if (!Array.isArray(pathCandidate.nodes)) {
                 throw new TypeError(
-                    'Path shape nodes must be an array or upstream string before Rust normalization.'
+                    'Path shape nodes must be an array before Rust normalization.'
                 );
             }
 
             return {
                 ...(pathCandidate.id && { id: pathCandidate.id }),
-                nodes: decodeNodeStringsForRuntime({
-                    nodes: pathCandidate.nodes
-                }).nodes,
+                nodes: pathCandidate.nodes,
                 closed: pathCandidate.closed,
                 ...(pathCandidate.format_specific && {
                     format_specific: pathCandidate.format_specific
@@ -3296,7 +3287,7 @@ class FontManager {
     /**
      * Validate canonical babelfont JSON before Rust compilation.
      * Rejects wrapped shapes, invalid path node values, and object-for-array drift.
-     * Canonical resting node strings and runtime node arrays both pass through unchanged.
+     * Canonical path nodes are arrays and pass through unchanged.
      * Returns the validated JSON string unchanged.
      */
     private validateBabelfontJsonForRust(
@@ -3564,12 +3555,9 @@ class FontManager {
                 }
 
                 if ('nodes' in val) {
-                    if (
-                        !Array.isArray(val.nodes) &&
-                        typeof val.nodes !== 'string'
-                    ) {
+                    if (!Array.isArray(val.nodes)) {
                         throw new TypeError(
-                            `Path shape nodes must be an array or upstream string before compile validation at ${path || 'root'}.`
+                            `Path shape nodes must be an array before compile validation at ${path || 'root'}.`
                         );
                     }
                     if (!('closed' in val)) {
@@ -3643,10 +3631,7 @@ class FontManager {
                         const hasReference = 'reference' in val;
                         const hasTransform = 'transform' in val;
                         const isPath =
-                            hasNodes &&
-                            (Array.isArray(val.nodes) ||
-                                typeof val.nodes === 'string') &&
-                            hasClosed;
+                            hasNodes && Array.isArray(val.nodes) && hasClosed;
                         const isComponent = hasReference;
                         if (!isPath && !isComponent) {
                             console.error(
@@ -3687,9 +3672,7 @@ class FontManager {
                                             shape && 'transform' in shape;
                                         const isPath =
                                             hasNodes &&
-                                            (Array.isArray(shape.nodes) ||
-                                                typeof shape.nodes ===
-                                                    'string') &&
+                                            Array.isArray(shape.nodes) &&
                                             hasClosed;
                                         const isComponent = hasReference;
                                         if (!isPath && !isComponent) {
@@ -3718,13 +3701,13 @@ class FontManager {
                 );
             }
         } catch (e) {
-            if (e instanceof FontDataIntegrityError) {
-                throw e;
-            }
             console.warn(
                 '[FontManager] Failed to validate/fix babelfontJson:',
                 e
             );
+            if (e instanceof FontDataIntegrityError || e instanceof TypeError) {
+                throw e;
+            }
         }
 
         return cacheAndReturn(babelfontJson);
@@ -3887,18 +3870,15 @@ class FontManager {
                 typeof pathCandidate === 'object' &&
                 'nodes' in pathCandidate
             ) {
-                if (
-                    !Array.isArray(pathCandidate.nodes) &&
-                    typeof pathCandidate.nodes !== 'string'
-                ) {
+                if (!Array.isArray(pathCandidate.nodes)) {
                     throw new TypeError(
-                        'Path shape nodes must be an array or upstream string before layer storage serialization.'
+                        'Path shape nodes must be an array before layer storage serialization.'
                     );
                 }
 
                 return {
                     ...copyPersistedShapeFields(pathCandidate),
-                    nodes: serializeNodeArray(pathCandidate.nodes),
+                    nodes: pathCandidate.nodes,
                     closed:
                         pathCandidate.closed === undefined
                             ? false

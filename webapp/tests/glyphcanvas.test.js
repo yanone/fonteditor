@@ -5,7 +5,6 @@ const {
     Layer,
     DecomposedAffineTransform
 } = require('../js/babelfont-model');
-const { parseNodeString } = require('../js/node-encoding');
 const { PatchSyncEngine } = require('../js/patch-sync-engine');
 const { yDocToJson } = require('../js/change-bridge-ydoc');
 const { LayerDataNormalizer } = require('../js/layer-data-normalizer');
@@ -866,7 +865,12 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
                 toJSON: () => ({
                     shapes: [
                         {
-                            nodes: '100 0 l 400 0 l 400 700 l 100 700 l',
+                            nodes: [
+                                { x: 100, y: 0, nodetype: 'Line' },
+                                { x: 400, y: 0, nodetype: 'Line' },
+                                { x: 400, y: 700, nodetype: 'Line' },
+                                { x: 100, y: 700, nodetype: 'Line' }
+                            ],
                             closed: true
                         }
                     ]
@@ -907,7 +911,12 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
                 toJSON: () => ({
                     shapes: [
                         {
-                            nodes: '100 0 l 400 0 l 400 700 l 100 700 l',
+                            nodes: [
+                                { x: 100, y: 0, nodetype: 'Line' },
+                                { x: 400, y: 0, nodetype: 'Line' },
+                                { x: 400, y: 700, nodetype: 'Line' },
+                                { x: 100, y: 700, nodetype: 'Line' }
+                            ],
                             closed: true
                         }
                     ]

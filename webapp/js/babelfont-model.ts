@@ -15,7 +15,6 @@ import type { Babelfont } from './babelfont';
 import { setYPath } from './change-bridge-ydoc';
 import { glyphDataIndex, type GlyphDataSearchResult } from './glyph-data';
 import { assertModelMutationAllowed } from './model-mutation-policy';
-import { parseNodeString, serializeNodeArray } from './node-encoding';
 import { applyGlyphRenameUiContext } from './rename-glyphs-ui-context';
 import { assertGlyphRenamePreflight } from './rename-glyphs-preflight';
 import { applyGlyphDeleteUiContext } from './delete-glyphs-ui-context';
@@ -54,51 +53,6 @@ function ensureNodeId(node: { id?: string }): string {
     }
     return node.id;
 }
-
-function parseRuntimeNodeArray(nodes: unknown): Babelfont.Node[] {
-    return parseNodeString(nodes).map((node) => ({
-        ...(node as unknown as Babelfont.Node)
-    }));
-}
-
-export function decodeShapeNodesForRuntime(shapes: Unsafe[]): Unsafe[] {
-    let changed = false;
-    const decodedShapes = shapes.map((shape) => {
-        if (!shape || typeof shape !== 'object' || Array.isArray(shape)) {
-            return shape;
-        }
-
-        const shapeRecord = shape as Record<string, Unsafe>;
-        const wrappedPath =
-            shapeRecord.Path &&
-            typeof shapeRecord.Path === 'object' &&
-            !Array.isArray(shapeRecord.Path)
-                ? (shapeRecord.Path as Record<string, Unsafe>)
-                : null;
-        const pathRecord = wrappedPath || shapeRecord;
-        if (typeof pathRecord.nodes !== 'string') {
-            return shape;
-        }
-
-        changed = true;
-        const decodedPath = {
-            ...pathRecord,
-            nodes: parseRuntimeNodeArray(pathRecord.nodes)
-        };
-
-        return wrappedPath
-            ? ({ ...shapeRecord, Path: decodedPath } as Unsafe)
-            : (decodedPath as Unsafe);
-    });
-
-    return changed ? decodedShapes : shapes;
-}
-
-/**
- * Layers already reported as holding Rust-normalized geometry in stored data.
- * Keyed `glyphName/layerId`; keeps the sentinel to one line per offender.
- */
-const reportedEncodedGeometryLayers = new Set<string>();
 
 /**
  * Ensure every Node, Path, Component, Anchor, and Guide in the font has a stable `id`.
@@ -2931,10 +2885,7 @@ function recordPathChangeAndMarkDirty(
 }
 
 /**
- * Record a path-level node-string change for a path's runtime nodes array.
- *
- * Resting Y.Doc/font storage keeps upstream babelfont node strings, so runtime
- * node mutations commit as a single `nodes` string update at the path boundary.
+ * Record a path-level node-array change.
  */
 function recordGranularNodesChange(
     basePath: (string | number)[],
@@ -2951,11 +2902,7 @@ function recordGranularNodesChange(
         return;
     }
 
-    recordPathChangeAndMarkDirty(
-        [...basePath, 'nodes'],
-        serializeNodeArray(oldNodes),
-        serializeNodeArray(newNodes)
-    );
+    recordPathChangeAndMarkDirty([...basePath, 'nodes'], oldNodes, newNodes);
 }
 
 function recomputeMetricsKeysForModelLayer(
@@ -4146,8 +4093,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
     private getMutableNodeArray(): Babelfont.Node[] {
         if (!Array.isArray(this.data.nodes)) {
-            this.data.nodes = parseRuntimeNodeArray(this.data.nodes);
-            this._nodeWrappers = null;
+            throw new TypeError('Path nodes must be arrays.');
         }
         return this.data.nodes;
     }
@@ -5819,7 +5765,7 @@ export class Layer extends ArrayElementBase {
             this.data.vertWidth = layerData.vertWidth;
         }
         if (layerData.shapes !== undefined) {
-            this.data.shapes = decodeShapeNodesForRuntime(layerData.shapes);
+            this.data.shapes = layerData.shapes;
         }
         if (layerData.anchors !== undefined) {
             this.data.anchors = layerData.anchors;
@@ -8698,7 +8644,7 @@ export class Layer extends ArrayElementBase {
     }
 
     static calculatePathBounds(pathData: {
-        nodes?: Unsafe[] | string;
+        nodes?: Unsafe[];
         closed?: boolean;
     }): {
         minX: number;
@@ -9108,27 +9054,11 @@ export class Layer extends ArrayElementBase {
         width: number;
         height: number;
     } | null {
-        // Nodes may arrive Rust-normalized (string-encoded) from storage or a
-        // Yjs round-trip. Decode up front so measurement always sees real
-        // geometry — an unreadable path would otherwise contribute no bounds
-        // and silently degrade this box into an advance-shaped placeholder.
-        const decodedShapes = Array.isArray(layerData.shapes)
-            ? decodeShapeNodesForRuntime(layerData.shapes as Unsafe[])
-            : layerData.shapes;
-        const measuredLayerData =
-            decodedShapes === layerData.shapes
-                ? layerData
-                : { ...layerData, shapes: decodedShapes };
-
         let bounds = null;
 
         // Get all paths (we need to use the static flattenComponents for compatibility)
         // since we're working with raw layer data, not a Layer instance
-        const paths = Layer.flattenComponents(
-            measuredLayerData,
-            font,
-            masterId
-        );
+        const paths = Layer.flattenComponents(layerData, font, masterId);
 
         // Process all paths
         for (const path of paths) {
@@ -9148,8 +9078,8 @@ export class Layer extends ArrayElementBase {
         }
 
         // Include anchors in bounding box if requested
-        if (includeAnchors && measuredLayerData.anchors) {
-            for (const anchor of measuredLayerData.anchors) {
+        if (includeAnchors && layerData.anchors) {
+            for (const anchor of layerData.anchors) {
                 bounds = bounds
                     ? {
                           minX: Math.min(bounds.minX, anchor.x),
@@ -9184,10 +9114,7 @@ export class Layer extends ArrayElementBase {
                         record.Contour ??
                         record) as Record<string, Unsafe>;
                     const nodes = pathRecord?.nodes;
-                    return (
-                        (typeof nodes === 'string' && nodes.length > 0) ||
-                        (Array.isArray(nodes) && nodes.length > 0)
-                    );
+                    return Array.isArray(nodes) && nodes.length > 0;
                 });
             if (hasPathGeometry) {
                 console.warn(
@@ -9245,39 +9172,6 @@ export class Layer extends ArrayElementBase {
 
         // Get the master ID from tagged layer data
         const masterId = this.data.master?.master;
-
-        // `this.data` aliases the stored layer object, whose invariant is that
-        // node geometry is decoded. Encoded nodes here mean a writer stored the
-        // Rust-normalized form; measurement repairs it defensively, but the
-        // offending writer must be found — historically this masqueraded as
-        // valid metrics and silently corrupted sidebearings. The scan below is
-        // allocation-free and short-circuits, so it is safe in this hot path.
-        const storedShapes = this.data.shapes;
-        if (Array.isArray(storedShapes)) {
-            const holdsEncodedNodes = storedShapes.some((shape: Unsafe) => {
-                if (!shape || typeof shape !== 'object') {
-                    return false;
-                }
-                const record = shape as Record<string, Unsafe>;
-                const pathRecord = (record.Path ?? record.Contour ?? record) as
-                    Record<string, Unsafe> | undefined;
-                return typeof pathRecord?.nodes === 'string';
-            });
-            if (holdsEncodedNodes) {
-                const key = `${glyph?.name ?? '<unknown glyph>'}/${
-                    this.id ?? '<unknown layer>'
-                }`;
-                if (!reportedEncodedGeometryLayers.has(key)) {
-                    reportedEncodedGeometryLayers.add(key);
-                    console.warn(
-                        `[Layer] ${key} holds Rust-normalized (string-encoded) node ` +
-                            'geometry in the stored data aliased by the object model. ' +
-                            'A writer skipped decodeShapeNodesForRuntime; metrics for ' +
-                            'this layer were repaired defensively on read.'
-                    );
-                }
-            }
-        }
 
         return Layer.calculateBoundingBox(
             this.data,
@@ -13969,6 +13863,14 @@ export class Font extends ModelBase {
         // Worker/Yjs/resting state is always logical. Only explicit export or
         // compile-facing callers request the physical automatic =+/- view.
         const compileFacing = options?.compileFacing === true;
+        const stripNodeIds = (nodes: unknown[]): unknown[] =>
+            nodes.map((node) => {
+                if (!node || typeof node !== 'object') {
+                    return node;
+                }
+                const { id: _id, ...nodeWithoutId } = node as Unsafe;
+                return nodeWithoutId;
+            });
         const layerDataOverrides = new WeakMap<object, Unsafe>();
         if (compileFacing) {
             for (const glyph of this.glyphs) {
@@ -14030,7 +13932,12 @@ export class Font extends ModelBase {
                                 : null;
                         if (pathPayload) {
                             const { id: _id, ...result } = pathPayload;
-                            result.nodes = serializeNodeArray(result.nodes);
+                            if (!Array.isArray(result.nodes)) {
+                                throw new TypeError(
+                                    'Path shape nodes must be arrays.'
+                                );
+                            }
+                            result.nodes = stripNodeIds(result.nodes);
                             // Ensure `closed` field
                             if (!('closed' in result)) {
                                 result.closed = false;
@@ -14081,10 +13988,15 @@ export class Font extends ModelBase {
 
                     // Ensure `closed` field for flat Path shapes (Y.Doc roundtrip can lose it)
                     if (hasFlatPathFields) {
+                        if (!Array.isArray(value.nodes)) {
+                            throw new TypeError(
+                                'Path shape nodes must be arrays.'
+                            );
+                        }
                         const { id: _id, ...result } = value;
                         return {
                             ...result,
-                            nodes: serializeNodeArray(value.nodes),
+                            nodes: stripNodeIds(value.nodes),
                             closed: 'closed' in value ? value.closed : false
                         };
                     }

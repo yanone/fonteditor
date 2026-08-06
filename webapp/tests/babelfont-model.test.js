@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const { Bezier } = require('bezier-js');
 const { Font, Layer } = require('../js/babelfont-model');
-const { serializeNodeArray } = require('../js/node-encoding');
 const fontManager = require('../js/font-manager').default;
 const {
     open_font_file,
@@ -1178,18 +1177,15 @@ describe('Babelfont Object Model', () => {
             expect(typeof layer.width).toBe('number');
         });
 
-        test('measures Rust-normalized string nodes instead of fabricating advance-shaped bounds', () => {
-            // Regression: a serialized layer was written into the array that
-            // Layer.data aliases. String nodes then contributed no ink bounds,
-            // and calculateBoundingBox returned maxX === width, making RSB 0.
+        test('measures array nodes instead of fabricating advance-shaped bounds', () => {
             const layerData = {
                 width: 600,
                 shapes: [
                     {
-                        nodes: serializeNodeArray([
+                        nodes: [
                             { x: 120, y: 0, type: 'l' },
                             { x: 520, y: 0, type: 'l' }
-                        ]),
+                        ],
                         closed: false
                     }
                 ]
@@ -1770,9 +1766,14 @@ describe('Babelfont Object Model', () => {
     });
 
     describe('Sidebearing manipulation (lsb/rsb setters)', () => {
-        test('lsb setter translates runtime paths loaded from compact node strings', () => {
+        test('lsb setter translates array-native runtime paths', () => {
             const testFont = makeFontWithSinglePath(
-                '0 0 l 100 0 l 100 100 l 0 100 l',
+                [
+                    { x: 0, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 100, nodetype: 'Line' },
+                    { x: 0, y: 100, nodetype: 'Line' }
+                ],
                 true
             );
             const layer = testFont.glyphs[0].layers[0];
@@ -1782,10 +1783,14 @@ describe('Babelfont Object Model', () => {
             expect(layer.paths[0].nodes[0].x).toBe(25);
             expect(layer.paths[0].nodes[1].x).toBe(125);
             expect(layer.lsb).toBe(25);
+            layer.paths[0].data.nodes[0].id = 'editor-node-id';
             const stored = JSON.parse(testFont.toJSONString());
-            expect(typeof stored.glyphs[0].layers[0].shapes[0].nodes).toBe(
-                'string'
-            );
+            expect(
+                Array.isArray(stored.glyphs[0].layers[0].shapes[0].nodes)
+            ).toBe(true);
+            expect(
+                stored.glyphs[0].layers[0].shapes[0].nodes[0].id
+            ).toBeUndefined();
         });
 
         test('lsb setter should adjust width for paths', () => {
@@ -1999,8 +2004,7 @@ describe('Babelfont Object Model', () => {
                 (layer) => layer.location && Object.keys(layer.location).length
             );
 
-            // Simulate edit-time model access that converts stored node strings
-            // into node arrays on the live font model.
+            // Simulate edit-time path access on the live font model.
             braceLayer.shapes[0].asPath().nodes;
             glyphN.layers[0].shapes[0].asPath().nodes;
             glyphN.layers[1].shapes[0].asPath().nodes;
@@ -4617,7 +4621,7 @@ describe('Babelfont Object Model', () => {
     });
 
     describe('Path._addPoint()', () => {
-        test('path structural edits accept compact node strings after layer bulk sync', () => {
+        test('path structural edits preserve array nodes after layer bulk sync', () => {
             const testFont = makeFontWithSinglePath([
                 { x: 0, y: 0, nodetype: 'Line' },
                 { x: 100, y: 0, nodetype: 'Line' }
@@ -4626,7 +4630,15 @@ describe('Babelfont Object Model', () => {
 
             layer.syncFromEditorLayerData({
                 width: 500,
-                shapes: [{ nodes: '0 0 l 100 0 l', closed: false }],
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Line' },
+                            { x: 100, y: 0, nodetype: 'Line' }
+                        ],
+                        closed: false
+                    }
+                ],
                 anchors: []
             });
             const path = layer.paths[0];

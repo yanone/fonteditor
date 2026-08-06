@@ -110,7 +110,7 @@ The external babelfont JSON remains unchanged:
 ```json
 {
   "shapes": [
-    { "id": "runtime-id", "nodes": "serialized upstream node string" }
+   { "id": "runtime-id", "nodes": [{ "x": 0, "y": 0, "nodetype": "Line", "smooth": false }] }
   ]
 }
 ```
@@ -167,8 +167,8 @@ external source formats that do not support them.
 
 ### Model and Rendering
 
-1. Continue decoding node strings before object-model adoption.
-2. Keep `Layer.data` free of raw storage-only forms.
+1. Keep path nodes as arrays across object-model adoption and serialization.
+2. Reject string nodes at every bridge boundary.
 3. Ensure source save uses the existing external serialization path to strip
    shape IDs when required by the output format.
 

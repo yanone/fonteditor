@@ -158,7 +158,10 @@ describe('Python post-execution synthetic commit alignment', () => {
                             shapes: [
                                 {
                                     type: 'path',
-                                    nodes: '0 0 m 100 0 l',
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Move' },
+                                        { x: 100, y: 0, nodetype: 'Line' }
+                                    ],
                                     closed: false
                                 }
                             ]
@@ -168,7 +171,10 @@ describe('Python post-execution synthetic commit alignment', () => {
             ]
         };
         const afterSnapshot = JSON.parse(JSON.stringify(beforeSnapshot));
-        afterSnapshot.glyphs[0].layers[0].shapes[0].nodes = '0 100 m 100 0 l';
+        afterSnapshot.glyphs[0].layers[0].shapes[0].nodes = [
+            { x: 0, y: 100, nodetype: 'Move' },
+            { x: 100, y: 0, nodetype: 'Line' }
+        ];
         const bridge = new PatchSyncEngine('python-one-node-packet');
         bridge.initFromJson(beforeSnapshot);
         const emittedUpdates = [];
@@ -782,7 +788,7 @@ describe('Python post-execution synthetic commit alignment', () => {
         finalSnapshot.glyphs[0].note = 'after';
         finalSnapshot.glyphs[0].layers[0].width = 600;
         finalSnapshot.glyphs[0].layers[0].shapes = [
-            { id: 'shape-1', type: 'path', nodes: '', closed: false }
+            { id: 'shape-1', type: 'path', nodes: [], closed: false }
         ];
         const receiverFinalSnapshot = JSON.parse(JSON.stringify(finalSnapshot));
         receiverFinalSnapshot.glyphs[0].layers[0].shapes[0].nodes = [];

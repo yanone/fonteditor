@@ -1011,36 +1011,9 @@ async function getWorkerLayerShapeCounts(
             }
             return JSON.stringify(value);
         };
-        const serializeNodes = (nodes: Array<Record<string, any>>) =>
-            nodes
-                .flatMap((node) => {
-                    const rawType = node.nodetype ?? node.type;
-                    const typePrefix =
-                        rawType === 'Move'
-                            ? 'm'
-                            : rawType === 'Line'
-                              ? 'l'
-                              : rawType === 'Curve'
-                                ? 'c'
-                                : rawType === 'QCurve'
-                                  ? 'q'
-                                  : rawType === 'OffCurve'
-                                    ? 'o'
-                                    : rawType;
-                    return [
-                        String(node.x),
-                        String(node.y),
-                        `${typePrefix}${node.smooth === true ? 's' : ''}`,
-                        ...(node.format_specific === undefined ||
-                        node.format_specific === null
-                            ? []
-                            : [JSON.stringify(node.format_specific)])
-                    ];
-                })
-                .join(' ');
-        const encodeRuntimeNodesForStorage = (value: any): any => {
+        const cloneStorageValue = (value: any): any => {
             if (Array.isArray(value)) {
-                return value.map(encodeRuntimeNodesForStorage);
+                return value.map(cloneStorageValue);
             }
             if (!value || typeof value !== 'object') {
                 return value;
@@ -1048,15 +1021,13 @@ async function getWorkerLayerShapeCounts(
             return Object.fromEntries(
                 Object.entries(value).map(([key, child]) => [
                     key,
-                    key === 'nodes' && Array.isArray(child)
-                        ? serializeNodes(child as Array<Record<string, any>>)
-                        : encodeRuntimeNodesForStorage(child)
+                    cloneStorageValue(child)
                 ])
             );
         };
         const compareStoredLayer = (glyphName: string, layer: any) => {
             const normalizeLayer = (candidate: any) => {
-                const normalized = encodeRuntimeNodesForStorage(candidate);
+                const normalized = cloneStorageValue(candidate);
                 if (
                     normalized?.format_specific &&
                     Object.keys(normalized.format_specific).length === 0

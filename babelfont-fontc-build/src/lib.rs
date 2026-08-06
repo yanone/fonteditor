@@ -634,166 +634,6 @@ fn merge_sparse_layer_json(
     }
 }
 
-fn decode_node_type_token(token: &str) -> (String, bool) {
-    let (base, smooth) = token
-        .strip_suffix('s')
-        .map(|base| (base, true))
-        .unwrap_or((token, false));
-    let nodetype = match base {
-        "m" => "Move",
-        "l" => "Line",
-        "c" => "Curve",
-        "q" => "QCurve",
-        "o" => "OffCurve",
-        other => other,
-    };
-    (nodetype.to_string(), smooth)
-}
-
-fn tokenize_node_string(nodes: &str) -> Result<Vec<String>, String> {
-    let chars: Vec<char> = nodes.chars().collect();
-    let mut tokens = Vec::new();
-    let mut index = 0;
-    while index < chars.len() {
-        while index < chars.len() && chars[index].is_whitespace() {
-            index += 1;
-        }
-        if index >= chars.len() {
-            break;
-        }
-
-        if chars[index] != '{' {
-            let start = index;
-            while index < chars.len() && !chars[index].is_whitespace() {
-                index += 1;
-            }
-            tokens.push(chars[start..index].iter().collect());
-            continue;
-        }
-
-        let start = index;
-        let mut depth = 0_i32;
-        let mut in_string = false;
-        let mut escaped = false;
-        while index < chars.len() {
-            let ch = chars[index];
-            if escaped {
-                escaped = false;
-                index += 1;
-                continue;
-            }
-            if ch == '\\' {
-                escaped = true;
-                index += 1;
-                continue;
-            }
-            if ch == '"' {
-                in_string = !in_string;
-                index += 1;
-                continue;
-            }
-            if !in_string {
-                if ch == '{' {
-                    depth += 1;
-                } else if ch == '}' {
-                    depth -= 1;
-                    if depth == 0 {
-                        index += 1;
-                        break;
-                    }
-                }
-            }
-            index += 1;
-        }
-        if depth != 0 || in_string {
-            return Err("malformed format_specific JSON token".to_string());
-        }
-        tokens.push(chars[start..index].iter().collect());
-    }
-    Ok(tokens)
-}
-
-fn decode_node_string_for_native_cache(nodes: &str) -> Result<serde_json::Value, String> {
-    let tokens = tokenize_node_string(nodes)?;
-    let mut index = 0;
-    let mut decoded = Vec::new();
-    while index < tokens.len() {
-        if index + 2 >= tokens.len() {
-            return Err("incomplete node record".to_string());
-        }
-        let x: f64 = tokens[index]
-            .parse()
-            .map_err(|_| "invalid node x coordinate".to_string())?;
-        index += 1;
-        let y: f64 = tokens[index]
-            .parse()
-            .map_err(|_| "invalid node y coordinate".to_string())?;
-        index += 1;
-        let (nodetype, smooth) = decode_node_type_token(&tokens[index]);
-        index += 1;
-
-        let mut node = serde_json::Map::new();
-        node.insert("x".to_string(), serde_json::json!(x));
-        node.insert("y".to_string(), serde_json::json!(y));
-        node.insert("nodetype".to_string(), serde_json::json!(nodetype));
-        node.insert("smooth".to_string(), serde_json::json!(smooth));
-        if tokens.get(index).is_some_and(|token| token.starts_with('{')) {
-            let format_specific = serde_json::from_str::<serde_json::Value>(&tokens[index])
-                .map_err(|err| format!("invalid node format_specific JSON: {err}"))?;
-            node.insert("format_specific".to_string(), format_specific);
-            index += 1;
-        }
-        decoded.push(serde_json::Value::Object(node));
-    }
-    Ok(serde_json::Value::Array(decoded))
-}
-
-fn decode_shape_node_strings_for_native_cache(value: &serde_json::Value) -> serde_json::Value {
-    let mut normalized = value.clone();
-    let Some(shapes) = normalized.as_array_mut() else {
-        return normalized;
-    };
-    for shape in shapes.iter_mut() {
-        let serde_json::Value::Object(shape_obj) = shape else {
-            continue;
-        };
-        let Some(nodes) = shape_obj.get("nodes").and_then(|nodes| nodes.as_str()) else {
-            continue;
-        };
-        if let Ok(decoded_nodes) = decode_node_string_for_native_cache(nodes) {
-            shape_obj.insert("nodes".to_string(), decoded_nodes);
-        }
-    }
-    normalized
-}
-
-fn decode_font_node_strings_for_native_cache(value: &serde_json::Value) -> serde_json::Value {
-    let mut normalized = value.clone();
-    let Some(glyphs) = normalized.get_mut("glyphs").and_then(|glyphs| glyphs.as_array_mut()) else {
-        return normalized;
-    };
-
-    for glyph in glyphs.iter_mut() {
-        let Some(layers) = glyph.get_mut("layers").and_then(|layers| layers.as_array_mut()) else {
-            continue;
-        };
-        for layer in layers.iter_mut() {
-            let Some(layer_obj) = layer.as_object_mut() else {
-                continue;
-            };
-            let Some(shapes) = layer_obj.get("shapes") else {
-                continue;
-            };
-            layer_obj.insert(
-                "shapes".to_string(),
-                decode_shape_node_strings_for_native_cache(shapes),
-            );
-        }
-    }
-
-    normalized
-}
-
 fn layer_field_from_json<T>(
     glyph_name: &str,
     layer_id: &str,
@@ -821,7 +661,6 @@ where
                 value.clone()
             }
         }
-        "shapes" => decode_shape_node_strings_for_native_cache(value),
         _ => value.clone(),
     };
 
@@ -898,44 +737,12 @@ fn apply_sparse_layer_json_to_cached_layer(
     Ok(())
 }
 
-fn normalize_inserted_layer_for_native_cache(
-    layer_json: &serde_json::Value,
-    glyph_name: &str,
-    layer_id: &str,
-) -> Result<serde_json::Value, String> {
-    let mut native_layer_json = layer_json.clone();
-    if let Some(shapes) = native_layer_json
-        .get_mut("shapes")
-        .and_then(serde_json::Value::as_array_mut)
-    {
-        for (shape_index, shape) in shapes.iter_mut().enumerate() {
-            let serde_json::Value::Object(shape_obj) = shape else {
-                continue;
-            };
-            let Some(nodes) = shape_obj.get("nodes").and_then(|nodes| nodes.as_str()) else {
-                continue;
-            };
-            let decoded_nodes = decode_node_string_for_native_cache(nodes).map_err(|e| {
-                format!(
-                    "Invalid resting path node string for {}::{} shape {}: {}",
-                    glyph_name, layer_id, shape_index, e
-                )
-            })?;
-            shape_obj.insert("nodes".to_string(), decoded_nodes);
-        }
-    }
-    Ok(native_layer_json)
-}
-
 fn validate_layer_json_for_native_cache(
     glyph_name: &str,
     layer_id: &str,
     layer_json: &serde_json::Value,
 ) -> Result<(), String> {
-    let native_layer_json =
-        normalize_inserted_layer_for_native_cache(layer_json, glyph_name, layer_id)
-            ?;
-    serde_json::from_value::<babelfont::Layer>(native_layer_json).map_err(|error| {
+    serde_json::from_value::<babelfont::Layer>(layer_json.clone()).map_err(|error| {
         format!(
             "Layer deserialization error for {}::{}: {}",
             glyph_name, layer_id, error
@@ -948,21 +755,7 @@ fn validate_glyph_json_for_native_cache(
     glyph_name: &str,
     glyph_json: &serde_json::Value,
 ) -> Result<(), String> {
-    let mut native_glyph_json = glyph_json.clone();
-    if let Some(layers) = native_glyph_json
-        .get_mut("layers")
-        .and_then(serde_json::Value::as_array_mut)
-    {
-        for layer in layers.iter_mut() {
-            let layer_id = layer
-                .get("id")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            *layer = normalize_inserted_layer_for_native_cache(layer, glyph_name, layer_id)
-                ?;
-        }
-    }
-    serde_json::from_value::<babelfont::Glyph>(native_glyph_json).map_err(|error| {
+    serde_json::from_value::<babelfont::Glyph>(glyph_json.clone()).map_err(|error| {
         format!(
             "Glyph deserialization error for {}: {}",
             glyph_name, error
@@ -1041,10 +834,9 @@ fn deserialize_subset_font_for_native_cache(
     subset_key: &str,
     subset_json: &serde_json::Value,
 ) -> Result<babelfont::Font, String> {
-    let native_subset_json = decode_font_node_strings_for_native_cache(subset_json);
-    serde_json::from_value(native_subset_json.clone()).map_err(|error| {
+    serde_json::from_value(subset_json.clone()).map_err(|error| {
         let layer_diagnostic = describe_subset_layer_deserialization_failure(subset_json);
-        let path_diagnostic = serde_json::to_string(&native_subset_json)
+        let path_diagnostic = serde_json::to_string(subset_json)
             .ok()
             .and_then(|subset_json_text| {
                 let mut deserializer = serde_json::Deserializer::from_str(&subset_json_text);
@@ -1072,26 +864,8 @@ fn replace_glyph_in_font_cache(
 
     match new_glyph_json {
         Some(glyph_json) => {
-            let mut native_glyph_json = glyph_json.clone();
-            if let Some(layers) = native_glyph_json
-                .get_mut("layers")
-                .and_then(serde_json::Value::as_array_mut)
-            {
-                for layer in layers.iter_mut() {
-                    let layer_id = layer
-                        .get("id")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or_default();
-                    *layer = normalize_inserted_layer_for_native_cache(
-                        layer,
-                        glyph_name,
-                        layer_id,
-                    )
-                    .map_err(|e| JsValue::from_str(&e))?;
-                }
-            }
             let glyph: babelfont::Glyph =
-                serde_json::from_value(native_glyph_json).map_err(|e| {
+                serde_json::from_value(glyph_json.clone()).map_err(|e| {
                     JsValue::from_str(&format!(
                         "Glyph deserialization error for {}: {}",
                         glyph_name, e
@@ -1140,25 +914,7 @@ fn rename_glyphs_in_font_cache(
         let Some(glyph_json) = renamed_glyphs.get(&rename.new_name) else {
             return Ok(false);
         };
-        let mut native_glyph_json = glyph_json.clone();
-        if let Some(layers) = native_glyph_json
-            .get_mut("layers")
-            .and_then(serde_json::Value::as_array_mut)
-        {
-            for layer in layers.iter_mut() {
-                let layer_id = layer
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default();
-                *layer = normalize_inserted_layer_for_native_cache(
-                    layer,
-                    &rename.new_name,
-                    layer_id,
-                )
-                .map_err(|e| JsValue::from_str(&e))?;
-            }
-        }
-        let native_glyph: babelfont::Glyph = serde_json::from_value(native_glyph_json)
+        let native_glyph: babelfont::Glyph = serde_json::from_value(glyph_json.clone())
             .map_err(|e| {
                 JsValue::from_str(&format!(
                     "Glyph deserialization error for {}: {}",
@@ -1484,9 +1240,7 @@ fn apply_glyph_rename_transaction(
         &pre_existing_missing,
     )
     .map_err(|message| JsValue::from_str(&message))?;
-    let candidate_native: babelfont::Font = serde_json::from_value(
-        decode_font_node_strings_for_native_cache(&candidate_canonical),
-    )
+    let candidate_native: babelfont::Font = serde_json::from_value(candidate_canonical.clone())
     .map_err(|error| JsValue::from_str(&format!(
         "glyph rename transaction: native cache validation failed: {}",
         error
@@ -1554,11 +1308,8 @@ fn replace_layer_in_font_cache(
                     layer_json,
                 )?;
             } else {
-                let native_layer_json =
-                    normalize_inserted_layer_for_native_cache(layer_json, glyph_name, layer_id)
-                        .map_err(|e| JsValue::from_str(&e))?;
                 let layer: babelfont::Layer =
-                    serde_json::from_value(native_layer_json).map_err(|e| {
+                    serde_json::from_value(layer_json.clone()).map_err(|e| {
                         JsValue::from_str(&format!(
                             "Layer deserialization error for {}::{}: {}",
                             glyph_name, layer_id, e
@@ -1610,8 +1361,7 @@ fn get_or_rebuild_font_cache() -> Result<babelfont::Font, JsValue> {
         .as_ref()
         .ok_or_else(|| JsValue::from_str("No font loaded. Open a font first."))?;
 
-    let native_json_value = decode_font_node_strings_for_native_cache(json_value);
-    let font: babelfont::Font = serde_json::from_value(native_json_value)
+    let font: babelfont::Font = serde_json::from_value(json_value.clone())
         .map_err(|e| JsValue::from_str(&format!("Font deserialization error: {}", e)))?;
 
     let mut cache = FONT_CACHE.lock().unwrap();
@@ -3310,8 +3060,7 @@ fn store_font_from_value(json_value: serde_json::Value) -> Result<(), JsValue> {
     set_canonical_json_cache(json_value.clone());
 
     // Deserialize into babelfont::Font
-    let native_json_value = decode_font_node_strings_for_native_cache(&json_value);
-    let font: babelfont::Font = serde_json::from_value(native_json_value)
+    let font: babelfont::Font = serde_json::from_value(json_value.clone())
         .map_err(|e| JsValue::from_str(&format!("Font deserialization error: {}", e)))?;
 
     // Build FeatureFile before acquiring FONT_CACHE lock to avoid re-entrant lock
@@ -5742,51 +5491,6 @@ mod tests {
     }
 
     #[test]
-    fn store_font_from_value_accepts_upstream_string_nodes_for_native_cache() {
-        let previous_canonical = CANONICAL_JSON_CACHE.lock().unwrap().clone();
-        let previous_index = CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap().clone();
-        let previous_font_cache = FONT_CACHE.lock().unwrap().clone();
-        let previous_font_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
-        let previous_font_cache_epoch = FONT_CACHE_BUILT_AT_EPOCH.load(Ordering::Relaxed);
-
-        let mut font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
-        font_json["glyphs"][0]["layers"][0]["shapes"] = json!([
-            {
-                "nodes": "0 0 l 100 0 l 100 100 l 0 100 l",
-                "closed": true
-            }
-        ]);
-
-        store_font_from_value(font_json.clone()).unwrap();
-
-        assert_eq!(
-            CANONICAL_JSON_CACHE.lock().unwrap().as_ref(),
-            Some(&font_json)
-        );
-        let font_cache = FONT_CACHE.lock().unwrap();
-        let layer = &font_cache.as_ref().unwrap().glyphs[0].layers[0];
-        assert_eq!(layer.shapes.len(), 1);
-        drop(font_cache);
-
-        *CANONICAL_JSON_CACHE.lock().unwrap() = previous_canonical;
-        *CANONICAL_GLYPH_INDEX_CACHE.lock().unwrap() = previous_index;
-        *FONT_CACHE.lock().unwrap() = previous_font_cache;
-        FONT_CACHE_EPOCH.store(previous_font_epoch, Ordering::Relaxed);
-        FONT_CACHE_BUILT_AT_EPOCH.store(previous_font_cache_epoch, Ordering::Relaxed);
-    }
-
-    #[test]
-    fn decode_node_string_for_native_cache_accepts_upstream_move_tokens() {
-        assert_eq!(
-            decode_node_string_for_native_cache("0 0 m 10 20 ms"),
-            Ok(json!([
-                { "x": 0.0, "y": 0.0, "nodetype": "Move", "smooth": false },
-                { "x": 10.0, "y": 20.0, "nodetype": "Move", "smooth": true }
-            ]))
-        );
-    }
-
-    #[test]
     fn replace_glyph_json_entry_updates_shifted_indices_after_removal() {
         let mut font_json = json!({
             "glyphs": [
@@ -6834,7 +6538,7 @@ mod tests {
         apply_yjs_update_visual_layer_patch_advances_filter_epoch();
     }
 
-    fn apply_yjs_update_rehydrates_compact_subset_nodes_before_cache_mutation() {
+    fn apply_yjs_update_applies_array_nodes_to_subset_cache() {
         clear_font_cache();
 
         let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
@@ -6868,10 +6572,16 @@ mod tests {
         {
             let mut txn = author_doc.transact_mut();
             let shape: yrs::MapRef = shapes.push_back(&mut txn, MapPrelim::<Any>::new());
-            shape.insert(&mut txn, "nodes", "0 0 l 100 0 l 100 100 l 0 100 l");
+            let nodes: yrs::ArrayRef =
+                shape.insert(&mut txn, "nodes", ArrayPrelim::from(Vec::<Any>::new()));
+            let node: yrs::MapRef = nodes.push_back(&mut txn, MapPrelim::<Any>::new());
+            node.insert(&mut txn, "x", Any::Number(0.0));
+            node.insert(&mut txn, "y", Any::Number(0.0));
+            node.insert(&mut txn, "nodetype", "Line");
+            node.insert(&mut txn, "smooth", false);
             shape.insert(&mut txn, "closed", true);
         }
-        let malformed_update = author_doc.transact().encode_diff_v1(&base_state_vector);
+        let update = author_doc.transact().encode_diff_v1(&base_state_vector);
 
         let worker_doc = Doc::new();
         {
@@ -6881,13 +6591,13 @@ mod tests {
         *Y_DOC.lock().unwrap() = Some(worker_doc);
 
         apply_yjs_update(
-            malformed_update.as_slice(),
+            update.as_slice(),
             r#"{
                 "changedGlyphs": ["A"],
                 "layerTargets": [{ "glyphName": "A", "layerId": "layer-1" }]
             }"#,
         )
-        .expect("compact node strings must be rehydratable during the originating update");
+        .expect("array nodes must update the active subset cache");
 
         *SUBSET_FONT_CACHE.lock().unwrap() = None;
         SUBSET_FONT_CACHE_BUILT_AT_EPOCH.store(0, Ordering::Relaxed);
@@ -6901,8 +6611,8 @@ mod tests {
 
     #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
-    fn wasm_apply_yjs_update_rehydrates_compact_subset_nodes_before_cache_mutation() {
-        apply_yjs_update_rehydrates_compact_subset_nodes_before_cache_mutation();
+    fn wasm_apply_yjs_update_applies_array_nodes_to_subset_cache() {
+        apply_yjs_update_applies_array_nodes_to_subset_cache();
     }
 
     #[test]
@@ -7464,14 +7174,17 @@ mod tests {
     }
 
     #[test]
-    fn replace_layer_in_font_cache_decodes_string_nodes_for_inserted_layers() {
+    fn replace_layer_in_font_cache_accepts_array_nodes_for_inserted_layers() {
         let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
         let mut font: babelfont::Font = serde_json::from_value(font_json.clone()).unwrap();
         let mut foreground_layer = font_json["glyphs"][0]["layers"][0].clone();
         foreground_layer["id"] = json!("foreground-layer-2");
         foreground_layer["shapes"] = json!([
             {
-                "nodes": "10 20 m 30 20 l",
+                "nodes": [
+                    { "x": 10.0, "y": 20.0, "nodetype": "Move", "smooth": false },
+                    { "x": 30.0, "y": 20.0, "nodetype": "Line", "smooth": false }
+                ],
                 "closed": false
             }
         ]);
@@ -7515,16 +7228,13 @@ mod tests {
     }
 
     #[test]
-    fn replace_layer_in_font_cache_reports_malformed_inserted_node_strings() {
+    fn replace_layer_in_font_cache_rejects_string_nodes() {
         let font_json: serde_json::Value = serde_json::from_str(TEST_FONT_JSON).unwrap();
         let mut layer = font_json["glyphs"][0]["layers"][0].clone();
         layer["id"] = json!("malformed-layer");
         layer["shapes"] = json!([{ "nodes": "10 20", "closed": false }]);
 
-        let error = normalize_inserted_layer_for_native_cache(&layer, "A", "malformed-layer")
-            .unwrap_err();
-
-        assert!(error.contains("Invalid resting path node string for A::malformed-layer shape 0"));
+        assert!(serde_json::from_value::<babelfont::Layer>(layer).is_err());
     }
 
     #[test]

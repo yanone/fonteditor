@@ -13,8 +13,7 @@ import {
     DecomposedAffineTransform,
     buildInterpolationRustBatchOperations,
     withSuppressedModelRecording,
-    withSuppressedMetricsKeyRecompute,
-    decodeShapeNodesForRuntime
+    withSuppressedMetricsKeyRecompute
 } from '../babelfont-model';
 import { beginLoadingCursor, endLoadingCursor } from '../loading-cursor';
 import {
@@ -51,7 +50,6 @@ import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
 import type { DesignspaceLocation, UserspaceLocation } from '../locations';
 import { SavedVariationState } from '../saved-variation-state';
 import { normalizeAffineTransform } from '../glyph-path-geometry';
-import { parseNodeString } from '../node-encoding';
 import {
     applyLiveSidebearingVisualSync,
     formatSidebearingHistoryValue,
@@ -8657,10 +8655,13 @@ export class OutlineEditor {
                               }
 
                               if ('nodes' in shape) {
+                                  if (!Array.isArray(shape.nodes)) {
+                                      throw new TypeError(
+                                          'Interpolation path nodes must be arrays.'
+                                      );
+                                  }
                                   const serializedPath: Record<string, any> = {
-                                      nodes: this.cloneLayerData(
-                                          parseNodeString(shape.nodes)
-                                      )
+                                      nodes: this.cloneLayerData(shape.nodes)
                                   };
 
                                   if (shape.closed !== undefined) {
@@ -20567,24 +20568,7 @@ export class OutlineEditor {
                             `[OutlineEditor] Missing stored layer ${target.glyphName}/${target.layerId} for committed layer snapshot sync.`
                         );
                     }
-                    // `Layer.data` aliases this stored array element, so it must
-                    // hold runtime-decoded geometry. The serialized form carries
-                    // Rust-normalized string-encoded nodes; handing that to the
-                    // model makes calculateBoundingBox unable to read ink, so it
-                    // degenerates to maxX === advance and every sidebearing read
-                    // returns RSB 0. Any recomposition running in that window
-                    // then "corrects" width by the full keyed RSB. The Yjs
-                    // payload below keeps the normalized form unchanged.
-                    storedLayers[storedLayerIndex] = Array.isArray(
-                        serializedLayer.shapes
-                    )
-                        ? {
-                              ...serializedLayer,
-                              shapes: decodeShapeNodesForRuntime(
-                                  serializedLayer.shapes
-                              )
-                          }
-                        : serializedLayer;
+                    storedLayers[storedLayerIndex] = serializedLayer;
                     modelLayer?.invalidateContentCaches?.();
                     layerSnapshots.push({
                         glyphName: target.glyphName,

@@ -40,9 +40,7 @@ function expectPlainShapeStructure(shapes, context) {
         expect('Component' in shape).toBe(false);
 
         if ('nodes' in shape) {
-            expect(
-                Array.isArray(shape.nodes) || typeof shape.nodes === 'string'
-            ).toBe(true);
+            expect(Array.isArray(shape.nodes)).toBe(true);
             continue;
         }
 

@@ -21,7 +21,6 @@ const {
     save_font_as_glyphs
 } = require('../wasm-dist/babelfont_fontc_web');
 const { sidebarErrorDisplay } = require('../js/sidebar-error-display');
-const { parseNodeString } = require('../js/node-encoding');
 
 function makeWorkerCacheStatus(overrides = {}) {
     return {
@@ -60,11 +59,8 @@ function stripLayerStableIds(layer) {
             ? layer.shapes.map((shape) => {
                   const nextShape = { ...shape };
                   delete nextShape.id;
-                  if (
-                      Array.isArray(nextShape.nodes) ||
-                      typeof nextShape.nodes === 'string'
-                  ) {
-                      nextShape.nodes = parseNodeString(nextShape.nodes).map(
+                  if (Array.isArray(nextShape.nodes)) {
+                      nextShape.nodes = nextShape.nodes.map(
                           ({ id, smooth, ...node }) =>
                               smooth === true ? { ...node, smooth } : node
                       );
@@ -277,7 +273,7 @@ describe('FontManager saveLayerData', () => {
             layer.toJSON()
         );
 
-        expect(typeof serializedLayer.shapes[0].nodes).toBe('string');
+        expect(Array.isArray(serializedLayer.shapes[0].nodes)).toBe(true);
         expect(path.nodes.length).toBeGreaterThan(nodeCountBefore);
         expect(layer.getBoundingBox()).not.toBeNull();
     });
@@ -376,7 +372,12 @@ describe('FontManager saveLayerData', () => {
             id: 'background-layer-a',
             is_background: true,
             background_layer_id: foreground.id,
-            shapes: [{ nodes: '100 200 m', closed: false }]
+            shapes: [
+                {
+                    nodes: [{ x: 100, y: 200, nodetype: 'Move' }],
+                    closed: false
+                }
+            ]
         };
         glyph.layers.push(background);
 
@@ -388,7 +389,12 @@ describe('FontManager saveLayerData', () => {
                 width: background.width,
                 master: background.master,
                 background_layer_id: foreground.id,
-                shapes: [{ nodes: '140 220 m', closed: false }]
+                shapes: [
+                    {
+                        nodes: [{ x: 140, y: 220, nodetype: 'Move' }],
+                        closed: false
+                    }
+                ]
             },
             'mouse-drag-outline'
         );
@@ -672,7 +678,7 @@ describe('FontManager saveLayerData', () => {
                 'keyboard-outline'
             )
         ).rejects.toThrow(
-            /Path shape nodes must be an array or upstream string/
+            /Path shape nodes must be an array before layer storage serialization/
         );
 
         const savedLayer = fontManager.currentFont.babelfontData.glyphs
@@ -847,7 +853,9 @@ describe('FontManager saveLayerData', () => {
                 },
                 undefined
             )
-        ).toThrow(/Path shape nodes must be an array or upstream string/);
+        ).toThrow(
+            /Path shape nodes must be an array before layer storage serialization/
+        );
     });
 
     test('serializeLayerForStorage prunes semantically empty optional containers', () => {
@@ -1212,7 +1220,7 @@ describe('FontManager saveLayerData', () => {
         await expect(
             fontManager.refreshGlyphsAfterModelBatch(['a'], layerId)
         ).rejects.toThrow(
-            /Path shape nodes must be an array or upstream string/
+            /Path shape nodes must be an array before layer storage serialization/
         );
         expect(sendMessageSpy).not.toHaveBeenCalled();
     });
@@ -1482,40 +1490,6 @@ describe('FontManager editing subset inclusion', () => {
         });
     });
 
-    test('validateBabelfontJsonForRust accepts canonical node strings without malformed-shape logs', () => {
-        const fontData = cloneJson(fontManager.currentFont.babelfontData);
-        fontData.glyphs[0].layers[0].shapes = [
-            { nodes: '100 200 m', closed: false }
-        ];
-        fontData.glyphs[0].layers.push({
-            id: 'background-layer-1',
-            width: fontData.glyphs[0].layers[0].width,
-            is_background: true,
-            background_layer_id: fontData.glyphs[0].layers[0].id,
-            shapes: [{ nodes: '100 200 l', closed: true }]
-        });
-        const errorSpy = jest
-            .spyOn(console, 'error')
-            .mockImplementation(() => {});
-
-        try {
-            const validatedJson = fontManager['validateBabelfontJsonForRust'](
-                JSON.stringify(fontData),
-                true
-            );
-
-            expect(
-                JSON.parse(validatedJson).glyphs[0].layers[0].shapes[0]
-            ).toEqual({ nodes: '100 200 m', closed: false });
-            expect(
-                JSON.parse(validatedJson).glyphs[0].layers[1].shapes[0]
-            ).toEqual({ nodes: '100 200 l', closed: true });
-            expect(errorSpy).not.toHaveBeenCalled();
-        } finally {
-            errorSpy.mockRestore();
-        }
-    });
-
     test('validateBabelfontJsonForRust rejects missing layer widths instead of synthesizing zero', () => {
         const fontData = cloneJson(fontManager.currentFont.babelfontData);
         delete fontData.glyphs[0].layers[0].width;
@@ -1526,6 +1500,22 @@ describe('FontManager editing subset inclusion', () => {
                 true
             )
         ).toThrow(/invalid width/);
+    });
+
+    test('validateBabelfontJsonForRust rejects legacy string path nodes', () => {
+        const fontData = cloneJson(fontManager.currentFont.babelfontData);
+        fontData.glyphs[0].layers[0].shapes = [
+            { nodes: '12345 67890 m', closed: false }
+        ];
+
+        expect(() =>
+            fontManager['validateBabelfontJsonForRust'](
+                JSON.stringify(fontData),
+                true
+            )
+        ).toThrow(
+            /Path shape nodes must be an array before compile validation/
+        );
     });
 
     test('validateBabelfontJsonForRust accepts object-shaped master kerning', () => {
@@ -3010,13 +3000,10 @@ describe('FontManager boundary-crossing budget', () => {
         const bridgeLayer = yDocToJson(bridgeDoc.getMap('font'))
             .glyphs.find((glyph) => glyph.name === glyphName)
             .layers.find((layer) => layer.id === layerId);
-        const pathIndex = bridgeLayer.shapes.findIndex(
-            (shape) =>
-                Array.isArray(shape.nodes) || typeof shape.nodes === 'string'
+        const pathIndex = bridgeLayer.shapes.findIndex((shape) =>
+            Array.isArray(shape.nodes)
         );
-        const bridgeNodes = parseNodeString(
-            bridgeLayer.shapes[pathIndex].nodes
-        );
+        const bridgeNodes = bridgeLayer.shapes[pathIndex].nodes;
         const bridgeNodeX = bridgeNodes[0].x + 101;
         const staleNodeX = bridgeNodes[0].x - 101;
         const serializeLayerForStorageSpy = jest.spyOn(
@@ -3080,18 +3067,14 @@ describe('FontManager boundary-crossing budget', () => {
             const storedLayer = currentFont.babelfontData.glyphs
                 .find((glyph) => glyph.name === glyphName)
                 .layers.find((layer) => layer.id === layerId);
-            expect(
-                parseNodeString(storedLayer.shapes[pathIndex].nodes)[0].x
-            ).toBe(bridgeNodeX);
+            expect(storedLayer.shapes[pathIndex].nodes[0].x).toBe(bridgeNodeX);
 
             const workerLayer = yDocToJson(
                 fontManager.workerCacheYDoc.getMap('font')
             )
                 .glyphs.find((glyph) => glyph.name === glyphName)
                 .layers.find((layer) => layer.id === layerId);
-            expect(
-                parseNodeString(workerLayer.shapes[pathIndex].nodes)[0].x
-            ).toBe(bridgeNodeX);
+            expect(workerLayer.shapes[pathIndex].nodes[0].x).toBe(bridgeNodeX);
         } finally {
             serializeLayerForStorageSpy.mockRestore();
             fontManager.lastEditType = null;
@@ -4898,10 +4881,7 @@ describe('FontManager worker seed export', () => {
             );
             const firstLayer = firstGlyph.layers[0];
             const firstPathShape = firstLayer.shapes.find(
-                (shape) =>
-                    !shape.reference &&
-                    (Array.isArray(shape.nodes) ||
-                        typeof shape.nodes === 'string')
+                (shape) => !shape.reference && Array.isArray(shape.nodes)
             );
 
             expect(encodeBridgeState).toHaveBeenCalledTimes(1);
@@ -5526,9 +5506,29 @@ describe('FontManager external source reload', () => {
                 }
             }
         };
+        for (const glyph of sourceBaseline.glyphs) {
+            for (const layer of glyph.layers || []) {
+                for (const shape of layer.shapes || []) {
+                    if ('nodes' in shape) {
+                        shape.nodes = [];
+                    }
+                }
+            }
+        }
         const initialImport = canonicalizeImportedFontData(sourceBaseline);
         const originalData = initialImport.fontData;
-        const sourceData = cloneJson(sourceBaseline);
+        const sourceData = cloneJson(initialImport.fontData);
+        for (const fontData of [originalData, sourceData]) {
+            for (const glyph of fontData.glyphs) {
+                for (const layer of glyph.layers || []) {
+                    for (const shape of layer.shapes || []) {
+                        if ('nodes' in shape) {
+                            shape.nodes = [];
+                        }
+                    }
+                }
+            }
+        }
         let stableShapeId = 0;
         for (const glyph of originalData.glyphs) {
             for (const layer of glyph.layers || []) {
@@ -5550,7 +5550,8 @@ describe('FontManager external source reload', () => {
             (layer) => layer.id === 'L1'
         );
         const targetShape = targetLayer.shapes[0];
-        const targetNodes = parseNodeString(targetShape.nodes);
+        targetShape.nodes = [{ x: 0, y: 0, nodetype: 'Move' }];
+        const targetNodes = targetShape.nodes;
         const beforeY = targetNodes[0].y;
         targetNodes[0].y += 100;
         targetShape.nodes = targetNodes;
@@ -5615,9 +5616,9 @@ describe('FontManager external source reload', () => {
                 })
             ])
         );
-        expect(
-            parseNodeString(emittedUpdates[0].entries[0].newValue[0].nodes)[0].y
-        ).toBe(beforeY + 100);
+        expect(emittedUpdates[0].entries[0].newValue[0].nodes[0].y).toBe(
+            beforeY + 100
+        );
         expect(yDocToJson(bridge.fontMap).masters[0].guides[0].id).toBe(
             originalData.masters[0].guides[0].id
         );

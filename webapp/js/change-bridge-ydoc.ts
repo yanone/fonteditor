@@ -8,7 +8,6 @@
 
 import * as Y from 'yjs';
 import { generateStableId } from './babelfont-model';
-import { parseNodeString, serializeNodeArray } from './node-encoding';
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -75,9 +74,11 @@ export function normalizeValueForYDocWrite(value: unknown): unknown {
     }
 
     if ('nodes' in record) {
+        if (!Array.isArray(record.nodes)) {
+            throw new TypeError('Y.Doc path nodes must be arrays.');
+        }
         return {
             ...record,
-            nodes: serializeNodeArray(record.nodes),
             closed: record.closed === undefined ? false : record.closed
         };
     }
@@ -316,12 +317,8 @@ function mergeYMapContents(
         if ((key === 'anchors' || key === 'guides') && Array.isArray(value)) {
             // Indexed-map array — use applyIndexedMapArray
             applyIndexedMapArray(targetMap, key, value);
-        } else if (
-            key === 'nodes' &&
-            current instanceof Y.Text &&
-            typeof value === 'string'
-        ) {
-            replaceYText(current, value);
+        } else if (key === 'nodes' && !Array.isArray(value)) {
+            throw new TypeError('Y.Doc path nodes must be arrays.');
         } else if (isYMap(current) && isPlainObject(value)) {
             mergeYMapContents(current, value as Record<string, unknown>);
         } else {
@@ -338,7 +335,7 @@ function mergeYMapContents(
  * Convert a plain JS value into a Y.Map, Y.Array, or primitive suitable
  * for insertion into a Y.Doc.
  *
- * Babelfont-aware: Path objects store upstream-truthful string `nodes`; Layer
+ * Babelfont-aware: Path objects store node arrays; Layer
  * objects keep glyph/layer structure while storing shapes as plain ordered
  * arrays and anchors/guides as indexed maps.
  */
@@ -356,6 +353,14 @@ export function toYType(value: unknown): unknown {
         >;
         const map = new Y.Map();
 
+        if ('nodetype' in normalizedValue) {
+            const { id: _id, ...nodeWithoutId } = normalizedValue;
+            for (const [key, item] of Object.entries(nodeWithoutId)) {
+                map.set(key, toYType(item));
+            }
+            return map;
+        }
+
         // Check if this is a Layer (has shapes array) → indexed-map for shapes/anchors/guides
         if (
             'shapes' in normalizedValue &&
@@ -365,10 +370,7 @@ export function toYType(value: unknown): unknown {
         }
 
         for (const [k, v] of Object.entries(normalizedValue)) {
-            map.set(
-                k,
-                k === 'nodes' && typeof v === 'string' ? toYText(v) : toYType(v)
-            );
+            map.set(k, toYType(v));
         }
         return map;
     }
@@ -494,11 +496,12 @@ function fromYGlyphMap(glyphMap: Y.Map<unknown>): Record<string, unknown> {
 
 /**
  * Convert a Yjs shared type back into a plain JS value.
- * Reverses Yjs shared types into upstream-truthful plain JSON.
  */
 export function fromYType(value: unknown): unknown {
     if (value instanceof Y.Text) {
-        return value.toString();
+        throw new TypeError(
+            'Y.Text values are not supported in the font Y.Doc.'
+        );
     }
     if (value instanceof Y.Map) {
         const obj: Record<string, unknown> = {};
@@ -532,52 +535,9 @@ export function fromYType(value: unknown): unknown {
     return value;
 }
 
-function toYText(value: string): Y.Text {
-    const text = new Y.Text();
-    if (value.length > 0) {
-        text.insert(0, value);
-    }
-    return text;
-}
-
-function replaceYText(text: Y.Text, nextValue: string): void {
-    const currentValue = text.toString();
-    if (currentValue === nextValue) {
-        return;
-    }
-
-    let start = 0;
-    const sharedLength = Math.min(currentValue.length, nextValue.length);
-    while (
-        start < sharedLength &&
-        currentValue.charCodeAt(start) === nextValue.charCodeAt(start)
-    ) {
-        start++;
-    }
-
-    let currentEnd = currentValue.length;
-    let nextEnd = nextValue.length;
-    while (
-        currentEnd > start &&
-        nextEnd > start &&
-        currentValue.charCodeAt(currentEnd - 1) ===
-            nextValue.charCodeAt(nextEnd - 1)
-    ) {
-        currentEnd--;
-        nextEnd--;
-    }
-
-    if (currentEnd > start) {
-        text.delete(start, currentEnd - start);
-    }
-    if (nextEnd > start) {
-        text.insert(start, nextValue.slice(start, nextEnd));
-    }
-}
-
 /**
  * Reverse `layerToYMap`: read a layer Y.Map back into a flat layer object with
- * upstream-truthful `shapes` plus indexed-map-backed `anchors`/`guides` arrays.
+ * ordered `shapes` plus indexed-map-backed `anchors`/`guides` arrays.
  */
 function fromYLayerMap(layerMap: Y.Map<unknown>): Record<string, unknown> {
     const obj: Record<string, unknown> = {};
@@ -1104,18 +1064,15 @@ export function setYPath(
         const property = String(path[nodesSegmentIndex + 2]);
         const existingNodes = getYPath(root, nodesPath);
         const nodes =
-            existingNodes === undefined
-                ? []
-                : parseNodeString(
-                      existingNodes instanceof Y.Text
-                          ? existingNodes.toString()
-                          : existingNodes
-                  );
+            existingNodes === undefined ? [] : fromYType(existingNodes);
+        if (!Array.isArray(nodes)) {
+            throw new TypeError('Y.Doc path nodes must be arrays.');
+        }
         while (nodes.length <= nodeIndex) {
             nodes.push({ x: 0, y: 0, nodetype: 'Line', smooth: false });
         }
         nodes[nodeIndex][property] = value;
-        setYPath(root, nodesPath, serializeNodeArray(nodes));
+        setYPath(root, nodesPath, nodes);
         return;
     }
 
@@ -1234,17 +1191,10 @@ export function setYPath(
     const lastSegStr = String(lastSeg);
 
     if (current instanceof Y.Map && lastSegStr === 'nodes') {
-        if (typeof value !== 'string') {
-            throw new TypeError(
-                'Y.Doc path nodes must be canonical babelfont strings.'
-            );
+        if (!Array.isArray(value)) {
+            throw new TypeError('Y.Doc path nodes must be arrays.');
         }
-        const existingNodes = current.get('nodes');
-        if (existingNodes instanceof Y.Text) {
-            replaceYText(existingNodes, value);
-        } else {
-            current.set('nodes', toYText(value));
-        }
+        current.set(lastSegStr, toYType(value));
         return;
     }
 

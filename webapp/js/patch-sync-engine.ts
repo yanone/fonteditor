@@ -62,10 +62,6 @@ import {
 } from './collaboration-message';
 import { windowRole } from './window-role';
 import { withSuppressedModelRecording } from './babelfont-model';
-import {
-    decodeNodeStringsForRuntime,
-    encodeNodeArraysForStorage
-} from './node-encoding';
 import { diffFontDataToPatchPairs } from './font-data-diff';
 
 const console = new Logger('PatchSyncEngine');
@@ -1108,7 +1104,7 @@ export class PatchSyncEngine {
                 // New glyph snapshots need shape ids for Rust's Shape enum.
                 // The normal patch encoder strips those ids because existing
                 // shape patches address them structurally.
-                newValue: encodeNodeArraysForStorage(cloneHistoryValue(glyph)),
+                newValue: this._prepareStorageValue(glyph),
                 applyMode: 'glyph-snapshot'
             });
         }
@@ -1304,7 +1300,7 @@ export class PatchSyncEngine {
             );
         };
 
-        return this._encodeNodeArraysForStorage(normalizeShapes(value));
+        return this._prepareStorageValue(normalizeShapes(value));
     }
 
     // ── Transactions ─────────────────────────────────────────────
@@ -1552,7 +1548,7 @@ export class PatchSyncEngine {
             if (!layerJson) {
                 continue;
             }
-            const storageLayerJson = this._encodeNodeArraysForStorage(
+            const storageLayerJson = this._prepareStorageValue(
                 layerJson
             ) as Record<string, unknown>;
             operations.push(
@@ -1652,7 +1648,7 @@ export class PatchSyncEngine {
                 continue;
             }
 
-            const storageLayerJson = this._encodeNodeArraysForStorage(
+            const storageLayerJson = this._prepareStorageValue(
                 layerJson
             ) as Record<string, unknown>;
             if (authoritativeOptionalLayerFields !== undefined) {
@@ -2463,7 +2459,7 @@ export class PatchSyncEngine {
             if (!yGlyphJson) {
                 continue;
             }
-            const storageGlyphJson = this._encodeNodeArraysForStorage(
+            const storageGlyphJson = this._prepareStorageValue(
                 glyphJson
             ) as Record<string, unknown>;
             if (this._isDeepEqual(yGlyphJson, storageGlyphJson)) {
@@ -2626,9 +2622,10 @@ export class PatchSyncEngine {
             (l: Record<string, unknown>) => l.id === layerId
         );
         if (!layerJson) return false;
-        const storageLayerJson = this._encodeNodeArraysForStorage(
-            layerJson
-        ) as Record<string, unknown>;
+        const storageLayerJson = this._prepareStorageValue(layerJson) as Record<
+            string,
+            unknown
+        >;
         const operations = this._buildLayerSyncOperations(
             glyphName,
             layerId,
@@ -3551,7 +3548,7 @@ export class PatchSyncEngine {
             return;
         }
 
-        fontRecord[key] = this._decodeNodeStringsForRuntime(
+        fontRecord[key] = this._cloneRuntimeValue(
             cloneHistoryValue(fromYType(value))
         );
     }
@@ -3570,7 +3567,7 @@ export class PatchSyncEngine {
             return null;
         }
 
-        const glyphSnapshot = this._decodeNodeStringsForRuntime(
+        const glyphSnapshot = this._cloneRuntimeValue(
             this._normalizeGlyphSnapshot(
                 fromYType(glyphMap),
                 existingGlyphSnapshot
@@ -4237,7 +4234,7 @@ export class PatchSyncEngine {
             return false;
         }
 
-        const patchedLayer = this._decodeNodeStringsForRuntime(
+        const patchedLayer = this._cloneRuntimeValue(
             this._normalizeLayerSnapshot(
                 scopeHint.layerId,
                 fromYType(layerMap),
@@ -5491,14 +5488,15 @@ export class PatchSyncEngine {
         return value === undefined ? undefined : cloneHistoryValue(value);
     }
 
-    private _encodeNodeArraysForStorage(value: unknown): unknown {
-        const stripShapeIds = (
+    private _prepareStorageValue(value: unknown): unknown {
+        const stripEditorIds = (
             candidate: unknown,
-            isShapeEntry = false
+            isShapeEntry = false,
+            isNodeEntry = false
         ): unknown => {
             if (Array.isArray(candidate)) {
                 return candidate.map((item) =>
-                    stripShapeIds(item, isShapeEntry)
+                    stripEditorIds(item, isShapeEntry, isNodeEntry)
                 );
             }
             if (!candidate || typeof candidate !== 'object') {
@@ -5510,28 +5508,27 @@ export class PatchSyncEngine {
                 isShapeEntry &&
                 (Object.prototype.hasOwnProperty.call(record, 'nodes') ||
                     Object.prototype.hasOwnProperty.call(record, 'reference'));
-            const storageRecord = isPathOrComponent
-                ? (() => {
-                      const { id: _id, ...shapeWithoutId } = record;
-                      return shapeWithoutId;
-                  })()
-                : { ...record };
+            const storageRecord =
+                isPathOrComponent || isNodeEntry
+                    ? (() => {
+                          const { id: _id, ...withoutId } = record;
+                          return withoutId;
+                      })()
+                    : { ...record };
 
             return Object.fromEntries(
                 Object.entries(storageRecord).map(([key, item]) => [
                     key,
-                    stripShapeIds(item, key === 'shapes')
+                    stripEditorIds(item, key === 'shapes', key === 'nodes')
                 ])
             );
         };
 
-        return stripShapeIds(
-            encodeNodeArraysForStorage(cloneHistoryValue(value))
-        );
+        return stripEditorIds(cloneHistoryValue(value));
     }
 
-    private _decodeNodeStringsForRuntime(value: unknown): unknown {
-        return decodeNodeStringsForRuntime(cloneHistoryValue(value));
+    private _cloneRuntimeValue(value: unknown): unknown {
+        return cloneHistoryValue(value);
     }
 
     private _canReplayHistoryItemDirectly(

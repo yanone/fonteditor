@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
 const { Font, withSuppressedModelRecording } = require('../js/babelfont-model');
-const { parseNodeString } = require('../js/node-encoding');
 const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
 
 function loadFontFixture(fileName) {
@@ -18,7 +17,7 @@ function cloneValue(value) {
 function getLayerNodes(layerJson) {
     const shape = layerJson?.shapes?.[0];
     const nodes = shape?.nodes || shape?.Path?.nodes || [];
-    return parseNodeString(nodes).map(({ smooth, ...node }) =>
+    return nodes.map(({ smooth, ...node }) =>
         smooth === false ? node : { ...node, smooth }
     );
 }
@@ -44,7 +43,7 @@ describe('metrics-key point drag regression', () => {
             });
 
             const bridge = new ChangeBridge(`metrics-key-point-drag-${deltaY}`);
-            bridge.initFromJson(fontJson);
+            bridge.initFromJson(JSON.parse(font.toJSONString()));
             window.changeBridge = bridge;
 
             const layer = glyph.layers[0];
@@ -64,6 +63,7 @@ describe('metrics-key point drag regression', () => {
             const changedSnapshot = cloneValue(layer.toJSON());
             const changedNodes = getLayerNodes(changedSnapshot);
 
+            bridge.setFontJson(JSON.parse(font.toJSONString()));
             bridge.syncGlyphFromJson(
                 'a',
                 'Drag point',
@@ -83,9 +83,9 @@ describe('metrics-key point drag regression', () => {
                 })
             );
 
-            const undoneGlyph = fontJson.glyphs.find(
-                (entry) => entry.name === 'a'
-            );
+            const undoneGlyph = bridge
+                .getFontJsonSnapshot()
+                .glyphs.find((entry) => entry.name === 'a');
             const undoneLayer = undoneGlyph.layers.find(
                 (entry) => entry.id === layer.id
             );
