@@ -2694,6 +2694,95 @@ describe('Transactions', () => {
         expect(fontJson.glyphs[0].layers[0].shapes).toEqual(originalShapes);
     });
 
+    test('layer snapshot node deletion round-trips through undo and redo', () => {
+        const { bridge, fontJson } = createTestBridge(
+            'layer-snapshot-node-delete'
+        );
+        const layer = fontJson.glyphs[0].layers[0];
+        const originalNodes = cloneValue(layer.shapes[0].nodes);
+
+        layer.shapes[0].nodes.splice(1, 1);
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: layer
+                }
+            ],
+            'Delete point'
+        );
+
+        expect(bridge.getChangeLog()).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    op: 'set',
+                    path: 'glyphs.A:layers.layer-1:shapes'
+                })
+            ])
+        );
+
+        bridge.undo('A', 'layer-1');
+        expect(fontJson.glyphs[0].layers[0].shapes[0].nodes).toEqual(
+            originalNodes
+        );
+
+        bridge.redo('A', 'layer-1');
+        expect(fontJson.glyphs[0].layers[0].shapes[0].nodes).toHaveLength(
+            originalNodes.length - 1
+        );
+    });
+
+    test('layer extension-array deletion round-trips through undo and redo', () => {
+        const { bridge, fontJson } = createTestBridge(
+            'layer-snapshot-extension-array-delete'
+        );
+        const layer = fontJson.glyphs[0].layers[0];
+        layer.format_specific = { customValues: ['one', 'two'] };
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: layer
+                }
+            ],
+            'Seed extension array'
+        );
+        const logStart = bridge.getChangeLog().length;
+
+        layer.format_specific.customValues.pop();
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: layer
+                }
+            ],
+            'Delete extension item'
+        );
+
+        expect(bridge.getChangeLog().slice(logStart)).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    op: 'set',
+                    path: 'glyphs.A:layers.layer-1:format_specific.customValues'
+                })
+            ])
+        );
+
+        bridge.undo('A', 'layer-1');
+        expect(
+            fontJson.glyphs[0].layers[0].format_specific.customValues
+        ).toEqual(['one', 'two']);
+
+        bridge.redo('A', 'layer-1');
+        expect(
+            fontJson.glyphs[0].layers[0].format_specific.customValues
+        ).toEqual(['one']);
+    });
+
     test('multi-layer snapshots update canonical nodes without duplicating parent shapes', () => {
         const fontJson = makeThreeMasterThreeLayerFont();
         const receiverFontJson = cloneValue(fontJson);

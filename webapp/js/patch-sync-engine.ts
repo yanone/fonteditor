@@ -2007,6 +2007,20 @@ export class PatchSyncEngine {
         }
 
         if (Array.isArray(previousValue) && Array.isArray(nextValue)) {
+            // Unkeyed arrays have no stable member identity. A cardinality
+            // change shifts numeric paths, so replay it as one array value.
+            if (previousValue.length !== nextValue.length) {
+                return [
+                    this._createGranularLayerOperation(
+                        'set',
+                        path,
+                        previousValue,
+                        nextValue,
+                        metadata
+                    )
+                ];
+            }
+
             const operations: TransactionBufferedOperation[] = [];
             const maxLength = Math.max(previousValue.length, nextValue.length);
             for (let index = 0; index < maxLength; index++) {
