@@ -1847,7 +1847,19 @@ function applyImmediateUndoSidebearingSync(
 function isDirectSidebearingUndoRedo(
     historyItem: HistoryStackItem | null
 ): boolean {
-    return isDirectSidebearingTransactionLabel(historyItem?.transactionLabel);
+    return (
+        isDirectSidebearingTransactionLabel(historyItem?.transactionLabel) ||
+        historyItem?.entries.some((entry) =>
+            (entry.semanticChangeLogEntries?.length
+                ? entry.semanticChangeLogEntries
+                : [entry]
+            ).some(
+                (semanticEntry) =>
+                    semanticEntry.visualAnchorSide === 'left' ||
+                    semanticEntry.visualAnchorSide === 'right'
+            )
+        ) === true
+    );
 }
 
 function isDirectSidebearingTransactionLabel(
@@ -1870,7 +1882,8 @@ function historyItemTouchesAnchors(
 
 function syncImmediateUndoOutlineLayerFromModel(
     glyphName: string | null,
-    layerId: string | null
+    layerId: string | null,
+    deferRender: boolean = false
 ): boolean {
     const gc = window.glyphCanvas;
     const outlineEditor = gc?.outlineEditor as unknown as {
@@ -1903,7 +1916,9 @@ function syncImmediateUndoOutlineLayerFromModel(
     }
     gc.updatePropertyPanel?.();
     outlineEditor?.performHitDetection?.(null);
-    gc.render?.();
+    if (!deferRender) {
+        gc.render?.();
+    }
     return true;
 }
 
@@ -2038,6 +2053,19 @@ function hasLocalLiveAdvancePreview(entries: ChangeLogEntry[]): boolean {
     });
 }
 
+function hasSidebearingVisualAnchor(entries: ChangeLogEntry[]): boolean {
+    return entries.some((entry) =>
+        (entry.semanticChangeLogEntries?.length
+            ? entry.semanticChangeLogEntries
+            : [entry]
+        ).some(
+            (semanticEntry) =>
+                semanticEntry.visualAnchorSide === 'left' ||
+                semanticEntry.visualAnchorSide === 'right'
+        )
+    );
+}
+
 function getFallbackUndoRedoCommittedEntries(
     historyItem: HistoryStackItem | null,
     action: 'undo' | 'redo',
@@ -2131,7 +2159,7 @@ function applyLocalUndoRedoVisualSync(
     context?: LocalUndoRedoVisualContext,
     localCompileContext?: LocalCommittedCompileContext | null
 ): boolean {
-    if (!isUndoRedoCommittedPacket(entries)) {
+    if (!isUndoRedoCommittedPacket(entries) && !context) {
         return false;
     }
 
@@ -2164,8 +2192,15 @@ function applyLocalUndoRedoVisualSync(
         context?.previousWidth ??
         inferPreviousWidthFromUndoRedoEntries(entries, action);
 
+    const isSidebearingUndoRedo =
+        isDirectSidebearingUndoRedo(historyItem) ||
+        hasSidebearingVisualAnchor(entries);
+    if (!isSidebearingUndoRedo) {
+        window.glyphCanvas?.outlineEditor?.clearPendingSidebearingBboxCenterAnchor?.();
+    }
+
     const appliedSidebearingSync =
-        isDirectSidebearingUndoRedo(historyItem) &&
+        isSidebearingUndoRedo &&
         previousWidth !== null &&
         applyImmediateUndoSidebearingSync(
             editedGlyphName,
@@ -2184,7 +2219,11 @@ function applyLocalUndoRedoVisualSync(
     }
 
     return (
-        syncImmediateUndoOutlineLayerFromModel(editedGlyphName, layerId) &&
+        syncImmediateUndoOutlineLayerFromModel(
+            editedGlyphName,
+            layerId,
+            appliedSidebearingSync
+        ) &&
         (appliedSidebearingSync ||
             historyItem.transactionLabel?.startsWith('Drag ') === true ||
             (localCompileContext?.changeSource === 'keyboard-outline' &&
@@ -2304,7 +2343,6 @@ function applyRemoteSidebearingVisualSync(entries: ChangeLogEntry[]): boolean {
     }
     gc.updatePropertyPanel?.();
     gc.outlineEditor?.performHitDetection?.(null);
-    gc.render?.();
 
     return true;
 }
@@ -2488,7 +2526,9 @@ export async function handleCommittedChangeRefresh(
         return;
     }
 
-    const isUndoRedoPacket = isUndoRedoCommittedPacket(entries);
+    const isUndoRedoPacket =
+        isUndoRedoCommittedPacket(entries) ||
+        dependencies?.localUndoRedoContext !== undefined;
 
     const requestCompile =
         dependencies?.requestCompile ??
@@ -2532,6 +2572,7 @@ export async function handleCommittedChangeRefresh(
             getActiveEditedGlyphName()
         );
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
+            skipDeferredCanvasRepaint: appliedSidebearingSync,
             ...(!appliedSidebearingSync &&
             Object.keys(liveAdvanceDeltas).length > 0
                 ? { liveAdvanceDeltas }
@@ -2561,6 +2602,7 @@ export async function handleCommittedChangeRefresh(
             dependencies?.localUndoRedoContext,
             localCompileContext
         );
+        const isSidebearingCommit = hasSidebearingVisualAnchor(entries);
 
         const awaitWorkerSync =
             dependencies?.awaitWorkerSync ??
@@ -2599,7 +2641,8 @@ export async function handleCommittedChangeRefresh(
             !isUndoRedoPacket && hasLocalLiveAdvancePreview(entries);
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
             skipDeferredCanvasRepaint:
-                isUndoRedoPacket && !requiresBackgroundLayerRefresh,
+                (isUndoRedoPacket || isSidebearingCommit) &&
+                !requiresBackgroundLayerRefresh,
             skipLayerDataFetch: canSkipUndoRedoLayerDataFetch,
             preferExactLayerDataRefresh: canPreferExactLocalVisualRefresh,
             ...(!hasLiveAdvancePreview &&
@@ -2797,10 +2840,6 @@ export function runBridgeUndoRedo(
             return;
         }
 
-        if (!isDirectSidebearingUndoRedo(appliedChange.historyItem)) {
-            window.glyphCanvas?.outlineEditor?.clearPendingSidebearingBboxCenterAnchor?.();
-        }
-
         restoreFontInfoScroll();
 
         if (committedChangeRefreshGeneration !== committedGenerationBefore) {
@@ -2951,9 +2990,7 @@ function initializeBridge(detail: {
                 ? resolveLocalCommittedCompileContext(entries)
                 : undefined;
         const localUndoRedoContext =
-            context.origin === 'local' &&
-            pendingLocalUndoRedoContext &&
-            isUndoRedoCommittedPacket(entries)
+            context.origin === 'local' && pendingLocalUndoRedoContext
                 ? pendingLocalUndoRedoContext
                 : undefined;
         if (localUndoRedoContext) {

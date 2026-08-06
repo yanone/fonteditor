@@ -80,7 +80,7 @@ function setupUnkeyedCanvas(canvas) {
         xOffset: 0,
         yOffset: 0
     }));
-    canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
+    canvas.textRunEditor.refreshGlyphAdvanceDeltasLive = jest.fn(() => true);
 }
 
 describe('Sidebearing center anchoring matrix', () => {
@@ -124,6 +124,44 @@ describe('Sidebearing center anchoring matrix', () => {
         canvas.outlineEditor._updateDraggedSidebearing(deltaX);
 
         expectLayerCenterAnchored(canvas, beforeCenter);
+    });
+
+    test('mouse sidebearing drag retains its center anchor for recomposed advance replay', () => {
+        const beforeCenter = snapshotLayerCenterScreen(canvas);
+
+        canvas.outlineEditor.isDraggingSidebearing = true;
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'left',
+            editable: true
+        };
+        canvas.outlineEditor._updateDraggedSidebearing(20);
+
+        canvas.viewportManager.panX -= 250;
+        expect(
+            canvas.outlineEditor.reapplyPendingSidebearingBboxCenterAnchor()
+        ).toBe(true);
+
+        expectLayerCenterAnchored(canvas, beforeCenter);
+    });
+
+    test('mouse sidebearing drag clears a preview anchor from an earlier interaction', () => {
+        expect(
+            canvas.outlineEditor.capturePendingSidebearingBboxCenterAnchor()
+        ).toBe(true);
+
+        canvas.outlineEditor.hoveredSidebearingHandle = {
+            side: 'left',
+            editable: true
+        };
+        canvas.outlineEditor.onSingleClick({
+            clientX: 0,
+            clientY: 0,
+            shiftKey: false
+        });
+
+        expect(
+            canvas.outlineEditor.reapplyPendingSidebearingBboxCenterAnchor()
+        ).toBe(false);
     });
 
     test.each([
@@ -233,14 +271,14 @@ describe('Sidebearing undo viewport stability', () => {
     });
 
     function installUndoHarness(historyItem, previousWidth, nextWidth) {
-        const refreshGlyphAdvancesLive = jest.fn(() => true);
+        const refreshGlyphAdvanceDeltasLive = jest.fn(() => true);
         const glyphCanvas = {
             viewportManager: {
                 panX: 100,
                 scale: 2
             },
             textRunEditor: {
-                refreshGlyphAdvancesLive
+                refreshGlyphAdvanceDeltasLive
             },
             outlineEditor: {
                 active: true,
@@ -301,7 +339,7 @@ describe('Sidebearing undo viewport stability', () => {
             checkAndSchedule: jest.fn()
         };
 
-        return { glyphCanvas, refreshGlyphAdvancesLive };
+        return { glyphCanvas, refreshGlyphAdvanceDeltasLive };
     }
 
     test.each([
@@ -324,18 +362,15 @@ describe('Sidebearing undo viewport stability', () => {
     ])('$label', async ({ historyItem, side }) => {
         const previousWidth = 500;
         const nextWidth = 520;
-        const { glyphCanvas, refreshGlyphAdvancesLive } = installUndoHarness(
-            historyItem,
-            previousWidth,
-            nextWidth
-        );
+        const { glyphCanvas, refreshGlyphAdvanceDeltasLive } =
+            installUndoHarness(historyItem, previousWidth, nextWidth);
         const beforeViewport = snapshotViewport(glyphCanvas);
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
         expectViewportUnchanged(glyphCanvas, beforeViewport);
-        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
-            { a: nextWidth },
+        expect(refreshGlyphAdvanceDeltasLive).toHaveBeenCalledWith(
+            { a: nextWidth - previousWidth },
             { render: false }
         );
     });
@@ -393,7 +428,7 @@ describe('Sidebearing undo viewport stability', () => {
                         xOffset: 0,
                         yOffset: 0
                     })),
-                    refreshGlyphAdvancesLive: jest.fn(() => true)
+                    refreshGlyphAdvanceDeltasLive: jest.fn(() => true)
                 },
                 outlineEditor: {
                     active: true,
@@ -562,10 +597,10 @@ describe('Sidebearing undo viewport stability', () => {
         previousWidth,
         nextWidth
     ) {
-        const refreshGlyphAdvancesLive = jest.fn(() => true);
+        const refreshGlyphAdvanceDeltasLive = jest.fn(() => true);
         const glyphCanvas = {
             viewportManager: { panX: 100, scale: 2 },
-            textRunEditor: { refreshGlyphAdvancesLive },
+            textRunEditor: { refreshGlyphAdvanceDeltasLive },
             outlineEditor: {
                 active: true,
                 selectedLayerId: 'layer-1',
@@ -629,7 +664,7 @@ describe('Sidebearing undo viewport stability', () => {
         };
         originalWindow.autoCompileManager = { checkAndSchedule: jest.fn() };
 
-        return { glyphCanvas, refreshGlyphAdvancesLive };
+        return { glyphCanvas, refreshGlyphAdvanceDeltasLive };
     }
 
     test.each([

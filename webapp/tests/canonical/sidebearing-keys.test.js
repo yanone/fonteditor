@@ -112,7 +112,7 @@ function setupCanvasForGlyph(font, glyphName) {
         { ax: layer.width, dx: 0, dy: 0, g: 0, cl: 0 }
     ];
     canvas.textRunEditor.glyphNameBuffer = [glyphName];
-    canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
+    canvas.textRunEditor.refreshGlyphAdvanceDeltasLive = jest.fn(() => true);
 
     return { glyph, layer, masterId };
 }
@@ -521,11 +521,11 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
 
         // Advance widths should be refreshed
         expect(
-            canvas.textRunEditor.refreshGlyphAdvancesLive
+            canvas.textRunEditor.refreshGlyphAdvanceDeltasLive
         ).toHaveBeenCalled();
 
         const advancesCall =
-            canvas.textRunEditor.refreshGlyphAdvancesLive.mock.calls[0][0];
+            canvas.textRunEditor.refreshGlyphAdvanceDeltasLive.mock.calls[0][0];
         expect(advancesCall).toHaveProperty('l');
         expect(advancesCall).toHaveProperty('n');
         expect(advancesCall).toHaveProperty('a');
@@ -704,7 +704,7 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
 
         expect(nLayer.width).toBe(nWidthBefore);
         const liveAdvances =
-            canvas.textRunEditor.refreshGlyphAdvancesLive.mock.calls[0][0];
+            canvas.textRunEditor.refreshGlyphAdvanceDeltasLive.mock.calls[0][0];
         expect(liveAdvances).toHaveProperty('l');
         expect(liveAdvances).not.toHaveProperty('n');
 
@@ -1261,24 +1261,20 @@ describe('Sidebearing keys: viewport anchoring', () => {
         canvas.outlineEditor._updateDraggedSidebearing(20);
 
         // The cascade should have propagated to n (metricRight=l-10) and a
-        // (metricRight=n).  Read the advances passed to refreshGlyphAdvancesLive.
+        // (metricRight=n). Read the advance deltas passed to the live refresh.
         expect(
-            canvas.textRunEditor.refreshGlyphAdvancesLive
+            canvas.textRunEditor.refreshGlyphAdvanceDeltasLive
         ).toHaveBeenCalled();
         const advancesArg =
-            canvas.textRunEditor.refreshGlyphAdvancesLive.mock.calls[0][0];
+            canvas.textRunEditor.refreshGlyphAdvanceDeltasLive.mock.calls[0][0];
 
         // Both a and n should be in the updated advances map.
         expect(advancesArg).toHaveProperty('a');
         expect(advancesArg).toHaveProperty('n');
 
-        const aNew = advancesArg.a;
-        const nNew = advancesArg.n;
-        const aDelta = aNew - aOldWidth;
-        const nDelta = nNew - nOldWidth;
         // Both downstream glyphs must have widened (their RSB inherited from l).
-        expect(aDelta).toBeGreaterThan(0.5);
-        expect(nDelta).toBeGreaterThan(0.5);
+        expect(advancesArg.a).toBeGreaterThan(0.5);
+        expect(advancesArg.n).toBeGreaterThan(0.5);
 
         expectActiveGlyphLayerCenterAnchored(beforeCenter);
     });

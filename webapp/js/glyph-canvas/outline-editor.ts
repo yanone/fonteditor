@@ -6265,7 +6265,9 @@ export class OutlineEditor {
         this.queueLiveVisibleAnchorDependentRefresh();
     }
 
-    private resetLiveSidebearingRefreshState(): void {
+    private resetLiveSidebearingRefreshState(options?: {
+        preservePendingBboxAnchor?: boolean;
+    }): void {
         if (this._sidebearingDragFrame !== null) {
             cancelAnimationFrame(this._sidebearingDragFrame);
             this._sidebearingDragFrame = null;
@@ -6273,7 +6275,9 @@ export class OutlineEditor {
         this.liveDragEditFunnel.clearQueued();
         this._lastLiveSidebearingAdvances = {};
         this.activeSidebearingDragLayout = null;
-        this._pendingSidebearingBboxCenterAnchorScreen = null;
+        if (!options?.preservePendingBboxAnchor) {
+            this._pendingSidebearingBboxCenterAnchorScreen = null;
+        }
         this._keyboardSidebearingPreviewActive = false;
         this._sidebearingPointerBaselineReady = false;
         this._lastLiveSidebearingPreviewTargets = [];
@@ -6319,6 +6323,10 @@ export class OutlineEditor {
         }
         this.applyBoundingBoxCenterScreenAnchor(anchor);
         return true;
+    }
+
+    hasPendingSidebearingBboxCenterAnchor(): boolean {
+        return this._pendingSidebearingBboxCenterAnchorScreen !== null;
     }
 
     reapplyLastLiveSidebearingAdvances(): boolean {
@@ -11030,6 +11038,7 @@ export class OutlineEditor {
             this.selectedPoints = [];
             this.selectedAnchors = [];
             this.selectedComponents = [];
+            this.clearPendingSidebearingBboxCenterAnchor();
             this.isDraggingSidebearing = true;
             this._hasMoved = false;
             this._metricsKeyInteractionSide = null;
@@ -14499,7 +14508,10 @@ export class OutlineEditor {
                 this.isDraggingAnchor = false;
                 this.resetLiveAnchorRefreshState();
                 this.isDraggingSidebearing = false;
-                this.resetLiveSidebearingRefreshState();
+                this.resetLiveSidebearingRefreshState({
+                    preservePendingBboxAnchor:
+                        endingSidebearingDrag && this._hasMoved
+                });
                 this._hasMoved = false;
                 this._preDragDesc = null;
                 this._dragType = null;
@@ -18167,6 +18179,7 @@ export class OutlineEditor {
         const bboxCenterAnchorScreen =
             this.getBoundingBoxCenterScreenPosition();
         const previousWidth = currentLayerData.width;
+        this._pendingSidebearingBboxCenterAnchorScreen = bboxCenterAnchorScreen;
 
         if (side === 'left') {
             translateLayerContentsX(
@@ -18228,12 +18241,55 @@ export class OutlineEditor {
                 : this.glyphCanvas.getCurrentGlyphName();
         const currentLayerId = this.getCurrentLayerId();
         let glyphAdvances: Record<string, number> | undefined;
+        let previousGlyphAdvances: Record<string, number> | undefined;
         let nextWidth = currentLayerData.width || 0;
         let affectedGlyphNames = new Set(
             [glyphName].filter(Boolean) as string[]
         );
 
         if (glyphName && currentLayerId) {
+            const masterId =
+                typeof currentLayerData.master === 'object' &&
+                currentLayerData.master
+                    ? (currentLayerData.master as { master?: string }).master ||
+                      null
+                    : null;
+            const advanceSnapshotGlyphNames = new Set<string>([glyphName]);
+            const pendingMetricsKeyGlyphNames = [glyphName];
+            while (pendingMetricsKeyGlyphNames.length > 0) {
+                const sourceGlyphName = pendingMetricsKeyGlyphNames.shift();
+                if (!sourceGlyphName) {
+                    continue;
+                }
+                for (const dependentGlyphName of fontManager.currentFont?.fontModel?.collectMetricsKeyDependentGlyphs?.(
+                    new Set([sourceGlyphName])
+                ) || []) {
+                    if (advanceSnapshotGlyphNames.has(dependentGlyphName)) {
+                        continue;
+                    }
+                    advanceSnapshotGlyphNames.add(dependentGlyphName);
+                    pendingMetricsKeyGlyphNames.push(dependentGlyphName);
+                }
+            }
+            // The post-recomposition width map also includes visible automatic
+            // composites. Snapshot that same scope before mutating the source;
+            // otherwise an unchanged composite width is mistaken for a delta.
+            const fontModel = fontManager.currentFont?.fontModel;
+            if (fontModel?.collectComponentDependentGlyphs) {
+                for (const metricsGlyphName of advanceSnapshotGlyphNames) {
+                    for (const automaticGlyphName of fontManager.getAutomaticCompositionDragScopeGlyphNames?.(
+                        metricsGlyphName
+                    ) || []) {
+                        advanceSnapshotGlyphNames.add(automaticGlyphName);
+                    }
+                }
+            }
+            previousGlyphAdvances = this.collectLiveAdvanceWidths(
+                advanceSnapshotGlyphNames,
+                currentLayerId,
+                masterId
+            );
+
             this.syncEditorLayerIntoModelForRecomposition(
                 glyphName,
                 currentLayerId,
@@ -18269,12 +18325,6 @@ export class OutlineEditor {
                 glyphName,
                 ...closure.recomposeTargets.map((target) => target.glyphName)
             ]);
-            const masterId =
-                typeof currentLayerData.master === 'object' &&
-                currentLayerData.master
-                    ? (currentLayerData.master as { master?: string }).master ||
-                      null
-                    : null;
             glyphAdvances = this.collectLiveAdvanceWidths(
                 widthGlyphNames,
                 currentLayerId,
@@ -18298,9 +18348,12 @@ export class OutlineEditor {
             this.glyphCanvas,
             {
                 glyphName,
-                glyphAdvanceDeltas: {
-                    [glyphName]: nextWidth - previousWidth
-                },
+                glyphAdvanceDeltas: glyphAdvances
+                    ? this.computeLiveAdvanceDeltas(
+                          previousGlyphAdvances || {},
+                          glyphAdvances
+                      )
+                    : { [glyphName]: nextWidth - previousWidth },
                 side,
                 previousWidth,
                 nextWidth,

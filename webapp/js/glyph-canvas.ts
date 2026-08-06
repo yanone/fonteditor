@@ -6365,7 +6365,9 @@ class GlyphCanvas {
         ) {
             this.updatePropertyPanel();
             this.outlineEditor.performHitDetection(null);
-            this.render();
+            if (!window.patchSyncEngine) {
+                this.render();
+            }
             return;
         }
 
@@ -10086,6 +10088,7 @@ function setupFontLoadingListener() {
     // Listen for editing font compiled by font manager (primary)
     editingFontCompiledHandler = async (e: Event) => {
         const detail = (e as CustomEvent).detail;
+        let deferredCommittedSidebearingRender = false;
         timelineMark('canvas.editingFontCompiled.received');
         editingFontApplyQueue = editingFontApplyQueue
             .then(async () => {
@@ -10156,6 +10159,9 @@ function setupFontLoadingListener() {
                     const isSidebearingSession =
                         isLivePreview &&
                         gc.outlineEditor.isLiveSidebearingInteractionActive();
+                    deferredCommittedSidebearingRender =
+                        !isLivePreview &&
+                        gc.outlineEditor.hasPendingSidebearingBboxCenterAnchor();
 
                     // Outline-only never reshapes: the preview font skips
                     // features/kerning for speed, so a reshape would jump the
@@ -10243,6 +10249,13 @@ function setupFontLoadingListener() {
 
                     const hasPendingAnchor = gc.pendingFeatureChangeAnchor.text;
 
+                    if (deferredCommittedSidebearingRender) {
+                        gc.renderSuppressed = true;
+                        timelineMark(
+                            'canvas.editingFontCompiled.committedSidebearingRenderDeferred'
+                        );
+                    }
+
                     const setFontSpanId = timelineSpanStart(
                         'canvas.editingFontCompiled.setFont'
                     );
@@ -10291,7 +10304,17 @@ function setupFontLoadingListener() {
                         latestAppliedEditingRevision = incomingRevision;
                     }
 
-                    gc.requestRepaintAfterCompile();
+                    if (deferredCommittedSidebearingRender) {
+                        gc.renderSuppressed = false;
+                        gc.outlineEditor.reapplyPendingSidebearingBboxCenterAnchor();
+                        gc.render();
+                        gc.outlineEditor.clearPendingSidebearingBboxCenterAnchor();
+                        timelineMark(
+                            'canvas.editingFontCompiled.committedSidebearingRenderCompleted'
+                        );
+                    } else {
+                        gc.requestRepaintAfterCompile();
+                    }
                 } else {
                     console.warn(
                         '[GlyphCanvas]',
@@ -10303,6 +10326,11 @@ function setupFontLoadingListener() {
                 }
             })
             .catch((error) => {
+                const gc = window.glyphCanvas;
+                if (deferredCommittedSidebearingRender && gc) {
+                    gc.renderSuppressed = false;
+                    gc.outlineEditor.clearPendingSidebearingBboxCenterAnchor();
+                }
                 console.error(
                     '[GlyphCanvas] Failed to apply editing font update:',
                     error

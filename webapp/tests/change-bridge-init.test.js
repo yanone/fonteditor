@@ -3,7 +3,8 @@ const {
     handleRemoteChangeRefresh,
     refreshGlyphOverviewFromGlyphNames,
     syncRustCacheAndRefreshCanvas,
-    buildCascadingRecompositionOperations
+    buildCascadingRecompositionOperations,
+    runBridgeUndoRedo
 } = require('../js/change-bridge-init');
 const {
     fontCompilation,
@@ -2650,6 +2651,7 @@ describe('handleRemoteChangeRefresh', () => {
                 glyphCanvas.outlineEditor
                     .reapplyPendingSidebearingBboxCenterAnchor
             ).toHaveBeenCalledTimes(1);
+            expect(glyphCanvas.render).not.toHaveBeenCalled();
         });
 
         test('remote sidebearing edit on a non-active glyph leaves the linked window pan untouched', async () => {
@@ -2690,6 +2692,7 @@ describe('bridge Yjs worker callback', () => {
     const originalFontManager = window.fontManager;
     const originalAutoCompileManager = window.autoCompileManager;
     const originalSaveButton = window.saveButton;
+    const originalGlyphCanvas = window.glyphCanvas;
     const originalInitialized = fontCompilation.isInitialized;
 
     function makeBridgeInitFont() {
@@ -2745,8 +2748,96 @@ describe('bridge Yjs worker callback', () => {
         window.fontManager = originalFontManager;
         window.autoCompileManager = originalAutoCompileManager;
         window.saveButton = originalSaveButton;
+        window.glyphCanvas = originalGlyphCanvas;
         fontCompilation.isInitialized = originalInitialized;
         jest.restoreAllMocks();
+    });
+
+    test('anchors the active layer for a synchronous Arrow key sidebearing undo packet', async () => {
+        const layer = { width: 600, isAutomaticAlignedLayer: () => false };
+        const anchor = { center: null };
+
+        fontCompilation.isInitialized = false;
+        jest.spyOn(
+            fontCompilation,
+            'seedWorkerYDocFromState'
+        ).mockResolvedValue();
+        window.windowRole = {
+            isLinkedWindow: () => false,
+            getRoleLabel: () => 'main'
+        };
+        window.fontManager = {
+            awaitWorkerCacheUpdate: jest.fn(async () => {}),
+            currentFont: {
+                requestRecompileWithoutDataChange: jest.fn(),
+                fontModel: {
+                    findGlyph: jest.fn(() => ({
+                        findLayerById: jest.fn(() => layer)
+                    })),
+                    collectComponentDependentGlyphs: jest.fn(() => new Set())
+                }
+            }
+        };
+        window.glyphCanvas = {
+            viewportManager: { panX: 100, panY: 0, scale: 1 },
+            getCurrentGlyphName: () => 'A',
+            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            requestRepaintAfterCompile: jest.fn(),
+            render: jest.fn(),
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: () => [{ glyphName: 'A' }],
+                capturePendingSidebearingBboxCenterAnchor: jest.fn(() => {
+                    anchor.center =
+                        window.glyphCanvas.viewportManager.panX +
+                        layer.width / 2;
+                    return true;
+                }),
+                reapplyPendingSidebearingBboxCenterAnchor: jest.fn(() => {
+                    window.glyphCanvas.viewportManager.panX =
+                        anchor.center - layer.width / 2;
+                }),
+                clearPendingSidebearingBboxCenterAnchor: jest.fn()
+            }
+        };
+
+        const bridge = initializeBridgeHarness();
+        bridge.undo = jest.fn(() => {
+            layer.width = 500;
+            for (const callback of bridge._committedChangeListeners) {
+                callback(
+                    [
+                        {
+                            transactionLabel: 'Arrow key',
+                            path: 'glyphs.A.layers.layer-1.width',
+                            visualAnchorSide: 'left',
+                            oldValue: 500,
+                            newValue: 600
+                        }
+                    ],
+                    { origin: 'local' }
+                );
+            }
+            return { historyItem: { transactionLabel: 'Arrow key' } };
+        });
+
+        const centerBefore =
+            window.glyphCanvas.viewportManager.panX + layer.width / 2;
+        await runBridgeUndoRedo('undo', 'A', 'A', 'layer-1');
+
+        expect(window.glyphCanvas.viewportManager.panX + layer.width / 2).toBe(
+            centerBefore
+        );
+        expect(
+            window.glyphCanvas.outlineEditor
+                .reapplyPendingSidebearingBboxCenterAnchor
+        ).toHaveBeenCalledTimes(1);
+        expect(
+            window.glyphCanvas.outlineEditor
+                .clearPendingSidebearingBboxCenterAnchor
+        ).not.toHaveBeenCalled();
+        expect(window.glyphCanvas.render).not.toHaveBeenCalled();
     });
 
     test('dirty callback marks unsaved state without creating an ambient editing compile request', () => {

@@ -4561,6 +4561,32 @@ describe('GlyphCanvas property panel metrics edits', () => {
         setSidebearingValueSpy.mockRestore();
     });
 
+    test('commitPropertyPanelValue defers plain numeric sidebearing rendering to the bridge compile', async () => {
+        const setSidebearingValueSpy = jest
+            .spyOn(canvas.outlineEditor, 'setSidebearingValue')
+            .mockReturnValue(true);
+        const originalPatchSyncEngine = window.patchSyncEngine;
+        window.patchSyncEngine = {};
+
+        canvas.getCurrentEditingLayerModel = jest.fn(() => ({
+            isAutomaticAlignedLayer: jest.fn(() => false)
+        }));
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+
+        try {
+            await canvas.commitPropertyPanelValue('left', '20');
+
+            expect(setSidebearingValueSpy).toHaveBeenCalledWith('left', 20);
+            expect(canvas.updatePropertyPanel).toHaveBeenCalledTimes(1);
+            expect(canvas.render).not.toHaveBeenCalled();
+        } finally {
+            window.patchSyncEngine = originalPatchSyncEngine;
+            setSidebearingValueSpy.mockRestore();
+        }
+    });
+
     test('setSidebearingValue syncs affected sidebearing layers through the YDoc funnel', () => {
         const targets = [
             { glyphName: 'l', layerId: 'master-layer' },

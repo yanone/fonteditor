@@ -727,7 +727,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         );
         expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(100);
         expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenCalledTimes(1);
-        expect(render).toHaveBeenCalledTimes(1);
+        expect(render).not.toHaveBeenCalled();
         expect(requestRepaintAfterCompile).not.toHaveBeenCalled();
     });
 
