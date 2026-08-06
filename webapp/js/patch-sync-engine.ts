@@ -1949,6 +1949,26 @@ export class PatchSyncEngine {
             );
         }
 
+        // Paths have no persisted IDs, so numeric child paths cannot safely
+        // replay a contour insertion, deletion, or structural replacement.
+        // Keep coordinate-only node edits granular.
+        if (
+            lastSegment === 'shapes' &&
+            Array.isArray(previousValue) &&
+            Array.isArray(nextValue) &&
+            this._haveShapeStructuresChanged(previousValue, nextValue)
+        ) {
+            return [
+                this._createGranularLayerOperation(
+                    'set',
+                    path,
+                    previousValue,
+                    nextValue,
+                    metadata
+                )
+            ];
+        }
+
         if (
             previousValue &&
             nextValue &&
@@ -2035,6 +2055,35 @@ export class PatchSyncEngine {
         ];
     }
 
+    private _haveShapeStructuresChanged(
+        previousShapes: unknown[],
+        nextShapes: unknown[]
+    ): boolean {
+        if (previousShapes.length !== nextShapes.length) {
+            return true;
+        }
+
+        const shapeSignature = (shape: unknown): string => {
+            if (!shape || typeof shape !== 'object' || Array.isArray(shape)) {
+                return typeof shape;
+            }
+
+            const record = shape as Record<string, unknown>;
+            if (Array.isArray(record.nodes)) {
+                return `path:${record.nodes.length}:${String(record.closed)}`;
+            }
+            if (typeof record.reference === 'string') {
+                return 'component';
+            }
+            return 'shape';
+        };
+
+        return previousShapes.some(
+            (shape, index) =>
+                shapeSignature(shape) !== shapeSignature(nextShapes[index])
+        );
+    }
+
     private _buildGranularIndexedArraySyncOperations(
         path: (string | number)[],
         arrayKey: string,
@@ -2064,35 +2113,23 @@ export class PatchSyncEngine {
             String((item as Record<string, unknown>).id)
         );
 
-        previousIds.forEach((id, previousIndex) => {
-            if (!nextById.has(id)) {
-                operations.push(
-                    this._createGranularLayerOperation(
-                        'remove',
-                        [...path, previousIndex],
-                        previousById.get(id),
-                        undefined,
-                        metadata
-                    )
-                );
-            }
-        });
+        // Indexed positions are not stable when membership or order changes.
+        // Replace the collection as one ordered Yjs value so undo and redo
+        // restore the same IDs and order rather than replaying shifted indices.
+        if (!this._isDeepEqual(previousIds, nextIds)) {
+            return [
+                this._createGranularLayerOperation(
+                    'set',
+                    path,
+                    previousArray,
+                    nextArray,
+                    metadata
+                )
+            ];
+        }
 
         nextIds.forEach((id, nextIndex) => {
             const nextItem = nextById.get(id);
-            if (!previousById.has(id)) {
-                operations.push(
-                    this._createGranularLayerOperation(
-                        'add',
-                        [...path, nextIndex],
-                        undefined,
-                        nextItem,
-                        metadata
-                    )
-                );
-                return;
-            }
-
             const previousIndex = previousIds.indexOf(id);
             operations.push(
                 ...this._buildGranularValueSyncOperations(
@@ -2103,18 +2140,6 @@ export class PatchSyncEngine {
                 )
             );
         });
-
-        if (!this._isDeepEqual(previousIds, nextIds)) {
-            operations.push(
-                this._createGranularLayerOperation(
-                    'set',
-                    [...path.slice(0, -1), INDEXED_ARRAY_ORDER_KEYS[arrayKey]],
-                    previousIds,
-                    nextIds,
-                    metadata
-                )
-            );
-        }
 
         return operations;
     }
@@ -2171,6 +2196,11 @@ export class PatchSyncEngine {
         nextLayer: Record<string, unknown>,
         replaceExistingIds = false
     ): void {
+        this._adoptIndexedArrayIds(
+            previousLayer.anchors,
+            nextLayer.anchors,
+            replaceExistingIds
+        );
         this._adoptIndexedArrayIds(
             previousLayer.anchors,
             nextLayer.anchors,

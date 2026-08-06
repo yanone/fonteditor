@@ -2549,6 +2549,151 @@ describe('Transactions', () => {
         ).toBe(125);
     });
 
+    test('indexed collection membership changes are atomic', () => {
+        const { bridge } = createTestBridge('granular-indexed-removal-order');
+        const previousShapes = [
+            {
+                id: 'shape-1',
+                closed: true,
+                nodes: [{ x: 0, y: 0, nodetype: 'Line' }]
+            },
+            {
+                id: 'shape-2',
+                closed: true,
+                nodes: [{ x: 100, y: 0, nodetype: 'Line' }]
+            },
+            {
+                id: 'shape-3',
+                closed: true,
+                nodes: [{ x: 200, y: 0, nodetype: 'Line' }]
+            }
+        ];
+        const previousAnchors = [
+            { id: 'anchor-1', name: 'bottom', x: 0, y: 0 },
+            { id: 'anchor-2', name: 'top', x: 0, y: 700 }
+        ];
+        const metadata = {};
+        const shapeOperations = bridge._buildGranularIndexedArraySyncOperations(
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes'],
+            'shapes',
+            previousShapes,
+            [],
+            metadata
+        );
+        const anchorOperations =
+            bridge._buildGranularIndexedArraySyncOperations(
+                ['glyphs', 'A', 'layers', 'layer-1', 'anchors'],
+                'anchors',
+                previousAnchors,
+                [],
+                metadata
+            );
+
+        expect(shapeOperations).toHaveLength(1);
+        expect(shapeOperations[0]).toMatchObject({
+            op: 'set',
+            path: ['glyphs', 'A', 'layers', 'layer-1', 'shapes'],
+            oldValue: previousShapes,
+            newValue: []
+        });
+        expect(anchorOperations).toHaveLength(1);
+        expect(anchorOperations[0]).toMatchObject({
+            op: 'set',
+            path: ['glyphs', 'A', 'layers', 'layer-1', 'anchors'],
+            oldValue: previousAnchors,
+            newValue: []
+        });
+    });
+
+    test('layer snapshot contour deletion round-trips through undo and redo', () => {
+        const { bridge, fontJson } = createTestBridge(
+            'layer-snapshot-contour-delete'
+        );
+        const layer = fontJson.glyphs[0].layers[0];
+        const originalShapeCount = layer.shapes.length;
+        const rehydrateSpy = jest.spyOn(
+            bridge,
+            '_rehydrateEntireFontJsonFromYDoc'
+        );
+
+        layer.shapes.pop();
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: layer
+                }
+            ],
+            'Delete contour'
+        );
+
+        expect(bridge.getChangeLog()).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    op: 'set',
+                    path: 'glyphs.A:layers.layer-1:shapes',
+                    oldValue: expect.any(Array),
+                    newValue: expect.any(Array)
+                })
+            ])
+        );
+        expect(layer.shapes).toHaveLength(originalShapeCount - 1);
+
+        bridge.undo('A', 'layer-1');
+        expect(fontJson.glyphs[0].layers[0].shapes).toHaveLength(
+            originalShapeCount
+        );
+
+        bridge.redo('A', 'layer-1');
+        expect(fontJson.glyphs[0].layers[0].shapes).toHaveLength(
+            originalShapeCount - 1
+        );
+        expect(rehydrateSpy).not.toHaveBeenCalled();
+
+        rehydrateSpy.mockRestore();
+    });
+
+    test('layer snapshot contour replacement is atomic', () => {
+        const { bridge, fontJson } = createTestBridge(
+            'layer-snapshot-contour-replace'
+        );
+        const layer = fontJson.glyphs[0].layers[0];
+        const originalShapes = cloneValue(layer.shapes);
+
+        layer.shapes.splice(0, 1, {
+            nodes: [
+                { x: 50, y: 0, nodetype: 'Line' },
+                { x: 150, y: 250, nodetype: 'Line' },
+                { x: 250, y: 0, nodetype: 'Line' },
+                { x: 50, y: 0, nodetype: 'Line' }
+            ],
+            closed: true
+        });
+        bridge.syncLayerSnapshotsFromJson(
+            [
+                {
+                    glyphName: 'A',
+                    layerId: 'layer-1',
+                    layerJson: layer
+                }
+            ],
+            'Replace contour'
+        );
+
+        expect(bridge.getChangeLog()).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    op: 'set',
+                    path: 'glyphs.A:layers.layer-1:shapes'
+                })
+            ])
+        );
+
+        bridge.undo('A', 'layer-1');
+        expect(fontJson.glyphs[0].layers[0].shapes).toEqual(originalShapes);
+    });
+
     test('multi-layer snapshots update canonical nodes without duplicating parent shapes', () => {
         const fontJson = makeThreeMasterThreeLayerFont();
         const receiverFontJson = cloneValue(fontJson);
@@ -3599,12 +3744,8 @@ describe('Model setter change recording', () => {
         );
         expect(rawLayer.shapes).toEqual([
             {
-                nodes: [
-                    { x: 100, y: 200, nodetype: 'Line', smooth: false },
-                    { x: 500, y: 0, nodetype: 'line', smooth: false }
-                ],
-                closed: false,
-                format_specific: { seed: true }
+                nodes: [{ x: 100, y: 200, nodetype: 'Line' }],
+                closed: false
             }
         ]);
 
@@ -3615,12 +3756,8 @@ describe('Model setter change recording', () => {
                 .layers.find((candidate) => candidate.id === 'layer-1').shapes
         ).toEqual([
             {
-                nodes: [
-                    { x: 100, y: 200, nodetype: 'Line', smooth: false },
-                    { x: 500, y: 0, nodetype: 'line', smooth: false }
-                ],
-                closed: false,
-                format_specific: { seed: true }
+                nodes: [{ x: 100, y: 200, nodetype: 'Line' }],
+                closed: false
             }
         ]);
 
