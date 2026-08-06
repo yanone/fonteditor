@@ -2,10 +2,12 @@ const {
     compareGlyphsBySearchRelevance,
     countGlyphSearchCaseMismatches,
     countUnicodeCharacterCaseMismatches,
+    formatCodepointsHexList,
     getNonAsciiCharacterCodepoints,
     getUnicodeTargetsForSearchTerm,
     glyphMatchesSearchTerms,
     glyphNameMatchesSearchTerms,
+    parseCodepointsHexList,
     parseGlyphSearchTerms,
     parseGlyphSearchTermsPreserveCase,
     parseHexUnicodeTerm
@@ -34,6 +36,19 @@ describe('glyph search', () => {
         expect(parseHexUnicodeTerm('u+00e4')).toBe(0xe4);
         expect(parseHexUnicodeTerm('0x41')).toBe(0x41);
         expect(parseHexUnicodeTerm('adieresis')).toBeNull();
+    });
+
+    test('formats and parses comma/space-separated hex codepoint lists', () => {
+        expect(formatCodepointsHexList([0x41, 0xe4])).toBe('0041, 00E4');
+        expect(formatCodepointsHexList([])).toBe('');
+        expect(formatCodepointsHexList(undefined)).toBe('');
+
+        expect(parseCodepointsHexList('0041, 00E4')).toEqual([0x41, 0xe4]);
+        expect(parseCodepointsHexList('0041 00E4')).toEqual([0x41, 0xe4]);
+        expect(parseCodepointsHexList('U+0041, 0xE4')).toEqual([0x41, 0xe4]);
+        expect(parseCodepointsHexList('  ')).toEqual([]);
+        expect(parseCodepointsHexList('0041, zz')).toBeNull();
+        expect(parseCodepointsHexList('adieresis')).toBeNull();
     });
 
     test('matches partial hex Unicode fragments against padded codepoints', () => {

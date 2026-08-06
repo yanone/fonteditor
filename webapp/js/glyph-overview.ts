@@ -7,7 +7,9 @@ import 'tippy.js/dist/tippy.css';
 import { fastGlyphTileRenderer } from './glyph-tile-renderer-fast';
 import {
     glyphNameMatchesSearchTerms,
-    parseGlyphSearchTerms
+    parseGlyphSearchTerms,
+    formatCodepointsHexList,
+    parseCodepointsHexList
 } from './glyph-search';
 // Import filter manager to bundle it with glyph-overview entry point
 // It self-registers on window.glyphOverviewFilterManager
@@ -26,6 +28,12 @@ import {
     GLYPH_OVERVIEW_TYPEAHEAD_TIMEOUT_MS,
     matchGlyphOverviewTypeahead
 } from './glyph-overview-typeahead';
+import { getGlyphRenamePreflightErrors } from './rename-glyphs-preflight';
+import { ArrowAdjustableTextInput } from './arrow-adjustable-text-input';
+import {
+    getSidebearingTransactionLabel,
+    type SidebearingSide
+} from './sidebearing-utils';
 
 const console = new Logger('GlyphOverview');
 
@@ -79,8 +87,109 @@ type ResizeFocusAnchor =
           glyphName: string;
       };
 
+type OverviewPropertyInputState = {
+    fieldKey: string;
+    selectionStart: number | null;
+    selectionEnd: number | null;
+};
+
+type OverviewSidebearingLayer = {
+    lsb: number;
+    rsb: number;
+    width: number;
+    leftMetricsKey?: string;
+    rightMetricsKey?: string;
+    isAutomaticAlignedLayer: () => boolean;
+    getBoundingBox?: (includeAnchors?: boolean) => {
+        minX: number;
+        maxX: number;
+        minY: number;
+        maxY: number;
+    } | null;
+    resolveMetricsKey: (side: SidebearingSide) => {
+        input: string;
+        value: number | null;
+        error: string | null;
+    };
+    applySidebearingInput: (
+        side: SidebearingSide,
+        value: string
+    ) => {
+        error: string | null;
+        value: number | null;
+        affectedGlyphNames?: string[];
+    };
+    parent?: () =>
+        | {
+              name?: string;
+              leftMetricsKey?: string;
+              rightMetricsKey?: string;
+          }
+        | null
+        | undefined;
+};
+
+type OverviewSidebearingDisplayState = {
+    displayedValue: string;
+    resolvedValue: number;
+    automaticLayer: boolean;
+    showAutoPlaceholder: boolean;
+    error: string | null;
+};
+
+type OverviewSidebearingSideSummary = {
+    sharedDisplay: string | null;
+    sharedResolved: number | null;
+    allAutomatic: boolean;
+    anyError: boolean;
+    showAutoPlaceholder: boolean;
+    /** First-layer state for arrow-adjust fallback when values are shared. */
+    sampleState: OverviewSidebearingDisplayState | null;
+};
+
+type DragTileRect = {
+    glyphId: string;
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+};
+
+function isPlainNumericInputValue(value: string): boolean {
+    return /^[+-]?\d+(?:\.\d+)?$/.test(value.trim());
+}
+
+function locationsMatchWithinTolerance(
+    masterLocation: Record<string, number> | undefined,
+    currentLocation: Record<string, number>,
+    tolerance = 0.001
+): boolean {
+    if (!masterLocation) {
+        return false;
+    }
+    for (const tag in masterLocation) {
+        const masterValue = Number(masterLocation[tag]);
+        const currentValue =
+            currentLocation[tag] === undefined
+                ? undefined
+                : Number(currentLocation[tag]);
+        if (
+            currentValue === undefined ||
+            Math.abs(masterValue - currentValue) > tolerance
+        ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 class GlyphOverview {
     private container: HTMLDivElement | null = null;
+    private propertyPanel: HTMLElement | null = null;
+    private propertyPanelUpdateRafId: number | null = null;
+    private propertyPanelDeferredUntilDragEnd = false;
+    private selectionUiFlushPending = false;
+    private dragTileRects: DragTileRect[] | null = null;
     private resizeObserver: ResizeObserver | null = null;
     private resizeSyncRafId: number | null = null;
     private lastContainerWidth = 0;
@@ -182,6 +291,15 @@ class GlyphOverview {
         this.initSizeControl();
         this.initSearchControl();
         this.initViewModeControl();
+    }
+
+    /**
+     * Attach the overview property panel (created by overview-view under
+     * `#overview-main`) and render the initial empty state.
+     */
+    public attachPropertyPanel(panel: HTMLElement): void {
+        this.propertyPanel = panel;
+        this.updatePropertyPanel();
     }
 
     private init(parentElement: HTMLElement): void {
@@ -362,6 +480,15 @@ class GlyphOverview {
                     this.searchInput.select();
                 }
             } else if (e.key === 'Escape' && this.isViewActive()) {
+                const target = e.target as HTMLElement | null;
+                if (
+                    target &&
+                    (target.tagName === 'INPUT' ||
+                        target.tagName === 'TEXTAREA' ||
+                        target.isContentEditable)
+                ) {
+                    return;
+                }
                 // Clear all glyph and group selections
                 e.preventDefault();
                 this.clearTypeaheadBuffer();
@@ -431,6 +558,15 @@ class GlyphOverview {
                     e.key
                 )
             ) {
+                const target = e.target as HTMLElement | null;
+                if (
+                    target &&
+                    (target.tagName === 'INPUT' ||
+                        target.tagName === 'TEXTAREA' ||
+                        target.isContentEditable)
+                ) {
+                    return;
+                }
                 // Handle arrow key navigation for glyph selection
                 if (this.isViewActive()) {
                     e.preventDefault();
@@ -795,6 +931,9 @@ class GlyphOverview {
     }
 
     private onContainerScroll(): void {
+        if (this.isDragging && this.hasDragged) {
+            this.dragTileRects = null;
+        }
         if (!this.linesVirtualizationActive || !this.container) {
             return;
         }
@@ -816,6 +955,10 @@ class GlyphOverview {
 
         if (!isRelevantScrollTarget) {
             return;
+        }
+
+        if (this.isDragging && this.hasDragged) {
+            this.dragTileRects = null;
         }
 
         this.scheduleScrollVisibilitySync();
@@ -2017,6 +2160,11 @@ class GlyphOverview {
             return;
         }
 
+        const selectedNames = new Set(this.getSelectedGlyphNames());
+        if (glyphNames.some((name: string) => selectedNames.has(name))) {
+            this.updatePropertyPanel();
+        }
+
         if (forceImmediateRefresh) {
             void this.refreshChangedGlyphTiles(Array.from(immediateGlyphNames));
             return;
@@ -2852,8 +3000,9 @@ class GlyphOverview {
             // Right-click on an unselected tile selects it alone; keep
             // multi-selection when right-clicking an already-selected tile.
             if (!tile.selected) {
-                this.clearSelection();
-                this.selectTile(glyphId);
+                this.clearSelection(false);
+                this.selectTile(glyphId, false);
+                this.flushSelectionUi();
                 this.lastClickedGlyphId = glyphId;
                 this.keyboardAnchorGlyphId = glyphId;
             }
@@ -2925,8 +3074,9 @@ class GlyphOverview {
             this.toggleSelection(glyphId);
         } else {
             // Regular click: select only this tile
-            this.clearSelection();
-            this.selectTile(glyphId);
+            this.clearSelection(false);
+            this.selectTile(glyphId, false);
+            this.flushSelectionUi();
         }
     }
 
@@ -2965,15 +3115,16 @@ class GlyphOverview {
         const nameSet = new Set(
             names.filter((name) => typeof name === 'string' && name.length > 0)
         );
-        this.clearSelection();
+        this.clearSelection(false);
         const selectedIds: string[] = [];
         this.tiles.forEach((tile) => {
             if (!nameSet.has(tile.glyphName)) {
                 return;
             }
-            this.selectTile(tile.glyphId);
+            this.selectTile(tile.glyphId, false);
             selectedIds.push(tile.glyphId);
         });
+        this.flushSelectionUi();
         if (selectedIds.length > 0) {
             this.lastClickedGlyphId = selectedIds[selectedIds.length - 1];
             this.keyboardAnchorGlyphId = this.lastClickedGlyphId;
@@ -2995,10 +3146,12 @@ class GlyphOverview {
         if (cleaned.length === 0) {
             return;
         }
-        this.clearSelection();
+        this.clearSelection(false);
         this.pendingSelectGlyphNames = cleaned;
         if (this.applyPendingGlyphSelection()) {
             this.forceRevealSelectedGlyphs();
+        } else if (this.selectionUiFlushPending) {
+            this.flushSelectionUi();
         }
     }
 
@@ -3193,8 +3346,9 @@ class GlyphOverview {
             startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
 
         for (let i = from; i <= to; i++) {
-            this.selectTile(glyphArray[i]);
+            this.selectTile(glyphArray[i], false);
         }
+        this.flushSelectionUi();
     }
 
     private toggleSelection(glyphId: string): void {
@@ -3208,37 +3362,50 @@ class GlyphOverview {
         }
     }
 
-    private selectTile(glyphId: string): void {
+    private selectTile(glyphId: string, notify: boolean = true): void {
         const tile = this.tiles.get(glyphId);
         if (!tile || tile.selected) return;
 
         tile.selected = true;
         tile.element.classList.add('selected');
 
-        // Notify filter manager of selection change
-        this.updateSelectedGlyphGroups();
+        if (notify) {
+            this.flushSelectionUi();
+        } else {
+            this.selectionUiFlushPending = true;
+        }
     }
 
-    private deselectTile(glyphId: string): void {
+    private deselectTile(glyphId: string, notify: boolean = true): void {
         const tile = this.tiles.get(glyphId);
         if (!tile || !tile.selected) return;
 
         tile.selected = false;
         tile.element.classList.remove('selected');
 
-        // Notify filter manager of selection change
-        this.updateSelectedGlyphGroups();
+        if (notify) {
+            this.flushSelectionUi();
+        } else {
+            this.selectionUiFlushPending = true;
+        }
     }
 
-    private clearSelection(): void {
+    private clearSelection(notify: boolean = true): void {
         this.tiles.forEach((tile) => {
             if (tile.selected) {
                 tile.selected = false;
                 tile.element.classList.remove('selected');
+                this.selectionUiFlushPending = true;
             }
         });
 
-        // Notify filter manager of selection change
+        if (notify) {
+            this.flushSelectionUi();
+        }
+    }
+
+    private flushSelectionUi(): void {
+        this.selectionUiFlushPending = false;
         this.updateSelectedGlyphGroups();
     }
 
@@ -3345,8 +3512,9 @@ class GlyphOverview {
                     visibleGlyphIds
                 );
             } else {
-                this.clearSelection();
-                this.selectTile(targetGlyphId);
+                this.clearSelection(false);
+                this.selectTile(targetGlyphId, false);
+                this.flushSelectionUi();
                 this.keyboardAnchorGlyphId = targetGlyphId;
             }
 
@@ -3441,7 +3609,7 @@ class GlyphOverview {
         if (anchorIndex === -1 || targetIndex === -1) return;
 
         // Clear current selection
-        this.clearSelection();
+        this.clearSelection(false);
 
         // Select all glyphs between anchor and target (inclusive)
         const [from, to] =
@@ -3450,8 +3618,9 @@ class GlyphOverview {
                 : [targetIndex, anchorIndex];
 
         for (let i = from; i <= to; i++) {
-            this.selectTile(visibleGlyphIds[i]);
+            this.selectTile(visibleGlyphIds[i], false);
         }
+        this.flushSelectionUi();
     }
 
     /**
@@ -3509,6 +3678,7 @@ class GlyphOverview {
                     new Set()
                 );
             }
+            this.schedulePropertyPanelUpdate();
             return;
         }
 
@@ -3530,12 +3700,750 @@ class GlyphOverview {
                 selectedGroups
             );
         }
+        this.schedulePropertyPanelUpdate();
+    }
+
+    /**
+     * Coalesce property-panel rebuilds to one animation frame. During an active
+     * drag-select, defer until mouseup so selection stays responsive.
+     */
+    private schedulePropertyPanelUpdate(): void {
+        if (this.isDragging && this.hasDragged) {
+            this.propertyPanelDeferredUntilDragEnd = true;
+            return;
+        }
+
+        if (this.propertyPanelUpdateRafId !== null) {
+            return;
+        }
+
+        this.propertyPanelUpdateRafId = window.requestAnimationFrame(() => {
+            this.propertyPanelUpdateRafId = null;
+            this.updatePropertyPanel();
+        });
+    }
+
+    private flushDeferredPropertyPanelUpdate(): void {
+        if (this.propertyPanelUpdateRafId !== null) {
+            window.cancelAnimationFrame(this.propertyPanelUpdateRafId);
+            this.propertyPanelUpdateRafId = null;
+        }
+        if (
+            this.propertyPanelDeferredUntilDragEnd ||
+            this.selectionUiFlushPending
+        ) {
+            this.propertyPanelDeferredUntilDragEnd = false;
+            if (this.selectionUiFlushPending) {
+                this.flushSelectionUi();
+                return;
+            }
+        }
+        this.updatePropertyPanel();
+    }
+
+    private getActiveOverviewPropertyInputState(): OverviewPropertyInputState | null {
+        const activeElement = document.activeElement as HTMLElement | null;
+        if (
+            !activeElement ||
+            !(activeElement instanceof HTMLInputElement) ||
+            !this.propertyPanel ||
+            !this.propertyPanel.contains(activeElement) ||
+            !activeElement.classList.contains('glyph-property-input')
+        ) {
+            return null;
+        }
+
+        const fieldKey = activeElement.dataset.propertyField;
+        if (!fieldKey) {
+            return null;
+        }
+
+        return {
+            fieldKey,
+            selectionStart: activeElement.selectionStart,
+            selectionEnd: activeElement.selectionEnd
+        };
+    }
+
+    private restoreActiveOverviewPropertyInput(
+        activeInputState: OverviewPropertyInputState | null
+    ): void {
+        if (!activeInputState || !this.propertyPanel) {
+            return;
+        }
+
+        const replacementInput = this.propertyPanel.querySelector(
+            `.glyph-property-input[data-property-field="${activeInputState.fieldKey}"]`
+        ) as HTMLInputElement | null;
+        if (!replacementInput || replacementInput.disabled) {
+            return;
+        }
+
+        replacementInput.focus();
+        const selectionStart = Math.max(
+            0,
+            Math.min(
+                activeInputState.selectionStart ??
+                    replacementInput.value.length,
+                replacementInput.value.length
+            )
+        );
+        const selectionEnd = Math.max(
+            selectionStart,
+            Math.min(
+                activeInputState.selectionEnd ?? replacementInput.value.length,
+                replacementInput.value.length
+            )
+        );
+        replacementInput.setSelectionRange(selectionStart, selectionEnd);
+    }
+
+    private getSelectedGlyphModel(): {
+        name: string;
+        codepoints?: number[];
+    } | null {
+        const selectedNames = this.getSelectedGlyphNames();
+        if (selectedNames.length !== 1) {
+            return null;
+        }
+
+        const glyphName = selectedNames[0];
+        const fontModel = window.currentFontModel;
+        const glyph =
+            typeof fontModel?.findGlyph === 'function'
+                ? fontModel.findGlyph(glyphName)
+                : fontModel?.glyphs?.find(
+                      (candidate: { name?: string }) =>
+                          candidate.name === glyphName
+                  );
+        if (!glyph) {
+            return { name: glyphName };
+        }
+        return glyph;
+    }
+
+    private resolveOverviewMasterId(): string | null {
+        const selectedMasterId =
+            window.glyphCanvas?.textRunEditor?.selectedMasterId;
+        if (typeof selectedMasterId === 'string' && selectedMasterId) {
+            return selectedMasterId;
+        }
+
+        const masters = window.currentFontModel?.masters;
+        if (!Array.isArray(masters) || masters.length === 0) {
+            return null;
+        }
+
+        for (const master of masters) {
+            const masterLocation = master?.location as
+                Record<string, number> | undefined;
+            if (
+                locationsMatchWithinTolerance(
+                    masterLocation,
+                    this.currentLocation
+                )
+            ) {
+                return master.id || null;
+            }
+        }
+
+        return masters[0]?.id || null;
+    }
+
+    private resolveOverviewLayerForGlyph(
+        glyphName: string
+    ): OverviewSidebearingLayer | null {
+        const fontModel = window.currentFontModel;
+        if (!fontModel || typeof fontModel.findGlyph !== 'function') {
+            return null;
+        }
+
+        const glyph = fontModel.findGlyph(glyphName);
+        if (!glyph) {
+            return null;
+        }
+
+        const masterId = this.resolveOverviewMasterId();
+        if (masterId && typeof glyph.findLayerByMasterId === 'function') {
+            const masterLayer = glyph.findLayerByMasterId(masterId);
+            if (masterLayer) {
+                return masterLayer;
+            }
+        }
+
+        const layers = Array.isArray(glyph.layers) ? glyph.layers : [];
+        const defaultLayer = layers.find(
+            (layer: { master?: { type?: string } }) =>
+                layer?.master?.type === 'DefaultForMaster'
+        );
+        return defaultLayer || layers[0] || null;
+    }
+
+    private getSelectedOverviewLayers(): OverviewSidebearingLayer[] {
+        const layers: OverviewSidebearingLayer[] = [];
+        for (const glyphName of this.getSelectedGlyphNames()) {
+            const layer = this.resolveOverviewLayerForGlyph(glyphName);
+            if (layer) {
+                layers.push(layer);
+            }
+        }
+        return layers;
+    }
+
+    private getStoredSidebearingKey(
+        layer: OverviewSidebearingLayer,
+        side: SidebearingSide
+    ): string | undefined {
+        const parent =
+            typeof layer.parent === 'function' ? layer.parent() : null;
+        return (
+            (side === 'left'
+                ? layer.leftMetricsKey || parent?.leftMetricsKey
+                : layer.rightMetricsKey || parent?.rightMetricsKey) || undefined
+        );
+    }
+
+    private getDirectSidebearingsFromLayer(
+        layer: OverviewSidebearingLayer,
+        bboxCache: WeakMap<
+            OverviewSidebearingLayer,
+            { lsb: number; rsb: number }
+        >
+    ): { lsb: number; rsb: number } {
+        const cached = bboxCache.get(layer);
+        if (cached) {
+            return cached;
+        }
+
+        let pair: { lsb: number; rsb: number };
+        if (typeof layer.getBoundingBox === 'function') {
+            const bbox = layer.getBoundingBox(false);
+            const width = Number(layer.width) || 0;
+            if (!bbox) {
+                pair = { lsb: 0, rsb: Math.round(width) };
+            } else {
+                pair = {
+                    lsb: Math.round(bbox.minX),
+                    rsb: Math.round(width - bbox.maxX)
+                };
+            }
+        } else {
+            // Fallback: layer.lsb/rsb each recompute bbox independently.
+            pair = { lsb: Number(layer.lsb) || 0, rsb: Number(layer.rsb) || 0 };
+        }
+        bboxCache.set(layer, pair);
+        return pair;
+    }
+
+    /**
+     * Build LSB/RSB panel summaries with early mixed-value exit and one shared
+     * bbox per layer when numeric sidebearings are needed.
+     */
+    private summarizeOverviewSidebearings(layers: OverviewSidebearingLayer[]): {
+        left: OverviewSidebearingSideSummary;
+        right: OverviewSidebearingSideSummary;
+    } {
+        const bboxCache = new WeakMap<
+            OverviewSidebearingLayer,
+            { lsb: number; rsb: number }
+        >();
+
+        const summarizeSide = (
+            side: SidebearingSide
+        ): OverviewSidebearingSideSummary => {
+            if (layers.length === 0) {
+                return {
+                    sharedDisplay: null,
+                    sharedResolved: null,
+                    allAutomatic: false,
+                    anyError: false,
+                    showAutoPlaceholder: false,
+                    sampleState: null
+                };
+            }
+
+            let sharedDisplay: string | null = null;
+            let mixed = false;
+            let allAutomatic = true;
+            let showAutoPlaceholder = true;
+            let anyError = false;
+            let sampleState: OverviewSidebearingDisplayState | null = null;
+
+            for (let index = 0; index < layers.length; index++) {
+                const layer = layers[index];
+                const automaticLayer = layer.isAutomaticAlignedLayer();
+                if (!automaticLayer) {
+                    allAutomatic = false;
+                }
+
+                const storedKey = this.getStoredSidebearingKey(layer, side);
+                let displayedValue: string;
+                let resolvedValue: number;
+                let error: string | null = null;
+
+                if (!storedKey && automaticLayer) {
+                    displayedValue = '';
+                    // Avoid bbox for auto placeholders unless we need a shared
+                    // resolved value later for a non-mixed single-path case.
+                    resolvedValue = Number.NaN;
+                } else if (storedKey) {
+                    // Prefer the stored key string for display identity. Only
+                    // resolve when we still have a shared candidate and need
+                    // arrow-adjust / invalid state (after the loop for sample).
+                    displayedValue = storedKey;
+                    resolvedValue = Number.NaN;
+                } else {
+                    const pair = this.getDirectSidebearingsFromLayer(
+                        layer,
+                        bboxCache
+                    );
+                    displayedValue = String(
+                        side === 'left' ? pair.lsb : pair.rsb
+                    );
+                    resolvedValue = side === 'left' ? pair.lsb : pair.rsb;
+                }
+
+                const showAutoPlaceholderForLayer =
+                    !storedKey && automaticLayer;
+                if (!showAutoPlaceholderForLayer) {
+                    showAutoPlaceholder = false;
+                }
+
+                if (sharedDisplay === null) {
+                    sharedDisplay = displayedValue;
+                    sampleState = {
+                        displayedValue,
+                        resolvedValue,
+                        automaticLayer,
+                        showAutoPlaceholder: showAutoPlaceholderForLayer,
+                        error
+                    };
+                } else if (displayedValue !== sharedDisplay) {
+                    mixed = true;
+                    // Still finish the automatic/placeholder scan without more
+                    // numeric bbox work when the display fingerprint already
+                    // diverged.
+                    for (let rest = index + 1; rest < layers.length; rest++) {
+                        if (!layers[rest].isAutomaticAlignedLayer()) {
+                            allAutomatic = false;
+                        }
+                        if (
+                            this.getStoredSidebearingKey(layers[rest], side) ||
+                            !layers[rest].isAutomaticAlignedLayer()
+                        ) {
+                            showAutoPlaceholder = false;
+                        }
+                    }
+                    break;
+                }
+            }
+
+            if (mixed) {
+                return {
+                    sharedDisplay: null,
+                    sharedResolved: null,
+                    allAutomatic,
+                    anyError: false,
+                    showAutoPlaceholder: false,
+                    sampleState: null
+                };
+            }
+
+            // Shared display: resolve metrics / bbox once on the sample layer
+            // for arrow-adjust and invalid marking.
+            const sampleLayer = layers[0];
+            if (sampleLayer && sampleState) {
+                const storedKey = this.getStoredSidebearingKey(
+                    sampleLayer,
+                    side
+                );
+                if (storedKey) {
+                    const resolution = sampleLayer.resolveMetricsKey(side);
+                    sampleState = {
+                        ...sampleState,
+                        resolvedValue:
+                            resolution.value ??
+                            this.getDirectSidebearingsFromLayer(
+                                sampleLayer,
+                                bboxCache
+                            )[side === 'left' ? 'lsb' : 'rsb'],
+                        error: resolution.error
+                    };
+                    anyError = Boolean(resolution.error);
+                } else if (
+                    !sampleState.showAutoPlaceholder &&
+                    !Number.isFinite(sampleState.resolvedValue)
+                ) {
+                    const pair = this.getDirectSidebearingsFromLayer(
+                        sampleLayer,
+                        bboxCache
+                    );
+                    sampleState = {
+                        ...sampleState,
+                        resolvedValue: side === 'left' ? pair.lsb : pair.rsb
+                    };
+                }
+            }
+
+            return {
+                sharedDisplay,
+                sharedResolved: sampleState ? sampleState.resolvedValue : null,
+                allAutomatic,
+                anyError,
+                showAutoPlaceholder:
+                    showAutoPlaceholder && allAutomatic && sharedDisplay === '',
+                sampleState
+            };
+        };
+
+        return {
+            left: summarizeSide('left'),
+            right: summarizeSide('right')
+        };
+    }
+
+    updatePropertyPanel(): void {
+        if (!this.propertyPanel) {
+            return;
+        }
+
+        const activeInputState = this.getActiveOverviewPropertyInputState();
+        this.propertyPanel.textContent = '';
+
+        const content = document.createElement('div');
+        content.className = 'glyph-property-panel-content';
+
+        const selectedNames = this.getSelectedGlyphNames();
+        const singleGlyph =
+            selectedNames.length === 1 ? this.getSelectedGlyphModel() : null;
+        const nameEditable = Boolean(singleGlyph);
+        const layers = this.getSelectedOverviewLayers();
+        const sidebearingSummary = this.summarizeOverviewSidebearings(layers);
+
+        const nameControl = document.createElement('label');
+        nameControl.className =
+            'glyph-property-control glyph-overview-property-name';
+
+        const nameLabel = document.createElement('span');
+        nameLabel.className = 'glyph-property-control-label';
+        nameLabel.textContent = 'Name';
+        nameLabel.title = 'Glyph name';
+        nameControl.appendChild(nameLabel);
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'glyph-property-input';
+        nameInput.dataset.propertyField = 'glyph-name';
+        nameInput.spellcheck = false;
+        nameInput.disabled = !nameEditable;
+        nameInput.value = singleGlyph?.name || '';
+        if (selectedNames.length > 1) {
+            nameInput.placeholder = 'Multiple';
+        }
+        this.bindOverviewPropertyInput(nameInput, () => {
+            this.commitOverviewGlyphName(nameInput.value);
+        });
+        nameControl.appendChild(nameInput);
+        content.appendChild(nameControl);
+
+        const unicodeControl = document.createElement('label');
+        unicodeControl.className =
+            'glyph-property-control glyph-overview-property-unicode';
+
+        const unicodeLabel = document.createElement('span');
+        unicodeLabel.className = 'glyph-property-control-label';
+        unicodeLabel.textContent = 'Unicode';
+        unicodeLabel.title = 'Unicode codepoints (comma-separated hex)';
+        unicodeControl.appendChild(unicodeLabel);
+
+        const unicodeInput = document.createElement('input');
+        unicodeInput.type = 'text';
+        unicodeInput.className = 'glyph-property-input';
+        unicodeInput.dataset.propertyField = 'glyph-unicode';
+        unicodeInput.spellcheck = false;
+        unicodeInput.disabled = !nameEditable;
+        unicodeInput.value = nameEditable
+            ? formatCodepointsHexList(singleGlyph?.codepoints)
+            : '';
+        if (selectedNames.length > 1) {
+            unicodeInput.placeholder = 'Multiple';
+        } else if (nameEditable) {
+            unicodeInput.placeholder = '0041, 00E4';
+        }
+        this.bindOverviewPropertyInput(unicodeInput, () => {
+            this.commitOverviewGlyphCodepoints(unicodeInput.value);
+        });
+        unicodeControl.appendChild(unicodeInput);
+        content.appendChild(unicodeControl);
+
+        content.appendChild(
+            this.createOverviewSidebearingControl(
+                'left',
+                'LSB',
+                layers.length > 0,
+                sidebearingSummary.left
+            )
+        );
+        content.appendChild(
+            this.createOverviewSidebearingControl(
+                'right',
+                'RSB',
+                layers.length > 0,
+                sidebearingSummary.right
+            )
+        );
+
+        this.propertyPanel.appendChild(content);
+        this.restoreActiveOverviewPropertyInput(activeInputState);
+    }
+
+    private createOverviewSidebearingControl(
+        side: SidebearingSide,
+        shortLabel: string,
+        editable: boolean,
+        summary: OverviewSidebearingSideSummary
+    ): HTMLLabelElement {
+        const wrapper = document.createElement('label');
+        wrapper.className = 'glyph-property-control';
+
+        const label = document.createElement('span');
+        label.className = 'glyph-property-control-label';
+        label.textContent = shortLabel;
+        label.title =
+            side === 'left' ? 'Left sidebearing' : 'Right sidebearing';
+        wrapper.appendChild(label);
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'glyph-property-input';
+        input.dataset.sidebearingSide = side;
+        input.dataset.propertyField = `side-${side}`;
+        input.spellcheck = false;
+        input.disabled = !editable;
+
+        if (!editable) {
+            input.value = '';
+        } else if (summary.sharedDisplay === null) {
+            input.value = '';
+            input.placeholder = 'Multiple values';
+            input.classList.add('glyph-property-input-mixed');
+        } else {
+            input.value = summary.sharedDisplay;
+            if (summary.showAutoPlaceholder) {
+                input.placeholder = '=+0 or ==+0';
+            }
+        }
+
+        if (summary.allAutomatic) {
+            input.title =
+                'Automatic layers only accept =+/- or ==+/- sidebearing adjustments';
+        }
+        if (summary.anyError) {
+            input.classList.add('invalid');
+        }
+
+        const arrowInputController =
+            editable && !summary.allAutomatic
+                ? new ArrowAdjustableTextInput({
+                      input,
+                      getValue: () => {
+                          const trimmedValue = input.value.trim();
+                          if (isPlainNumericInputValue(trimmedValue)) {
+                              return Number(trimmedValue);
+                          }
+                          return (
+                              summary.sharedResolved ??
+                              summary.sampleState?.resolvedValue ??
+                              Number.NaN
+                          );
+                      },
+                      applyValue: (nextValue) => {
+                          input.dataset.skipNextPropertyCommit = 'true';
+                          this.commitOverviewSidebearing(
+                              side,
+                              String(nextValue)
+                          );
+                      },
+                      findReplacementInput: () =>
+                          this.propertyPanel?.querySelector(
+                              `.glyph-property-input[data-property-field="side-${side}"]`
+                          ) as HTMLInputElement | null
+                  })
+                : null;
+
+        this.bindOverviewPropertyInput(input, () => {
+            if (arrowInputController?.isApplyingStep) {
+                return;
+            }
+            this.commitOverviewSidebearing(side, input.value);
+        });
+
+        wrapper.appendChild(input);
+        return wrapper;
+    }
+
+    private bindOverviewPropertyInput(
+        input: HTMLInputElement,
+        commit: () => void
+    ): void {
+        input.addEventListener('change', () => {
+            if (input.dataset.skipNextPropertyCommit === 'true') {
+                delete input.dataset.skipNextPropertyCommit;
+                return;
+            }
+            commit();
+        });
+        input.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                this.updatePropertyPanel();
+                input.blur();
+                return;
+            }
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                input.dataset.skipNextPropertyCommit = 'true';
+                commit();
+                input.blur();
+            }
+        });
+    }
+
+    private commitOverviewSidebearing(
+        side: SidebearingSide,
+        rawValue: string
+    ): void {
+        const layers = this.getSelectedOverviewLayers();
+        if (layers.length === 0) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        window.fontManager?.setEditingCompileContext?.(
+            'keyboard-sidebearing',
+            null
+        );
+
+        const bridge = window.patchSyncEngine;
+        const label = getSidebearingTransactionLabel(side);
+        bridge?.beginTransaction(label);
+        try {
+            for (const layer of layers) {
+                layer.applySidebearingInput(side, rawValue);
+            }
+        } finally {
+            bridge?.endTransaction();
+        }
+
+        this.updatePropertyPanel();
+    }
+
+    private commitOverviewGlyphName(rawValue: string): void {
+        const singleGlyph = this.getSelectedGlyphModel();
+        const fontModel = window.currentFontModel;
+        if (!singleGlyph || !fontModel) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const oldName = singleGlyph.name;
+        const newName = rawValue.trim();
+        if (!newName || newName === oldName) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const renames = new Map([[oldName, newName]]);
+        const existingNames =
+            fontModel.glyphs?.map(
+                (glyph: { name?: string }) => glyph.name || ''
+            ) || [];
+        const errors = getGlyphRenamePreflightErrors(renames, existingNames, {
+            requireSourcesExist: true
+        });
+        if (errors.size > 0) {
+            const nameInput = this.propertyPanel?.querySelector(
+                '.glyph-property-input[data-property-field="glyph-name"]'
+            ) as HTMLInputElement | null;
+            if (nameInput) {
+                nameInput.classList.add('invalid');
+            }
+            console.warn(
+                'Could not rename glyph',
+                errors.get(oldName) || 'Rename failed'
+            );
+            return;
+        }
+
+        try {
+            this.pendingSelectGlyphNames = [newName];
+            fontModel.renameGlyphs(renames);
+        } catch (error) {
+            console.error('Could not rename glyph', error);
+            this.pendingSelectGlyphNames = null;
+            this.updatePropertyPanel();
+        }
+    }
+
+    private commitOverviewGlyphCodepoints(rawValue: string): void {
+        const singleGlyph = this.getSelectedGlyphModel();
+        const fontModel = window.currentFontModel;
+        if (!singleGlyph || !fontModel) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const parsed = parseCodepointsHexList(rawValue);
+        if (parsed === null) {
+            const unicodeInput = this.propertyPanel?.querySelector(
+                '.glyph-property-input[data-property-field="glyph-unicode"]'
+            ) as HTMLInputElement | null;
+            if (unicodeInput) {
+                unicodeInput.classList.add('invalid');
+            }
+            return;
+        }
+
+        const glyph =
+            typeof fontModel.findGlyph === 'function'
+                ? fontModel.findGlyph(singleGlyph.name)
+                : null;
+        if (!glyph) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const previous = Array.isArray(glyph.codepoints)
+            ? glyph.codepoints.filter(
+                  (value: unknown): value is number =>
+                      typeof value === 'number' && Number.isFinite(value)
+              )
+            : [];
+        const next = parsed;
+        if (
+            previous.length === next.length &&
+            previous.every((value, index) => value === next[index])
+        ) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        window.patchSyncEngine?.beginTransaction('Set glyph Unicode');
+        try {
+            glyph.codepoints = next.length > 0 ? next : undefined;
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        this.updatePropertyPanel();
     }
 
     // Drag selection handlers
     private onMouseDown(e: MouseEvent): void {
         this.isDragging = true;
         this.hasDragged = false;
+        this.dragTileRects = null;
         const rect = this.container!.getBoundingClientRect();
         this.dragStartX = e.clientX - rect.left + this.container!.scrollLeft;
         this.dragStartY = e.clientY - rect.top + this.container!.scrollTop;
@@ -3560,8 +4468,9 @@ class GlyphOverview {
 
                 // Clear selection if no modifier key (now that we know it's a drag)
                 if (!e.shiftKey && !e.metaKey && !e.ctrlKey) {
-                    this.clearSelection();
+                    this.clearSelection(false);
                 }
+                this.ensureDragTileRectCache();
             }
 
             // Create selection box on first movement
@@ -3593,14 +4502,49 @@ class GlyphOverview {
         this.updateDragSelection(left, top, width, height);
     }
 
-    private onMouseUp(e: MouseEvent): void {
+    private onMouseUp(_e: MouseEvent): void {
         if (this.isDragging) {
             this.isDragging = false;
             if (this.selectionBox) {
                 this.selectionBox.remove();
                 this.selectionBox = null;
             }
+            this.dragTileRects = null;
+            if (this.hasDragged) {
+                this.flushDeferredPropertyPanelUpdate();
+            } else if (this.selectionUiFlushPending) {
+                this.flushSelectionUi();
+            }
         }
+    }
+
+    private ensureDragTileRectCache(): void {
+        if (this.dragTileRects || !this.container) {
+            return;
+        }
+
+        const containerRect = this.container.getBoundingClientRect();
+        const scrollLeft = this.container.scrollLeft;
+        const scrollTop = this.container.scrollTop;
+        const rects: DragTileRect[] = [];
+
+        this.tiles.forEach((tile) => {
+            if (!tile.element.isConnected) {
+                return;
+            }
+            const rect = tile.element.getBoundingClientRect();
+            const left = rect.left - containerRect.left + scrollLeft;
+            const top = rect.top - containerRect.top + scrollTop;
+            rects.push({
+                glyphId: tile.glyphId,
+                left,
+                top,
+                right: left + rect.width,
+                bottom: top + rect.height
+            });
+        });
+
+        this.dragTileRects = rects;
     }
 
     private updateDragSelection(
@@ -3609,36 +4553,40 @@ class GlyphOverview {
         boxWidth: number,
         boxHeight: number
     ): void {
+        this.ensureDragTileRectCache();
+        if (!this.dragTileRects) {
+            return;
+        }
+
         const boxRight = boxLeft + boxWidth;
         const boxBottom = boxTop + boxHeight;
+        let changed = false;
 
-        this.tiles.forEach((tile) => {
-            if (!tile.element.isConnected) {
-                return;
-            }
-
-            const rect = tile.element.getBoundingClientRect();
-            const containerRect = this.container!.getBoundingClientRect();
-
-            const tileLeft =
-                rect.left - containerRect.left + this.container!.scrollLeft;
-            const tileTop =
-                rect.top - containerRect.top + this.container!.scrollTop;
-            const tileRight = tileLeft + rect.width;
-            const tileBottom = tileTop + rect.height;
-
-            // Check if tile intersects with selection box
+        for (const tileRect of this.dragTileRects) {
             const intersects = !(
-                boxRight < tileLeft ||
-                boxLeft > tileRight ||
-                boxBottom < tileTop ||
-                boxTop > tileBottom
+                boxRight < tileRect.left ||
+                boxLeft > tileRect.right ||
+                boxBottom < tileRect.top ||
+                boxTop > tileRect.bottom
             );
 
-            if (intersects && !tile.selected) {
-                this.selectTile(tile.glyphId);
+            if (!intersects) {
+                continue;
             }
-        });
+
+            const tile = this.tiles.get(tileRect.glyphId);
+            if (!tile || tile.selected) {
+                continue;
+            }
+
+            this.selectTile(tileRect.glyphId, false);
+            changed = true;
+        }
+
+        if (changed) {
+            this.selectionUiFlushPending = true;
+            this.propertyPanelDeferredUntilDragEnd = true;
+        }
     }
 
     /**

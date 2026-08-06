@@ -123,6 +123,58 @@ export function codepointExactHexUnicodeSearch(
 }
 
 /**
+ * Format glyph codepoints as comma-separated uppercase hex (padded to 4).
+ * Example: `[0x41, 0xe4]` → `"0041, 00E4"`.
+ */
+export function formatCodepointsHexList(
+    codepoints: readonly number[] | undefined
+): string {
+    const values =
+        codepoints?.filter(
+            (codepoint) =>
+                Number.isInteger(codepoint) &&
+                codepoint >= 0 &&
+                codepoint <= 0x10ffff
+        ) ?? [];
+    if (!values.length) {
+        return '';
+    }
+
+    return values
+        .map((codepoint) =>
+            codepoint.toString(16).toUpperCase().padStart(4, '0')
+        )
+        .join(', ');
+}
+
+/**
+ * Parse comma- or space-separated hex codepoints into integers.
+ * Accepts optional `U+` / `0x` prefixes per token. Empty input → `[]`.
+ * Returns `null` when any token is present but not valid hex.
+ */
+export function parseCodepointsHexList(input: string): number[] | null {
+    const trimmed = input.trim();
+    if (!trimmed) {
+        return [];
+    }
+
+    const tokens = trimmed.split(/[\s,]+/).filter((token) => token.length > 0);
+    if (tokens.length === 0) {
+        return [];
+    }
+
+    const codepoints: number[] = [];
+    for (const token of tokens) {
+        const codepoint = parseHexUnicodeTerm(token);
+        if (codepoint === null) {
+            return null;
+        }
+        codepoints.push(codepoint);
+    }
+    return codepoints;
+}
+
+/**
  * Return whether any glyph codepoint matches a hex Unicode search term.
  */
 export function glyphMatchesHexUnicodeTerm(

@@ -357,8 +357,7 @@
     display: flex;
     align-items: center;
     gap: calc(var(--top-row-sidebar-element-gap, 8px) - 2px);
-    padding:
-        var(--top-row-overview-filter-node-header-block-padding, 3px)
+    padding: var(--top-row-overview-filter-node-header-block-padding, 3px)
         var(--top-row-overview-filter-node-header-inline-padding, 4px);
     cursor: pointer;
     border-radius: 4px;
@@ -652,4 +651,20 @@
     margin-top: 16px;
     padding: 8px 16px;
     font-size: 13px;
+}
+
+/* Overview property panel (mirrors editor glyph-property-panel) */
+#overview-property-panel .glyph-overview-property-name .glyph-property-input {
+    width: 140px;
+}
+
+#overview-property-panel
+    .glyph-overview-property-unicode
+    .glyph-property-input {
+    width: 90px;
+}
+
+#overview-property-panel .glyph-property-input:disabled {
+    opacity: 0.55;
+    cursor: default;
 }

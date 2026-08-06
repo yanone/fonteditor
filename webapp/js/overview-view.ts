@@ -314,12 +314,24 @@ async function initOverviewView() {
         glyphContainer.style.flex = '1';
         glyphContainer.style.overflow = 'hidden';
         glyphContainer.style.position = 'relative';
+        glyphContainer.style.minHeight = '0';
         mainContent.appendChild(glyphContainer);
+
+        // Property panel at the bottom (mirrors editing-view glyph-property-panel)
+        const propertyPanel = document.createElement('div');
+        propertyPanel.id = 'overview-property-panel';
+        propertyPanel.className = 'glyph-property-panel';
+        mainContent.appendChild(propertyPanel);
 
         // Initialize glyph overview in the glyph container
         if (window.GlyphOverview) {
             glyphOverviewInstance = new window.GlyphOverview(glyphContainer);
             window.glyphOverviewInstance = glyphOverviewInstance;
+            if (
+                typeof glyphOverviewInstance.attachPropertyPanel === 'function'
+            ) {
+                glyphOverviewInstance.attachPropertyPanel(propertyPanel);
+            }
 
             // Populate with current font glyphs if available.
             // Outline paint waits for fontReady so startup location/state settle first.

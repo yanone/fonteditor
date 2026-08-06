@@ -73,7 +73,8 @@ describe('OverviewView initial active glyph sync', () => {
             renderGlyphOutlines,
             syncActiveGlyphFocus,
             setOutlinePaintAllowed,
-            setLocationDrivenRendersEnabled: setOutlinePaintAllowed
+            setLocationDrivenRendersEnabled: setOutlinePaintAllowed,
+            attachPropertyPanel: jest.fn()
         }));
         window.glyphOverviewFilterManager = null;
         window.timelineSpanStart = jest.fn(() => 'overview-span');
@@ -112,6 +113,12 @@ describe('OverviewView initial active glyph sync', () => {
 
         expect(syncGlyphs).toHaveBeenCalledTimes(1);
         expect(renderGlyphOutlines).not.toHaveBeenCalled();
+        expect(document.getElementById('overview-property-panel')).toBeTruthy();
+        expect(
+            window.glyphOverviewInstance.attachPropertyPanel
+        ).toHaveBeenCalledWith(
+            document.getElementById('overview-property-panel')
+        );
 
         syncGlyphs.mockClear();
         await flushFontReadyOverview();
