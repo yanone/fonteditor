@@ -6815,6 +6815,86 @@ describe('syncGlyphFromJson', () => {
         ]);
     });
 
+    test('undo emits every restored automatic-composite layer snapshot', () => {
+        const { bridge } = createTestBridge('test-undo-automatic-composite');
+        const workerUpdates = [];
+
+        bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+            workerUpdates.push({ update, changeLogEntries });
+        });
+
+        bridge.applySyntheticChangeSet('Drag point', [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1'],
+                oldValue: {
+                    id: 'layer-1',
+                    width: 600,
+                    shapes: [],
+                    anchors: [],
+                    guides: []
+                },
+                newValue: {
+                    id: 'layer-1',
+                    width: 600,
+                    shapes: [
+                        {
+                            closed: false,
+                            nodes: [{ x: 20, y: 0, nodetype: 'Line' }]
+                        }
+                    ],
+                    anchors: [],
+                    guides: []
+                },
+                workerReplayTargets: [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'Adieresis', layerId: 'layer-2' }
+                ]
+            },
+            {
+                op: 'set',
+                path: ['glyphs', 'Adieresis', 'layers', 'layer-2'],
+                oldValue: {
+                    id: 'layer-2',
+                    width: 600,
+                    shapes: [],
+                    anchors: [],
+                    guides: []
+                },
+                newValue: {
+                    id: 'layer-2',
+                    width: 620,
+                    shapes: [],
+                    anchors: [],
+                    guides: []
+                },
+                workerReplayTargets: [
+                    { glyphName: 'A', layerId: 'layer-1' },
+                    { glyphName: 'Adieresis', layerId: 'layer-2' }
+                ]
+            }
+        ]);
+
+        workerUpdates.length = 0;
+
+        expect(bridge.undo('A', 'layer-1')).toEqual(
+            expect.objectContaining({ scope: 'font' })
+        );
+        expect(workerUpdates).toHaveLength(1);
+        expect(workerUpdates[0].changeLogEntries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    historyAction: 'undo',
+                    path: 'glyphs.A:layers.layer-1:'
+                }),
+                expect.objectContaining({
+                    historyAction: 'undo',
+                    path: 'glyphs.Adieresis:layers.layer-2:'
+                })
+            ])
+        );
+    });
+
     test('undo ignores native-only stale tail steps after authoritative history is exhausted', () => {
         const { bridge } = createTestBridge('test-stale-native-undo-tail');
         const workerUpdates = [];

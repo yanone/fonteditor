@@ -438,7 +438,7 @@ describe('handleRemoteChangeRefresh', () => {
         }
     );
 
-    test('local undo compiles from the forwarded worker update without a replay-target refresh', async () => {
+    test('local undo settles replay-target cache updates before compiling', async () => {
         const refreshOrder = [];
         const awaitWorkerSync = jest.fn(async () => {
             refreshOrder.push('sync');
@@ -498,13 +498,13 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
         expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-anchor',
             'anchor'
         );
-        expect(refreshOrder).toEqual(['sync', 'compile']);
+        expect(refreshOrder).toEqual(['sync', 'sync', 'compile']);
     });
 
     test('retries local undo compile readiness from worker-sync state before compiling', async () => {
@@ -655,10 +655,10 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(3);
         expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).not.toHaveBeenCalled();
-        expect(refreshOrder).toEqual(['sync', 'sync']);
+        expect(refreshOrder).toEqual(['sync', 'sync', 'sync']);
     });
 
     test('skips local committed compile when worker cache remains unready after readiness retry', async () => {
@@ -4584,6 +4584,68 @@ describe('committed undo/redo compile requests', () => {
         expect(window.fontManager.currentFont.compileRequestVersion).toBe(11);
     });
 
+    test('refreshes restored replay targets in the Rust cache before compiling undo', async () => {
+        const refreshWorkerCacheForReplayTargets = jest
+            .fn()
+            .mockResolvedValue(true);
+        const awaitWorkerSync = jest.fn(async () => {});
+        const requestRecompileWithoutDataChange = jest.fn(function () {
+            this.compileRequestVersion += 1;
+        });
+        const activeFontCompilation =
+            require('../js/font-compilation').fontCompilation;
+        const wasInitialized = activeFontCompilation.isInitialized;
+        const hasWorkerCacheDocument = jest
+            .spyOn(activeFontCompilation, 'hasWorkerCacheDocument')
+            .mockReturnValue(true);
+
+        activeFontCompilation.isInitialized = true;
+        window.autoCompileManager = {
+            checkAndSchedule: jest.fn(),
+            forceTrigger: jest.fn(async () => {
+                window.dispatchEvent(
+                    new CustomEvent('editingFontCompiled', {
+                        detail: { fontRevisionKey: '2' }
+                    })
+                );
+            })
+        };
+        window.fontManager = {
+            refreshWorkerCacheForReplayTargets,
+            awaitWorkerCacheUpdate: jest.fn(async () => {}),
+            currentFont: {
+                compileRequestVersion: 1,
+                requestRecompileWithoutDataChange
+            }
+        };
+
+        try {
+            await changeBridgeInit.handleCommittedChangeRefresh(
+                [
+                    {
+                        historyAction: 'undo',
+                        transactionLabel: 'Drag point',
+                        path: 'glyphs.A.layers.layer-1.shapes.0.nodes.0.x',
+                        workerReplayTargets: [
+                            { glyphName: 'Adieresis', layerId: 'layer-1' }
+                        ]
+                    }
+                ],
+                'local',
+                { awaitWorkerSync }
+            );
+
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
+                { glyphName: 'Adieresis', layerId: 'layer-1' }
+            ]);
+            expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
+            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        } finally {
+            hasWorkerCacheDocument.mockRestore();
+            activeFontCompilation.isInitialized = wasInitialized;
+        }
+    });
+
     test.each(['undo', 'redo'])(
         '%s RTL kerning packets preserve kerning edit types',
         async (historyAction) => {
@@ -5070,25 +5132,24 @@ describe('committed undo/redo compile requests', () => {
     });
 
     test.each([
-        ['local undo', 'local', 'undo', -20],
-        ['local redo', 'local', 'redo', 20],
-        ['remote undo', 'remote', 'undo', -20],
-        ['remote redo', 'remote', 'redo', 20]
+        ['local undo', 'undo'],
+        ['local redo', 'redo']
     ])(
-        'uses the semantic width delta for %s instead of comparing a raw width to the shaped advance',
-        async (_label, origin, historyAction, expectedDelta) => {
+        'uses the restored model width for %s',
+        async (_label, historyAction) => {
             const originalFontManager = window.fontManager;
             const originalGlyphCanvas = window.glyphCanvas;
+            const refreshGlyphAdvancesLive = jest.fn();
             const refreshGlyphAdvanceDeltasLive = jest.fn();
-            const computePrecedingAdvanceDelta = jest.fn(() => expectedDelta);
+            const computePrecedingAdvanceDelta = jest.fn(() => 30);
             const requestCompile = jest.fn(async () => {});
 
             window.fontManager = {
                 currentFont: {
                     fontModel: {
-                        findGlyph: jest.fn(() => ({
+                        findGlyph: jest.fn((glyphName) => ({
                             findLayerById: jest.fn(() => ({
-                                width: 500,
+                                width: glyphName === 'adieresis' ? 640 : 500,
                                 isAutomaticAlignedLayer: jest.fn(() => false)
                             }))
                         }))
@@ -5098,9 +5159,13 @@ describe('committed undo/redo compile requests', () => {
             window.glyphCanvas = {
                 viewportManager: { panX: 100, scale: 2 },
                 textRunEditor: {
-                    intrinsicGlyphAdvances: new Map([['a', 470]]),
+                    intrinsicGlyphAdvances: new Map([
+                        ['a', 470],
+                        ['adieresis', 600]
+                    ]),
                     computePrecedingAdvanceDelta,
-                    refreshGlyphAdvanceDeltasLive
+                    refreshGlyphAdvanceDeltasLive,
+                    refreshGlyphAdvancesLive
                 },
                 requestRepaintAfterCompile: jest.fn(),
                 outlineEditor: {
@@ -5124,13 +5189,19 @@ describe('committed undo/redo compile requests', () => {
                     [
                         {
                             historyAction,
-                            transactionLabel: 'Drag component',
-                            path: 'glyphs.a.layers.layer-1',
-                            oldValue: { width: 500 },
-                            newValue: { width: 520 }
+                            transactionLabel: 'Drag point',
+                            path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
+                            oldValue: 120,
+                            newValue: 140,
+                            workerReplayTargets: [
+                                {
+                                    glyphName: 'adieresis',
+                                    layerId: 'layer-1'
+                                }
+                            ]
                         }
                     ],
-                    origin,
+                    'local',
                     {
                         awaitWorkerSync: jest.fn(async () => {}),
                         requestCompile
@@ -5141,17 +5212,14 @@ describe('committed undo/redo compile requests', () => {
                 window.glyphCanvas = originalGlyphCanvas;
             }
 
-            expect(refreshGlyphAdvanceDeltasLive).toHaveBeenCalledWith(
-                { a: expectedDelta },
+            expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
+                { a: 500, adieresis: 640 },
                 { render: false }
             );
-            if (origin === 'local') {
-                expect(computePrecedingAdvanceDelta).toHaveBeenCalledWith({
-                    a: 470 + expectedDelta
-                });
-            } else {
-                expect(computePrecedingAdvanceDelta).not.toHaveBeenCalled();
-            }
+            expect(computePrecedingAdvanceDelta).toHaveBeenCalledWith({
+                a: 500,
+                adieresis: 640
+            });
             expect(requestCompile).toHaveBeenCalledTimes(1);
         }
     );

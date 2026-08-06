@@ -1194,7 +1194,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
         expect(
             originalWindow.fontManager.refreshWorkerCacheForReplayTargets
-        ).not.toHaveBeenCalled();
+        ).toHaveBeenCalledTimes(1);
         expect(sendMessage).not.toHaveBeenCalledWith(
             expect.objectContaining({ type: 'storeFontJson' })
         );
@@ -1662,7 +1662,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             expect(
                 originalWindow.autoCompileManager.checkAndSchedule
             ).toHaveBeenCalledTimes(1);
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -1800,7 +1800,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -1924,7 +1924,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -2353,7 +2353,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -2491,7 +2491,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -2609,7 +2609,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
             expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
-            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
             expect(sendMessageSpy).not.toHaveBeenCalledWith(
                 expect.objectContaining({ type: 'storeFontJson' })
             );

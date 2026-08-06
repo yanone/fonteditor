@@ -5173,6 +5173,35 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.requestRepaintAfterCompile).toHaveBeenCalled();
     });
 
+    test('authoritative outline-only result reshapes after a drag commit', async () => {
+        const { setupFontLoadingListener } = require('../js/glyph-canvas');
+        setupFontLoadingListener();
+
+        canvas.axesManager = { fontBytes: null };
+        canvas.textRunEditor.swapFontBlob = jest.fn();
+        canvas.textRunEditor.shapeText = jest.fn();
+        canvas.requestRepaintAfterCompile = jest.fn();
+
+        window.dispatchEvent(
+            new CustomEvent('editingFontCompiled', {
+                detail: {
+                    fontBytes: new Uint8Array([7, 8, 9]),
+                    fontRevisionKey: '12',
+                    compilationMode: 'outline-only',
+                    dataFreshnessMode: 'authoritative-worker-yjs',
+                    dragActive: true
+                }
+            })
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(canvas.textRunEditor.swapFontBlob).toHaveBeenCalled();
+        expect(canvas.textRunEditor.shapeText).toHaveBeenCalledWith(true);
+        expect(canvas.requestRepaintAfterCompile).toHaveBeenCalled();
+    });
+
     test('requestRepaintAfterCompile refreshes hit detection in outline mode', () => {
         const originalRequestAnimationFrame = global.requestAnimationFrame;
         const renderSpy = jest

@@ -1594,6 +1594,106 @@ function refreshLiveTextRunAdvances(
     }
 }
 
+function collectCommittedAdvanceWidths(
+    entries: ChangeLogEntry[],
+    visibleLayerId?: string | null,
+    visibleGlyphName?: string | null
+): Record<string, number> {
+    if (!visibleLayerId || !visibleGlyphName) {
+        return {};
+    }
+
+    const fontModel = window.fontManager?.currentFont?.fontModel;
+    if (!fontModel || typeof fontModel.findGlyph !== 'function') {
+        return {};
+    }
+
+    const visibleLayer = fontModel
+        .findGlyph(visibleGlyphName)
+        ?.findLayerById(visibleLayerId);
+    const targets = new Map<string, WorkerReplayTarget>();
+    const addTarget = (glyphName?: string | null, layerId?: string | null) => {
+        if (!glyphName || !layerId) {
+            return;
+        }
+        targets.set(`${glyphName}@@${layerId}`, { glyphName, layerId });
+    };
+
+    for (const outerEntry of entries) {
+        const semanticEntries = outerEntry.semanticChangeLogEntries?.length
+            ? outerEntry.semanticChangeLogEntries
+            : [outerEntry];
+        for (const entry of semanticEntries) {
+            const pathSegments = getPathSegments(entry.path ?? '');
+            addTarget(
+                deriveGlyphName(pathSegments),
+                deriveLayerId(pathSegments)
+            );
+            for (const target of entry.workerReplayTargets ?? []) {
+                addTarget(target.glyphName, target.layerId);
+            }
+        }
+    }
+
+    const glyphAdvances: Record<string, number> = {};
+    for (const target of targets.values()) {
+        const layer =
+            fontModel
+                .findGlyph(target.glyphName)
+                ?.findLayerById(target.layerId) ||
+            (target.glyphName === visibleGlyphName
+                ? visibleLayer
+                : visibleLayer?.getMatchingLayerOnGlyph?.(target.glyphName));
+        if (layer && Number.isFinite(layer.width)) {
+            glyphAdvances[target.glyphName] = layer.width;
+        }
+    }
+
+    return glyphAdvances;
+}
+
+function refreshCommittedTextRunAdvances(
+    glyphAdvances: Record<string, number>,
+    options?: {
+        compensatePanX?: boolean;
+    }
+): void {
+    const gc = window.glyphCanvas;
+    const textRunEditor = gc?.textRunEditor;
+    if (!textRunEditor || Object.keys(glyphAdvances).length === 0) {
+        return;
+    }
+
+    const changedAdvances = Object.fromEntries(
+        Object.entries(glyphAdvances).filter(([glyphName, advance]) => {
+            const previousAdvance =
+                textRunEditor.intrinsicGlyphAdvances?.get(glyphName);
+            return (
+                typeof previousAdvance === 'number' &&
+                Number.isFinite(previousAdvance) &&
+                Math.abs(advance - previousAdvance) > 0.01
+            );
+        })
+    );
+    if (Object.keys(changedAdvances).length === 0) {
+        return;
+    }
+
+    const precedingDelta = options?.compensatePanX
+        ? (textRunEditor.computePrecedingAdvanceDelta?.(changedAdvances) ?? 0)
+        : 0;
+    textRunEditor.refreshGlyphAdvancesLive?.(changedAdvances, {
+        render: false
+    });
+
+    if (options?.compensatePanX && Math.abs(precedingDelta) > 0.01) {
+        const vm = gc?.viewportManager;
+        if (vm) {
+            vm.panX -= precedingDelta * vm.scale;
+        }
+    }
+}
+
 function getActiveEditedGlyphName(): string | null {
     const gc = window.glyphCanvas;
     const stackGlyphName = gc?.outlineEditor?.active
@@ -2212,8 +2312,8 @@ function applyLocalUndoRedoVisualSync(
         );
 
     if (!appliedSidebearingSync) {
-        refreshLiveTextRunAdvances(
-            collectLiveAdvanceDeltas(entries, layerId, editedGlyphName),
+        refreshCommittedTextRunAdvances(
+            collectCommittedAdvanceWidths(entries, layerId, editedGlyphName),
             { compensatePanX: true }
         );
     }
@@ -2617,6 +2717,13 @@ export async function handleCommittedChangeRefresh(
         const selectedLayerId =
             window.glyphCanvas?.outlineEditor?.selectedLayerId;
         const selectedGlyphName = getActiveEditedGlyphName();
+        if (isUndoRedoPacket && replayTargets.length > 0) {
+            await refreshRustWorkerCache(undefined, undefined, {
+                workerReplayTargets: replayTargets,
+                allowSelectedLayerFallback: false
+            });
+            await awaitCommittedWorkerCacheSettled(awaitWorkerSync);
+        }
         const liveAdvanceDeltas = collectLiveAdvanceDeltas(
             entries,
             selectedLayerId,

@@ -10163,17 +10163,26 @@ function setupFontLoadingListener() {
                         !isLivePreview &&
                         gc.outlineEditor.hasPendingSidebearingBboxCenterAnchor();
 
-                    // Outline-only never reshapes: the preview font skips
-                    // features/kerning for speed, so a reshape would jump the
-                    // canvas wherever kerning precedes the active glyphs.
-                    // New outlines come from the swapped blob at paint time;
-                    // width changes from keyed sidebearing recomposition are
-                    // applied in JS via refreshGlyphAdvancesLive beforehand.
+                    // Live outline previews skip reshaping: the preview font
+                    // omits features/kerning for speed, so a reshape would
+                    // jump the canvas wherever kerning precedes the active
+                    // glyphs. A committed outline-only result must reshape,
+                    // otherwise its swapped blob can retain stale advances
+                    // from before undo/redo recomposition.
                     if (compilationMode === 'outline-only') {
                         const fontBytesArray = new Uint8Array(arrayBuffer);
                         gc.fontBytes = fontBytesArray;
                         gc.axesManager!.fontBytes = fontBytesArray;
                         gc.textRunEditor!.swapFontBlob(fontBytesArray);
+                        if (
+                            detail?.dataFreshnessMode ===
+                            'authoritative-worker-yjs'
+                        ) {
+                            gc.textRunEditor!.shapeText(true);
+                            timelineMark(
+                                'canvas.editingFontCompiled.outlineOnlyCommittedShaped'
+                            );
+                        }
                         timelineMark(
                             isLivePreview
                                 ? isSidebearingSession
