@@ -406,6 +406,10 @@ Plugins are discovered dynamically from the `plugins/` directory.
 
 Use the Chrome DevTools MCP server for live app inspection. It attaches to the real Chrome runtime that is already running the webapp, which avoids the stale or wrong-session issues that came from separate browser contexts.
 
+### Live Text Diagnostics
+
+In development and test mode, `window.__liveTextDiagnostics.entries` is the supported diagnosis history for text shaping and rendering. Each entry records its source, glyph advances, offsets, cumulative positions, total advance, and event detail. It is populated by `recordLiveTextDiagnostic` for reshape, advance-refresh, canvas render, and repaint paths; use it to compare the sequence of shaping and rendering states without adding temporary logging. The history retains the latest 2,000 entries and emits `liveTextDiagnosticsRecorded` for each snapshot.
+
 When interactive debugging or joint investigation is needed, always open and use a regular Google Chrome window that both the user and the agent can control. Do not use the Playwright test browser for that work, because the user cannot directly inspect or steer that isolated browser session.
 
 When using MCP for live app inspection, always use the app instance already running in Chrome. Do not open or inspect the app in a VS Code browser tab, because that can attach MCP to the wrong runtime session and hide the real state.
