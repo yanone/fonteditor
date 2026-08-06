@@ -38,12 +38,12 @@ Use these as stress cases when sizing catalog/deps budgets and hydrate UX:
 | Bulk transfer | HTTP streams to/from R2 (packs = multi-shard responses) |
 | Live transfer | WebSocket to a small set of shard DOs |
 | DO memory | Zero-hydration: auth, ordered durable tail, fan-out, metadata only |
-| Compaction | External service; DOs do not build full-state checkpoints |
+| Compaction | External to the room DO; Worker-class for shards, fat host if over recoverability |
 | Discovery | Lean identity catalog in core (incl. cmap) + separate deps index |
 | Closure | Layout closure (`close_layout`) ∪ deps-index expansion; then hydrate bodies |
 | Linked windows | Main window is sole cloud hub; BC is multi-doc; per-window residency |
 | Small vs large | Same machinery; default hydrate policy is `all` vs working-set |
-| Full-font compile | Multi-core VM (not DO/browser); same shards; stream binary to proofing |
+| Full-font compile | Session-scoped Fly Machine (8–16 GB); core dirty + HTTP glyph catch-up |
 
 ## Why one architecture
 
@@ -185,7 +185,8 @@ Editor ── HTTP binary (seed / hydrate packs) ──► Worker ── stream 
                                                   ▼
                                            SQLite durable tail
                                                   │
-                                         External compactor
+                                    External compactor (per shard)
+                                    Worker-class | fat if oversized
                                          (baseline promote)
 ```
 
@@ -215,11 +216,64 @@ Websocket sync is **checkpoint-relative**: client has baseline N; DO replays
 tail rows with `id > N`. Cold rebaseline is HTTP snapshot + tail, not
 server-side Yjs diff generation.
 
-### External compactor
+### Compaction (room DO vs external)
 
-Runs outside DO memory limits. Reads R2 baseline + exported tail, builds a
-new compacted baseline, CAS-promotes the manifest on the DO. Edit durability
-is baseline + acked tail, not “waiting for compaction.”
+Edit durability is always **R2 baseline + acked DO tail**, never “waiting for
+compaction.” Compaction only rewrites a new baseline and CAS-promotes the
+manifest so tails can shrink.
+
+#### Room DO (never the compactor)
+
+Keeps zero-hydration. For compaction it only:
+
+- Tracks dirty-byte / dirty-row thresholds and schedules work
+- Exports the durable tail after the current checkpoint log id
+- CAS-promotes a candidate baseline the external host wrote to R2
+
+It must not load checkpoint bodies into a `Y.Doc`, GC-encode full state, or
+stack compaction peak on the live WebSocket isolate. In-room
+`encodeStateAsUpdate` / fresh-doc GC is allowed only for tiny seed / first
+baseline promotion where no prior checkpoint exists yet — not as the steady
+path.
+
+#### Why “external” even when the host is still a Worker
+
+Today’s `cf-compactor` is a **separate Workers isolate**, not unlimited RAM.
+Externalization is still the right room design because:
+
+1. Compaction peak must not share the live room heap (fan-out, auth, tail
+   append).
+2. Zero-hydration DOs cannot compact without rehydrating — which defeats the
+   shard memory model.
+3. After sharding, recoverable size is per-shard (`checkpoint + dirty tail`),
+   not whole-font. Glyph and lean-core shards fit a Worker; whole-font rooms
+   do not.
+
+Probe order of magnitude (synthetic Yjs, `cf-compactor` probe): GC compact
+peak heap is roughly **2–4×** encoded checkpoint size. A Worker recoverable
+cap (today ~16 MiB encoded) is therefore a deliberate shard invariant, not a
+font-size budget.
+
+#### Two external host classes
+
+| Host | Role | Memory contract |
+| --- | --- | --- |
+| **Worker-class compactor** (current `cf-compactor`) | Steady-state per-shard compact | `checkpointBytes + dirtyTailBytes ≤ MAX_COMPACTION_RECOVERABLE_BYTES`; reject/queue elsewhere if over |
+| **Fat-process compactor** (same class as full-font builder VM / Containers) | Oversized shards, legacy whole-font migration, pathological cores | May hold multi‑100 MB Yjs GC peaks; not a DO or Worker isolate |
+
+Flow (both hosts):
+
+```text
+Room DO alarm / threshold
+  → export tail (no Y.Doc hydrate)
+  → compactor: R2 baseline + tail → Y.Doc({gc:true}) → encode → R2 candidate
+  → room DO: CAS promote manifest → truncate acked tail
+```
+
+Refuse to compact oversized recoverable state in a Worker; migrate/shard or
+hand off to the fat host. Do not raise the Worker cap to “almost 128 MiB” as
+a substitute for sharding — the multiplier and concurrent isolate noise leave
+little headroom.
 
 ### Packs
 
@@ -458,13 +512,44 @@ already refresh in the editor.
 
 **Debounce and status.** Full CJK compiles are tens of seconds to minutes.
 Debounce rebuilds on edit bursts; proofing tabs must tolerate lag and show
-stale-vs-current clearly. Expect mostly **full recompiles** after rematerializing
-updated source — the win is cores + RAM outside the browser, not fine-grained
-fontc IR reuse (unless measured later).
+stale-vs-current clearly. Live updates reuse the editor’s **document-patch**
+language (core dirty → HTTP glyph catch-up → rematerialize). Expect mostly
+**full native fontc recompiles** after that — the warm machine’s win is
+avoiding re-hydrate + IR rebuild every edit, not fine-grained fontc IR reuse
+(unless measured later).
 
-**Where it runs.** Same class of host as the external compactor: fat process
-outside the ~128 MB DO isolate. One builder may serve many assets via a queue;
-long-lived per-room processes are optional for interactive proofing.
+**Where it runs (recommended infrastructure).**
+
+Never a Durable Object or Worker isolate. Same fat-process class as the
+oversized-shard / migration compactor — not the steady-state Worker
+compactor.
+
+| Mode | Host | When |
+| --- | --- | --- |
+| **Interactive proofing (default)** | **Session-scoped Fly Machine** (or equivalent microVM): start when a proofing client attaches, stop/suspend after idle | Needs the full font resident for the editing session |
+| One-shot export / offline build | Same image as a queue job; scale to zero after publish | No live listen required |
+| Cloudflare Containers | Acceptable CF-native alternative for lighter fonts | Max instance is **12 GiB**; fine for Plangothic-class, tight for heavy multi-master peaks |
+
+**Session model (interactive).** One machine per active proofing session (or
+per asset while proofing is open), sized from the RAM table below (**8 GB**
+Plangothic-like, **16 GB** heavy CJK VF). Lifecycle:
+
+1. Collab Worker (or proofing control API) starts the machine.
+2. Machine cold-hydrates all shards once, materializes IR, compiles, publishes.
+3. Stays warm: `font-core` dirty channel + HTTP catch-up for touched glyphs →
+   debounced recompile → new binary revision.
+4. On proofing disconnect / idle timeout: suspend or destroy. Persist only R2
+   shards + last binary artifact — do **not** keep full-font RAM between
+   sessions.
+
+**Cost vs spin-up.** Bill **RAM × session hours**, not 24/7 per asset. OS/container
+cold start (≈1–3 s, or ~1 s Fly resume-from-suspend) is noise next to first
+hydrate of a ~100–450 MB CJK glyph set. Therefore: keep warm for the session;
+scale to zero between sessions; never hydrate-from-cold on every edit.
+
+Do **not** use a shared always-on fleet until concurrent CJK proofing rooms
+justify it. Do **not** use scale-to-zero **per edit** — that re-pays hydrate
+cost and ruins interactive feel.
 
 ### Rough RAM estimates (order of magnitude)
 
@@ -506,11 +591,12 @@ republish. Prefer immutable glyph ids and tombstones.
 
 | Component | May scale with | Must not scale with |
 | --- | --- | --- |
-| Glyph DO | peers, tail, in-flight buffers | other glyphs, full font |
-| Core DO | peers, tail, lean catalog churn | glyph outlines |
+| Glyph DO | peers, tail, in-flight buffers | other glyphs, full font, compaction peak |
+| Core DO | peers, tail, lean catalog churn | glyph outlines, compaction peak |
+| Worker-class compactor | one shard’s baseline + dirty tail (+ ~2–4× GC peak) | whole font; any shard over recoverable cap |
+| Fat-process compactor / builder VM | oversized shard or full glyph set + fontc peak | DO / Worker isolate limits |
 | Worker hydrate | concurrent stream buffers / page size | sum of all pack bytes held at once |
 | Browser session | core + deps + working-set glyphs | entire CJK outline set by default |
-| Full-font builder VM | full glyph set + fontc peak | DO isolate limits |
 
 ## Migration sketch
 
@@ -524,9 +610,11 @@ republish. Prefer immutable glyph ids and tombstones.
    bootstrap (core/deps + requested glyphs), keeping main as the sole cloud
    hub.
 4. Shard DO identity and R2 layouts; zero-hydration join (HTTP baseline + tail).
-5. External compaction per shard.
+5. External compaction per shard on the Worker-class host; refuse or hand off
+   shards above the recoverable-byte cap.
 6. One-shot migrate legacy whole-font rooms into core + deps + per-glyph
-   shards; validate equivalence before switching an asset.
+   shards (fat-process compact during migration if needed); validate
+   equivalence before switching an asset.
 
 ## Explicit non-goals (for the first cut)
 
@@ -534,7 +622,8 @@ republish. Prefer immutable glyph ids and tombstones.
 - Presigned client R2 credentials as the primary design
 - Generic server-side Yjs state-vector diff against a hydrated DO doc
 - Loading full feature closure into the browser for arbitrary CJK fonts
-- DO-owned full-state checkpointing
+- DO-owned steady-state full-state checkpointing / GC compaction
+- Treating today’s Worker compactor as unlimited RAM (“outside 128 MiB”)
 
 ## Open follow-ups
 
@@ -550,5 +639,7 @@ republish. Prefer immutable glyph ids and tombstones.
 - Structured feature-class membership vs AFDKO string leaves
 - UX for range hydrate and “server preview required”
 - Load measurements against Plangothic and Source Han Sans
-- Server builder: queue vs long-lived room process; measured fontc peak RAM
-  on real Plangothic / SHS-source builds; proofing stream protocol
+- Server builder: measured fontc peak RAM on real Plangothic / SHS-source
+  builds; proofing stream protocol; Fly vs CF Containers bake-off at 8–12 GB
+- Fat-process compactor: when to enqueue from Worker 413 vs migrate-only;
+  shared image/host pool with the session builder or separate
