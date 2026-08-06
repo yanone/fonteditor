@@ -8903,6 +8903,68 @@ describe('syncGlyphFromJson', () => {
         receiverBridge.destroy();
     });
 
+    test('linked window mirrors atomic contour delete undo and redo', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-contour-history');
+        const receiverBridge = new ChangeBridge('receiver-contour-history');
+        const originalShapes = cloneValue(
+            senderFontJson.glyphs[0].layers[0].shapes
+        );
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        const senderSync = new WindowSync(
+            senderBridge,
+            'test-linked-contour-history'
+        );
+        const receiverSync = new WindowSync(
+            receiverBridge,
+            'test-linked-contour-history'
+        );
+
+        const fullSyncSpy = jest.spyOn(
+            receiverBridge,
+            '_rehydrateEntireFontJsonFromYDoc'
+        );
+        senderFontJson.glyphs[0].layers[0].shapes.pop();
+        const deletedShapes = cloneValue(
+            senderFontJson.glyphs[0].layers[0].shapes
+        );
+
+        senderBridge.syncGlyphFromJson(
+            'A',
+            'Delete contour',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+        flushTimers();
+        expect(receiverFontJson.glyphs[0].layers[0].shapes).toEqual(
+            deletedShapes
+        );
+
+        senderBridge.undo('A', 'layer-1');
+        flushTimers();
+        expect(receiverFontJson.glyphs[0].layers[0].shapes).toEqual(
+            originalShapes
+        );
+
+        senderBridge.redo('A', 'layer-1');
+        flushTimers();
+        expect(receiverFontJson.glyphs[0].layers[0].shapes).toEqual(
+            deletedShapes
+        );
+        expect(fullSyncSpy).not.toHaveBeenCalled();
+
+        fullSyncSpy.mockRestore();
+        senderSync.destroy();
+        receiverSync.destroy();
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
     test('linked window remote feature-code sync patches top-level Y.Doc state without full rebuild', () => {
         const senderFontJson = makeMinimalFont();
         const receiverFontJson = cloneValue(senderFontJson);
