@@ -38,6 +38,7 @@ import {
     type WorkerReplayTarget
 } from './change-log';
 import { syncModelSidebearingEditToCanvas } from './sidebearing-utils';
+import { recordLiveTextDiagnostic } from './live-text-diagnostics';
 import type { TransactionBufferedOperation } from './patch-sync-engine';
 const console = new Logger('ChangeBridgeInit');
 let bridgeSyncQueue: Promise<void> = Promise.resolve();
@@ -1438,64 +1439,105 @@ function getLayerWidth(
     return Number.isFinite(layer.width) ? layer.width : null;
 }
 
+function getEntryWidth(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const width = Number((value as Record<string, unknown>).width);
+        return Number.isFinite(width) ? width : null;
+    }
+    return null;
+}
+
+function collectLiveAdvanceDeltas(
+    entries: ChangeLogEntry[],
+    visibleLayerId?: string | null,
+    visibleGlyphName?: string | null
+): Record<string, number> {
+    if (!visibleLayerId || !visibleGlyphName) {
+        return {};
+    }
+
+    const fontModel = window.fontManager?.currentFont?.fontModel;
+    const findGlyph =
+        fontModel && typeof fontModel.findGlyph === 'function'
+            ? fontModel.findGlyph.bind(fontModel)
+            : null;
+    const visibleLayer = findGlyph
+        ?.call(null, visibleGlyphName)
+        ?.findLayerById(visibleLayerId);
+    const deltas: Record<string, number> = {};
+    for (const entry of entries) {
+        const path = entry.path;
+        if (!path) {
+            continue;
+        }
+
+        const pathSegments = getPathSegments(path);
+        const glyphName = deriveGlyphName(pathSegments);
+        if (!glyphName) {
+            continue;
+        }
+
+        const targetLayerId =
+            glyphName === visibleGlyphName
+                ? visibleLayerId
+                : visibleLayer?.getMatchingLayerOnGlyph?.(glyphName)?.id ||
+                  findGlyph
+                      ?.call(null, glyphName)
+                      ?.findLayerById(visibleLayerId)?.id;
+        if (!targetLayerId || deriveLayerId(pathSegments) !== targetLayerId) {
+            continue;
+        }
+
+        const previousWidth = getEntryWidth(
+            entry.replayOldValue ?? entry.oldValue
+        );
+        const nextWidth = getEntryWidth(entry.replayNewValue ?? entry.newValue);
+        if (
+            !glyphName ||
+            previousWidth === null ||
+            nextWidth === null ||
+            Math.abs(nextWidth - previousWidth) <= 0.01
+        ) {
+            continue;
+        }
+
+        deltas[glyphName] =
+            (deltas[glyphName] ?? 0) + nextWidth - previousWidth;
+    }
+    return deltas;
+}
+
 function refreshLiveTextRunAdvances(
-    glyphNames: Iterable<string>,
-    layerId?: string,
+    glyphAdvanceDeltas: Record<string, number>,
     options?: {
         compensatePanX?: boolean;
-        workerReplayTargets?: WorkerReplayTarget[];
     }
 ): void {
     const gc = window.glyphCanvas;
     const textRunEditor = gc?.textRunEditor;
-    const fontModel = window.fontManager?.currentFont?.fontModel;
-    if (!textRunEditor || !fontModel || !layerId) {
+    if (!textRunEditor) {
         return;
     }
 
-    const uniqueGlyphNames = Array.from(
-        new Set(
-            Array.from(glyphNames || []).filter(
-                (glyphName): glyphName is string =>
-                    typeof glyphName === 'string' && glyphName.length > 0
-            )
-        )
-    );
-    const replayTargetMap = new Map(
-        normalizeWorkerReplayTargets(options?.workerReplayTargets).map(
-            (target) => [target.glyphName, target.layerId] as const
-        )
-    );
-    const sourceLayer =
-        uniqueGlyphNames
-            .map((glyphName) =>
-                fontModel.findGlyph(glyphName)?.findLayerById(layerId)
-            )
-            .find((layer) => layer !== undefined) ||
-        Array.from(replayTargetMap.entries())
-            .map(([glyphName, replayLayerId]) =>
-                fontModel.findGlyph(glyphName)?.findLayerById(replayLayerId)
-            )
-            .find((layer) => layer !== undefined);
-
     const glyphAdvances: Record<string, number> = {};
-
-    for (const glyphName of uniqueGlyphNames) {
-        if (glyphName in glyphAdvances) {
+    for (const [glyphName, advanceDelta] of Object.entries(
+        glyphAdvanceDeltas
+    )) {
+        if (!Number.isFinite(advanceDelta) || Math.abs(advanceDelta) <= 0.01) {
             continue;
         }
-
-        const glyph = fontModel.findGlyph(glyphName);
-        const replayLayerId = replayTargetMap.get(glyphName);
-        const layer =
-            (replayLayerId ? glyph?.findLayerById(replayLayerId) : undefined) ||
-            glyph?.findLayerById(layerId) ||
-            sourceLayer?.getMatchingLayerOnGlyph?.(glyphName);
-        if (!layer) {
+        const previousAdvance =
+            textRunEditor.intrinsicGlyphAdvances?.get(glyphName);
+        if (
+            typeof previousAdvance !== 'number' ||
+            !Number.isFinite(previousAdvance)
+        ) {
             continue;
         }
-
-        glyphAdvances[glyphName] = layer.width;
+        glyphAdvances[glyphName] = previousAdvance + advanceDelta;
     }
 
     if (Object.keys(glyphAdvances).length === 0) {
@@ -1511,6 +1553,12 @@ function refreshLiveTextRunAdvances(
             textRunEditor.computePrecedingAdvanceDelta?.(glyphAdvances) ?? 0;
     }
 
+    recordLiveTextDiagnostic('bridge.advance-refresh', textRunEditor, {
+        glyphAdvanceDeltas: { ...glyphAdvanceDeltas },
+        glyphAdvances: { ...glyphAdvances },
+        precedingDelta,
+        compensatePanX: options?.compensatePanX === true
+    });
     textRunEditor.refreshGlyphAdvancesLive(glyphAdvances, { render: false });
 
     if (options?.compensatePanX && Math.abs(precedingDelta) > 0.01) {
@@ -1647,6 +1695,7 @@ async function refreshCanvasFromCommittedModelSync(
         skipLayerDataFetch?: boolean;
         preferExactLayerDataRefresh?: boolean;
         workerReplayTargets?: WorkerReplayTarget[];
+        liveAdvanceDeltas?: Record<string, number>;
     }
 ): Promise<void> {
     const gc = window.glyphCanvas;
@@ -1702,22 +1751,7 @@ async function refreshCanvasFromCommittedModelSync(
                 );
             }
 
-            refreshLiveTextRunAdvances(
-                new Set(
-                    [
-                        ...normalizeWorkerReplayTargets(
-                            options?.workerReplayTargets
-                        ).map((target) => target.glyphName),
-                        refreshRootGlyphName,
-                        editedGlyphName,
-                        getActiveEditedGlyphName()
-                    ].filter((glyphName): glyphName is string => !!glyphName)
-                ),
-                selectedLayerId,
-                {
-                    workerReplayTargets: options?.workerReplayTargets
-                }
-            );
+            refreshLiveTextRunAdvances(options?.liveAdvanceDeltas || {});
         };
 
         if (gc.outlineEditor?.runDeterministicRefresh) {
@@ -2104,29 +2138,16 @@ function applyLocalUndoRedoVisualSync(
             context?.layerId
         );
 
-    const liveAdvanceGlyphNames = new Set<string>();
-    for (const glyphName of deriveGlyphNamesFromPaths(entryPaths)) {
-        liveAdvanceGlyphNames.add(glyphName);
+    if (!appliedSidebearingSync) {
+        refreshLiveTextRunAdvances(
+            collectLiveAdvanceDeltas(
+                entries,
+                layerId,
+                getActiveEditedGlyphName()
+            ),
+            { compensatePanX: true }
+        );
     }
-    for (const target of collectReplayTargetsFromEntries(entries)) {
-        liveAdvanceGlyphNames.add(target.glyphName);
-    }
-    for (const glyphName of [
-        context?.rootGlyphName,
-        context?.requestedGlyphName,
-        context?.editedGlyphName,
-        editedGlyphName,
-        getActiveEditedGlyphName()
-    ]) {
-        if (glyphName) {
-            liveAdvanceGlyphNames.add(glyphName);
-        }
-    }
-
-    refreshLiveTextRunAdvances(liveAdvanceGlyphNames, layerId ?? undefined, {
-        compensatePanX: true,
-        workerReplayTargets: collectReplayTargetsFromEntries(entries)
-    });
 
     return (
         syncImmediateUndoOutlineLayerFromModel(editedGlyphName, layerId) &&
@@ -2462,7 +2483,8 @@ export async function handleCommittedChangeRefresh(
     };
 
     if (origin === 'remote') {
-        applyRemoteSidebearingVisualSync(entries);
+        const appliedSidebearingSync =
+            applyRemoteSidebearingVisualSync(entries);
 
         const awaitWorkerSync =
             dependencies?.awaitWorkerSync ??
@@ -2470,7 +2492,16 @@ export async function handleCommittedChangeRefresh(
         await awaitCommittedWorkerCacheSettled(awaitWorkerSync);
 
         const replayTargets = collectReplayTargetsFromEntries(entries);
+        const liveAdvanceDeltas = collectLiveAdvanceDeltas(
+            entries,
+            window.glyphCanvas?.outlineEditor?.selectedLayerId,
+            getActiveEditedGlyphName()
+        );
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
+            ...(!appliedSidebearingSync &&
+            Object.keys(liveAdvanceDeltas).length > 0
+                ? { liveAdvanceDeltas }
+                : {}),
             ...(replayTargets.length > 0
                 ? { workerReplayTargets: replayTargets }
                 : {})
@@ -2510,6 +2541,11 @@ export async function handleCommittedChangeRefresh(
         const selectedLayerId =
             window.glyphCanvas?.outlineEditor?.selectedLayerId;
         const selectedGlyphName = getActiveEditedGlyphName();
+        const liveAdvanceDeltas = collectLiveAdvanceDeltas(
+            entries,
+            selectedLayerId,
+            selectedGlyphName
+        );
         const selectedLayer =
             selectedGlyphName && selectedLayerId
                 ? window.fontManager?.currentFont?.fontModel
@@ -2530,6 +2566,9 @@ export async function handleCommittedChangeRefresh(
                 isUndoRedoPacket && !requiresBackgroundLayerRefresh,
             skipLayerDataFetch: canSkipUndoRedoLayerDataFetch,
             preferExactLayerDataRefresh: canPreferExactLocalVisualRefresh,
+            ...(!isUndoRedoPacket && Object.keys(liveAdvanceDeltas).length > 0
+                ? { liveAdvanceDeltas }
+                : {}),
             ...(replayTargets.length > 0
                 ? { workerReplayTargets: replayTargets }
                 : {})

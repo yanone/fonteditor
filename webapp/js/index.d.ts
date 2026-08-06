@@ -86,6 +86,12 @@ declare global {
         isProduction: () => boolean;
         isTestMode: () => boolean;
         isTest: () => boolean;
+        __liveTextDiagnostics:
+            | {
+                  enabled: boolean;
+                  entries: import('./live-text-diagnostics').LiveTextDiagnosticEntry[];
+              }
+            | undefined;
 
         // From perf-timeline.ts
         timelineMark: (

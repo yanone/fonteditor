@@ -763,6 +763,177 @@ test.describe('Open/Close Path across linked masters', () => {
         expect((await getCompatibility(page)).compatible).toBe(true);
     });
 
+    test('opening a path preserves text advances through the deferred full compile', async ({
+        page
+    }) => {
+        await loadTestFont(page);
+        await waitForFontLoaded(page);
+        await waitForBridgeReady(page);
+        await waitForEditingFontCompiled(page);
+        await navigateToGlyphA(page);
+        await selectFirstMasterLayer(page);
+
+        const before = await page.evaluate(() => {
+            const gc = (window as any).glyphCanvas;
+            const model = (window as any).currentFontModel;
+            const glyph = model.findGlyph('A');
+            const compilationModes: string[] = [];
+            const advanceSamples: { source: string; advances: number[] }[] = [];
+            const textRunEditor = gc.textRunEditor;
+            const liveDiagnostics = (window as any).__liveTextDiagnostics;
+            if (!liveDiagnostics?.enabled) {
+                throw new Error(
+                    'Live text diagnostics must be enabled in Playwright'
+                );
+            }
+            liveDiagnostics.entries.length = 0;
+            const recordAdvances = (source: string) => {
+                advanceSamples.push({
+                    source,
+                    advances: textRunEditor.shapedGlyphs.map(
+                        (glyph: any) => glyph.ax
+                    )
+                });
+            };
+            const onCompiled = (event: Event) => {
+                const detail = (event as CustomEvent).detail;
+                compilationModes.push(detail?.compilationMode || 'full');
+                recordAdvances(`compiled:${detail?.compilationMode || 'full'}`);
+            };
+
+            const originalRefreshGlyphAdvancesLive =
+                textRunEditor.refreshGlyphAdvancesLive;
+            textRunEditor.refreshGlyphAdvancesLive = function (...args: any[]) {
+                const result = originalRefreshGlyphAdvancesLive.apply(
+                    this,
+                    args
+                );
+                recordAdvances('refresh-live-advances');
+                return result;
+            };
+            const originalShapeText = textRunEditor.shapeText;
+            textRunEditor.shapeText = async function (...args: any[]) {
+                const result = await originalShapeText.apply(this, args);
+                recordAdvances('shape-text');
+                return result;
+            };
+
+            window.addEventListener('editingFontCompiled', onCompiled);
+            (window as any).__openCloseAdvanceTest = {
+                compilationModes,
+                advanceSamples,
+                onCompiled,
+                originalRefreshGlyphAdvancesLive,
+                originalShapeText
+            };
+
+            return {
+                advances: gc.textRunEditor.shapedGlyphs.map(
+                    (glyph: any) => glyph.ax
+                ),
+                widths: glyph.layers.map((layer: any) => layer.width)
+            };
+        });
+
+        try {
+            const immediate = await page.evaluate(() => {
+                const gc = (window as any).glyphCanvas;
+                const changed = gc.outlineEditor.openClosedPathAtNode({
+                    contourIndex: 0,
+                    nodeIndex: 1
+                });
+                if (!changed) {
+                    throw new Error(
+                        'Expected structural path-open edit to apply'
+                    );
+                }
+
+                return gc.textRunEditor.shapedGlyphs.map(
+                    (glyph: any) => glyph.ax
+                );
+            });
+
+            expect(immediate).toEqual(before.advances);
+
+            await page.waitForFunction(
+                () =>
+                    (
+                        window as any
+                    ).__openCloseAdvanceTest?.compilationModes?.includes(
+                        'outline-only'
+                    ),
+                { timeout: 15000 }
+            );
+            const afterOutlineOnly = await page.evaluate(() =>
+                (window as any).glyphCanvas.textRunEditor.shapedGlyphs.map(
+                    (glyph: any) => glyph.ax
+                )
+            );
+            expect(afterOutlineOnly).toEqual(before.advances);
+
+            await page.waitForFunction(
+                () =>
+                    (
+                        window as any
+                    ).__openCloseAdvanceTest?.compilationModes?.includes(
+                        'full'
+                    ),
+                { timeout: 15000 }
+            );
+            const settled = await page.evaluate(() => {
+                const model = (window as any).currentFontModel;
+                const glyph = model.findGlyph('A');
+                return {
+                    advances: (
+                        window as any
+                    ).glyphCanvas.textRunEditor.shapedGlyphs.map(
+                        (glyph: any) => glyph.ax
+                    ),
+                    widths: glyph.layers.map((layer: any) => layer.width),
+                    advanceSamples: (window as any).__openCloseAdvanceTest
+                        .advanceSamples,
+                    diagnosticSamples: (
+                        window as any
+                    ).__liveTextDiagnostics.entries.map((entry: any) => ({
+                        source: entry.source,
+                        advances: entry.glyphs.map((glyph: any) => glyph.ax)
+                    }))
+                };
+            });
+
+            expect(settled.advances).toEqual(before.advances);
+            expect(settled.widths).toEqual(before.widths);
+            expect(settled.advanceSamples).not.toEqual([]);
+            for (const sample of settled.advanceSamples) {
+                expect(sample.advances).toEqual(before.advances);
+            }
+            expect(settled.diagnosticSamples).not.toEqual([]);
+            for (const sample of settled.diagnosticSamples) {
+                expect(sample.advances).toEqual(before.advances);
+            }
+        } finally {
+            await page.evaluate(() => {
+                const state = (window as any).__openCloseAdvanceTest;
+                if (state?.onCompiled) {
+                    window.removeEventListener(
+                        'editingFontCompiled',
+                        state.onCompiled
+                    );
+                }
+                const textRunEditor = (window as any).glyphCanvas
+                    ?.textRunEditor;
+                if (textRunEditor && state?.originalRefreshGlyphAdvancesLive) {
+                    textRunEditor.refreshGlyphAdvancesLive =
+                        state.originalRefreshGlyphAdvancesLive;
+                }
+                if (textRunEditor && state?.originalShapeText) {
+                    textRunEditor.shapeText = state.originalShapeText;
+                }
+                delete (window as any).__openCloseAdvanceTest;
+            });
+        }
+    });
+
     test('full open-close-undo lifecycle', async ({ page }) => {
         // ---------------------------------------------------------------
         // 1. Load the 3-master test font

@@ -76,6 +76,7 @@ import {
 import { getUndoRedoContext } from './undo-redo-context';
 import { bindModalEscape, type ModalEscapeBinding } from './ui/modal-escape';
 import { getCommittedChangeRefreshPromise } from './change-bridge-init';
+import { recordLiveTextDiagnostic } from './live-text-diagnostics';
 
 let console: Logger = new Logger('GlyphCanvas');
 let latestOpenSessionId: string | null = null;
@@ -9603,6 +9604,14 @@ class GlyphCanvas {
             )
         };
         (window as any).__glyphCanvasRenderState = nextRenderState;
+        recordLiveTextDiagnostic('canvas.render', this.textRunEditor, {
+            render: nextRenderState,
+            viewport: {
+                panX: this.viewportManager?.panX ?? null,
+                panY: this.viewportManager?.panY ?? null,
+                scale: this.viewportManager?.scale ?? null
+            }
+        });
         window.dispatchEvent(
             new CustomEvent('glyphCanvasRendered', {
                 detail: nextRenderState

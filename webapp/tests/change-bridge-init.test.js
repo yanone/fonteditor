@@ -4186,7 +4186,7 @@ describe('syncRustCacheAndRefreshCanvas', () => {
         fontCompilation.isInitialized = originalFontCompilationInitialized;
     });
 
-    test('refreshes visible advances from worker replay targets with matched layer ids', async () => {
+    test('keeps worker replay targets out of visible advance refreshes', async () => {
         const activeLayer = {
             id: 'active-brace-layer',
             width: 510,
@@ -4260,13 +4260,7 @@ describe('syncRustCacheAndRefreshCanvas', () => {
             skipRender: true
         });
         expect(fetchLayerData).toHaveBeenCalledWith(true, 'l');
-        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
-            {
-                l: 510,
-                n: 640
-            },
-            { render: false }
-        );
+        expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
     });
 
     test('waits for worker Yjs sync even when replay-target refresh succeeds', async () => {

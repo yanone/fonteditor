@@ -10,6 +10,7 @@ import type { FeaturesManager } from './features';
 import type { AxesManager } from './variations';
 import type { UserspaceLocation } from '../locations';
 import APP_SETTINGS from '../settings';
+import { recordLiveTextDiagnostic } from '../live-text-diagnostics';
 import {
     parseClipboardPayloads,
     readClipboardPayloadsAsync
@@ -1992,6 +1993,10 @@ export class TextRunEditor {
             }
 
             this.rebuildIntrinsicGlyphAdvanceCache();
+            recordLiveTextDiagnostic('text.reshape.completed', this, {
+                skipRender,
+                variationLocation: variationLocation || null
+            });
 
             console.log('Shaped glyphs:', this.shapedGlyphs);
             if (this.bidiRuns.length > 0) {
@@ -2737,6 +2742,10 @@ export class TextRunEditor {
         glyphAdvances: Record<string, number>,
         options: { render?: boolean } = {}
     ): boolean {
+        recordLiveTextDiagnostic('text.advance-refresh.requested', this, {
+            glyphAdvances: { ...glyphAdvances },
+            render: options.render !== false
+        });
         if (!this.shapedGlyphs || this.shapedGlyphs.length === 0) {
             return false;
         }
@@ -2796,6 +2805,12 @@ export class TextRunEditor {
         if (!metricsChanged) {
             return false;
         }
+
+        recordLiveTextDiagnostic('text.advance-refresh.applied', this, {
+            glyphAdvances: { ...glyphAdvances },
+            advanceDeltas: Object.fromEntries(advanceDeltas),
+            render: options.render !== false
+        });
 
         this.buildClusterMap();
         this.updateCursorVisualPosition();
