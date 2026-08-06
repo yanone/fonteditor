@@ -4491,6 +4491,24 @@ export class OutlineEditor {
         return glyphAdvances;
     }
 
+    private computeLiveAdvanceDeltas(
+        previousAdvances: Record<string, number>,
+        nextAdvances: Record<string, number>
+    ): Record<string, number> {
+        const deltas: Record<string, number> = {};
+        for (const [glyphName, nextAdvance] of Object.entries(nextAdvances)) {
+            const previousAdvance = previousAdvances[glyphName];
+            if (
+                typeof previousAdvance !== 'number' ||
+                Math.abs(nextAdvance - previousAdvance) <= 0.01
+            ) {
+                continue;
+            }
+            deltas[glyphName] = nextAdvance - previousAdvance;
+        }
+        return deltas;
+    }
+
     private getVisibleGlyphNamesForDragMetricsRefresh(
         glyphName: string
     ): Set<string> {
@@ -4637,6 +4655,28 @@ export class OutlineEditor {
                       : [])
               ])
             : undefined;
+        const masterId =
+            typeof rawLayer.master === 'object' && rawLayer.master
+                ? rawLayer.master.master || null
+                : null;
+        const advanceSnapshotGlyphNames = new Set<string>(
+            allowedGlyphNames || [glyphName]
+        );
+        for (const dependentGlyphName of fontModel.collectMetricsKeyDependentGlyphs?.(
+            advanceSnapshotGlyphNames
+        ) || []) {
+            advanceSnapshotGlyphNames.add(dependentGlyphName);
+        }
+        for (const dependentGlyphName of fontModel.findGlyphsUsingComponent?.(
+            glyphName
+        ) || []) {
+            advanceSnapshotGlyphNames.add(dependentGlyphName);
+        }
+        const previousGlyphAdvances = this.collectLiveAdvanceWidths(
+            advanceSnapshotGlyphNames,
+            currentLayerId,
+            masterId
+        );
         const extendAutomaticCompositionDragScope = (
             sourceGlyphNames: Iterable<string>
         ): boolean => {
@@ -4771,14 +4811,14 @@ export class OutlineEditor {
             }
         }
 
-        const masterId =
-            typeof rawLayer.master === 'object' && rawLayer.master
-                ? rawLayer.master.master || null
-                : null;
         const glyphAdvances = this.collectLiveAdvanceWidths(
             affectedGlyphNames,
             currentLayerId,
             masterId
+        );
+        const glyphAdvanceDeltas = this.computeLiveAdvanceDeltas(
+            previousGlyphAdvances,
+            glyphAdvances
         );
         const adjacentSnapCandidateWidthDeltas =
             this._getAdjacentSnapCandidateWidthDeltas(glyphAdvances);
@@ -4787,16 +4827,16 @@ export class OutlineEditor {
             ? editedSide
                 ? applyLiveSidebearingVisualSync(this.glyphCanvas, {
                       glyphName,
-                      glyphAdvances,
+                      glyphAdvanceDeltas,
                       side: editedSide,
                       previousWidth,
                       nextWidth,
                       render: false
                   }).advancesRefreshed
-                : Object.keys(glyphAdvances).length > 0 &&
+                : Object.keys(glyphAdvanceDeltas).length > 0 &&
                   refreshLiveGlyphAdvancesWithSelectedGlyphAnchor(
                       this.glyphCanvas,
-                      glyphAdvances,
+                      glyphAdvanceDeltas,
                       { render: false }
                   )
             : false;
@@ -5493,6 +5533,7 @@ export class OutlineEditor {
 
         const widthGlyphNames = new Set<string>([
             sourceGlyphName,
+            ...this._lastLiveSidebearingWidthGlyphNames,
             ...closure.recomposeTargets.map((target) => target.glyphName)
         ]);
         const masterId =
@@ -5561,10 +5602,10 @@ export class OutlineEditor {
         for (const [glyphName, nextWidth] of Object.entries(finalAdvances)) {
             const prevWidth = previous[glyphName];
             if (
-                prevWidth === undefined ||
+                prevWidth !== undefined &&
                 Math.abs(nextWidth - prevWidth) > 0.01
             ) {
-                deltas[glyphName] = nextWidth;
+                deltas[glyphName] = nextWidth - prevWidth;
             }
         }
         return deltas;
@@ -6285,10 +6326,27 @@ export class OutlineEditor {
         if (!advances || Object.keys(advances).length === 0) {
             return false;
         }
+        const intrinsicGlyphAdvances =
+            this.glyphCanvas.textRunEditor?.intrinsicGlyphAdvances;
+        const previousAdvances: Record<string, number> = {};
+        for (const glyphName of Object.keys(advances)) {
+            const intrinsicAdvance = intrinsicGlyphAdvances?.get(glyphName);
+            if (
+                typeof intrinsicAdvance === 'number' &&
+                Number.isFinite(intrinsicAdvance)
+            ) {
+                previousAdvances[glyphName] = intrinsicAdvance;
+            }
+        }
+        const advanceDeltas = this.computeLiveAdvanceDeltas(
+            previousAdvances,
+            advances
+        );
         return (
-            this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive(advances, {
-                render: false
-            }) ?? false
+            this.glyphCanvas.textRunEditor?.refreshGlyphAdvanceDeltasLive(
+                advanceDeltas,
+                { render: false }
+            ) ?? false
         );
     }
 
@@ -6595,10 +6653,26 @@ export class OutlineEditor {
                 currentLayerId,
                 masterId
             );
-            if (Object.keys(glyphAdvances).length > 0) {
+            const intrinsicGlyphAdvances =
+                this.glyphCanvas.textRunEditor?.intrinsicGlyphAdvances;
+            const previousGlyphAdvances: Record<string, number> = {};
+            for (const glyphName of Object.keys(glyphAdvances)) {
+                const intrinsicAdvance = intrinsicGlyphAdvances?.get(glyphName);
+                if (
+                    typeof intrinsicAdvance === 'number' &&
+                    Number.isFinite(intrinsicAdvance)
+                ) {
+                    previousGlyphAdvances[glyphName] = intrinsicAdvance;
+                }
+            }
+            const glyphAdvanceDeltas = this.computeLiveAdvanceDeltas(
+                previousGlyphAdvances,
+                glyphAdvances
+            );
+            if (Object.keys(glyphAdvanceDeltas).length > 0) {
                 refreshLiveGlyphAdvancesWithSelectedGlyphAnchor(
                     this.glyphCanvas,
-                    glyphAdvances,
+                    glyphAdvanceDeltas,
                     { render: false }
                 );
             }
@@ -18224,7 +18298,9 @@ export class OutlineEditor {
             this.glyphCanvas,
             {
                 glyphName,
-                glyphAdvances,
+                glyphAdvanceDeltas: {
+                    [glyphName]: nextWidth - previousWidth
+                },
                 side,
                 previousWidth,
                 nextWidth,

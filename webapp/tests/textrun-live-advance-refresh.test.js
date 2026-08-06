@@ -336,6 +336,34 @@ describe('TextRunEditor live advance refresh', () => {
         expect(editor.intrinsicGlyphAdvances.get('a')).toBe(520);
     });
 
+    test('refreshes live advances from width deltas without replacing kerning', () => {
+        editor.shapedGlyphs = [
+            { ax: 460, dx: 0, dy: 0, g: 10, cl: 0 },
+            { ax: 320, dx: 0, dy: 0, g: 11, cl: 1 },
+            { ax: 460, dx: 0, dy: 0, g: 10, cl: 2 }
+        ];
+
+        expect(
+            editor.refreshGlyphAdvanceDeltasLive(
+                { a: 20, b: 0 },
+                { render: false }
+            )
+        ).toBe(true);
+        expect(editor.shapedGlyphs.map((glyph) => glyph.ax)).toEqual([
+            480, 320, 480
+        ]);
+        expect(editor.intrinsicGlyphAdvances.get('a')).toBe(520);
+    });
+
+    test('ignores empty or sub-threshold width deltas', () => {
+        expect(
+            editor.refreshGlyphAdvanceDeltasLive({ a: 0.01 }, { render: false })
+        ).toBe(false);
+        expect(editor.shapedGlyphs.map((glyph) => glyph.ax)).toEqual([
+            500, 320, 500
+        ]);
+    });
+
     test('uses the current shaped advance as the live baseline for automatic composites', () => {
         // Regression: after a settled drag, the model-derived width for an
         // automatic composite could differ from HarfBuzz's current ax. The
@@ -436,7 +464,7 @@ describe('TextRunEditor live advance refresh', () => {
 describe('applyLiveSidebearingVisualSync', () => {
     test('leaves the viewport unchanged when no advance precedes the selected glyph', () => {
         const computePrecedingAdvanceDelta = jest.fn(() => 0);
-        const refreshGlyphAdvancesLive = jest.fn(() => true);
+        const refreshGlyphAdvanceDeltasLive = jest.fn(() => true);
         const target = {
             viewportManager: {
                 panX: 100,
@@ -444,7 +472,8 @@ describe('applyLiveSidebearingVisualSync', () => {
             },
             textRunEditor: {
                 computePrecedingAdvanceDelta,
-                refreshGlyphAdvancesLive
+                intrinsicGlyphAdvances: new Map([['a', 500]]),
+                refreshGlyphAdvanceDeltasLive
             }
         };
 
@@ -462,15 +491,15 @@ describe('applyLiveSidebearingVisualSync', () => {
         });
         expect(target.viewportManager.panX).toBe(100);
         expect(computePrecedingAdvanceDelta).toHaveBeenCalledWith({ a: 520 });
-        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
-            { a: 520 },
+        expect(refreshGlyphAdvanceDeltasLive).toHaveBeenCalledWith(
+            { a: 20 },
             { render: false }
         );
     });
 
     test('keeps the selected glyph anchored after a preceding advance changes', () => {
         const computePrecedingAdvanceDelta = jest.fn(() => 20);
-        const refreshGlyphAdvancesLive = jest.fn(() => true);
+        const refreshGlyphAdvanceDeltasLive = jest.fn(() => true);
         const target = {
             viewportManager: {
                 panX: 100,
@@ -478,7 +507,8 @@ describe('applyLiveSidebearingVisualSync', () => {
             },
             textRunEditor: {
                 computePrecedingAdvanceDelta,
-                refreshGlyphAdvancesLive
+                intrinsicGlyphAdvances: new Map([['a', 500]]),
+                refreshGlyphAdvanceDeltasLive
             }
         };
 
@@ -496,15 +526,15 @@ describe('applyLiveSidebearingVisualSync', () => {
         });
         expect(target.viewportManager.panX).toBe(60);
         expect(computePrecedingAdvanceDelta).toHaveBeenCalledWith({ a: 520 });
-        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
-            { a: 520 },
+        expect(refreshGlyphAdvanceDeltasLive).toHaveBeenCalledWith(
+            { a: 20 },
             { render: false }
         );
     });
 
     test('does not compensate when the live advance refresh does not apply', () => {
         const computePrecedingAdvanceDelta = jest.fn(() => 20);
-        const refreshGlyphAdvancesLive = jest.fn(() => false);
+        const refreshGlyphAdvanceDeltasLive = jest.fn(() => false);
         const target = {
             viewportManager: {
                 panX: 100,
@@ -512,7 +542,8 @@ describe('applyLiveSidebearingVisualSync', () => {
             },
             textRunEditor: {
                 computePrecedingAdvanceDelta,
-                refreshGlyphAdvancesLive
+                intrinsicGlyphAdvances: new Map([['a', 500]]),
+                refreshGlyphAdvanceDeltasLive
             }
         };
 
@@ -532,23 +563,23 @@ describe('applyLiveSidebearingVisualSync', () => {
     });
 
     test('refreshes active and dependent glyph advances in one pass when provided', () => {
-        const refreshGlyphAdvancesLive = jest.fn(() => true);
+        const refreshGlyphAdvanceDeltasLive = jest.fn(() => true);
         const target = {
             viewportManager: {
                 panX: 100,
                 scale: 2
             },
             textRunEditor: {
-                refreshGlyphAdvancesLive
+                refreshGlyphAdvanceDeltasLive
             }
         };
 
         const result = applyLiveSidebearingVisualSync(target, {
             glyphName: 'a',
-            glyphAdvances: {
-                a: 520,
-                adieresis: 610,
-                aring: 620
+            glyphAdvanceDeltas: {
+                a: 20,
+                adieresis: 10,
+                aring: 20
             },
             side: 'right',
             previousWidth: 500,
@@ -561,11 +592,11 @@ describe('applyLiveSidebearingVisualSync', () => {
             advancesRefreshed: true
         });
         expect(target.viewportManager.panX).toBe(100);
-        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
+        expect(refreshGlyphAdvanceDeltasLive).toHaveBeenCalledWith(
             {
-                a: 520,
-                adieresis: 610,
-                aring: 620
+                a: 20,
+                adieresis: 10,
+                aring: 20
             },
             { render: false }
         );
@@ -623,7 +654,8 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                 scale: 2
             },
             textRunEditor: {
-                refreshGlyphAdvancesLive
+                intrinsicGlyphAdvances: new Map([['a.alt', 500]]),
+                refreshGlyphAdvanceDeltasLive: refreshGlyphAdvancesLive
             },
             outlineEditor: {
                 selectedLayerId: 'layer-1',
@@ -690,7 +722,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         expect(refreshSelectedLayerFromModel).toHaveBeenCalledTimes(1);
         expect(fetchLayerData).not.toHaveBeenCalled();
         expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
-            { a: 520 },
+            { a: 20 },
             { render: false }
         );
         expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(100);
@@ -731,7 +763,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                 scale: 2
             },
             textRunEditor: {
-                refreshGlyphAdvancesLive
+                refreshGlyphAdvanceDeltasLive: refreshGlyphAdvancesLive
             },
             outlineEditor: {
                 active: true,
@@ -775,10 +807,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
-            expect.objectContaining({ 'a.alt': 520 }),
-            { render: false }
-        );
+        expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
     });
 
     test('undo batches glyphChanged notifications for glyph overview refresh', async () => {
@@ -995,7 +1024,8 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                 scale: 2
             },
             textRunEditor: {
-                refreshGlyphAdvancesLive
+                intrinsicGlyphAdvances: new Map([['a.alt', 500]]),
+                refreshGlyphAdvanceDeltasLive: refreshGlyphAdvancesLive
             },
             outlineEditor: {
                 active: true,
@@ -1043,7 +1073,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
         expect(refreshGlyphAdvancesLive.mock.calls).toContainEqual([
-            { 'a.alt': 520 },
+            { 'a.alt': -20 },
             { render: false }
         ]);
         expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(100);
@@ -1161,14 +1191,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        expect(
-            refreshGlyphAdvancesLive.mock.calls.some(
-                (call) =>
-                    call?.[0]?.a === 520 &&
-                    call?.[0]?.n === 600 &&
-                    call?.[1]?.render === false
-            )
-        ).toBe(true);
+        expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
         expect(
             originalWindow.fontManager.refreshWorkerCacheForReplayTargets
         ).not.toHaveBeenCalled();
@@ -1272,10 +1295,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         expect(fetchLayerData).toHaveBeenCalledWith(true, 'a');
         expect(performHitDetection).not.toHaveBeenCalled();
         expect(render).not.toHaveBeenCalled();
-        expect(refreshGlyphAdvancesLive.mock.calls).toContainEqual([
-            { a: 500 },
-            { render: false }
-        ]);
+        expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
     });
 
     test('undo nested point drag refreshes the active stack layer instead of root layerData', async () => {
@@ -1407,10 +1427,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         expect(syncCurrentOutlineLayerDataFromModel).not.toHaveBeenCalled();
         expect(performHitDetection).toHaveBeenCalled();
         expect(render).toHaveBeenCalled();
-        expect(refreshGlyphAdvancesLive.mock.calls).toContainEqual([
-            { nested: 520 },
-            { render: false }
-        ]);
+        expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
     });
 
     test('undo keyed point drag refreshes the worker incrementally without storeFontJson', async () => {
@@ -1638,10 +1655,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
-                expect.objectContaining({ a: 500, adieresis: 500 }),
-                { render: false }
-            );
+            expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
             expect(
                 currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(1);

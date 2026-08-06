@@ -6311,25 +6311,10 @@ class GlyphCanvas {
     }
 
     reapplyActiveEditedGlyphAdvanceAfterShape(): boolean {
-        if (!this.textRunEditor) {
-            return false;
-        }
-
-        // Anchor-only recompiles must preserve HarfBuzz's freshly computed
-        // cursive/GPOS advances. Overwriting them with model widths can tear
-        // apart connected Arabic shaping until a later full render path.
-        if (fontManager.lastEditType === 'anchor') {
-            return false;
-        }
-
-        const glyphAdvances = this.collectLiveGlyphAdvancesForCurrentEdit();
-        if (Object.keys(glyphAdvances).length === 0) {
-            return false;
-        }
-
-        return this.textRunEditor.refreshGlyphAdvancesLive(glyphAdvances, {
-            render: false
-        });
+        // A completed shape is authoritative for kerning, features, variation,
+        // and anchor positioning. Live width deltas belong to the pre-shape
+        // interaction frame and must never overwrite that result.
+        return false;
     }
 
     private hasInspectableSelection(): boolean {

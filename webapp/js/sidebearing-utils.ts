@@ -11,8 +11,8 @@ type SidebearingVisualTarget = {
         computePrecedingAdvanceDelta?(
             glyphAdvances: Record<string, number>
         ): number;
-        refreshGlyphAdvancesLive(
-            glyphAdvances: Record<string, number>,
+        refreshGlyphAdvanceDeltasLive(
+            glyphAdvanceDeltas: Record<string, number>,
             options?: { render?: boolean }
         ): boolean;
     } | null;
@@ -77,15 +77,32 @@ export function inferSidebearingSideFromHistoryItem(
 
 export function refreshLiveGlyphAdvancesWithSelectedGlyphAnchor(
     target: SidebearingVisualTarget,
-    glyphAdvances: Record<string, number>,
+    glyphAdvanceDeltas: Record<string, number>,
     options: { render?: boolean } = {}
 ): boolean {
     const precedingDelta =
-        target.textRunEditor?.computePrecedingAdvanceDelta?.(glyphAdvances) ??
-        0;
+        target.textRunEditor?.computePrecedingAdvanceDelta?.(
+            Object.fromEntries(
+                Object.entries(glyphAdvanceDeltas).map(
+                    ([glyphName, advanceDelta]) => {
+                        const intrinsicAdvance = (
+                            target.textRunEditor as {
+                                intrinsicGlyphAdvances?: Map<string, number>;
+                            }
+                        ).intrinsicGlyphAdvances?.get(glyphName);
+                        return [
+                            glyphName,
+                            typeof intrinsicAdvance === 'number'
+                                ? intrinsicAdvance + advanceDelta
+                                : NaN
+                        ];
+                    }
+                )
+            )
+        ) ?? 0;
     const advancesRefreshed =
-        target.textRunEditor?.refreshGlyphAdvancesLive(
-            glyphAdvances,
+        target.textRunEditor?.refreshGlyphAdvanceDeltasLive(
+            glyphAdvanceDeltas,
             options
         ) ?? false;
 
@@ -107,7 +124,7 @@ export function applyLiveSidebearingVisualSync(
     target: SidebearingVisualTarget,
     options: {
         glyphName?: string | null;
-        glyphAdvances?: Record<string, number> | null;
+        glyphAdvanceDeltas?: Record<string, number> | null;
         side?: SidebearingSide;
         previousWidth: number;
         nextWidth: number;
@@ -128,18 +145,19 @@ export function applyLiveSidebearingVisualSync(
         return { widthDelta, advancesRefreshed: false };
     }
 
-    const liveGlyphAdvances =
-        options.glyphAdvances && Object.keys(options.glyphAdvances).length > 0
-            ? options.glyphAdvances
+    const liveGlyphAdvanceDeltas =
+        options.glyphAdvanceDeltas &&
+        Object.keys(options.glyphAdvanceDeltas).length > 0
+            ? options.glyphAdvanceDeltas
             : options.glyphName
-              ? { [options.glyphName]: nextWidth }
+              ? { [options.glyphName]: widthDelta }
               : null;
 
     const advancesRefreshed =
-        !!liveGlyphAdvances &&
+        !!liveGlyphAdvanceDeltas &&
         refreshLiveGlyphAdvancesWithSelectedGlyphAnchor(
             target,
-            liveGlyphAdvances,
+            liveGlyphAdvanceDeltas,
             { render: options.render }
         );
 

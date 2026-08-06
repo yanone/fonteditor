@@ -2589,10 +2589,10 @@ describe('handleRemoteChangeRefresh', () => {
                     )
                 }))
             };
-            const refreshGlyphAdvancesLive = jest.fn(() => true);
+            const refreshGlyphAdvanceDeltasLive = jest.fn(() => true);
             const glyphCanvas = {
                 viewportManager: { panX: initialPanX, scale: initialScale },
-                textRunEditor: { refreshGlyphAdvancesLive },
+                textRunEditor: { refreshGlyphAdvanceDeltasLive },
                 outlineEditor: {
                     active: true,
                     selectedLayerId: activeLayerId,
@@ -4976,5 +4976,233 @@ describe('committed undo/redo compile requests', () => {
             'keyboard-outline',
             'outline'
         );
+    });
+
+    test.each([
+        ['local undo', 'local', 'undo', -20],
+        ['local redo', 'local', 'redo', 20],
+        ['remote undo', 'remote', 'undo', -20],
+        ['remote redo', 'remote', 'redo', 20]
+    ])(
+        'uses the semantic width delta for %s instead of comparing a raw width to the shaped advance',
+        async (_label, origin, historyAction, expectedDelta) => {
+            const originalFontManager = window.fontManager;
+            const originalGlyphCanvas = window.glyphCanvas;
+            const refreshGlyphAdvanceDeltasLive = jest.fn();
+            const computePrecedingAdvanceDelta = jest.fn(() => expectedDelta);
+            const requestCompile = jest.fn(async () => {});
+
+            window.fontManager = {
+                currentFont: {
+                    fontModel: {
+                        findGlyph: jest.fn(() => ({
+                            findLayerById: jest.fn(() => ({
+                                width: 500,
+                                isAutomaticAlignedLayer: jest.fn(() => false)
+                            }))
+                        }))
+                    }
+                }
+            };
+            window.glyphCanvas = {
+                viewportManager: { panX: 100, scale: 2 },
+                textRunEditor: {
+                    intrinsicGlyphAdvances: new Map([['a', 470]]),
+                    computePrecedingAdvanceDelta,
+                    refreshGlyphAdvanceDeltasLive
+                },
+                requestRepaintAfterCompile: jest.fn(),
+                outlineEditor: {
+                    active: true,
+                    draggingSomething: false,
+                    selectedLayerId: 'layer-1',
+                    parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                    reconcileSelectionAfterModelSync: jest.fn(
+                        async () => false
+                    ),
+                    runDeterministicRefresh: jest.fn(async (refresh) => {
+                        await refresh();
+                    }),
+                    fetchLayerData: jest.fn()
+                },
+                getCurrentGlyphName: jest.fn(() => 'a')
+            };
+
+            try {
+                await handleCommittedChangeRefresh(
+                    [
+                        {
+                            historyAction,
+                            transactionLabel: 'Drag component',
+                            path: 'glyphs.a.layers.layer-1',
+                            oldValue: { width: 500 },
+                            newValue: { width: 520 }
+                        }
+                    ],
+                    origin,
+                    {
+                        awaitWorkerSync: jest.fn(async () => {}),
+                        requestCompile
+                    }
+                );
+            } finally {
+                window.fontManager = originalFontManager;
+                window.glyphCanvas = originalGlyphCanvas;
+            }
+
+            expect(refreshGlyphAdvanceDeltasLive).toHaveBeenCalledWith(
+                { a: expectedDelta },
+                { render: false }
+            );
+            if (origin === 'local') {
+                expect(computePrecedingAdvanceDelta).toHaveBeenCalledWith({
+                    a: 470 + expectedDelta
+                });
+            } else {
+                expect(computePrecedingAdvanceDelta).not.toHaveBeenCalled();
+            }
+            expect(requestCompile).toHaveBeenCalledTimes(1);
+        }
+    );
+
+    test.each([
+        ['local undo', 'local', 'undo'],
+        ['local redo', 'local', 'redo'],
+        ['remote undo', 'remote', 'undo'],
+        ['remote redo', 'remote', 'redo']
+    ])(
+        'does not treat a component translation as an advance width during %s',
+        async (_label, origin, historyAction) => {
+            const originalFontManager = window.fontManager;
+            const originalGlyphCanvas = window.glyphCanvas;
+            const refreshGlyphAdvanceDeltasLive = jest.fn();
+            const computePrecedingAdvanceDelta = jest.fn();
+
+            window.fontManager = {
+                currentFont: {
+                    fontModel: {
+                        findGlyph: jest.fn(() => ({
+                            findLayerById: jest.fn(() => ({
+                                width: 500,
+                                isAutomaticAlignedLayer: jest.fn(() => false)
+                            }))
+                        }))
+                    }
+                }
+            };
+            window.glyphCanvas = {
+                viewportManager: { panX: 100, scale: 2 },
+                textRunEditor: {
+                    intrinsicGlyphAdvances: new Map([['a', 500]]),
+                    computePrecedingAdvanceDelta,
+                    refreshGlyphAdvanceDeltasLive
+                },
+                requestRepaintAfterCompile: jest.fn(),
+                outlineEditor: {
+                    active: true,
+                    draggingSomething: false,
+                    selectedLayerId: 'layer-1',
+                    parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                    reconcileSelectionAfterModelSync: jest.fn(
+                        async () => false
+                    ),
+                    runDeterministicRefresh: jest.fn(async (refresh) => {
+                        await refresh();
+                    }),
+                    fetchLayerData: jest.fn()
+                },
+                getCurrentGlyphName: jest.fn(() => 'a')
+            };
+
+            try {
+                await handleCommittedChangeRefresh(
+                    [
+                        {
+                            historyAction,
+                            transactionLabel: 'Drag component',
+                            path: 'glyphs.a.layers.layer-1.shapes.0.transform.translation.0',
+                            oldValue: 100,
+                            newValue: 140
+                        }
+                    ],
+                    origin,
+                    {
+                        awaitWorkerSync: jest.fn(async () => {}),
+                        requestCompile: jest.fn(async () => {})
+                    }
+                );
+            } finally {
+                window.fontManager = originalFontManager;
+                window.glyphCanvas = originalGlyphCanvas;
+            }
+
+            expect(refreshGlyphAdvanceDeltasLive).not.toHaveBeenCalled();
+            expect(computePrecedingAdvanceDelta).not.toHaveBeenCalled();
+        }
+    );
+
+    test('does not replay component advances already applied by the local drag preview', async () => {
+        const originalFontManager = window.fontManager;
+        const originalGlyphCanvas = window.glyphCanvas;
+        const refreshGlyphAdvanceDeltasLive = jest.fn();
+        const requestCompile = jest.fn(async () => {});
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    findGlyph: jest.fn(() => ({
+                        findLayerById: jest.fn(() => ({
+                            width: 520,
+                            isAutomaticAlignedLayer: jest.fn(() => false)
+                        }))
+                    }))
+                }
+            }
+        };
+        window.glyphCanvas = {
+            textRunEditor: {
+                intrinsicGlyphAdvances: new Map([['a', 520]]),
+                refreshGlyphAdvanceDeltasLive
+            },
+            requestRepaintAfterCompile: jest.fn(),
+            outlineEditor: {
+                active: true,
+                draggingSomething: false,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                reconcileSelectionAfterModelSync: jest.fn(async () => false),
+                runDeterministicRefresh: jest.fn(async (refresh) => {
+                    await refresh();
+                }),
+                fetchLayerData: jest.fn()
+            },
+            getCurrentGlyphName: jest.fn(() => 'a')
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        transactionLabel: 'Drag component',
+                        editSource: 'mouse-drag-outline',
+                        compileChangeSource: 'mouse-drag-outline',
+                        path: 'glyphs.a.layers.layer-1',
+                        oldValue: { width: 500 },
+                        newValue: { width: 520 }
+                    }
+                ],
+                'local',
+                {
+                    awaitWorkerSync: jest.fn(async () => {}),
+                    requestCompile
+                }
+            );
+        } finally {
+            window.fontManager = originalFontManager;
+            window.glyphCanvas = originalGlyphCanvas;
+        }
+
+        expect(refreshGlyphAdvanceDeltasLive).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledTimes(1);
     });
 });

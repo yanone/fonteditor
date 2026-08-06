@@ -2738,6 +2738,40 @@ export class TextRunEditor {
         return null;
     }
 
+    refreshGlyphAdvanceDeltasLive(
+        glyphAdvanceDeltas: Record<string, number>,
+        options: { render?: boolean } = {}
+    ): boolean {
+        const glyphAdvances: Record<string, number> = {};
+
+        for (const [glyphName, advanceDelta] of Object.entries(
+            glyphAdvanceDeltas
+        )) {
+            if (
+                !Number.isFinite(advanceDelta) ||
+                Math.abs(advanceDelta) <= 0.01
+            ) {
+                continue;
+            }
+
+            const intrinsicAdvance = this.intrinsicGlyphAdvances.get(glyphName);
+            if (
+                typeof intrinsicAdvance !== 'number' ||
+                !Number.isFinite(intrinsicAdvance)
+            ) {
+                continue;
+            }
+
+            glyphAdvances[glyphName] = intrinsicAdvance + advanceDelta;
+        }
+
+        if (Object.keys(glyphAdvances).length === 0) {
+            return false;
+        }
+
+        return this.refreshGlyphAdvancesLive(glyphAdvances, options);
+    }
+
     refreshGlyphAdvancesLive(
         glyphAdvances: Record<string, number>,
         options: { render?: boolean } = {}

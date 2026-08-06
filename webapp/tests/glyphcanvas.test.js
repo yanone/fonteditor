@@ -3718,7 +3718,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
         canvas.outlineEditor.performHitDetection = jest.fn();
         canvas.updatePropertyPanel = jest.fn();
         canvas.render = jest.fn();
-        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+        canvas.textRunEditor.intrinsicGlyphAdvances = new Map([['a', 500]]);
+        canvas.textRunEditor.refreshGlyphAdvanceDeltasLive = jest.fn();
 
         await canvas.commitPropertyPanelValue('left', '==50');
 
@@ -3729,8 +3730,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
             window.autoCompileManager.checkAndSchedule
         ).toHaveBeenCalledTimes(1);
         expect(
-            canvas.textRunEditor.refreshGlyphAdvancesLive
-        ).toHaveBeenCalledWith({ a: 640 }, { render: false });
+            canvas.textRunEditor.refreshGlyphAdvanceDeltasLive
+        ).toHaveBeenCalledWith({ a: 140 }, { render: false });
         expect(
             window.fontManager.refreshGlyphsAfterModelBatch
         ).toHaveBeenCalledWith(['a'], 'layer-1');
@@ -3791,7 +3792,10 @@ describe('GlyphCanvas property panel metrics edits', () => {
         canvas.outlineEditor.performHitDetection = jest.fn();
         canvas.updatePropertyPanel = jest.fn();
         canvas.render = jest.fn();
-        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+        canvas.textRunEditor.intrinsicGlyphAdvances = new Map([
+            ['baseComponent', 500]
+        ]);
+        canvas.textRunEditor.refreshGlyphAdvanceDeltasLive = jest.fn();
 
         try {
             await canvas.commitPropertyPanelValue('left', '==50');
@@ -3854,7 +3858,10 @@ describe('GlyphCanvas property panel metrics edits', () => {
         canvas.outlineEditor.performHitDetection = jest.fn();
         canvas.updatePropertyPanel = jest.fn();
         canvas.render = jest.fn();
-        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+        canvas.textRunEditor.intrinsicGlyphAdvances = new Map([
+            ['baseComponent', 500]
+        ]);
+        canvas.textRunEditor.refreshGlyphAdvanceDeltasLive = jest.fn();
 
         try {
             await canvas.commitPropertyPanelValue('left', '=missing+10');
@@ -3967,7 +3974,10 @@ describe('GlyphCanvas property panel metrics edits', () => {
         canvas.outlineEditor.performHitDetection = jest.fn();
         canvas.updatePropertyPanel = jest.fn();
         canvas.render = jest.fn();
-        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+        canvas.textRunEditor.intrinsicGlyphAdvances = new Map([
+            ['baseComponent', 500]
+        ]);
+        canvas.textRunEditor.refreshGlyphAdvanceDeltasLive = jest.fn();
 
         await canvas.commitPropertyPanelValue('left', '=50');
 
@@ -4029,14 +4039,17 @@ describe('GlyphCanvas property panel metrics edits', () => {
         canvas.outlineEditor.performHitDetection = jest.fn();
         canvas.updatePropertyPanel = jest.fn();
         canvas.render = jest.fn();
-        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+        canvas.textRunEditor.intrinsicGlyphAdvances = new Map([
+            ['baseComponent', 500]
+        ]);
+        canvas.textRunEditor.refreshGlyphAdvanceDeltasLive = jest.fn();
 
         await canvas.commitPropertyPanelValue('left', '=50');
 
         expect(layer.applySidebearingInput).toHaveBeenCalledWith('left', '=50');
         expect(
-            canvas.textRunEditor.refreshGlyphAdvancesLive
-        ).toHaveBeenCalledWith({ baseComponent: 640 }, { render: false });
+            canvas.textRunEditor.refreshGlyphAdvanceDeltasLive
+        ).toHaveBeenCalledWith({ baseComponent: 140 }, { render: false });
         expect(
             window.fontManager.refreshGlyphsAfterModelBatch
         ).toHaveBeenCalledWith(['baseComponent'], undefined);
@@ -4918,7 +4931,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         }
     });
 
-    test('reapplyActiveEditedGlyphAdvanceAfterShape restores the active layer width into the text run', () => {
+    test('reapplyActiveEditedGlyphAdvanceAfterShape preserves HarfBuzz advances', () => {
         const layer = { width: 494 };
 
         canvas.outlineEditor.active = true;
@@ -4928,12 +4941,21 @@ describe('GlyphCanvas property panel metrics edits', () => {
         ]);
         canvas.getCurrentLayerModel = jest.fn(() => layer);
         canvas.getCurrentGlyphName = jest.fn(() => 'a');
-        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
+        canvas.textRunEditor.intrinsicGlyphAdvances = new Map(
+            canvas.textRunEditor.glyphNameBuffer.map((visibleGlyphName) => [
+                visibleGlyphName,
+                font.findGlyph(visibleGlyphName).findLayerByMasterId(masterId)
+                    .width
+            ])
+        );
+        canvas.textRunEditor.refreshGlyphAdvanceDeltasLive = jest.fn(
+            () => true
+        );
 
-        expect(canvas.reapplyActiveEditedGlyphAdvanceAfterShape()).toBe(true);
+        expect(canvas.reapplyActiveEditedGlyphAdvanceAfterShape()).toBe(false);
         expect(
-            canvas.textRunEditor.refreshGlyphAdvancesLive
-        ).toHaveBeenCalledWith({ a: 494 }, { render: false });
+            canvas.textRunEditor.refreshGlyphAdvanceDeltasLive
+        ).not.toHaveBeenCalled();
     });
 
     test('reapplyActiveEditedGlyphAdvanceAfterShape preserves HarfBuzz advances for anchor edits', () => {
@@ -5968,7 +5990,16 @@ describe('GlyphCanvas sidebearing handle movement', () => {
                     cl: index
                 })
             );
-        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
+        canvas.textRunEditor.intrinsicGlyphAdvances = new Map(
+            canvas.textRunEditor.glyphNameBuffer.map((visibleGlyphName) => [
+                visibleGlyphName,
+                font.findGlyph(visibleGlyphName).findLayerByMasterId(masterId)
+                    .width
+            ])
+        );
+        canvas.textRunEditor.refreshGlyphAdvanceDeltasLive = jest.fn(
+            () => true
+        );
         canvas.outlineEditor.selectedSidebearingHandle = {
             side: 'right',
             editable: true
@@ -5979,20 +6010,8 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.outlineEditor._updateDraggedSidebearing(17);
 
         expect(
-            canvas.textRunEditor.refreshGlyphAdvancesLive
-        ).toHaveBeenCalledWith(
-            {
-                l: font.findGlyph('l').findLayerByMasterId(masterId).width,
-                n: font.findGlyph('n').findLayerByMasterId(masterId).width,
-                a: font.findGlyph('a').findLayerByMasterId(masterId).width,
-                adieresis: font
-                    .findGlyph('adieresis')
-                    .findLayerByMasterId(masterId).width,
-                aring: font.findGlyph('aring').findLayerByMasterId(masterId)
-                    .width
-            },
-            { render: false }
-        );
+            canvas.textRunEditor.refreshGlyphAdvanceDeltasLive
+        ).toHaveBeenCalledWith(expect.any(Object), { render: false });
     });
 
     test('sidebearing drag resolves visible dependent advances through matching layer ids', () => {
@@ -6065,7 +6084,13 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             { glyphName: 'active' }
         ]);
         canvas.getCurrentGlyphName = jest.fn(() => 'active');
-        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
+        canvas.textRunEditor.intrinsicGlyphAdvances = new Map([
+            ['active', 500],
+            ['dependent', 600]
+        ]);
+        canvas.textRunEditor.refreshGlyphAdvanceDeltasLive = jest.fn(
+            () => true
+        );
         canvas.textRunEditor.selectedGlyphIndex = 0;
         canvas.textRunEditor.glyphNameBuffer = ['active', 'dependent'];
         canvas.textRunEditor.shapedGlyphs = [
@@ -6105,11 +6130,10 @@ describe('GlyphCanvas sidebearing handle movement', () => {
                 'dependent'
             );
             expect(
-                canvas.textRunEditor.refreshGlyphAdvancesLive
+                canvas.textRunEditor.refreshGlyphAdvanceDeltasLive
             ).toHaveBeenCalledWith(
                 {
-                    active: 540,
-                    dependent: 777
+                    active: 20
                 },
                 { render: false }
             );
@@ -6490,7 +6514,13 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             { ax: 400, dx: 0, dy: 0, g: 0 },
             { ax: 150, dx: 0, dy: 0, g: 1 }
         ];
-        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
+        canvas.textRunEditor.intrinsicGlyphAdvances = new Map([
+            ['A', 400],
+            ['B', 150]
+        ]);
+        canvas.textRunEditor.refreshGlyphAdvanceDeltasLive = jest.fn(
+            () => true
+        );
         canvas.outlineEditor.selectedPoints = [
             { contourIndex: 1, nodeIndex: 0 },
             { contourIndex: 1, nodeIndex: 1 },
@@ -6513,9 +6543,9 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             );
             expect(canvas.viewportManager.panX).toBe(100);
             expect(
-                canvas.textRunEditor.refreshGlyphAdvancesLive
+                canvas.textRunEditor.refreshGlyphAdvanceDeltasLive
             ).toHaveBeenCalledWith(
-                expect.objectContaining({ A: 160, B: 140 }),
+                expect.objectContaining({ A: -240, B: -10 }),
                 { render: false }
             );
             expect(window.changeBridge.beginTransaction).toHaveBeenCalledTimes(

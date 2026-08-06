@@ -1439,8 +1439,15 @@ function getLayerWidth(
     return Number.isFinite(layer.width) ? layer.width : null;
 }
 
-function getEntryWidth(value: unknown): number | null {
-    if (typeof value === 'number' && Number.isFinite(value)) {
+function getEntryWidth(
+    value: unknown,
+    allowScalarWidth: boolean = false
+): number | null {
+    if (
+        allowScalarWidth &&
+        typeof value === 'number' &&
+        Number.isFinite(value)
+    ) {
         return value;
     }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -1468,44 +1475,60 @@ function collectLiveAdvanceDeltas(
         ?.call(null, visibleGlyphName)
         ?.findLayerById(visibleLayerId);
     const deltas: Record<string, number> = {};
-    for (const entry of entries) {
-        const path = entry.path;
-        if (!path) {
-            continue;
-        }
+    for (const outerEntry of entries) {
+        const semanticEntries = outerEntry.semanticChangeLogEntries?.length
+            ? outerEntry.semanticChangeLogEntries
+            : [outerEntry];
+        for (const entry of semanticEntries) {
+            const path = entry.path;
+            if (!path) {
+                continue;
+            }
 
-        const pathSegments = getPathSegments(path);
-        const glyphName = deriveGlyphName(pathSegments);
-        if (!glyphName) {
-            continue;
-        }
+            const pathSegments = getPathSegments(path);
+            const glyphName = deriveGlyphName(pathSegments);
+            if (!glyphName) {
+                continue;
+            }
 
-        const targetLayerId =
-            glyphName === visibleGlyphName
-                ? visibleLayerId
-                : visibleLayer?.getMatchingLayerOnGlyph?.(glyphName)?.id ||
-                  findGlyph
-                      ?.call(null, glyphName)
-                      ?.findLayerById(visibleLayerId)?.id;
-        if (!targetLayerId || deriveLayerId(pathSegments) !== targetLayerId) {
-            continue;
-        }
+            const targetLayerId =
+                glyphName === visibleGlyphName
+                    ? visibleLayerId
+                    : visibleLayer?.getMatchingLayerOnGlyph?.(glyphName)?.id ||
+                      findGlyph
+                          ?.call(null, glyphName)
+                          ?.findLayerById(visibleLayerId)?.id;
+            if (
+                !targetLayerId ||
+                deriveLayerId(pathSegments) !== targetLayerId
+            ) {
+                continue;
+            }
 
-        const previousWidth = getEntryWidth(
-            entry.replayOldValue ?? entry.oldValue
-        );
-        const nextWidth = getEntryWidth(entry.replayNewValue ?? entry.newValue);
-        if (
-            !glyphName ||
-            previousWidth === null ||
-            nextWidth === null ||
-            Math.abs(nextWidth - previousWidth) <= 0.01
-        ) {
-            continue;
-        }
+            const oldValue = entry.replayOldValue ?? entry.oldValue;
+            const newValue = entry.replayNewValue ?? entry.newValue;
+            const isUndo =
+                (entry.historyAction ?? outerEntry.historyAction) === 'undo';
+            const allowScalarWidth = isWidthPath(pathSegments);
+            const previousWidth = getEntryWidth(
+                isUndo ? newValue : oldValue,
+                allowScalarWidth
+            );
+            const nextWidth = getEntryWidth(
+                isUndo ? oldValue : newValue,
+                allowScalarWidth
+            );
+            if (
+                previousWidth === null ||
+                nextWidth === null ||
+                Math.abs(nextWidth - previousWidth) <= 0.01
+            ) {
+                continue;
+            }
 
-        deltas[glyphName] =
-            (deltas[glyphName] ?? 0) + nextWidth - previousWidth;
+            deltas[glyphName] =
+                (deltas[glyphName] ?? 0) + nextWidth - previousWidth;
+        }
     }
     return deltas;
 }
@@ -1559,7 +1582,9 @@ function refreshLiveTextRunAdvances(
         precedingDelta,
         compensatePanX: options?.compensatePanX === true
     });
-    textRunEditor.refreshGlyphAdvancesLive(glyphAdvances, { render: false });
+    textRunEditor.refreshGlyphAdvanceDeltasLive(glyphAdvanceDeltas, {
+        render: false
+    });
 
     if (options?.compensatePanX && Math.abs(precedingDelta) > 0.01) {
         const vm = gc?.viewportManager;
@@ -2000,6 +2025,19 @@ function isUndoRedoCommittedPacket(entries: ChangeLogEntry[]): boolean {
     );
 }
 
+function hasLocalLiveAdvancePreview(entries: ChangeLogEntry[]): boolean {
+    return entries.some((entry) => {
+        const changeSource =
+            entry.editSource ?? entry.compileChangeSource ?? null;
+        return (
+            changeSource === 'mouse-drag-outline' &&
+            (entry.transactionLabel === 'Drag component' ||
+                entry.transactionLabel === 'Drag point' ||
+                entry.transactionLabel === 'Scale selection')
+        );
+    });
+}
+
 function getFallbackUndoRedoCommittedEntries(
     historyItem: HistoryStackItem | null,
     action: 'undo' | 'redo',
@@ -2140,11 +2178,7 @@ function applyLocalUndoRedoVisualSync(
 
     if (!appliedSidebearingSync) {
         refreshLiveTextRunAdvances(
-            collectLiveAdvanceDeltas(
-                entries,
-                layerId,
-                getActiveEditedGlyphName()
-            ),
+            collectLiveAdvanceDeltas(entries, layerId, editedGlyphName),
             { compensatePanX: true }
         );
     }
@@ -2561,12 +2595,16 @@ export async function handleCommittedChangeRefresh(
             (localCompileContext?.editType === 'outline' ||
                 localCompileContext?.editType === 'anchor') &&
             selectedLayer?.isAutomaticAlignedLayer?.() !== true;
+        const hasLiveAdvancePreview =
+            !isUndoRedoPacket && hasLocalLiveAdvancePreview(entries);
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
             skipDeferredCanvasRepaint:
                 isUndoRedoPacket && !requiresBackgroundLayerRefresh,
             skipLayerDataFetch: canSkipUndoRedoLayerDataFetch,
             preferExactLayerDataRefresh: canPreferExactLocalVisualRefresh,
-            ...(!isUndoRedoPacket && Object.keys(liveAdvanceDeltas).length > 0
+            ...(!hasLiveAdvancePreview &&
+            !isUndoRedoPacket &&
+            Object.keys(liveAdvanceDeltas).length > 0
                 ? { liveAdvanceDeltas }
                 : {}),
             ...(replayTargets.length > 0
