@@ -9589,6 +9589,11 @@ class GlyphCanvas {
         }
 
         this.renderer!.render();
+        const renderVerticalMetrics =
+            this.outlineEditor.renderVerticalMetrics ?? {};
+        const renderVerticalMetricEntries = Object.entries(
+            renderVerticalMetrics
+        );
         const lastRenderState =
             ((window as any).__glyphCanvasRenderState as
                 { sequence?: number } | undefined) ?? undefined;
@@ -9601,7 +9606,11 @@ class GlyphCanvas {
             hasLayerData: Boolean(this.outlineEditor.layerData),
             isInterpolated: Boolean(
                 this.outlineEditor.layerData?.isInterpolated
-            )
+            ),
+            isPreviewMode: this.outlineEditor.isPreviewMode,
+            hasRenderVerticalMetrics: renderVerticalMetricEntries.length > 0,
+            renderVerticalMetricCount: renderVerticalMetricEntries.length,
+            renderVerticalMetrics
         };
         (window as any).__glyphCanvasRenderState = nextRenderState;
         recordLiveTextDiagnostic('canvas.render', this.textRunEditor, {
@@ -9623,6 +9632,10 @@ class GlyphCanvas {
     requestRepaintAfterCompile(): void {
         this.hasDeferredRenderRequest = true;
         timelineMark('canvas.compileRepaint.requested');
+        recordLiveTextDiagnostic(
+            'canvas.compileRepaint.requested',
+            this.textRunEditor
+        );
 
         let attempts = 0;
         const maxAttempts = 180;
@@ -9645,6 +9658,10 @@ class GlyphCanvas {
             }
 
             timelineMark('canvas.compileRepaint.executingRender');
+            recordLiveTextDiagnostic(
+                'canvas.compileRepaint.executingRender',
+                this.textRunEditor
+            );
             this.render();
             if (this.outlineEditor.active) {
                 this.outlineEditor.performHitDetection(null);

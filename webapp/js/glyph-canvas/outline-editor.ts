@@ -6,6 +6,7 @@ import type { Babelfont } from '../babelfont';
 import { Transform } from '../basictypes';
 import { Logger } from '../logger';
 import { normalizeWorkerReplayTargets } from '../change-log';
+import { recordLiveTextDiagnostic } from '../live-text-diagnostics';
 import {
     Layer,
     FeatureVariationGlyph,
@@ -17663,6 +17664,10 @@ export class OutlineEditor {
         );
         this.performHitDetection(null);
         this.glyphCanvas.updatePropertyPanel();
+        recordLiveTextDiagnostic(
+            'outline.commandPath.finalizer.render',
+            this.glyphCanvas.textRunEditor
+        );
         this.glyphCanvas.render();
     }
 
@@ -17716,8 +17721,21 @@ export class OutlineEditor {
     private syncCurrentExactLayerDataFromModel(): void {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const currentLayerModel = this.getCurrentLayerModel();
+        const retainedVerticalMetrics = (
+            currentLayerData as unknown as {
+                _verticalMetrics?: Record<string, number>;
+            } | null
+        )?._verticalMetrics;
+        const restoreRetainedVerticalMetrics = (): void => {
+            this.setRenderVerticalMetrics(
+                retainedVerticalMetrics
+                    ? { _verticalMetrics: retainedVerticalMetrics }
+                    : this.getCurrentLayerDataFromStack()
+            );
+        };
 
         if (!currentLayerData || !currentLayerModel) {
+            restoreRetainedVerticalMetrics();
             return;
         }
 
@@ -17736,6 +17754,7 @@ export class OutlineEditor {
             // first path is added. Its old canvas snapshot belongs to the
             // virtual ID, so replace it rather than merging across identities.
             this.applyExactSelectedLayerData(rawLayerData);
+            restoreRetainedVerticalMetrics();
             return;
         }
 
@@ -17754,6 +17773,7 @@ export class OutlineEditor {
 
         Object.assign(currentLayerData, exactNormalized);
         parseComponentNodes(currentLayerData.shapes || []);
+        restoreRetainedVerticalMetrics();
     }
 
     private canSlideSmoothPointOnCurve(point: Point): boolean {
