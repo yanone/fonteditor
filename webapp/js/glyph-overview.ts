@@ -3717,6 +3717,11 @@ class GlyphOverview {
             return;
         }
 
+        if (typeof window.requestAnimationFrame !== 'function') {
+            this.updatePropertyPanel();
+            return;
+        }
+
         this.propertyPanelUpdateRafId = window.requestAnimationFrame(() => {
             this.propertyPanelUpdateRafId = null;
             this.updatePropertyPanel();
