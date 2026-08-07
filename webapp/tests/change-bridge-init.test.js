@@ -4186,6 +4186,86 @@ describe('buildCascadingRecompositionOperations', () => {
     });
 });
 
+describe('committed Yjs emission funnel', () => {
+    test('uses one committed listener with the forward semantic entry for forward edits, undo, and redo', () => {
+        const bridge = new ChangeBridge('committed-emission-funnel');
+        bridge.initFromJson({
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        { id: 'layer-1', width: 600, anchors: [], shapes: [] }
+                    ]
+                }
+            ]
+        });
+
+        const committedPackets = [];
+        bridge.onCommittedChange((entries, context) => {
+            committedPackets.push({ entries, context });
+        });
+
+        bridge.applySyntheticChangeSet('Set sidebearing', [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 620,
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        ]);
+        expect(committedPackets).toHaveLength(1);
+        expect(committedPackets[0].entries).toHaveLength(1);
+        expect(committedPackets[0].context).toEqual(
+            expect.objectContaining({ origin: 'local' })
+        );
+
+        const forwardEntry = committedPackets[0].entries[0];
+        expect(forwardEntry).toEqual(
+            expect.objectContaining({
+                path: 'glyphs.A:layers.layer-1:width',
+                oldValue: 600,
+                newValue: 620,
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            })
+        );
+
+        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
+        expect(committedPackets).toHaveLength(2);
+        expect(committedPackets[1].entries).toHaveLength(1);
+        expect(committedPackets[1].context).toEqual(
+            expect.objectContaining({ origin: 'local' })
+        );
+        expect(committedPackets[1].entries[0]).toEqual(
+            expect.objectContaining({
+                path: forwardEntry.path,
+                oldValue: forwardEntry.oldValue,
+                newValue: forwardEntry.newValue,
+                workerReplayTargets: forwardEntry.workerReplayTargets,
+                historyAction: 'undo'
+            })
+        );
+
+        expect(bridge.redo('A', 'layer-1')).not.toBeNull();
+        expect(committedPackets).toHaveLength(3);
+        expect(committedPackets[2].entries).toHaveLength(1);
+        expect(committedPackets[2].context).toEqual(
+            expect.objectContaining({ origin: 'local' })
+        );
+        expect(committedPackets[2].entries[0]).toEqual(
+            expect.objectContaining({
+                path: forwardEntry.path,
+                oldValue: forwardEntry.oldValue,
+                newValue: forwardEntry.newValue,
+                workerReplayTargets: forwardEntry.workerReplayTargets,
+                historyAction: 'redo'
+            })
+        );
+
+        bridge.destroy();
+    });
+});
+
 describe('shouldInvalidateLayoutClosureForCommittedEntries', () => {
     // Import the function directly from the module
     const changeBridgeInit = require('../js/change-bridge-init');
