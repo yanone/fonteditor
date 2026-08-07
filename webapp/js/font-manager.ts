@@ -4888,11 +4888,57 @@ class FontManager {
             this.bootstrapWorkerYjsMirrorFromCurrentFont();
         }
 
-        const workerUpdate = update;
+        // Layer-target commits can replace nested Yjs arrays. Send the
+        // authoritative target snapshot to the worker so its independent
+        // document does not retain an obsolete array identity.
+        const targetedWorkerUpdates = targetLayerUpdates?.updates.map(
+            ({ glyphName, layerId, layerData }) => ({
+                glyphName,
+                layerId,
+                normalized: this.normalizeLayerForRust(layerData)
+            })
+        );
+        const projectedWorkerDoc = targetedWorkerUpdates?.length
+            ? new Y.Doc()
+            : null;
+        if (projectedWorkerDoc) {
+            Y.applyUpdate(
+                projectedWorkerDoc,
+                Y.encodeStateAsUpdate(this.workerCacheYDoc!)
+            );
+            Y.applyUpdate(projectedWorkerDoc, update);
+        }
+        const targetUpdatesRequiringRepair = targetedWorkerUpdates?.filter(
+            ({ glyphName, layerId, normalized }) => {
+                if (!normalizedChangedGlyphs.includes(glyphName)) {
+                    return false;
+                }
+
+                const projectedLayer = getYPath(
+                    projectedWorkerDoc!.getMap('font'),
+                    ['glyphs', glyphName, 'layers', layerId]
+                );
+                if (!projectedLayer) {
+                    return true;
+                }
+
+                return (
+                    this.getLayerWorkerFingerprint(
+                        fromYType(projectedLayer) as Babelfont.Layer
+                    ) !== this.getLayerWorkerFingerprint(normalized)
+                );
+            }
+        );
+        const targetedWorkerUpdate = targetUpdatesRequiringRepair?.length
+            ? this.buildWorkerYjsLayerUpdate(targetedWorkerUpdates!)
+            : null;
+        const workerUpdate = targetedWorkerUpdate?.update || update;
+        const workerChangedGlyphs =
+            targetedWorkerUpdate?.changedGlyphs || normalizedChangedGlyphs;
 
         const sent = await this.sendWorkerYjsUpdate(
             workerUpdate,
-            normalizedChangedGlyphs,
+            workerChangedGlyphs,
             options?.invalidateLayoutClosure !== false,
             normalizedNonGlyphChangeHints,
             normalizedLayerTargets,
