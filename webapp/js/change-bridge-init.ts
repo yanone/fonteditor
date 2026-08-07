@@ -1638,12 +1638,12 @@ function collectCommittedAdvanceWidths(
     const glyphAdvances: Record<string, number> = {};
     for (const target of targets.values()) {
         const layer =
-            fontModel
-                .findGlyph(target.glyphName)
-                ?.findLayerById(target.layerId) ||
-            (target.glyphName === visibleGlyphName
+            target.glyphName === visibleGlyphName
                 ? visibleLayer
-                : visibleLayer?.getMatchingLayerOnGlyph?.(target.glyphName));
+                : (visibleLayer?.getMatchingLayerOnGlyph?.(target.glyphName) ??
+                  fontModel
+                      .findGlyph(target.glyphName)
+                      ?.findLayerById(visibleLayerId));
         if (layer && Number.isFinite(layer.width)) {
             glyphAdvances[target.glyphName] = layer.width;
         }
@@ -2258,9 +2258,15 @@ function applyLocalUndoRedoVisualSync(
     entries: ChangeLogEntry[],
     context?: LocalUndoRedoVisualContext,
     localCompileContext?: LocalCommittedCompileContext | null
-): boolean {
+): {
+    skipLayerDataFetch: boolean;
+    deferAdvanceRefreshUntilCommittedCanvas: boolean;
+} {
     if (!isUndoRedoCommittedPacket(entries) && !context) {
-        return false;
+        return {
+            skipLayerDataFetch: false,
+            deferAdvanceRefreshUntilCommittedCanvas: false
+        };
     }
 
     const historyItem = buildHistoryItemFromCommittedEntries(entries);
@@ -2311,24 +2317,31 @@ function applyLocalUndoRedoVisualSync(
             context?.layerId
         );
 
-    if (!appliedSidebearingSync) {
+    const deferAdvanceRefreshUntilCommittedCanvas =
+        !appliedSidebearingSync &&
+        Object.keys(collectLiveAdvanceDeltas(entries, layerId, editedGlyphName))
+            .length > 0;
+    if (!appliedSidebearingSync && !deferAdvanceRefreshUntilCommittedCanvas) {
         refreshCommittedTextRunAdvances(
             collectCommittedAdvanceWidths(entries, layerId, editedGlyphName),
             { compensatePanX: true }
         );
     }
 
-    return (
+    const skipLayerDataFetch =
         syncImmediateUndoOutlineLayerFromModel(
             editedGlyphName,
             layerId,
-            appliedSidebearingSync
+            appliedSidebearingSync || deferAdvanceRefreshUntilCommittedCanvas
         ) &&
         (appliedSidebearingSync ||
             historyItem.transactionLabel?.startsWith('Drag ') === true ||
             (localCompileContext?.changeSource === 'keyboard-outline' &&
-                localCompileContext.editType === 'outline'))
-    );
+                localCompileContext.editType === 'outline'));
+    return {
+        skipLayerDataFetch,
+        deferAdvanceRefreshUntilCommittedCanvas
+    };
 }
 
 function inferHistoryItemKerningEditType(
@@ -2697,7 +2710,7 @@ export async function handleCommittedChangeRefresh(
         }
         await requestCompile(changeSource, editType);
     } else {
-        const canSkipUndoRedoLayerDataFetch = applyLocalUndoRedoVisualSync(
+        const localUndoRedoVisualSync = applyLocalUndoRedoVisualSync(
             entries,
             dependencies?.localUndoRedoContext,
             localCompileContext
@@ -2717,13 +2730,6 @@ export async function handleCommittedChangeRefresh(
         const selectedLayerId =
             window.glyphCanvas?.outlineEditor?.selectedLayerId;
         const selectedGlyphName = getActiveEditedGlyphName();
-        if (isUndoRedoPacket && replayTargets.length > 0) {
-            await refreshRustWorkerCache(undefined, undefined, {
-                workerReplayTargets: replayTargets,
-                allowSelectedLayerFallback: false
-            });
-            await awaitCommittedWorkerCacheSettled(awaitWorkerSync);
-        }
         const liveAdvanceDeltas = collectLiveAdvanceDeltas(
             entries,
             selectedLayerId,
@@ -2749,11 +2755,13 @@ export async function handleCommittedChangeRefresh(
         await refreshCanvasFromCommittedModelSync(undefined, undefined, {
             skipDeferredCanvasRepaint:
                 (isUndoRedoPacket || isSidebearingCommit) &&
-                !requiresBackgroundLayerRefresh,
-            skipLayerDataFetch: canSkipUndoRedoLayerDataFetch,
+                !requiresBackgroundLayerRefresh &&
+                !localUndoRedoVisualSync.deferAdvanceRefreshUntilCommittedCanvas,
+            skipLayerDataFetch: localUndoRedoVisualSync.skipLayerDataFetch,
             preferExactLayerDataRefresh: canPreferExactLocalVisualRefresh,
             ...(!hasLiveAdvancePreview &&
-            !isUndoRedoPacket &&
+            (!isUndoRedoPacket ||
+                localUndoRedoVisualSync.deferAdvanceRefreshUntilCommittedCanvas) &&
             Object.keys(liveAdvanceDeltas).length > 0
                 ? { liveAdvanceDeltas }
                 : {}),

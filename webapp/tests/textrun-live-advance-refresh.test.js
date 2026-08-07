@@ -1079,17 +1079,23 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(100);
     });
 
-    test('undo point drag recomputes metrics-key dependents and refreshes their advances immediately', async () => {
+    test('undo structural edits use the selected master advance', async () => {
         const refreshGlyphAdvancesLive = jest.fn();
+        const refreshGlyphAdvanceDeltasLive = jest.fn();
         const recomputeMetricsKeys = jest.fn(() => new Set(['a', 'n']));
         const sendMessage = jest.fn().mockResolvedValue({ success: true });
 
-        const makeFontModel = (aWidth, nWidth) => ({
+        const makeFontModel = (aWidth, nWidth, otherMasterWidth = aWidth) => ({
             recomputeMetricsKeys,
             findGlyph: jest.fn((glyphName) => {
                 if (glyphName === 'a') {
                     return {
-                        findLayerById: jest.fn(() => ({ width: aWidth }))
+                        findLayerById: jest.fn((layerId) => ({
+                            width:
+                                layerId === 'layer-1'
+                                    ? aWidth
+                                    : otherMasterWidth
+                        }))
                     };
                 }
                 if (glyphName === 'n') {
@@ -1112,7 +1118,12 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                 scale: 2
             },
             textRunEditor: {
-                refreshGlyphAdvancesLive
+                refreshGlyphAdvancesLive,
+                refreshGlyphAdvanceDeltasLive,
+                intrinsicGlyphAdvances: new Map([
+                    ['a', 450],
+                    ['n', 470]
+                ])
             },
             outlineEditor: {
                 active: true,
@@ -1146,7 +1157,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         originalWindow.patchSyncEngine = originalWindow.changeBridge = {
             runWithoutRecording: jest.fn((fn) => fn()),
             undo: jest.fn(() => {
-                currentFont.fontModel = makeFontModel(520, 600);
+                currentFont.fontModel = makeFontModel(500, 480, 667);
                 return {
                     scope: 'layer',
                     glyphName: 'a',
@@ -1166,6 +1177,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                         ],
                         entries: [
                             {
+                                path: 'glyphs.a.layers.layer-1.shapes.0.nodes.0.x',
                                 oldValue: '(10, 20)',
                                 newValue: 'LEFT (20, 20)',
                                 workerReplayTargets: [
@@ -1178,6 +1190,16 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                                         layerId: 'layer-1'
                                     }
                                 ]
+                            },
+                            {
+                                path: 'glyphs.a.layers.layer-2.shapes.0.nodes.0.x',
+                                oldValue: '(10, 20)',
+                                newValue: 'LEFT (20, 20)'
+                            },
+                            {
+                                path: 'glyphs.a.layers.layer-3.shapes.0.nodes.0.x',
+                                oldValue: '(10, 20)',
+                                newValue: 'LEFT (20, 20)'
                             }
                         ]
                     }
@@ -1191,10 +1213,14 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
 
         await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-        expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
+        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
+            { a: 500, n: 480 },
+            { render: false }
+        );
+        expect(refreshGlyphAdvanceDeltasLive).not.toHaveBeenCalled();
         expect(
             originalWindow.fontManager.refreshWorkerCacheForReplayTargets
-        ).toHaveBeenCalledTimes(1);
+        ).not.toHaveBeenCalled();
         expect(sendMessage).not.toHaveBeenCalledWith(
             expect.objectContaining({ type: 'storeFontJson' })
         );
@@ -1662,7 +1688,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             expect(
                 originalWindow.autoCompileManager.checkAndSchedule
             ).toHaveBeenCalledTimes(1);
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -1800,7 +1826,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -1820,7 +1846,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         }
     });
 
-    test('undo coarse layer-snapshot Scale selection still refreshes the worker incrementally', async () => {
+    test('undo coarse layer-snapshot Scale selection compiles from the forwarded worker update', async () => {
         const originalIsInitialized = fontCompilation.isInitialized;
         const originalLastStoredFontJson = fontCompilation.lastStoredFontJson;
         const sendMessageSpy = jest
@@ -1924,7 +1950,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -2353,7 +2379,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -2369,7 +2395,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         }
     });
 
-    test('undo anchor-inclusive Scale selection with replay targets stays incremental and recompiles after refresh', async () => {
+    test('undo anchor-inclusive Scale selection with replay targets recompiles after worker sync', async () => {
         const originalIsInitialized = fontCompilation.isInitialized;
         const sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
@@ -2491,7 +2517,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(
                 sendMessageSpy.mock.calls.some(
                     ([message]) => message?.type === 'storeFontJson'
@@ -2510,7 +2536,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         }
     });
 
-    test('undo glyph-wide sidebearing key change uses replay targets instead of forced full JSON refresh', async () => {
+    test('undo glyph-wide sidebearing key change uses the forwarded update instead of a repair refresh', async () => {
         const originalIsInitialized = fontCompilation.isInitialized;
         const originalLastStoredFontJson = fontCompilation.lastStoredFontJson;
         const sendMessageSpy = jest
@@ -2609,7 +2635,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
             expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledTimes(1);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
             expect(sendMessageSpy).not.toHaveBeenCalledWith(
                 expect.objectContaining({ type: 'storeFontJson' })
             );

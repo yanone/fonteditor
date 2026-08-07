@@ -4888,57 +4888,9 @@ class FontManager {
             this.bootstrapWorkerYjsMirrorFromCurrentFont();
         }
 
-        // Layer-target commits can replace nested Yjs arrays. Send the
-        // authoritative target snapshot to the worker so its independent
-        // document does not retain an obsolete array identity.
-        const targetedWorkerUpdates = targetLayerUpdates?.updates.map(
-            ({ glyphName, layerId, layerData }) => ({
-                glyphName,
-                layerId,
-                normalized: this.normalizeLayerForRust(layerData)
-            })
-        );
-        const projectedWorkerDoc = targetedWorkerUpdates?.length
-            ? new Y.Doc()
-            : null;
-        if (projectedWorkerDoc) {
-            Y.applyUpdate(
-                projectedWorkerDoc,
-                Y.encodeStateAsUpdate(this.workerCacheYDoc!)
-            );
-            Y.applyUpdate(projectedWorkerDoc, update);
-        }
-        const targetUpdatesRequiringRepair = targetedWorkerUpdates?.filter(
-            ({ glyphName, layerId, normalized }) => {
-                if (!normalizedChangedGlyphs.includes(glyphName)) {
-                    return false;
-                }
-
-                const projectedLayer = getYPath(
-                    projectedWorkerDoc!.getMap('font'),
-                    ['glyphs', glyphName, 'layers', layerId]
-                );
-                if (!projectedLayer) {
-                    return true;
-                }
-
-                return (
-                    this.getLayerWorkerFingerprint(
-                        fromYType(projectedLayer) as Babelfont.Layer
-                    ) !== this.getLayerWorkerFingerprint(normalized)
-                );
-            }
-        );
-        const targetedWorkerUpdate = targetUpdatesRequiringRepair?.length
-            ? this.buildWorkerYjsLayerUpdate(targetedWorkerUpdates!)
-            : null;
-        const workerUpdate = targetedWorkerUpdate?.update || update;
-        const workerChangedGlyphs =
-            targetedWorkerUpdate?.changedGlyphs || normalizedChangedGlyphs;
-
         const sent = await this.sendWorkerYjsUpdate(
-            workerUpdate,
-            workerChangedGlyphs,
+            update,
+            normalizedChangedGlyphs,
             options?.invalidateLayoutClosure !== false,
             normalizedNonGlyphChangeHints,
             normalizedLayerTargets,
@@ -4950,7 +4902,7 @@ class FontManager {
             return false;
         }
 
-        this.applyWorkerYjsUpdateToMirror(workerUpdate);
+        this.applyWorkerYjsUpdateToMirror(update);
 
         for (const fingerprintKey of removedFingerprintKeys) {
             this.workerLayerFingerprintCache.delete(fingerprintKey);

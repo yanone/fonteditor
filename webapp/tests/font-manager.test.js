@@ -4014,7 +4014,7 @@ describe('FontManager boundary-crossing budget', () => {
         }
     });
 
-    test('forwardWorkerYjsUpdate repairs stale direct layer targets with one incremental worker packet', async () => {
+    test('forwardWorkerYjsUpdate forwards raw direct layer updates without a worker-only repair', async () => {
         const sourceDoc = new Y.Doc();
         jsonToYDoc(
             cloneJson(fontManager.currentFont.babelfontData),
@@ -4047,15 +4047,15 @@ describe('FontManager boundary-crossing budget', () => {
             })
         ).resolves.toBe(true);
 
-        expect(buildWorkerYjsLayerUpdateSpy).toHaveBeenCalledTimes(1);
+        expect(buildWorkerYjsLayerUpdateSpy).not.toHaveBeenCalled();
         const forwardedUpdate = applyMirrorSpy.mock.calls[0][0];
-        expect(forwardedUpdate).toBeInstanceOf(Uint8Array);
+        expect(forwardedUpdate).toBe(rawUpdate);
         expect(syncJsonSpy).not.toHaveBeenCalled();
         expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
         expect(sendMessageSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'applyYjsUpdate',
-                update: forwardedUpdate,
+                update: rawUpdate,
                 changedGlyphs: ['a'],
                 layerTargets: [{ glyphName: 'a', layerId }],
                 invalidateLayoutClosure: false

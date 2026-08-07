@@ -438,7 +438,7 @@ describe('handleRemoteChangeRefresh', () => {
         }
     );
 
-    test('local undo settles replay-target cache updates before compiling', async () => {
+    test('local undo compiles after the authoritative worker update settles', async () => {
         const refreshOrder = [];
         const awaitWorkerSync = jest.fn(async () => {
             refreshOrder.push('sync');
@@ -498,13 +498,68 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
         expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-anchor',
             'anchor'
         );
-        expect(refreshOrder).toEqual(['sync', 'sync', 'compile']);
+        expect(refreshOrder).toEqual(['sync', 'compile']);
+    });
+
+    test('structural contour-delete undo compiles after one worker sync without replay repair', async () => {
+        const refreshOrder = [];
+        const awaitWorkerSync = jest.fn(async () => {
+            refreshOrder.push('sync');
+        });
+        const requestCompile = jest.fn(async () => {
+            refreshOrder.push('compile');
+        });
+        const refreshWorkerCacheForReplayTargets = jest.fn();
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    collectComponentDependentGlyphs: jest.fn(
+                        () => new Set(['adieresis'])
+                    )
+                }
+            },
+            lastChangeSource: 'keyboard-outline',
+            lastEditType: 'outline',
+            refreshWorkerCacheForReplayTargets
+        };
+
+        try {
+            await handleCommittedChangeRefresh(
+                [
+                    {
+                        historyAction: 'undo',
+                        transactionLabel: 'Delete contour',
+                        path: 'glyphs.a.layers.master-regular.shapes.1',
+                        workerReplayTargets: [
+                            { glyphName: 'a', layerId: 'master-regular' },
+                            {
+                                glyphName: 'adieresis',
+                                layerId: 'master-regular'
+                            }
+                        ]
+                    }
+                ],
+                'local',
+                { awaitWorkerSync, requestCompile }
+            );
+        } finally {
+            delete window.fontManager;
+        }
+
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
+        expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+        expect(requestCompile).toHaveBeenCalledWith(
+            'keyboard-outline',
+            'outline'
+        );
+        expect(refreshOrder).toEqual(['sync', 'compile']);
     });
 
     test('retries local undo compile readiness from worker-sync state before compiling', async () => {
@@ -655,10 +710,10 @@ describe('handleRemoteChangeRefresh', () => {
             delete window.fontManager;
         }
 
-        expect(awaitWorkerSync).toHaveBeenCalledTimes(3);
+        expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
         expect(queueCacheRefresh).not.toHaveBeenCalled();
         expect(requestCompile).not.toHaveBeenCalled();
-        expect(refreshOrder).toEqual(['sync', 'sync', 'sync']);
+        expect(refreshOrder).toEqual(['sync', 'sync']);
     });
 
     test('skips local committed compile when worker cache remains unready after readiness retry', async () => {
@@ -4584,7 +4639,7 @@ describe('committed undo/redo compile requests', () => {
         expect(window.fontManager.currentFont.compileRequestVersion).toBe(11);
     });
 
-    test('refreshes restored replay targets in the Rust cache before compiling undo', async () => {
+    test('undo compiles from the already-forwarded worker update without replay repair', async () => {
         const refreshWorkerCacheForReplayTargets = jest
             .fn()
             .mockResolvedValue(true);
@@ -4635,10 +4690,8 @@ describe('committed undo/redo compile requests', () => {
                 { awaitWorkerSync }
             );
 
-            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
-                { glyphName: 'Adieresis', layerId: 'layer-1' }
-            ]);
-            expect(awaitWorkerSync).toHaveBeenCalledTimes(2);
+            expect(refreshWorkerCacheForReplayTargets).not.toHaveBeenCalled();
+            expect(awaitWorkerSync).toHaveBeenCalledTimes(1);
             expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
         } finally {
             hasWorkerCacheDocument.mockRestore();
