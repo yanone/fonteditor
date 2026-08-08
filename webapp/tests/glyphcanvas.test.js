@@ -1412,6 +1412,26 @@ describe('GlyphCanvas onMouseUp', () => {
         expect(canvas.isDraggingCanvas).toBe(false);
     });
 
+    test('defers the mouse-up paint during a live sidebearing preview', async () => {
+        const renderSpy = jest.spyOn(canvas, 'render');
+        const activeSpy = jest
+            .spyOn(canvas.outlineEditor, 'isLiveSidebearingInteractionActive')
+            .mockReturnValue(true);
+        const onMouseUpSpy = jest
+            .spyOn(canvas.outlineEditor, 'onMouseUp')
+            .mockResolvedValue();
+
+        try {
+            await canvas.onMouseUp({ clientX: 10, clientY: 20 });
+
+            expect(renderSpy).not.toHaveBeenCalled();
+        } finally {
+            renderSpy.mockRestore();
+            activeSpy.mockRestore();
+            onMouseUpSpy.mockRestore();
+        }
+    });
+
     test('logs rejected outline mouseup promises from the canvas wrapper', async () => {
         const error = new Error('invalid width');
         const onMouseUpSpy = jest
@@ -5916,7 +5936,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         }
     });
 
-    test('sidebearing drag coalesces multiple moves into one mutate/paint frame', () => {
+    test('sidebearing drag coalesces multiple moves into one mutation while preview is pending', () => {
         const originalRequestAnimationFrame = global.requestAnimationFrame;
         const pendingFrames = [];
         global.requestAnimationFrame = jest.fn((callback) => {
@@ -5950,7 +5970,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
 
             pendingFrames.splice(0).forEach((callback) => callback());
             expect(applySpy).toHaveBeenCalledTimes(1);
-            expect(renderSpy).toHaveBeenCalledTimes(1);
+            expect(renderSpy).not.toHaveBeenCalled();
         } finally {
             applySpy.mockRestore();
             renderSpy.mockRestore();
@@ -6003,6 +6023,50 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         } finally {
             advancesSpy.mockRestore();
             anchorSpy.mockRestore();
+            renderSpy.mockRestore();
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+        }
+    });
+
+    test('sidebearing preview paints after the blob swap while dragging', () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const pendingFrames = [];
+        global.requestAnimationFrame = jest.fn((callback) => {
+            pendingFrames.push(callback);
+            return pendingFrames.length;
+        });
+        const renderSpy = jest.spyOn(canvas, 'render');
+
+        try {
+            canvas.outlineEditor.isDraggingSidebearing = true;
+            canvas.outlineEditor.scheduleSidebearingOwnedRepaint();
+
+            expect(pendingFrames).toHaveLength(1);
+            pendingFrames.splice(0).forEach((callback) => callback());
+            expect(renderSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            renderSpy.mockRestore();
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+        }
+    });
+
+    test('sidebearing preview paints after it arrives following mouse-up', () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const pendingFrames = [];
+        global.requestAnimationFrame = jest.fn((callback) => {
+            pendingFrames.push(callback);
+            return pendingFrames.length;
+        });
+        const renderSpy = jest.spyOn(canvas, 'render');
+
+        try {
+            canvas.outlineEditor.isDraggingSidebearing = false;
+            canvas.outlineEditor.scheduleSidebearingOwnedRepaint();
+
+            expect(pendingFrames).toHaveLength(1);
+            pendingFrames.splice(0).forEach((callback) => callback());
+            expect(renderSpy).toHaveBeenCalledTimes(1);
+        } finally {
             renderSpy.mockRestore();
             global.requestAnimationFrame = originalRequestAnimationFrame;
         }

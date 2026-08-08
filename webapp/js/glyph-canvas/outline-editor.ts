@@ -6471,31 +6471,17 @@ export class OutlineEditor {
         });
     }
 
-    /**
-     * One owned paint after a live preview blob swap during a sidebearing
-     * interaction. Coalesces with the mouse drag frame when both are pending.
-     */
+    /** Paint the live preview blob after it has replaced the previous outline. */
     scheduleSidebearingOwnedRepaint(): void {
         // The preview result has landed; release the rate gate so the next
         // pointer tick may stage a new generation.
         this._sidebearingPreviewPending = false;
 
         if (this.isDraggingSidebearing) {
-            // Never re-enter processSidebearingDragFrame: it re-reads the
-            // pointer and mutates, so a returning compile used to induce a full
-            // recomposition pass and paint model state newer than the outlines
-            // that had just arrived.
-            //
-            // While the pointer is moving, a tick will paint the swapped
-            // outlines within a frame, so no extra paint is needed. Scheduler
-            // state is NOT a usable signal here: _sidebearingDragFrame is
-            // routinely null between a completed tick and the next pointermove,
-            // so testing it produced a redundant paint ~2ms before every tick.
-            // Only genuine pointer idleness needs a paint-only frame.
-            const idleMs = performance.now() - this._lastSidebearingTickAt;
-            if (idleMs > OutlineEditor.SIDEBEARING_IDLE_PAINT_MS) {
-                this.scheduleSidebearingPaintFrame();
-            }
+            // Do not wait for another pointer tick: those ticks deliberately
+            // defer their paint while a preview is in flight, so this is the
+            // first frame allowed to show the recomposed outlines.
+            this.scheduleSidebearingPaintFrame();
             return;
         }
         if (this._sidebearingDragFrame !== null) {
@@ -6503,9 +6489,6 @@ export class OutlineEditor {
         }
         this._sidebearingDragFrame = requestAnimationFrame(() => {
             this._sidebearingDragFrame = null;
-            if (!this.isLiveSidebearingInteractionActive()) {
-                return;
-            }
             this.reapplyLastLiveSidebearingAdvances();
             this.reapplyPendingSidebearingBboxCenterAnchor();
             this.glyphCanvas.render();
@@ -6554,11 +6537,12 @@ export class OutlineEditor {
             this.glyphCanvas.updatePropertyPanel();
         }
 
-        // One mutate + one paint per coalesced drag frame. Newly compiled
-        // composite outlines are picked up by whichever tick paints next, so a
-        // returning preview never needs a frame of its own — that is what used
-        // to produce two frames per generation with a visible 2-130ms gap.
-        this.glyphCanvas.render();
+        // The source layer mutates synchronously, while automatic component
+        // outlines arrive in the live preview. Wait for that preview before
+        // presenting this frame so both appearances change together.
+        if (!this._sidebearingPreviewPending) {
+            this.glyphCanvas.render();
+        }
     }
 
     private queueNonCompilingLiveDragEdit(

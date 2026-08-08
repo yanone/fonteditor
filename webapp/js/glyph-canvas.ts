@@ -2325,6 +2325,8 @@ class GlyphCanvas {
     }
 
     async onMouseUp(e: MouseEvent): Promise<void> {
+        const deferRenderToSidebearingPreview =
+            this.outlineEditor.isLiveSidebearingInteractionActive();
         const finalization = this.outlineEditor.onMouseUp(e).catch((error) => {
             console.error('Outline mouseup failed:', error);
         });
@@ -2340,7 +2342,9 @@ class GlyphCanvas {
         // Update cursor based on current mouse position and Cmd key state
         this.updateCursorStyle(e);
 
-        this.render();
+        if (!deferRenderToSidebearingPreview) {
+            this.render();
+        }
 
         await finalization;
     }
