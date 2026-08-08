@@ -10,6 +10,7 @@ export interface LiveTextDiagnosticEntry {
     sequence: number;
     timestamp: number;
     source: string;
+    trace: string | null;
     text: string;
     selectedGlyphIndex: number;
     glyphs: DiagnosticGlyph[];
@@ -30,6 +31,16 @@ interface TextRunSnapshotSource {
 
 const MAX_ENTRIES = 2000;
 
+/** Capture the caller stack, excluding this recorder's implementation frames. */
+function captureDiagnosticTrace(): string | null {
+    const stack = new Error().stack;
+    if (!stack) {
+        return null;
+    }
+
+    return stack.split('\n').slice(2).join('\n');
+}
+
 function getDiagnosticsState(): Window['__liveTextDiagnostics'] | null {
     const diagnosticsAllowed =
         window.isDevelopment?.() || window.isTestMode?.() || window.isTest?.();
@@ -49,7 +60,7 @@ function getDiagnosticsState(): Window['__liveTextDiagnostics'] | null {
         : null;
 }
 
-/** Record a compact text-layout snapshot when development diagnostics are on. */
+/** Record a compact text-layout snapshot and caller trace when diagnostics are on. */
 export function recordLiveTextDiagnostic(
     source: string,
     textRunEditor: TextRunSnapshotSource | null | undefined,
@@ -81,6 +92,7 @@ export function recordLiveTextDiagnostic(
         sequence: (entries[entries.length - 1]?.sequence || 0) + 1,
         timestamp: performance.now(),
         source,
+        trace: captureDiagnosticTrace(),
         text: textRunEditor?.textBuffer || '',
         selectedGlyphIndex: textRunEditor?.selectedGlyphIndex ?? -1,
         glyphs,

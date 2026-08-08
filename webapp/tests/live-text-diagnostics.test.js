@@ -47,6 +47,7 @@ describe('live text diagnostics', () => {
                 expect.objectContaining({
                     sequence: 1,
                     source: 'text.reshape.completed',
+                    trace: expect.any(String),
                     text: 'Aa',
                     selectedGlyphIndex: 1,
                     totalAdvance: 1050,
