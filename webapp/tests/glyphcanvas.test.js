@@ -5104,6 +5104,56 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.requestRepaintAfterCompile).not.toHaveBeenCalled();
     });
 
+    test('committed sidebearing undo defers properties UI until its final anchored render', async () => {
+        const { setupFontLoadingListener } = require('../js/glyph-canvas');
+        setupFontLoadingListener();
+
+        const setFontSpy = jest
+            .spyOn(canvas, 'setFont')
+            .mockResolvedValue(undefined);
+        canvas.featuresManager.updateFeaturesUI = jest.fn().mockResolvedValue();
+        canvas.textRunEditor.shapeText = jest.fn();
+        canvas.outlineEditor.hasPendingSidebearingBboxCenterAnchor = jest.fn(
+            () => true
+        );
+        canvas.outlineEditor.reapplyPendingSidebearingBboxCenterAnchor =
+            jest.fn();
+        canvas.outlineEditor.clearPendingSidebearingBboxCenterAnchor =
+            jest.fn();
+        canvas.updatePropertiesUI = jest.fn().mockResolvedValue();
+        canvas.render = jest.fn();
+
+        window.dispatchEvent(
+            new CustomEvent('editingFontCompiled', {
+                detail: {
+                    fontBytes: new Uint8Array([1, 2, 3]),
+                    compilationMode: 'full',
+                    dragActive: false
+                }
+            })
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(setFontSpy).toHaveBeenCalledWith(
+            expect.any(ArrayBuffer),
+            expect.objectContaining({
+                skipInitialShapeRender: true,
+                skipPropertiesUIUpdate: true
+            })
+        );
+        expect(
+            canvas.outlineEditor.reapplyPendingSidebearingBboxCenterAnchor
+        ).toHaveBeenCalledTimes(1);
+        expect(canvas.updatePropertiesUI).toHaveBeenCalledWith({
+            skipAutoSelectMatchingLayer: true
+        });
+        expect(canvas.render).toHaveBeenCalledTimes(1);
+
+        setFontSpy.mockRestore();
+    });
+
     test('live sidebearing preview swaps without reshape or independent compile repaint', async () => {
         const { setupFontLoadingListener } = require('../js/glyph-canvas');
         setupFontLoadingListener();
@@ -11598,6 +11648,34 @@ describe('GlyphCanvas command path drawing visuals', () => {
         canvas.outlineEditor.setCommandKeyPressed(false);
 
         expect(canvas.outlineEditor.getCommandPathPreviewLine()).toBeNull();
+    });
+
+    test('cmd key transitions do not paint during a pending sidebearing anchor', () => {
+        const renderSpy = jest.spyOn(canvas, 'render');
+        const hitDetectionSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'performHitDetection'
+        );
+        const cursorSpy = jest.spyOn(canvas, 'updateCursorStyle');
+        const pendingAnchorSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'hasPendingSidebearingBboxCenterAnchor'
+            )
+            .mockReturnValue(true);
+
+        canvas.outlineEditor.setCommandKeyPressed(true);
+
+        expect(hitDetectionSpy).toHaveBeenCalledWith(null);
+        expect(cursorSpy).toHaveBeenCalled();
+        expect(renderSpy).not.toHaveBeenCalled();
+
+        pendingAnchorSpy.mockReturnValue(false);
+        canvas.outlineEditor.setCommandKeyPressed(false);
+
+        expect(renderSpy).toHaveBeenCalledTimes(1);
+
+        renderSpy.mockRestore();
     });
 
     test('alt hover on a straight segment previews collinear curve handles', () => {

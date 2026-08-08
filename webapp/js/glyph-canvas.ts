@@ -10274,7 +10274,12 @@ function setupFontLoadingListener() {
                     );
                     await window.glyphCanvas.setFont(arrayBuffer, {
                         skipInitialShapeRender: true,
-                        skipPropertiesUIUpdate: isDragActive
+                        // The deferred sidebearing path owns the one final
+                        // anchored render after recomposition. Updating the
+                        // properties UI here would render after setFont's
+                        // first shape and before that final render.
+                        skipPropertiesUIUpdate:
+                            isDragActive || deferredCommittedSidebearingRender
                     });
                     timelineSpanEnd(setFontSpanId);
                     timelineMark('canvas.editingFontCompiled.fontApplied');
@@ -10320,6 +10325,9 @@ function setupFontLoadingListener() {
                     if (deferredCommittedSidebearingRender) {
                         gc.renderSuppressed = false;
                         gc.outlineEditor.reapplyPendingSidebearingBboxCenterAnchor();
+                        await gc.updatePropertiesUI({
+                            skipAutoSelectMatchingLayer: true
+                        });
                         gc.render();
                         gc.outlineEditor.clearPendingSidebearingBboxCenterAnchor();
                         timelineMark(

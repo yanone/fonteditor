@@ -15426,7 +15426,9 @@ export class OutlineEditor {
         ) {
             this.performHitDetection(null);
             this.glyphCanvas.updateCursorStyle();
-            this.glyphCanvas.render();
+            if (!this.hasPendingSidebearingBboxCenterAnchor()) {
+                this.glyphCanvas.render();
+            }
         }
     }
 
