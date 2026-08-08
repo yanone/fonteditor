@@ -2161,7 +2161,8 @@ function hasSidebearingVisualAnchor(entries: ChangeLogEntry[]): boolean {
         ).some(
             (semanticEntry) =>
                 semanticEntry.visualAnchorSide === 'left' ||
-                semanticEntry.visualAnchorSide === 'right'
+                semanticEntry.visualAnchorSide === 'right' ||
+                semanticEntry.editSource === 'mouse-drag-sidebearing'
         )
     );
 }
@@ -2759,7 +2760,12 @@ export async function handleCommittedChangeRefresh(
                 !localUndoRedoVisualSync.deferAdvanceRefreshUntilCommittedCanvas,
             skipLayerDataFetch: localUndoRedoVisualSync.skipLayerDataFetch,
             preferExactLayerDataRefresh: canPreferExactLocalVisualRefresh,
-            ...(!hasLiveAdvancePreview &&
+            // A sidebearing packet's raw layer-width entries are not shaped
+            // advances. Its committed font result reshapes authoritatively;
+            // applying these deltas first can transiently move text to an
+            // impossible layout.
+            ...(!isSidebearingCommit &&
+            !hasLiveAdvancePreview &&
             (!isUndoRedoPacket ||
                 localUndoRedoVisualSync.deferAdvanceRefreshUntilCommittedCanvas) &&
             Object.keys(liveAdvanceDeltas).length > 0

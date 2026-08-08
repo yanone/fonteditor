@@ -5144,6 +5144,7 @@ describe('committed undo/redo compile requests', () => {
         const originalGlyphCanvas = window.glyphCanvas;
         const fetchLayerData = jest.fn();
         const refreshSelectedLayerFromModel = jest.fn(() => true);
+        const refreshGlyphAdvancesLive = jest.fn();
         const requestCompile = jest.fn(async () => {});
 
         window.fontManager = {
@@ -5160,6 +5161,10 @@ describe('committed undo/redo compile requests', () => {
         };
         window.glyphCanvas = {
             requestRepaintAfterCompile: jest.fn(),
+            textRunEditor: {
+                intrinsicGlyphAdvances: new Map([['a', 739]]),
+                refreshGlyphAdvancesLive
+            },
             outlineEditor: {
                 active: true,
                 draggingSomething: false,
@@ -5180,8 +5185,13 @@ describe('committed undo/redo compile requests', () => {
                 [
                     {
                         transactionLabel: 'Set LSB',
-                        path: 'glyphs.a.layers.layer-1.format_specific.metric_left',
-                        visualAnchorSide: 'left'
+                        path: 'glyphs.a.layers.layer-1.width',
+                        oldValue: 739,
+                        newValue: 881,
+                        editSource: 'mouse-drag-sidebearing',
+                        workerReplayTargets: [
+                            { glyphName: 'a', layerId: 'layer-1' }
+                        ]
                     }
                 ],
                 'local',
@@ -5197,6 +5207,7 @@ describe('committed undo/redo compile requests', () => {
 
         expect(refreshSelectedLayerFromModel).toHaveBeenCalledTimes(1);
         expect(fetchLayerData).not.toHaveBeenCalled();
+        expect(refreshGlyphAdvancesLive).not.toHaveBeenCalled();
         expect(requestCompile).toHaveBeenCalledWith(
             'keyboard-outline',
             'outline'
