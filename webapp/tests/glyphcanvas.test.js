@@ -15059,7 +15059,7 @@ describe('Text-mode kerning property panel', () => {
 
         await canvas.onKeyDown(
             new KeyboardEvent('keydown', {
-                key: 'ArrowRight',
+                key: 'ArrowLeft',
                 altKey: true
             })
         );

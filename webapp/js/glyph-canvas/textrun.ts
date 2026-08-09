@@ -1527,9 +1527,7 @@ export class TextRunEditor {
             );
         }
 
-        // Kerning caret override for RTL live preview (caret rides the moving
-        // left glyph). LTR uses the default between-glyph edge so negative sits
-        // left of the overlay and positive sits right.
+        // RTL live kerning preview may override caret X; LTR uses default edge.
         const kerningCursorX =
             window.glyphCanvas?.getTextModeKerningCursorFontX?.() ?? null;
         if (kerningCursorX !== null && Number.isFinite(kerningCursorX)) {

@@ -71,8 +71,8 @@ Arrow nudges and field arrow adjustments update the active pair’s spacing and 
 
 These shortcuts are the main ones for text-mode kerning:
 
-- LTR: `Alt/Option + Left Arrow` decreases by `1`; `Alt/Option + Right Arrow` increases by `1`
-- RTL (mirrored): `Alt/Option + Right Arrow` decreases by `1` (pulls the left glyph toward the anchored right glyph); `Alt/Option + Left Arrow` increases by `1`
+- `Alt/Option + Left Arrow` decreases the active kerning value by `1`
+- `Alt/Option + Right Arrow` increases the active kerning value by `1`
 - add `Shift` to change by `10`
 - add `Cmd/Ctrl` together with `Shift` to change by `100`
 
