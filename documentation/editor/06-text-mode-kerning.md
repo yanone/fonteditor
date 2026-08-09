@@ -63,7 +63,7 @@ Type a number into the inline field to set the active kerning pair.
 
 The kerning overlay in text mode updates from the active pair so you can see the adjustment in place.
 
-For LTR, the caret stays at the between-glyph edge: left of the kerning overlay when the value is negative, right when positive, so it moves with the kerning as spacing changes. The canvas stays anchored on the glyph left of the pair, not on the caret. For RTL negative kerning, the caret sits on the left edge of the kerning distance; reshapes still keep that caret screen-stationary until RTL anchoring is revisited. Before the font recompiles, the overlay band and bottom marker also grow from the caret so nudges do not expand in the opposite direction.
+For LTR, the caret stays at the between-glyph edge: left of the kerning overlay when the value is negative, right when positive, so it moves with the kerning as spacing changes. The canvas stays anchored on the glyph left of the pair, not on the caret. RTL is the mirror: the canvas stays anchored on the glyph right of the caret; everything visually left of the caret moves with the kerning, and everything visually right stays put. Before the font recompiles, the overlay band and bottom marker also grow from the caret so nudges do not expand in the opposite direction.
 
 Arrow nudges and field arrow adjustments update the active pair’s spacing and overlays immediately, then commit after a short idle debounce (same delay as keyboard outline edits). Other matching pairs in the proof string refresh only after compile.
 
@@ -71,8 +71,8 @@ Arrow nudges and field arrow adjustments update the active pair’s spacing and 
 
 These shortcuts are the main ones for text-mode kerning:
 
-- `Alt/Option + Left Arrow` decreases the active kerning value by `1`
-- `Alt/Option + Right Arrow` increases the active kerning value by `1`
+- LTR: `Alt/Option + Left Arrow` decreases by `1`; `Alt/Option + Right Arrow` increases by `1`
+- RTL (mirrored): `Alt/Option + Right Arrow` decreases by `1` (pulls the left glyph toward the anchored right glyph); `Alt/Option + Left Arrow` increases by `1`
 - add `Shift` to change by `10`
 - add `Cmd/Ctrl` together with `Shift` to change by `100`
 

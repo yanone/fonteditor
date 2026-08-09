@@ -1527,9 +1527,9 @@ export class TextRunEditor {
             );
         }
 
-        // Kerning caret override (RTL negative → left of span). LTR uses the
-        // default between-glyph edge so negative sits left of the overlay and
-        // positive sits right.
+        // Kerning caret override for RTL live preview (caret rides the moving
+        // left glyph). LTR uses the default between-glyph edge so negative sits
+        // left of the overlay and positive sits right.
         const kerningCursorX =
             window.glyphCanvas?.getTextModeKerningCursorFontX?.() ?? null;
         if (kerningCursorX !== null && Number.isFinite(kerningCursorX)) {

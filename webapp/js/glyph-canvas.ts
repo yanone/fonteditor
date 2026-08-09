@@ -269,12 +269,11 @@ type PendingTextModeKerningPreview = {
     previewValue: number | null;
     glyphIndex: number;
     baselineAx: number;
-    baselineDx: number;
     /**
-     * RTL live preview pins the caret here so the visually-left (second)
-     * glyph stays put while the first glyph is shifted via dx.
+     * RTL only: baseline `dx` for every glyph visually left of the caret at
+     * preview start. LTR leaves this null and adjusts `baselineAx` instead.
      */
-    stableCaretFontX: number | null;
+    baselineDxByGlyphIndex: Record<number, number> | null;
 };
 
 function getTextModeKerningPairKey(
@@ -570,10 +569,19 @@ class GlyphCanvas {
 
     // Auto-pan anchor for text mode (cursor position)
     textModeAutoPanAnchorScreen: { x: number; y: number } | null = null;
+    /**
+     * Kerning reshape pan: keep one pair-side glyph screen-stationary.
+     * `clusterStart` identifies the same logical cluster after reshape;
+     * screen X is captured from that cluster's visual position (x + dx).
+     */
+    textModeKerningPanAnchor: {
+        screenX: number;
+        clusterStart: number;
+    } | null = null;
     textModeEscapeState: SavedVariationState = new SavedVariationState();
 
     // Keep kerning pan anchor screen-stationary across kerning-value reshape
-    // (LTR: glyph left of the pair; RTL: caret until RTL anchoring is revisited)
+    // (LTR: glyph left of the pair; RTL: glyph right of the pair — both firstCluster)
     pendingTextModeKerningCursorAnchor: boolean = false;
 
     pendingFeatureChangeAnchor: {
@@ -7114,20 +7122,19 @@ class GlyphCanvas {
             return null;
         }
 
+        // Junction edge on the second glyph: left edge in LTR, right edge in
+        // RTL. Negative spans sit to the right (LTR) / left (RTL) of that edge;
+        // positive spans sit on the opposite side. Pin that edge to cursorX so
+        // live overlays grow away from the caret.
         const glyphEdge = isRTL
             ? secondCluster.x + secondCluster.width
             : secondCluster.x;
         const adjustmentEdge = glyphEdge - (isRTL ? -1 : 1) * value;
-        // Active pair: pin the caret-side edge to cursorX and keep the legacy
-        // span width/side. LTR: left of the span for negative values, right
-        // for positive (both are second.x with the default caret). RTL: left
-        // for negative. Pre-reshape overlays grow away from the caret.
         const useCursorAnchor = anchorX !== null && Number.isFinite(anchorX);
         let minX = Math.min(glyphEdge, adjustmentEdge);
         let maxX = Math.max(glyphEdge, adjustmentEdge);
         if (useCursorAnchor) {
-            const caretSideEdge = isRTL || value < 0 ? minX : maxX;
-            const shift = (anchorX as number) - caretSideEdge;
+            const shift = (anchorX as number) - glyphEdge;
             minX += shift;
             maxX += shift;
         }
@@ -7652,13 +7659,70 @@ class GlyphCanvas {
 
     private getTextModeKerningAdvanceGlyphIndex(
         firstCluster: TextRunClusterInfo,
-        _secondCluster: TextRunClusterInfo,
-        _isRTL: boolean = false
+        secondCluster: TextRunClusterInfo,
+        isRTL: boolean = false
     ): number {
-        // Always the kerning-pair first glyph: left in LTR, right in RTL.
-        // LTR preview adjusts its advance; RTL preview shifts it via dx so the
-        // second (left) glyph stays put with the caret.
-        return firstCluster.glyphIndex + firstCluster.glyphCount - 1;
+        // LTR: adjust the first (left) glyph's advance. RTL: shift glyphs
+        // visually left of the caret via dx (see baselineDxByGlyphIndex).
+        const cluster = isRTL ? secondCluster : firstCluster;
+        return cluster.glyphIndex + cluster.glyphCount - 1;
+    }
+
+    /**
+     * Glyph indices whose visual left edge is strictly left of caretFontX.
+     * Uses cluster.x (advance-based), not logical cursor index, so BiDi runs
+     * that sit left of the caret are included regardless of direction.
+     */
+    private getGlyphIndicesVisuallyLeftOfCaret(caretFontX: number): number[] {
+        const clusterMap = this.textRunEditor?.clusterMap as
+            TextRunClusterInfo[] | undefined;
+        const shapedGlyphs = this.textRunEditor?.shapedGlyphs;
+        if (!clusterMap?.length || !shapedGlyphs?.length) {
+            return [];
+        }
+
+        const indices: number[] = [];
+        for (const cluster of clusterMap) {
+            if (!(cluster.x < caretFontX)) {
+                continue;
+            }
+            const start = cluster.glyphIndex;
+            const end = Math.min(
+                start + cluster.glyphCount,
+                shapedGlyphs.length
+            );
+            for (let i = start; i < end; i++) {
+                indices.push(i);
+            }
+        }
+        return indices;
+    }
+
+    private restoreTextModeKerningPreviewBaselines(
+        pending: PendingTextModeKerningPreview
+    ): void {
+        const shapedGlyphs = this.textRunEditor?.shapedGlyphs;
+        if (!shapedGlyphs) {
+            return;
+        }
+
+        if (pending.baselineDxByGlyphIndex) {
+            for (const [indexText, baselineDx] of Object.entries(
+                pending.baselineDxByGlyphIndex
+            )) {
+                const index = Number(indexText);
+                const glyph = shapedGlyphs[index];
+                if (glyph) {
+                    glyph.dx = baselineDx;
+                }
+            }
+            return;
+        }
+
+        const glyph = shapedGlyphs[pending.glyphIndex];
+        if (glyph) {
+            glyph.ax = pending.baselineAx;
+        }
     }
 
     private applyTextModeKerningPreview(
@@ -7701,6 +7765,7 @@ class GlyphCanvas {
                 // flush cannot race and write the newly staged preview.
                 this.textModeKerningPreviewFunnel.cancelPendingCommit();
                 const previous = pending;
+                this.restoreTextModeKerningPreviewBaselines(previous);
                 this.pendingTextModeKerningPreview = null;
                 const previousMaster = this.getSelectedTextModeKerningMaster();
                 if (previousMaster && previousMaster.id === previous.masterId) {
@@ -7733,12 +7798,21 @@ class GlyphCanvas {
                     context.selectedFirstKey,
                     context.selectedSecondKey
                 ) ?? 0;
-            // RTL: pin caret to the second (left) glyph's pre-nudge left-of-span.
-            const stableCaretFontX = context.isRTL
-                ? context.secondCluster.x +
-                  context.secondCluster.width +
-                  committedValue
-                : null;
+            let baselineDxByGlyphIndex: Record<number, number> | null = null;
+            if (context.isRTL) {
+                const caretFontX = Number.isFinite(this.textRunEditor.cursorX)
+                    ? this.textRunEditor.cursorX
+                    : context.secondCluster.x + context.secondCluster.width;
+                baselineDxByGlyphIndex = {};
+                for (const index of this.getGlyphIndicesVisuallyLeftOfCaret(
+                    caretFontX
+                )) {
+                    const leftGlyph = this.textRunEditor.shapedGlyphs[index];
+                    if (leftGlyph) {
+                        baselineDxByGlyphIndex[index] = leftGlyph.dx || 0;
+                    }
+                }
+            }
             pending = {
                 masterId: context.master.id,
                 firstKey: context.selectedFirstKey,
@@ -7748,8 +7822,7 @@ class GlyphCanvas {
                 previewValue: committedValue,
                 glyphIndex,
                 baselineAx: glyph.ax || 0,
-                baselineDx: glyph.dx || 0,
-                stableCaretFontX
+                baselineDxByGlyphIndex
             };
             this.pendingTextModeKerningPreview = pending;
         }
@@ -7757,10 +7830,18 @@ class GlyphCanvas {
         const nextPreview = previewValue;
         const delta = (nextPreview ?? 0) - pending!.baselineValue;
         this.captureTextModeKerningPanAnchor();
-        if (context.isRTL) {
-            // Move only the first (right) glyph; leave advances alone so the
-            // second (left) glyph and caret stay put.
-            glyph.dx = pending!.baselineDx + delta;
+        if (context.isRTL && pending!.baselineDxByGlyphIndex) {
+            // Everything visually left of the caret moves; right stays put.
+            const shift = -delta;
+            for (const [indexText, baselineDx] of Object.entries(
+                pending!.baselineDxByGlyphIndex
+            )) {
+                const leftGlyph =
+                    this.textRunEditor.shapedGlyphs[Number(indexText)];
+                if (leftGlyph) {
+                    leftGlyph.dx = baselineDx + shift;
+                }
+            }
         } else {
             glyph.ax = pending!.baselineAx + delta;
         }
@@ -7782,7 +7863,7 @@ class GlyphCanvas {
         this.textRunEditor.buildClusterMap();
         this.textRunEditor.updateCursorVisualPosition();
         this.applyTextModeKerningPanAdjustment();
-        this.textModeAutoPanAnchorScreen = null;
+        this.clearTextModeKerningPanAnchor();
         this.invalidateTextModeKerningOverlayCache();
         this.render();
     }
@@ -10111,7 +10192,11 @@ class GlyphCanvas {
             e.preventDefault();
             const magnitude =
                 e.metaKey || e.ctrlKey ? 100 : e.shiftKey ? 10 : 1;
-            const delta = e.key === 'ArrowLeft' ? -magnitude : magnitude;
+            // LTR: Left decreases, Right increases. RTL mirror: Right pulls the
+            // left glyph toward the anchored right glyph (decreases), Left opens.
+            const direction = e.key === 'ArrowLeft' ? -1 : 1;
+            const context = this.getCurrentTextModeKerningContext();
+            const delta = (context.isRTL ? -direction : direction) * magnitude;
             void this.nudgeTextModeKerningValue(delta);
             return;
         }
@@ -10281,9 +10366,19 @@ class GlyphCanvas {
     }
 
     /**
-     * Font-space X to keep screen-stationary across LTR kerning edits: the
-     * glyph left of the pair (first cluster). RTL still uses the caret until
-     * that side is revisited.
+     * Visual font-space X of a cluster's first glyph (advance pen + dx).
+     * Kerning/GPOS often moves glyphs via dx without changing cluster.x.
+     */
+    private getTextModeClusterVisualFontX(cluster: TextRunClusterInfo): number {
+        const glyph =
+            this.textRunEditor?.shapedGlyphs?.[cluster.glyphIndex] ?? null;
+        return cluster.x + (glyph?.dx || 0);
+    }
+
+    /**
+     * Font-space X to keep screen-stationary across kerning edits: the glyph
+     * on the far side of the caret from the moving side of the pair
+     * (`firstCluster` — left in LTR, right in RTL), including dx.
      */
     getTextModeKerningPanAnchorFontX(): number | null {
         if (!this.textRunEditor) {
@@ -10291,12 +10386,8 @@ class GlyphCanvas {
         }
 
         const context = this.getCurrentTextModeKerningContext();
-        if (
-            context.status === 'ready' &&
-            !context.isRTL &&
-            context.firstCluster
-        ) {
-            return context.firstCluster.x;
+        if (context.status === 'ready' && context.firstCluster) {
+            return this.getTextModeClusterVisualFontX(context.firstCluster);
         }
 
         return Number.isFinite(this.textRunEditor.cursorX)
@@ -10306,44 +10397,95 @@ class GlyphCanvas {
 
     captureTextModeKerningPanAnchor(): void {
         if (!this.viewportManager) {
+            this.textModeKerningPanAnchor = null;
             this.textModeAutoPanAnchorScreen = null;
+            return;
+        }
+
+        const context = this.getCurrentTextModeKerningContext();
+        if (context.status === 'ready' && context.firstCluster) {
+            const fontX = this.getTextModeClusterVisualFontX(
+                context.firstCluster
+            );
+            this.textModeKerningPanAnchor = {
+                screenX: this.viewportManager.fontToScreenCoordinates(fontX, 0)
+                    .x,
+                clusterStart: context.firstCluster.start
+            };
+            this.textModeAutoPanAnchorScreen = {
+                x: this.textModeKerningPanAnchor.screenX,
+                y: 0
+            };
             return;
         }
 
         const fontX = this.getTextModeKerningPanAnchorFontX();
         if (fontX === null) {
+            this.textModeKerningPanAnchor = null;
             this.textModeAutoPanAnchorScreen = null;
             return;
         }
 
-        this.textModeAutoPanAnchorScreen =
-            this.viewportManager.fontToScreenCoordinates(fontX, 0);
+        const screenX = this.viewportManager.fontToScreenCoordinates(
+            fontX,
+            0
+        ).x;
+        this.textModeKerningPanAnchor = null;
+        this.textModeAutoPanAnchorScreen = { x: screenX, y: 0 };
     }
 
     applyTextModeKerningPanAdjustment(): void {
-        if (!this.textModeAutoPanAnchorScreen || !this.viewportManager) {
+        if (!this.viewportManager) {
             return;
         }
 
-        const fontX = this.getTextModeKerningPanAnchorFontX();
-        if (fontX === null) {
+        let anchorScreenX: number | null = null;
+        let currentFontX: number | null = null;
+
+        if (this.textModeKerningPanAnchor) {
+            const clusterMap = this.textRunEditor?.clusterMap as
+                TextRunClusterInfo[] | undefined;
+            const cluster = clusterMap?.find(
+                (entry) =>
+                    entry.start === this.textModeKerningPanAnchor!.clusterStart
+            );
+            if (cluster) {
+                anchorScreenX = this.textModeKerningPanAnchor.screenX;
+                currentFontX = this.getTextModeClusterVisualFontX(cluster);
+            }
+        }
+
+        if (
+            anchorScreenX === null &&
+            this.textModeAutoPanAnchorScreen &&
+            Number.isFinite(this.textModeAutoPanAnchorScreen.x)
+        ) {
+            anchorScreenX = this.textModeAutoPanAnchorScreen.x;
+            currentFontX = this.getTextModeKerningPanAnchorFontX();
+        }
+
+        if (anchorScreenX === null || currentFontX === null) {
             return;
         }
 
         const currentScreenPos = this.viewportManager.fontToScreenCoordinates(
-            fontX,
+            currentFontX,
             0
         );
-        this.viewportManager.panX +=
-            this.textModeAutoPanAnchorScreen.x - currentScreenPos.x;
+        this.viewportManager.panX += anchorScreenX - currentScreenPos.x;
+    }
+
+    clearTextModeKerningPanAnchor(): void {
+        this.textModeKerningPanAnchor = null;
+        this.textModeAutoPanAnchorScreen = null;
     }
 
     /**
-     * Font-space X for the text cursor on the caret side of an active kerning
-     * span. LTR uses the default between-glyph edge (second.x): left of the
-     * overlay for negative values, right for positive. RTL negative pairs use
-     * the left edge of the kerning distance. Returns null when the default
-     * cluster-edge cursor placement should stand.
+     * Font-space X for the text cursor on an active kerning span.
+     * LTR uses the default between-glyph edge (`second.x`). RTL live preview
+     * moves the caret with the left glyph (rightward when kerning decreases)
+     * so it stays on the right edge of a negative overlay. Returns null when
+     * the default cluster-edge cursor placement should stand.
      */
     getTextModeKerningCursorFontX(): number | null {
         if (this.outlineEditor?.active || !this.textRunEditor) {
@@ -10354,29 +10496,27 @@ class GlyphCanvas {
         if (
             context.status !== 'ready' ||
             !context.secondCluster ||
-            context.selectedValue === null ||
-            !context.isRTL ||
-            context.selectedValue >= 0
+            !context.isRTL
         ) {
-            // LTR (and RTL positive): default caret at second.x.
             return null;
         }
 
         const pending = this.pendingTextModeKerningPreview;
         if (
-            pending?.stableCaretFontX != null &&
-            pending.isRTL &&
-            pending.masterId === context.master?.id &&
-            pending.firstKey === context.selectedFirstKey &&
-            pending.secondKey === context.selectedSecondKey
+            !pending ||
+            !pending.isRTL ||
+            pending.masterId !== context.master?.id ||
+            pending.firstKey !== context.selectedFirstKey ||
+            pending.secondKey !== context.selectedSecondKey
         ) {
-            return pending.stableCaretFontX;
+            return null;
         }
 
         const secondVisualEdge =
             context.secondCluster.x + context.secondCluster.width;
-        // RTL negative: left edge of the kerning distance.
-        return secondVisualEdge + context.selectedValue;
+        const delta = (pending.previewValue ?? 0) - pending.baselineValue;
+        // Left glyph shifts by -delta; caret rides its right edge.
+        return secondVisualEdge - delta;
     }
 
     resetZoomAndPosition(): void {
@@ -10682,7 +10822,7 @@ function setupFontLoadingListener() {
                         gc.textRunEditor!.shapeText(true);
                         gc.clearTextModeKerningLivePreview();
                         gc.applyTextModeKerningPanAdjustment();
-                        gc.textModeAutoPanAnchorScreen = null;
+                        gc.clearTextModeKerningPanAnchor();
                         timelineMark(
                             'canvas.editingFontCompiled.kerningOnlyShaped'
                         );
@@ -10767,7 +10907,7 @@ function setupFontLoadingListener() {
                     gc.clearTextModeKerningLivePreview();
                     if (gc.pendingTextModeKerningCursorAnchor) {
                         gc.applyTextModeKerningPanAdjustment();
-                        gc.textModeAutoPanAnchorScreen = null;
+                        gc.clearTextModeKerningPanAnchor();
                         gc.pendingTextModeKerningCursorAnchor = false;
                     }
                     timelineSpanEnd(forceShapeTextSpanId);
