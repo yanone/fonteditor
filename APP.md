@@ -224,6 +224,8 @@ When sidebearing changes are caused by keyed realignment during outline or compo
 
 When a sidebearing changes, update the sidebearings of all inheriting downstream glyphs both in the object model as well as their advance widths in the harfbuzz buffer before repainting the canvas. This downstream propagation must include both explicit metrics-key inheritance and implicit automatic-alignment dependencies. When downstream glyphs that appear **before** the active glyph in the harfbuzz buffer also change width, the viewport anchoring must account for those preceding-advance shifts as part of the same repaint so the active glyph remains visually stationary at its intended anchor point.
 
+When an RTL text-mode kerning value edit reshapes the text run (kerning-only compile, matching undo/redo, and the deferred full compile after that edit), keep the active kerning pair's right edge screen-stationary by adjusting `panX`. Capture the pair's rightmost cluster edge immediately before reshape and re-apply after. LTR kerning remains left-origin stable and does not use this pair-edge anchor.
+
 ##### Tests
 
 **Test 1: Unkeyed Sidebearing Edits**

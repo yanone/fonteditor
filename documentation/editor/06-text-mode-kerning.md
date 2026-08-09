@@ -63,6 +63,8 @@ Type a number into the inline field to set the active kerning pair.
 
 The kerning overlay in text mode updates from the active pair so you can see the adjustment in place.
 
+For RTL pairs, nudging or committing a value keeps the pair’s right edge fixed on screen while the text run reshapes, so the proof string does not slide under the caret.
+
 ## Keyboard Shortcuts
 
 These shortcuts are the main ones for text-mode kerning:

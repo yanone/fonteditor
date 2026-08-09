@@ -14578,6 +14578,52 @@ describe('Text-mode kerning property panel', () => {
                 'master-1'
             ]['@MMK_R_AFirst']['@MMK_L_VSecond']
         ).toBe(-55);
+        expect(canvas.pendingTextModeKerningPairAnchor).toBe(true);
+    });
+
+    test('RTL kerning pair right-edge anchor keeps screen X stationary after reshape', () => {
+        setTextRunState({ rtl: true });
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panX = 100;
+
+        // RTL fixture: first right=160, second right=110 → anchor font X=160
+        expect(canvas.getTextModeKerningPairAnchorFontX()).toBe(160);
+
+        const beforeScreenX = canvas.viewportManager.fontToScreenCoordinates(
+            160,
+            0
+        ).x;
+        canvas.captureTextModeKerningPairAnchor();
+
+        // Simulate reshape: pair shifts left by 30 font units
+        for (const cluster of canvas.textRunEditor.clusterMap) {
+            cluster.x -= 30;
+        }
+        expect(canvas.getTextModeKerningPairAnchorFontX()).toBe(130);
+
+        canvas.applyTextModeKerningPairAnchorAdjustment();
+
+        const afterScreenX = canvas.viewportManager.fontToScreenCoordinates(
+            130,
+            0
+        ).x;
+        expect(afterScreenX).toBe(beforeScreenX);
+        expect(canvas.viewportManager.panX).toBe(160);
+        expect(canvas.textModeKerningPairAnchorScreen).toBeNull();
+    });
+
+    test('LTR kerning pair does not arm the RTL pair-edge anchor', () => {
+        setTextRunState({ rtl: false });
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panX = 100;
+
+        expect(canvas.getTextModeKerningPairAnchorFontX()).toBeNull();
+        canvas.captureTextModeKerningPairAnchor();
+        expect(canvas.textModeKerningPairAnchorScreen).toBeNull();
+
+        const beforePanX = canvas.viewportManager.panX;
+        canvas.applyTextModeKerningPairAnchorAdjustment();
+        expect(canvas.viewportManager.panX).toBe(beforePanX);
     });
 
     test('alt arrow keys nudge text-mode kerning with modifier scaling', async () => {

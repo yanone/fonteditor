@@ -550,6 +550,10 @@ class GlyphCanvas {
     textModeAutoPanAnchorScreen: { x: number; y: number } | null = null;
     textModeEscapeState: SavedVariationState = new SavedVariationState();
 
+    // RTL kerning: keep the active pair's right edge screen-stationary across reshape
+    textModeKerningPairAnchorScreen: { x: number; y: number } | null = null;
+    pendingTextModeKerningPairAnchor: boolean = false;
+
     pendingFeatureChangeAnchor: {
         text: { x: number; y: number } | null;
     } = { text: null };
@@ -3000,6 +3004,8 @@ class GlyphCanvas {
         latestAppliedEditingRevision = -1;
         editingFontApplyQueue = Promise.resolve();
         this.textModeAutoPanAnchorScreen = null;
+        this.textModeKerningPairAnchorScreen = null;
+        this.pendingTextModeKerningPairAnchor = false;
         this.pendingFeatureChangeAnchor.text = null;
         this.renderSuppressed = false;
         this.hasDeferredRenderRequest = false;
@@ -7536,6 +7542,9 @@ class GlyphCanvas {
                 context.isRTL
             );
         this.textModeKerningDraftValue = trimmedValue;
+        if (context.isRTL) {
+            this.pendingTextModeKerningPairAnchor = true;
+        }
         this.scheduleTextModeKerningCompile('kerning-property-panel');
         this.updatePropertyPanel();
         this.render();
@@ -9936,6 +9945,84 @@ class GlyphCanvas {
         this.viewportManager.panX += offsetX;
     }
 
+    /**
+     * Font-space X of the active RTL kerning pair's right edge, or null when
+     * the cursor is not between an RTL pair.
+     */
+    getTextModeKerningPairAnchorFontX(): number | null {
+        if (!this.textRunEditor) {
+            return null;
+        }
+
+        const clusterMap = this.textRunEditor.clusterMap as
+            TextRunClusterInfo[] | undefined;
+        if (!clusterMap || clusterMap.length === 0) {
+            return null;
+        }
+
+        const cursorPosition = this.textRunEditor.cursorPosition;
+        let firstCluster: TextRunClusterInfo | null = null;
+        let secondCluster: TextRunClusterInfo | null = null;
+        for (const cluster of clusterMap) {
+            if (cluster.end === cursorPosition) {
+                firstCluster = cluster;
+            }
+            if (secondCluster === null && cluster.start === cursorPosition) {
+                secondCluster = cluster;
+            }
+        }
+
+        if (
+            !firstCluster ||
+            !secondCluster ||
+            !firstCluster.isRTL ||
+            !secondCluster.isRTL
+        ) {
+            return null;
+        }
+
+        return Math.max(
+            firstCluster.x + firstCluster.width,
+            secondCluster.x + secondCluster.width
+        );
+    }
+
+    captureTextModeKerningPairAnchor(): void {
+        if (!this.viewportManager) {
+            this.textModeKerningPairAnchorScreen = null;
+            return;
+        }
+
+        const fontX = this.getTextModeKerningPairAnchorFontX();
+        if (fontX === null) {
+            this.textModeKerningPairAnchorScreen = null;
+            return;
+        }
+
+        this.textModeKerningPairAnchorScreen =
+            this.viewportManager.fontToScreenCoordinates(fontX, 0);
+    }
+
+    applyTextModeKerningPairAnchorAdjustment(): void {
+        if (!this.textModeKerningPairAnchorScreen || !this.viewportManager) {
+            return;
+        }
+
+        const fontX = this.getTextModeKerningPairAnchorFontX();
+        if (fontX === null) {
+            this.textModeKerningPairAnchorScreen = null;
+            return;
+        }
+
+        const currentScreenPos = this.viewportManager.fontToScreenCoordinates(
+            fontX,
+            0
+        );
+        this.viewportManager.panX +=
+            this.textModeKerningPairAnchorScreen.x - currentScreenPos.x;
+        this.textModeKerningPairAnchorScreen = null;
+    }
+
     resetZoomAndPosition(): void {
         // Zoom to fit text, matching the initial view when font loads
         const rect = this.canvas!.getBoundingClientRect();
@@ -10234,8 +10321,10 @@ function setupFontLoadingListener() {
 
                     if (compilationMode === 'kerning-only') {
                         const fontBytesArray = new Uint8Array(arrayBuffer);
+                        gc.captureTextModeKerningPairAnchor();
                         gc.textRunEditor!.setShapingFontBlob(fontBytesArray);
                         gc.textRunEditor!.shapeText(true);
+                        gc.applyTextModeKerningPairAnchorAdjustment();
                         timelineMark(
                             'canvas.editingFontCompiled.kerningOnlyShaped'
                         );
@@ -10313,7 +10402,14 @@ function setupFontLoadingListener() {
                     const forceShapeTextSpanId = timelineSpanStart(
                         'canvas.editingFontCompiled.forceShapeText'
                     );
+                    if (gc.pendingTextModeKerningPairAnchor) {
+                        gc.captureTextModeKerningPairAnchor();
+                    }
                     gc.textRunEditor!.shapeText(true);
+                    if (gc.pendingTextModeKerningPairAnchor) {
+                        gc.applyTextModeKerningPairAnchorAdjustment();
+                        gc.pendingTextModeKerningPairAnchor = false;
+                    }
                     timelineSpanEnd(forceShapeTextSpanId);
 
                     timelineMark('canvas.editingFontCompiled.shapeTextForced');
