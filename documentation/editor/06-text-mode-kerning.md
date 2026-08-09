@@ -63,7 +63,9 @@ Type a number into the inline field to set the active kerning pair.
 
 The kerning overlay in text mode updates from the active pair so you can see the adjustment in place.
 
-For RTL pairs with negative kerning, the caret sits on the left edge of the kerning distance (same junction side as LTR). Kerning-value reshapes keep that caret screen-stationary. Before the font recompiles, the overlay band and bottom marker also grow from the caret so nudges do not expand in the opposite direction.
+For LTR, the caret stays at the between-glyph edge: left of the kerning overlay when the value is negative, right when positive, so it moves with the kerning as spacing changes. The canvas stays anchored on the glyph left of the pair, not on the caret. For RTL negative kerning, the caret sits on the left edge of the kerning distance; reshapes still keep that caret screen-stationary until RTL anchoring is revisited. Before the font recompiles, the overlay band and bottom marker also grow from the caret so nudges do not expand in the opposite direction.
+
+Arrow nudges and field arrow adjustments update the active pair’s spacing and overlays immediately, then commit after a short idle debounce (same delay as keyboard outline edits). Other matching pairs in the proof string refresh only after compile.
 
 ## Keyboard Shortcuts
 
@@ -73,8 +75,6 @@ These shortcuts are the main ones for text-mode kerning:
 - `Alt/Option + Right Arrow` increases the active kerning value by `1`
 - add `Shift` to change by `10`
 - add `Cmd/Ctrl` together with `Shift` to change by `100`
-- `Enter` commits the value currently typed in the kerning field
-- `Escape` cancels the current draft value in the kerning field
 
 ## A Practical Workflow
 

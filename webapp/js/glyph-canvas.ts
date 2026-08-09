@@ -43,6 +43,7 @@ import {
     setKerningPairValueOnMaster,
     type KerningContainer
 } from './kerning-utils';
+import { KeyboardPreviewEditFunnel } from './keyboard-preview-edit-funnel';
 import tippy from 'tippy.js';
 import {
     applyPasteGlyphsDocument,
@@ -256,6 +257,24 @@ type TextModeKerningOverlayCache = {
     entries: TextModeKerningOverlayCacheEntry[];
     entriesByAdjacencyKey: Map<string, TextModeKerningOverlayCacheEntry>;
     candidatePairToAdjacencyKeys: Map<string, Set<string>>;
+};
+
+type PendingTextModeKerningPreview = {
+    masterId: string;
+    firstKey: string;
+    secondKey: string;
+    isRTL: boolean;
+    /** Kerning value already reflected in the current shaped glyph advances. */
+    baselineValue: number;
+    previewValue: number | null;
+    glyphIndex: number;
+    baselineAx: number;
+    baselineDx: number;
+    /**
+     * RTL live preview pins the caret here so the visually-left (second)
+     * glyph stays put while the first glyph is shifted via dx.
+     */
+    stableCaretFontX: number | null;
 };
 
 function getTextModeKerningPairKey(
@@ -501,6 +520,9 @@ class GlyphCanvas {
     textModeKerningDraftScopeKey: string | null = null;
     textModeKerningDraftValue: string | null = null;
     textModeKerningOverlayCache: TextModeKerningOverlayCache | null = null;
+    private textModeKerningPreviewFunnel = new KeyboardPreviewEditFunnel();
+    private pendingTextModeKerningPreview: PendingTextModeKerningPreview | null =
+        null;
 
     zoomAnimation: {
         active: boolean;
@@ -550,7 +572,8 @@ class GlyphCanvas {
     textModeAutoPanAnchorScreen: { x: number; y: number } | null = null;
     textModeEscapeState: SavedVariationState = new SavedVariationState();
 
-    // Keep cursor screen-stationary across kerning-value reshape (LTR + RTL)
+    // Keep kerning pan anchor screen-stationary across kerning-value reshape
+    // (LTR: glyph left of the pair; RTL: caret until RTL anchoring is revisited)
     pendingTextModeKerningCursorAnchor: boolean = false;
 
     pendingFeatureChangeAnchor: {
@@ -3004,6 +3027,7 @@ class GlyphCanvas {
         editingFontApplyQueue = Promise.resolve();
         this.textModeAutoPanAnchorScreen = null;
         this.pendingTextModeKerningCursorAnchor = false;
+        this.clearTextModeKerningLivePreview({ cancelCommit: true });
         this.pendingFeatureChangeAnchor.text = null;
         this.renderSuppressed = false;
         this.hasDeferredRenderRequest = false;
@@ -6702,6 +6726,10 @@ class GlyphCanvas {
             return;
         }
 
+        if (this.pendingTextModeKerningPreview) {
+            void this.flushTextModeKerningPreviewCommit();
+        }
+
         this.textModeKerningSelectionScopeKey = scopeKey;
         this.textModeKerningSelectionPinned = false;
     }
@@ -7037,6 +7065,14 @@ class GlyphCanvas {
                       resolvedSelection.secondKey
                   )
                 : null;
+        const previewValue = this.getPendingTextModeKerningPreviewValue(
+            master?.id || null,
+            resolvedSelection.firstKey,
+            resolvedSelection.secondKey,
+            firstCluster.isRTL
+        );
+        const effectiveValue =
+            previewValue !== undefined ? previewValue : selectedValue;
         const selectedFirstLabel =
             firstOptions.find(
                 (option) => option.key === resolvedSelection.firstKey
@@ -7062,8 +7098,8 @@ class GlyphCanvas {
             selectedSecondKey: resolvedSelection.secondKey,
             selectedFirstLabel,
             selectedSecondLabel,
-            selectedValue,
-            hasSelectedValue: selectedValue !== null
+            selectedValue: effectiveValue,
+            hasSelectedValue: effectiveValue !== null
         };
     }
 
@@ -7081,15 +7117,20 @@ class GlyphCanvas {
         const glyphEdge = isRTL
             ? secondCluster.x + secondCluster.width
             : secondCluster.x;
-        // When a caret anchor is provided (active pair), grow the band from
-        // that X with LTR math so live value edits keep the cursor-side edge
-        // fixed — matching LTR and the post-reshape RTL caret. Inactive pair
-        // markers keep the legacy direction-aware glyph-edge formula.
+        const adjustmentEdge = glyphEdge - (isRTL ? -1 : 1) * value;
+        // Active pair: pin the caret-side edge to cursorX and keep the legacy
+        // span width/side. LTR: left of the span for negative values, right
+        // for positive (both are second.x with the default caret). RTL: left
+        // for negative. Pre-reshape overlays grow away from the caret.
         const useCursorAnchor = anchorX !== null && Number.isFinite(anchorX);
-        const baseEdge = useCursorAnchor ? (anchorX as number) : glyphEdge;
-        const adjustmentEdge = useCursorAnchor
-            ? baseEdge - value
-            : baseEdge - (isRTL ? -1 : 1) * value;
+        let minX = Math.min(glyphEdge, adjustmentEdge);
+        let maxX = Math.max(glyphEdge, adjustmentEdge);
+        if (useCursorAnchor) {
+            const caretSideEdge = isRTL || value < 0 ? minX : maxX;
+            const shift = (anchorX as number) - caretSideEdge;
+            minX += shift;
+            maxX += shift;
+        }
         const metricValues = Object.values(metrics).filter((metricValue) =>
             Number.isFinite(metricValue)
         );
@@ -7104,8 +7145,8 @@ class GlyphCanvas {
                 : -fontUpm * 0.2;
 
         return {
-            minX: Math.min(baseEdge, adjustmentEdge),
-            maxX: Math.max(baseEdge, adjustmentEdge),
+            minX,
+            maxX,
             topY,
             bottomY,
             value
@@ -7486,7 +7527,8 @@ class GlyphCanvas {
     private async commitTextModeKerningValue(
         value: string,
         context: TextModeKerningContext,
-        focusCanvas: boolean = false
+        focusCanvas: boolean = false,
+        options: { flushImmediately?: boolean } = {}
     ): Promise<void> {
         if (
             !context.master ||
@@ -7514,6 +7556,14 @@ class GlyphCanvas {
             context.selectedSecondKey
         );
         if (currentValue === nextValue) {
+            // Preview already matches the typed value; still flush on blur
+            // so the deferred model write lands when leaving the field.
+            if (
+                options.flushImmediately &&
+                this.pendingTextModeKerningPreview
+            ) {
+                await this.flushTextModeKerningPreviewCommit();
+            }
             this.textModeKerningDraftPairKey = nextPairKey;
             this.textModeKerningDraftScopeKey =
                 this.getTextModeKerningDraftScopeKey(
@@ -7521,6 +7571,12 @@ class GlyphCanvas {
                     context.isRTL
                 );
             this.textModeKerningDraftValue = trimmedValue;
+            if (focusCanvas) {
+                const active = document.activeElement as HTMLElement | null;
+                if (active && this.propertyPanel?.contains(active)) {
+                    active.blur();
+                }
+            }
             this.updatePropertyPanel();
             if (focusCanvas) {
                 this.focusCanvasForTextModeKerning();
@@ -7528,35 +7584,26 @@ class GlyphCanvas {
             return;
         }
 
-        window.patchSyncEngine?.beginTransaction('Edit kerning pair');
-        try {
-            setKerningPairValueOnMaster(
-                context.master,
-                context.selectedFirstKey,
-                context.selectedSecondKey,
-                nextValue,
-                context.isRTL
-            );
-            this.patchTextModeKerningOverlayCachePair(
-                context.master,
-                context.selectedFirstKey,
-                context.selectedSecondKey
-            );
-        } finally {
-            window.patchSyncEngine?.endTransaction();
+        this.applyTextModeKerningPreview(nextValue, context);
+        if (!this.pendingTextModeKerningPreview) {
+            // No live shape data (e.g. unit tests / off-canvas) — write now.
+            await this.commitTextModeKerningValueDirectly(nextValue, context);
+        } else {
+            this.scheduleTextModeKerningPreviewCommit();
+            if (options.flushImmediately) {
+                await this.flushTextModeKerningPreviewCommit();
+            }
         }
 
-        this.textModeKerningDraftPairKey = nextPairKey;
-        this.textModeKerningDraftScopeKey =
-            this.getTextModeKerningDraftScopeKey(
-                context.master.id || null,
-                context.isRTL
-            );
-        this.textModeKerningDraftValue = trimmedValue;
-        this.pendingTextModeKerningCursorAnchor = true;
-        this.scheduleTextModeKerningCompile('kerning-property-panel');
+        if (focusCanvas) {
+            // Blur before rebuilding the panel so restoreActivePropertyInput
+            // does not steal focus back from the canvas.
+            const active = document.activeElement as HTMLElement | null;
+            if (active && this.propertyPanel?.contains(active)) {
+                active.blur();
+            }
+        }
         this.updatePropertyPanel();
-        this.render();
         if (focusCanvas) {
             this.focusCanvasForTextModeKerning();
         }
@@ -7578,6 +7625,286 @@ class GlyphCanvas {
             context,
             true
         );
+    }
+
+    private getPendingTextModeKerningPreviewValue(
+        masterId: string | null,
+        firstKey: string | null,
+        secondKey: string | null,
+        isRTL: boolean
+    ): number | null | undefined {
+        const pending = this.pendingTextModeKerningPreview;
+        if (
+            !pending ||
+            !masterId ||
+            !firstKey ||
+            !secondKey ||
+            pending.masterId !== masterId ||
+            pending.firstKey !== firstKey ||
+            pending.secondKey !== secondKey ||
+            pending.isRTL !== isRTL
+        ) {
+            return undefined;
+        }
+
+        return pending.previewValue;
+    }
+
+    private getTextModeKerningAdvanceGlyphIndex(
+        firstCluster: TextRunClusterInfo,
+        _secondCluster: TextRunClusterInfo,
+        _isRTL: boolean = false
+    ): number {
+        // Always the kerning-pair first glyph: left in LTR, right in RTL.
+        // LTR preview adjusts its advance; RTL preview shifts it via dx so the
+        // second (left) glyph stays put with the caret.
+        return firstCluster.glyphIndex + firstCluster.glyphCount - 1;
+    }
+
+    private applyTextModeKerningPreview(
+        previewValue: number | null,
+        context: TextModeKerningContext
+    ): void {
+        if (
+            !context.master?.id ||
+            !context.selectedFirstKey ||
+            !context.selectedSecondKey ||
+            !context.firstCluster ||
+            !context.secondCluster ||
+            !this.textRunEditor?.shapedGlyphs
+        ) {
+            return;
+        }
+
+        const glyphIndex = this.getTextModeKerningAdvanceGlyphIndex(
+            context.firstCluster,
+            context.secondCluster,
+            context.isRTL
+        );
+        const glyph = this.textRunEditor.shapedGlyphs[glyphIndex];
+        if (!glyph) {
+            return;
+        }
+
+        let pending = this.pendingTextModeKerningPreview;
+        const samePair =
+            pending &&
+            pending.masterId === context.master.id &&
+            pending.firstKey === context.selectedFirstKey &&
+            pending.secondKey === context.selectedSecondKey &&
+            pending.isRTL === context.isRTL &&
+            pending.glyphIndex === glyphIndex;
+
+        if (!samePair) {
+            if (pending) {
+                // Commit the previous pair immediately so a fire-and-forget
+                // flush cannot race and write the newly staged preview.
+                this.textModeKerningPreviewFunnel.cancelPendingCommit();
+                const previous = pending;
+                this.pendingTextModeKerningPreview = null;
+                const previousMaster = this.getSelectedTextModeKerningMaster();
+                if (previousMaster && previousMaster.id === previous.masterId) {
+                    const committedValue =
+                        getKerningPairValue(
+                            (previous.isRTL
+                                ? previousMaster.kerning_rtl
+                                : previousMaster.kerning) as
+                                KerningContainer | undefined,
+                            previous.firstKey,
+                            previous.secondKey
+                        ) ?? null;
+                    if (committedValue !== previous.previewValue) {
+                        this.writeTextModeKerningPairValue(
+                            previousMaster,
+                            previous.firstKey,
+                            previous.secondKey,
+                            previous.previewValue,
+                            previous.isRTL
+                        );
+                    }
+                }
+            }
+            const committedValue =
+                getKerningPairValue(
+                    (context.isRTL
+                        ? context.master.kerning_rtl
+                        : context.master.kerning) as
+                        KerningContainer | undefined,
+                    context.selectedFirstKey,
+                    context.selectedSecondKey
+                ) ?? 0;
+            // RTL: pin caret to the second (left) glyph's pre-nudge left-of-span.
+            const stableCaretFontX = context.isRTL
+                ? context.secondCluster.x +
+                  context.secondCluster.width +
+                  committedValue
+                : null;
+            pending = {
+                masterId: context.master.id,
+                firstKey: context.selectedFirstKey,
+                secondKey: context.selectedSecondKey,
+                isRTL: context.isRTL,
+                baselineValue: committedValue,
+                previewValue: committedValue,
+                glyphIndex,
+                baselineAx: glyph.ax || 0,
+                baselineDx: glyph.dx || 0,
+                stableCaretFontX
+            };
+            this.pendingTextModeKerningPreview = pending;
+        }
+
+        const nextPreview = previewValue;
+        const delta = (nextPreview ?? 0) - pending!.baselineValue;
+        this.captureTextModeKerningPanAnchor();
+        if (context.isRTL) {
+            // Move only the first (right) glyph; leave advances alone so the
+            // second (left) glyph and caret stay put.
+            glyph.dx = pending!.baselineDx + delta;
+        } else {
+            glyph.ax = pending!.baselineAx + delta;
+        }
+        pending!.previewValue = nextPreview;
+
+        const pairKey = getTextModeKerningPairKey(
+            context.selectedFirstKey,
+            context.selectedSecondKey
+        );
+        this.textModeKerningDraftPairKey = pairKey;
+        this.textModeKerningDraftScopeKey =
+            this.getTextModeKerningDraftScopeKey(
+                context.master.id,
+                context.isRTL
+            );
+        this.textModeKerningDraftValue =
+            nextPreview === null ? '' : String(nextPreview);
+
+        this.textRunEditor.buildClusterMap();
+        this.textRunEditor.updateCursorVisualPosition();
+        this.applyTextModeKerningPanAdjustment();
+        this.textModeAutoPanAnchorScreen = null;
+        this.invalidateTextModeKerningOverlayCache();
+        this.render();
+    }
+
+    private scheduleTextModeKerningPreviewCommit(): void {
+        if (!this.pendingTextModeKerningPreview) {
+            return;
+        }
+
+        this.textModeKerningPreviewFunnel.scheduleCommit(async () => {
+            await this.commitPendingTextModeKerningPreview();
+        });
+    }
+
+    private async flushTextModeKerningPreviewCommit(): Promise<void> {
+        await this.textModeKerningPreviewFunnel.flushPendingCommit();
+    }
+
+    private async commitPendingTextModeKerningPreview(): Promise<void> {
+        const pending = this.pendingTextModeKerningPreview;
+        if (!pending) {
+            return;
+        }
+
+        const master = this.getSelectedTextModeKerningMaster();
+        if (!master || master.id !== pending.masterId) {
+            this.clearTextModeKerningLivePreview({ cancelCommit: true });
+            return;
+        }
+
+        const committedValue =
+            getKerningPairValue(
+                (pending.isRTL ? master.kerning_rtl : master.kerning) as
+                    KerningContainer | undefined,
+                pending.firstKey,
+                pending.secondKey
+            ) ?? null;
+        if (committedValue === pending.previewValue) {
+            this.pendingTextModeKerningPreview = null;
+            return;
+        }
+
+        this.writeTextModeKerningPairValue(
+            master,
+            pending.firstKey,
+            pending.secondKey,
+            pending.previewValue,
+            pending.isRTL
+        );
+        this.pendingTextModeKerningPreview = null;
+    }
+
+    private async commitTextModeKerningValueDirectly(
+        nextValue: number | null,
+        context: TextModeKerningContext
+    ): Promise<void> {
+        if (
+            !context.master ||
+            !context.selectedFirstKey ||
+            !context.selectedSecondKey
+        ) {
+            return;
+        }
+
+        this.writeTextModeKerningPairValue(
+            context.master,
+            context.selectedFirstKey,
+            context.selectedSecondKey,
+            nextValue,
+            context.isRTL
+        );
+
+        const pairKey = getTextModeKerningPairKey(
+            context.selectedFirstKey,
+            context.selectedSecondKey
+        );
+        this.textModeKerningDraftPairKey = pairKey;
+        this.textModeKerningDraftScopeKey =
+            this.getTextModeKerningDraftScopeKey(
+                context.master.id || null,
+                context.isRTL
+            );
+        this.textModeKerningDraftValue =
+            nextValue === null ? '' : String(nextValue);
+    }
+
+    private writeTextModeKerningPairValue(
+        master: Master,
+        firstKey: string,
+        secondKey: string,
+        value: number | null,
+        isRTL: boolean
+    ): void {
+        window.patchSyncEngine?.beginTransaction('Edit kerning pair');
+        try {
+            setKerningPairValueOnMaster(
+                master,
+                firstKey,
+                secondKey,
+                value,
+                isRTL
+            );
+            this.patchTextModeKerningOverlayCachePair(
+                master,
+                firstKey,
+                secondKey
+            );
+        } finally {
+            window.patchSyncEngine?.endTransaction();
+        }
+
+        this.pendingTextModeKerningCursorAnchor = true;
+        this.scheduleTextModeKerningCompile('kerning-property-panel');
+    }
+
+    clearTextModeKerningLivePreview(
+        options: { cancelCommit?: boolean } = {}
+    ): void {
+        if (options.cancelCommit) {
+            this.textModeKerningPreviewFunnel.cancelPendingCommit();
+        }
+        this.pendingTextModeKerningPreview = null;
     }
 
     private updateTextModeKerningMirror(
@@ -8933,7 +9260,7 @@ class GlyphCanvas {
                     await this.commitTextModeKerningValue(
                         String(nextValue),
                         context,
-                        true
+                        false
                     );
                 },
                 findReplacementInput: () =>
@@ -8959,20 +9286,13 @@ class GlyphCanvas {
                 void this.commitTextModeKerningValue(
                     input.value,
                     context,
-                    true
+                    true,
+                    { flushImmediately: true }
                 );
             });
 
             input.addEventListener('keydown', (event) => {
                 if (this.handlePropertyInputUndoRedo(event)) {
-                    return;
-                }
-
-                if (event.key === 'Escape') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    this.clearTextModeKerningDraft();
-                    this.updatePropertyPanel();
                     return;
                 }
 
@@ -8984,6 +9304,7 @@ class GlyphCanvas {
                         context,
                         true
                     );
+                    input.blur();
                 }
             });
 
@@ -9029,7 +9350,8 @@ class GlyphCanvas {
                     void this.commitTextModeKerningValue(
                         input.value,
                         context,
-                        true
+                        true,
+                        { flushImmediately: true }
                     );
                 }, 0);
             });
@@ -9689,6 +10011,9 @@ class GlyphCanvas {
         );
         window.removeEventListener('fontModelSync', this.handleFontModelSync);
 
+        this.clearTextModeKerningLivePreview({ cancelCommit: true });
+        this.textModeKerningPreviewFunnel.reset();
+
         // Clear any pending blur timeout
         if (this.blurTimeoutId) {
             clearTimeout(this.blurTimeoutId);
@@ -9956,9 +10281,69 @@ class GlyphCanvas {
     }
 
     /**
-     * Font-space X for the text cursor when it sits between an RTL kerning
-     * pair with a negative value: the left edge of the kerning distance.
-     * Returns null when the default cluster-edge cursor placement should stand.
+     * Font-space X to keep screen-stationary across LTR kerning edits: the
+     * glyph left of the pair (first cluster). RTL still uses the caret until
+     * that side is revisited.
+     */
+    getTextModeKerningPanAnchorFontX(): number | null {
+        if (!this.textRunEditor) {
+            return null;
+        }
+
+        const context = this.getCurrentTextModeKerningContext();
+        if (
+            context.status === 'ready' &&
+            !context.isRTL &&
+            context.firstCluster
+        ) {
+            return context.firstCluster.x;
+        }
+
+        return Number.isFinite(this.textRunEditor.cursorX)
+            ? this.textRunEditor.cursorX
+            : null;
+    }
+
+    captureTextModeKerningPanAnchor(): void {
+        if (!this.viewportManager) {
+            this.textModeAutoPanAnchorScreen = null;
+            return;
+        }
+
+        const fontX = this.getTextModeKerningPanAnchorFontX();
+        if (fontX === null) {
+            this.textModeAutoPanAnchorScreen = null;
+            return;
+        }
+
+        this.textModeAutoPanAnchorScreen =
+            this.viewportManager.fontToScreenCoordinates(fontX, 0);
+    }
+
+    applyTextModeKerningPanAdjustment(): void {
+        if (!this.textModeAutoPanAnchorScreen || !this.viewportManager) {
+            return;
+        }
+
+        const fontX = this.getTextModeKerningPanAnchorFontX();
+        if (fontX === null) {
+            return;
+        }
+
+        const currentScreenPos = this.viewportManager.fontToScreenCoordinates(
+            fontX,
+            0
+        );
+        this.viewportManager.panX +=
+            this.textModeAutoPanAnchorScreen.x - currentScreenPos.x;
+    }
+
+    /**
+     * Font-space X for the text cursor on the caret side of an active kerning
+     * span. LTR uses the default between-glyph edge (second.x): left of the
+     * overlay for negative values, right for positive. RTL negative pairs use
+     * the left edge of the kerning distance. Returns null when the default
+     * cluster-edge cursor placement should stand.
      */
     getTextModeKerningCursorFontX(): number | null {
         if (this.outlineEditor?.active || !this.textRunEditor) {
@@ -9967,17 +10352,30 @@ class GlyphCanvas {
 
         const context = this.getCurrentTextModeKerningContext();
         if (
-            !context.isRTL ||
             context.status !== 'ready' ||
             !context.secondCluster ||
             context.selectedValue === null ||
+            !context.isRTL ||
             context.selectedValue >= 0
         ) {
+            // LTR (and RTL positive): default caret at second.x.
             return null;
+        }
+
+        const pending = this.pendingTextModeKerningPreview;
+        if (
+            pending?.stableCaretFontX != null &&
+            pending.isRTL &&
+            pending.masterId === context.master?.id &&
+            pending.firstKey === context.selectedFirstKey &&
+            pending.secondKey === context.selectedSecondKey
+        ) {
+            return pending.stableCaretFontX;
         }
 
         const secondVisualEdge =
             context.secondCluster.x + context.secondCluster.width;
+        // RTL negative: left edge of the kerning distance.
         return secondVisualEdge + context.selectedValue;
     }
 
@@ -10279,10 +10677,11 @@ function setupFontLoadingListener() {
 
                     if (compilationMode === 'kerning-only') {
                         const fontBytesArray = new Uint8Array(arrayBuffer);
-                        gc.captureTextModeAutoPanAnchor();
+                        gc.captureTextModeKerningPanAnchor();
                         gc.textRunEditor!.setShapingFontBlob(fontBytesArray);
                         gc.textRunEditor!.shapeText(true);
-                        gc.applyTextModeAutoPanAdjustment();
+                        gc.clearTextModeKerningLivePreview();
+                        gc.applyTextModeKerningPanAdjustment();
                         gc.textModeAutoPanAnchorScreen = null;
                         timelineMark(
                             'canvas.editingFontCompiled.kerningOnlyShaped'
@@ -10362,11 +10761,12 @@ function setupFontLoadingListener() {
                         'canvas.editingFontCompiled.forceShapeText'
                     );
                     if (gc.pendingTextModeKerningCursorAnchor) {
-                        gc.captureTextModeAutoPanAnchor();
+                        gc.captureTextModeKerningPanAnchor();
                     }
                     gc.textRunEditor!.shapeText(true);
+                    gc.clearTextModeKerningLivePreview();
                     if (gc.pendingTextModeKerningCursorAnchor) {
-                        gc.applyTextModeAutoPanAdjustment();
+                        gc.applyTextModeKerningPanAdjustment();
                         gc.textModeAutoPanAnchorScreen = null;
                         gc.pendingTextModeKerningCursorAnchor = false;
                     }

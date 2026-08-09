@@ -8,6 +8,10 @@ const APP_SETTINGS = {
     // Compilation settings
     COMPILE_DEBOUNCE_DELAY: 150, // ms - delay before auto-compile triggers after changes
 
+    // Shared idle delay before keyboard-previewed edits commit to Yjs/history.
+    // Used by outline/anchor/sidebearing keyboard preview and text-mode kerning.
+    KEYBOARD_PREVIEW_COMMIT_DEBOUNCE: 1000, // ms
+
     // Axis animation settings
     AXIS_ANIMATION_WAVELENGTH: 5000, // ms - wavelength of sine wave for axis animation
 
@@ -89,9 +93,6 @@ const APP_SETTINGS = {
 
         // Preview mode
         PREVIEW_MODE_DELAY: 200, // ms - delay before activating preview mode with Space bar in text mode (below this delay, types a space character)
-
-        // Keyboard preview commits
-        KEYBOARD_PREVIEW_COMMIT_DEBOUNCE: 1000, // ms - idle delay before previewed keyboard edits commit to Yjs/history
 
         // Colors - Light Theme
         COLORS_LIGHT: {

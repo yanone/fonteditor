@@ -1527,8 +1527,9 @@ export class TextRunEditor {
             );
         }
 
-        // RTL negative kerning: draw the caret on the left edge of the kern
-        // distance so it matches LTR junction semantics for cursor auto-pan.
+        // Kerning caret override (RTL negative → left of span). LTR uses the
+        // default between-glyph edge so negative sits left of the overlay and
+        // positive sits right.
         const kerningCursorX =
             window.glyphCanvas?.getTextModeKerningCursorFontX?.() ?? null;
         if (kerningCursorX !== null && Number.isFinite(kerningCursorX)) {

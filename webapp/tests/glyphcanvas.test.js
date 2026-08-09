@@ -3931,14 +3931,17 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 '-90',
                 {
                     master: {
+                        id: 'master-1',
                         kerning: {}
                     },
                     selectedFirstKey: 'A',
                     selectedSecondKey: 'V',
                     selectedValue: null,
-                    hasSelectedValue: false
+                    hasSelectedValue: false,
+                    isRTL: false
                 },
-                false
+                false,
+                { flushImmediately: true }
             );
 
             expect(markDirty).toHaveBeenCalledWith('kerning-property-panel');
@@ -14040,6 +14043,7 @@ describe('Text-mode kerning property panel', () => {
     let currentFont;
     let fontModel;
     let originalPatchSyncEngine;
+    let originalWindowGlyphCanvas;
 
     const makeKerningFont = ({ includeSecondMaster = false } = {}) =>
         Font.fromData({
@@ -14216,12 +14220,21 @@ describe('Text-mode kerning property panel', () => {
         canvas.textRunEditor.selectedMasterId = masterId;
         canvas.textRunEditor.clusterMap = clusterMap;
         canvas.textRunEditor.glyphNameBuffer = ['A', 'V'];
+        canvas.textRunEditor.textBuffer = 'AV';
+        // Live kerning preview adjusts ax on these glyphs. Keep the hand-built
+        // clusterMap stable so panel/overlay tests stay deterministic.
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 40, dx: 0, dy: 0, g: 0, cl: 0 },
+            { ax: 50, dx: 0, dy: 0, g: 1, cl: 1 }
+        ];
+        canvas.textRunEditor.buildClusterMap = jest.fn();
         canvas.textRunEditor.findFirstGlyphAtClusterPosition = jest.fn(
             (clusterPos) => (clusterPos === 0 ? 0 : 1)
         );
         canvas.textRunEditor.findLastGlyphAtClusterPosition = jest.fn(
             (clusterPos) => (clusterPos === 0 ? 0 : 1)
         );
+        canvas.textRunEditor.updateCursorVisualPosition();
     };
 
     beforeEach(() => {
@@ -14233,6 +14246,8 @@ describe('Text-mode kerning property panel', () => {
             markDirty: jest.fn()
         };
         originalPatchSyncEngine = window.patchSyncEngine;
+        originalWindowGlyphCanvas = window.glyphCanvas;
+        window.glyphCanvas = canvas;
         currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue(currentFont);
@@ -14244,6 +14259,7 @@ describe('Text-mode kerning property panel', () => {
     afterEach(() => {
         currentFontSpy.mockRestore();
         window.patchSyncEngine = originalPatchSyncEngine;
+        window.glyphCanvas = originalWindowGlyphCanvas;
         canvas.destroy();
     });
 
@@ -14470,6 +14486,7 @@ describe('Text-mode kerning property panel', () => {
                 isRTL: false
             }
         ];
+        canvas.textRunEditor.updateCursorVisualPosition();
 
         canvas.updatePropertyPanel();
 
@@ -14497,26 +14514,39 @@ describe('Text-mode kerning property panel', () => {
     });
 
     test('returns focus to the canvas after committing a kerning value', async () => {
+        jest.useFakeTimers();
+        const APP_SETTINGS = require('../js/settings').default;
         setTextRunState();
 
-        canvas.updatePropertyPanel();
+        try {
+            canvas.updatePropertyPanel();
 
-        const input = document.querySelector('.glyph-kerning-value-input');
-        input.focus();
-        input.value = '-55';
-        input.dispatchEvent(
-            new KeyboardEvent('keydown', {
-                key: 'Enter',
-                bubbles: true
-            })
-        );
-        await Promise.resolve();
+            const input = document.querySelector('.glyph-kerning-value-input');
+            input.focus();
+            input.value = '-55';
+            input.dispatchEvent(
+                new KeyboardEvent('keydown', {
+                    key: 'Enter',
+                    bubbles: true
+                })
+            );
+            await Promise.resolve();
 
-        expect(document.activeElement).toBe(canvas.canvas);
-        expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-55);
+            expect(document.activeElement).toBe(canvas.canvas);
+            expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-40);
+
+            await jest.advanceTimersByTimeAsync(
+                APP_SETTINGS.KEYBOARD_PREVIEW_COMMIT_DEBOUNCE
+            );
+            expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-55);
+        } finally {
+            jest.useRealTimers();
+        }
     });
 
     test('committing an RTL kerning value records the canonical source and editor RTL data', async () => {
+        jest.useFakeTimers();
+        const APP_SETTINGS = require('../js/settings').default;
         const recordChange = jest.fn();
         window.patchSyncEngine = {
             beginTransaction: jest.fn(),
@@ -14529,56 +14559,112 @@ describe('Text-mode kerning property panel', () => {
             secondKey: '@VSecond'
         };
 
-        canvas.updatePropertyPanel();
+        try {
+            canvas.updatePropertyPanel();
 
-        const input = document.querySelector('.glyph-kerning-value-input');
-        input.focus();
-        input.value = '-55';
-        input.dispatchEvent(
-            new KeyboardEvent('keydown', {
-                key: 'Enter',
-                bubbles: true
-            })
-        );
-        await Promise.resolve();
+            const input = document.querySelector('.glyph-kerning-value-input');
+            input.focus();
+            input.value = '-55';
+            input.dispatchEvent(
+                new KeyboardEvent('keydown', {
+                    key: 'Enter',
+                    bubbles: true
+                })
+            );
+            await Promise.resolve();
+            await jest.advanceTimersByTimeAsync(
+                APP_SETTINGS.KEYBOARD_PREVIEW_COMMIT_DEBOUNCE
+            );
 
-        expect(window.patchSyncEngine.beginTransaction).toHaveBeenCalledWith(
-            'Edit kerning pair'
-        );
-        expect(window.patchSyncEngine.endTransaction).toHaveBeenCalled();
-        expect(recordChange).toHaveBeenCalledTimes(2);
-        const formatSpecificChange = recordChange.mock.calls.find(
-            ([path, property]) =>
-                Array.isArray(path) &&
-                path.length === 0 &&
-                property === 'format_specific'
-        );
-        expect(formatSpecificChange).toBeDefined();
-        expect(
-            formatSpecificChange[3]['com.schriftgestalt.Glyphs.kerningRTL'][
-                'master-1'
-            ]['@MMK_R_AFirst']['@MMK_L_VSecond']
-        ).toBe(-55);
-        expect(recordChange).toHaveBeenCalledWith(
-            ['masters', 0],
-            'kerning_rtl',
-            {},
-            {
-                '@AFirst:@VSecond': -55
-            }
-        );
-        expect(fontModel.masters[0].kerning_rtl['@AFirst:@VSecond']).toBe(-55);
-        // The format_specific key is kept in sync (not deleted) so that
-        // Rust preserves RTL kerning on round-trip.
-        expect(
-            fontModel.format_specific['com.schriftgestalt.Glyphs.kerningRTL']
-        ).toBeDefined();
-        expect(
-            fontModel.format_specific['com.schriftgestalt.Glyphs.kerningRTL'][
-                'master-1'
-            ]['@MMK_R_AFirst']['@MMK_L_VSecond']
-        ).toBe(-55);
-        expect(canvas.pendingTextModeKerningCursorAnchor).toBe(true);
+            expect(
+                window.patchSyncEngine.beginTransaction
+            ).toHaveBeenCalledWith('Edit kerning pair');
+            expect(window.patchSyncEngine.endTransaction).toHaveBeenCalled();
+            expect(recordChange).toHaveBeenCalledTimes(2);
+            const formatSpecificChange = recordChange.mock.calls.find(
+                ([path, property]) =>
+                    Array.isArray(path) &&
+                    path.length === 0 &&
+                    property === 'format_specific'
+            );
+            expect(formatSpecificChange).toBeDefined();
+            expect(
+                formatSpecificChange[3]['com.schriftgestalt.Glyphs.kerningRTL'][
+                    'master-1'
+                ]['@MMK_R_AFirst']['@MMK_L_VSecond']
+            ).toBe(-55);
+            expect(recordChange).toHaveBeenCalledWith(
+                ['masters', 0],
+                'kerning_rtl',
+                {},
+                {
+                    '@AFirst:@VSecond': -55
+                }
+            );
+            expect(fontModel.masters[0].kerning_rtl['@AFirst:@VSecond']).toBe(
+                -55
+            );
+            // The format_specific key is kept in sync (not deleted) so that
+            // Rust preserves RTL kerning on round-trip.
+            expect(
+                fontModel.format_specific[
+                    'com.schriftgestalt.Glyphs.kerningRTL'
+                ]
+            ).toBeDefined();
+            expect(
+                fontModel.format_specific[
+                    'com.schriftgestalt.Glyphs.kerningRTL'
+                ]['master-1']['@MMK_R_AFirst']['@MMK_L_VSecond']
+            ).toBe(-55);
+            expect(canvas.pendingTextModeKerningCursorAnchor).toBe(true);
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    test('LTR negative kerning keeps the cursor on the left edge of the kern distance', () => {
+        const previousGlyphCanvas = window.glyphCanvas;
+        window.glyphCanvas = canvas;
+        try {
+            setTextRunState();
+            fontModel.masters[0].kerning = {
+                'A:@VSecond': -40
+            };
+            canvas.textModeKerningSelection = {
+                firstKey: 'A',
+                secondKey: '@VSecond'
+            };
+
+            // Default LTR junction (second.x) is the left edge of a negative span.
+            expect(canvas.getTextModeKerningCursorFontX()).toBeNull();
+
+            canvas.textRunEditor.updateCursorVisualPosition();
+            expect(canvas.textRunEditor.cursorX).toBe(60);
+        } finally {
+            window.glyphCanvas = previousGlyphCanvas;
+        }
+    });
+
+    test('LTR positive kerning keeps the cursor on the right edge of the kern distance', () => {
+        const previousGlyphCanvas = window.glyphCanvas;
+        window.glyphCanvas = canvas;
+        try {
+            setTextRunState();
+            fontModel.masters[0].kerning = {
+                'A:@VSecond': 40
+            };
+            canvas.textModeKerningSelection = {
+                firstKey: 'A',
+                secondKey: '@VSecond'
+            };
+
+            expect(canvas.getTextModeKerningCursorFontX()).toBeNull();
+            canvas.textRunEditor.updateCursorVisualPosition();
+            // second.x is the right edge of a positive span [20, 60].
+            expect(canvas.textRunEditor.cursorX).toBe(60);
+        } finally {
+            window.glyphCanvas = previousGlyphCanvas;
+        }
     });
 
     test('RTL negative kerning places the cursor on the left edge of the kern distance', () => {
@@ -14647,14 +14733,14 @@ describe('Text-mode kerning property panel', () => {
                     canvas.textRunEditor.cursorX,
                     0
                 ).x;
-            canvas.captureTextModeAutoPanAnchor();
+            canvas.captureTextModeKerningPanAnchor();
 
             // Simulate reshape: pair shifts left by 30 font units
             for (const cluster of canvas.textRunEditor.clusterMap) {
                 cluster.x -= 30;
             }
             canvas.textRunEditor.updateCursorVisualPosition();
-            canvas.applyTextModeAutoPanAdjustment();
+            canvas.applyTextModeKerningPanAdjustment();
 
             const afterScreenX = canvas.viewportManager.fontToScreenCoordinates(
                 canvas.textRunEditor.cursorX,
@@ -14662,6 +14748,53 @@ describe('Text-mode kerning property panel', () => {
             ).x;
             expect(afterScreenX).toBe(beforeScreenX);
             expect(canvas.viewportManager.panX).toBe(160);
+        } finally {
+            window.glyphCanvas = previousGlyphCanvas;
+        }
+    });
+
+    test('LTR kerning pan keeps the left glyph screen X stationary, not the cursor', () => {
+        const previousGlyphCanvas = window.glyphCanvas;
+        window.glyphCanvas = canvas;
+        try {
+            setTextRunState();
+            fontModel.masters[0].kerning = {
+                'A:@VSecond': 40
+            };
+            canvas.textModeKerningSelection = {
+                firstKey: 'A',
+                secondKey: '@VSecond'
+            };
+            canvas.viewportManager.scale = 2;
+            canvas.viewportManager.panX = 100;
+
+            canvas.textRunEditor.updateCursorVisualPosition();
+            expect(canvas.getTextModeKerningPanAnchorFontX()).toBe(0);
+
+            const beforeLeftScreenX =
+                canvas.viewportManager.fontToScreenCoordinates(0, 0).x;
+            const beforeCursorScreenX =
+                canvas.viewportManager.fontToScreenCoordinates(
+                    canvas.textRunEditor.cursorX,
+                    0
+                ).x;
+            canvas.captureTextModeKerningPanAnchor();
+
+            // Positive kerning: second glyph and caret move right; first stays.
+            canvas.textRunEditor.clusterMap[1].x += 30;
+            canvas.textRunEditor.updateCursorVisualPosition();
+            canvas.applyTextModeKerningPanAdjustment();
+
+            const afterLeftScreenX =
+                canvas.viewportManager.fontToScreenCoordinates(0, 0).x;
+            const afterCursorScreenX =
+                canvas.viewportManager.fontToScreenCoordinates(
+                    canvas.textRunEditor.cursorX,
+                    0
+                ).x;
+            expect(afterLeftScreenX).toBe(beforeLeftScreenX);
+            expect(canvas.viewportManager.panX).toBe(100);
+            expect(afterCursorScreenX).not.toBe(beforeCursorScreenX);
         } finally {
             window.glyphCanvas = previousGlyphCanvas;
         }
@@ -14701,7 +14834,158 @@ describe('Text-mode kerning property panel', () => {
         );
     });
 
-    test('alt arrow keys nudge text-mode kerning with modifier scaling', async () => {
+    test('LTR live kerning overlay grows right from the left-edge caret for negative values', () => {
+        setTextRunState();
+        fontModel.masters[0].kerning = {
+            'A:@VSecond': -40
+        };
+        canvas.textModeKerningSelection = {
+            firstKey: 'A',
+            secondKey: '@VSecond'
+        };
+        canvas.textRunEditor.cursorX = 60;
+
+        const overlay40 = canvas.getTextModeKerningOverlayState();
+        expect(overlay40).toEqual(
+            expect.objectContaining({
+                minX: 60,
+                maxX: 100,
+                value: -40
+            })
+        );
+
+        fontModel.masters[0].kerning['A:@VSecond'] = -50;
+        expect(canvas.textRunEditor.cursorX).toBe(60);
+        const overlay50 = canvas.getTextModeKerningOverlayState();
+        expect(overlay50).toEqual(
+            expect.objectContaining({
+                minX: 60,
+                maxX: 110,
+                value: -50
+            })
+        );
+    });
+
+    test('LTR live kerning overlay grows left from the right-edge caret for positive values', () => {
+        setTextRunState();
+        fontModel.masters[0].kerning = {
+            'A:@VSecond': 40
+        };
+        canvas.textModeKerningSelection = {
+            firstKey: 'A',
+            secondKey: '@VSecond'
+        };
+        canvas.textRunEditor.cursorX = 60;
+
+        const overlay40 = canvas.getTextModeKerningOverlayState();
+        expect(overlay40).toEqual(
+            expect.objectContaining({
+                minX: 20,
+                maxX: 60,
+                value: 40
+            })
+        );
+
+        fontModel.masters[0].kerning['A:@VSecond'] = 50;
+        expect(canvas.textRunEditor.cursorX).toBe(60);
+        const overlay50 = canvas.getTextModeKerningOverlayState();
+        expect(overlay50).toEqual(
+            expect.objectContaining({
+                minX: 10,
+                maxX: 60,
+                value: 50
+            })
+        );
+    });
+
+    test('RTL kerning nudge shifts the first (right) glyph via dx and keeps the second (left) glyph fixed', async () => {
+        setTextRunState({ rtl: true });
+        fontModel.masters[0].kerning_rtl = {
+            '@AFirst:@VSecond': -40
+        };
+        canvas.textModeKerningSelection = {
+            firstKey: '@AFirst',
+            secondKey: '@VSecond'
+        };
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panX = 100;
+        canvas.textRunEditor.updateCursorVisualPosition();
+
+        const leftBeforeX = canvas.textRunEditor.clusterMap[1].x;
+        const beforeCaret = canvas.textRunEditor.cursorX;
+        const beforePanX = canvas.viewportManager.panX;
+        expect(beforeCaret).toBe(70); // second.x + second.width + (-40)
+
+        await canvas.onKeyDown(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowLeft',
+                altKey: true
+            })
+        );
+
+        // First (right, glyphIndex 0) moves via dx; second (left) advance unchanged.
+        expect(canvas.textRunEditor.shapedGlyphs[0].ax).toBe(40);
+        expect(canvas.textRunEditor.shapedGlyphs[0].dx).toBe(-1);
+        expect(canvas.textRunEditor.shapedGlyphs[1].ax).toBe(50);
+        expect(canvas.textRunEditor.shapedGlyphs[1].dx || 0).toBe(0);
+        expect(canvas.textRunEditor.clusterMap[1].x).toBe(leftBeforeX);
+        expect(canvas.textRunEditor.cursorX).toBe(beforeCaret);
+        expect(canvas.viewportManager.panX).toBe(beforePanX);
+        expect(canvas.pendingTextModeKerningPreview.stableCaretFontX).toBe(70);
+        expect(canvas.pendingTextModeKerningPreview.previewValue).toBe(-41);
+    });
+
+    test('alt arrow keys preview text-mode kerning immediately and commit after debounce', async () => {
+        jest.useFakeTimers();
+        setTextRunState();
+        const APP_SETTINGS = require('../js/settings').default;
+
+        try {
+            await canvas.onKeyDown(
+                new KeyboardEvent('keydown', {
+                    key: 'ArrowLeft',
+                    altKey: true
+                })
+            );
+            // Live preview only — model still holds the committed value.
+            expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-40);
+            expect(canvas.textRunEditor.shapedGlyphs[0].ax).toBe(39);
+            expect(canvas.pendingTextModeKerningPreview.previewValue).toBe(-41);
+
+            await canvas.onKeyDown(
+                new KeyboardEvent('keydown', {
+                    key: 'ArrowRight',
+                    altKey: true,
+                    shiftKey: true
+                })
+            );
+            expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-40);
+            expect(canvas.textRunEditor.shapedGlyphs[0].ax).toBe(49);
+            expect(canvas.pendingTextModeKerningPreview.previewValue).toBe(-31);
+
+            await canvas.onKeyDown(
+                new KeyboardEvent('keydown', {
+                    key: 'ArrowRight',
+                    altKey: true,
+                    shiftKey: true,
+                    metaKey: true
+                })
+            );
+            expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-40);
+            expect(canvas.textRunEditor.shapedGlyphs[0].ax).toBe(149);
+            expect(canvas.pendingTextModeKerningPreview.previewValue).toBe(69);
+
+            await jest.advanceTimersByTimeAsync(
+                APP_SETTINGS.KEYBOARD_PREVIEW_COMMIT_DEBOUNCE
+            );
+            expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(69);
+            expect(canvas.pendingTextModeKerningPreview).toBeNull();
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    test('pending kerning preview updates the active overlay before commit', async () => {
         setTextRunState();
 
         await canvas.onKeyDown(
@@ -14710,26 +14994,17 @@ describe('Text-mode kerning property panel', () => {
                 altKey: true
             })
         );
-        expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-41);
 
-        await canvas.onKeyDown(
-            new KeyboardEvent('keydown', {
-                key: 'ArrowRight',
-                altKey: true,
-                shiftKey: true
+        expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-40);
+        // LTR caret stays at second.x (left of a negative span).
+        expect(canvas.textRunEditor.cursorX).toBe(60);
+        expect(canvas.getTextModeKerningOverlayState()).toEqual(
+            expect.objectContaining({
+                minX: 60,
+                maxX: 101,
+                value: -41
             })
         );
-        expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(-31);
-
-        await canvas.onKeyDown(
-            new KeyboardEvent('keydown', {
-                key: 'ArrowRight',
-                altKey: true,
-                shiftKey: true,
-                metaKey: true
-            })
-        );
-        expect(fontModel.masters[0].kerning['A:@VSecond']).toBe(69);
     });
 
     test('returns overlays for all defined kerning pairs in the text run', () => {
@@ -14774,6 +15049,7 @@ describe('Text-mode kerning property panel', () => {
         canvas.textRunEditor.findLastGlyphAtClusterPosition = jest.fn(
             (clusterPos) => clusterPos
         );
+        canvas.textRunEditor.updateCursorVisualPosition();
 
         const overlays = canvas.getTextModeKerningOverlayStates();
 

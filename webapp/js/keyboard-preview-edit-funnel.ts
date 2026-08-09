@@ -41,7 +41,7 @@ export class KeyboardPreviewEditFunnel {
         this.commitTimer = window.setTimeout(() => {
             this.commitTimer = null;
             void this.flushPendingCommit();
-        }, APP_SETTINGS.OUTLINE_EDITOR.KEYBOARD_PREVIEW_COMMIT_DEBOUNCE);
+        }, APP_SETTINGS.KEYBOARD_PREVIEW_COMMIT_DEBOUNCE);
     }
 
     hasPendingWork(): boolean {
