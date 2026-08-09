@@ -1526,6 +1526,14 @@ export class TextRunEditor {
                 this.cursorPosition
             );
         }
+
+        // RTL negative kerning: draw the caret on the left edge of the kern
+        // distance so it matches LTR junction semantics for cursor auto-pan.
+        const kerningCursorX =
+            window.glyphCanvas?.getTextModeKerningCursorFontX?.() ?? null;
+        if (kerningCursorX !== null && Number.isFinite(kerningCursorX)) {
+            this.cursorX = kerningCursorX;
+        }
     }
 
     handleKeyDown(e: KeyboardEvent) {

@@ -550,9 +550,8 @@ class GlyphCanvas {
     textModeAutoPanAnchorScreen: { x: number; y: number } | null = null;
     textModeEscapeState: SavedVariationState = new SavedVariationState();
 
-    // RTL kerning: keep the active pair's right edge screen-stationary across reshape
-    textModeKerningPairAnchorScreen: { x: number; y: number } | null = null;
-    pendingTextModeKerningPairAnchor: boolean = false;
+    // Keep cursor screen-stationary across kerning-value reshape (LTR + RTL)
+    pendingTextModeKerningCursorAnchor: boolean = false;
 
     pendingFeatureChangeAnchor: {
         text: { x: number; y: number } | null;
@@ -3004,8 +3003,7 @@ class GlyphCanvas {
         latestAppliedEditingRevision = -1;
         editingFontApplyQueue = Promise.resolve();
         this.textModeAutoPanAnchorScreen = null;
-        this.textModeKerningPairAnchorScreen = null;
-        this.pendingTextModeKerningPairAnchor = false;
+        this.pendingTextModeKerningCursorAnchor = false;
         this.pendingFeatureChangeAnchor.text = null;
         this.renderSuppressed = false;
         this.hasDeferredRenderRequest = false;
@@ -7073,17 +7071,25 @@ class GlyphCanvas {
         secondCluster: TextRunClusterInfo,
         isRTL: boolean,
         metrics: Record<string, number> | null,
-        value: number
+        value: number,
+        anchorX: number | null = null
     ): TextModeKerningOverlay | null {
         if (!metrics || value === 0) {
             return null;
         }
 
-        const secondVisualEdge = isRTL
+        const glyphEdge = isRTL
             ? secondCluster.x + secondCluster.width
             : secondCluster.x;
-        const directionSign = isRTL ? -1 : 1;
-        const adjustmentEdge = secondVisualEdge - directionSign * value;
+        // When a caret anchor is provided (active pair), grow the band from
+        // that X with LTR math so live value edits keep the cursor-side edge
+        // fixed — matching LTR and the post-reshape RTL caret. Inactive pair
+        // markers keep the legacy direction-aware glyph-edge formula.
+        const useCursorAnchor = anchorX !== null && Number.isFinite(anchorX);
+        const baseEdge = useCursorAnchor ? (anchorX as number) : glyphEdge;
+        const adjustmentEdge = useCursorAnchor
+            ? baseEdge - value
+            : baseEdge - (isRTL ? -1 : 1) * value;
         const metricValues = Object.values(metrics).filter((metricValue) =>
             Number.isFinite(metricValue)
         );
@@ -7098,8 +7104,8 @@ class GlyphCanvas {
                 : -fontUpm * 0.2;
 
         return {
-            minX: Math.min(secondVisualEdge, adjustmentEdge),
-            maxX: Math.max(secondVisualEdge, adjustmentEdge),
+            minX: Math.min(baseEdge, adjustmentEdge),
+            maxX: Math.max(baseEdge, adjustmentEdge),
             topY,
             bottomY,
             value
@@ -7152,7 +7158,12 @@ class GlyphCanvas {
                       entry.secondCluster,
                       entry.isRTL,
                       metrics,
-                      entry.value
+                      entry.value,
+                      this.textRunEditor &&
+                          this.textRunEditor.cursorPosition ===
+                              entry.secondCluster.start
+                          ? this.textRunEditor.cursorX
+                          : null
                   );
     }
 
@@ -7542,9 +7553,7 @@ class GlyphCanvas {
                 context.isRTL
             );
         this.textModeKerningDraftValue = trimmedValue;
-        if (context.isRTL) {
-            this.pendingTextModeKerningPairAnchor = true;
-        }
+        this.pendingTextModeKerningCursorAnchor = true;
         this.scheduleTextModeKerningCompile('kerning-property-panel');
         this.updatePropertyPanel();
         this.render();
@@ -7601,7 +7610,8 @@ class GlyphCanvas {
             context.secondCluster,
             context.isRTL,
             context.metrics,
-            context.selectedValue
+            context.selectedValue,
+            this.textRunEditor?.cursorX ?? null
         );
     }
 
@@ -9946,81 +9956,29 @@ class GlyphCanvas {
     }
 
     /**
-     * Font-space X of the active RTL kerning pair's right edge, or null when
-     * the cursor is not between an RTL pair.
+     * Font-space X for the text cursor when it sits between an RTL kerning
+     * pair with a negative value: the left edge of the kerning distance.
+     * Returns null when the default cluster-edge cursor placement should stand.
      */
-    getTextModeKerningPairAnchorFontX(): number | null {
-        if (!this.textRunEditor) {
+    getTextModeKerningCursorFontX(): number | null {
+        if (this.outlineEditor?.active || !this.textRunEditor) {
             return null;
         }
 
-        const clusterMap = this.textRunEditor.clusterMap as
-            TextRunClusterInfo[] | undefined;
-        if (!clusterMap || clusterMap.length === 0) {
-            return null;
-        }
-
-        const cursorPosition = this.textRunEditor.cursorPosition;
-        let firstCluster: TextRunClusterInfo | null = null;
-        let secondCluster: TextRunClusterInfo | null = null;
-        for (const cluster of clusterMap) {
-            if (cluster.end === cursorPosition) {
-                firstCluster = cluster;
-            }
-            if (secondCluster === null && cluster.start === cursorPosition) {
-                secondCluster = cluster;
-            }
-        }
-
+        const context = this.getCurrentTextModeKerningContext();
         if (
-            !firstCluster ||
-            !secondCluster ||
-            !firstCluster.isRTL ||
-            !secondCluster.isRTL
+            !context.isRTL ||
+            context.status !== 'ready' ||
+            !context.secondCluster ||
+            context.selectedValue === null ||
+            context.selectedValue >= 0
         ) {
             return null;
         }
 
-        return Math.max(
-            firstCluster.x + firstCluster.width,
-            secondCluster.x + secondCluster.width
-        );
-    }
-
-    captureTextModeKerningPairAnchor(): void {
-        if (!this.viewportManager) {
-            this.textModeKerningPairAnchorScreen = null;
-            return;
-        }
-
-        const fontX = this.getTextModeKerningPairAnchorFontX();
-        if (fontX === null) {
-            this.textModeKerningPairAnchorScreen = null;
-            return;
-        }
-
-        this.textModeKerningPairAnchorScreen =
-            this.viewportManager.fontToScreenCoordinates(fontX, 0);
-    }
-
-    applyTextModeKerningPairAnchorAdjustment(): void {
-        if (!this.textModeKerningPairAnchorScreen || !this.viewportManager) {
-            return;
-        }
-
-        const fontX = this.getTextModeKerningPairAnchorFontX();
-        if (fontX === null) {
-            this.textModeKerningPairAnchorScreen = null;
-            return;
-        }
-
-        const currentScreenPos = this.viewportManager.fontToScreenCoordinates(
-            fontX,
-            0
-        );
-        this.viewportManager.panX +=
-            this.textModeKerningPairAnchorScreen.x - currentScreenPos.x;
-        this.textModeKerningPairAnchorScreen = null;
+        const secondVisualEdge =
+            context.secondCluster.x + context.secondCluster.width;
+        return secondVisualEdge + context.selectedValue;
     }
 
     resetZoomAndPosition(): void {
@@ -10321,10 +10279,11 @@ function setupFontLoadingListener() {
 
                     if (compilationMode === 'kerning-only') {
                         const fontBytesArray = new Uint8Array(arrayBuffer);
-                        gc.captureTextModeKerningPairAnchor();
+                        gc.captureTextModeAutoPanAnchor();
                         gc.textRunEditor!.setShapingFontBlob(fontBytesArray);
                         gc.textRunEditor!.shapeText(true);
-                        gc.applyTextModeKerningPairAnchorAdjustment();
+                        gc.applyTextModeAutoPanAdjustment();
+                        gc.textModeAutoPanAnchorScreen = null;
                         timelineMark(
                             'canvas.editingFontCompiled.kerningOnlyShaped'
                         );
@@ -10402,13 +10361,14 @@ function setupFontLoadingListener() {
                     const forceShapeTextSpanId = timelineSpanStart(
                         'canvas.editingFontCompiled.forceShapeText'
                     );
-                    if (gc.pendingTextModeKerningPairAnchor) {
-                        gc.captureTextModeKerningPairAnchor();
+                    if (gc.pendingTextModeKerningCursorAnchor) {
+                        gc.captureTextModeAutoPanAnchor();
                     }
                     gc.textRunEditor!.shapeText(true);
-                    if (gc.pendingTextModeKerningPairAnchor) {
-                        gc.applyTextModeKerningPairAnchorAdjustment();
-                        gc.pendingTextModeKerningPairAnchor = false;
+                    if (gc.pendingTextModeKerningCursorAnchor) {
+                        gc.applyTextModeAutoPanAdjustment();
+                        gc.textModeAutoPanAnchorScreen = null;
+                        gc.pendingTextModeKerningCursorAnchor = false;
                     }
                     timelineSpanEnd(forceShapeTextSpanId);
 

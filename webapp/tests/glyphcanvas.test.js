@@ -14578,52 +14578,127 @@ describe('Text-mode kerning property panel', () => {
                 'master-1'
             ]['@MMK_R_AFirst']['@MMK_L_VSecond']
         ).toBe(-55);
-        expect(canvas.pendingTextModeKerningPairAnchor).toBe(true);
+        expect(canvas.pendingTextModeKerningCursorAnchor).toBe(true);
     });
 
-    test('RTL kerning pair right-edge anchor keeps screen X stationary after reshape', () => {
-        setTextRunState({ rtl: true });
-        canvas.viewportManager.scale = 2;
-        canvas.viewportManager.panX = 100;
+    test('RTL negative kerning places the cursor on the left edge of the kern distance', () => {
+        const previousGlyphCanvas = window.glyphCanvas;
+        window.glyphCanvas = canvas;
+        try {
+            setTextRunState({ rtl: true });
+            fontModel.masters[0].kerning_rtl = {
+                '@AFirst:@VSecond': -40
+            };
+            canvas.textModeKerningSelection = {
+                firstKey: '@AFirst',
+                secondKey: '@VSecond'
+            };
 
-        // RTL fixture: first right=160, second right=110 → anchor font X=160
-        expect(canvas.getTextModeKerningPairAnchorFontX()).toBe(160);
+            // secondVisualEdge = 60+50 = 110; left edge = 110 + (-40) = 70
+            expect(canvas.getTextModeKerningCursorFontX()).toBe(70);
 
-        const beforeScreenX = canvas.viewportManager.fontToScreenCoordinates(
-            160,
-            0
-        ).x;
-        canvas.captureTextModeKerningPairAnchor();
-
-        // Simulate reshape: pair shifts left by 30 font units
-        for (const cluster of canvas.textRunEditor.clusterMap) {
-            cluster.x -= 30;
+            canvas.textRunEditor.updateCursorVisualPosition();
+            expect(canvas.textRunEditor.cursorX).toBe(70);
+        } finally {
+            window.glyphCanvas = previousGlyphCanvas;
         }
-        expect(canvas.getTextModeKerningPairAnchorFontX()).toBe(130);
-
-        canvas.applyTextModeKerningPairAnchorAdjustment();
-
-        const afterScreenX = canvas.viewportManager.fontToScreenCoordinates(
-            130,
-            0
-        ).x;
-        expect(afterScreenX).toBe(beforeScreenX);
-        expect(canvas.viewportManager.panX).toBe(160);
-        expect(canvas.textModeKerningPairAnchorScreen).toBeNull();
     });
 
-    test('LTR kerning pair does not arm the RTL pair-edge anchor', () => {
-        setTextRunState({ rtl: false });
-        canvas.viewportManager.scale = 2;
-        canvas.viewportManager.panX = 100;
+    test('RTL positive kerning keeps the default between-glyph cursor edge', () => {
+        const previousGlyphCanvas = window.glyphCanvas;
+        window.glyphCanvas = canvas;
+        try {
+            setTextRunState({ rtl: true });
+            fontModel.masters[0].kerning_rtl = {
+                '@AFirst:@VSecond': 40
+            };
+            canvas.textModeKerningSelection = {
+                firstKey: '@AFirst',
+                secondKey: '@VSecond'
+            };
 
-        expect(canvas.getTextModeKerningPairAnchorFontX()).toBeNull();
-        canvas.captureTextModeKerningPairAnchor();
-        expect(canvas.textModeKerningPairAnchorScreen).toBeNull();
+            expect(canvas.getTextModeKerningCursorFontX()).toBeNull();
+            canvas.textRunEditor.updateCursorVisualPosition();
+            // START of second RTL cluster → right edge = 60+50 = 110
+            expect(canvas.textRunEditor.cursorX).toBe(110);
+        } finally {
+            window.glyphCanvas = previousGlyphCanvas;
+        }
+    });
 
-        const beforePanX = canvas.viewportManager.panX;
-        canvas.applyTextModeKerningPairAnchorAdjustment();
-        expect(canvas.viewportManager.panX).toBe(beforePanX);
+    test('kerning reshape auto-pan keeps the cursor screen X stationary', () => {
+        const previousGlyphCanvas = window.glyphCanvas;
+        window.glyphCanvas = canvas;
+        try {
+            setTextRunState({ rtl: true });
+            fontModel.masters[0].kerning_rtl = {
+                '@AFirst:@VSecond': -40
+            };
+            canvas.textModeKerningSelection = {
+                firstKey: '@AFirst',
+                secondKey: '@VSecond'
+            };
+            canvas.viewportManager.scale = 2;
+            canvas.viewportManager.panX = 100;
+
+            canvas.textRunEditor.updateCursorVisualPosition();
+            const beforeScreenX =
+                canvas.viewportManager.fontToScreenCoordinates(
+                    canvas.textRunEditor.cursorX,
+                    0
+                ).x;
+            canvas.captureTextModeAutoPanAnchor();
+
+            // Simulate reshape: pair shifts left by 30 font units
+            for (const cluster of canvas.textRunEditor.clusterMap) {
+                cluster.x -= 30;
+            }
+            canvas.textRunEditor.updateCursorVisualPosition();
+            canvas.applyTextModeAutoPanAdjustment();
+
+            const afterScreenX = canvas.viewportManager.fontToScreenCoordinates(
+                canvas.textRunEditor.cursorX,
+                0
+            ).x;
+            expect(afterScreenX).toBe(beforeScreenX);
+            expect(canvas.viewportManager.panX).toBe(160);
+        } finally {
+            window.glyphCanvas = previousGlyphCanvas;
+        }
+    });
+
+    test('RTL live kerning overlay grows from the caret, not the opposite glyph edge', () => {
+        setTextRunState({ rtl: true });
+        fontModel.masters[0].kerning_rtl = {
+            '@AFirst:@VSecond': -40
+        };
+        canvas.textModeKerningSelection = {
+            firstKey: '@AFirst',
+            secondKey: '@VSecond'
+        };
+        // Pre-reshape caret still at the default RTL junction (second right edge).
+        canvas.textRunEditor.cursorX = 110;
+
+        const overlay40 = canvas.getTextModeKerningOverlayState();
+        expect(overlay40).toEqual(
+            expect.objectContaining({
+                minX: 110,
+                maxX: 150,
+                value: -40
+            })
+        );
+
+        fontModel.masters[0].kerning_rtl['@AFirst:@VSecond'] = -50;
+        // Caret stays put until reshape; overlay must widen away from it.
+        expect(canvas.textRunEditor.cursorX).toBe(110);
+        const overlay50 = canvas.getTextModeKerningOverlayState();
+        expect(overlay50).toEqual(
+            expect.objectContaining({
+                minX: 110,
+                maxX: 160,
+                value: -50
+            })
+        );
     });
 
     test('alt arrow keys nudge text-mode kerning with modifier scaling', async () => {

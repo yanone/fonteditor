@@ -63,7 +63,7 @@ Type a number into the inline field to set the active kerning pair.
 
 The kerning overlay in text mode updates from the active pair so you can see the adjustment in place.
 
-For RTL pairs, nudging or committing a value keeps the pair’s right edge fixed on screen while the text run reshapes, so the proof string does not slide under the caret.
+For RTL pairs with negative kerning, the caret sits on the left edge of the kerning distance (same junction side as LTR). Kerning-value reshapes keep that caret screen-stationary. Before the font recompiles, the overlay band and bottom marker also grow from the caret so nudges do not expand in the opposite direction.
 
 ## Keyboard Shortcuts
 
