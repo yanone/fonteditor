@@ -285,7 +285,7 @@ addTippyBackdropSupport(tippyInstance, backdrop, {
 
 **Modals & Overlays:**
 
-- Centered dialogs use `.info-popup-overlay` > `.info-popup` (header/close/content). Confirm layouts add `.confirm-dialog`. Action buttons: `.localized-string-modal-button` (or `.ai-login-button` where that pattern is already used).
+- Centered dialogs use `.info-popup-overlay` > `.info-popup` (header/close/content). Confirm layouts add `.confirm-dialog`. Action buttons: `.dialog-button` (with `.dialog-button-primary` / `.dialog-button-danger` as needed). Shared styles live in `css/ui/dialogs.css`.
 - Every modal MUST register Escape via `bindModalEscape` from `js/ui/modal-escape.ts` on open and `release()` on every close path. Do not add per-modal Escape `keydown` listeners.
 - Tippy menus (via `addTippyBackdropSupport`) always win over modals when both are open.
 - Unsaved-changes confirms: reuse `js/ui/confirm-dialog.ts`. Anchored menus stay Tippy; blocking dialogs stay info-popup + `bindModalEscape`.

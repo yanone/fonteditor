@@ -301,7 +301,7 @@ async handleNewFont(): Promise<void> {
 **New file:** `webapp/js/ui/confirm-dialog.ts`
 
 Uses the `.info-popup-overlay` + `.info-popup` dialog pattern (same as
-Agent Info / Keyboard Shortcuts modals) with `.localized-string-modal-button`
+Agent Info / Keyboard Shortcuts modals) with `.dialog-button`
 button styling.
 
 Exports:

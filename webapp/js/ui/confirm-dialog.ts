@@ -1,8 +1,8 @@
 /**
  * Confirm Dialog — reusable save/discard/cancel dialog
  *
- * Uses the existing .info-popup-overlay + .info-popup pattern (Assistant Info /
- * Keyboard Shortcuts modals) and .localized-string-modal-button button styles.
+ * Uses the shared .info-popup-overlay + .info-popup pattern and .dialog-button
+ * styles from css/ui/dialogs.css.
  */
 
 import { bindModalEscape } from './modal-escape';
@@ -45,9 +45,9 @@ export function showNamedUnsavedChangesDialog({
                 <div class="info-popup-content confirm-dialog-content">
                     <p>${escapedType} <strong>${escapedName}</strong> has unsaved changes. What do you want to do?</p>
                     <div class="confirm-dialog-actions">
-                        <button type="button" class="localized-string-modal-button confirm-dialog-btn confirm-dialog-danger" data-action="discard">Don't Save</button>
-                        <button type="button" class="localized-string-modal-button confirm-dialog-btn" data-action="cancel">Cancel</button>
-                        <button type="button" class="localized-string-modal-button localized-string-modal-button-primary confirm-dialog-btn" data-action="save">Save</button>
+                        <button type="button" class="dialog-button dialog-button-danger" data-action="discard">Don't Save</button>
+                        <button type="button" class="dialog-button" data-action="cancel">Cancel</button>
+                        <button type="button" class="dialog-button dialog-button-primary" data-action="save">Save</button>
                     </div>
                 </div>
             </div>

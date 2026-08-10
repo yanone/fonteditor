@@ -206,12 +206,12 @@ export function createLocalizedStringEditor(
                 <div class="matplotlib-modal-body localized-string-modal-body">
                     <div class="localized-string-modal-controls">
                         <select class="localized-string-locale-select"></select>
-                        <button type="button" class="localized-string-modal-button localized-string-modal-button-secondary localized-string-add-locale-btn">Add localization</button>
+                        <button type="button" class="dialog-button localized-string-add-locale-btn">Add localization</button>
                     </div>
                     <div class="localized-string-modal-rows"></div>
                     <div class="localized-string-modal-actions">
-                        <button type="button" class="localized-string-modal-button localized-string-modal-button-secondary localized-string-cancel-btn">Cancel</button>
-                        <button type="button" class="localized-string-modal-button localized-string-modal-button-primary localized-string-save-btn">Save</button>
+                        <button type="button" class="dialog-button localized-string-cancel-btn">Cancel</button>
+                        <button type="button" class="dialog-button dialog-button-primary localized-string-save-btn">Save</button>
                     </div>
                 </div>
             </div>
@@ -298,7 +298,7 @@ export function createLocalizedStringEditor(
                 const removeButton = document.createElement('button');
                 removeButton.type = 'button';
                 removeButton.className =
-                    'localized-string-modal-button localized-string-modal-button-secondary localized-string-remove-locale-btn';
+                    'dialog-button localized-string-remove-locale-btn';
                 removeButton.textContent = 'Remove';
                 removeButton.addEventListener('click', () => {
                     delete workingValue[locale];

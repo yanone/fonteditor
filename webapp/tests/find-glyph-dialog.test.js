@@ -571,7 +571,7 @@ describe('FindGlyphDialog', () => {
         expect(
             Array.from(
                 document.querySelectorAll('.find-glyph-actions button')
-            ).every((button) => button.classList.contains('ai-login-button'))
+            ).every((button) => button.classList.contains('dialog-button'))
         ).toBe(true);
     });
 

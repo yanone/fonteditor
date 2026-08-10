@@ -3193,13 +3193,11 @@ class GlyphCanvas {
             actions.className = 'feature-variation-settings-actions';
             const cancelButton = document.createElement('button');
             cancelButton.type = 'button';
-            cancelButton.className =
-                'localized-string-modal-button localized-string-modal-button-secondary';
+            cancelButton.className = 'dialog-button';
             cancelButton.textContent = 'Cancel';
             const saveButton = document.createElement('button');
             saveButton.type = 'submit';
-            saveButton.className =
-                'localized-string-modal-button localized-string-modal-button-primary';
+            saveButton.className = 'dialog-button dialog-button-primary';
             saveButton.textContent = isEditing ? 'Save' : 'Add';
             actions.append(cancelButton, saveButton);
             form.appendChild(actions);

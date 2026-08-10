@@ -5744,8 +5744,8 @@ class FontInfoManager {
                         </div>
                         <div class="fontinfo-master-location-rows"></div>
                         <div class="fontinfo-master-location-actions">
-                            <button type="button" class="localized-string-modal-button localized-string-modal-button-secondary fontinfo-master-location-cancel">Cancel</button>
-                            <button type="button" class="localized-string-modal-button localized-string-modal-button-primary fontinfo-master-location-create">Create</button>
+                            <button type="button" class="dialog-button fontinfo-master-location-cancel">Cancel</button>
+                            <button type="button" class="dialog-button dialog-button-primary fontinfo-master-location-create">Create</button>
                         </div>
                     </div>
                 </div>

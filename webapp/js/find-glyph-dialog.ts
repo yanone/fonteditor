@@ -629,7 +629,7 @@ export class FindGlyphDialog {
         actions.className = 'find-glyph-actions';
 
         const cancel = document.createElement('button');
-        cancel.className = 'ai-login-button';
+        cancel.className = 'dialog-button';
         cancel.type = 'button';
         cancel.textContent = 'Cancel';
         cancel.addEventListener('click', () => this.close());
@@ -637,7 +637,7 @@ export class FindGlyphDialog {
         actions.appendChild(cancel);
 
         this.confirmButton = document.createElement('button');
-        this.confirmButton.className = 'ai-login-button';
+        this.confirmButton.className = 'dialog-button dialog-button-primary';
         this.confirmButton.type = 'button';
         this.confirmButton.addEventListener('click', () =>
             this.confirmSelection()

@@ -118,8 +118,8 @@ function renderMemberRow(
                     <option value="editor" ${member.role === 'editor' ? 'selected' : ''}>Editor</option>
                     <option value="viewer" ${member.role === 'viewer' ? 'selected' : ''}>Viewer</option>
                 </select>
-                <button type="submit" class="share-dialog-secondary-button">Update</button>
-                <button type="button" class="share-dialog-danger-button" data-share-dialog-action="remove-member" data-user-id="${escapeHtml(member.userId)}">Remove</button>
+                <button type="submit" class="dialog-button">Update</button>
+                <button type="button" class="dialog-button dialog-button-danger" data-share-dialog-action="remove-member" data-user-id="${escapeHtml(member.userId)}">Remove</button>
             </form>
         `
             : `<div class="share-dialog-pill">${formatRole(member.role)}</div>`;
@@ -155,7 +155,7 @@ function renderInvitationRow(
             </div>
             <div class="share-dialog-list-actions">
                 <div class="share-dialog-pill">Pending</div>
-                ${canManage ? `<button type="button" class="share-dialog-danger-button" data-share-dialog-action="revoke-invite" data-invitation-id="${escapeHtml(invitation.id)}">Revoke</button>` : ''}
+                ${canManage ? `<button type="button" class="dialog-button dialog-button-danger" data-share-dialog-action="revoke-invite" data-invitation-id="${escapeHtml(invitation.id)}">Revoke</button>` : ''}
             </div>
         </li>
     `;
@@ -175,7 +175,7 @@ function renderOwnershipTransferCard(
                     ${ownershipTransfer.expiresAt ? ` · Expires ${escapeHtml(formatTimestamp(ownershipTransfer.expiresAt))}` : ''}
                 </div>
             </div>
-            <button type="button" class="share-dialog-danger-button" data-share-dialog-action="cancel-transfer">Cancel</button>
+            <button type="button" class="dialog-button dialog-button-danger" data-share-dialog-action="cancel-transfer">Cancel</button>
         </div>
     `;
 }
@@ -223,7 +223,7 @@ function renderShareDialog(): void {
                             <div class="share-dialog-banner-detail">Use this to test acceptance locally if email delivery is stubbed.</div>
                             <input class="share-dialog-input share-dialog-link-input" type="text" readonly value="${escapeHtml(shareDialogState.latestInviteUrl)}" />
                         </div>
-                        <button type="button" class="share-dialog-secondary-button" data-share-dialog-action="copy-latest-link">Copy link</button>
+                        <button type="button" class="dialog-button" data-share-dialog-action="copy-latest-link">Copy link</button>
                     </div>
                 `
                         : ''
@@ -237,7 +237,7 @@ function renderShareDialog(): void {
                             <div class="share-dialog-banner-detail">Use this to review the ownership transfer locally if email delivery is stubbed.</div>
                             <input class="share-dialog-input share-dialog-link-input" type="text" readonly value="${escapeHtml(shareDialogState.latestTransferUrl)}" />
                         </div>
-                        <button type="button" class="share-dialog-secondary-button" data-share-dialog-action="copy-latest-transfer-link">Copy link</button>
+                        <button type="button" class="dialog-button" data-share-dialog-action="copy-latest-transfer-link">Copy link</button>
                     </div>
                 `
                         : ''
@@ -269,7 +269,7 @@ function renderShareDialog(): void {
                                     <option value="editor" ${shareDialogState.inviteRole === 'editor' ? 'selected' : ''}>Editor</option>
                                     <option value="viewer" ${shareDialogState.inviteRole === 'viewer' ? 'selected' : ''}>Viewer</option>
                                 </select>
-                                <button type="submit" class="share-dialog-primary-button" ${shareDialogState.isSubmitting ? 'disabled' : ''}>${shareDialogState.isSubmitting ? 'Sending…' : 'Send invite'}</button>
+                                <button type="submit" class="dialog-button dialog-button-primary" ${shareDialogState.isSubmitting ? 'disabled' : ''}>${shareDialogState.isSubmitting ? 'Sending…' : 'Send invite'}</button>
                             </form>
                         </section>
 
@@ -286,7 +286,7 @@ function renderShareDialog(): void {
                                     <option value="viewer" ${shareDialogState.previousOwnerRole === 'viewer' ? 'selected' : ''}>Keep me as viewer</option>
                                     <option value="remove" ${shareDialogState.previousOwnerRole === 'remove' ? 'selected' : ''}>Remove me entirely</option>
                                 </select>
-                                <button type="submit" class="share-dialog-primary-button" ${shareDialogState.isSubmitting ? 'disabled' : ''}>${shareDialogState.isSubmitting ? 'Sending…' : ownershipTransfer ? 'Replace transfer' : 'Request transfer'}</button>
+                                <button type="submit" class="dialog-button dialog-button-primary" ${shareDialogState.isSubmitting ? 'disabled' : ''}>${shareDialogState.isSubmitting ? 'Sending…' : ownershipTransfer ? 'Replace transfer' : 'Request transfer'}</button>
                             </form>
                         </section>
                     `
@@ -341,8 +341,8 @@ function renderShareDialog(): void {
             </div>
 
             <div class="share-dialog-footer">
-                <button type="button" class="share-dialog-secondary-button" data-share-dialog-action="refresh" ${shareDialogState.isLoading || shareDialogState.isSubmitting ? 'disabled' : ''}>Refresh</button>
-                <button type="button" class="share-dialog-primary-button" data-share-dialog-action="close">Close</button>
+                <button type="button" class="dialog-button" data-share-dialog-action="refresh" ${shareDialogState.isLoading || shareDialogState.isSubmitting ? 'disabled' : ''}>Refresh</button>
+                <button type="button" class="dialog-button dialog-button-primary" data-share-dialog-action="close">Close</button>
             </div>
         </div>
     `;

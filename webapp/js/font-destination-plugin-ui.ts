@@ -128,7 +128,7 @@ function createPluginStorageNotice(
         )
     );
     const action = document.createElement('button');
-    action.className = 'plugin-manager-action';
+    action.className = 'dialog-button plugin-manager-action';
     action.type = 'button';
     action.textContent = isSettingsFolderMissing
         ? 'Connect Folder'
@@ -199,7 +199,7 @@ function createPluginRow(
     row.appendChild(details);
 
     const action = document.createElement('button');
-    action.className = 'plugin-manager-action';
+    action.className = 'dialog-button plugin-manager-action';
     action.type = 'button';
     action.textContent = isInstalled ? 'Uninstall' : 'Install';
     action.addEventListener('click', async () => {

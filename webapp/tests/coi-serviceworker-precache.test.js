@@ -24,17 +24,17 @@ function parsePrecacheAssets(fileContent) {
 
 function scanFiles(dir, prefix) {
     const files = [];
-    function walk(d) {
+    function walk(d, relPrefix) {
         for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
             const full = path.join(d, entry.name);
             if (entry.isDirectory()) {
-                walk(full);
+                walk(full, `${relPrefix}${entry.name}/`);
             } else if (entry.isFile()) {
-                files.push(prefix + entry.name);
+                files.push(`${relPrefix}${entry.name}`);
             }
         }
     }
-    walk(dir);
+    walk(dir, prefix);
     return files.sort();
 }
 

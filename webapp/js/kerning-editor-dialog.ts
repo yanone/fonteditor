@@ -191,7 +191,7 @@ export class KerningEditorDialog {
                         >
                     </div>
                 </div>
-                <button type="button" class="localized-string-modal-button" id="kerning-editor-delete-btn" disabled>Delete</button>
+                <button type="button" class="dialog-button dialog-button-danger" id="kerning-editor-delete-btn" disabled>Delete</button>
             </div>
             <div class="kerning-editor-table-wrap" id="kerning-editor-table-wrap"></div>
         `;

@@ -14,7 +14,7 @@ const PRECACHE_ASSETS = [
     './index.html',
     './manifest.json',
 
-    // CSS (style.css @imports tokens.css, glyph-overview.css, features-editor.css, editor-left-sidebar.css, editor-right-sidebar.css)
+    // CSS (style.css @imports tokens.css, glyph-overview.css, features-editor.css, editor-left-sidebar.css, editor-right-sidebar.css, ui/dialogs.css)
     './css/style.css',
     './css/file-dialog.css',
     './css/tokens.css',
@@ -22,6 +22,7 @@ const PRECACHE_ASSETS = [
     './css/features-editor.css',
     './css/editor-left-sidebar.css',
     './css/editor-right-sidebar.css',
+    './css/ui/dialogs.css',
 
     // JavaScript bundles (webpack output)
     './js/bootstrap.js',

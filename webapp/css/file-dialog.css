@@ -475,23 +475,19 @@
     margin-left: auto;
 }
 
-.file-dialog-actions .diff-modal-button {
+.file-dialog-actions .dialog-button {
     min-width: 100px;
 }
 
-.file-dialog-actions .diff-modal-button:disabled {
+.file-dialog-actions .dialog-button:disabled {
     opacity: 0.45;
     cursor: not-allowed;
-    border-color: var(--file-dialog-border);
-    color: var(--file-dialog-subtle-text);
-    background: var(--file-dialog-panel);
-    box-shadow: none;
 }
 
-.file-dialog-actions .diff-modal-button:disabled:hover {
-    background: var(--file-dialog-panel);
-    border-color: var(--file-dialog-border);
-    color: var(--file-dialog-subtle-text);
+.file-dialog-actions .dialog-button:disabled:hover {
+    background-color: transparent;
+    border-color: var(--border-primary);
+    color: var(--text-primary);
 }
 
 @keyframes file-dialog-message-spin {

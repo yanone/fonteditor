@@ -387,8 +387,8 @@ export class DeleteGlyphsDialog {
                         <p>${escapeHtml(title)} This can be undone.</p>
                         ${reportHtml}
                         <div class="confirm-dialog-actions">
-                            <button type="button" class="localized-string-modal-button confirm-dialog-btn" data-action="cancel">Cancel</button>
-                            <button type="button" class="localized-string-modal-button confirm-dialog-btn confirm-dialog-danger" data-action="delete">Delete</button>
+                            <button type="button" class="dialog-button" data-action="cancel">Cancel</button>
+                            <button type="button" class="dialog-button dialog-button-danger" data-action="delete">Delete</button>
                         </div>
                     </div>
                 </div>

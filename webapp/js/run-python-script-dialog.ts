@@ -633,14 +633,13 @@ function ensureDom(): void {
 
     const cancelButton = document.createElement('button');
     cancelButton.type = 'button';
-    cancelButton.className = 'localized-string-modal-button confirm-dialog-btn';
+    cancelButton.className = 'dialog-button';
     cancelButton.textContent = 'Cancel';
     cancelButton.addEventListener('click', closeDialog);
 
     runButton = document.createElement('button');
     runButton.type = 'button';
-    runButton.className =
-        'localized-string-modal-button localized-string-modal-button-primary confirm-dialog-btn';
+    runButton.className = 'dialog-button dialog-button-primary';
     runButton.textContent = 'Run Script';
     runButton.disabled = true;
     runButton.addEventListener('click', () => {
