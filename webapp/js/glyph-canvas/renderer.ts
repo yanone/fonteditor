@@ -689,8 +689,9 @@ export class GlyphCanvasRenderer {
                 const x = xPosition + xOffset;
                 const y = yOffset;
 
-                const glyphData =
-                    this.textRunEditor.hbFont.glyphToPath(glyphId);
+                const glyphData = this.textRunEditor.hbFont
+                    ? this.textRunEditor.hbFont.glyphToPath(glyphId)
+                    : null;
                 const explicitOutline = explicitGlyphName
                     ? this.textRunEditor.getCachedExplicitGlyphOutline(
                           explicitGlyphName
@@ -4227,8 +4228,9 @@ export class GlyphCanvasRenderer {
                 const x = xPosition + xOffset;
                 const y = yOffset;
 
-                const glyphData =
-                    this.textRunEditor.hbFont.glyphToPath(glyphId);
+                const glyphData = this.textRunEditor.hbFont
+                    ? this.textRunEditor.hbFont.glyphToPath(glyphId)
+                    : null;
                 const pathBounds = glyphData
                     ? calculatePathBounds(glyphData)
                     : null;

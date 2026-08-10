@@ -1964,7 +1964,7 @@ export class TextRunEditor {
         skipRender: boolean = false,
         variationLocation?: UserspaceLocation
     ) {
-        if (!this.hb || !this.textBuffer) {
+        if (!this.textBuffer) {
             this.shapedGlyphs = [];
             this.bidiRuns = [];
             this.explicitGlyphTokens = [];
@@ -1994,9 +1994,9 @@ export class TextRunEditor {
                     this.shapeTextSimple(shapingFont);
                 }
             } else {
-                this.shapedGlyphs = [];
-                this.bidiRuns = [];
-                this.glyphNameBuffer = [];
+                // Explicit /.glyph tokens can still layout and paint from the
+                // source model + getGlyphOutlines without a compiled binary.
+                this.shapeExplicitGlyphTokensWithoutBinaryFont();
             }
 
             this.rebuildIntrinsicGlyphAdvanceCache();
@@ -2030,6 +2030,31 @@ export class TextRunEditor {
             this.intrinsicGlyphAdvances.clear();
             this.call('render');
         }
+    }
+
+    /**
+     * Layout explicit /.glyphname tokens when no compiled editing font is
+     * available for HarfBuzz. Advances come from the source model; outlines
+     * are filled asynchronously by prefetchExplicitGlyphOutlinesForCurrentState.
+     */
+    private shapeExplicitGlyphTokensWithoutBinaryFont() {
+        this.bidiRuns = [];
+        if (!this.explicitGlyphTokens.length) {
+            this.shapedGlyphs = [];
+            this.glyphNameBuffer = [];
+            this.buildClusterMap();
+            this.updateCursorVisualPosition();
+            return;
+        }
+
+        this.shapedGlyphs = this.explicitGlyphTokens.map((token) =>
+            this.buildExplicitTokenGlyph(token)
+        );
+        this.glyphNameBuffer = this.explicitGlyphTokens.map(
+            (token) => token.name
+        );
+        this.buildClusterMap();
+        this.updateCursorVisualPosition();
     }
 
     private resolveIntrinsicAdvanceForGlyph(

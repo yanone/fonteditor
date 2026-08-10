@@ -4987,13 +4987,18 @@ describe('FontManager handleNewFont', () => {
         const parsed = JSON.parse(json);
         expect(parsed.upm).toBe(1000);
         expect(parsed.names.family_name.dflt).toBe('Untitled');
+        expect(parsed.names.preferred_subfamily_name.dflt).toBe('Regular');
+        expect(parsed.names.full_name.dflt).toBe('Untitled Regular');
         expect(parsed.masters.length).toBe(1);
         expect(typeof parsed.masters[0].name).toBe('object');
-        expect(parsed.masters[0].name.dflt).toBe('Default Master');
+        expect(parsed.masters[0].name.dflt).toBe('Regular');
         expect(parsed.masters[0].id).toBeTruthy();
-        expect(parsed.glyphs.length).toBe(1);
+        expect(parsed.glyphs.length).toBe(2);
         expect(parsed.glyphs[0].name).toBe('.notdef');
         expect(parsed.glyphs[0].category).toBe('Unknown');
+        expect(parsed.glyphs[1].name).toBe('space');
+        expect(parsed.glyphs[1].codepoints).toEqual([32]);
+        expect(parsed.glyphs[1].layers[0].width).toBe(250);
         // exported defaults to true in Rust and is skipped from JSON when true
         expect(parsed.features).toBeDefined();
         expect(parsed.date).toBeTruthy();
@@ -5004,6 +5009,7 @@ describe('FontManager handleNewFont', () => {
         expect(fontObj).toBeDefined();
         expect(fontObj.names.family_name.dflt).toBe('Untitled');
         expect(fontObj.glyphs[0].exported).toBe(true);
+        expect(fontObj.findGlyph('space')).toBeDefined();
     });
 
     test('generateEmptyFontJson creates a valid font data structure for Font.fromData', () => {
@@ -5012,19 +5018,33 @@ describe('FontManager handleNewFont', () => {
         const parsed = JSON.parse(json);
         expect(parsed.upm).toBe(1000);
         expect(parsed.names.family_name.dflt).toBe('Untitled');
+        expect(parsed.names.preferred_subfamily_name.dflt).toBe('Regular');
         expect(parsed.masters.length).toBe(1);
-        expect(parsed.masters[0].name.dflt).toBe('Default Master');
+        expect(parsed.masters[0].name.dflt).toBe('Regular');
         expect(parsed.masters[0].metrics).toBeDefined();
-        expect(parsed.glyphs.length).toBe(1);
+        expect(parsed.masters[0].metrics.Ascender).toBe(800);
+        expect(parsed.masters[0].metrics.Descender).toBe(-200);
+        expect(parsed.masters[0].metrics.CapHeight).toBe(700);
+        expect(parsed.masters[0].metrics.XHeight).toBe(500);
+        expect(parsed.glyphs.length).toBe(2);
         expect(parsed.glyphs[0].name).toBe('.notdef');
         expect(parsed.glyphs[0].category).toBe('Unknown');
         expect(parsed.glyphs[0].layers[0].width).toBe(600);
+        expect(parsed.glyphs[0].layers[0].shapes).toHaveLength(2);
+        expect(parsed.glyphs[0].layers[0].shapes[0].closed).toBe(true);
+        expect(parsed.glyphs[0].layers[0].shapes[0].nodes).toHaveLength(4);
+        expect(parsed.glyphs[1].name).toBe('space');
+        expect(parsed.glyphs[1].codepoints).toEqual([32]);
+        expect(parsed.glyphs[1].layers[0].width).toBe(250);
+        expect(parsed.glyphs[1].layers[0].shapes).toEqual([]);
         expect(parsed.masters[0].id).toBeTruthy();
         expect(parsed.glyphs[0].layers[0].id).toBeTruthy();
-        // exported, shapes, anchors, guides, etc. have Rust defaults and
-        // are absent from the minimal JSON — Font.fromData fills in
+        // exported has a Rust default and is kept true in the empty font JSON;
+        // Font.fromData still accepts the structure.
         const fontObj = Font.fromData(parsed);
         expect(fontObj.glyphs[0].exported).toBe(true);
+        expect(fontObj.glyphs[0].layers[0].shapes).toHaveLength(2);
+        expect(fontObj.findGlyph('space')).toBeDefined();
         expect(parsed.date).toBeTruthy();
         expect(parsed.version).toEqual([1, 0]);
         expect(parsed.features).toBeDefined();
@@ -5036,8 +5056,32 @@ describe('FontManager handleNewFont', () => {
         const fontObj = Font.fromData(parsed);
         expect(fontObj).toBeDefined();
         expect(fontObj.names.family_name.dflt).toBe('Untitled');
-        expect(fontObj.masters[0].name.dflt).toBe('Default Master');
+        expect(fontObj.names.preferred_subfamily_name.dflt).toBe('Regular');
+        expect(fontObj.masters[0].name.dflt).toBe('Regular');
         expect(fontObj.findGlyph('.notdef')).toBeDefined();
+        expect(fontObj.findGlyph('space')).toBeDefined();
+    });
+
+    test('deriveSubsetGlyphsFromText maps missing codepoints to .notdef on empty fonts', () => {
+        const json = fontManager.generateEmptyFontJson();
+        const fontData = JSON.parse(json);
+        const fakeCurrentFont = {
+            babelfontJson: json,
+            babelfontData: fontData,
+            fontModel: Font.fromData(fontData),
+            name: 'Untitled',
+            hasUnsavedChanges: false,
+            isCloudBacked: () => false
+        };
+        fontManager.openedFonts = new Map([['empty-font', fakeCurrentFont]]);
+        fontManager.currentFontId = 'empty-font';
+        window.currentFontModel = fakeCurrentFont.fontModel;
+
+        const subset = fontManager.deriveSubsetGlyphsFromText('Hamburgevons');
+        expect(subset).toEqual(['.notdef']);
+
+        const withSpace = fontManager.deriveSubsetGlyphsFromText('a b');
+        expect(withSpace).toEqual(['.notdef', 'space']);
     });
 
     test('handleNewFont clears worker cache but does not store full font JSON before dispatching fontLoaded', async () => {

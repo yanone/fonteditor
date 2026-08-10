@@ -1872,7 +1872,8 @@ class FontManager {
 
     /**
      * Generate a minimal empty babelfont JSON string.
-     * One master, one .notdef glyph, no axes or instances.
+     * One master with design/export vertical metrics, hollow rectangular
+     * .notdef, space glyph, Regular style name, no axes or instances.
      */
     private generateEmptyFontJson(): string {
         // Build a minimal font from scratch.
@@ -1880,13 +1881,54 @@ class FontManager {
         // Master requires: name, id, location, metrics, kerning.
         // All other fields have #[serde(default)] so they are optional.
         const masterId = crypto.randomUUID();
-        const layerId = crypto.randomUUID();
+        const notdefLayerId = crypto.randomUUID();
+        const spaceLayerId = crypto.randomUUID();
+        // Standard UPM-1000 vertical metrics so guides, overview framing,
+        // and binary export have usable values from the first open.
+        const metrics = {
+            Ascender: 800,
+            Descender: -200,
+            CapHeight: 700,
+            XHeight: 500,
+            TypoAscender: 800,
+            TypoDescender: -200,
+            TypoLineGap: 0,
+            HheaAscender: 800,
+            HheaDescender: -200,
+            HheaLineGap: 0,
+            WinAscent: 800,
+            WinDescent: 200
+        };
+        // Classic hollow .notdef: outer rectangle + counter, width 600.
+        const notdefWidth = 600;
+        const notdefShapes = [
+            {
+                closed: true,
+                nodes: [
+                    { x: 80, y: 0, nodetype: 'Line' },
+                    { x: 520, y: 0, nodetype: 'Line' },
+                    { x: 520, y: 700, nodetype: 'Line' },
+                    { x: 80, y: 700, nodetype: 'Line' }
+                ]
+            },
+            {
+                closed: true,
+                nodes: [
+                    { x: 140, y: 60, nodetype: 'Line' },
+                    { x: 140, y: 640, nodetype: 'Line' },
+                    { x: 460, y: 640, nodetype: 'Line' },
+                    { x: 460, y: 60, nodetype: 'Line' }
+                ]
+            }
+        ];
         const fontData: any = {
             upm: 1000,
             version: [1, 0],
             date: new Date().toISOString(),
             names: {
-                family_name: { dflt: 'Untitled' }
+                family_name: { dflt: 'Untitled' },
+                preferred_subfamily_name: { dflt: 'Regular' },
+                full_name: { dflt: 'Untitled Regular' }
             },
             features: {
                 classes: {},
@@ -1899,9 +1941,9 @@ class FontManager {
             masters: [
                 {
                     id: masterId,
-                    name: { dflt: 'Default Master' },
+                    name: { dflt: 'Regular' },
                     location: {},
-                    metrics: {},
+                    metrics,
                     kerning: {}
                 }
             ],
@@ -1912,12 +1954,30 @@ class FontManager {
                     exported: true,
                     layers: [
                         {
-                            id: layerId,
-                            width: 600,
+                            id: notdefLayerId,
+                            width: notdefWidth,
                             master: {
                                 type: 'DefaultForMaster',
                                 master: masterId
-                            }
+                            },
+                            shapes: notdefShapes
+                        }
+                    ]
+                },
+                {
+                    name: 'space',
+                    category: 'Base',
+                    codepoints: [32],
+                    exported: true,
+                    layers: [
+                        {
+                            id: spaceLayerId,
+                            width: 250,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: masterId
+                            },
+                            shapes: []
                         }
                     ]
                 }
@@ -3055,13 +3115,21 @@ class FontManager {
 
         const subset: string[] = [];
         const seen = new Set<string>();
+        const notdefName = fontModel.findGlyph('.notdef')?.name || null;
 
-        const pushGlyph = (name?: string) => {
+        const pushGlyph = (name?: string | null) => {
             if (!name || seen.has(name)) {
                 return;
             }
             subset.push(name);
             seen.add(name);
+        };
+
+        const pushMappedGlyph = (name?: string | null) => {
+            // Missing codepoints must still pull .notdef into the editing
+            // subset. Otherwise empty/new fonts never compile (fallback text
+            // like "Hamburgevons" maps to nothing) and shaping has no font.
+            pushGlyph(name || notdefName);
         };
 
         let index = 0;
@@ -3076,7 +3144,7 @@ class FontManager {
                 const slashGlyph = fontModel.findGlyphByCodepoint(
                     '/'.codePointAt(0)!
                 );
-                pushGlyph(slashGlyph?.name);
+                pushMappedGlyph(slashGlyph?.name);
                 index += 2;
                 continue;
             }
@@ -3116,7 +3184,7 @@ class FontManager {
             const codepoint = text.codePointAt(index);
             if (codepoint !== undefined) {
                 const glyph = fontModel.findGlyphByCodepoint(codepoint);
-                pushGlyph(glyph?.name);
+                pushMappedGlyph(glyph?.name);
                 index += codepoint > 0xffff ? 2 : 1;
             } else {
                 index += 1;
