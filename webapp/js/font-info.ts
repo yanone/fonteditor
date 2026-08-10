@@ -2702,8 +2702,9 @@ class FontInfoManager {
         this.pendingModelSyncRefresh = false;
         this.featureCodeDirty = false;
         this.clearFeatureCodeCommitDebounce();
-        // Clear editor state
-        this.selectedItem = null;
+        // Clear Ace feature editor + selection so a new/empty font does not
+        // keep showing the previous font's feature code via selectedFeatureTag.
+        this.clearEditor();
         this.namesFieldEditors.clear();
         this.prefixListItems.clear();
         this.classListItems.clear();
@@ -8332,6 +8333,7 @@ class FontInfoManager {
 
     private clearEditor() {
         this.selectedItem = null;
+        this.selectedFeatureTag = null;
         this.clearFeatureCodeCommitDebounce();
         this.clearFeatureErrorMarker();
         this.featureErrorTarget = null;
