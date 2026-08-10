@@ -154,7 +154,6 @@ function getFileMenuItems(): ToolbarMenuItem[] {
         {
             label: 'New',
             icon: 'note_add',
-            shortcut: '⌘N',
             action: async () => {
                 await window.fontManager?.handleNewFont?.();
             }
@@ -587,14 +586,6 @@ function installGlobalShortcuts(): void {
             }
 
             const key = event.key.toLowerCase();
-            if (!event.shiftKey && key === 'n') {
-                event.preventDefault();
-                event.stopPropagation();
-                event.stopImmediatePropagation();
-                void window.fontManager?.handleNewFont?.();
-                return;
-            }
-
             if (!event.shiftKey && key === 'o') {
                 event.preventDefault();
                 event.stopPropagation();
