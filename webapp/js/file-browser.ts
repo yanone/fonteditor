@@ -3953,18 +3953,6 @@ async function initFileBrowser() {
 // Auto-initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     void initFileBrowser();
-    (async () => {
-        try {
-            await waitForFileBrowserReady();
-            await processPendingPwaLaunchFiles();
-        } catch (error) {
-            console.error(
-                '[FileBrowser]',
-                'Cannot process launch files before file browser readiness:',
-                error
-            );
-        }
-    })();
 
     // Handle URL parameters for opening fonts in new tabs
     const urlParams = new URLSearchParams(window.location.search);
@@ -3998,97 +3986,163 @@ document.addEventListener('DOMContentLoaded', () => {
         );
     }
 
-    if (pluginId && fontPath) {
-        (async () => {
-            try {
-                await waitForFileBrowserReady();
+    (async () => {
+        const openDefaultEmptyFont = async (reason: string) => {
+            if (window.fontManager?.currentFont) {
+                return;
+            }
+            await waitForFontEditorReady();
+            console.log('[FileBrowser]', reason);
+            await window.fontManager?.handleNewFont?.();
+        };
 
-                // Check if plugin exists
-                const plugin = pluginRegistry.get(pluginId);
-                if (!plugin || !plugin.isVisibleInUI()) {
-                    alert(
-                        `Error: File system plugin "${pluginId}" not found.\n\nThe requested file cannot be loaded because the plugin is not available.`
-                    );
-                    console.error(
-                        '[FileBrowser]',
-                        `Plugin '${pluginId}' is not available for URL param`
-                    );
-                    return;
-                }
+        try {
+            await waitForFileBrowserReady();
+            await processPendingPwaLaunchFiles();
 
-                // Switch to the specified plugin
-                await switchContext(pluginId);
+            // PWA launch (or anything else) may already have opened a font.
+            if (window.fontManager?.currentFont) {
+                return;
+            }
 
-                if (pluginId === 'cloud') {
-                    await openFont(`cloud://${fontPath.replace(/^\/+/, '')}`);
-                    return;
-                }
-
-                // Navigate to the directory containing the font
-                const dirPath =
-                    fontPath.substring(0, fontPath.lastIndexOf('/')) || '/';
+            if (pluginId && fontPath) {
+                let openedFromUrl = false;
 
                 try {
-                    await navigateToPath(dirPath);
-                } catch (navError) {
-                    alert(
-                        `Error: Cannot access directory "${dirPath}" in "${plugin.getName()}" plugin.\n\nThe requested directory does not exist or is not accessible.`
-                    );
+                    // Check if plugin exists
+                    const plugin = pluginRegistry.get(pluginId);
+                    if (!plugin || !plugin.isVisibleInUI()) {
+                        alert(
+                            `Error: File system plugin "${pluginId}" not found.\n\nThe requested file cannot be loaded because the plugin is not available.`
+                        );
+                        console.error(
+                            '[FileBrowser]',
+                            `Plugin '${pluginId}' is not available for URL param`
+                        );
+                    } else {
+                        // Switch to the specified plugin
+                        await switchContext(pluginId);
+
+                        if (pluginId === 'cloud') {
+                            await openFont(
+                                `cloud://${fontPath.replace(/^\/+/, '')}`
+                            );
+                            openedFromUrl = true;
+                        } else {
+                            // Navigate to the directory containing the font
+                            const dirPath =
+                                fontPath.substring(
+                                    0,
+                                    fontPath.lastIndexOf('/')
+                                ) || '/';
+
+                            let canOpenFile = true;
+                            try {
+                                await navigateToPath(dirPath);
+                            } catch (navError) {
+                                canOpenFile = false;
+                                alert(
+                                    `Error: Cannot access directory "${dirPath}" in "${plugin.getName()}" plugin.\n\nThe requested directory does not exist or is not accessible.`
+                                );
+                                console.error(
+                                    '[FileBrowser]',
+                                    `Cannot navigate to directory: ${dirPath}`,
+                                    navError
+                                );
+                            }
+
+                            if (canOpenFile) {
+                                const exists =
+                                    await fileSystemCache.activeAdapter.fileExists(
+                                        fontPath
+                                    );
+                                if (!exists) {
+                                    alert(
+                                        `Error: File not found at "${fontPath}" in "${plugin.getName()}" plugin.\n\nThe requested file does not exist or is not accessible.`
+                                    );
+                                    console.error(
+                                        '[FileBrowser]',
+                                        `File not found: ${fontPath}`
+                                    );
+                                } else {
+                                    const urlOpenReadyPromise =
+                                        waitForUrlOpenFontReady(fontPath);
+                                    await openFont(fontPath);
+                                    await urlOpenReadyPromise;
+                                    openedFromUrl = true;
+
+                                    // Show home button since we opened from URL
+                                    updateHomeButtonVisibility();
+
+                                    // Wait a bit for the fontLoaded event handler to refresh the file list,
+                                    // then scroll the opened file into view
+                                    await new Promise((resolve) =>
+                                        setTimeout(resolve, 200)
+                                    );
+
+                                    const fileTree =
+                                        document.getElementById('file-tree');
+                                    const currentFontItem =
+                                        fileTree?.querySelector(
+                                            '.file-item.current-font'
+                                        );
+                                    if (currentFontItem) {
+                                        (
+                                            currentFontItem as HTMLElement
+                                        ).scrollIntoView({
+                                            block: 'center',
+                                            behavior: 'auto'
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (error: any) {
+                    const errorMessage = error?.message || String(error);
+                    alert(`Error opening file from URL:\n\n${errorMessage}`);
                     console.error(
                         '[FileBrowser]',
-                        `Cannot navigate to directory: ${dirPath}`,
-                        navError
+                        'Failed to open font from URL params:',
+                        error
                     );
+                }
+
+                if (openedFromUrl || window.fontManager?.currentFont) {
                     return;
                 }
 
-                // Check if file exists
-                const exists =
-                    await fileSystemCache.activeAdapter.fileExists(fontPath);
-                if (!exists) {
-                    alert(
-                        `Error: File not found at "${fontPath}" in "${plugin.getName()}" plugin.\n\nThe requested file does not exist or is not accessible.`
-                    );
-                    console.error(
-                        '[FileBrowser]',
-                        `File not found: ${fontPath}`
-                    );
-                    return;
-                }
-
-                // Open the font
-                const urlOpenReadyPromise = waitForUrlOpenFontReady(fontPath);
-                await openFont(fontPath);
-                await urlOpenReadyPromise;
-
-                // Show home button since we opened from URL
-                updateHomeButtonVisibility();
-
-                // Wait a bit for the fontLoaded event handler to refresh the file list,
-                // then scroll the opened file into view
-                await new Promise((resolve) => setTimeout(resolve, 200));
-
-                const fileTree = document.getElementById('file-tree');
-                const currentFontItem = fileTree?.querySelector(
-                    '.file-item.current-font'
+                // URL pointed at an inaccessible file — keep the alert above,
+                // then open the same empty untitled font as a cold start.
+                await openDefaultEmptyFont(
+                    'URL font inaccessible; opening empty untitled font'
                 );
-                if (currentFontItem) {
-                    (currentFontItem as HTMLElement).scrollIntoView({
-                        block: 'center',
-                        behavior: 'auto'
-                    });
-                }
-            } catch (error: any) {
-                const errorMessage = error?.message || String(error);
-                alert(`Error opening file from URL:\n\n${errorMessage}`);
+                return;
+            }
+
+            // No URL/PWA font — open the same empty untitled font as File → New.
+            await openDefaultEmptyFont(
+                'No URL font attached; opening empty untitled font'
+            );
+        } catch (error: any) {
+            console.error(
+                '[FileBrowser]',
+                'Failed during startup font open:',
+                error
+            );
+            try {
+                await openDefaultEmptyFont(
+                    'Startup font open failed; opening empty untitled font'
+                );
+            } catch (fallbackError) {
                 console.error(
                     '[FileBrowser]',
-                    'Failed to open font from URL params:',
-                    error
+                    'Failed to open default empty font on startup:',
+                    fallbackError
                 );
             }
-        })();
-    }
+        }
+    })();
 });
 
 window.addEventListener('pwaLaunchFilesPending', () => {
