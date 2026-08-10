@@ -167,7 +167,7 @@
 }
 
 .confirm-dialog-content p {
-    margin: 0 0 20px 0;
+    margin: 0;
     font-size: 13px;
     line-height: 1.6;
     color: var(--text-tertiary);
@@ -177,13 +177,14 @@
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+    margin-top: 16px;
 }
 
 .confirm-dialog-options {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    margin: 0 0 20px 0;
+    margin: 12px 0 0;
 }
 
 .confirm-dialog-options > p {
@@ -239,6 +240,14 @@
 }
 
 /* ── Dialog action buttons (Unsaved Changes baseline) ──────────────────────── */
+
+/* Bottom action rows: keep buttons separated from content above. */
+.dialog-actions,
+.find-glyph-actions,
+.localized-string-modal-actions,
+.fontinfo-master-location-actions {
+    margin-top: 16px;
+}
 
 .dialog-button {
     border: 1px solid var(--border-primary);
