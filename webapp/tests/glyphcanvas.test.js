@@ -12973,6 +12973,72 @@ describe('GlyphCanvas component movement', () => {
             syncCurrentGlyphToYDocSpy.mockRestore();
         }
     });
+
+    test('keyboard component nudges mutate nested stacked layer, not root', () => {
+        const nestedComponent = {
+            reference: 'inner',
+            transform: { translation: [40, 50] }
+        };
+        canvas.outlineEditor.layerData = {
+            shapes: [
+                {
+                    reference: 'nestedBase',
+                    transform: { translation: [0, 0] },
+                    layerData: {
+                        id: 'nested-layer',
+                        shapes: [nestedComponent],
+                        anchors: []
+                    }
+                }
+            ],
+            anchors: []
+        };
+        canvas.outlineEditor.glyphStack =
+            'autoBase@root-layer>0:nestedBase@nested-layer';
+        canvas.outlineEditor.selectedComponents = [0];
+        jest.spyOn(
+            canvas.outlineEditor,
+            'isAutomaticComposedLayer'
+        ).mockReturnValue(false);
+
+        canvas.outlineEditor.moveSelectedComponents(10, 20);
+
+        expect(nestedComponent.transform.translation).toEqual([50, 70]);
+        expect(
+            canvas.outlineEditor.layerData.shapes[0].transform.translation
+        ).toEqual([0, 0]);
+    });
+
+    test('keyboard component nudges stay blocked on auto-composed nested layers', () => {
+        const nestedComponent = {
+            reference: 'inner',
+            transform: { translation: [40, 50] }
+        };
+        canvas.outlineEditor.layerData = {
+            shapes: [
+                {
+                    reference: 'nestedBase',
+                    transform: { translation: [0, 0] },
+                    layerData: {
+                        id: 'nested-layer',
+                        shapes: [nestedComponent],
+                        anchors: []
+                    }
+                }
+            ],
+            anchors: []
+        };
+        canvas.outlineEditor.glyphStack =
+            'autoBase@root-layer>0:nestedBase@nested-layer';
+        canvas.outlineEditor.selectedComponents = [0];
+        jest.spyOn(
+            canvas.outlineEditor,
+            'isAutomaticComposedLayer'
+        ).mockReturnValue(true);
+
+        expect(canvas.outlineEditor.moveSelectedComponents(10, 20)).toBeNull();
+        expect(nestedComponent.transform.translation).toEqual([40, 50]);
+    });
 });
 
 // ==================== Point Type Toggle Tests ====================

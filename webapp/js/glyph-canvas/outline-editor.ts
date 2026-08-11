@@ -18226,15 +18226,19 @@ export class OutlineEditor {
     }
 
     moveSelectedComponents(deltaX: number, deltaY: number): Set<string> | null {
-        // Move all selected components by the given delta
+        // Move all selected components by the given delta.
+        // Use the stacked nested layer (same as mouse drag), not root layerData.
+        const currentLayerData = this.getCurrentLayerDataFromStack();
         if (
-            !this.layerData ||
-            !this.layerData.shapes ||
+            !currentLayerData ||
+            !currentLayerData.shapes ||
             this.selectedComponents.length === 0
         ) {
             return null;
         }
 
+        // Gate on the *current* nested layer being auto-composed. Entering a
+        // non-auto nested glyph from an auto-composed base must still nudge.
         if (this.isAutomaticComposedLayer()) {
             this.glyphCanvas.updatePropertyPanel();
             this.glyphCanvas.render();
@@ -18242,7 +18246,7 @@ export class OutlineEditor {
         }
 
         for (const compIndex of this.selectedComponents) {
-            const shape = this.layerData.shapes[compIndex];
+            const shape = currentLayerData.shapes[compIndex];
             if (shape && 'reference' in shape) {
                 if (!shape.transform) {
                     // Initialize transform if it doesn't exist
